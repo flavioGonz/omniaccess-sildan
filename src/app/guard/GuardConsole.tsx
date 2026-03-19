@@ -132,7 +132,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     const [lprEntries, setLprEntries] = useState<any[]>([]);
     const [isLprLoading, setIsLprLoading] = useState(false);
     const [lprSearch, setLprSearch] = useState("");
-    const [lprDate, setLprDate] = useState(new Date().toISOString().split('T')[0]);
+    const [lprDate, setLprDate] = useState("");
     const [lprDirection, setLprDirection] = useState<"ALL" | "ENTRY" | "EXIT">("ALL");
 
     // Alerts History state
@@ -805,9 +805,12 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             playTactileSound();
             toast.success({ title: `Bienvenido, ${guard.name}` });
 
+            setShowIdentityOverlay(false);
+
             // Reset form
             setLoginUser("");
             setLoginPass("");
+
         } else {
             playTactileSound();
             toast.error({ title: "Credenciales incorrectas" });
@@ -924,20 +927,31 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             if (activeTab === "lpr") {
                 setIsLprLoading(true);
                 try {
-                    const from = new Date(lprDate);
-                    from.setHours(0, 0, 0, 0);
-                    const to = new Date(lprDate);
-                    to.setHours(23, 59, 59, 999);
+                    let from = undefined;
+                    let to = undefined;
+                    if (lprDate) {
+                        try {
+                            from = new Date(lprDate);
+                            from.setHours(0, 0, 0, 0);
+                            to = new Date(lprDate);
+                            to.setHours(23, 59, 59, 999);
+                        } catch (e) { }
+                    }
 
                     const { events } = await getAccessEvents({
                         type: 'PLATE',
-                        take: 50,
+                        take: 100, // Pull more for better context
                         search: lprSearch,
                         direction: lprDirection !== "ALL" ? lprDirection : undefined,
                         from,
                         to
                     });
-                    setLprEntries(events);
+                    
+                    // Explicit client-side sort by timestamp desc
+                    const sortedEvents = (events || []).sort((a: any, b: any) => 
+                        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+                    );
+                    setLprEntries(sortedEvents);
                 } catch (error) {
                     console.error("LPR fetch error:", error);
                 } finally {
@@ -2668,6 +2682,11 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     }}
                                 >
                                     <button
+                                        onMouseDown={isAlertMode ? startDeactivateHold : startPanicHold}
+                                        onMouseUp={isAlertMode ? cancelDeactivateHold : cancelPanicHold}
+                                        onMouseLeave={isAlertMode ? cancelDeactivateHold : cancelPanicHold}
+                                        onTouchStart={isAlertMode ? startDeactivateHold : startPanicHold}
+                                        onTouchEnd={isAlertMode ? cancelDeactivateHold : cancelPanicHold}
                                         onClick={() => {
                                             if (!isAlertMode) handleTabChange("alerts");
                                             playTactileSound();
@@ -2679,6 +2698,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                             : "bg-white text-red-600 border-slate-100 hover:border-red-100"
                                     )}
                                 >
+
                                     <Siren size={32} className={cn("md:w-8 md:h-8 relative z-10")} />
                                 </button>
                                 {!isAlertMode && (

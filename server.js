@@ -28,7 +28,7 @@ const https = require("https");
 const crypto = require("crypto");
 const { uploadToS3 } = require("./lib-s3");
 const { getVehicleColorName, getVehicleBrandName } = require("./hikvision-codes");
-const { handleWahaWebhook } = require("./waha-handler");
+const { handleWahaWebhook, sendWahaText } = require("./waha-handler");
 const webpush = require('web-push');
 
 // Configure Web Push
@@ -2266,11 +2266,9 @@ const requestHandler = async (req, res) => {
         return;
     }
 
-    // Ignorar rutas de Socket.IO (el motor las intercepta automáticamente, 
-    // pero evitamos que lleguen al 404 final o que ensucien el log)
-    if (req.url.includes('/socket.io/')) {
-        return;
-    }
+    // Socket.IO requests should be handled by the engine attached to httpServer.
+    // If they fall through here, we'll log it in the 404 handler at the end.
+
 
     if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -2598,10 +2596,12 @@ const requestHandler = async (req, res) => {
     res.end();
 };
 
-const httpServer = http.createServer(requestHandler);
+const httpServer = http.createServer();
 
 // NOTA: Unificamos Socket.IO en el mismo puerto 10000
 const io = new Server(httpServer, {
+    path: "/socket.io",
+    maxHttpBufferSize: 1e8, // 100MB for handling images if needed
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
@@ -2699,6 +2699,18 @@ io.on("connection", (socket) => {
             message: `Solicitud de apoyo: ${data.type} por ${data.requesterName}`,
             location: { lat: data.lat, lng: data.lng }
         });
+
+        // NOTIFICACIÓN WHATSAPP
+        try {
+            const waNumber = await prisma.setting.findUnique({ where: { key: "WAHA_NOTIFICATION_NUMBER" } });
+            if (waNumber && waNumber.value) {
+                const message = `🚨 *SOLICITUD DE APOYO* 🚨\n\n*Tipo:* ${data.type}\n*Guardia:* ${data.requesterName}\n*Detalles:* ${data.details || 'Sin detalles'}\n*Ubicación:* https://www.google.com/maps?q=${data.lat},${data.lng}\n\n_OmniAccess Seguridad_`;
+                await sendWahaText(prisma, waNumber.value, message);
+            }
+        } catch (err) {
+            console.error("[WAHA] Error notifying backup request:", err);
+        }
+
 
         // Broadcast Push Notification
         sendPushToAll({
@@ -2856,6 +2868,20 @@ io.on("connection", (socket) => {
         };
 
         sendPushToAll(pushPayload);
+
+        // NOTIFICACIÓN WHATSAPP (Solo si se activa)
+        if (isAlertActive) {
+            try {
+                const waNumber = await prisma.setting.findUnique({ where: { key: "WAHA_NOTIFICATION_NUMBER" } });
+                if (waNumber && waNumber.value) {
+                    const message = `🚨 *BOTÓN DE PÁNICO ACTIVADO* 🚨\n\n*Activado por:* ${data.triggeredBy || 'Compañero'}\n*Hora:* ${new Date().toLocaleTimeString('es-UY')}\n\n*Ubicación:* ${loc && loc.lat ? `https://www.google.com/maps?q=${loc.lat},${loc.lng}` : "S/ data GPS"}\n\n_OmniAccess Seguridad_`;
+                    await sendWahaText(prisma, waNumber.value, message);
+                }
+            } catch (err) {
+                console.error("[WAHA] Error notifying alert toggle:", err);
+            }
+        }
+
     });
 });
 

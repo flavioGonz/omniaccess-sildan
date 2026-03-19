@@ -47,6 +47,30 @@ async function getS3Client(prisma) {
     });
 }
 
+const getWahaConfig = async (prisma) => {
+    const [urlSetting, apiKeySetting] = await Promise.all([
+        prisma.setting.findUnique({ where: { key: 'WAHA_URL' } }),
+        prisma.setting.findUnique({ where: { key: 'WAHA_API_KEY' } }),
+    ]);
+    return {
+        url: urlSetting?.value || process.env.WAHA_URL || "http://localhost:3000",
+        apiKey: apiKeySetting?.value || process.env.WAHA_API_KEY
+    };
+};
+
+const sendWahaText = async (prisma, chatId, text, session = 'default') => {
+    try {
+        const config = await getWahaConfig(prisma);
+        const headers = {};
+        if (config.apiKey) headers['X-Api-Key'] = config.apiKey;
+        await axios.post(`${config.url}/api/sendText`, { session, chatId, text }, { headers });
+        return { success: true };
+    } catch (error) {
+        console.error(`[WAHA] Error sending text to ${chatId}:`, error.message);
+        return { success: false, error: error.message };
+    }
+};
+
 const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
     try {
         let body = '';
@@ -59,6 +83,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         const event = payload.event;
         const session = payload.session;
         const messageData = payload.payload;
+
 
         if (!messageData || event !== 'message') {
             res.writeHead(200);
@@ -85,19 +110,13 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         }
 
         // Config
-        const wahaUrlSetting = await prisma.setting.findUnique({ where: { key: 'WAHA_URL' } });
-        const wahaApiKeySetting = await prisma.setting.findUnique({ where: { key: 'WAHA_API_KEY' } });
-        const baseUrlSetting = await prisma.setting.findUnique({ where: { key: 'BASE_URL' } }); // e.g. http://192.168.99.99:10001
-
-        const wahaUrl = wahaUrlSetting?.value || "http://localhost:3000";
-        const wahaApiKey = wahaApiKeySetting?.value;
-        const serverBaseUrl = baseUrlSetting?.value || "http://192.168.99.99:10001";
-
+        const config = await getWahaConfig(prisma);
         const sendText = async (text) => {
             const headers = {};
-            if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
-            await axios.post(`${wahaUrl}/api/sendText`, { session: session || 'default', chatId, text }, { headers });
+            if (config.apiKey) headers['X-Api-Key'] = config.apiKey;
+            await axios.post(`${config.url}/api/sendText`, { session: session || 'default', chatId, text }, { headers });
         };
+
 
         const sendImage = async (url, caption) => {
             const headers = {};
@@ -582,4 +601,4 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
     }
 };
 
-module.exports = { handleWahaWebhook };
+module.exports = { handleWahaWebhook, sendWahaText, getWahaConfig };

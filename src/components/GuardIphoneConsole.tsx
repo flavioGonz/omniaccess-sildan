@@ -1383,12 +1383,18 @@ export default function GuardIphoneConsole({
                             className="relative"
                         >
                             <button
+                                onMouseDown={startPanicHold}
+                                onMouseUp={cancelPanicHold}
+                                onMouseLeave={cancelPanicHold}
+                                onTouchStart={startPanicHold}
+                                onTouchEnd={cancelPanicHold}
                                 onClick={() => { playTactileSound(); }}
                                 className={cn(
                                     "w-16 h-16 rounded-full shadow-2xl flex items-center justify-center transition-all active:scale-95 border-4 border-white overflow-hidden relative group",
                                     isAlertMode ? "bg-red-600 text-white animate-pulse" : "bg-white text-red-600 shadow-red-100"
                                 )}
                             >
+
                                 <motion.div
                                     animate={isAlertMode ? { scale: [1, 1.2, 1] } : {}}
                                     transition={{ repeat: Infinity, duration: 1 }}

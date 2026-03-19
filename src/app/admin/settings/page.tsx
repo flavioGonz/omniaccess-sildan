@@ -1729,7 +1729,7 @@ function ModeConfiguration({ title, description, settingKey, options }: {
 // Add getWahaHistory to imports first (done separately? No, I must modify the whole file or assume imports are updated. I'll invoke this tool to update the import line first, or I can try to do it all if safe. The imports are at top of file. I will just update the component logic here and assume imports need update if function not found, but I can't edit 2 places easily. I will update component and then imports).
 
 function WhatsAppSection() {
-    const [config, setConfig] = useState({ url: "", apiKey: "" });
+    const [config, setConfig] = useState({ url: "", apiKey: "", notificationNumber: "" });
     // Updated default commands to reflect reality
     const [commands, setCommands] = useState([
         { id: 'matricula', cmd: 'matricula [AAA1234]', desc: 'Gestión de matrículas (Consultar/Agregar)', icon: Car, active: true },
@@ -1750,15 +1750,17 @@ function WhatsAppSection() {
     const loadConfig = async () => {
         setLoading(true);
         try {
-            const [url, apiKey, cmdConfig] = await Promise.all([
+            const [url, apiKey, notificationNumber, cmdConfig] = await Promise.all([
                 getSetting("WAHA_URL"),
                 getSetting("WAHA_API_KEY"),
+                getSetting("WAHA_NOTIFICATION_NUMBER"),
                 getSetting("WAHA_COMMANDS")
             ]);
 
             setConfig({
                 url: url?.value || "",
-                apiKey: apiKey?.value || ""
+                apiKey: apiKey?.value || "",
+                notificationNumber: notificationNumber?.value || ""
             });
 
             if (cmdConfig?.value) {
@@ -1799,6 +1801,7 @@ function WhatsAppSection() {
             await Promise.all([
                 updateSetting("WAHA_URL", config.url),
                 updateSetting("WAHA_API_KEY", config.apiKey),
+                updateSetting("WAHA_NOTIFICATION_NUMBER", config.notificationNumber),
                 updateSetting("WAHA_COMMANDS", commandsConfig)
             ]);
             toast.success({ title: "Configuración de WAHA guardada" });
@@ -1902,7 +1905,18 @@ function WhatsAppSection() {
                                     className="bg-black/40 border-white/10 h-10 font-mono text-xs"
                                 />
                             </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Número de Notificación (Alertas)</Label>
+                                <Input
+                                    value={config.notificationNumber}
+                                    onChange={(e) => setConfig({ ...config, notificationNumber: e.target.value })}
+                                    placeholder="59891234567@c.us"
+                                    className="bg-black/40 border-white/10 h-10 font-mono text-xs"
+                                />
+                                <p className="text-[8px] text-neutral-600 font-bold uppercase tracking-tight italic">Incluir @c.us para chat o @g.us para grupos</p>
+                            </div>
                         </div>
+
 
                         <div className="flex gap-3 pt-2">
                             <Button onClick={handleTest} disabled={testing} variant="outline" className="flex-1 h-9 text-xs font-bold border-white/10 hover:bg-white/5">

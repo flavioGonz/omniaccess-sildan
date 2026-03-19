@@ -51,7 +51,6 @@ model Unit {
 model User {
   id              String        @id @default(cuid())
   name            String
-  username        String?       @unique
   email           String?
   phone           String?
   dni             String?
@@ -63,9 +62,10 @@ model User {
   accessTags      String[]      @default([])
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
-  observations    String?
   blacklistReason String?
   createdBy       String?
+  observations    String?
+  username        String?       @unique
   accessEvents    AccessEvent[]
   credentials     Credential[]
   parkingSlot     ParkingSlot?  @relation(fields: [parkingSlotId], references: [id])
@@ -134,11 +134,11 @@ model Device {
   password        String?
   lastOnlinePull  DateTime?
   lastOnlinePush  DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
   floorPlanId     String?
   mapX            Float?
   mapY            Float?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
   accessEvents    AccessEvent[]
   callEvents      CallEvent[]
   floorPlan       FloorPlan?       @relation(fields: [floorPlanId], references: [id])
@@ -295,8 +295,8 @@ enum CredentialType {
   FACE
   TAG
   PIN
-  PASSWORD
   FINGERPRINT
+  PASSWORD
 }
 
 enum DayOfWeek {
