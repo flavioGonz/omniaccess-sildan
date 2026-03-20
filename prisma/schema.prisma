@@ -165,6 +165,11 @@ model AccessEvent {
   device        Device?         @relation(fields: [deviceId], references: [id], map: "AccessEvent_deviceId_fkey_v2")
   user          User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   bitacora      Bitacora?
+
+  @@index([timestamp])
+  @@index([plateDetected])
+  @@index([deviceId])
+  @@index([timestamp, deviceId])
 }
 
 model Bitacora {

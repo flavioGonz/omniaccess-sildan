@@ -4,13 +4,17 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 
 const BUCKET_NAME = process.env.S3_BUCKET || "lpr";
 
+// In-memory cache for S3 images to reduce lateral traffic
+const imageCache = new Map<string, { buffer: Buffer, contentType: string, timestamp: number }>();
+const CACHE_TTL = 1000 * 60 * 60; // 1 hour
+const MAX_CACHE_SIZE = 100; // Limit memory usage (approx 80-100MB max)
+
 export async function GET(
     req: NextRequest,
     context: { params: Promise<{ key: string[] }> }
 ) {
     try {
         const params = await context.params;
-        const s3Client = await getS3Client();
         let keyParts = params.key;
 
         // Resilience: Handle potential double prefixing (api/files/api/files/...)
@@ -24,9 +28,24 @@ export async function GET(
 
         const bucketName = keyParts[0];
         const fileKey = keyParts.slice(1).join("/");
+        const cacheKey = `${bucketName}:${fileKey}`;
 
-        console.log(`[S3 Proxy] Attempting to fetch: ${fileKey} from bucket: ${bucketName}`);
+        // 1. Check Cache
+        const cached = imageCache.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+            // console.log(`[S3 Proxy] ⚡ Cache HIT: ${fileKey}`);
+            return new Response(cached.buffer as any, {
+                status: 200,
+                headers: {
+                    "Content-Type": cached.contentType,
+                    "Content-Length": cached.buffer.length.toString(),
+                    "Cache-Control": "public, max-age=31536000, immutable",
+                },
+            });
+        }
 
+        console.log(`[S3 Proxy] 📡 Cache MISS (Fetching S3): ${fileKey} from bucket: ${bucketName}`);
+        const s3Client = await getS3Client();
         const command = new GetObjectCommand({
             Bucket: bucketName || BUCKET_NAME,
             Key: fileKey,
@@ -45,7 +64,18 @@ export async function GET(
             (response.Body as any).on('end', () => resolve(Buffer.concat(chunks)));
         });
 
-        console.log(`[S3 Proxy] Serving ${fileKey} from ${bucketName} (${byteArray.length} bytes)`);
+        // 2. Store in Cache
+        if (imageCache.size >= MAX_CACHE_SIZE) {
+            const firstKey = imageCache.keys().next().value;
+            if (firstKey) imageCache.delete(firstKey);
+        }
+        imageCache.set(cacheKey, {
+            buffer: byteArray,
+            contentType: response.ContentType || "image/jpeg",
+            timestamp: Date.now()
+        });
+
+        console.log(`[S3 Proxy] ✅ Serving ${fileKey} (${byteArray.length} bytes)`);
 
         return new Response(byteArray as any, {
             status: 200,

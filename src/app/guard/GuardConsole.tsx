@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
     Camera,
     Loader2,
@@ -964,9 +964,16 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     }, [activeTab, lprSearch, lprDate, lprDirection]);
 
     // TACTILE SOUND UTILITY
-    const playTactileSound = () => {
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const playTactileSound = useCallback(() => {
         try {
-            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') {
+                ctx.resume();
+            }
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = "sine";
@@ -978,7 +985,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             osc.start();
             osc.stop(ctx.currentTime + 0.1);
         } catch (e) { }
-    };
+    }, []);
 
     // PLATE MATCH DETECTION
     useEffect(() => {
@@ -1789,6 +1796,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                                 <TactilePlateInput
                                                                     value={plate}
                                                                     onChange={setPlate}
+                                                                    playTactileSound={playTactileSound}
                                                                     onCameraClick={() => { setIsOCRActive(true); playTactileSound(); }}
                                                                 />
                                                             </div>
@@ -4389,39 +4397,49 @@ function RollingCharacter({ char, isFocused }: { char: string, isFocused: boolea
     );
 }
 
-function TactilePlateInput({ value, onChange, onCameraClick }: { value: string, onChange: (v: string) => void, onCameraClick?: () => void }) {
+function TactilePlateInput({ value, onChange, onCameraClick, playTactileSound }: { value: string, onChange: (v: string) => void, onCameraClick?: () => void, playTactileSound?: () => void }) {
     const chars = value.padEnd(7, " ").substring(0, 7).split("");
     const inputRef = useRef<HTMLInputElement>(null);
 
+    // Force cursor to end whenever value changes (critical for mobile keyboards)
+    useEffect(() => {
+        if (inputRef.current) {
+            const len = value.length;
+            if (inputRef.current.selectionStart !== len) {
+                inputRef.current.setSelectionRange(len, len);
+            }
+        }
+    }, [value]);
+
     return (
-        <div className="w-full flex flex-col gap-4 items-center">
+        <div className="w-full flex flex-col gap-4 items-center relative">
             <input
                 ref={inputRef}
                 type="text"
                 value={value}
                 onKeyDown={() => {
-                    try {
-                        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-                        const osc = ctx.createOscillator();
-                        const gain = ctx.createGain();
-                        osc.frequency.setValueAtTime(600, ctx.currentTime);
-                        gain.gain.setValueAtTime(0.02, ctx.currentTime);
-                        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.05);
-                        osc.connect(gain);
-                        gain.connect(ctx.destination);
-                        osc.start();
-                        osc.stop(ctx.currentTime + 0.05);
-                    } catch (e) { }
+                    if (playTactileSound) playTactileSound();
                 }}
-                onChange={(e) => onChange(e.target.value.toUpperCase().substring(0, 7))}
-                className="absolute opacity-0 pointer-events-none h-0 w-0"
+                onFocus={(e) => {
+                    const len = value.length;
+                    e.target.setSelectionRange(len, len);
+                }}
+                onChange={(e) => {
+                    // Sanitize input: Alphanumeric only, limit to 7 chars
+                    const sanitized = (e.target.value.replace(/[^A-Za-z0-9]/g, '')).toUpperCase().substring(0, 7);
+                    onChange(sanitized);
+                }}
+                // Make the hidden input cover the entire visual area for better tablet focus reliability
+                className="absolute inset-0 opacity-0 z-20 cursor-pointer"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoCapitalize="characters"
+                inputMode="text"
                 autoFocus
             />
 
-            <div
-                className="flex gap-1 sm:gap-2 items-center cursor-pointer perspective-[1000px]"
-                onClick={() => inputRef.current?.focus()}
-            >
+            <div className="flex gap-1 sm:gap-2 items-center relative z-10 perspective-[1000px]">
                 {chars.map((char, i) => (
                     <RollingCharacter
                         key={i}

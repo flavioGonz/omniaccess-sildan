@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     Activity, History as HistoryIcon, Map as MapIcon,
@@ -375,9 +375,17 @@ export default function GuardIphoneConsole({
         };
     }, []);
 
-    const playTactileSound = () => {
+    // TACTILE SOUND UTILITY
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const playTactileSound = useCallback(() => {
         try {
-            const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            if (!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            }
+            const ctx = audioContextRef.current;
+            if (ctx.state === 'suspended') {
+                ctx.resume();
+            }
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.frequency.setValueAtTime(800, ctx.currentTime);
@@ -388,7 +396,7 @@ export default function GuardIphoneConsole({
             osc.start();
             osc.stop(ctx.currentTime + 0.05);
         } catch (e) { }
-    };
+    }, []);
 
     const formatDuration = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -775,6 +783,7 @@ export default function GuardIphoneConsole({
                                     <TactilePlateInputMobile
                                         value={plate}
                                         onChange={setPlate}
+                                        playTactileSound={playTactileSound}
                                     />
                                 </div>
 
@@ -2332,25 +2341,49 @@ function RollingCharacterMobile({ char, isFocused }: { char: string, isFocused: 
     );
 }
 
-function TactilePlateInputMobile({ value, onChange, onCameraClick }: { value: string, onChange: (v: string) => void, onCameraClick?: () => void }) {
+function TactilePlateInputMobile({ value, onChange, onCameraClick, playTactileSound }: { value: string, onChange: (v: string) => void, onCameraClick?: () => void, playTactileSound?: () => void }) {
     const chars = value.padEnd(7, " ").substring(0, 7).split("");
     const inputRef = useRef<HTMLInputElement>(null);
 
+    // Force cursor to end whenever value changes (critical for mobile keyboards)
+    useEffect(() => {
+        if (inputRef.current) {
+            const len = value.length;
+            if (inputRef.current.selectionStart !== len) {
+                inputRef.current.setSelectionRange(len, len);
+            }
+        }
+    }, [value]);
+
     return (
-        <div className="w-full flex flex-col gap-3 items-center">
+        <div className="w-full flex flex-col gap-3 items-center relative">
             <input
                 ref={inputRef}
                 type="text"
                 value={value}
-                onChange={(e) => onChange(e.target.value.toUpperCase().substring(0, 7))}
-                className="absolute opacity-0 pointer-events-none h-0 w-0"
+                onKeyDown={() => {
+                    if (playTactileSound) playTactileSound();
+                }}
+                onFocus={(e) => {
+                    const len = value.length;
+                    e.target.setSelectionRange(len, len);
+                }}
+                onChange={(e) => {
+                    // Filter: Only alphanumeric, limit to 7 chars
+                    const sanitized = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().substring(0, 7);
+                    onChange(sanitized);
+                }}
+                // Make the hidden input cover the entire visual area for better tablet focus reliability
+                className="absolute inset-0 opacity-0 z-20 cursor-pointer"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoCapitalize="characters"
+                inputMode="text"
                 autoFocus
             />
 
-            <div
-                className="flex gap-1.5 items-center cursor-pointer"
-                onClick={() => inputRef.current?.focus()}
-            >
+            <div className="flex gap-1.5 items-center relative z-10">
                 {chars.map((char, i) => (
                     <RollingCharacterMobile
                         key={i}
@@ -2365,14 +2398,14 @@ function TactilePlateInputMobile({ value, onChange, onCameraClick }: { value: st
                             e.stopPropagation();
                             onCameraClick();
                         }}
-                        className="ml-3 w-10 h-12 md:w-14 md:h-16 rounded-xl bg-[#B20D30] text-white flex items-center justify-center shadow-lg active:scale-90 transition-all z-10 border-none"
+                        className="ml-3 w-10 h-12 md:w-14 md:h-16 rounded-xl bg-[#B20D30] text-white flex items-center justify-center shadow-lg active:scale-90 transition-all z-30 border-none pointer-events-auto"
                     >
                         <Camera size={20} className="md:w-6 md:h-6" />
                     </button>
                 )}
             </div>
 
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Toca los cuadros para escribir</p>
+            <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest z-10">Toca los cuadros para escribir</p>
         </div>
     );
 }

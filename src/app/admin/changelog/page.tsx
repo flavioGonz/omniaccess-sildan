@@ -181,8 +181,60 @@ export default function ChangelogPage() {
             </header>
 
             <div className="space-y-12 relative before:absolute before:left-[17px] before:top-2 before:bottom-2 before:w-px before:bg-neutral-800">
-                {/* NEW RELEASE v2.1.1 */}
+                {/* NEW RELEASE v2.2.0 */}
                 <div className="relative pl-12 group">
+                    <div className="absolute left-0 top-1.5 w-[35px] h-[35px] rounded-full bg-neutral-900 border-2 border-neutral-800 flex items-center justify-center z-10 group-hover:border-indigo-500/50 transition-colors">
+                        <Zap size={16} className="text-indigo-400" />
+                    </div>
+                    <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
+                        <h2 className="text-2xl font-black text-white">v2.2.0</h2>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest h-5 px-2 flex items-center rounded-full bg-neutral-800 border border-neutral-700">
+                                2026-03-20
+                            </span>
+                            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest h-5 px-2 flex items-center rounded-full bg-indigo-500/10 border border-indigo-500/20">
+                                LATEST
+                            </span>
+                        </div>
+                    </div>
+                    <div className="bg-neutral-900/50 border border-neutral-800 rounded-3xl p-6 shadow-2xl backdrop-blur-xl mb-6 border-l-4 border-l-indigo-500">
+                        <h3 className="text-xl font-bold text-neutral-200 mb-2">Performance Ultra & Dashboard Refactor</h3>
+                        <p className="text-neutral-500 text-sm mb-6">Optimización masiva del motor de renderizado y eliminación de cuellos de botella en el servidor para una experiencia fluida post-login.</p>
+                        <div className="grid gap-4">
+                            <div className="flex items-start gap-4 p-3 rounded-xl bg-neutral-950/50 border border-neutral-800/50 hover:bg-neutral-900 transition-colors group/item">
+                                <div className="mt-0.5 p-1.5 rounded-lg shrink-0 bg-blue-500/10"><Zap size={14} className="text-blue-400" /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-neutral-300 leading-relaxed">N+1 Query Elimination: Refactorización de Server Actions para obtener eventos de acceso en una sola consulta batch, reduciendo la carga del servidor en un 90%.</p>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-blue-400">performance</span>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-4 p-3 rounded-xl bg-neutral-950/50 border border-neutral-800/50 hover:bg-neutral-900 transition-colors group/item">
+                                <div className="mt-0.5 p-1.5 rounded-lg shrink-0 bg-indigo-500/10"><TrendingUp size={14} className="text-indigo-400" /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-neutral-300 leading-relaxed">Dashboard Refactor: Extracción de componentes y uso de React.memo para evitar re-montajes costosos del DOM durante actualizaciones Sockets.</p>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-indigo-400">improvement</span>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-4 p-3 rounded-xl bg-neutral-950/50 border border-neutral-800/50 hover:bg-neutral-900 transition-colors group/item">
+                                <div className="mt-0.5 p-1.5 rounded-lg shrink-0 bg-emerald-500/10"><PlusCircle size={14} className="text-emerald-400" /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-neutral-300 leading-relaxed">Smart Durations: Nuevo algoritmo de cálculo de estancia con complejidad O(N) y uso de Map para acceso instantáneo a duraciones de matrículas.</p>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">feature</span>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-4 p-3 rounded-xl bg-neutral-950/50 border border-neutral-800/50 hover:bg-neutral-900 transition-colors group/item">
+                                <div className="mt-0.5 p-1.5 rounded-lg shrink-0 bg-red-400/10"><Bug size={14} className="text-red-400" /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-neutral-300 leading-relaxed">Memory Cache: Implementación de caché con TTL para proxies de imágenes de S3, disminuyendo la latencia de carga visual.</p>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-red-400">performance</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* RELEASE v2.1.1 */}
+                <div className="relative pl-12 group opacity-60">
                     <div className="absolute left-0 top-1.5 w-[35px] h-[35px] rounded-full bg-neutral-900 border-2 border-neutral-800 flex items-center justify-center z-10 group-hover:border-blue-500/50 transition-colors">
                         <Rocket size={16} className="text-blue-400" />
                     </div>

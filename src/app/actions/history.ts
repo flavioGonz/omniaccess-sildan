@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { unstable_noStore as noStore } from 'next/cache';
 
 export async function getAccessEvents(options?: {
     take?: number,
@@ -16,6 +17,7 @@ export async function getAccessEvents(options?: {
     to?: Date,
     omitEnrichment?: boolean
 }) {
+    noStore();
     const whereClause: any = {};
 
     if (options?.userId) {
@@ -98,65 +100,13 @@ export async function getAccessEvents(options?: {
             prisma.accessEvent.count({ where: whereClause })
         ]);
 
+        // N+1 Query removed for performance. 
+        // Enrichment should be done in a single batch query or omitted if not needed (e.g. Dashboard)
         if (options?.omitEnrichment) {
             return { events, total };
         }
 
-        // Enrich events with duration logic (Keep inside try block as it depends on events)
-        const enrichedEvents = await Promise.all(events.map(async (event) => {
-            // Para eventos LPR, usar la patente
-            const plate = event.plateDetected?.trim();
-            // Para eventos faciales, usar el userId
-            const userId = event.userId;
-
-            // Si no hay identificador válido, no calcular duración
-            if ((!plate || plate === 'unknown' || plate === 'NO_LEIDA') && !userId) {
-                return { ...event, stayDuration: null, previousDirection: null };
-            }
-
-            // Buscar evento previo basado en el tipo de acceso
-            let previousEvent;
-
-            if (event.accessType === 'FACE' && userId) {
-                // Para eventos faciales, buscar por userId
-                previousEvent = await prisma.accessEvent.findFirst({
-                    where: {
-                        userId: userId,
-                        timestamp: { lt: event.timestamp },
-                        accessType: 'FACE'
-                    },
-                    orderBy: { timestamp: 'desc' }
-                });
-            } else if (event.accessType === 'PLATE' && plate) {
-                // Para eventos LPR, buscar por patente
-                previousEvent = await prisma.accessEvent.findFirst({
-                    where: {
-                        plateDetected: { equals: plate, mode: 'insensitive' },
-                        timestamp: { lt: event.timestamp }
-                    },
-                    orderBy: { timestamp: 'desc' }
-                });
-            }
-
-            if (!previousEvent) {
-                return { ...event, stayDuration: null, previousDirection: null };
-            }
-
-            const durationMs = event.timestamp.getTime() - previousEvent.timestamp.getTime();
-
-            return {
-                ...event,
-                stayDuration: durationMs,
-                previousDirection: previousEvent.direction
-            };
-        }));
-
-        // Ensure results are sorted by timestamp desc after enrichment
-        const sortedEnrichedEvents = enrichedEvents.sort((a, b) =>
-            b.timestamp.getTime() - a.timestamp.getTime()
-        );
-
-        return { events: sortedEnrichedEvents, total };
+        return { events, total };
 
     } catch (error) {
         console.error("Database connection error in getAccessEvents:", error);

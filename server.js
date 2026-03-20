@@ -1,4 +1,5 @@
 const path = require("path");
+process.env.TZ = 'America/Montevideo';
 require("dotenv").config({ path: path.join(__dirname, '.env') });
 
 console.log("DEBUG ENV: Loading .env from", path.join(__dirname, '.env'));
@@ -297,7 +298,7 @@ const tryFetchWithDigest = async (url, path, device, method = "GET") => {
             method: method,
             url: url,
             validateStatus: () => true,
-            timeout: 15000,
+            timeout: 5000,
             headers: { 'Connection': 'close' },
             httpsAgent: agent
         }).catch(e => e.response);
@@ -313,7 +314,7 @@ const tryFetchWithDigest = async (url, path, device, method = "GET") => {
                 url: url,
                 headers: { 'Authorization': basicHeader, 'Connection': 'close' },
                 responseType: 'arraybuffer',
-                timeout: 20000,
+                timeout: 5000,
                 httpsAgent: agent,
                 validateStatus: (s) => s === 200
             }).catch(() => null);
@@ -367,7 +368,7 @@ const tryFetchWithDigest = async (url, path, device, method = "GET") => {
             url: url,
             headers: { 'Authorization': authParts.join(', '), 'Connection': 'close' },
             responseType: 'arraybuffer',
-            timeout: 30000,
+            timeout: 5000,
             httpsAgent: agent,
             validateStatus: (status) => true
         });
@@ -2231,6 +2232,7 @@ const handleAkuvoxWebhook = async (req, res, logPrefix) => {
 };
 
 const requestHandler = async (req, res) => {
+    if (req.url.includes("/socket.io/")) return;
     const logPrefix = `[${new Date().toISOString()}]`;
     const remoteIp = req.socket.remoteAddress;
     // --- LOG POST/PUT REQUESTS (For Webhook Debugging) ---
@@ -2333,7 +2335,7 @@ const requestHandler = async (req, res) => {
                             // Try WITHOUT forced Basic first (often fixes Digest issues or works with No-Auth)
                             imageRes = await axios.get(finalUrl, {
                                 responseType: 'arraybuffer',
-                                timeout: 30000,
+                                timeout: 5000,
                                 headers: { 'Connection': 'close' },
                                 validateStatus: (status) => status === 200,
                                 maxRedirects: 10,
@@ -2596,7 +2598,10 @@ const requestHandler = async (req, res) => {
     res.end();
 };
 
-const httpServer = http.createServer();
+const httpServer = http.createServer((req, res) => {
+    if (req.url.startsWith('/socket.io/')) return;
+    requestHandler(req, res);
+});
 
 // NOTA: Unificamos Socket.IO en el mismo puerto 10000
 const io = new Server(httpServer, {
