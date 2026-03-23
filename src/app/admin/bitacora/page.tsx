@@ -91,21 +91,36 @@ export default function BitacoraPage() {
             </div>
 
             <Tabs defaultValue="historial" className="space-y-8">
-                <TabsList className="bg-neutral-900 border border-neutral-800 p-1.5 rounded-[2rem] w-full flex overflow-x-auto no-scrollbar justify-start md:justify-center gap-2 h-auto sticky top-4 z-10 backdrop-blur-md shadow-2xl shadow-black/40">
-                    <TabsTrigger value="historial" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-red-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
-                        <History size={16} /> Historial
+                <TabsList className="bg-black/20 border-b border-neutral-800 w-full flex justify-start gap-4 md:gap-8 h-auto p-0 mb-8 rounded-none sticky top-[calc(var(--header-height,0px))] z-10 backdrop-blur-xl">
+                    <TabsTrigger 
+                        value="historial" 
+                        className="pb-4 pt-2 px-1 md:px-4 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:border-red-600 text-neutral-500 text-[9px] md:text-[10px] font-black uppercase tracking-widest gap-2 transition-all hover:text-neutral-300 shadow-none!"
+                    >
+                        <History size={16} /> <span className="hidden md:inline">Historial</span>
                     </TabsTrigger>
-                    <TabsTrigger value="manual" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-blue-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
-                        <PlusCircle size={16} /> Registro Manual
+                    <TabsTrigger 
+                        value="manual" 
+                        className="pb-4 pt-2 px-1 md:px-4 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:border-blue-600 text-neutral-500 text-[9px] md:text-[10px] font-black uppercase tracking-widest gap-2 transition-all hover:text-neutral-300 shadow-none!"
+                    >
+                        <PlusCircle size={16} /> <span className="hidden md:inline">Registro Manual</span>
                     </TabsTrigger>
-                    <TabsTrigger value="guards" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
-                        <Users size={16} /> Gestión Guardias
+                    <TabsTrigger 
+                        value="guards" 
+                        className="pb-4 pt-2 px-1 md:px-4 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:border-emerald-600 text-neutral-500 text-[9px] md:text-[10px] font-black uppercase tracking-widest gap-2 transition-all hover:text-neutral-300 shadow-none!"
+                    >
+                        <Users size={16} /> <span className="hidden md:inline">Gestión Guardias</span>
                     </TabsTrigger>
-                    <TabsTrigger value="panic" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-amber-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
-                        <ShieldAlert size={16} /> Botón Pánico
+                    <TabsTrigger 
+                        value="panic" 
+                        className="pb-4 pt-2 px-1 md:px-4 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:border-amber-600 text-neutral-500 text-[9px] md:text-[10px] font-black uppercase tracking-widest gap-2 transition-all hover:text-neutral-300 shadow-none!"
+                    >
+                        <ShieldAlert size={16} /> <span className="hidden md:inline">Botón Pánico</span>
                     </TabsTrigger>
-                    <TabsTrigger value="map" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-indigo-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
-                        <MapIcon size={16} /> Mapa Tactical
+                    <TabsTrigger 
+                        value="map" 
+                        className="pb-4 pt-2 px-1 md:px-4 rounded-none border-b-2 border-transparent data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:border-indigo-600 text-neutral-500 text-[9px] md:text-[10px] font-black uppercase tracking-widest gap-2 transition-all hover:text-neutral-300 shadow-none!"
+                    >
+                        <MapIcon size={16} /> <span className="hidden md:inline">Mapa Tactical</span>
                     </TabsTrigger>
                 </TabsList>
 

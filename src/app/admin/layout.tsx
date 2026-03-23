@@ -208,6 +208,7 @@ export default function AdminLayout({
                     <SidebarItem icon={<Camera size={18} />} label="Monitor Facial" href="/admin/dashboard-face" active={pathname === "/admin/dashboard-face"} collapsed={collapsed} />
                     <SidebarItem icon={<History size={18} />} label="Historial Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />
                     <SidebarItem icon={<Monitor size={18} />} label="Consola Guardia" href="/admin/bitacora" active={pathname === "/admin/bitacora"} collapsed={collapsed} badge={activeConsolesCount} />
+                    <SidebarItem icon={<CheckCircle2 size={18} />} label="Solicitudes PWA" href="/admin/registrations" active={pathname === "/admin/registrations"} collapsed={collapsed} />
 
                     {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-neutral-600 uppercase tracking-wider transition-opacity">Gestión</div>}
                     {collapsed && <div className="my-2 border-t border-neutral-800" />}

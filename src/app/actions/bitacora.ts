@@ -128,7 +128,7 @@ export async function searchRecentBitacora(query: string) {
     });
 }
 
-export async function getBitacoraForReport(from: Date, to: Date, query: string = "") {
+export async function getBitacoraForReport(from: Date, to: Date, query: string = "", guardName: string = "") {
     const where: any = {
         timestamp: {
             gte: from,
@@ -137,13 +137,23 @@ export async function getBitacoraForReport(from: Date, to: Date, query: string =
     };
 
     if (query) {
-        where.OR = [
-            { plate: { contains: query, mode: 'insensitive' } },
-            { name: { contains: query, mode: 'insensitive' } },
-            { dni: { contains: query, mode: 'insensitive' } },
-            { destination: { contains: query, mode: 'insensitive' } },
-            { notes: { contains: query, mode: 'insensitive' } },
+        const queryFilter = [
+            { plate: { contains: query, mode: 'insensitive' as any } },
+            { name: { contains: query, mode: 'insensitive' as any } },
+            { dni: { contains: query, mode: 'insensitive' as any } },
+            { destination: { contains: query, mode: 'insensitive' as any } },
+            { notes: { contains: query, mode: 'insensitive' as any } },
         ];
+        
+        if (where.OR) {
+             // If we already have OR (unlikely here but for safety)
+        } else {
+            where.OR = queryFilter;
+        }
+    }
+
+    if (guardName && guardName !== "ALL") {
+        where.guardName = guardName;
     }
 
     return await prisma.bitacora.findMany({
@@ -158,4 +168,22 @@ export async function getBitacoraForReport(from: Date, to: Date, query: string =
             }
         }
     });
+}
+
+export async function getBitacoraGuards() {
+    try {
+        const entries = await prisma.bitacora.findMany({
+            where: {
+                guardName: { not: null }
+            },
+            select: {
+                guardName: true
+            },
+            distinct: ['guardName']
+        });
+        return entries.map(e => e.guardName).filter(Boolean) as string[];
+    } catch (error) {
+        console.error("Error fetching guards:", error);
+        return [];
+    }
 }

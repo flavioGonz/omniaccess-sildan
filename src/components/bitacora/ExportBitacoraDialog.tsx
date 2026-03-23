@@ -12,9 +12,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Calendar as CalendarIcon, Download, Loader2, FileSpreadsheet } from "lucide-react";
-import { getBitacoraForReport } from "@/app/actions/bitacora";
+import { getBitacoraForReport, getBitacoraGuards } from "@/app/actions/bitacora";
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
+import { useEffect } from "react";
 
 interface ExportBitacoraDialogProps {
     open: boolean;
@@ -25,7 +26,17 @@ interface ExportBitacoraDialogProps {
 export function ExportBitacoraDialog({ open, onOpenChange, searchQuery }: ExportBitacoraDialogProps) {
     const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [guards, setGuards] = useState<string[]>([]);
+    const [selectedGuard, setSelectedGuard] = useState("ALL");
     const [isExporting, setIsExporting] = useState(false);
+
+    useEffect(() => {
+        const fetchGuards = async () => {
+            const list = await getBitacoraGuards();
+            setGuards(list);
+        };
+        if (open) fetchGuards();
+    }, [open]);
 
     const handleExport = async () => {
         setIsExporting(true);
@@ -33,10 +44,10 @@ export function ExportBitacoraDialog({ open, onOpenChange, searchQuery }: Export
             const fromDate = new Date(startDate + "T00:00:00");
             const toDate = new Date(endDate + "T23:59:59");
 
-            const entries = await getBitacoraForReport(fromDate, toDate, searchQuery);
+            const entries = await getBitacoraForReport(fromDate, toDate, searchQuery, selectedGuard);
 
             if (!entries || entries.length === 0) {
-                toast.error("No se encontraron registros en el periodo seleccionado");
+                toast.error("No se encontraron registros");
                 return;
             }
 
@@ -147,6 +158,19 @@ export function ExportBitacoraDialog({ open, onOpenChange, searchQuery }: Export
                                 className="w-full bg-neutral-950 border border-neutral-800 rounded-lg h-10 px-3 text-xs font-bold text-white focus:outline-none focus:border-blue-500/50 uppercase"
                             />
                         </div>
+                    </div>
+                    <div className="space-y-2">
+                        <Label className="text-[10px] uppercase font-black text-neutral-500 tracking-widest pl-1">Filtrar por Guardia</Label>
+                        <select
+                            value={selectedGuard}
+                            onChange={(e) => setSelectedGuard(e.target.value)}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-lg h-10 px-3 text-xs font-bold text-white focus:outline-none focus:border-blue-500/50 uppercase appearance-none"
+                        >
+                            <option value="ALL">TODOS LOS GUARDIAS</option>
+                            {guards.map((g) => (
+                                <option key={g} value={g}>{g}</option>
+                            ))}
+                        </select>
                     </div>
                 </div>
 
