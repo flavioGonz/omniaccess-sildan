@@ -127,3 +127,35 @@ export async function searchRecentBitacora(query: string) {
         take: 5
     });
 }
+
+export async function getBitacoraForReport(from: Date, to: Date, query: string = "") {
+    const where: any = {
+        timestamp: {
+            gte: from,
+            lte: to
+        }
+    };
+
+    if (query) {
+        where.OR = [
+            { plate: { contains: query, mode: 'insensitive' } },
+            { name: { contains: query, mode: 'insensitive' } },
+            { dni: { contains: query, mode: 'insensitive' } },
+            { destination: { contains: query, mode: 'insensitive' } },
+            { notes: { contains: query, mode: 'insensitive' } },
+        ];
+    }
+
+    return await prisma.bitacora.findMany({
+        where,
+        orderBy: { timestamp: 'desc' },
+        include: {
+            accessEvent: {
+                include: {
+                    user: true,
+                    device: true
+                }
+            }
+        }
+    });
+}

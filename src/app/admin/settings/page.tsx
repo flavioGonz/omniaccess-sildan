@@ -39,7 +39,6 @@ import {
     Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import SystemFlow from "@/components/dashboard/SystemFlow";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -68,13 +67,6 @@ import {
 } from "@/components/ui/table";
 
 const SETTINGS_SECTIONS = [
-    {
-        id: "system_status",
-        icon: Activity,
-        label: "Estado del Sistema",
-        description: "Topología y Salud de Red",
-        color: "indigo"
-    },
     {
         id: "mode_face",
         icon: ScanFace,
@@ -147,7 +139,7 @@ const DRIVERS = [
 ];
 
 export default function SettingsPage() {
-    const [activeSection, setActiveSection] = useState("system_status");
+    const [activeSection, setActiveSection] = useState("mode_face");
     const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
     const [modelSearch, setModelSearch] = useState("");
 
@@ -315,23 +307,6 @@ export default function SettingsPage() {
                         <StorageSection />
                     )}
 
-                    {activeSection === "system_status" && (
-                        <div className="space-y-6 animate-in zoom-in-95 duration-500">
-                            <div className="flex items-center justify-between mb-6">
-                                <div>
-                                    <h2 className="text-2xl font-black text-white tracking-tight">Topología de Red</h2>
-                                    <p className="text-sm text-neutral-500 mt-1">Mapa interactivo de conexión entre cámaras, servidor y base de datos</p>
-                                </div>
-                                <div className="p-2 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
-                                    <Activity className="text-indigo-400" size={24} />
-                                </div>
-                            </div>
-                            <div className="h-[calc(100vh-220px)] rounded-xl overflow-hidden border border-white/5 bg-neutral-900/50 backdrop-blur-3xl shadow-2xl relative group">
-                                <div className="absolute inset-0 bg-grid-white/[0.02] pointer-events-none" />
-                                <SystemFlow />
-                            </div>
-                        </div>
-                    )}
 
 
 

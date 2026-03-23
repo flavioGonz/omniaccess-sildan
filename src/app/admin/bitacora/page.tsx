@@ -1,470 +1,188 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import {
-    History,
-    Search,
-    Calendar as CalendarIcon,
-    X,
-    ChevronRight,
-    Clock,
-    User,
-    Building2,
-    Camera,
-    Play,
-    Eye,
-    Shield,
-    Smartphone,
-    LayoutGrid,
-    List as ListIcon,
-    ArrowUpRight,
-    ArrowLeft
+import { 
+    History, 
+    PlusCircle, 
+    ShieldAlert, 
+    Users, 
+    Map as MapIcon, 
+    Grid, 
+    List, 
+    Search, 
+    RefreshCcw, 
+    FileSpreadsheet,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { getBitacoraEntries } from "@/app/actions/bitacora";
+import { 
+    Tabs, 
+    TabsContent, 
+    TabsList, 
+    TabsTrigger 
+} from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { getBitacoraPage } from "@/app/actions/bitacora";
+import BitacoraCard from "@/components/bitacora/BitacoraCard";
+import BitacoraTable from "@/components/bitacora/BitacoraTable";
+import ManualRegisterForm from "@/components/bitacora/ManualRegisterForm";
+import GuardManagement from "@/components/bitacora/GuardManagement";
+import PanicButtonTab from "@/components/bitacora/PanicButtonTab";
+import GuardMapTab from "@/components/bitacora/GuardMapTab";
+import { ExportBitacoraDialog } from "@/components/bitacora/ExportBitacoraDialog";
 
 export default function BitacoraPage() {
+    const [viewMode, setViewMode] = useState<"grid" | "table">("table");
     const [entries, setEntries] = useState<any[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState("");
-    const [filterDate, setFilterDate] = useState("");
-    const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
-    const [selectedAudio, setSelectedAudio] = useState<string | null>(null);
-    const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
-    const router = useRouter();
+    const [loading, setLoading] = useState(true);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+
+    const loadEntries = async () => {
+        setLoading(true);
+        try {
+            const data = await getBitacoraPage(0, 50, searchQuery);
+            setEntries(data);
+        } catch (error) {
+            console.error("Error loading bitacora:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        async function loadEntries() {
-            try {
-                const data = await getBitacoraEntries();
-                setEntries(data);
-            } catch (error) {
-                console.error("Error loading bitacora:", error);
-            } finally {
-                setIsLoading(false);
-            }
-        }
         loadEntries();
-    }, []);
-
-    const filteredEntries = entries.filter(entry => {
-        const matchesSearch =
-            (entry.plate?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-            (entry.name?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-            (entry.destination?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-            (entry.guardName?.toLowerCase() || "").includes(searchTerm.toLowerCase());
-
-        const matchesDate = !filterDate || new Date(entry.timestamp).toISOString().split('T')[0] === filterDate;
-
-        return matchesSearch && matchesDate;
-    });
-
-    const formatTime = (date: Date | string) => {
-        const d = new Date(date);
-        return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-    };
-
-    const formatDate = (date: Date | string) => {
-        const d = new Date(date);
-        return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    };
+    }, [searchQuery]);
 
     return (
-        <div className="p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700">
-            {/* Header */}
-            <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="flex items-center gap-6">
+        <div className="p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto animate-in fade-in duration-700">
+            {/* Header Section */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+                <div className="space-y-1">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2.5 bg-red-600/10 rounded-2xl border border-red-600/20">
+                            <History size={24} className="text-red-600" />
+                        </div>
+                        <h1 className="text-3xl md:text-4xl font-black text-white uppercase tracking-tighter">Consola del Guardia</h1>
+                    </div>
+                    <p className="text-[10px] md:text-xs text-neutral-500 font-bold uppercase tracking-[0.3em] pl-1">Centro de Control y Bitácora Operativa</p>
+                </div>
+
+                <div className="flex items-center gap-2 bg-neutral-900 border border-neutral-800 p-1.5 rounded-2xl shadow-xl">
                     <button
-                        onClick={() => router.back()}
-                        className="group flex items-center justify-center w-14 h-14 bg-neutral-900 border border-neutral-800 rounded-2xl hover:bg-neutral-800 hover:border-blue-500/50 transition-all shadow-xl"
+                        onClick={() => setViewMode("grid")}
+                        className={cn(
+                            "p-2.5 rounded-xl transition-all",
+                            viewMode === "grid" ? "bg-white text-black shadow-lg" : "text-neutral-500 hover:text-white"
+                        )}
                     >
-                        <ArrowLeft className="text-neutral-500 group-hover:text-blue-400 transition-colors" size={24} />
+                        <Grid size={18} />
                     </button>
-                    <div>
-                        <h1 className="text-4xl font-black text-white uppercase tracking-tight flex items-center gap-4">
-                            <div className="p-3 bg-amber-500/10 rounded-2xl border border-amber-500/20 shadow-xl shadow-amber-500/5">
-                                <History className="text-amber-500" size={32} />
-                            </div>
-                            Registros de Bitácora
-                        </h1>
-                        <p className="text-neutral-500 font-bold uppercase tracking-widest text-xs mt-2 ml-1">
-                            Historial completo de registros manuales y rondines de guardias
-                        </p>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                    {/* View Switcher */}
-                    <div className="flex bg-neutral-900 border border-neutral-800 p-1 rounded-2xl mr-4">
-                        <button
-                            onClick={() => setViewMode('grid')}
-                            className={cn(
-                                "p-2 rounded-xl transition-all",
-                                viewMode === 'grid' ? "bg-blue-600 text-white shadow-lg" : "text-neutral-500 hover:text-white"
-                            )}
-                        >
-                            <LayoutGrid size={20} />
-                        </button>
-                        <button
-                            onClick={() => setViewMode('table')}
-                            className={cn(
-                                "p-2 rounded-xl transition-all",
-                                viewMode === 'table' ? "bg-blue-600 text-white shadow-lg" : "text-neutral-500 hover:text-white"
-                            )}
-                        >
-                            <ListIcon size={20} />
-                        </button>
-                    </div>
-
-                    <div className="px-4 py-2 bg-neutral-900 border border-neutral-800 rounded-2xl flex flex-col items-center">
-                        <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest leading-none mb-1">Total Registros</span>
-                        <span className="text-xl font-black text-white">{entries.length}</span>
-                    </div>
-                </div>
-            </header>
-
-            {/* Filters Row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-neutral-900/50 p-6 rounded-[2.5rem] border border-neutral-800 backdrop-blur-sm">
-                <div className="relative group md:col-span-2">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-600 group-focus-within:text-blue-500 transition-colors" size={18} />
-                    <Input
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="Buscar por matrícula, nombre, destino o guardia..."
-                        className="pl-12 bg-neutral-950 border-neutral-800 h-14 text-sm font-bold text-white placeholder:text-neutral-700 rounded-[1.25rem] focus:border-blue-500/50 transition-all shadow-inner"
-                    />
-                </div>
-
-                <div className="flex gap-3">
-                    <div className="relative flex-1 group">
-                        <CalendarIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-600 transition-colors group-focus-within:text-blue-500" size={18} />
-                        <Input
-                            type="date"
-                            value={filterDate}
-                            onChange={(e) => setFilterDate(e.target.value)}
-                            className="pl-12 bg-neutral-950 border-neutral-800 h-14 text-sm font-black text-neutral-400 focus:border-blue-500/50 rounded-[1.25rem] appearance-none uppercase"
-                        />
-                    </div>
-                    {(searchTerm || filterDate) && (
-                        <button
-                            onClick={() => { setSearchTerm(""); setFilterDate(""); }}
-                            className="w-14 h-14 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 rounded-[1.25rem] transition-colors flex items-center justify-center shrink-0 shadow-lg"
-                        >
-                            <X size={20} />
-                        </button>
-                    )}
+                    <button
+                        onClick={() => setViewMode("table")}
+                        className={cn(
+                            "p-2.5 rounded-xl transition-all",
+                            viewMode === "table" ? "bg-white text-black shadow-lg" : "text-neutral-500 hover:text-white"
+                        )}
+                    >
+                        <List size={18} />
+                    </button>
                 </div>
             </div>
 
-            {/* Main Content */}
-            <AnimatePresence mode="wait">
-                {viewMode === 'grid' ? (
-                    <motion.div
-                        key="grid"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
-                    >
-                        {isLoading ? (
-                            Array(6).fill(0).map((_, i) => (
-                                <div key={i} className="h-64 bg-neutral-900 rounded-[2rem] animate-pulse border border-neutral-800" />
-                            ))
-                        ) : filteredEntries.length > 0 ? (
-                            filteredEntries.map((entry) => (
-                                <motion.div
-                                    key={entry.id}
-                                    layout
-                                    className="group bg-neutral-900 border border-neutral-800 rounded-[2rem] overflow-hidden hover:border-blue-500/40 transition-all shadow-xl hover:shadow-blue-500/5"
-                                >
-                                    <div className="relative h-48 bg-black overflow-hidden">
-                                        {entry.photoPath ? (
-                                            <img
-                                                src={entry.photoPath}
-                                                alt="Capture"
-                                                className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 opacity-70 group-hover:opacity-100"
-                                            />
-                                        ) : (
-                                            <div className="w-full h-full flex items-center justify-center text-neutral-800">
-                                                <Camera size={48} />
-                                            </div>
-                                        )}
-                                        <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-transparent to-transparent opacity-60" />
+            <Tabs defaultValue="historial" className="space-y-8">
+                <TabsList className="bg-neutral-900 border border-neutral-800 p-1.5 rounded-[2rem] w-full flex overflow-x-auto no-scrollbar justify-start md:justify-center gap-2 h-auto sticky top-4 z-10 backdrop-blur-md shadow-2xl shadow-black/40">
+                    <TabsTrigger value="historial" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-red-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
+                        <History size={16} /> Historial
+                    </TabsTrigger>
+                    <TabsTrigger value="manual" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-blue-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
+                        <PlusCircle size={16} /> Registro Manual
+                    </TabsTrigger>
+                    <TabsTrigger value="guards" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
+                        <Users size={16} /> Gestión Guardias
+                    </TabsTrigger>
+                    <TabsTrigger value="panic" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-amber-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
+                        <ShieldAlert size={16} /> Botón Pánico
+                    </TabsTrigger>
+                    <TabsTrigger value="map" className="px-6 py-3 rounded-[1.5rem] data-[state=active]:bg-indigo-600 data-[state=active]:text-white text-[10px] font-black uppercase tracking-widest gap-2">
+                        <MapIcon size={16} /> Mapa Tactical
+                    </TabsTrigger>
+                </TabsList>
 
-                                        {/* Action Buttons */}
-                                        <div className="absolute inset-0 flex items-center justify-center gap-4 opacity-0 group-hover:opacity-100 transition-opacity bg-black/40 backdrop-blur-[2px]">
-                                            {entry.photoPath && (
-                                                <button
-                                                    onClick={() => setSelectedPhoto(entry.photoPath)}
-                                                    className="p-4 bg-white text-neutral-950 rounded-2xl hover:scale-110 transition-transform shadow-2xl"
-                                                >
-                                                    <Eye size={20} />
-                                                </button>
-                                            )}
-                                            {entry.audioPath && (
-                                                <button
-                                                    onClick={() => setSelectedAudio(entry.audioPath)}
-                                                    className="p-4 bg-emerald-500 text-white rounded-2xl hover:scale-110 transition-transform shadow-2xl shadow-emerald-500/20"
-                                                >
-                                                    <Play size={20} className="fill-current" />
-                                                </button>
-                                            )}
-                                        </div>
-
-                                        {/* Type Badge */}
-                                        <div className={cn(
-                                            "absolute top-4 left-4 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border backdrop-blur-md",
-                                            entry.type === 'ENTRY'
-                                                ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                                                : "bg-amber-500/20 text-amber-500 border-amber-500/30"
-                                        )}>
-                                            {entry.type === 'ENTRY' ? 'ENTRADA' : 'SALIDA'}
-                                        </div>
-
-                                        {/* Time Badge */}
-                                        <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 flex items-center gap-2">
-                                            <Clock size={12} className="text-neutral-400" />
-                                            <span className="text-[10px] font-bold text-white uppercase">{formatTime(entry.timestamp)}</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-6 space-y-4">
-                                        <div className="flex justify-between items-start">
-                                            <div className="space-y-1">
-                                                <h3 className="text-2xl font-black text-white tracking-widest uppercase">{entry.plate || 'S/M'}</h3>
-                                                <div className="flex items-center gap-2 text-neutral-500">
-                                                    <CalendarIcon size={12} />
-                                                    <span className="text-[10px] font-bold uppercase tracking-widest">{formatDate(entry.timestamp)}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-3 pt-2 border-t border-neutral-800/50">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-500 shrink-0">
-                                                    <User size={14} />
-                                                </div>
-                                                <div className="flex-1 overflow-hidden">
-                                                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest leading-none mb-1">Visitante</p>
-                                                    <p className="text-xs font-bold text-white truncate">{entry.name || 'Invitado Desconocido'}</p>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center text-purple-500 shrink-0">
-                                                    <Building2 size={14} />
-                                                </div>
-                                                <div className="flex-1 overflow-hidden">
-                                                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest leading-none mb-1">Destino</p>
-                                                    <p className="text-xs font-bold text-white truncate">{entry.destination || '---'}</p>
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-500 shrink-0">
-                                                    <Shield size={14} />
-                                                </div>
-                                                <div className="flex-1 overflow-hidden">
-                                                    <p className="text-[9px] font-black text-neutral-500 uppercase tracking-widest leading-none mb-1">Registrado por</p>
-                                                    <p className="text-xs font-bold text-white truncate">{entry.guardName || 'Sistema'}</p>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {entry.notes && (
-                                            <div className="mt-4 p-4 bg-neutral-950/50 rounded-2xl border border-neutral-800/50">
-                                                <p className="text-[10px] text-neutral-500 italic leading-relaxed line-clamp-2">
-                                                    &quot;{entry.notes}&quot;
-                                                </p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </motion.div>
-                            ))
-                        ) : (
-                            <div className="col-span-full py-24 flex flex-col items-center justify-center bg-neutral-900/40 border border-dashed border-neutral-800 rounded-[3rem]">
-                                <History size={64} className="text-neutral-800 mb-6" />
-                                <h3 className="text-xl font-black text-neutral-400 uppercase tracking-[0.2em] text-center px-4">No se encontraron registros</h3>
-                                <p className="text-sm text-neutral-600 font-bold uppercase tracking-widest mt-2">Intenta ajustar los criterios de búsqueda</p>
-                            </div>
-                        )}
-                    </motion.div>
-                ) : (
-                    <motion.div
-                        key="table"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="bg-neutral-900/50 border border-neutral-800 rounded-[2rem] overflow-hidden overflow-x-auto"
-                    >
-                        <table className="w-full text-left border-collapse min-w-[1000px]">
-                            <thead>
-                                <tr className="bg-black/40 border-b border-neutral-800">
-                                    <th className="px-6 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest">Multimedia</th>
-                                    <th className="px-6 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest">Matrícula</th>
-                                    <th className="px-6 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest">Tipo</th>
-                                    <th className="px-6 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest">Visitante</th>
-                                    <th className="px-6 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest">Destino</th>
-                                    <th className="px-6 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest">Fecha/Hora</th>
-                                    <th className="px-6 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest">Registrado por</th>
-                                    <th className="px-6 py-5 text-[10px] font-black text-neutral-500 uppercase tracking-widest text-right">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-neutral-800/50">
-                                {isLoading ? (
-                                    Array(10).fill(0).map((_, i) => (
-                                        <tr key={i} className="animate-pulse">
-                                            <td colSpan={8} className="px-6 py-10 bg-neutral-900/20" />
-                                        </tr>
-                                    ))
-                                ) : filteredEntries.length > 0 ? (
-                                    filteredEntries.map((entry) => (
-                                        <tr key={entry.id} className="group hover:bg-white/5 transition-colors">
-                                            <td className="px-6 py-4">
-                                                <div className="flex gap-2">
-                                                    {entry.photoPath ? (
-                                                        <button
-                                                            onClick={() => setSelectedPhoto(entry.photoPath)}
-                                                            className="w-10 h-10 rounded-xl bg-neutral-800 border border-neutral-700 overflow-hidden flex items-center justify-center hover:shadow-lg transition-all"
-                                                        >
-                                                            <img src={entry.photoPath} className="w-full h-full object-cover" alt="Capture" />
-                                                        </button>
-                                                    ) : (
-                                                        <div className="w-10 h-10 rounded-xl bg-neutral-950 border border-neutral-800 flex items-center justify-center text-neutral-800">
-                                                            <Camera size={16} />
-                                                        </div>
-                                                    )}
-                                                    {entry.audioPath && (
-                                                        <button
-                                                            onClick={() => setSelectedAudio(entry.audioPath)}
-                                                            className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"
-                                                        >
-                                                            <Play size={16} className="fill-current" />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 font-black text-white tracking-widest uppercase text-sm">
-                                                {entry.plate || '--- ---'}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <span className={cn(
-                                                    "px-2 py-0.5 rounded-lg text-[9px] font-black border tracking-wider",
-                                                    entry.type === 'ENTRY'
-                                                        ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
-                                                        : "bg-amber-500/10 text-amber-500 border-amber-500/20"
-                                                )}>
-                                                    {entry.type === 'ENTRY' ? 'ENTRADA' : 'SALIDA'}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <p className="text-xs font-bold text-white">{entry.name || 'Invitado'}</p>
-                                            </td>
-                                            <td className="px-6 py-4 text-xs font-bold text-neutral-400">
-                                                {entry.destination || '---'}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="space-y-0.5">
-                                                    <p className="text-[10px] font-black text-white">{formatTime(entry.timestamp)}</p>
-                                                    <p className="text-[8px] font-bold text-neutral-600 uppercase tracking-widest">{formatDate(entry.timestamp)}</p>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2">
-                                                    <Shield size={10} className="text-neutral-600" />
-                                                    <span className="text-[10px] font-bold text-neutral-300 uppercase">{entry.guardName || 'Sistema'}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <button
-                                                    onClick={() => {
-                                                        if (entry.photoPath) setSelectedPhoto(entry.photoPath);
-                                                        else if (entry.audioPath) setSelectedAudio(entry.audioPath);
-                                                    }}
-                                                    className="w-8 h-8 rounded-lg bg-neutral-800 text-neutral-500 flex items-center justify-center hover:bg-blue-600 hover:text-white transition-all ml-auto"
-                                                >
-                                                    <ArrowUpRight size={14} />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={8} className="py-24 text-center">
-                                            <p className="text-[10px] font-black text-neutral-700 uppercase tracking-widest">Sin registros encontrados</p>
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Lightbox Photo */}
-            <AnimatePresence>
-                {selectedPhoto && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-black/95 z-[200] flex items-center justify-center p-4 md:p-12"
-                        onClick={() => setSelectedPhoto(null)}
-                    >
-                        <motion.button
-                            className="absolute top-8 right-8 p-4 bg-white/10 hover:bg-white/20 backdrop-blur-2xl rounded-full text-white transition-all shadow-2xl"
-                            onClick={() => setSelectedPhoto(null)}
-                        >
-                            <X size={24} />
-                        </motion.button>
-                        <motion.img
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            src={selectedPhoto}
-                            alt="Full Size Capture"
-                            className="max-w-full max-h-full object-contain rounded-3xl shadow-2xl border border-white/5"
-                        />
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            {/* Audio Modal */}
-            <AnimatePresence>
-                {selectedAudio && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 50 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: 50 }}
-                        className="fixed bottom-12 left-1/2 -translate-x-1/2 z-[200] w-full max-w-lg px-4"
-                    >
-                        <div className="bg-neutral-900/90 backdrop-blur-2xl border border-white/10 p-8 rounded-[3rem] shadow-2xl shadow-emerald-500/10 flex flex-col items-center text-center">
-                            <div className="w-16 h-16 rounded-3xl bg-emerald-500/20 flex items-center justify-center text-emerald-500 mb-4">
-                                <Play size={32} className="fill-current" />
-                            </div>
-                            <h4 className="text-lg font-black text-white uppercase tracking-widest mb-2">Nota de Audio del Guardia</h4>
-                            <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-widest mb-6">Reproduciendo evidencia operativa</p>
-
-                            <audio
-                                autoPlay
-                                controls
-                                src={selectedAudio}
-                                className="w-full h-12 brightness-90 saturate-150 contrast-125 rounded-full"
+                <TabsContent value="historial" className="space-y-6 focus-visible:outline-none focus-visible:ring-0">
+                    {/* Filters & Search */}
+                    <div className="flex flex-col md:flex-row items-center gap-4 bg-black/40 border border-neutral-800 p-4 rounded-3xl backdrop-blur-sm">
+                        <div className="relative flex-1 w-full">
+                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-neutral-600" size={18} />
+                            <Input
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Buscar por matrícula, nombre o destino..."
+                                className="w-full bg-neutral-950 border-neutral-800 h-12 pl-12 rounded-2xl text-sm font-medium focus:ring-red-600/20"
                             />
-
-                            <button
-                                onClick={() => setSelectedAudio(null)}
-                                className="mt-8 px-8 py-3 bg-neutral-800 hover:bg-neutral-700 text-white text-[10px] font-black uppercase tracking-widest rounded-full transition-colors"
-                            >
-                                Cerrar Reproductor
-                            </button>
                         </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                        <div className="flex gap-2 w-full md:w-auto">
+                            <Button
+                                onClick={loadEntries}
+                                variant="outline"
+                                className="h-12 border-neutral-800 bg-neutral-900 rounded-2xl px-6 text-[10px] font-bold uppercase tracking-widest gap-2 hover:bg-neutral-800 text-neutral-400 hover:text-white"
+                            >
+                                <RefreshCcw size={16} /> {loading ? "..." : "Refrescar"}
+                            </Button>
+                            <Button
+                                onClick={() => setIsExportDialogOpen(true)}
+                                className="h-12 bg-red-600 hover:bg-red-500 text-white rounded-2xl px-6 text-[10px] font-black uppercase tracking-widest gap-2 shadow-lg shadow-red-900/20"
+                            >
+                                <FileSpreadsheet size={16} /> Exportar Reporte
+                            </Button>
+                        </div>
+                    </div>
+
+                    {loading ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                                <div key={i} className="h-64 bg-neutral-900/50 rounded-3xl animate-pulse" />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="animate-in fade-in slide-in-from-bottom-5 duration-700">
+                            {viewMode === "grid" ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                    {entries.map((entry) => (
+                                        <BitacoraCard key={entry.id} entry={entry} />
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="bg-neutral-900/50 border border-neutral-800 rounded-3xl overflow-hidden shadow-2xl">
+                                    <BitacoraTable entries={entries} />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </TabsContent>
+
+                <TabsContent value="manual" className="focus-visible:outline-none focus-visible:ring-0">
+                    <ManualRegisterForm />
+                </TabsContent>
+
+                <TabsContent value="guards" className="focus-visible:outline-none focus-visible:ring-0">
+                    <GuardManagement />
+                </TabsContent>
+
+                <TabsContent value="panic" className="focus-visible:outline-none focus-visible:ring-0">
+                    <PanicButtonTab />
+                </TabsContent>
+
+                <TabsContent value="map" className="focus-visible:outline-none focus-visible:ring-0">
+                    <GuardMapTab />
+                </TabsContent>
+            </Tabs>
+
+            <ExportBitacoraDialog 
+                open={isExportDialogOpen} 
+                onOpenChange={setIsExportDialogOpen} 
+                searchQuery={searchQuery}
+            />
         </div>
     );
 }

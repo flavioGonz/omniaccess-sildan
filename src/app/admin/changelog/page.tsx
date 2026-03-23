@@ -11,7 +11,9 @@ import {
     ChevronRight,
     Rocket,
     Zap,
-    Bug
+    Bug,
+    LayoutGrid,
+    Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -181,8 +183,53 @@ export default function ChangelogPage() {
             </header>
 
             <div className="space-y-12 relative before:absolute before:left-[17px] before:top-2 before:bottom-2 before:w-px before:bg-neutral-800">
-                {/* NEW RELEASE v2.2.0 */}
+                {/* NEW RELEASE v2.3.0 */}
                 <div className="relative pl-12 group">
+                    <div className="absolute left-0 top-1.5 w-[35px] h-[35px] rounded-full bg-neutral-900 border-2 border-neutral-800 flex items-center justify-center z-10 group-hover:border-blue-500/50 transition-colors">
+                        <Rocket size={16} className="text-blue-400" />
+                    </div>
+                    <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
+                        <h2 className="text-2xl font-black text-white">v2.3.0</h2>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest h-5 px-2 flex items-center rounded-full bg-neutral-800 border border-neutral-700">
+                                2026-03-23
+                            </span>
+                            <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest h-5 px-2 flex items-center rounded-full bg-blue-500/10 border border-blue-500/20">
+                                LATEST
+                            </span>
+                        </div>
+                    </div>
+                    <div className="bg-neutral-900/50 border border-neutral-800 rounded-3xl p-6 shadow-2xl backdrop-blur-xl mb-12 border-l-4 border-l-blue-500">
+                        <h3 className="text-xl font-bold text-neutral-200 mb-2">Consola del Guardia & Tactical Bitácora</h3>
+                        <p className="text-neutral-500 text-sm mb-6">Rediseño total de la Consola del Guardia, integrando flujos tácticos en la Bitácora y eliminando dependencias obsoletas.</p>
+                        <div className="grid gap-4">
+                            <div className="flex items-start gap-4 p-3 rounded-xl bg-neutral-950/50 border border-neutral-800/50 hover:bg-neutral-900 transition-colors group/item">
+                                <div className="mt-0.5 p-1.5 rounded-lg shrink-0 bg-blue-500/10"><LayoutGrid size={14} className="text-blue-400" /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-neutral-300 leading-relaxed">Unified Console: Integración de Registro Manual, Gestión de Guardias, Botón de Pánico y Mapa Tactical en una interfaz de pestañas (Tabs) dentro de la Bitácora.</p>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-blue-400">feature</span>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-4 p-3 rounded-xl bg-neutral-950/50 border border-neutral-800/50 hover:bg-neutral-900 transition-colors group/item">
+                                <div className="mt-0.5 p-1.5 rounded-lg shrink-0 bg-emerald-500/10"><FileText size={14} className="text-emerald-400" /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-neutral-300 leading-relaxed">Reporting Engine: Nueva capacidad de generación de reportes Excel (.xlsx) para supervisores con filtrado por fecha y búsqueda.</p>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-emerald-400">feature</span>
+                                </div>
+                            </div>
+                            <div className="flex items-start gap-4 p-3 rounded-xl bg-neutral-950/50 border border-neutral-800/50 hover:bg-neutral-900 transition-colors group/item">
+                                <div className="mt-0.5 p-1.5 rounded-lg shrink-0 bg-red-400/10"><Trash2 size={14} className="text-red-400" /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-medium text-neutral-300 leading-relaxed">Depuración: Eliminación de ReactFlow (SystemFlow) y la antigua página de consolas para optimizar el peso de la build.</p>
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-red-400">improvement</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* RELEASE v2.2.0 */}
+                <div className="relative pl-12 group opacity-60">
                     <div className="absolute left-0 top-1.5 w-[35px] h-[35px] rounded-full bg-neutral-900 border-2 border-neutral-800 flex items-center justify-center z-10 group-hover:border-indigo-500/50 transition-colors">
                         <Zap size={16} className="text-indigo-400" />
                     </div>
@@ -191,9 +238,6 @@ export default function ChangelogPage() {
                         <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-neutral-500 uppercase tracking-widest h-5 px-2 flex items-center rounded-full bg-neutral-800 border border-neutral-700">
                                 2026-03-20
-                            </span>
-                            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest h-5 px-2 flex items-center rounded-full bg-indigo-500/10 border border-indigo-500/20">
-                                LATEST
                             </span>
                         </div>
                     </div>
