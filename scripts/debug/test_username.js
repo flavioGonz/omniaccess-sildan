@@ -1,0 +1,1 @@
+const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); async function main() { const result = await prisma.$queryRaw`SELECT username FROM "User" LIMIT 1`; console.log('Username select result:', result); } main().catch(console.error).finally(() => prisma.$disconnect());

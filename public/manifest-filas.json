@@ -1,0 +1,16 @@
+{
+  "name": "Aforo en Vivo - OmniAccess",
+  "short_name": "Aforo",
+  "description": "Control de filas en vivo",
+  "start_url": "/pwa/filas",
+  "scope": "/pwa/filas",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0b",
+  "theme_color": "#7c3aed",
+  "icons": [
+    { "src": "/iconos/filas-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/iconos/filas-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/iconos/filas-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

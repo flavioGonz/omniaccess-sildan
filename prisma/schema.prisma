@@ -1,0 +1,533 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Vehicle {
+  id        String      @id @default(cuid())
+  plate     String      @unique
+  type      VehicleType @default(SEDAN)
+  brand     String?
+  model     String?
+  color     String?
+  imagePath String?
+  notes     String?
+  userId    String
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Unit {
+  id           String        @id @default(cuid())
+  name         String
+  description  String?
+  type         UnitType      @default(EDIFICIO)
+  number       String        @default("")
+  floors       Int?
+  lot          String?
+  houseNumber  String?
+  address      String?
+  coordinates  String?
+  mapPoints    String?
+  contactName  String?
+  contactEmail String?
+  adminPhone   String?
+  deviceCount  Int           @default(0)
+  deviceType   String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  parentId     String?
+  parkingSlots ParkingSlot[]
+  parent       Unit?         @relation("SubUnits", fields: [parentId], references: [id])
+  children     Unit[]        @relation("SubUnits")
+  users        User[]
+}
+
+model User {
+  id              String        @id @default(cuid())
+  name            String
+  username        String?       @unique
+  email           String?
+  phone           String?
+  dni             String?
+  cara            String?
+  unitId          String?
+  apartment       String?
+  parkingSlotId   String?       @unique
+  role            UserRole      @default(RESIDENT)
+  accessTags      String[]      @default([])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  observations    String?
+  blacklistReason String?
+  createdBy       String?
+  accessEvents    AccessEvent[]
+  credentials     Credential[]
+  parkingSlot     ParkingSlot?  @relation(fields: [parkingSlotId], references: [id])
+  unit            Unit?         @relation(fields: [unitId], references: [id])
+  vehicles        Vehicle[]
+  accessGroups    AccessGroup[] @relation("AccessGroupToUser")
+}
+
+model Credential {
+  id        String         @id @default(cuid())
+  type      CredentialType
+  value     String
+  notes     String?
+  userId    String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AccessGroup {
+  id        String     @id @default(cuid())
+  name      String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  schedules Schedule[]
+  devices   Device[]   @relation("AccessGroupToDevice")
+  users     User[]     @relation("AccessGroupToUser")
+}
+
+model Schedule {
+  id            String      @id @default(cuid())
+  accessGroupId String
+  days          DayOfWeek[]
+  startTime     String
+  endTime       String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  accessGroup   AccessGroup @relation(fields: [accessGroupId], references: [id], onDelete: Cascade)
+}
+
+model FloorPlan {
+  id        String   @id @default(cuid())
+  name      String
+  imagePath String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  devices   Device[]
+}
+
+model Device {
+  id              String           @id @default(cuid())
+  name            String
+  deviceType      DeviceType       @default(LPR_CAMERA)
+  brand           DeviceBrand
+  deviceModel     String?
+  modelPhoto      String?
+  brandLogo       String?
+  ip              String
+  mac             String?
+  location        String?
+  direction       DeviceDirection  @default(ENTRY)
+  doorStatus      DoorStatus       @default(UNKNOWN)
+  authType        AuthType         @default(BASIC)
+  username        String?
+  password        String?
+  lastOnlinePull  DateTime?
+  lastOnlinePush  DateTime?
+  floorPlanId     String?
+  mapX            Float?
+  mapY            Float?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  accessEvents    AccessEvent[]
+  callEvents      CallEvent[]
+  floorPlan       FloorPlan?       @relation(fields: [floorPlanId], references: [id])
+  hardwareMirrors HardwareMirror[]
+  queueEvents     QueueEvent[]
+  queueAlerts     QueueAlert[]
+  accessGroups    AccessGroup[]    @relation("AccessGroupToDevice")
+}
+
+model AccessEvent {
+  id            String          @id @default(cuid())
+  timestamp     DateTime
+  accessType    CredentialType?
+  credentialId  String?
+  userId        String?
+  deviceId      String?
+  imagePath     String?
+  decision      AccessDecision
+  plateDetected String?
+  direction     DeviceDirection @default(ENTRY)
+  location      String?
+  snapshotPath  String?
+  plateNumber   String?
+  details       String?
+  createdAt     DateTime        @default(now())
+  device        Device?         @relation(fields: [deviceId], references: [id], map: "AccessEvent_deviceId_fkey_v2")
+  user          User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bitacora      Bitacora?
+}
+
+model Bitacora {
+  id            String       @id @default(cuid())
+  timestamp     DateTime     @default(now())
+  type          String
+  plate         String?
+  photoPath     String?
+  notes         String?
+  name          String?
+  dni           String?
+  company       String?
+  destination   String?
+  guardName     String?
+  latitude      Float?
+  longitude     Float?
+  audioPath     String?
+  accessEventId String?      @unique
+  accessEvent   AccessEvent? @relation(fields: [accessEventId], references: [id])
+}
+
+model CallEvent {
+  id         String   @id @default(cuid())
+  timestamp  DateTime
+  deviceId   String
+  callerName String?
+  callerId   String?
+  calleeName String?
+  calleeId   String?
+  duration   Int      @default(0)
+  status     String
+  direction  String
+  createdAt  DateTime @default(now())
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model HardwareMirror {
+  id          String   @id @default(cuid())
+  deviceId    String
+  hardwareId  String
+  name        String?
+  cardCode    String?
+  pin         String?
+  faceUrl     String?
+  syncStatus  String   @default("IN_SYNC")
+  lastUpdated DateTime @default(now())
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, hardwareId])
+}
+
+model Setting {
+  key       String   @id @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ParkingSlot {
+  id         String   @id @default(cuid())
+  x          Float    @default(0)
+  y          Float    @default(0)
+  width      Float    @default(0)
+  height     Float    @default(0)
+  label      String
+  isOccupied Boolean  @default(false)
+  points     String?
+  unitId     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  unit       Unit?    @relation(fields: [unitId], references: [id])
+  user       User?
+}
+
+model TopologyNode {
+  id        String   @id @unique
+  x         Float
+  y         Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WhatsAppSession {
+  phoneNumber String   @id
+  step        String
+  data        String?
+  updatedAt   DateTime @updatedAt
+}
+
+model WahaRequestLog {
+  id              String   @id @default(cuid())
+  timestamp       DateTime @default(now())
+  fromNumber      String
+  messageBody     String
+  status          String
+  responseDetails String?
+}
+
+// ─── Queue / Line Counting Module ────────────────────────────────
+model QueueEvent {
+  id           String   @id @default(cuid())
+  timestamp    DateTime @default(now())
+  deviceId     String
+  device       Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  channelName  String?
+  channelId    Int?
+  peopleCount  Int
+  regionId     String?
+  snapshotPath String?
+  metadata     String?
+  createdAt    DateTime @default(now())
+
+  @@index([deviceId])
+  @@index([timestamp])
+  @@index([deviceId, channelName])
+}
+
+model QueueAlert {
+  id          String    @id @default(cuid())
+  name        String
+  deviceId    String?
+  device      Device?   @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  channelName String?
+  threshold   Int
+  enabled     Boolean   @default(true)
+  cooldownMin Int       @default(5)
+  cooldownSec Int?
+  lastFiredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([deviceId])
+}
+
+
+model PendingRegistration {
+  id        String   @id @default(cuid())
+  type      String
+  data      Json
+  guardName String
+  status    String   @default("PENDING")
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum VehicleType {
+
+  SEDAN
+  SUV
+  PICKUP
+  VAN
+  TRUCK
+  MOTORCYCLE
+}
+
+enum UnitType {
+  BARRIO
+  EDIFICIO
+  CASA
+}
+
+enum UserRole {
+  RESIDENT
+  VISITOR
+  STAFF
+  ADMIN
+  PROVIDER
+  TEMPORARY_VISITOR
+  BLACKLISTED
+  WHITELISTED
+  SECURITY
+}
+
+enum CredentialType {
+  PLATE
+  FACE
+  TAG
+  PIN
+  PASSWORD
+  FINGERPRINT
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum DeviceType {
+  LPR_CAMERA
+  NVR
+  FACE_TERMINAL
+  ACCESS_CONTROL
+  DOOR_INTERCOM
+  QUEUE_COUNTER
+}
+
+enum DeviceBrand {
+  HIKVISION
+  AKUVOX
+  INTELBRAS
+  DAHUA
+  ZKTECO
+  AVICAM
+  MILESIGHT
+  UNIFI
+  UNIVIEW
+  BOSCH
+  AXIS
+}
+
+enum AuthType {
+  NONE
+  BASIC
+  DIGEST
+}
+
+enum DoorStatus {
+  OPEN
+  CLOSED
+  UNKNOWN
+}
+
+enum DeviceDirection {
+  ENTRY
+  EXIT
+}
+
+enum AccessDecision {
+  GRANT
+  DENY
+}
+
+// ─── Notification Channels ───────────────────────────────
+model NotificationChannel {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   // TELEGRAM, EMAIL, SLACK, WEBHOOK
+  config    String   // JSON: { token, chatId } | { email } | { webhookUrl } | { slackUrl }
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs NotificationLog[]
+
+  @@index([type])
+}
+
+model NotificationLog {
+  id        String   @id @default(cuid())
+  channelId String
+  channel   NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  alertId   String?
+  message   String
+  status    String   // SENT, FAILED, PENDING
+  error     String?
+  metadata  String?  // JSON with extra context
+  createdAt DateTime @default(now())
+
+  @@index([channelId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model QueueSchedule {
+  id          String    @id @default(cuid())
+  name        String
+  deviceId    String?
+  daysOfWeek  String    @default("1,2,3,4,5,6,7")
+  openTime    String    @default("08:00")
+  closeTime   String    @default("20:00")
+  resetOnOpen Boolean   @default(true)
+  enabled     Boolean   @default(true)
+  lastResetAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model CameraOutage {
+  id          String    @id @default(cuid())
+  deviceId    String
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  durationSec Int?
+  lastValue   Int?
+  createdAt   DateTime  @default(now())
+
+  @@index([deviceId])
+  @@index([startedAt])
+  @@index([deviceId, endedAt])
+}
+
+// ── Notificaciones: reglas/criterios de notificación (config) ──────────────
+model NotificationRule {
+  id          String    @id @default(cuid())
+  name        String
+  enabled     Boolean   @default(true)
+  deviceId    String?   // null = todas las cámaras
+  channelName String?   // zona/canal ("Aforo","Entrada","Salida"); null = cualquiera
+  metric      String    @default("aforo") // aforo | entrada | salida
+  operator    String    @default(">=")    // >= | > | == | <=
+  threshold   Int       @default(1)
+  daysOfWeek  String    @default("1,2,3,4,5,6,7")
+  startTime   String    @default("00:00")
+  endTime     String    @default("23:59")
+  channels    String    @default("telegram") // csv: telegram,email,...
+  minSeverity String?   // ok | warn | full | critico (gate opcional)
+  cooldownSec Int       @default(60)
+  dedupe      Boolean   @default(true)
+  lastFiredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([enabled])
+  @@index([deviceId])
+}
+
+// ── Despachos: cola/outbox de envíos con estado y reintentos ───────────────
+model DispatchJob {
+  id          String    @id @default(cuid())
+  type        String    // ALERT | REPORT
+  channel     String    // telegram | email | ...
+  status      String    @default("PENDING") // PENDING|PROCESSING|SENT|FAILED|CANCELLED
+  payload     Json
+  ruleId      String?
+  deviceId    String?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  lastError   String?
+  scheduledAt DateTime  @default(now())
+  startedAt   DateTime?
+  sentAt      DateTime?
+  bullJobId   String?   // id del job en BullMQ para correlación
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([type])
+  @@index([scheduledAt])
+  @@index([createdAt])
+}
+
+// ── Reportes programados (config, autogestionable desde la UI) ──────────────
+model ReportSchedule {
+  id        String    @id @default(cuid())
+  name      String
+  enabled   Boolean   @default(true)
+  frequency String    @default("daily") // daily | weekly
+  time      String    @default("22:00") // HH:MM hora de envío
+  dayOfWeek Int       @default(7)        // 1-7 (solo weekly; 7=domingo)
+  period    String    @default("daily")  // ventana del reporte: daily | weekly
+  deviceId  String?
+  channel   String    @default("telegram")
+  lastRunAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([enabled])
+}

@@ -1,0 +1,26 @@
+{
+    "name": "Omniaccess Guard",
+    "short_name": "Omniacces",
+    "description": "Consola de control de acceso físico",
+    "start_url": "/guard",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#ffffff",
+    "icons": [
+        {
+            "src": "/iconos/sildan-pwa.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/iconos/sildan-pwa.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "/iconos/sildan-pwa.png",
+            "sizes": "any",
+            "type": "image/png"
+        }
+    ]
+}

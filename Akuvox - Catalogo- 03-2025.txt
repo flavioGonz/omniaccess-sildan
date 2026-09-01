@@ -1,0 +1,741 @@
+LISTA DE PRECIOS 03-2025
+Model
+
+Picture
+
+Description
+
+USD
+
+SIP EMERGENCY STATION
+
+E21A
+
+Vandal resistant SIP call station
+1.Two-way audio with Echo Cancel feature;
+2.Complies with SIP standard for easy integration in every SIP
+PBX
+3.Body material: 316 grade stainless steel
+4.Button: 1 panic button; 1 reset button (on board)
+5.2 input relays for alarm; 2 output relays for door opener
+6.Water-proof & Dust-proof: IP65
+7.Installation: Flush mount
+8.PoE (IEEE802.3af, Power-over-Ethernet);
+9. Installation: support Surface Mount and Flush Mount by using
+different bracket or box
+
+260,00
+
+E21V
+
+Vandal resistant SIP call station (with video)
+1.Two-way audio with Echo Cancel feature;
+2. Camera Resolution of 3M pixels;MPEG-4/MJPEG compression;
+3.Complies with SIP standard for easy integration in every SIP
+PBX
+4.Body material: 316 grade stainless steel
+5.Button: 1 panic button; 1 reset button (on board)
+6.2 input relays for alarm; 2 output relays for door opener
+7.Water-proof & Dust-proof: IP65
+8.Installation: Flush mount
+9.PoE (IEEE802.3af, Power-over-Ethernet);
+9. Installation: support Surface Mount and Flush Mount by using
+different bracket or box
+
+330,00
+
+E21X In Wall Box
+
+30,00
+
+E21X On wall Box+Rain
+Cover
+
+40,00
+
+TWO-WIRE IP VIDEO INTERCOM
+
+C313W-2
+
+2-wire SIP Indoor unit (Linux Version)
+1. 7” capacitive touch screen with energy saving mode
+2. Reception of a HD picture from the door communicator
+3.Two-way communication based on SIP v2.0 protocol
+4. Powered by Akuvox NS-2 or external source
+5. Supports US or European electrical wall box mounting
+6. Bluetooth, and Wireless feature
+7. Support connecting with R20A-2 or NS-2 through 2-wire cable
+
+R20A-2
+
+2-wire SIP Intercom with one Button (Video & Card reader)
+1.Body material: Zinc alloy
+2.Camera: 2M pixels, automatic lighting,Viewing angle: 110°(H) /
+58°(V)
+3.RF Card Reader 13.56MHZ&125KHZ Card reader
+4.Output Relay: 2 output relays for door opener
+5.Water-proof & Dust-proof: IP65
+6.Installation: Surface Mount model
+7.Powered by Akuvox NS-2 or C313W-2
+8.Two-way audio communication over IP networks with Echo
+Cancel
+9. Support connecting with C313W-2 or NS-2 through 2-wire
+cable
+
+349,00
+
+SIP DOOR PHONE
+
+E12W
+
+SIP Video Door Bell with Relay & Wifi
+1.Body material: ABS plastics
+2.Camera: 2M pixels with angle: 123°(H) / 69°(V) and LED
+White Light
+3. Two Relay in and one Relay out
+4. Installation: Wall-mounted
+5. Water-proof & Dust-proof: IP65
+6. PoE (IEEE802.3af, Power-over-Ethernet);
+7. Button: 1 call button with backlight
+8.Two-way audio communication over IP networks with Echo
+Cancel
+9.Complies with SIP standard for easy integration in every SIP
+PBX;
+10. WiFi: IEEE802.11b/g/n, 2.4GHz
+
+E12x On-Wall Rain
+Cover
+
+R20A On-Wall
+
+110,00
+
+25,00
+
+SIP Intercom with one Button (Video & Card reader)
+1.Body material: Zinc alloy
+2.Camera: 3M pixels, automatic lighting,Wide-angle camera:
+116º
+3.RF Card Reader 13.56MHZ&125KHZ Card reader
+4.Output Relay: 2 output relays for door opener
+5.Water-proof & Dust-proof: IP65
+6.Installation: Surface Mount model
+7.PoE (IEEE802.3af, Power-over-Ethernet);
+8.Two-way audio communication over IP networks with Echo
+Cancel
+9.Complies with SIP standard for easy integration in every SIP
+PBX;
+
+185,00
+
+R20A On-Wall Mounting
+Rain Cover
+
+25,00
+
+R20A In-Wall Intallation
+Kit
+
+30,00
+
+R20A In-Wall Mounting
+Rain Cover
+
+25,00
+
+R20B On-wall
+(Two Buttons)
+
+SIP Intercom with TWO (2) Buttons (Video & Card reader)
+1.Body material: Aluminum Alloy
+2.Camera: 2M pixels, 110°(H) / 58°(V)
+3.RF Card Reader 13.56MHZ & 125KHZ
+4.Button: 2 call buttons with name plate
+5.Output Relay: 2 output relays for door opener
+6.Water-proof & Dust-proof: IP65
+7.Installation: Surface Mount model
+8.PoE (IEEE802.3af, Power-over-Ethernet)
+9.Two-way audio communication over IP networks with Echo
+Cancel
+10.Complies with SIP standard for easy integration in every SIP
+PBX
+
+190,00
+
+R20B On-wall
+(Five Buttons)
+
+SIP Intercom with Five (5) Buttons (Video & Card reader)
+1.Body material: Aluminum Alloy
+2.Camera: 2M pixels, 110°(H) / 58°(V)
+3.RF Card Reader 13.56MHZ & 125KHZ
+4.Button: 5 call buttons with name plate
+5.Output Relay: 2 output relays for door opener
+6.Water-proof & Dust-proof: IP65
+7.Installation: Surface Mount model
+8.PoE (IEEE802.3af, Power-over-Ethernet)
+9.Two-way audio communication over IP networks with Echo
+Cancel
+10.Complies with SIP standard for easy integration in every SIP
+PBX
+
+220,00
+
+R20K On-Wall
+
+Slim SIP Intercom with Keypad and RF card reader
+1.Front panel：Aluminum alloy
+2.Output Relay: 2 output relays for door opener
+3.Water-proof & Dust-proof: IP65
+4.Wide-angle camera: 120º
+5.PoE (IEEE802.3af, Power-over-Ethernet)
+6.Two-way video communication over IP networks with Echo
+Cancel
+7.Complies with SIP standard for easy integration in every SIP
+PBX
+8. Installation: Surface Mount
+
+240,00
+
+R20B/R20K On-Wall
+Mounting Rain Cover
+
+25,00
+
+R20B/R20K In-Wall
+Installation Kit
+
+30,00
+
+R20B/R20K In-Wall
+Mounting Rain Cover
+
+25,00
+
+MD06
+
+MD06 - Video Intercom Nametag Mudule
+1. Nametage module for R20K/R20B
+2. 6 nametag buttons calling design for easier calls
+3. IP65 protection level
+4. Backlight compensation behind the nametage buttons
+5. Easy to use and extend
+6. In-wall installation
+
+100,00
+
+MD12
+
+MD06 - Video Intercom Nametag Mudule
+1. Nametage module for R20K/R20B
+2. 12 nametag buttons calling design for easier calls
+3. IP65 protection level
+4. Backlight compensation behind the nametage buttons
+5. Easy to use and extend
+6. In-wall installation
+
+140,00
+
+Two-Module In-Wall
+Mounting box
+
+50,00
+
+Three-Module In-Wall
+Mounting box
+
+90,00
+
+S532 (IP)
+
+SIP Intercom with Keypad and RF card reader
+1.Body material: Aluminum Diecasting
+2.Display: 2.8" LCD
+3.Wide-angle camera: 130º（H）& 90º（V）
+4.Multiple access control (PIN, IC, ID, NFC, Bluetooth)
+5.Output Relay: 2 output relays for door opener
+6.Powered by PoE+ or external power supply;
+7.IP66 / IK08
+8. Installation: support Surface Mount and Flush Mount by using different
+bracket or box
+
+330,00
+
+S532 On-Wall Mounting
+Bracket
+
+40,00
+
+S532 In-Wall Mounting
+Bracket
+
+40,00
+
+E16C
+
+SIP Door Phone with Facial Recognition
+1. H.264 video and G.722 audio codec
+2. Display: 5” IPS LCD capacitive touch screen 1280x720
+4. Camera: 2 Mega pixels, WDR
+5. Water-proof & Dust-proof: IP65
+6. PoE (IEEE802.3af, Power-over-Ethernet)
+7.Support Wiegand, RS485,13.56MHZ Card reader
+8.Complies with SIP standard for easy integration in every SIP
+PBX
+9. Installation: support Surface Mount
+10 Body Temperature Detection (Optional)
+
+390,00
+
+A05/E16C On wall Rain
+cover
+
+25,00
+
+A05/E16C Installation
+Kit In-Wall
+
+30,00
+
+E18C
+
+SIP Door Phone with Facial Recognition
+1. H.264 video and G.722 audio codec
+2. Display: 7” IPS LCD capacitive touch screen 1024x600
+4. Camera: 2 Mega pixels, WDR
+5. Water-proof & Dust-proof: IP65
+6. PoE (IEEE802.3af, Power-over-Ethernet)
+7.Support Wiegand, RS485, 125KHZ & 13.56MHZ Card reader
+8. LTE optional
+9.Complies with SIP standard for easy integration in every SIP
+PBX
+10. Installation: support Surface Mount
+11 Body Temperature Detection (Optional)
+
+550,00
+
+E18C-LTE
+
+SIP Door Phone with Facial Recognition
+1. H.264 video and G.722 audio codec
+2. Display: 7” IPS LCD capacitive touch screen 1024x600
+4. Camera: 2 Mega pixels, WDR
+5. Water-proof & Dust-proof: IP65
+6. PoE (IEEE802.3af, Power-over-Ethernet)
+7.Support Wiegand, RS485, 125KHZ & 13.56MHZ Card reader
+8. LTE optional
+9.Complies with SIP standard for easy integration in every SIP
+PBX
+10. Installation: support Surface Mount
+11 Body Temperature Detection (Optional)
+
+680,00
+
+E18X On wall Rain
+Cover
+
+30,00
+
+E18 Installation Kit InWall
+
+30,00
+
+R29S
+
+SIP Android Door Phone with Facial Recognition
+1. H.264 video and G.722 audio codec
+2. Android OS V5.1 for any 3rd party software or customization
+3. Display: 7” IPS LCD capacitive touch screen 1280x800
+4. Camera: 3 Mega pixels, automatic lighting
+5. Water-proof & Dust-proof: IP65
+6. Collision-proof: IK06
+7.PoE (IEEE802.3af, Power-over-Ethernet)
+8.Support Wiegand, 13.56MHZ&125KHZ Card reader
+9.Complies with SIP standard for easy integration in every SIP
+PBX
+10. Installation: support Surface Mount and Flush Mount by using
+different bracket or box
+
+990,00
+
+R29CT
+
+SIP Android Door Phone with Facial Recognition&FingerPriting
+1. H.264 video and G.722 audio codec
+2. Android OS V5.1 for any 3rd party software or customization
+3. Display: 7” IPS LCD capacitive touch screen 1280x800
+4. Camera: Dual camera for anti-counterfeit
+5. Bluetooth, and Wireless feature
+6.Support fingerprint identification
+7. Water-proof & Dust-proof: IP65
+8. Collision-proof: IK06
+9.PoE (IEEE802.3af, Power-over-Ethernet)
+10.Support Wiegand, 13.56MHZ&125KHZ Card reader
+11. Installation: support Surface Mount and Flush Mount by using
+different bracket or box
+
+1.390,00
+
+R29 Series On-Wall
+Installation Kit
+
+40,00
+
+R29 Series On-Wall
+Mounting Rain Cover
+
+30,00
+
+R29 Series In-Wall
+Installation Kit
+
+40,00
+
+R29 Series In-Wall
+Mounting Rain Cover
+
+30,00
+
+S539
+
+Android 12 Smart Door Phone with 10 Inch Touch Screen
+1.Ultra clear, stylish appearance
+2. Vandal resistant body
+3. Main camera features a built-in HDR mode & Starlight
+4. Dual cameras for anti-spoofing against photo and video
+5. Extra camera for QR code scanning
+6. 10 Inch display presents unique information
+7. Multiple verification modes
+8. Powered by PoE+ or external power supply
+
+1.350,00
+
+X912S
+
+Vandal resistant SIP Video Doorphone
+1.Steel cover
+2.4" Touchscreen
+3.Dual cameras (the main one a starlight)
+4.Numerical Keypad
+5.QR code scanning
+6.Facial recognition
+7.Multiple access control (IC, ID, NFC, Bluetooth)
+8.IK09 & IP65
+9.Installation: Wall mount
+
+890,00
+
+X912 On-Wall Rain
+Cover
+
+40,00
+
+X912 In-Wall Box
+
+40,00
+
+X915S
+
+SIP Android Door Phone with Facial Recognition
+1. H.264 video and G.722 audio codec
+2. Android OS V9.0 for any 3rd party software or customization
+3. 316 grade stainless steel
+3. Display:8” IPS LCD capacitive touch screen 1920x1080
+4. Camera: Dual camera for anti-counterfeit with one starlight
+camera
+5. Bluetooth, and Wireless feature
+6. Water-proof & Dust-proof: IP65
+8. PoE (IEEE802.3af, Power-over-Ethernet)
+9. Support Wiegand, 13.56MHZ&125KHZ Card reader
+10. Installation: support Surface Mount and Flush Mount by using
+different bracket or box
+
+1.390,00
+
+SIP Based Handset
+
+S560
+
+SIP Indoor Answering Unit (Linux Version)
+1. Exceptional two-way audio communication
+2. Easy integration with SIP PBXes
+3. Powered by PoE or an external power supply
+4. Support for speed dial and long-press to call preset numbers
+5. Support for one-press call to property managers
+6. On-wall or desktop mounting options available
+
+45,00
+
+SIP INDOOR UNIT
+
+C313W
+
+SIP Indoor unit (Linux Version) - Ultimas undidades
+1.7” capacitive touch screen with energy saving mode
+2.Reception of a HD picture from the door communicator
+3.Two-way communication based on SIP v2.0 protocol
+4.Powered by PoE or external source
+5. Supports US or European electrical wall box mounting
+6. Bluetooth, and Wireless feature
+
+Precio Rebajado
+USD 97.00
+
+C315W
+
+SIP Indoor unit (Android Version)
+1.7” capacitive touch screen with energy saving mode
+2.Reception of a HD picture from the door communicator
+3.Two-way communication based on SIP v2.0 protocol
+4.Powered by PoE or external source
+5.Supports US or European electrical wall box mounting
+6. Bluetooth, and Wireless feature
+
+Precio Rebajado
+USD 144.00
+
+Soporte de mesa para C313/C315
+
+Precio rebajado
+USD 15.00
+
+C315&C313 Series
+Desktop stand
+
+SIP Indoor Monitor(Linux Version) - Standard Version (Suitable
+for wall mounting without an electrical backbox)
+1.7 inch capacitive touch screen with energy saving mode
+2.1024x600 resolution
+3.Reception of a HD picture from the door communicatior
+3.Two-way communication based on SIP v2.0 protocol
+4.Powered by PoE or external source
+5.Supports US or European electrical wall box mounting
+
+90,00
+
+SIP Indoor Monitor(Linux Version) - Standard Version+Wi-Fi
+(Suitable for wall mounting without an electrical backbox)
+1.7 inch capacitive touch screen with energy saving mode
+2.1024x600 resolution
+3.Reception of a HD picture from the door communicatior
+3.Two-way communication based on SIP v2.0 protocol
+4.Powered by PoE or external source
+5.Supports US or European electrical wall box mounting
+6.Support 2.4G Wi-Fi connection
+
+115,00
+
+Soporte de mesa para S562
+
+20,00
+
+S565W
+
+SIP Indoor Monitor(Linux)
+1. 10 inch capacitive touch screen wth energy saving mode
+2. 1280x800 resolution
+3. Reception of a HD picture from the door communicator
+4. Two-way communication based on SIP v2.0 protocol
+5. Powered by PoE or external source
+6. Supports US or European electrical wall box mounting
+7. Support 2.4G Wi-Fi connection
+
+190,00
+
+x933W
+
+SIP Indoor unit (Android Version)
+1. Stylish appearance from Italy
+2. Excellent performance with Android 9.0 system
+3. 7-inch capacitive touch screen with energy saving mode
+4. Ultimate visual experience with 1280 x 800 resolution
+5. Reception of a HD picture from the door communicator
+6. Two-way audio communication with other units in the network
+7. Complies with SIP standard for easy integration in every SIP
+capable PBXes
+8. Powered by PoE or external source
+9.Support US or European electrical wall box mounting
+10. Wifi and Bluetooth
+
+240,00
+
+S562
+
+S562W-S
+
+S562 Series Desktop
+stand
+
+SIP ANDROID GUARD PHONE
+
+VP-R49G
+
+Premium Android IP Video Phone, Support PoE & Gigabit port
+1.7 inch capacitive touch screen TFT LCD, 1024*600 pixels;
+2.2 M pixels CMOS camera with privacy shutter;
+3. Dual switched 10/100/1000Mbps Ethernet ports, Bluetooth,
+USB, PoE and Wireless feature;
+4. Android 9.0 Operating System and support Android API for the
+3rd party Android application installation.
+
+290,00
+
+SECURITY RELAY
+
+SR01
+
+Compact Security Single Door I/O Module
+1.Installation environment: Indoor;
+2.Complies with Akuvox doorphone
+3.Body material: Plastic
+4.Button: 1 , for pairing
+5.1 input / 1 output relay for door opener
+6.Mounting: Fits in standard installation boxes
+7.Dimensions: 31x56x24mm
+
+85,00
+
+ACCESS CONTROL PRODUCT
+
+A02
+
+A02-RFID+Keypad Access Control Terminal
+1.Touch keypad front panel & Aluminum alloy frame
+2.13.56MHz & 125kHz RFID card reader & NFC
+3.20,000 card capacity &100,000 event logs
+4.Support tamper alarm
+5.Identification Mode:PIN,RFID Card,Two factor authentication
+6.Water-proof & Dust-proof:IP65
+7.Installation:Wall mount & Flush mount
+8.802.3af Power-over-Ethernet and 12V DC connector (if not
+using PoE)
+
+150,00
+
+A03
+
+Access Contorl Terminal
+1.Front panel: Toughened Glass
+2.Frame: Aluminum
+3.13.56MHz & 125kHz RFID card reader & NFC
+4.Up to 20,000 cards and 100,000 card event logs
+5.Water-proof & Dust-proof: IP65
+6.BLE 5.0
+7.Installation: Flush mount or Wall-mount
+8.PoE (IEEE802.3af, Power-over-Ethernet);
+
+175,00
+
+A01/A02 On-wall Installation Kit A01X/A02X/A03X-ON-WALL
+
+9,90
+
+Smart access control device with facial recognition and Buletooth
+1. Display: 5 Inch IPS LCD, 1280x720
+2. Camera: 2M pixels, WDR
+3. Anti-spoofing algorithm against photo and video attack
+4. 20,000 face capacity & 20,000 card capacity
+5. Face recognition duration less than 0.2s/user, face recognition
+accuracy rate greater than 99.9%;
+6.Identification Mode: Face, RFID Card, QR code
+7. Bluetooth supported
+8. Water-proof & Dust-proof: IP65
+9.Installation: Wall mount
+10. 802.3af Power-over-Ethernet and 12V DC Connector (if not
+using PoE)
+
+250,00
+
+A05C
+
+A05/E16C On wall Rain
+cover
+
+25,00
+
+A05/E16C Installation
+Kit In-Wall
+
+30,00
+
+A08S-All-in-one Mullion Access Control Terminal
+1.Touch keypad & Aluminum alloy frame
+2.QR code scanner
+3.13.56MHz & 125kHz RFID card reader & NFC
+4.20,000 card capacity & 100,000 event logs
+5.BLE 5.0
+6.Water-proof & Dust-proof:IP65
+7.Vandal resistance:IK09
+8.Support OSDP & Wiegand protocol
+9.Installation:Wall mount & Flush mount (Optional Flush Box)
+10.802.3af Power-over-Ethernet and 12V DC connector (if not
+using PoE)
+
+200,00
+
+ACR-CRM11
+
+Access Card Reader
+1. Front Panel: Aluminum;
+2. Dimension: 138 x 58 x 22 mm;
+3. Card Reader: 13.56MHz & 125kHz;
+4. Power: 12V DC;
+5. Wiegand: Support;
+6. Buzzer: 1; Indicator Light: 1
+7. Working Temperature: -20°C ~ +60°C
+
+55,00
+
+ACR-CRP11
+
+Access Card Reader
+1. Front Panel: ABS+PC;
+2. Dimension: 121 x 52 x 17.5 mm;
+3. Card Reader: 13.56MHz & 125kHz;
+4. Power: 12V DC;
+5. Wiegand: Support;
+6. Buzzer: 1; Indicator Light: 1
+7. Working Temperature: -10°C ~ +60°C
+
+35,00
+
+A094S
+
+Smart access controller for 4 doors
+1. Supports TCP/IP communication and web interface for
+management;
+2. Supports up to 50,000 cards and 100,000 access logs;
+3. Supports multi-door interlock funtion and anti-pass back
+function;
+4. Supports RS-485, Wiegand protocol for accessing card
+readesr;
+5.Supports emergency door release(EDR);
+6. Supports tamper proof alarm;
+7. Easy to establish large-scale access control system with
+Akuvox ACMS;
+8. Power supply: 100~240VAC 50/60Hz;
+
+450,00
+
+EC33
+
+Elevator Controller
+1. Relay Output:32
+2. Card Reader: Support wiegand 26/34
+3. Storage: 20,000 cards & 100,000 logs
+4. Expansion: Support to connect one expansion panel to reach
+64 output
+5. Communication: TCP/IP，RS485
+6. Support working with Akuvox indoor monitor for remote
+elevator calling function
+
+380,00
+
+A08S--On Wall
+
+Precios Unitarios, expresados en dolares americanos, no incluye Iva
+Para mas informacion y promociones, registrese en nuestra pagina web: www.qos.com.uy
+Todos los productos Akuvox tienen 2 años de garantia contra desperfecto de fabricación.
+QoS Solutions - www.qos.com.uy - +598 25257166 - 094436936 - ventas@qos.com.uy
+
+

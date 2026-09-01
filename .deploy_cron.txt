@@ -1,0 +1,3 @@
+0 20 * * * /usr/bin/wget -q -O /dev/null "http://localhost:10001/api/queue/report/send?period=daily"
+0 8 * * 1 /usr/bin/wget -q -O /dev/null "http://localhost:10001/api/queue/report/send?period=weekly"
+* * * * * /usr/bin/wget -q -O /dev/null "http://localhost:10001/api/queue/schedule/tick"

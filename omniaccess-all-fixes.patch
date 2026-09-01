@@ -1,0 +1,1294 @@
+diff --git a/doorlog_sample.json b/data/doorlog_sample.json
+similarity index 100%
+rename from doorlog_sample.json
+rename to data/doorlog_sample.json
+diff --git a/plates.txt b/data/plates.txt
+similarity index 100%
+rename from plates.txt
+rename to data/plates.txt
+diff --git a/check_columns.js b/scripts/debug/check_columns.js
+similarity index 100%
+rename from check_columns.js
+rename to scripts/debug/check_columns.js
+diff --git a/check_db_status.js b/scripts/debug/check_db_status.js
+similarity index 100%
+rename from check_db_status.js
+rename to scripts/debug/check_db_status.js
+diff --git a/check_devices.js b/scripts/debug/check_devices.js
+similarity index 100%
+rename from check_devices.js
+rename to scripts/debug/check_devices.js
+diff --git a/check_env.js b/scripts/debug/check_env.js
+similarity index 100%
+rename from check_env.js
+rename to scripts/debug/check_env.js
+diff --git a/check_settings.js b/scripts/debug/check_settings.js
+similarity index 100%
+rename from check_settings.js
+rename to scripts/debug/check_settings.js
+diff --git a/list_admins.js b/scripts/debug/list_admins.js
+similarity index 100%
+rename from list_admins.js
+rename to scripts/debug/list_admins.js
+diff --git a/list_creds.js b/scripts/debug/list_creds.js
+similarity index 100%
+rename from list_creds.js
+rename to scripts/debug/list_creds.js
+diff --git a/list_creds_fg.js b/scripts/debug/list_creds_fg.js
+similarity index 100%
+rename from list_creds_fg.js
+rename to scripts/debug/list_creds_fg.js
+diff --git a/test_username.js b/scripts/debug/test_username.js
+similarity index 100%
+rename from test_username.js
+rename to scripts/debug/test_username.js
+diff --git a/lib-s3-tmp.js b/scripts/lib-s3-tmp.js
+similarity index 100%
+rename from lib-s3-tmp.js
+rename to scripts/lib-s3-tmp.js
+diff --git a/restore_system.js b/scripts/restore_system.js
+similarity index 100%
+rename from restore_system.js
+rename to scripts/restore_system.js
+diff --git a/server.js b/server.js
+index 8b6ca53..04c63f9 100644
+--- a/server.js
++++ b/server.js
+@@ -776,6 +776,17 @@ const fetchAkuvoxFaceImage = async (device, options = {}) => {
+ 
+ const debounceCache = new Map();
+ const DEBOUNCE_TIME = 5000;
++const DEBOUNCE_CLEANUP_INTERVAL = 60000; // Cleanup stale entries every 60s
++
++// Prevent memory leak: periodically clean expired debounce entries
++setInterval(() => {
++    const now = Date.now();
++    for (const [plate, timestamp] of debounceCache) {
++        if (now - timestamp > DEBOUNCE_TIME * 2) {
++            debounceCache.delete(plate);
++        }
++    }
++}, DEBOUNCE_CLEANUP_INTERVAL);
+ 
+ // Global Alert State
+ let isAlertActive = false;
+diff --git a/src/app/actions/history.ts b/src/app/actions/history.ts
+index be2f131..57a88fd 100644
+--- a/src/app/actions/history.ts
++++ b/src/app/actions/history.ts
+@@ -102,61 +102,11 @@ export async function getAccessEvents(options?: {
+             return { events, total };
+         }
+ 
+-        // Enrich events with duration logic (Keep inside try block as it depends on events)
+-        const enrichedEvents = await Promise.all(events.map(async (event) => {
+-            // Para eventos LPR, usar la patente
+-            const plate = event.plateDetected?.trim();
+-            // Para eventos faciales, usar el userId
+-            const userId = event.userId;
+-
+-            // Si no hay identificador válido, no calcular duración
+-            if ((!plate || plate === 'unknown' || plate === 'NO_LEIDA') && !userId) {
+-                return { ...event, stayDuration: null, previousDirection: null };
+-            }
+-
+-            // Buscar evento previo basado en el tipo de acceso
+-            let previousEvent;
+-
+-            if (event.accessType === 'FACE' && userId) {
+-                // Para eventos faciales, buscar por userId
+-                previousEvent = await prisma.accessEvent.findFirst({
+-                    where: {
+-                        userId: userId,
+-                        timestamp: { lt: event.timestamp },
+-                        accessType: 'FACE'
+-                    },
+-                    orderBy: { timestamp: 'desc' }
+-                });
+-            } else if (event.accessType === 'PLATE' && plate) {
+-                // Para eventos LPR, buscar por patente
+-                previousEvent = await prisma.accessEvent.findFirst({
+-                    where: {
+-                        plateDetected: { equals: plate, mode: 'insensitive' },
+-                        timestamp: { lt: event.timestamp }
+-                    },
+-                    orderBy: { timestamp: 'desc' }
+-                });
+-            }
+-
+-            if (!previousEvent) {
+-                return { ...event, stayDuration: null, previousDirection: null };
+-            }
++        // Batch enrichment: single raw SQL query to get previous events for ALL events at once.
++        // This replaces the N+1 pattern (1 query per event) with 1 query total.
++        const enrichedEvents = await enrichEventsWithDuration(events);
+ 
+-            const durationMs = event.timestamp.getTime() - previousEvent.timestamp.getTime();
+-
+-            return {
+-                ...event,
+-                stayDuration: durationMs,
+-                previousDirection: previousEvent.direction
+-            };
+-        }));
+-
+-        // Ensure results are sorted by timestamp desc after enrichment
+-        const sortedEnrichedEvents = enrichedEvents.sort((a, b) =>
+-            b.timestamp.getTime() - a.timestamp.getTime()
+-        );
+-
+-        return { events: sortedEnrichedEvents, total };
++        return { events: enrichedEvents, total };
+ 
+     } catch (error) {
+         console.error("Database connection error in getAccessEvents:", error);
+@@ -285,6 +235,88 @@ export async function getPlateAnalysis(plate: string) {
+         };
+     }
+ }
++
++/**
++ * Batch-compute stayDuration for a list of events using a single raw SQL query.
++ * Replaces the N+1 pattern where each event triggered its own findFirst query.
++ * Uses PostgreSQL LAG() window function to find the previous event per identity.
++ */
++async function enrichEventsWithDuration(events: any[]) {
++    if (events.length === 0) return events;
++
++    // Collect unique identifiers we need to look up
++    const plateIds = new Set<string>();
++    const userIds = new Set<string>();
++
++    for (const event of events) {
++        const plate = event.plateDetected?.trim();
++        if (event.accessType === 'FACE' && event.userId) {
++            userIds.add(event.userId);
++        } else if (event.accessType === 'PLATE' && plate && plate !== 'unknown' && plate !== 'NO_LEIDA') {
++            plateIds.add(plate.toUpperCase());
++        }
++    }
++
++    // Build a map of eventId -> previous event info using raw SQL with LAG()
++    const previousMap = new Map<string, { duration: number; previousDirection: string }>();
++
++    try {
++        // For PLATE events: get previous event per plate using window function
++        if (plateIds.size > 0) {
++            const plateDurations: any[] = await prisma.$queryRawUnsafe(`
++                SELECT id, "plateDetected", timestamp, direction,
++                    LAG(timestamp) OVER (PARTITION BY UPPER("plateDetected") ORDER BY timestamp) as prev_timestamp,
++                    LAG(direction) OVER (PARTITION BY UPPER("plateDetected") ORDER BY timestamp) as prev_direction
++                FROM "AccessEvent"
++                WHERE UPPER("plateDetected") IN (${Array.from(plateIds).map(p => `'${p.replace(/'/g, "''")}'`).join(',')})
++                  AND "accessType" = 'PLATE'
++                ORDER BY timestamp DESC
++            `);
++
++            for (const row of plateDurations) {
++                if (row.prev_timestamp) {
++                    const duration = new Date(row.timestamp).getTime() - new Date(row.prev_timestamp).getTime();
++                    previousMap.set(row.id, { duration, previousDirection: row.prev_direction });
++                }
++            }
++        }
++
++        // For FACE events: get previous event per userId using window function
++        if (userIds.size > 0) {
++            const faceDurations: any[] = await prisma.$queryRawUnsafe(`
++                SELECT id, "userId", timestamp, direction,
++                    LAG(timestamp) OVER (PARTITION BY "userId" ORDER BY timestamp) as prev_timestamp,
++                    LAG(direction) OVER (PARTITION BY "userId" ORDER BY timestamp) as prev_direction
++                FROM "AccessEvent"
++                WHERE "userId" IN (${Array.from(userIds).map(u => `'${u.replace(/'/g, "''")}'`).join(',')})
++                  AND "accessType" = 'FACE'
++                ORDER BY timestamp DESC
++            `);
++
++            for (const row of faceDurations) {
++                if (row.prev_timestamp) {
++                    const duration = new Date(row.timestamp).getTime() - new Date(row.prev_timestamp).getTime();
++                    previousMap.set(row.id, { duration, previousDirection: row.prev_direction });
++                }
++            }
++        }
++    } catch (error) {
++        console.error("[History] Batch duration query failed, returning events without duration:", error);
++        return events.map(e => ({ ...e, stayDuration: null, previousDirection: null }));
++    }
++
++    // Merge results
++    return events.map(event => {
++        const prev = previousMap.get(event.id);
++        return {
++            ...event,
++            stayDuration: prev?.duration ?? null,
++            previousDirection: prev?.previousDirection ?? null
++        };
++    });
++}
++
++
+ export async function getAccessEvent(id: string) {
+     try {
+         return await prisma.accessEvent.findUnique({
+diff --git a/src/app/api/events/route.ts b/src/app/api/events/route.ts
+index 4daba97..af3a4dc 100644
+--- a/src/app/api/events/route.ts
++++ b/src/app/api/events/route.ts
+@@ -1,7 +1,5 @@
+ import { NextRequest, NextResponse } from "next/server";
+-import { PrismaClient } from "@prisma/client";
+-
+-const prisma = new PrismaClient();
++import { prisma } from "@/lib/prisma";
+ 
+ export async function GET(request: NextRequest) {
+     try {
+@@ -13,7 +11,6 @@ export async function GET(request: NextRequest) {
+             return NextResponse.json({ error: "Plate parameter is required" }, { status: 400 });
+         }
+ 
+-        // Fetch events for this plate
+         const events = await prisma.accessEvent.findMany({
+             where: {
+                 plateDetected: plate,
+diff --git a/src/app/api/webhooks/akuvox/route.ts b/src/app/api/webhooks/akuvox/route.ts
+index dc424b5..5dd1af2 100644
+--- a/src/app/api/webhooks/akuvox/route.ts
++++ b/src/app/api/webhooks/akuvox/route.ts
+@@ -1,21 +1,24 @@
+ import { NextRequest, NextResponse } from "next/server";
+-import { prisma } from "@/lib/prisma";
+-import { AccessDecision } from "@prisma/client";
+ 
+-export async function POST(req: NextRequest) {
+-    try {
+-        const body = await req.json();
+-        console.log("Akuvox Event:", body);
+-
+-        // Assume Akuvox sends JSON with face/card info
+-        // Example: { "ext_id": "123", "card_no": "...", "event_type": "access", "photo_url": "..." }
++/**
++ * DEPRECATED: Akuvox webhooks are handled by server.js (port 10000).
++ * This Next.js route exists only as a fallback/health-check.
++ * Configure your Akuvox devices Action URL to point to :10000, NOT :10001.
++ */
+ 
+-        // Logic similar to Hikvision but simpler JSON parsing
+-        // AccessEvent generation...
++export async function GET(req: NextRequest) {
++    return NextResponse.json({
++        status: "ok",
++        message: "Akuvox webhook endpoint. NOTE: Production webhooks are handled by server.js on port 10000.",
++        timestamp: new Date().toISOString()
++    });
++}
+ 
+-        return NextResponse.json({ status: "received" });
+-    } catch (error: any) {
+-        console.error("Akuvox Webhook Error:", error);
+-        return NextResponse.json({ error: error.message }, { status: 500 });
+-    }
++export async function POST(req: NextRequest) {
++    console.warn("[Webhook Akuvox] Received event on Next.js route — this should go to server.js:10000 instead");
++    
++    return NextResponse.json({
++        warning: "This webhook was received by Next.js (:10001) but should be directed to server.js (:10000) for full processing.",
++        received: true
++    }, { status: 200 });
+ }
+diff --git a/src/app/api/webhooks/hikvision/route.ts b/src/app/api/webhooks/hikvision/route.ts
+index 98a3b86..95160d8 100644
+--- a/src/app/api/webhooks/hikvision/route.ts
++++ b/src/app/api/webhooks/hikvision/route.ts
+@@ -1,37 +1,28 @@
+-import { NextResponse } from 'next/server';
+-import { prisma } from '@/lib/prisma';
++import { NextRequest, NextResponse } from "next/server";
+ 
+-export async function POST(req: Request) {
+-    try {
+-        const contentType = req.headers.get('content-type') || '';
+-        
+-        let body;
+-        // La cámara puede enviar JSON o Multipart con XML
+-        if (contentType.includes('application/json')) {
+-            body = await req.json();
+-            console.log('[Webhook Hik] JSON Event:', body.eventType || 'Unknown');
+-        } else {
+-            const text = await req.text();
+-            console.log('[Webhook Hik] XML/Multipart received');
+-            // Por ahora aceptamos el evento para no dar error 500
+-            return NextResponse.json({ success: true, message: 'XML received' });
+-        }
++/**
++ * DEPRECATED: Hikvision webhooks are handled by server.js (port 10000).
++ * This Next.js route exists only as a fallback/health-check.
++ * Configure your Hikvision cameras to point to :10000, NOT :10001.
++ */
+ 
+-        // Registrar el evento de acceso en la base de datos
+-        await prisma.accessEvent.create({
+-            data: {
+-                timestamp: new Date(),
+-                accessType: body.eventType || 'FACE_DETECTION',
+-                details: JSON.stringify(body),
+-                location: body.channelName || 'Cámara Frente',
+-                decision: 'GRANT',
+-                // ipAddress: body.ipAddress, // Prisma doesn't have this field in AccessEvent based on common patterns, but let's check
+-            }
+-        });
++export async function GET(req: NextRequest) {
++    return NextResponse.json({
++        status: "ok",
++        message: "Hikvision webhook endpoint. NOTE: Production webhooks are handled by server.js on port 10000.",
++        timestamp: new Date().toISOString()
++    });
++}
+ 
+-        return NextResponse.json({ success: true });
+-    } catch (error: any) {
+-        console.error('[Webhook Hik Error]:', error.message);
+-        return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+-    }
++export async function POST(req: NextRequest) {
++    console.warn("[Webhook Hik] Received event on Next.js route — this should go to server.js:10000 instead");
++    
++    // Log what we received for debugging
++    const contentType = req.headers.get("content-type") || "";
++    console.warn(`[Webhook Hik] Content-Type: ${contentType}`);
++    
++    return NextResponse.json({
++        warning: "This webhook was received by Next.js (:10001) but should be directed to server.js (:10000) for full processing.",
++        received: true
++    }, { status: 200 });
+ }
+diff --git a/src/lib/digest-auth.ts b/src/lib/digest-auth.ts
+new file mode 100644
+index 0000000..09cb357
+--- /dev/null
++++ b/src/lib/digest-auth.ts
+@@ -0,0 +1,166 @@
++/**
++ * Módulo compartido de Digest Authentication
++ * Reemplaza las 5 implementaciones duplicadas en HikvisionDriver, AkuvoxDriver y server.js
++ */
++import crypto from "crypto";
++import axios, { AxiosRequestConfig, Method } from "axios";
++import * as https from "https";
++
++const httpsAgent = new https.Agent({ rejectUnauthorized: false });
++
++export interface DigestAuthDevice {
++    ip: string;
++    username?: string | null;
++    password?: string | null;
++    authType?: string | null;
++}
++
++interface DigestChallenge {
++    realm: string;
++    nonce: string;
++    qop?: string | null;
++    opaque?: string | null;
++    algorithm?: string;
++}
++
++function parseWWWAuthenticate(header: string): DigestChallenge | null {
++    const getVal = (key: string): string | null => {
++        const match = header.match(new RegExp(`${key}="?([^",]+)"?`));
++        return match ? match[1].trim() : null;
++    };
++
++    const realm = getVal("realm");
++    const nonce = getVal("nonce");
++    if (!realm || !nonce) return null;
++
++    return {
++        realm,
++        nonce,
++        qop: getVal("qop"),
++        opaque: getVal("opaque"),
++        algorithm: getVal("algorithm") || "MD5",
++    };
++}
++
++function buildDigestHeader(
++    method: string,
++    uri: string,
++    username: string,
++    password: string,
++    challenge: DigestChallenge
++): string {
++    const { realm, nonce, qop, opaque, algorithm } = challenge;
++
++    const ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
++    const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
++
++    const nc = "00000001";
++    const cnonce = crypto.randomBytes(8).toString("hex");
++
++    let response: string;
++    if (qop === "auth") {
++        response = crypto.createHash("md5")
++            .update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`)
++            .digest("hex");
++    } else {
++        response = crypto.createHash("md5")
++            .update(`${ha1}:${nonce}:${ha2}`)
++            .digest("hex");
++    }
++
++    let authString = `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", algorithm="${algorithm}", response="${response}"`;
++    if (opaque) authString += `, opaque="${opaque}"`;
++    if (qop) authString += `, qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
++
++    return authString;
++}
++
++/**
++ * Ejecuta un request HTTP con soporte automático de Basic y Digest auth.
++ * Maneja el challenge-response de Digest de forma transparente.
++ */
++export async function authenticatedRequest(
++    method: Method,
++    url: string,
++    device: DigestAuthDevice,
++    options: {
++        data?: any;
++        contentType?: string;
++        accept?: string;
++        responseType?: "json" | "text" | "arraybuffer";
++        timeout?: number;
++    } = {}
++): Promise<any> {
++    const username = device.username || "admin";
++    const password = device.password || "";
++    const host = (device.ip || "").replace(/^https?:\/\//, "");
++    const baseURL = `http://${host}`;
++
++    const contentType = options.contentType || "application/json";
++    const accept = options.accept || contentType;
++    const timeout = options.timeout || 15000;
++
++    const headers: Record<string, string> = {
++        "Content-Type": contentType,
++        "Accept": accept,
++    };
++
++    // Basic auth: add header upfront
++    if (device.authType === "BASIC") {
++        const token = Buffer.from(`${username}:${password}`).toString("base64");
++        headers["Authorization"] = `Basic ${token}`;
++    }
++
++    const config: AxiosRequestConfig = {
++        method,
++        baseURL,
++        url,
++        data: options.data,
++        headers,
++        httpsAgent,
++        timeout,
++        responseType: options.responseType || "json",
++    };
++
++    try {
++        const response = await axios.request(config);
++        return options.responseType === "text" ? response.data : response.data;
++    } catch (error: any) {
++        // Digest auth: handle 401 challenge
++        const authHeader = error.response?.headers?.["www-authenticate"];
++        if (
++            device.authType === "DIGEST" &&
++            error.response?.status === 401 &&
++            authHeader
++        ) {
++            const challenge = parseWWWAuthenticate(authHeader);
++            if (!challenge) throw error;
++
++            const digestHeader = buildDigestHeader(method, url, username, password, challenge);
++
++            const retryConfig: AxiosRequestConfig = {
++                ...config,
++                headers: {
++                    ...headers,
++                    Authorization: digestHeader,
++                },
++                timeout: timeout + 5000, // Extra time for retry
++            };
++
++            const response = await axios.request(retryConfig);
++            return options.responseType === "text" ? response.data : response.data;
++        }
++
++        throw error;
++    }
++}
++
++/**
++ * Helper para Basic auth header (usado en requests directos con axios)
++ */
++export function getBasicAuthHeader(username: string, password: string): Record<string, string> {
++    const token = Buffer.from(`${username}:${password}`).toString("base64");
++    return { Authorization: `Basic ${token}` };
++}
++
++export { parseWWWAuthenticate, buildDigestHeader, httpsAgent };
+diff --git a/src/lib/drivers/AkuvoxDriver.ts b/src/lib/drivers/AkuvoxDriver.ts
+index 8aed795..0bc81e9 100644
+--- a/src/lib/drivers/AkuvoxDriver.ts
++++ b/src/lib/drivers/AkuvoxDriver.ts
+@@ -1,85 +1,42 @@
+-import { IDeviceDriver } from "./IDeviceDriver";
++import { IDeviceDriver, IFaceDriver, IRfidDriver, ILogDriver, IStatsDriver } from "./IDeviceDriver";
+ import { Device, Credential, AuthType } from "@prisma/client";
+ import axios from "axios";
+-import * as https from "https";
+-import * as crypto from "crypto";
+ import * as fs from "fs";
+ import * as path from "path";
++import {
++    authenticatedRequest,
++    getBasicAuthHeader,
++    httpsAgent,
++    DigestAuthDevice
++} from "../digest-auth";
+ 
+-const httpsAgent = new https.Agent({
+-    rejectUnauthorized: false,
+-});
++/**
++ * Lista canónica de modelos Android de Akuvox.
++ * Usada por AkuvoxDriver y server.js para determinar comportamiento específico.
++ */
++export const AKUVOX_ANDROID_MODELS = ["R29", "X915", "X916", "E16", "E18", "A05", "A095"];
+ 
+-export class AkuvoxDriver implements IDeviceDriver {
++export class AkuvoxDriver implements IFaceDriver, IRfidDriver, ILogDriver, IStatsDriver {
+ 
+     private async request(method: "GET" | "POST", path: string, data: any, device: Device, timeout: number = 30000): Promise<any> {
+-        const url = `${this.getBaseUrl(device)}${path}`;
+-        const headers: any = { 'Content-Type': 'application/json' };
+-
+-        if (device.authType === 'BASIC') {
+-            Object.assign(headers, this.getAuthHeader(device));
+-        }
+-
+-        try {
+-            const response = await axios.request({
+-                method,
+-                url,
+-                data,
+-                headers,
+-                httpsAgent,
+-                timeout
+-            });
+-            return response.data;
+-        } catch (error: any) {
+-            if (device.authType === 'DIGEST' && error.response?.status === 401) {
+-                const authHeader = error.response.headers["www-authenticate"];
+-                if (!authHeader) throw error;
+-
+-                const getVal = (key: string) => {
+-                    const match = authHeader.match(new RegExp(`${key}="?([^",]+)"?`));
+-                    return match ? match[1] : null;
+-                };
+-
+-                const realm = getVal("realm");
+-                const nonce = getVal("nonce");
+-                const qop = getVal("qop");
+-                const opaque = getVal("opaque");
+-                const algorithm = getVal("algorithm") || "MD5";
+-
+-                const ha1 = crypto.createHash("md5").update(`${device.username}:${realm}:${device.password}`).digest("hex");
+-                const ha2 = crypto.createHash("md5").update(`${method}:${path}`).digest("hex");
+-                const nc = "00000001";
+-                const cnonce = crypto.randomBytes(8).toString("hex");
+-
+-                let responseStr;
+-                if (qop) {
+-                    responseStr = crypto.createHash("md5").update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`).digest("hex");
+-                } else {
+-                    responseStr = crypto.createHash("md5").update(`${ha1}:${nonce}:${ha2}`).digest("hex");
+-                }
+-
+-                const authString = `Digest username="${device.username}", realm="${realm}", nonce="${nonce}", uri="${path}", qop="${qop || ''}", nc=${nc}, cnonce="${cnonce}", response="${responseStr}", opaque="${opaque || ''}", algorithm="${algorithm}"`;
++        const authDevice: DigestAuthDevice = {
++            ip: device.ip,
++            username: device.username,
++            password: device.password,
++            authType: device.authType,
++        };
+ 
+-                const retryResponse = await axios.request({
+-                    method,
+-                    url,
+-                    data,
+-                    headers: { ...headers, Authorization: authString },
+-                    httpsAgent,
+-                    timeout
+-                });
+-                return retryResponse.data;
+-            }
+-            throw error;
+-        }
++        return authenticatedRequest(method, path, authDevice, {
++            data,
++            timeout,
++        });
+     }
+ 
+-    public getAuthHeader(device: Device) {
++    public getAuthHeader(device: Device): Record<string, string> {
+         if (!device.username || !device.password || device.authType === 'NONE') {
+             return {};
+         }
+-        const token = Buffer.from(`${device.username}:${device.password}`).toString('base64');
+-        return { Authorization: `Basic ${token}` };
++        return getBasicAuthHeader(device.username, device.password);
+     }
+ 
+     public getBaseUrl(device: Device): string {
+@@ -102,8 +59,7 @@ export class AkuvoxDriver implements IDeviceDriver {
+ 
+     public isAndroidModel(model: string | null): boolean {
+         if (!model) return false;
+-        const androidModels = ["R29", "X915", "X916", "E16", "E18", "A05", "A095"];
+-        return androidModels.some(m => model.toUpperCase().includes(m));
++        return AKUVOX_ANDROID_MODELS.some(m => model.toUpperCase().includes(m));
+     }
+ 
+     public getLiveStreamURL(device: Device): string {
+@@ -173,15 +129,16 @@ export class AkuvoxDriver implements IDeviceDriver {
+     }
+ 
+     // Generar un ID numérico determinista basado en el ID de la base de datos (string)
++    // Usa FNV-1a hash con 9 dígitos (999,999,999 valores) para minimizar colisiones
+     private getNumericId(stringId: string): string {
+-        let hash = 0;
++        // FNV-1a 32-bit hash — much better distribution than djb2
++        let hash = 0x811c9dc5; // FNV offset basis
+         for (let i = 0; i < stringId.length; i++) {
+-            const char = stringId.charCodeAt(i);
+-            hash = ((hash << 5) - hash) + char;
+-            hash = hash & hash; // Convert to 32bit integer
++            hash ^= stringId.charCodeAt(i);
++            hash = Math.imul(hash, 0x01000193); // FNV prime
+         }
+-        // Retornamos un número positivo de 6 dígitos máximo para compatibilidad
+-        return Math.abs(hash % 1000000).toString();
++        // 9 dígitos: 999M valores posibles (colisión ~0.05% con 10K usuarios)
++        return Math.abs(hash % 999999999).toString().padStart(9, '0');
+     }
+ 
+     async syncUserWithFace(user: any, device: Device) {
+@@ -284,7 +241,7 @@ export class AkuvoxDriver implements IDeviceDriver {
+                         }, device);
+                     } catch (e) {
+                         console.log(`[Akuvox] /face/add failed, trying /face/set...`);
+-                        await this.request("POST", "/api/face/add", { // Note: Action inside payload is what matters
++                        await this.request("POST", "/api/face/set", {
+                             "target": "face", "action": "set",
+                             "data": { "ID": akuvoxId, "Image": base64, "UserID": akuvoxId }
+                         }, device);
+@@ -299,7 +256,8 @@ export class AkuvoxDriver implements IDeviceDriver {
+ 
+     async syncRfKey(credential: Credential, device: Device) {
+         const path = "/api/rfkey/add";
+-        const internalId = Math.floor(Math.random() * 100000).toString();
++        // ID determinístico basado en credential.id para evitar duplicados en cada sync
++        const internalId = this.getNumericId(credential.id);
+ 
+         const payload = {
+             "target": "rfkey",
+diff --git a/src/lib/drivers/HikvisionDriver.ts b/src/lib/drivers/HikvisionDriver.ts
+index a4e7379..9f8c661 100644
+--- a/src/lib/drivers/HikvisionDriver.ts
++++ b/src/lib/drivers/HikvisionDriver.ts
+@@ -1,106 +1,51 @@
+-import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
+-import crypto from "crypto";
+-import { IDeviceDriver } from "./IDeviceDriver";
++import axios from "axios";
++import { IDeviceDriver, ILprDriver, IFaceDriver, ILogDriver } from "./IDeviceDriver";
+ import { Device, Credential, CredentialType, AuthType } from "@prisma/client";
+-import * as https from "https";
+-
+-const httpsAgent = new https.Agent({
+-    rejectUnauthorized: false,
+-});
++import {
++    authenticatedRequest,
++    parseWWWAuthenticate,
++    buildDigestHeader,
++    httpsAgent,
++    DigestAuthDevice
++} from "../digest-auth";
++import crypto from "crypto";
+ 
+-export class HikvisionDriver implements IDeviceDriver {
+-    // Simple Digest Auth Implementation
++export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
++    /**
++     * JSON request with automatic Basic/Digest auth via shared module.
++     * Includes Hikvision-specific fallback: retry with path-only URI if query params cause 401.
++     */
+     private async request(
+         method: "GET" | "POST" | "PUT" | "DELETE",
+         url: string,
+         data: any,
+         device: Device
+     ): Promise<any> {
+-        const username = device.username || "admin";
+-        const password = device.password || "12345";
+-
+-        // Ensure IP doesn't already have a protocol to avoid double http://
+-        const host = (device.ip || "").replace(/^https?:\/\//, "");
+-        const baseURL = `http://${host}`;
+-        const headers: any = { "Content-Type": "application/json" };
+-
+-        if (device.authType === AuthType.BASIC) {
+-            const token = Buffer.from(`${username}:${password}`).toString("base64");
+-            headers["Authorization"] = `Basic ${token}`;
+-        }
++        const authDevice: DigestAuthDevice = {
++            ip: device.ip,
++            username: device.username || "admin",
++            password: device.password || "12345",
++            authType: device.authType,
++        };
+ 
+-        const executeRequest = async (authHeader?: string) => {
+-            return axios.request({
+-                method,
+-                baseURL,
+-                url,
++        try {
++            return await authenticatedRequest(method, url, authDevice, {
+                 data,
+-                headers: {
+-                    ...headers,
+-                    ...(authHeader ? { Authorization: authHeader } : {}),
+-                    "Accept": "application/json"
+-                },
+-                httpsAgent,
++                contentType: "application/json",
++                accept: "application/json",
+                 timeout: 10000,
+             });
+-        };
+-
+-        try {
+-            // 1. Initial Attempt (or Basic)
+-            const response = await executeRequest(headers["Authorization"]);
+-            return response.data;
+         } catch (error: any) {
+-            const authHeader = error.response?.headers["www-authenticate"];
+-            if (error.response?.status === 401 && authHeader) {
+-                console.log(`[Hikvision JSON] 401 Unauthorized. WWW-Authenticate: ${authHeader}`);
+-
+-                const getVal = (key: string) => {
+-                    const match = authHeader.match(new RegExp(`${key}="?([^",]+)"?`));
+-                    return match ? match[1].trim() : null;
+-                };
+-
+-                const realm = getVal("realm");
+-                const nonce = getVal("nonce");
+-                const qop = getVal("qop");
+-                const opaque = getVal("opaque");
+-                const algorithm = (getVal("algorithm") || "MD5").toUpperCase();
+-
+-                if (!realm || !nonce) throw error;
+-
+-                const nc = "00000001";
+-                const cnonce = crypto.randomBytes(8).toString("hex");
+-
+-                const calculateDigest = (uri: string) => {
+-                    let ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
+-                    if (algorithm === "MD5-SESS") {
+-                        ha1 = crypto.createHash("md5").update(`${ha1}:${nonce}:${cnonce}`).digest("hex");
+-                    }
+-                    const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
+-                    let response = "";
+-                    if (qop === "auth") {
+-                        response = crypto.createHash("md5").update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`).digest("hex");
+-                    } else {
+-                        response = crypto.createHash("md5").update(`${ha1}:${nonce}:${ha2}`).digest("hex");
+-                    }
+-                    return `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", algorithm="${algorithm}", response="${response}"${opaque ? `, opaque="${opaque}"` : ""}${qop ? `, qop=${qop}, nc=${nc}, cnonce="${cnonce}"` : ""}`;
+-                };
+-
+-                // Try 1: Full URL
+-                try {
+-                    const res = await executeRequest(calculateDigest(url));
+-                    console.log(`[Hikvision JSON Retry Success] ${method} ${url}`);
+-                    return res.data;
+-                } catch (retryError: any) {
+-                    // Try 2: Path only (Some Hikvision cameras require this if query params exist)
+-                    if (retryError.response?.status === 401 && url.includes('?')) {
+-                        const pathOnly = url.split('?')[0];
+-                        const res = await executeRequest(calculateDigest(pathOnly));
+-                        console.log(`[Hikvision JSON Retry Success - Path Only] ${method} ${url}`);
+-                        return res.data;
+-                    }
+-                    console.warn(`[Hikvision JSON Retry Failed] ${method} ${url}: ${retryError.message}`);
+-                    throw retryError;
+-                }
++            // Hikvision-specific: some cameras need path-only URI (no query params) for digest
++            if (error.response?.status === 401 && url.includes("?")) {
++                const pathOnly = url.split("?")[0];
++                console.log(`[Hikvision JSON] Retrying with path-only URI: ${pathOnly}`);
++                return await authenticatedRequest(method, pathOnly, authDevice, {
++                    data,
++                    contentType: "application/json",
++                    accept: "application/json",
++                    timeout: 15000,
++                });
+             }
+             throw error;
+         }
+@@ -184,7 +129,7 @@ export class HikvisionDriver implements IDeviceDriver {
+                     console.log("[Hikvision LPR] No records in this page. Stopping.");
+                     keep_fetching = false;
+                 } else {
+-                    all_plates = [...all_plates, ...plates];
++                    all_plates.push(...plates);
+ 
+                     const advancedBy = result.numOfMatches > 0 ? result.numOfMatches : plates.length;
+                     start_position += advancedBy;
+@@ -355,91 +300,43 @@ export class HikvisionDriver implements IDeviceDriver {
+         return uniquePlates;
+     }
+ 
++    /**
++     * XML request with automatic Basic/Digest auth via shared module.
++     * Returns raw text response for XML parsing.
++     */
+     private async requestXML(
+         method: "GET" | "POST" | "PUT" | "DELETE",
+         url: string,
+-        data: string | null, // Allow null for GET requests
++        data: string | null,
+         device: Device
+     ): Promise<string> {
+-        const username = device.username || "admin";
+-        const password = device.password || "12345";
+-
+-        // Ensure IP doesn't already have a protocol 
+-        const host = (device.ip || "").replace(/^https?:\/\//, "");
+-        const baseURL = `http://${host}`;
+-
+-        const executeRequestXML = async (authHeader?: string) => {
+-            return axios.request({
+-                method,
+-                baseURL,
+-                url,
+-                data,
+-                headers: {
+-                    "Content-Type": "application/xml", // Primary Content-Type for XML
+-                    ...(authHeader ? { Authorization: authHeader } : {}),
+-                    "Accept": "application/xml"
+-                },
+-                httpsAgent,
+-                timeout: 20000,
+-                responseType: 'text'
+-            });
++        const authDevice: DigestAuthDevice = {
++            ip: device.ip,
++            username: device.username || "admin",
++            password: device.password || "12345",
++            authType: device.authType,
+         };
+ 
+         try {
+-            const res = await executeRequestXML();
+-            return res.data;
++            return await authenticatedRequest(method, url, authDevice, {
++                data,
++                contentType: "application/xml",
++                accept: "application/xml",
++                responseType: "text",
++                timeout: 20000,
++            });
+         } catch (error: any) {
+-            const authHeader = error.response?.headers["www-authenticate"];
+-            if (error.response?.status === 401 && authHeader) {
+-                console.log(`[Hikvision XML] 401 Unauthorized. WWW-Authenticate: ${authHeader}`);
+-                // Parse WWW-Authenticate header
+-                const getVal = (key: string) => {
+-                    const match = authHeader.match(new RegExp(`${key}="?([^",]+)"?`));
+-                    return match ? match[1].trim() : null;
+-                };
+-
+-                const realm = getVal("realm");
+-                const nonce = getVal("nonce");
+-                const qop = getVal("qop");
+-                const opaque = getVal("opaque");
+-                const algorithm = (getVal("algorithm") || "MD5").toUpperCase();
+-
+-                if (!realm || !nonce) throw error;
+-
+-                const nc = "00000001";
+-                const cnonce = crypto.randomBytes(8).toString("hex");
+-
+-                const calculateDigest = (uri: string) => {
+-                    let ha1 = crypto.createHash("md5").update(`${username}:${realm}:${password}`).digest("hex");
+-                    if (algorithm === "MD5-SESS") {
+-                        ha1 = crypto.createHash("md5").update(`${ha1}:${nonce}:${cnonce}`).digest("hex");
+-                    }
+-                    const ha2 = crypto.createHash("md5").update(`${method}:${uri}`).digest("hex");
+-                    let response = "";
+-                    if (qop === "auth") {
+-                        response = crypto.createHash("md5").update(`${ha1}:${nonce}:${nc}:${cnonce}:${qop}:${ha2}`).digest("hex");
+-                    } else {
+-                        response = crypto.createHash("md5").update(`${ha1}:${nonce}:${ha2}`).digest("hex");
+-                    }
+-                    return `Digest username="${username}", realm="${realm}", nonce="${nonce}", uri="${uri}", algorithm="${algorithm}", response="${response}"${opaque ? `, opaque="${opaque}"` : ""}${qop ? `, qop=${qop}, nc=${nc}, cnonce="${cnonce}"` : ""}`;
+-                };
+-
+-                try {
+-                    const digest = calculateDigest(url);
+-                    const res = await executeRequestXML(digest);
+-                    console.log(`[Hikvision XML Retry] ${method} ${url} -> Status ${res.status}`);
+-                    return res.data;
+-                } catch (retryError: any) {
+-                    console.error(`[Hikvision XML Retry Failed] ${method} ${url}: ${retryError.message} (Status: ${retryError.response?.status})`);
+-                    if (retryError.response?.status === 401 && url.includes('?')) {
+-                        // Strategy: Strip query params for Digest URI
+-                        const uriPath = url.split('?')[0];
+-                        const res = await executeRequestXML(calculateDigest(uriPath));
+-                        console.log(`[Hikvision XML Retry - Path Only] ${method} ${url} -> Status ${res.status}`);
+-                        return res.data;
+-                    }
+-                    throw retryError;
+-                }
++            // Hikvision-specific: retry with path-only URI
++            if (error.response?.status === 401 && url.includes("?")) {
++                const pathOnly = url.split("?")[0];
++                console.log(`[Hikvision XML] Retrying with path-only URI: ${pathOnly}`);
++                return await authenticatedRequest(method, pathOnly, authDevice, {
++                    data,
++                    contentType: "application/xml",
++                    accept: "application/xml",
++                    responseType: "text",
++                    timeout: 25000,
++                });
+             }
+             throw error;
+         }
+diff --git a/src/lib/drivers/IDeviceDriver.ts b/src/lib/drivers/IDeviceDriver.ts
+index 7708d31..490dcbe 100644
+--- a/src/lib/drivers/IDeviceDriver.ts
++++ b/src/lib/drivers/IDeviceDriver.ts
+@@ -1,7 +1,81 @@
+ import { Device, Credential } from "@prisma/client";
+ 
++/**
++ * Base interface for all device drivers.
++ * Every driver MUST implement these two methods.
++ */
+ export interface IDeviceDriver {
+-  upsertCredential(credential: Credential, device: Device): Promise<void>;
+-  triggerRelay(device: Device): Promise<void>;
+-  syncUserWithFace?(user: any, device: Device): Promise<void>;
++    upsertCredential(credential: Credential, device: Device): Promise<void>;
++    triggerRelay(device: Device): Promise<void>;
++}
++
++/**
++ * Driver capable of managing LPR (License Plate Recognition) whitelists.
++ */
++export interface ILprDriver extends IDeviceDriver {
++    getPlates(device: Device): Promise<string[]>;
++    getPlatesPage?(device: Device, searchId: string, start: number, max?: number): Promise<{
++        plates: string[];
++        totalMatches: number;
++        numOfMatches: number;
++        isLastPage: boolean;
++    }>;
++    addPlateToCamera(device: Device, plate: string): Promise<void>;
++    deleteCredential(credentialValue: string, device: Device): Promise<void>;
++    clearWhiteList?(device: Device): Promise<void>;
++}
++
++/**
++ * Driver capable of managing facial recognition identities.
++ */
++export interface IFaceDriver extends IDeviceDriver {
++    getFacesFromCamera(device: Device): Promise<any[]>;
++    getFaceImage?(device: Device, faceId: string): Promise<Buffer | null>;
++    syncUserWithFace(user: any, device: Device): Promise<void>;
++    deleteFace?(device: Device, faceId: string, userId?: string, userCode?: string): Promise<boolean>;
++}
++
++/**
++ * Driver capable of managing RFID tags/cards.
++ */
++export interface IRfidDriver extends IDeviceDriver {
++    syncRfKey(credential: Credential, device: Device): Promise<void>;
++}
++
++/**
++ * Driver capable of retrieving access/door logs from the device.
++ */
++export interface ILogDriver extends IDeviceDriver {
++    getDoorlog(device: Device, num?: number, offset?: number): Promise<any[]>;
++    getCalllog?(device: Device, num?: number, offset?: number): Promise<any[]>;
++}
++
++/**
++ * Driver capable of reporting device statistics.
++ */
++export interface IStatsDriver extends IDeviceDriver {
++    getDeviceStats(device: Device): Promise<{ faces: number; tags: number }>;
++}
++
++/**
++ * Type guard helpers
++ */
++export function isLprDriver(driver: IDeviceDriver): driver is ILprDriver {
++    return 'getPlates' in driver && 'addPlateToCamera' in driver;
++}
++
++export function isFaceDriver(driver: IDeviceDriver): driver is IFaceDriver {
++    return 'getFacesFromCamera' in driver && 'syncUserWithFace' in driver;
++}
++
++export function isRfidDriver(driver: IDeviceDriver): driver is IRfidDriver {
++    return 'syncRfKey' in driver;
++}
++
++export function isLogDriver(driver: IDeviceDriver): driver is ILogDriver {
++    return 'getDoorlog' in driver;
++}
++
++export function isStatsDriver(driver: IDeviceDriver): driver is IStatsDriver {
++    return 'getDeviceStats' in driver;
+ }
+diff --git a/src/lib/sync-service.ts b/src/lib/sync-service.ts
+index c3d180d..b66746d 100644
+--- a/src/lib/sync-service.ts
++++ b/src/lib/sync-service.ts
+@@ -1,13 +1,28 @@
+-import { PrismaClient } from "@prisma/client";
++import { prisma } from "./prisma";
++import { DeviceBrand } from "@prisma/client";
+ import { HikvisionDriver } from "./drivers/HikvisionDriver";
++import { isLprDriver } from "./drivers/IDeviceDriver";
+ 
+-const prisma = new PrismaClient();
+-const driver = new HikvisionDriver();
++// Use shared driver instances (same as liveSync.ts)
++const hikvisionDriver = new HikvisionDriver();
+ 
++function getLprDriver(brand: DeviceBrand) {
++    switch (brand) {
++        case DeviceBrand.HIKVISION:
++            return hikvisionDriver;
++        default:
++            return null; // Only Hikvision has LPR implemented for now
++    }
++}
++
++/**
++ * Bi-directional plate sync: removes "zombie" plates from devices
++ * that no longer exist in the database.
++ * Uses the shared Prisma singleton and the driver interface system.
++ */
+ export async function syncPlates() {
+     console.log("=== Starting Bi-directional Plate Sync ===");
+ 
+-    // 1. Get all LPR devices
+     const devices = await prisma.device.findMany({
+         where: { deviceType: "LPR_CAMERA" }
+     });
+@@ -17,34 +32,39 @@ export async function syncPlates() {
+         return;
+     }
+ 
+-    // 2. Get all valid credentials from DB
+     const dbCredentials = await prisma.credential.findMany({
+         where: { type: "PLATE" }
+     });
+     const dbPlates = new Set(dbCredentials.map(c => c.value));
+ 
+     for (const device of devices) {
+-        console.log(`Syncing device: ${device.name} (${device.ip})`);
++        const driver = getLprDriver(device.brand);
++        if (!driver || !isLprDriver(driver)) {
++            console.log(`Skipping ${device.name} (${device.brand}): no LPR driver available`);
++            continue;
++        }
+ 
+-        // 3. Get plates from Device
+-        const devicePlates = await driver.getPlates(device);
++        console.log(`Syncing device: ${device.name} (${device.ip})`);
+ 
+-        let removedCount = 0;
++        try {
++            const devicePlates = await driver.getPlates(device);
++            let removedCount = 0;
+ 
+-        // 4. Find zombies (on device but not in DB)
+-        for (const plate of devicePlates) {
+-            if (!dbPlates.has(plate)) {
+-                await driver.deleteCredential(plate, device);
+-                removedCount++;
++            for (const plate of devicePlates) {
++                if (!dbPlates.has(plate)) {
++                    try {
++                        await driver.deleteCredential(plate, device);
++                        removedCount++;
++                    } catch (e: any) {
++                        console.error(`Failed to remove plate ${plate} from ${device.ip}: ${e.message}`);
++                    }
++                }
+             }
+-        }
+ 
+-        console.log(`Device ${device.ip}: Removed ${removedCount} zombie plates.`);
+-
+-        // 5. Push missing (in DB but not on device) -> upsertCredential handles this if called explicitly
+-        // This script focuses on CLEANUP (Sanity Check) as requested, but we could also push.
+-        // Let's rely on the manual "Save" action for pushing new ones for now to avoid massive traffic bursts,
+-        // or we could iterate dbPlates and check if not in devicePlates.
++            console.log(`Device ${device.ip}: Removed ${removedCount} zombie plates.`);
++        } catch (e: any) {
++            console.error(`Failed to sync device ${device.ip}: ${e.message}`);
++        }
+     }
+     console.log("=== Sync Complete ===");
+ }
+diff --git a/src/services/liveSync.ts b/src/services/liveSync.ts
+index e3d17a9..ccb6c01 100644
+--- a/src/services/liveSync.ts
++++ b/src/services/liveSync.ts
+@@ -21,31 +21,33 @@ const milesightDriver = new MilesightDriver();
+ const unifiDriver = new UnifiDriver();
+ const univiewDriver = new UniviewDriver();
+ 
+-function getDriver(brand: DeviceBrand): IDeviceDriver {
++export function getDriver(brand: DeviceBrand): IDeviceDriver {
+     switch (brand) {
+-        case DeviceBrand.HIKVISION:
+-            return hikvisionDriver;
+-        case DeviceBrand.AKUVOX:
+-            return akuvoxDriver;
+-        case DeviceBrand.INTELBRAS:
+-            return intelbrasDriver;
+-        case DeviceBrand.DAHUA:
+-            return dahuaDriver;
+-        case DeviceBrand.ZKTECO:
+-            return zktecoDriver;
+-        case DeviceBrand.AVICAM:
+-            return avicamDriver;
+-        case DeviceBrand.MILESIGHT:
+-            return milesightDriver;
+-        case DeviceBrand.UNIFI:
+-            return unifiDriver;
+-        case DeviceBrand.UNIVIEW:
+-            return univiewDriver;
++        case DeviceBrand.HIKVISION: return hikvisionDriver;
++        case DeviceBrand.AKUVOX:    return akuvoxDriver;
++        case DeviceBrand.INTELBRAS: return intelbrasDriver;
++        case DeviceBrand.DAHUA:     return dahuaDriver;
++        case DeviceBrand.ZKTECO:    return zktecoDriver;
++        case DeviceBrand.AVICAM:    return avicamDriver;
++        case DeviceBrand.MILESIGHT: return milesightDriver;
++        case DeviceBrand.UNIFI:     return unifiDriver;
++        case DeviceBrand.UNIVIEW:   return univiewDriver;
+         default:
+             throw new Error(`Unsupported device brand: ${brand}`);
+     }
+ }
+ 
++const MAX_RETRIES = 2;
++const RETRY_DELAY_MS = 3000;
++
++function sleep(ms: number) {
++    return new Promise(resolve => setTimeout(resolve, ms));
++}
++
++/**
++ * Sync a credential to all devices in the user's access groups.
++ * Includes retry logic with exponential backoff and per-device failure tracking.
++ */
+ export async function syncToDevices(credentialId: string) {
+     try {
+         const credential = await prisma.credential.findUnique({
+@@ -64,36 +66,61 @@ export async function syncToDevices(credentialId: string) {
+         });
+ 
+         if (!credential || !credential.user) {
+-            console.warn(`Credential ${credentialId} not found or has no user.`);
++            console.warn(`[LiveSync] Credential ${credentialId} not found or has no user.`);
+             return;
+         }
+ 
+-        // Generic type for device map
++        // Deduplicate devices across access groups
+         const devicesMap = new Map<string, any>();
+-
+-        // Collect all unique devices from all access groups
+         for (const group of credential.user.accessGroups) {
+             for (const device of group.devices) {
+-                devicesMap.set(device.id, device); // Use Map to dedup by ID
++                devicesMap.set(device.id, device);
+             }
+         }
+ 
+         const devices = Array.from(devicesMap.values());
++        console.log(`[LiveSync] Syncing credential ${credential.id} (${credential.value}) to ${devices.length} devices...`);
+ 
+-        console.log(`Syncing credential ${credential.id} (${credential.value}) to ${devices.length} devices...`);
++        const results: { deviceId: string; deviceIp: string; brand: string; success: boolean; error?: string }[] = [];
+ 
+         const promises = devices.map(async (device) => {
+-            try {
+-                const driver = getDriver(device.brand);
+-                await driver.upsertCredential(credential, device);
+-                console.log(`Synced to ${device.brand} ${device.ip}`);
+-            } catch (error: any) {
+-                console.error(`Error syncing to ${device.ip}:`, error.message);
++            let lastError: string | undefined;
++
++            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
++                try {
++                    const driver = getDriver(device.brand);
++                    await driver.upsertCredential(credential, device);
++                    console.log(`[LiveSync] ✓ Synced to ${device.brand} ${device.ip}${attempt > 0 ? ` (retry #${attempt})` : ''}`);
++                    results.push({ deviceId: device.id, deviceIp: device.ip, brand: device.brand, success: true });
++                    return; // Success, exit retry loop
++                } catch (error: any) {
++                    lastError = error.message;
++                    if (attempt < MAX_RETRIES) {
++                        const delay = RETRY_DELAY_MS * (attempt + 1); // Linear backoff
++                        console.warn(`[LiveSync] ✗ Attempt ${attempt + 1} failed for ${device.ip}: ${error.message}. Retrying in ${delay}ms...`);
++                        await sleep(delay);
++                    }
++                }
+             }
++
++            // All retries exhausted
++            console.error(`[LiveSync] ✗ FAILED after ${MAX_RETRIES + 1} attempts for ${device.brand} ${device.ip}: ${lastError}`);
++            results.push({ deviceId: device.id, deviceIp: device.ip, brand: device.brand, success: false, error: lastError });
+         });
+ 
+         await Promise.all(promises);
++
++        // Summary
++        const failed = results.filter(r => !r.success);
++        if (failed.length > 0) {
++            console.warn(`[LiveSync] Summary: ${results.length - failed.length}/${results.length} devices synced. Failed: ${failed.map(f => f.deviceIp).join(', ')}`);
++        } else {
++            console.log(`[LiveSync] Summary: All ${results.length} devices synced successfully.`);
++        }
++
++        return results;
+     } catch (error) {
+-        console.error("LiveSync Error:", error);
++        console.error("[LiveSync] Critical Error:", error);
++        return [];
+     }
+ }

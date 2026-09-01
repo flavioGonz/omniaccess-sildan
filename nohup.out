@@ -1,0 +1,4 @@
+bash: line 1: 145833 Hangup                  npm run build > /tmp/build_output.log 2>&1
+bash: line 1: 146661 Hangup                  npm run build > /tmp/build2.log 2>&1
+bash: line 1: 146801 Hangup                  NODE_OPTIONS=--max-old-space-size=1024 npm run build > /tmp/build3.log 2>&1
+bash: line 1: 159848 Hangup                  npx next build > /tmp/bld.log 2>&1

@@ -1,0 +1,635 @@
+"use client";
+
+import { useEffect, useState, useMemo, useRef, memo, useCallback } from "react";
+import { io, Socket } from "socket.io-client";
+import { useRouter } from "next/navigation";
+import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice } from "@/app/actions/history";
+import { getDevices, getAvailableStreams } from "@/app/actions/devices";
+import {
+    Car,
+    CheckCircle2,
+    XCircle,
+    Clock,
+    TrendingUp,
+    TrendingDown,
+    Zap,
+    Shield,
+    AlertTriangle,
+    Filter,
+    RefreshCw,
+    Camera,
+    LogIn,
+    LogOut,
+    Truck,
+    Bus,
+    Bike,
+    Activity,
+    Search
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import Image from "next/image";
+import { AccessEvent, Device, Unit } from "@prisma/client";
+import { getCarLogo } from "@/lib/car-logos";
+import { getVehicleBrandName } from "@/lib/hikvision-codes";
+import { getImagePath } from "@/lib/image-path";
+import { getSocketUrl } from "@/lib/socket-config";
+import { getUnits } from "@/app/actions/units";
+import { getAccessGroups } from "@/app/actions/groups";
+import { getParkingSlots } from "@/app/actions/parking";
+import { UserFormDialog } from "@/components/UserFormDialog";
+
+interface FullAccessEvent extends AccessEvent {
+    user: {
+        id: string;
+        name: string;
+        email: string | null;
+        phone: string | null;
+        dni: string | null;
+        apartment: string | null;
+        cara: string | null;
+        unit: Unit | null;
+        parkingSlotId: string | null;
+    } | null;
+    device: Device | null;
+}
+
+function playShutter() { /* sonido de captura desactivado para evitar warnings de autoplay del navegador */ }
+
+function TimeAgo({ timestamp }: { timestamp: string | Date }) {
+    const [now, setNow] = useState<number | null>(null);
+    useEffect(() => { setNow(Date.now()); const iv = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(iv); }, []);
+    if (now === null) return <span suppressHydrationWarning>&middot;&middot;&middot;</span>;
+    const s = Math.max(0, Math.floor((now - new Date(timestamp).getTime()) / 1000));
+    let txt: string;
+    if (s < 60) txt = `Hace ${s}s`;
+    else if (s < 3600) txt = `Hace ${Math.floor(s / 60)}m`;
+    else if (s < 86400) txt = `Hace ${Math.floor(s / 3600)}h`;
+    else txt = new Date(timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short" });
+    return <span suppressHydrationWarning>{txt}</span>;
+}
+
+function SmartThumb({ src, w, className }: { src?: string; w?: number; className?: string }) {
+    const [tries, setTries] = useState(0);
+    const imgRef = useRef<HTMLImageElement>(null);
+    useEffect(() => { setTries(0); }, [src]);
+    // Watchdog: si al rato la imagen no está completa (request que nunca arrancó o quedó
+    // colgado — eso NO dispara onError), forzamos un request fresco con cache-bust.
+    useEffect(() => {
+        if (!src) return;
+        if (tries >= 6) return;
+        const t = setTimeout(() => {
+            const im = imgRef.current;
+            if (!im || (im.complete && im.naturalWidth > 0)) return;
+            setTries((n) => n + 1);
+        }, tries === 0 ? 1200 : 1500 + tries * 500);
+        return () => clearTimeout(t);
+    }, [src, tries]);
+    if (!src) {
+        return (
+            <div className={cn("relative overflow-hidden bg-muted flex items-center justify-center", className)}>
+                <Car size={18} className="text-muted-foreground/40" />
+            </div>
+        );
+    }
+    const base = w ? `${src}${src.includes("?") ? "&" : "?"}w=${w}` : src;
+    const finalSrc = tries > 0 ? `${base}${base.includes("?") ? "&" : "?"}r=${tries}` : base;
+    return (
+        <div className={cn("relative overflow-hidden bg-muted/60", className)}>
+            <img ref={imgRef} src={finalSrc} alt="" loading="eager" decoding="async"
+                className="absolute inset-0 w-full h-full object-cover" />
+        </div>
+    );
+}
+
+function ThumbImg({ src, className }: { src?: string; className?: string }) {
+    if (!src) return null;
+    return <img src={src} alt="" className={className} loading="eager" decoding="async" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />;
+}
+
+function CamTile({ dev, accent = "emerald", ev }: { dev: any; accent?: string; ev?: any }) {
+    const [lit, setLit] = useState(false);
+    const last = useRef<string | undefined>(undefined);
+    const snap = useMemo(() => `/api/snapshot/${dev.id}?t=${Date.now()}`, [dev.id]);
+    useEffect(() => {
+        if (ev?.id && ev.id !== last.current) {
+            const first = last.current === undefined;
+            last.current = ev.id;
+            if (!first) { setLit(true); const t = setTimeout(() => setLit(false), 1000); return () => clearTimeout(t); }
+        }
+    }, [ev?.id]);
+    const ring = accent === "orange" ? "border-orange-400 shadow-[0_0_18px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.7)]";
+    const img = ev ? (getImagePath(ev.snapshotPath || ev.imagePath) || "") : "";
+    const plate = ev?.plateDetected as string | undefined;
+    const ok = ev?.decision === "GRANT";
+    const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
+    const inner = (
+        <div className={cn("relative rounded-lg overflow-hidden border vid-surface aspect-video transition-all duration-300", lit ? ring : "border-neutral-800")}>
+            <SmartThumb src={img || snap} w={384} className="absolute inset-0 w-full h-full" />
+            <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 pointer-events-none">
+                <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span></span>
+                <span className="text-[9px] font-bold text-white/90 truncate max-w-[130px]">{dev.name}</span>
+            </div>
+            {plate && (
+                <div className="absolute inset-x-1.5 bottom-1.5 z-20 pointer-events-none flex justify-center">
+                    <div className={cn("px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-white backdrop-blur-sm border shadow-lg", anomalous ? "bg-yellow-500/40 border-yellow-300/50 text-yellow-100" : ok ? "bg-emerald-600/80 border-emerald-300/40" : "bg-red-600/80 border-red-300/40")}>
+                        {anomalous ? "S/L" : plate}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+    return ev ? (
+        <EventDetailsDialog event={ev} timeStatus={null}>
+            <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
+        </EventDetailsDialog>
+    ) : inner;
+}
+
+function PlateCommandBar() {
+    const router = useRouter();
+    const [q, setQ] = useState("");
+    const [results, setResults] = useState<any[]>([]);
+    const [open, setOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const boxRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!q.trim()) { setResults([]); return; }
+        setLoading(true);
+        const t = setTimeout(async () => {
+            try { const r: any = await getAccessEvents({ search: q.trim(), take: 6, type: "PLATE" }); setResults(r?.events || []); } catch { setResults([]); }
+            setLoading(false);
+        }, 300);
+        return () => clearTimeout(t);
+    }, [q]);
+    useEffect(() => {
+        const onDoc = (e: any) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); };
+        document.addEventListener("mousedown", onDoc); return () => document.removeEventListener("mousedown", onDoc);
+    }, []);
+    const go = (path: string) => { setOpen(false); router.push(path); };
+    return (
+        <div ref={boxRef} className="relative flex-1 max-w-md mx-4 hidden md:block">
+            <div className="relative">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input value={q}
+                    onChange={(e) => { setQ(e.target.value.toUpperCase()); setOpen(true); }}
+                    onFocus={() => setOpen(true)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && q.trim()) go(`/admin/history?search=${encodeURIComponent(q.trim())}`); }}
+                    placeholder="Buscar matrícula e investigar..."
+                    className="w-full h-9 pl-9 pr-3 rounded-lg bg-card border border-border text-sm font-mono tracking-wider text-foreground placeholder:font-sans placeholder:tracking-normal placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+            </div>
+            {open && (q.trim() || results.length > 0) && (
+                <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-xl overflow-hidden max-h-80 overflow-y-auto">
+                    {loading && <div className="px-3 py-2 text-xs text-muted-foreground">Buscando…</div>}
+                    {!loading && results.length === 0 && q.trim() && <div className="px-3 py-2 text-xs text-muted-foreground">Sin resultados</div>}
+                    {results.map((r) => (
+                        <button key={r.id} type="button" onClick={() => go(`/admin/history?search=${encodeURIComponent(r.plateDetected || q.trim())}`)} className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-accent transition-colors">
+                            <span className="font-mono font-bold text-sm">{r.plateDetected || "S/L"}</span>
+                            <span className="text-[11px] text-muted-foreground truncate">{r.device?.name || ""}</span>
+                            <span className={cn("ml-auto text-[10px] font-bold", r.decision === "GRANT" ? "text-emerald-400" : "text-red-400")}>{r.decision === "GRANT" ? "OK" : "DENY"}</span>
+                        </button>
+                    ))}
+                    <button type="button" onClick={() => go(`/admin/history?search=${encodeURIComponent(q.trim())}`)} className="w-full text-left px-3 py-2 text-[11px] font-bold text-blue-400 hover:bg-accent border-t border-border">Ver todo en Historial →</button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string) => void }) {
+    const router = useRouter();
+    const [flash, setFlash] = useState(false);
+    const last = useRef<string | undefined>(undefined);
+    useEffect(() => {
+        if (ev?.id && ev.id !== last.current) {
+            const first = last.current === undefined; last.current = ev.id;
+            if (!first) { setFlash(true); playShutter(); const t = setTimeout(() => setFlash(false), 900); return () => clearTimeout(t); }
+        }
+    }, [ev?.id]);
+    if (!ev) {
+        return (<div className="p-4"><div className="relative w-full aspect-video rounded-xl overflow-hidden vid-surface border border-border flex items-center justify-center"><div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1 rounded-lg bg-black/65 backdrop-blur-sm border border-blue-500/30 shadow-lg"><Camera size={13} className="text-blue-400" /><span className="text-[11px] font-bold text-blue-300 uppercase tracking-wider">Ultima captura</span></div><Camera size={36} className="text-muted-foreground/40" /></div></div>);
+    }
+    const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
+    const plate = ev.plateDetected as string | undefined;
+    const ok = ev.decision === "GRANT";
+    const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
+    const marca = (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
+    const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
+    const dir = ev.direction;
+    const ring = dir === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
+    return (
+        <div className="p-4">
+            <div className={cn("relative w-full aspect-video rounded-xl overflow-hidden vid-surface border transition-all duration-300", flash ? ring : "border-border")}>
+                <SmartThumb src={img} w={960} className="absolute inset-0 w-full h-full" />
+                {flash && <div className="iris-shot" />}
+                <div className="absolute top-3 left-3 z-10"><Badge className={cn("text-xs shadow-lg", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge></div>
+                <div className="absolute top-3 right-3 z-10"><Badge className={cn("text-xs shadow-lg", ok ? "bg-emerald-600" : "bg-red-600")}>{ok ? "PERMITIDO" : "DENEGADO"}</Badge></div>
+                {crop && (
+                    <div className="absolute top-14 right-3 z-20 w-40 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
+                        <div className="px-1.5 py-0.5 bg-black/70 text-[8px] font-bold text-white/90 uppercase tracking-wide">Patente</div>
+                        <ThumbImg src={crop} className="w-full h-auto object-contain bg-black" />
+                    </div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-3 pt-14 flex flex-col items-center">
+                    {anomalous ? (
+                        <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 rounded-lg border border-yellow-500/50"><AlertTriangle size={18} className="text-yellow-300" /><span className="text-lg font-bold text-yellow-300">SIN LECTURA</span></div>
+                    ) : (
+                        <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-3xl font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
+                    )}
+                    <div className="mt-1.5 text-[11px] text-white/80 flex items-center gap-2">
+                        {marca && <span className="font-semibold">{marca}</span>}
+                        <span>{ev.device?.name || "Dispositivo"}</span>
+                        <span className="text-white/50">&middot; <TimeAgo timestamp={ev.timestamp} /></span>
+                    </div>
+                    {plate && !anomalous && (
+                        <div className="mt-2 flex gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(plate)}`); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
+                            {!ok && <button onClick={(e) => { e.stopPropagation(); onRegister?.(plate); }} className="px-3 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide transition-colors">Registrar</button>}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function parseMeta(details: string | null) {
+    const meta: any = {};
+    if (details) {
+        details.split(',').forEach(p => {
+            const [k, v] = p.split(':').map(s => s.trim());
+            if (k && v) meta[k] = v;
+        });
+    }
+    if (meta.Marca) {
+        let cleanBrand = meta.Marca.replace(/\s*UNKNOWN\s*/gi, '').trim();
+        const brandCodeMatch = cleanBrand.match(/BRAND\s*(\d+)/i);
+        if (brandCodeMatch) cleanBrand = getVehicleBrandName(brandCodeMatch[1]);
+        meta.Marca = cleanBrand;
+    }
+    return meta;
+}
+
+const VehicleCard = memo(function VehicleCard({ event, onRegister }: { event: any; onRegister: (p?: string) => void }) {
+    const router = useRouter();
+    const meta = parseMeta(event.details);
+    const logoUrl = getCarLogo(meta.Marca);
+    const fullImageUrl = getImagePath(event.snapshotPath || event.imagePath) || "";
+    const isAnomalous = event.plateDetected === "NO_LEIDA" || event.plateDetected === "unknown" || event.plateDetected === "S/P" || !event.plateDetected;
+    return (
+        <EventDetailsDialog event={event} timeStatus={null}>
+            <div className={cn(
+                "p-3 cursor-pointer transition-all group border-b border-border last:border-0",
+                isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent"
+            )}>
+                <div className="flex items-center gap-3">
+                    <SmartThumb src={fullImageUrl} w={256} className="w-20 h-14 rounded-lg border border-border shrink-0" />
+                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                            {isAnomalous ? (
+                                <div className="flex items-center gap-1 text-yellow-400">
+                                    <AlertTriangle size={12} />
+                                    <span className="text-xs font-bold">SIN LECTURA</span>
+                                </div>
+                            ) : (
+                                <span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span>
+                            )}
+                            <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                            {logoUrl && (<Image src={logoUrl} alt={meta.Marca || ""} width={16} height={16} className="rounded-sm opacity-70" />)}
+                            {meta.Marca && <span className="text-[10px] text-muted-foreground">{meta.Marca}</span>}
+                            {event.user?.name && (<span className="text-[10px] text-blue-400 truncate">{event.user.name}</span>)}
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                            <TimeAgo timestamp={event.timestamp} />
+                            {event.device?.name && <span>&middot; {event.device.name}</span>}
+                        </div>
+                        {event.plateDetected && !isAnomalous && (
+                            <div className="flex gap-1.5 mt-1.5">
+                                <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(event.plateDetected!)}`); }} className="px-2 py-0.5 rounded-md bg-blue-500/15 hover:bg-blue-500/25 text-blue-500 text-[9px] font-bold uppercase tracking-wide transition-colors">Investigar</button>
+                                {event.decision !== "GRANT" && <button onClick={(e) => { e.stopPropagation(); onRegister(event.plateDetected!); }} className="px-2 py-0.5 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[9px] font-bold uppercase tracking-wide transition-colors">Registrar</button>}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </EventDetailsDialog>
+    );
+});
+
+export default function MonitorLPR() {
+    const [events, setEvents] = useState<FullAccessEvent[]>([]);
+    const [socket, setSocket] = useState<Socket | null>(null);
+    const [activeFilter, setActiveFilter] = useState<"ALL" | "GRANT" | "DENY">("ALL");
+    const [stats, setStats] = useState({ total: 0, grants: 0, denies: 0 });
+    const [aforo, setAforo] = useState({ entradas: 0, salidas: 0, inside: 0 });
+    const [lastCapByDev, setLastCapByDev] = useState<Record<string, any>>({});
+    const [isConnected, setIsConnected] = useState(false);
+    const [devices, setDevices] = useState<Device[]>([]);
+    const [streams, setStreams] = useState<string[]>([]);
+    const router = useRouter();
+    const [units, setUnits] = useState<any[]>([]);
+    const [groups, setGroups] = useState<any[]>([]);
+    const [parkingSlots, setParkingSlots] = useState<any[]>([]);
+    const [registerOpen, setRegisterOpen] = useState(false);
+    const [registerInit, setRegisterInit] = useState<{ plate?: string } | undefined>(undefined);
+    const [merodeo, setMerodeo] = useState<any | null>(null);
+    const pendingRef = useRef<any[]>([]);
+
+    const lastEntry = events.find(e => e.direction === 'ENTRY');
+    const lastExit = events.find(e => e.direction === 'EXIT');
+
+    const loadInitialData = async () => {
+        try {
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+            const data = await getAccessEvents({ take: 50, from: twentyFourHoursAgo, type: "PLATE" });
+            setEvents(data.events as FullAccessEvent[]);
+            const todayStats = await getEventsCountToday("PLATE");
+            setStats(todayStats);
+            getLprCounters().then(setAforo).catch(() => {});
+        } catch (error) {
+            console.error("Error loading LPR data:", error);
+        }
+    };
+
+    useEffect(() => { getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
+    useEffect(() => { Promise.all([getUnits(), getAccessGroups(), getParkingSlots()]).then(([u, g, p]: any) => { setUnits(u || []); setGroups(g || []); setParkingSlots(p || []); }).catch(() => {}); }, []);
+
+    useEffect(() => {
+        loadInitialData();
+        const socketUrl = getSocketUrl();
+        const newSocket = io(socketUrl, {
+            transports: ["websocket", "polling"],
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 8000,
+            timeout: 8000,
+        });
+
+        // Robustez: si el server se reinicia o se corta la red, al RE-conectar re-sincronizamos
+        // (los eventos emitidos durante la desconexión no se re-emiten solos).
+        let hadSession = false;
+        newSocket.on("connect", () => {
+            setIsConnected(true);
+            if (hadSession) loadInitialData();
+            hadSession = true;
+        });
+        newSocket.on("disconnect", () => setIsConnected(false));
+        newSocket.on("connect_error", () => setIsConnected(false));
+        // Watchdog: si quedó desconectado (sesión muerta, 400 en polling), forzar reconexión limpia.
+        const watchdog = setInterval(() => {
+            if (!newSocket.connected) { try { newSocket.connect(); } catch { } }
+        }, 10000);
+        // Al volver a la pestaña: reconectar si hace falta y re-sincronizar.
+        const onVisible = () => {
+            if (document.visibilityState === "visible") {
+                if (!newSocket.connected) { try { newSocket.connect(); } catch { } }
+                loadInitialData();
+            }
+        };
+        document.addEventListener("visibilitychange", onVisible);
+        window.addEventListener("online", onVisible);
+
+        newSocket.on("access_event", (event: FullAccessEvent) => {
+            // Only LPR events
+            if (event.accessType !== "PLATE") return;
+
+            const eventTime = new Date(event.timestamp).getTime();
+            const limit = Date.now() - 24 * 60 * 60 * 1000;
+            if (eventTime < limit) return;
+
+            // Skip door open/close
+            const plate = (event.plateDetected || '').toUpperCase();
+            if (plate === 'DOOR_OPEN' || plate === 'DOOR_CLOSE') return;
+
+            // Buffer the event; a 250ms flush loop coalesces bursts into a single render
+            // so the main thread stays free to paint incoming snapshots.
+            pendingRef.current.push(event);
+        });
+
+        newSocket.on("merodeo_alert", (a: any) => { setMerodeo(a); setTimeout(() => setMerodeo(null), 30000); });
+        setSocket(newSocket);
+        return () => {
+            clearInterval(watchdog);
+            document.removeEventListener("visibilitychange", onVisible);
+            window.removeEventListener("online", onVisible);
+            newSocket.disconnect();
+        };
+    }, []);
+
+    // Flush buffered socket events at most ~4x/sec (batch) to avoid render storms.
+    useEffect(() => {
+        const iv = setInterval(() => {
+            const batch = pendingRef.current;
+            if (batch.length === 0) return;
+            pendingRef.current = [];
+            const ordered = batch.slice().reverse();
+            setEvents(prev => [...ordered, ...prev].slice(0, 50) as FullAccessEvent[]);
+            let g = 0, d = 0;
+            for (const e of batch) { if (e.decision === "GRANT") g++; else if (e.decision === "DENY") d++; }
+            setStats(s => ({ total: s.total + batch.length, grants: s.grants + g, denies: s.denies + d }));
+            setAforo(a => {
+                let entradas = a.entradas, salidas = a.salidas, inside = a.inside;
+                for (const e of batch) { if (e.decision === "GRANT") { if (e.direction === "ENTRY") { entradas++; inside++; } else if (e.direction === "EXIT") { salidas++; inside = Math.max(0, inside - 1); } } }
+                return { entradas, salidas, inside };
+            });
+        }, 250);
+        return () => clearInterval(iv);
+    }, []);
+
+    const filteredEvents = useMemo(() => {
+        return events.filter(e => {
+            const plate = (e.plateDetected || '').toUpperCase();
+            if (plate === 'DOOR_OPEN' || plate === 'DOOR_CLOSE') return false;
+            if (activeFilter !== "ALL" && e.decision !== activeFilter) return false;
+            return true;
+        });
+    }, [events, activeFilter]);
+
+    const entryEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'ENTRY'), [filteredEvents]);
+    const exitEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'EXIT'), [filteredEvents]);
+    const lprDevs = useMemo(() => devices, [devices]);
+    const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY'), [lprDevs]);
+    const exitCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'EXIT'), [lprDevs]);
+    const lastByCam = useMemo(() => {
+        const m: Record<string, any> = {};
+        for (const e of events) { const id = (e as any).device?.id; if (id && !m[id]) m[id] = e; }
+        return m;
+    }, [events]);
+    const hasStream = (id: any) => !!id && streams.includes(`lpr_${id}`);
+    const pickCam = (evts: any[], dir: string) => {
+        for (const e of evts) { if (hasStream(e?.device?.id)) return e.device.id; }
+        const d = lprDevs.find((x: any) => x.direction === dir && hasStream(x.id)) || lprDevs.find((x: any) => hasStream(x.id));
+        return d?.id || null;
+    };
+    const entryCam = useMemo(() => pickCam(entryEvents, "ENTRY"), [lprDevs, entryEvents, streams]);
+    const exitCam = useMemo(() => pickCam(exitEvents, "EXIT"), [lprDevs, exitEvents, streams]);
+
+
+
+    const centerPanes = useMemo(() => {
+        const build = (ev: any, dir: string) => ev?.device?.id ? {
+            dir, deviceId: ev.device.id,
+            plate: ev.plateDetected as string | undefined,
+            ok: ev.decision === "GRANT",
+            anomalous: !ev.plateDetected || ["NO_LEIDA", "unknown", "S/P"].includes(ev.plateDetected || ""),
+            marca: parseMeta(ev.details).Marca || ev.user?.name || "",
+            deviceName: ev.device?.name || "Dispositivo",
+        } : null;
+        return [build(entryEvents[0], "ENTRY"), build(exitEvents[0], "EXIT")].filter(Boolean) as any[];
+    }, [entryEvents, exitEvents]);
+
+    const openRegister = useCallback((plate?: string) => { if (!plate) return; setRegisterInit({ plate: String(plate).toUpperCase() }); setRegisterOpen(true); }, []);
+
+    return (
+        <TooltipProvider>
+            <div className="h-full flex flex-col bg-background text-foreground">
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-blue-500/10">
+                            <Car size={22} className="text-blue-400" />
+                        </div>
+                        <div>
+                            <h1 className="text-lg font-bold">Monitor LPR</h1>
+                            <p className="text-xs text-muted-foreground">Reconocimiento de matrículas en tiempo real</p>
+                        </div>
+                    </div>
+
+                    <PlateCommandBar />
+
+                    <div className="flex items-center gap-3">
+                        {/* Connection status */}
+                        <div className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium",
+                            isConnected ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+                        )}>
+                            <div className={cn("w-2 h-2 rounded-full", isConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400")} />
+                            {isConnected ? "LIVE" : "OFFLINE"}
+                        </div>
+
+                        {/* Quick stats */}
+                        <div className="flex items-center gap-3 pl-1">
+                            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs"><Car size={13} className="text-blue-400" /><span className="text-muted-foreground uppercase tracking-wide text-[10px] font-bold">Adentro</span><span className="font-bold text-blue-400 text-sm">{aforo.inside}</span></span>
+                            <span className="flex items-center gap-1.5 text-xs"><Activity size={13} className="text-blue-400" /><span className="text-muted-foreground">Hoy</span><span className="font-bold text-foreground">{stats.total}</span></span>
+                            <span className="flex items-center gap-1 text-xs"><CheckCircle2 size={13} className="text-emerald-400" /><span className="font-semibold text-emerald-400">{stats.grants}</span></span>
+                            <span className="flex items-center gap-1 text-xs"><XCircle size={13} className="text-red-400" /><span className="font-semibold text-red-400">{stats.denies}</span></span>
+                            <span className="text-[10px] text-muted-foreground hidden xl:inline">{filteredEvents.length} en buffer</span>
+                        </div>
+                        <div className="w-px h-5 bg-border" />
+
+                        {/* Decision filter */}
+                        <div className="flex bg-card rounded-lg p-0.5">
+                            {(["ALL", "GRANT", "DENY"] as const).map(f => (
+                                <button
+                                    key={f}
+                                    onClick={() => setActiveFilter(f)}
+                                    className={cn(
+                                        "px-3 py-1 text-xs rounded-md transition-all",
+                                        activeFilter === f ? "bg-blue-500 text-foreground" : "text-muted-foreground hover:text-foreground"
+                                    )}
+                                >
+                                    {f === "ALL" ? "Todos" : f === "GRANT" ? "Permitidos" : "Denegados"}
+                                </button>
+                            ))}
+                        </div>
+
+                        <Button variant="ghost" size="icon" onClick={loadInitialData} className="text-muted-foreground hover:text-foreground">
+                            <RefreshCw size={16} />
+                        </Button>
+                    </div>
+                </div>
+
+                {merodeo && (
+                    <div className="mx-6 mt-2 mb-1 flex items-center gap-3 rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2 shrink-0">
+                        <AlertTriangle size={18} className="text-red-500 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-red-500">Merodeo detectado &mdash; <span className="font-mono tracking-wider">{merodeo.plate}</span></p>
+                            <p className="text-[11px] text-muted-foreground truncate">{merodeo.count} pasadas en {merodeo.windowMin} min &middot; {merodeo.distinctDevices} acceso/s{merodeo.deviceName ? ` \u00b7 ${merodeo.deviceName}` : ""}</p>
+                        </div>
+                        <button onClick={() => setMerodeo(null)} className="text-muted-foreground hover:text-foreground shrink-0"><XCircle size={18} /></button>
+                    </div>
+                )}
+                {/* Three columns */}
+                <div className="flex-1 grid grid-cols-3 divide-x divide-neutral-800 overflow-hidden">
+                    {/* ENTRIES */}
+                    <div className="flex flex-col overflow-hidden">
+                        <div className="shrink-0 p-3 pb-1">
+                            <div className="flex items-center gap-1.5 mb-2">
+                                <LogIn size={13} className="text-emerald-400" />
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Entradas</span>
+                                <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold border border-emerald-500/40 text-emerald-300">{entryCams.length} cám</span>
+                            </div>
+                            {entryCams.length === 0 ? (
+                                <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de entrada</div>
+                            ) : (
+                                <div className={cn("grid gap-2", entryCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+                                    {entryCams.map((d: any) => <CamTile key={d.id} dev={d} accent="emerald" ev={lastByCam[d.id] || lastCapByDev[d.id]} />)}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
+                            {filteredEvents.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+                                    <Car size={24} className="mb-2 opacity-30" />
+                                    <span className="text-xs">Sin capturas recientes</span>
+                                </div>
+                            ) : (
+                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} />)
+                            )}
+                        </div>
+                    </div>
+
+                    {/* CENTER: fixed spotlight + independently scrolling recent list */}
+                    <div className="flex flex-col overflow-hidden">
+                        <div className="shrink-0">
+                            <CenterShot ev={filteredEvents[0]} onRegister={openRegister} />
+                        </div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            <div className="px-4 pt-2 pb-2">
+                                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
+                            </div>
+                            {filteredEvents.slice(1, 15).map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} />)}
+                        </div>
+                    </div>
+
+                    {/* EXITS */}
+                    <div className="flex flex-col overflow-hidden">
+                        <div className="shrink-0 p-3 pb-1">
+                            <div className="flex items-center gap-1.5 mb-2">
+                                <LogOut size={13} className="text-orange-400" />
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-orange-300">Salidas</span>
+                                <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold border border-orange-500/40 text-orange-300">{exitCams.length} cám</span>
+                            </div>
+                            {exitCams.length === 0 ? (
+                                <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de salida</div>
+                            ) : (
+                                <div className={cn("grid gap-2", exitCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+                                    {exitCams.map((d: any) => <CamTile key={d.id} dev={d} accent="orange" ev={lastByCam[d.id] || lastCapByDev[d.id]} />)}
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
+                            {filteredEvents.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+                                    <Car size={24} className="mb-2 opacity-30" />
+                                    <span className="text-xs">Sin capturas recientes</span>
+                                </div>
+                            ) : (
+                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} />)
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+                <UserFormDialog open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
+        </TooltipProvider>
+    );
+}

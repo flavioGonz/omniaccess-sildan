@@ -1,0 +1,1 @@
+const { PrismaClient } = require('@prisma/client'); const prisma = new PrismaClient(); async function main() { const credentials = await prisma.credential.findMany({ where: { user: { name: 'fgonzalez' } } }); console.log('Credentials fgonzalez:', credentials); } main().catch(console.error).finally(() => prisma.$disconnect());

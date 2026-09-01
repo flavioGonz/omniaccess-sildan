@@ -1,0 +1,26 @@
+{
+    "name": "Omniaccess Guard",
+    "short_name": "Omniacces",
+    "description": "Consola móvil de control de acceso",
+    "start_url": "/guard-iphone",
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#ffffff",
+    "icons": [
+        {
+            "src": "/icons/sildan-icon-dot.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "/icons/sildan-icon-dot.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "/icons/sildan-icon-dot.png",
+            "sizes": "any",
+            "type": "image/png"
+        }
+    ]
+}
