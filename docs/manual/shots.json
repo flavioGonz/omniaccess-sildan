@@ -1,0 +1,220 @@
+{
+  "_comment": "Capturas de los manuales. 'file' debe coincidir exacto con el marcador ![...](img/archivo.png) del Markdown. Se generan con: node scripts/capture-manual.js",
+  "shots": [
+    {
+      "file": "op-01-login.png",
+      "desc": "Pantalla de ingreso",
+      "url": "/login",
+      "wait": 2000
+    },
+    {
+      "file": "op-02-monitor-completo.png",
+      "desc": "Monitor LPR: entradas, foco central y salidas",
+      "url": "/admin/monitor-lpr",
+      "wait": 6000
+    },
+    {
+      "file": "op-03-monitor-foco.png",
+      "desc": "Detalle del foco central con la matrícula leída",
+      "url": "/admin/monitor-lpr",
+      "wait": 6000,
+      "clip": "main > div > div:nth-child(2)"
+    },
+    {
+      "file": "op-04-evento-perfil.png",
+      "desc": "Popup del evento — pestaña Perfil",
+      "url": "/admin/monitor-lpr",
+      "wait": 6000,
+      "click": [
+        "[aria-haspopup=\"dialog\"]"
+      ],
+      "clickWait": 2600
+    },
+    {
+      "file": "op-05-evento-encuadrar.png",
+      "desc": "Encuadrar el objetivo sobre la foto",
+      "url": "/admin/monitor-lpr",
+      "wait": 6000,
+      "click": [
+        "[aria-haspopup=\"dialog\"]",
+        "Encuadrar"
+      ],
+      "clickWait": 2600
+    },
+    {
+      "file": "op-06-evento-historial.png",
+      "desc": "Popup del evento — pestaña Historial",
+      "url": "/admin/monitor-lpr",
+      "wait": 6000,
+      "click": [
+        "[aria-haspopup=\"dialog\"]",
+        "Historial"
+      ],
+      "clickWait": 2600
+    },
+    {
+      "file": "op-07-historial.png",
+      "desc": "Historial de accesos con filtros",
+      "url": "/admin/history",
+      "wait": 4000
+    },
+    {
+      "file": "op-08-busqueda-accesos.png",
+      "desc": "Búsqueda inteligente — modo Accesos",
+      "url": "/admin/acuseek",
+      "wait": 3500
+    },
+    {
+      "file": "op-09-mapa.png",
+      "desc": "Mapa del barrio con cámaras y guardias",
+      "url": "/admin/mapa",
+      "wait": 5000
+    },
+    {
+      "file": "op-10-plazas.png",
+      "desc": "Plazas de parking con ocupación en vivo",
+      "url": "/admin/plazas",
+      "wait": 4000
+    },
+    {
+      "file": "op-11-bitacora.png",
+      "desc": "Bitácora de novedades",
+      "url": "/admin/bitacora",
+      "wait": 3000
+    },
+    {
+      "file": "op-12-consola-guardia.png",
+      "desc": "Consola de guardia",
+      "url": "/admin/consolas",
+      "wait": 4000
+    },
+    {
+      "file": "adm-01-dashboard.png",
+      "desc": "Panel principal",
+      "url": "/admin/dashboard",
+      "wait": 4500
+    },
+    {
+      "file": "adm-02-usuarios.png",
+      "desc": "Usuarios y residentes",
+      "url": "/admin/users",
+      "wait": 3500
+    },
+    {
+      "file": "adm-03-usuario-alta.png",
+      "desc": "Alta de usuario con matrícula",
+      "url": "/admin/users?action=create",
+      "wait": 3000
+    },
+    {
+      "file": "adm-04-unidades.png",
+      "desc": "Unidades / lotes",
+      "url": "/admin/units",
+      "wait": 3000
+    },
+    {
+      "file": "adm-05-vehiculos.png",
+      "desc": "Vehículos y matrículas",
+      "url": "/admin/vehicles",
+      "wait": 3500
+    },
+    {
+      "file": "adm-06-grupos.png",
+      "desc": "Grupos de acceso",
+      "url": "/admin/groups",
+      "wait": 3000
+    },
+    {
+      "file": "adm-07-calendario.png",
+      "desc": "Calendario y horarios",
+      "url": "/admin/calendar",
+      "wait": 3000
+    },
+    {
+      "file": "adm-08-dispositivos.png",
+      "desc": "Dispositivos LPR con estado y salud",
+      "url": "/admin/devices",
+      "wait": 5000
+    },
+    {
+      "file": "adm-09-notificaciones.png",
+      "desc": "Reglas de notificación",
+      "url": "/admin/notificaciones",
+      "wait": 3000
+    },
+    {
+      "file": "adm-10-despachos.png",
+      "desc": "Cola de despachos y envíos",
+      "url": "/admin/despachos",
+      "wait": 3500
+    },
+    {
+      "file": "adm-11-busqueda-imagen.png",
+      "desc": "Búsqueda inteligente — modo por imagen",
+      "url": "/admin/acuseek",
+      "wait": 3500
+    },
+    {
+      "file": "adm-12-settings-modo.png",
+      "desc": "Configuración — modo del sistema",
+      "url": "/admin/settings",
+      "wait": 3500
+    },
+    {
+      "file": "adm-13-settings-branding.png",
+      "desc": "Configuración — branding",
+      "url": "/admin/settings",
+      "wait": 3500,
+      "click": [
+        "Branding"
+      ],
+      "clickWait": 1800
+    },
+    {
+      "file": "adm-14-settings-almacenamiento.png",
+      "desc": "Configuración — almacenamiento y retención",
+      "url": "/admin/settings",
+      "wait": 3500,
+      "click": [
+        "Almacenamiento"
+      ],
+      "clickWait": 1800
+    },
+    {
+      "file": "adm-15-rfid.png",
+      "desc": "Tags RFID",
+      "url": "/admin/rfid",
+      "wait": 3000
+    },
+    {
+      "file": "adm-16-auditoria.png",
+      "desc": "Auditoría del sistema",
+      "url": "/admin/audit",
+      "wait": 3000
+    },
+    {
+      "file": "ins-01-devices-salud.png",
+      "desc": "Tabla de salud de dispositivos",
+      "url": "/admin/devices",
+      "wait": 5000
+    },
+    {
+      "file": "ins-02-mapas.png",
+      "desc": "Mapas y topología",
+      "url": "/admin/mapas",
+      "wait": 4000
+    },
+    {
+      "file": "ins-03-debug.png",
+      "desc": "Monitor de webhooks (diagnóstico)",
+      "url": "/admin/debug",
+      "wait": 3500
+    },
+    {
+      "file": "ins-04-changelog.png",
+      "desc": "Historial de versiones",
+      "url": "/admin/changelog",
+      "wait": 2500
+    }
+  ]
+}

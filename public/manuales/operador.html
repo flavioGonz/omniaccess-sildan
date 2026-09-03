@@ -1,0 +1,253 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>OmniAccess LPR · Manual del Operador</title>
+<style>
+:root{--c:#10b981;--tinta:#111827;--suave:#6b7280;--linea:#e5e7eb;--fondo:#fff;--code:#f3f4f6}
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--tinta)}
+.hoja{background:var(--fondo);width:210mm;min-height:297mm;margin:14px auto;padding:22mm 20mm 20mm;box-shadow:0 4px 24px rgba(0,0,0,.35)}
+
+/* ── PORTADA ── (posicionamiento absoluto: se imprime igual siempre) */
+.portada{position:relative;width:210mm;height:296.9mm;padding:0;overflow:hidden;color:#fff;
+  background:linear-gradient(150deg,#0b1220 0%,#111a2e 45%,var(--c) 190%)}
+.portada .malla{position:absolute;inset:0;opacity:.5;
+  background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:26px 26px}
+.portada .halo{position:absolute;width:640px;height:640px;right:-220px;top:-180px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 62%);opacity:.30}
+.portada .halo2{position:absolute;width:420px;height:420px;left:-160px;bottom:-140px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 65%);opacity:.18}
+.p-top{position:absolute;top:24mm;left:22mm;right:22mm}
+.marca{display:flex;align-items:center;gap:12px}
+.marca .ico{width:44px;height:44px;border-radius:12px;background:var(--c);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 8px 26px rgba(0,0,0,.4)}
+.marca .n{font-size:19px;font-weight:800;letter-spacing:.16em}
+.marca .s{font-size:9.5px;letter-spacing:.34em;color:#9aa4b2;margin-top:2px}
+.p-mid{position:absolute;left:22mm;right:22mm;bottom:62mm}
+.kicker{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.26em;color:var(--c);
+  border:1px solid var(--c);border-radius:999px;padding:5px 13px;margin-bottom:20px}
+.p-mid h1{font-size:53px;line-height:1.03;margin:0 0 8px;font-weight:800;letter-spacing:-.02em}
+.p-mid h2{font-size:21px;margin:0 0 22px;font-weight:500;color:#c7d2de}
+.p-mid .para{max-width:118mm;color:#9aa4b2;font-size:13.5px;line-height:1.6;border-left:3px solid var(--c);padding-left:14px}
+.p-bot{position:absolute;left:22mm;right:22mm;bottom:24mm;display:flex;justify-content:space-between;align-items:flex-end;
+  padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+.p-bot .campo{font-size:11px;color:#8b95a5}
+.p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
+.p-bot .der{text-align:right}
+
+/* ── ÍNDICE ── */
+.indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:22px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap}
+.indice li{margin:0}
+.indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
+.indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
+.indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
+.indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
+
+/* ── CUERPO ── */
+h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
+  page-break-before:always;break-before:page}
+.hoja > h1.cap:first-child{page-break-before:auto;break-before:auto}
+h2{font-size:20.5px;margin:30px 0 10px;color:#0f172a}
+h3{font-size:16px;margin:22px 0 7px;color:#1f2937}
+h4{font-size:14px;margin:16px 0 5px;color:#374151}
+p{margin:0 0 11px}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:4px 0}
+code{background:var(--code);padding:1.5px 5px;border-radius:4px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#0f172a}
+pre{background:#0f172a;color:#e2e8f0;padding:13px 15px;border-radius:9px;overflow:auto;margin:0 0 13px}
+pre code{background:none;color:inherit;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:0 0 15px;font-size:13.5px}
+th{background:#f8fafc;text-align:left;padding:8px 10px;border-bottom:2px solid var(--c);font-weight:700}
+td{padding:7px 10px;border-bottom:1px solid var(--linea);vertical-align:top}
+tr:nth-child(even) td{background:#fcfcfd}
+.ruta{display:flex;align-items:center;gap:10px;background:#f8fafc;border-left:3px solid var(--c);
+  padding:8px 13px;border-radius:0 7px 7px 0;font-size:13px;margin:0 0 15px}
+.ruta-l{font-size:9px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--c);white-space:nowrap}
+blockquote{margin:0 0 14px;padding:11px 15px;border-radius:8px;font-size:13.5px;border-left:4px solid}
+blockquote.nota{background:#f8fafc;border-color:#94a3b8}
+blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
+blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
+blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
+blockquote.alerta::before{content:"⚠ ";font-weight:700}
+figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
+figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
+figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
+figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
+hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
+
+/* pie de página impreso */
+@page{size:A4;margin:16mm 15mm 17mm}
+@media print{
+  html,body{margin:0;padding:0;background:#fff}
+  .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  .portada{width:210mm;height:296.9mm;page-break-after:always;border-radius:0}
+  .indice{page-break-after:always}
+  .noprint{display:none}
+}
+/* La portada se imprime a sangre completa: se genera en un pase aparte, con
+   márgenes de página en cero (ver build). */
+body.solo-portada .hoja:not(.portada){display:none}
+body.sin-portada .portada{display:none}
+.noprint{position:fixed;right:16px;bottom:16px;z-index:9}
+.noprint button{background:var(--c);color:#fff;border:0;border-radius:9px;padding:11px 17px;font-weight:700;cursor:pointer;
+  box-shadow:0 5px 18px rgba(0,0,0,.3)}
+</style></head><body>
+
+<section class="hoja portada">
+  <div class="malla"></div><div class="halo"></div><div class="halo2"></div>
+  <div class="p-top">
+    <div class="marca">
+      <div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+      <div><div class="n">OMNIACCESS</div><div class="s">CONTROL Y ACCESO</div></div>
+    </div>
+  </div>
+  <div class="p-mid">
+    <span class="kicker">GUARDIA, PORTERÍA Y PUESTO DE MONITOREO</span>
+    <h1>Manual del Operador</h1>
+    <h2>OmniAccess LPR</h2>
+    <p class="para">Quien opera el sistema todos los días: mira el monitor, atiende accesos, usa la tablet.</p>
+  </div>
+  <div class="p-bot">
+    <div class="campo">Versión<b>2026.09</b></div>
+    <div class="campo">Emitido<b>3 de setiembre de 2026</b></div>
+    <div class="campo der">Infratec<b>infratec.com.uy</b></div>
+  </div>
+</section>
+
+<section class="hoja indice">
+  <h2>Contenido</h2>
+  <div class="sub">OmniAccess LPR · Manual del Operador</div>
+  <ol><li class="l1"><a href="#antes-de-empezar"><span class="t">Antes de empezar</span><span class="dots"></span></a></li><li class="l2"><a href="#que-hace-el-sistema"><span class="t">Qué hace el sistema</span><span class="dots"></span></a></li><li class="l2"><a href="#los-tres-estados-de-un-acceso"><span class="t">Los tres estados de un acceso</span><span class="dots"></span></a></li><li class="l2"><a href="#como-ingresar"><span class="t">Cómo ingresar</span><span class="dots"></span></a></li><li class="l1"><a href="#el-monitor-en-vivo"><span class="t">El Monitor en Vivo</span><span class="dots"></span></a></li><li class="l2"><a href="#como-esta-organizada"><span class="t">Cómo está organizada</span><span class="dots"></span></a></li><li class="l2"><a href="#la-barra-superior"><span class="t">La barra superior</span><span class="dots"></span></a></li><li class="l2"><a href="#el-foco-central"><span class="t">El foco central</span><span class="dots"></span></a></li><li class="l2"><a href="#el-sonido"><span class="t">El sonido</span><span class="dots"></span></a></li><li class="l1"><a href="#el-detalle-de-un-evento"><span class="t">El detalle de un evento</span><span class="dots"></span></a></li><li class="l2"><a href="#lo-que-ves-de-un-vistazo"><span class="t">Lo que ves de un vistazo</span><span class="dots"></span></a></li><li class="l2"><a href="#las-seis-acciones"><span class="t">Las seis acciones</span><span class="dots"></span></a></li><li class="l2"><a href="#las-tres-pestanas"><span class="t">Las tres pestañas</span><span class="dots"></span></a></li><li class="l2"><a href="#buscar-el-mismo-vehiculo-en-otras-camaras"><span class="t">Buscar el mismo vehículo en otras cámaras</span><span class="dots"></span></a></li><li class="l1"><a href="#buscar-en-el-historial"><span class="t">Buscar en el historial</span><span class="dots"></span></a></li><li class="l2"><a href="#busqueda-inteligente"><span class="t">Búsqueda inteligente</span><span class="dots"></span></a></li><li class="l1"><a href="#el-mapa-del-barrio"><span class="t">El mapa del barrio</span><span class="dots"></span></a></li><li class="l1"><a href="#plazas-de-parking"><span class="t">Plazas de parking</span><span class="dots"></span></a></li><li class="l1"><a href="#la-tablet-del-guardia-aplicacion-android"><span class="t">La tablet del guardia (aplicación Android)</span><span class="dots"></span></a></li><li class="l2"><a href="#primer-arranque"><span class="t">Primer arranque</span><span class="dots"></span></a></li><li class="l2"><a href="#las-pestanas"><span class="t">Las pestañas</span><span class="dots"></span></a></li><li class="l2"><a href="#las-rondas"><span class="t">Las rondas</span><span class="dots"></span></a></li><li class="l2"><a href="#el-boton-de-panico"><span class="t">El botón de pánico</span><span class="dots"></span></a></li><li class="l2"><a href="#hombre-caido"><span class="t">Hombre caído</span><span class="dots"></span></a></li><li class="l2"><a href="#que-hacer-si-la-tablet-se-queda-sin-senal"><span class="t">Qué hacer si la tablet se queda sin señal</span><span class="dots"></span></a></li><li class="l1"><a href="#situaciones-frecuentes"><span class="t">Situaciones frecuentes</span><span class="dots"></span></a></li><li class="l2"><a href="#llega-un-vehiculo-que-no-esta-registrado"><span class="t">Llega un vehículo que no está registrado</span><span class="dots"></span></a></li><li class="l2"><a href="#un-residente-reclama-que-no-le-abrio"><span class="t">Un residente reclama que no le abrió</span><span class="dots"></span></a></li><li class="l2"><a href="#hay-que-entregar-evidencia-de-un-incidente"><span class="t">Hay que entregar evidencia de un incidente</span><span class="dots"></span></a></li><li class="l2"><a href="#una-camara-dejo-de-mostrar-imagen"><span class="t">Una cámara dejó de mostrar imagen</span><span class="dots"></span></a></li><li class="l2"><a href="#dejaron-de-entrar-matriculas-de-golpe"><span class="t">Dejaron de entrar matrículas de golpe</span><span class="dots"></span></a></li><li class="l1"><a href="#buenas-practicas-del-turno"><span class="t">Buenas prácticas del turno</span><span class="dots"></span></a></li></ol>
+</section>
+
+<section class="hoja">
+<h1 id="antes-de-empezar" class="cap">Antes de empezar</h1>
+<p>Este manual es para quien está frente al sistema todos los días: el guardia de la garita, el operador del puesto de monitoreo, el supervisor que revisa lo que pasó anoche.</p>
+<p>No explica cómo se instala ni cómo se configura — eso está en los manuales del Instalador y del Administrador. Acá está <strong>qué ves, qué significa y qué hacés</strong> en cada situación.</p>
+<h2 id="que-hace-el-sistema">Qué hace el sistema</h2>
+<p>Cada vez que un vehículo llega a un acceso, la cámara lee la matrícula y el sistema decide, en menos de dos segundos, si ese vehículo está autorizado. La decisión queda registrada con la foto, la hora, la cámara y la dirección (entrada o salida). Nada se pierde: aunque nadie esté mirando la pantalla, todo queda grabado y buscable.</p>
+<blockquote class="tiempo">Desde que el vehículo cruza la línea de detección hasta que aparece en el monitor pasan entre <strong>1 y 3 segundos</strong>. Si tarda más de 10 segundos de forma habitual, avisá al administrador: algo está degradado (red, cámara o servidor).</blockquote>
+<h2 id="los-tres-estados-de-un-acceso">Los tres estados de un acceso</h2>
+<table><thead><tr><th>Estado</th><th>Color</th><th>Qué significa</th><th>Qué hacés</th></tr></thead><tbody><tr><td><strong>Autorizado</strong></td><td>Verde</td><td>La matrícula está registrada y habilitada en este horario</td><td>Nada. Se abre solo (si hay barrera automatizada)</td></tr><tr><td><strong>Denegado</strong></td><td>Ámbar</td><td>La matrícula no está registrada, o está fuera de su horario</td><td>Verificás con el residente antes de abrir</td></tr><tr><td><strong>Lista negra</strong></td><td>Rojo + sonido</td><td>La matrícula está marcada como buscada o prohibida</td><td>Seguís el protocolo del cliente. <strong>No abras sin autorización</strong></td></tr></tbody></table>
+<blockquote class="nota">Un "Denegado" no es una alarma: la enorme mayoría son visitas, proveedores y vehículos nuevos que todavía nadie registró. La alarma real es el rojo.</blockquote>
+<h2 id="como-ingresar">Cómo ingresar</h2>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Navegador → dirección del sistema → usuario y contraseña</div>
+<p>El sistema funciona en cualquier navegador moderno. No hace falta instalar nada en la PC del puesto.</p>
+<figure><img src="img/op-01-login.png" alt="Pantalla de ingreso"><figcaption>Fig. 1.1 — Pantalla de ingreso</figcaption></figure>
+<p>Si te olvidaste la contraseña, el administrador te la restablece: no hay recuperación por correo en instalaciones sin internet.</p>
+<blockquote class="alerta">Una sesión abierta en el puesto de monitoreo queda abierta. Si el puesto es compartido entre turnos, cerrá sesión al irte — todo lo que se haga queda registrado a tu nombre en la auditoría.</blockquote>
+<hr>
+<h1 id="el-monitor-en-vivo" class="cap">El Monitor en Vivo</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Monitor en Vivo</div>
+<p>Es la pantalla donde vas a pasar el turno. Está pensada para mirarse de lejos: los datos importantes son grandes y los colores dicen todo sin que tengas que leer.</p>
+<figure><img src="img/op-02-monitor-completo.png" alt="Monitor LPR completo: entradas a la izquierda, foco central, salidas a la derecha"><figcaption>Fig. 1.2 — Monitor LPR completo: entradas a la izquierda, foco central, salidas a la derecha</figcaption></figure>
+<h2 id="como-esta-organizada">Cómo está organizada</h2>
+<p>La pantalla tiene tres columnas:</p>
+<ul><li><strong>Izquierda — Entradas.</strong> Arriba, un mosaico con la última captura de cada cámara de entrada. Abajo, la lista de capturas recientes.</li><li><strong>Centro — El foco.</strong> La última detección, en grande, con la foto de la patente recortada. Es lo que mirás de reojo mientras hacés otra cosa.</li><li><strong>Derecha — Salidas.</strong> Igual que la izquierda, pero para las cámaras de salida.</li></ul>
+<h2 id="la-barra-superior">La barra superior</h2>
+<table><thead><tr><th>Indicador</th><th>Qué te dice</th></tr></thead><tbody><tr><td><strong>LIVE</strong> (punto verde)</td><td>El monitor está recibiendo eventos en tiempo real. Si se pone gris, perdiste conexión con el servidor</td></tr><tr><td><strong>ADENTRO</strong></td><td>Cuántos vehículos entraron y todavía no salieron</td></tr><tr><td><strong>Hoy</strong></td><td>Total de lecturas del día, y el desglose de autorizados y denegados</td></tr><tr><td><strong>En buffer</strong></td><td>Eventos recibidos que todavía se están dibujando. Si crece mucho, la PC del puesto está exigida</td></tr><tr><td><strong>Campana</strong></td><td>Alertas sin leer (lista negra, merodeo, cámara caída)</td></tr><tr><td><strong>Parlante</strong></td><td>Activa o silencia el sonido de las alertas</td></tr></tbody></table>
+<p>Los botones <strong>Todos / Permitidos / Denegados</strong> filtran la vista. Los desplegables <strong>Color</strong> y <strong>Tipo</strong> filtran por características del vehículo — sirven cuando estás buscando "la camioneta blanca que acaba de pasar".</p>
+<h2 id="el-foco-central">El foco central</h2>
+<figure><img src="img/op-03-monitor-foco.png" alt="Detalle del foco central con la matrícula leída"><figcaption>Fig. 1.3 — Detalle del foco central con la matrícula leída</figcaption></figure>
+<p>Muestra la última detección con:</p>
+<ul><li>La <strong>matrícula</strong> en grande y el recorte real de la patente (para que puedas verificar a ojo que el sistema leyó bien).</li><li><strong>Marca, tipo y color</strong> del vehículo, detectados por la cámara.</li><li><strong>Cámara y hora</strong>, y hace cuánto fue.</li><li>Dos botones: <strong>Investigar</strong> (abre el detalle completo) y <strong>Registrar</strong> (da de alta al vehículo).</li></ul>
+<blockquote class="nota">Si la lectura salió mal (una letra cambiada), no la corrijas en el momento: registrá el vehículo con la matrícula correcta y avisá al administrador. Una matrícula que se lee mal de forma repetida es un problema de calibración de la cámara, no de ese auto.</blockquote>
+<h2 id="el-sonido">El sonido</h2>
+<p>Cuando entra un vehículo en lista negra suena una alerta y la tarjeta queda resaltada en rojo con un anillo. El sonido se repite hasta que abrís el evento. Si el puesto es silencioso por la noche, usá el botón del parlante — pero acordate de volver a activarlo.</p>
+<hr>
+<h1 id="el-detalle-de-un-evento" class="cap">El detalle de un evento</h1>
+<p>Hacé clic en cualquier captura y se abre la ficha completa de ese acceso. Es la herramienta que más vas a usar cuando algo hay que investigar.</p>
+<figure><img src="img/op-04-evento-perfil.png" alt="Ficha del evento con el perfil del vehículo"><figcaption>Fig. 1.4 — Ficha del evento con el perfil del vehículo</figcaption></figure>
+<h2 id="lo-que-ves-de-un-vistazo">Lo que ves de un vistazo</h2>
+<ul><li><strong>Arriba</strong>: el estado del acceso (autorizado / denegado / lista negra) y la fecha y hora exacta.</li><li><strong>Izquierda</strong>: la foto completa de la captura, con la matrícula sobreimpresa, y debajo los datos del vehículo (dirección, credencial, cámara, marca, color, tipo).</li><li><strong>Derecha</strong>: quién es (si está registrado), la barra de acciones, y tres pestañas con el análisis.</li></ul>
+<h2 id="las-seis-acciones">Las seis acciones</h2>
+<table><thead><tr><th>Acción</th><th>Para qué sirve</th></tr></thead><tbody><tr><td><strong>Grabación</strong></td><td>Abre el video del NVR en ese instante exacto, con línea de tiempo</td></tr><tr><td><strong>Similares</strong></td><td>Busca ese mismo vehículo en las otras cámaras del barrio</td></tr><tr><td><strong>Clip</strong></td><td>Descarga un video MP4 de 30 segundos alrededor del evento</td></tr><tr><td><strong>Exportar</strong></td><td>Descarga un ZIP con la foto, el recorte de patente, el clip y los datos — es lo que se entrega ante un reclamo</td></tr><tr><td><strong>Registrar</strong></td><td>Da de alta un usuario con esa matrícula, sin salir de la pantalla</td></tr><tr><td><strong>Lista negra</strong></td><td>Marca esa matrícula: la próxima vez que aparezca, suena la alerta</td></tr></tbody></table>
+<blockquote class="tiempo">El clip y el ZIP se arman en el momento pidiéndole el video al NVR: tardan entre <strong>5 y 15 segundos</strong>. Si el navegador parece trabado, esperá — se está descargando.</blockquote>
+<h2 id="las-tres-pestanas">Las tres pestañas</h2>
+<p><strong>Perfil</strong> — el comportamiento habitual de esa matrícula:</p>
+<ul><li><strong>Frecuencia</strong>: cuántas veces pasa por día, cuántas hoy, cuántas en la última semana, y un gráfico de los últimos 30 días.</li><li><strong>Cámaras habituales</strong>: por qué accesos entra y sale normalmente, con el porcentaje.</li><li><strong>Horarios habituales</strong>: en qué franja entra y en qué franja sale, con el histograma del día.</li></ul>
+<p>Esto sirve para responder rápido la pregunta que importa: <em>¿este vehículo es habitual acá o es la primera vez?</em> Un auto que entra todos los días a las 8 y hoy entra a las 3 de la mañana es un dato, aunque esté autorizado.</p>
+<p><strong>Historial</strong> — todos los accesos anteriores de esa matrícula, con fecha, cámara, dirección y resultado.</p>
+<p><strong>Datos</strong> — la información técnica del evento: dispositivo, ubicación, identificador, canal del NVR y los metadatos que envió la cámara.</p>
+<h2 id="buscar-el-mismo-vehiculo-en-otras-camaras">Buscar el mismo vehículo en otras cámaras</h2>
+<figure><img src="img/op-05-evento-encuadrar.png" alt="Encuadrar el objetivo sobre la foto"><figcaption>Fig. 1.5 — Encuadrar el objetivo sobre la foto</figcaption></figure>
+<p>Con <strong>Encuadrar</strong> dibujás un recuadro sobre el vehículo (o sobre una persona) y el sistema lo busca en las cámaras de contexto del barrio. Sirve para reconstruir un recorrido: entró por el portón 1 y querés saber por dónde siguió.</p>
+<ol><li>Clic en <strong>Encuadrar</strong>.</li><li>Arrastrá el mouse para dibujar un recuadro sobre el objetivo.</li><li>Clic en <strong>Buscar recorte</strong> (o en el ícono de persona, si es una persona).</li><li>Aparecen las coincidencias ordenadas por parecido, con el porcentaje y la cámara.</li></ol>
+<blockquote class="tiempo">La búsqueda tarda entre <strong>10 y 40 segundos</strong> según el rango de días. Mientras trabaja ves una animación con el avance; podés cambiar el rango (24 h / 3 días / 7 días) y el nivel de parecido.</blockquote>
+<blockquote class="nota">Esta búsqueda mira las <strong>cámaras de contexto</strong>, no las de matrículas. Las cámaras de los portones están dedicadas a leer patentes y no alimentan este buscador. Es una limitación del hardware, no una falla.</blockquote>
+<hr>
+<h1 id="buscar-en-el-historial" class="cap">Buscar en el historial</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Historial de Acceso</div>
+<figure><img src="img/op-07-historial.png" alt="Historial de accesos con filtros"><figcaption>Fig. 1.6 — Historial de accesos con filtros</figcaption></figure>
+<p>Todos los accesos, con filtros por fecha, cámara, dirección, resultado y matrícula. Cada fila abre la misma ficha del evento.</p>
+<p>La columna <strong>Grabación</strong> indica si ese acceso tiene video disponible en el NVR. Si dice "sin NVR", esa cámara no está mapeada a un canal de grabación.</p>
+<h2 id="busqueda-inteligente">Búsqueda inteligente</h2>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Búsqueda inteligente</div>
+<p>Es la forma rápida de encontrar algo cuando no tenés la matrícula. Se escribe en lenguaje normal.</p>
+<figure><img src="img/op-08-busqueda-accesos.png" alt="Búsqueda por descripción sobre los accesos"><figcaption>Fig. 1.7 — Búsqueda por descripción sobre los accesos</figcaption></figure>
+<p>Tiene tres modos, que se eligen con los íconos de la izquierda:</p>
+<table><thead><tr><th>Modo</th><th>Qué busca</th><th>Cuándo lo usás</th></tr></thead><tbody><tr><td><strong>Accesos</strong> (verde)</td><td>Los accesos de los portones, por descripción</td><td>"Camioneta blanca que entró ayer a la tarde"</td></tr><tr><td><strong>Por texto</strong> (violeta)</td><td>Las cámaras de contexto, por descripción</td><td>"Persona con mochila roja"</td></tr><tr><td><strong>Por imagen</strong> (fucsia)</td><td>Las cámaras de contexto, a partir de una foto</td><td>Tenés una foto y querés saber dónde más estuvo</td></tr></tbody></table>
+<p>En el modo <strong>Accesos</strong> podés combinar: color, tipo de vehículo (auto, camioneta, pickup, van, camión, ómnibus, buggy, moto), marca, matrícula, acceso (P1 a P7), entradas o salidas, autorizados o denegados, franja del día (mañana, tarde, noche, madrugada) y fechas ("hoy", "ayer", "esta semana", "últimos 3 días").</p>
+<p>Ejemplos que funcionan tal cual:</p>
+<ul><li><code>camioneta blanca ayer a la tarde</code></li><li><code>autos negros por P7</code></li><li><code>entradas denegadas hoy</code></li><li><code>buggy el fin de semana</code></li><li><code>SCT4403</code></li></ul>
+<p>Debajo del buscador aparecen unas etiquetas verdes con lo que el sistema entendió. Si escribís algo que no reconoce, te lo dice — así sabés por qué el resultado no es el que esperabas.</p>
+<blockquote class="tiempo">La búsqueda por Accesos es <strong>instantánea</strong> (menos de 1 segundo): busca en la base de datos propia. Las otras dos consultan al NVR y tardan entre 10 y 40 segundos.</blockquote>
+<hr>
+<h1 id="el-mapa-del-barrio" class="cap">El mapa del barrio</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Mapa</div>
+<figure><img src="img/op-09-mapa.png" alt="Mapa del barrio con cámaras, accesos y guardias"><figcaption>Fig. 1.8 — Mapa del barrio con cámaras, accesos y guardias</figcaption></figure>
+<p>Muestra el plano del barrio con las cámaras, los accesos, las calles y — si hay guardias con tablet — su posición en tiempo real.</p>
+<ul><li>Clic en una cámara: ves su video en vivo.</li><li>Los vehículos que entran aparecen como íconos que se mueven por las calles hacia su destino.</li><li>El panel lateral muestra el flujo de entradas y salidas en vivo.</li></ul>
+<h1 id="plazas-de-parking" class="cap">Plazas de parking</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Plazas de Parking</div>
+<figure><img src="img/op-10-plazas.png" alt="Plazas con ocupación en tiempo real"><figcaption>Fig. 1.9 — Plazas con ocupación en tiempo real</figcaption></figure>
+<p>Sobre la foto real del estacionamiento, cada plaza se pinta de <strong>verde</strong> (libre) o <strong>rojo</strong> (ocupada), según las lecturas de matrícula. Al pasar el mouse por una plaza ocupada ves qué vehículo está.</p>
+<hr>
+<h1 id="la-tablet-del-guardia-aplicacion-android" class="cap">La tablet del guardia (aplicación Android)</h1>
+<p>La aplicación para tablets es la herramienta del guardia que está en movimiento. Se instala una vez y arranca sola cuando se enciende la tablet.</p>
+<h2 id="primer-arranque">Primer arranque</h2>
+<ol><li>Encendé la tablet y abrí <strong>Guardia</strong>.</li><li>Si es la primera vez, pide la dirección del servidor — la carga el instalador.</li><li>Ingresá tu nombre de guardia y tu PIN.</li></ol>
+<blockquote class="nota">La aplicación queda en modo kiosco: no se puede salir a otras apps. Es a propósito, para que la tablet sea una herramienta de trabajo y no un teléfono.</blockquote>
+<h2 id="las-pestanas">Las pestañas</h2>
+<table><thead><tr><th>Pestaña</th><th>Qué hacés</th></tr></thead><tbody><tr><td><strong>Inicio</strong></td><td>Estado del turno, últimas novedades y accesos recientes</td></tr><tr><td><strong>Rondas</strong></td><td>Los puntos de control de tu recorrido, con horario</td></tr><tr><td><strong>Bitácora</strong></td><td>Cargás novedades con foto, y consultás las anteriores</td></tr><tr><td><strong>Mapa</strong></td><td>Tu posición, la de tus compañeros y las plazas de parking</td></tr><tr><td><strong>Accesos</strong></td><td>El historial LPR, con la función de merodeo</td></tr></tbody></table>
+<h2 id="las-rondas">Las rondas</h2>
+<p>Cada punto de control tiene una etiqueta NFC pegada (o un código QR, si la tablet no tiene NFC).</p>
+<ol><li>Acercá la tablet a la etiqueta hasta que vibre.</li><li>El punto queda marcado con la hora exacta y tu nombre.</li><li>Si un punto tiene horario asignado y pasa la hora sin marcarse, se genera una alerta.</li></ol>
+<blockquote class="tiempo">La marca del punto se registra en el servidor en <strong>menos de 2 segundos</strong> si hay WiFi. Si estás sin cobertura, queda guardada en la tablet y se sube sola cuando volvés a tener señal — no pierdas tiempo esperando.</blockquote>
+<h2 id="el-boton-de-panico">El botón de pánico</h2>
+<p>Mantené presionado el botón rojo durante <strong>3 segundos</strong>. Al soltarlo antes de tiempo no pasa nada: es a propósito, para evitar falsas alarmas.</p>
+<p>Al activarse:</p>
+<ul><li>Suena la alerta en el puesto de monitoreo y en el panel del supervisor.</li><li>Se envía tu posición GPS.</li><li>Queda registrado en la bitácora con hora y ubicación.</li></ul>
+<p>También se puede activar <strong>con la pantalla bloqueada</strong>, presionando repetidamente el botón de volumen. Esto se configura en la instalación.</p>
+<h2 id="hombre-caido">Hombre caído</h2>
+<p>Si la tablet detecta que quedó inmóvil en posición horizontal más del tiempo configurado, muestra un aviso en pantalla. Si no lo cancelás en 30 segundos, dispara la alerta al puesto.</p>
+<blockquote class="nota">Para cancelar una falsa alarma, tocá <strong>Estoy bien</strong> en el aviso. Si ya se disparó, avisá por radio al puesto para que quede constancia de que fue falsa.</blockquote>
+<h2 id="que-hacer-si-la-tablet-se-queda-sin-senal">Qué hacer si la tablet se queda sin señal</h2>
+<p>La aplicación sigue funcionando: podés marcar rondas y cargar bitácora. Un indicador arriba muestra el estado de conexión. Cuando vuelve la señal, todo lo pendiente se sincroniza solo.</p>
+<p>Lo único que <strong>no</strong> funciona sin señal es el video en vivo y la consulta de accesos.</p>
+<hr>
+<h1 id="situaciones-frecuentes" class="cap">Situaciones frecuentes</h1>
+<h2 id="llega-un-vehiculo-que-no-esta-registrado">Llega un vehículo que no está registrado</h2>
+<ol><li>En el foco central o en la tarjeta, clic en <strong>Registrar</strong>.</li><li>Se abre el alta con la matrícula ya cargada.</li><li>Completá nombre y unidad/lote. Guardá.</li><li>La próxima vez que entre, ya figura como autorizado.</li></ol>
+<p>Si no tenés autorización para dar de alta, dejá la novedad en la bitácora con la matrícula y que la resuelva el administrador.</p>
+<h2 id="un-residente-reclama-que-no-le-abrio">Un residente reclama que no le abrió</h2>
+<ol><li>Buscá la matrícula en <strong>Búsqueda inteligente</strong> (escribí la matrícula tal cual).</li><li>Abrí el evento de esa hora.</li><li>Mirá el resultado: si dice <strong>Denegado</strong>, la matrícula no estaba registrada o estaba fuera de horario. Si no aparece ningún evento, la cámara no lo leyó — mirá la grabación para confirmar que el vehículo pasó.</li><li>Con <strong>Exportar</strong> generás el ZIP con la evidencia para adjuntar al reclamo.</li></ol>
+<h2 id="hay-que-entregar-evidencia-de-un-incidente">Hay que entregar evidencia de un incidente</h2>
+<p>Usá <strong>Exportar</strong> en la ficha del evento. El ZIP contiene:</p>
+<ul><li><code>captura.jpg</code> — la foto completa del momento</li><li><code>recorte_matricula.jpg</code> — el acercamiento de la patente</li><li><code>clip_30s.mp4</code> — el video del NVR alrededor del evento</li><li><code>evento.json</code> — todos los datos (hora, cámara, vehículo, decisión)</li></ul>
+<p>Es material suficiente para una denuncia o un reclamo al seguro.</p>
+<h2 id="una-camara-dejo-de-mostrar-imagen">Una cámara dejó de mostrar imagen</h2>
+<ol><li>Fijate si el resto de las cámaras andan. Si son todas, es el servidor o la red.</li><li>Si es una sola, avisá al administrador con el <strong>nombre exacto</strong> de la cámara (por ejemplo "P7 – Entrada (207)").</li><li>El sistema detecta las cámaras caídas solo y genera una alerta, pero tu aviso acelera la respuesta.</li></ol>
+<h2 id="dejaron-de-entrar-matriculas-de-golpe">Dejaron de entrar matrículas de golpe</h2>
+<p>Si el contador de "Hoy" no sube y hace rato que no aparecen capturas nuevas, avisá <strong>de inmediato</strong> al administrador. No es normal y tiene diagnóstico conocido. Mientras tanto, el control de accesos hay que hacerlo a mano.</p>
+<hr>
+<h1 id="buenas-practicas-del-turno" class="cap">Buenas prácticas del turno</h1>
+<ul><li><strong>Al empezar</strong>: mirá el contador de "Adentro" y la campana de alertas. Si quedaron alertas sin leer del turno anterior, revisalas.</li><li><strong>Durante</strong>: no dejes el navegador minimizado. El monitor está pensado para estar siempre visible.</li><li><strong>Ante una duda</strong>: es preferible verificar con el residente que abrir por las dudas. Todo queda registrado, incluso lo que no hiciste.</li><li><strong>Al terminar</strong>: dejá la novedad del turno en la bitácora, aunque sea "sin novedad". Es lo que después permite reconstruir qué pasó.</li></ul>
+</section>
+
+<div class="noprint"><button onclick="window.print()">Descargar PDF</button></div>
+</body></html>

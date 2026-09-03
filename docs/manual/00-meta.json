@@ -1,0 +1,56 @@
+{
+  "producto": {
+    "familia": "OmniAccess",
+    "porModo": {
+      "LPR": "OmniAccess LPR",
+      "QUEUE": "OmniAccess Filas",
+      "FACE": "OmniAccess Face",
+      "MIXTO": "OmniAccess"
+    },
+    "empresa": "Infratec",
+    "web": "infratec.com.uy",
+    "version": "2026.09"
+  },
+  "manuales": [
+    {
+      "id": "operador",
+      "titulo": "Manual del Operador",
+      "subtitulo": "Guardia, portería y puesto de monitoreo",
+      "para": "Quien opera el sistema todos los días: mira el monitor, atiende accesos, usa la tablet.",
+      "color": "#10b981",
+      "icono": "shield",
+      "prefijo": "op",
+      "orden": 1
+    },
+    {
+      "id": "administrador",
+      "titulo": "Manual del Administrador",
+      "subtitulo": "Gestión, configuración y reportes",
+      "para": "Quien administra el sistema: usuarios, vehículos, reglas, notificaciones y reportes.",
+      "color": "#8b5cf6",
+      "icono": "settings",
+      "prefijo": "adm",
+      "orden": 2
+    },
+    {
+      "id": "instalador",
+      "titulo": "Manual del Instalador",
+      "subtitulo": "Puesta en marcha, cámaras, NVR y mantenimiento",
+      "para": "El técnico que instala y mantiene: servidor, cámaras, NVR, calibración y diagnóstico.",
+      "color": "#f59e0b",
+      "icono": "wrench",
+      "prefijo": "ins",
+      "orden": 3
+    },
+    {
+      "id": "guia-rapida",
+      "titulo": "Guía rápida",
+      "subtitulo": "Lo esencial en dos carillas",
+      "para": "Para imprimir y dejar en la garita. Las 10 cosas que se hacen todos los días.",
+      "color": "#0ea5e9",
+      "icono": "zap",
+      "prefijo": "gr",
+      "orden": 4
+    }
+  ]
+}
