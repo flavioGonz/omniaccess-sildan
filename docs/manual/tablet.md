@@ -1,34 +1,68 @@
-# Qué hace la consola del guardia
+# Para qué sirve la consola del guardia
 
-La consola del guardia es la aplicación que se usa en la tablet de la garita y en las tablets que
-llevan los guardias que recorren. Es la misma aplicación en los dos casos: cambia lo que se usa
-más, no lo que hay.
+La consola del guardia **reemplaza el cuaderno de la garita**. Esa es su razón de ser: dejar
+constancia de todo lo que entra y sale del predio —autos, motos, personas— con la matrícula, el
+nombre y el lote al que va, sin escribir a mano y sin que la letra o la hoja arrancada se pierdan.
 
-## Todo lo que hace, en detalle
+Todo lo demás que hace la aplicación —las cámaras de matrícula, las plazas, el mapa, el pánico,
+las rondas— viene **encima** de eso. Si el guardia sólo aprende a registrar bien, la aplicación
+ya está cumpliendo su función.
 
-| Función | Qué hace exactamente |
+## El cuaderno y la consola, lado a lado
+
+| | Cuaderno | Consola del guardia |
+|---|---|---|
+| Escribir la matrícula | A mano, con la letra de cada uno | Casillero por casillero, siempre legible |
+| Saber si el auto ya vino | Hay que pasar hojas | Aparece solo al escribir la matrícula |
+| El lote de destino | De memoria o preguntando | Se elige de la lista de unidades del predio |
+| Foto del vehículo | No hay | Foto de la patente y de la escena |
+| Buscar un registro de la semana pasada | Imposible en el momento | Búsqueda por matrícula o por fecha |
+| Ver qué anotó el turno anterior | Si dejó el cuaderno | Está en el historial, siempre |
+| Que el administrador lo vea | Hay que ir a buscar el cuaderno | Lo ve en el panel, en el momento |
+| Si se moja, se pierde o lo arrancan | Se perdió | Está en el servidor |
+
+## Qué queda registrado de cada movimiento
+
+Cada vez que se confirma un registro, el sistema guarda:
+
+| Dato | De dónde sale |
 |---|---|
-| **Registro de visitantes** | Ingreso y egreso con matrícula, nombre, documento, unidad de destino, observaciones, foto y nota de voz. Al escribir la matrícula completa sola los datos si el vehículo ya pasó por una cámara |
-| **Cierre de visita** | En el egreso reconoce el ingreso previo y calcula cuánto tiempo estuvo adentro |
-| **Historial del turno** | Todo lo registrado, con búsqueda por texto y filtro por fecha, para verificar o cerrar una visita |
-| **Accesos por matrícula** | La lectura en vivo de las cámaras de los portones, con foto, matrícula, dirección, propietario y hora |
-| **Grabación del acceso** | Un toque abre el video del NVR en el segundo exacto de esa lectura |
-| **Alta rápida de vehículo** | Registra ahí mismo una matrícula que aparece como no identificada |
-| **Plazas de parking** | Ocupación en vivo sobre la foto real del estacionamiento, calculada con las lecturas |
-| **Mapa del predio** | Posición propia, compañeros en turno con batería, cámaras y accesos |
-| **Botón de pánico** | Alerta con posición GPS al puesto de monitoreo y al supervisor |
-| **Pánico con pantalla bloqueada** | Botón de volumen, sin desbloquear ni abrir nada (aplicación Android) |
-| **Rondas con NFC** | Marca del punto de control acercando el dorso de la tablet a la etiqueta |
-| **Hombre caído** | La tablet detecta inmovilidad prolongada y dispara la alerta sola si nadie responde |
-| **Operación sin señal** | Registros y rondas quedan guardados en la tablet y se suben solos al recuperar red |
+| **Matrícula** | La escribe el guardia, o la completa la cámara si el vehículo ya cruzó |
+| **Tipo de vehículo** | Auto o moto — cambia el formato de matrícula que espera |
+| **Nombre del visitante** | Lo escribe el guardia |
+| **Documento** | Lo escribe el guardia |
+| **Lote / unidad de destino** | Se elige del padrón del predio |
+| **Observaciones** | El motivo de la visita, en palabras del guardia |
+| **Foto** | Opcional: patente, vehículo o persona |
+| **Nota de voz** | Opcional, cuando escribir lleva más tiempo que hablar |
+| **Ingreso o egreso** | Lo elige el guardia |
+| **Hora exacta** | La pone el sistema, no se puede cambiar |
+| **Quién lo registró** | El guardia con la sesión abierta |
+| **Permanencia** | Se calcula sola al registrar la salida |
+
+> Lo que no se registra, no existe. Un vehículo que entró sin registro es un vehículo que después
+> nadie puede explicar.
+
+## Lo que se agrega arriba del registro
+
+| Función | Para qué le sirve al guardia |
+|---|---|
+| **Accesos por matrícula (LPR)** | Ver qué leyeron las cámaras de los portones, con foto y video |
+| **Plazas de parking** | Saber qué lugares están libres y cuáles ocupados |
+| **Mapa** | Ver dónde están los compañeros y las cámaras |
+| **Botón de pánico** | Pedir auxilio con la posición GPS |
+| **Rondas con NFC** | Marcar los puntos de control sin abrir nada |
+| **Hombre caído** | La tablet pide ayuda sola si el guardia queda inmóvil |
+| **Sin señal** | Todo se guarda en la tablet y se sube cuando vuelve la red |
 
 ## En qué nos diferenciamos
 
 | | OmniAccess | Lo habitual en el mercado |
 |---|---|---|
-| Registro de visita | Se completa solo con la lectura de la cámara | Se tipea todo a mano |
-| Matrícula no identificada | Se registra desde la misma pantalla, sin ir al panel | Hay que llamar al administrador |
-| Evidencia | Foto, video del NVR y datos, todo desde la fila del acceso | Video en un sistema aparte |
+| Registro de visita | Se completa solo con la lectura de la cámara | Se tipea todo a mano, o sigue el cuaderno |
+| Lote de destino | Del padrón real del predio, con buscador | Texto libre, cada uno lo escribe distinto |
+| Matrícula no identificada | Se registra desde la misma pantalla | Hay que llamar al administrador |
+| Evidencia | Foto, video del NVR y datos desde la fila del acceso | Video en un sistema aparte |
 | Pánico | En pantalla y con el equipo bloqueado, con GPS | Botón físico o nada |
 | Rondas | NFC sin abrir la aplicación; se suben sin señal | Planilla de papel |
 | Seguridad del guardia | Hombre caído automático | No existe |
@@ -66,9 +100,116 @@ más, no lo que hay.
 > mensajería, Android termina cerrando la aplicación en segundo plano y se pierden posición y
 > rondas.
 
----
+# Registrar un movimiento
 
-# Ingresar
+» Barra inferior → Acceso
+
+Esta es **la pantalla principal**. Es donde se pasa la mayor parte del turno y la que reemplaza al
+cuaderno. Todo lo demás del manual es accesorio comparado con esto.
+
+![La pantalla de registro: el cuaderno de la garita](img/tab-02-acceso.png)
+
+## Los tres pasos, siempre en este orden
+
+1. **Ingreso o egreso.** Se elige arriba, antes que nada. Es lo que define si el registro suma o
+   resta del conteo de gente adentro.
+2. **La matrícula.** Un carácter por casillero. Si el vehículo ya cruzó por una cámara de los
+   portones, el sistema lo reconoce y completa nombre y unidad solos.
+3. **El lote de destino.** Se toca el panel y se elige de la lista real de unidades del predio.
+
+Con esos tres datos el registro ya sirve. El resto lo enriquece.
+
+## Los campos, uno por uno
+
+| Campo | Qué se escribe | Cuándo es obligatorio |
+|---|---|---|
+| **Ingreso / Salida** | El sentido del movimiento | Siempre |
+| **Matrícula** | La patente, un carácter por casillero | Siempre que haya vehículo |
+| **Auto / Moto** | El tipo de vehículo | Siempre — cambia el formato de matrícula esperado |
+| **Nombre** | Nombre y apellido de quien conduce | Visitas y proveedores |
+| **Documento** | Cédula o el documento que presente | Visitas y proveedores |
+| **Unidad de destino** | A qué lote va | Siempre |
+| **Observaciones** | El motivo, en palabras claras | Cuando aporta algo |
+| **Foto** | Patente, vehículo o persona | Cuando hay algo que mostrar |
+| **Nota de voz** | Lo mismo, hablado | Cuando escribir demora |
+
+> ⏱ Con la matrícula reconocida por la cámara, el registro completo lleva **menos de 20 segundos**.
+> Escribiendo todo a mano, alrededor de un minuto. El registro se guarda en **menos de 2 segundos**
+> y aparece de inmediato en el puesto de monitoreo.
+
+## Motos
+
+Tocá **Moto** antes de escribir la matrícula. Las motos en Uruguay tienen un formato distinto al de
+los autos, y si queda marcado *Auto* el sistema espera una patente que no existe y la marca como
+inválida.
+
+## El lote de destino
+
+Es el dato que más se usa después: es lo que permite responder *"¿quién vino a la casa 42 esta
+semana?"*. Tocá el panel de destino para abrir la lista completa de unidades del predio y buscá por
+número o por apellido.
+
+![Panel de unidades y lotes del predio](img/tab-11-unidades.png)
+
+> ⚠ No escribas el lote en observaciones. En el campo de destino queda enlazado a la unidad real
+> y sirve para buscar; en observaciones es sólo texto.
+
+## Qué escribir en observaciones
+
+Sirve para lo que no entra en ningún campo. Frases cortas y concretas:
+
+- `Reparto — nombre de la empresa`
+- `Service de aire acondicionado, autorizado por el residente`
+- `Vino a buscar a un menor, lo autorizó la madre por portero`
+- `No traía documento, se verificó con la unidad`
+
+Lo que **no** conviene: *"visita"*, *"ok"*, *"pasó"*. No agregan nada que el registro no diga ya.
+
+## Los botones de la columna derecha
+
+| Botón | Qué hace |
+|---|---|
+| Persona | Marca el tipo de visitante |
+| Edificio | Abre la lista de unidades de destino |
+| **Auto / Moto** | Tipo de vehículo (cambia el formato de matrícula esperado) |
+| Cámara | Saca una foto y la adjunta |
+| Micrófono | Graba una nota de voz |
+| **Confirmar** (verde) | Guarda el registro |
+
+## Reglas de anotación
+
+- **Un movimiento, un registro.** Si entran dos vehículos, son dos registros.
+- **Registrá en el momento**, no al final del turno. La hora la pone el sistema y no se corrige.
+- **Si dudás, anotá.** Un registro de más no molesta; uno de menos no se puede recuperar.
+- **Nunca dejes el destino vacío.** Es el campo que después permite buscar.
+- **No compartas la sesión.** Lo registrado queda a nombre de quien la tenga abierta.
+
+# Registrar la salida
+
+» Barra inferior → Acceso → Registro de Salida
+
+Al elegir **Registro de Salida** y escribir la matrícula, el sistema busca el ingreso previo,
+completa los datos y calcula **cuánto tiempo estuvo adentro**.
+
+![Registro de salida: los datos vienen del ingreso](img/tab-10-salida.png)
+
+Si el visitante entró a pie, o el ingreso no quedó registrado, cargalo igual con lo que sepas y
+aclaralo en observaciones. Es preferible un registro incompleto a ninguno.
+
+# Historial del turno
+
+» Barra inferior → Historial
+
+![Historial de registros del turno](img/tab-03-historial.png)
+
+Muestra todo lo registrado, con hora, matrícula, visitante y destino. Sirve para dos cosas:
+
+- **Verificar** algo que se registró hace un rato.
+- **Cerrar una visita**: se busca el ingreso y se registra la salida desde ahí.
+
+Arriba tiene búsqueda por texto y filtro por fecha.
+
+# Ingresar y moverse por la aplicación
 
 ![Pantalla de ingreso de la consola](img/tab-01-login.png)
 
@@ -88,80 +229,23 @@ Es la navegación principal y está siempre visible:
 
 | Botón | Para qué |
 |---|---|
-| **Acceso** | Registrar el ingreso o egreso de un visitante |
+| **Acceso** | Registrar el ingreso o egreso de un movimiento |
 | **Historial** | Ver los registros del turno |
 | **Pánico** (centro, rojo) | Pedir auxilio manteniendo presionado |
 | **LPR** | Ver las matrículas que leyeron las cámaras |
 | **Plazas** | Ocupación del estacionamiento |
 | **Mapa** | Ubicación de guardias y cámaras |
 
-A la izquierda del todo está tu **perfil** (con el punto verde de conexión) y a la derecha, la
-hora y la fecha.
-
----
-
-# Registrar un visitante
-
-» Barra inferior → Acceso
-
-Es la pantalla que más se usa en la garita. Sirve para dejar constancia de quién entró, con qué
-vehículo y a dónde iba.
-
-![Registro de ingreso de un visitante](img/tab-02-acceso.png)
-
-## Paso a paso
-
-1. Elegí **Registro de ingreso** o **Registro de salida** (arriba).
-2. Escribí la **matrícula**, un carácter por casillero. Si el vehículo ya pasó por una cámara, el
-   sistema lo reconoce y completa los datos.
-3. Opcional: tocá el botón de **cámara** para fotografiar la patente.
-4. Completá **nombre** y **documento** del visitante.
-5. Elegí la **unidad de destino** (tocá el panel para abrir la lista).
-6. Escribí el **motivo de la visita** en observaciones.
-7. Si hace falta, adjuntá **foto** o **nota de voz** con los botones de la derecha.
-8. Confirmá con el botón verde.
-
-> ⏱ El registro se guarda en **menos de 2 segundos**. Queda visible de inmediato en el puesto de
-> monitoreo y en el historial.
-
-## Los botones de la columna derecha
-
-| Botón | Qué hace |
-|---|---|
-| Persona | Marca el tipo de visitante |
-| Edificio | Elige la unidad de destino |
-| **Auto / Moto** | Tipo de vehículo (cambia el formato de matrícula esperado) |
-| Cámara | Saca una foto y la adjunta |
-| Micrófono | Graba una nota de voz |
-| **Confirmar** (verde) | Guarda el registro |
-
-## Egresos
-
-Al elegir **Registro de salida**, si el visitante fue registrado al entrar, el sistema completa
-los datos automáticamente al escribir la matrícula, y calcula cuánto tiempo estuvo adentro.
-
----
-
-# Historial del turno
-
-» Barra inferior → Historial
-
-![Historial de registros del turno](img/tab-03-historial.png)
-
-Muestra todo lo registrado, con hora, matrícula, visitante y destino. Sirve para dos cosas:
-
-- **Verificar** algo que se registró hace un rato.
-- **Registrar la salida** de alguien que entró: se busca el ingreso y se cierra desde ahí.
-
-Arriba tiene búsqueda y filtro por fecha.
-
----
+A la izquierda del todo está tu **perfil**, con el punto de conexión, y a la derecha la hora y la
+fecha.
 
 # Accesos por matrícula (LPR)
 
 » Barra inferior → LPR
 
-Es la lista de lo que están leyendo las cámaras de los portones, en vivo.
+Es la lista de lo que están leyendo las cámaras de los portones, en vivo. Para el registro sirve
+para dos cosas: **confirmar una matrícula** que no se llegó a ver, y **registrar un vehículo** que
+entra siempre y figura como no identificado.
 
 ![Accesos leídos por las cámaras](img/tab-04-lpr.png)
 
@@ -184,28 +268,19 @@ Es la lista de lo que están leyendo las cámaras de los portones, en vivo.
 > Cuando una matrícula figura como "No identificado" y el vehículo entra habitualmente, conviene
 > registrarlo: cada vez que pasa genera un acceso denegado que ensucia las estadísticas.
 
-## Buscar
-
-Arriba a la derecha hay búsqueda por matrícula y filtro por fecha, para encontrar algo puntual sin
-salir de la tablet.
-
----
-
 # Plazas de parking
 
 » Barra inferior → Plazas
 
-![Ocupación del estacionamiento](img/tab-05-plazas.png)
+![Ocupación del estacionamiento sobre el plano real](img/tab-05-plazas.png)
 
-Sobre la foto real del estacionamiento, cada plaza se pinta según su estado:
+Sobre la foto del plano del estacionamiento, cada plaza se pinta según su estado:
 
 - **Verde**: libre.
 - **Rojo**: ocupada.
 
-La ocupación se calcula con las lecturas de matrícula. Tocando una plaza ocupada se ve qué
-vehículo está y desde cuándo.
-
----
+La ocupación se calcula con las lecturas de matrícula. Tocando una plaza ocupada se ve qué vehículo
+está y desde cuándo.
 
 # Mapa
 
@@ -224,20 +299,35 @@ Muestra el plano del predio con:
 > con la pantalla apagada (solo en la aplicación Android). Es un compromiso entre precisión y
 > duración de la batería.
 
----
-
 # El botón de pánico
 
-Es la función más importante. Está diseñada para que **no se dispare por accidente** y para que
-**funcione cuando hace falta**.
+Es la función más importante después del registro. Está diseñada para que **no se dispare por
+accidente** y para que **funcione cuando hace falta**.
 
-## Cómo se activa
+## Dónde está
 
-**Desde la aplicación:** mantené presionado el botón rojo del centro de la barra inferior. Debajo
-dice *"Mantené presionado"*. Al soltarlo antes de tiempo no pasa nada — es a propósito.
+Es el botón rojo del **centro de la barra inferior**, más grande que los demás y separado. Encima
+tiene la leyenda *Mantené presionado*, que es exactamente lo que hay que hacer.
 
-**Con la pantalla bloqueada** (solo aplicación Android): presioná el botón de **volumen** varias
-veces seguidas. Se habilita durante la instalación.
+![El botón de pánico en la barra inferior](img/tab-08-panico-boton.png)
+
+## Cómo se activa, paso a paso
+
+1. **Apoyá el dedo** sobre el botón rojo y **no lo sueltes**.
+2. Alrededor del botón aparece un **anillo** que se va completando.
+3. Cuando el anillo da la vuelta entera —**1,5 segundos**— la alerta se dispara y la tablet vibra.
+4. Recién ahí podés soltar.
+
+![El anillo se completa mientras se mantiene presionado](img/tab-09-panico-manteniendo.png)
+
+> Si soltás antes de que el anillo se complete, **no pasa nada**: la alerta no se envía y el anillo
+> vuelve a cero. Es a propósito, para que un roce en el bolsillo no dispare una falsa alarma.
+
+## Con la pantalla bloqueada
+
+Solo con la aplicación Android: presioná el botón de **volumen** varias veces seguidas, sin
+desbloquear ni sacar la tablet del bolsillo. Se habilita durante la instalación, con el permiso de
+accesibilidad.
 
 > ⚠ No hay activación por sacudida ni por gesto: se descartó porque genera falsas alarmas, y una
 > alarma en la que nadie confía no sirve.
@@ -246,21 +336,27 @@ veces seguidas. Se habilita durante la instalación.
 
 En menos de 3 segundos:
 
-1. La tablet vibra y confirma en pantalla.
+1. La tablet vibra y confirma en pantalla, que queda en modo alerta.
 2. Suena la alerta en el puesto de monitoreo.
 3. Se envía tu posición GPS.
 4. Se avisa al supervisor por los canales configurados.
-5. Queda registrado con hora y ubicación.
+5. Queda registrado en la bitácora con hora y ubicación.
 
-> ⏱ Del momento en que soltás el botón a que suene en el puesto pasan **2 a 4 segundos** con WiFi.
-> Sin señal, la tablet reintenta y avisa en pantalla que la alerta está pendiente.
+Mientras la alerta está activa, la pantalla queda en rojo y aparecen las herramientas para
+**anexar** una foto, un audio o una nota a esa alerta: lo que grabes queda pegado al evento.
+
+> ⏱ Del momento en que se completa el anillo a que suene en el puesto pasan **2 a 4 segundos** con
+> WiFi. Sin señal, la tablet reintenta y avisa en pantalla que la alerta está pendiente.
+
+## Desactivar la alerta
+
+Se mantiene presionado el mismo botón, ahora durante **2 segundos**. Es más largo que la activación
+a propósito: cancelar una alerta tiene que costar más que dispararla.
 
 ## Falsa alarma
 
-Avisá por radio al puesto. La alerta queda registrada igual — y está bien que quede: lo que se
-anota es que fue falsa, no se borra.
-
----
+Avisá por radio al puesto y desactivala. La alerta queda registrada igual — y está bien que quede:
+lo que se anota es que fue falsa, no se borra.
 
 # Funciones de la aplicación Android
 
@@ -300,9 +396,7 @@ Para cancelar, tocá **Estoy bien**.
 La aplicación queda fija: no se puede salir a otras aplicaciones ni a los ajustes. Para salir
 (solo el técnico): mantener presionado el logo 5 segundos e ingresar la clave de administración.
 
----
-
-# Instalación de la aplicación Android
+# Instalación y permisos
 
 » Pantalla de ingreso → Descargar app para tablet
 
@@ -315,41 +409,69 @@ La aplicación no está en Google Play: se descarga desde el propio sistema.
 5. Concedé los permisos (ver abajo).
 6. Iniciá sesión.
 
-## Los permisos, y por qué cada uno
+## El permiso de ubicación
+
+Es el único que tiene trampa. Android ofrece tres opciones y **solo una sirve**:
+
+![Ilustración: el permiso de ubicación y sus cuatro opciones](img/tab-12-permiso-ubicacion.png)
+
+Elegí **Permitir todo el tiempo**. Con *"solo mientras se usa la app"* la posición se corta apenas
+se apaga la pantalla: el guardia desaparece del mapa y el pánico sale sin ubicación.
+
+> Android puede pedir este permiso en dos pasos: primero *"mientras se usa"* y después, la primera
+> vez que la tablet queda con la pantalla apagada, un segundo aviso para pasar a *"todo el tiempo"*.
+> Si aparece, aceptalo.
+
+## Cómo debe quedar la lista de permisos
+
+Se revisa en **Ajustes → Aplicaciones → OmniAccess Guardia → Permisos**:
+
+![Ilustración: los permisos de la aplicación, como deben quedar](img/tab-13-permisos-app.png)
 
 | Permiso | Para qué | Si falta |
 |---|---|---|
 | **Ubicación (siempre)** | Posición en el mapa y en el pánico | No aparecés en el mapa |
 | **Cámara** | Fotos de patentes y visitantes | No se pueden adjuntar fotos |
+| **Micrófono** | Notas de voz en la bitácora | No se pueden grabar audios |
 | **NFC** | Rondas | No se pueden marcar puntos |
 | **Notificaciones** | Alertas y avisos de ronda | No te enterás de nada con la app cerrada |
 | **Segundo plano** | Que el servicio siga vivo | Se pierde posición con la pantalla apagada |
 | **Accesibilidad** (opcional) | Pánico por volumen bloqueado | Solo funciona el pánico en pantalla |
 
-> La **optimización de batería** es la causa número uno de "la tablet dejó de reportar posición".
-> Buscá la aplicación en *Ajustes → Batería → Optimización* y ponela en **No optimizar**.
+> ⚠ Si alguno figura en **Denegado**, tocalo y cambialo a mano. Android no lo vuelve a pedir solo
+> después de la primera negativa.
 
----
+## La optimización de batería
+
+Es la causa número uno de *"la tablet dejó de reportar posición"*. Android duerme la aplicación con
+la pantalla apagada y se pierden posición y rondas.
+
+![Ilustración: la optimización de batería, en No optimizar](img/tab-14-bateria.png)
+
+Ruta: **Ajustes → Batería → Optimización de batería**, buscar *OmniAccess Guardia* y ponerla en
+**No optimizar**. En algunas marcas el menú se llama distinto:
+
+| Marca | Dónde está |
+|---|---|
+| Samsung | Ajustes → Batería → Límites de uso en segundo plano → Apps que nunca se suspenden |
+| Xiaomi | Ajustes → Apps → OmniAccess → Ahorro de batería → Sin restricciones |
+| Motorola / Android puro | Ajustes → Apps → OmniAccess → Batería → Sin restricciones |
+| Huawei | Ajustes → Batería → Inicio de apps → OmniAccess → Gestión manual (las tres opciones activadas) |
 
 # Situaciones típicas del turno
 
 Este capítulo no explica pantallas: explica **qué hacer** en los casos que pasan todos los días.
-Cada situación está resuelta con la menor cantidad de toques posible.
 
 ## 1 · Llega una visita anunciada
 
 El residente avisó que espera a alguien.
 
-1. **Acceso** → *Registro de ingreso*.
+1. **Acceso** → *Registro de Ingreso*.
 2. Escribí la **matrícula**. Si el auto ya cruzó la línea de la cámara, nombre y unidad aparecen
    solos.
 3. Completá **nombre** y **documento**.
 4. Elegí la **unidad de destino** y anotá el motivo.
 5. Confirmá con el botón verde.
-
-![La pantalla de acceso, con el ingreso ya cargado](img/tab-02-acceso.png)
-
-> ⏱ Con la matrícula reconocida, el registro completo lleva **menos de 20 segundos**.
 
 ## 2 · Llega alguien que no está anunciado
 
@@ -359,7 +481,12 @@ teléfono. Recién con la confirmación registrás el ingreso y abrís.
 > ⚠ Si no hay confirmación, no abras. Anotá el intento en la bitácora con la matrícula: si vuelve,
 > el sistema muestra que ya estuvo.
 
-## 3 · Un reparto o un proveedor
+## 3 · Entra una moto
+
+Tocá **Moto** antes de escribir la matrícula. Si el repartidor no baja del vehículo, alcanza con
+matrícula, nombre y destino; el documento se pide cuando la visita entra caminando.
+
+## 4 · Un reparto o un proveedor
 
 Registralo como visita normal, con dos cuidados:
 
@@ -368,7 +495,7 @@ Registralo como visita normal, con dos cuidados:
 - Si es un vehículo que viene siempre, conviene **registrarlo** para que deje de figurar como
   denegado. Se hace desde **LPR** → botón *Registrar* de esa fila.
 
-## 4 · La cámara leyó una matrícula que no está registrada
+## 5 · La cámara leyó una matrícula que no está registrada
 
 Aparece en **LPR** con el cartel *No identificado* y el sello **DENY**.
 
@@ -377,9 +504,7 @@ Aparece en **LPR** con el cartel *No identificado* y el sello **DENY**.
 3. Tocá **Análisis** para ver la ficha completa y confirmar de qué vehículo se trata.
 4. Si corresponde, tocá **Registrar**: la matrícula viene precargada.
 
-![Los accesos leídos por las cámaras, con las acciones de cada fila](img/tab-04-lpr.png)
-
-## 5 · Alguien reclama por un golpe en el estacionamiento
+## 6 · Alguien reclama por un golpe en el estacionamiento
 
 Lo que se entrega como evidencia sale de acá:
 
@@ -388,30 +513,19 @@ Lo que se entrega como evidencia sale de acá:
 3. Si hace falta el archivo, pedile al puesto de monitoreo que **exporte el evento** (foto +
    recorte de la patente + video de 30 segundos, en un ZIP).
 
-## 6 · Registrar la salida de un visitante
+## 7 · Registrar la salida de un visitante
 
-1. **Acceso** → *Registro de salida*.
+1. **Acceso** → *Registro de Salida*.
 2. Escribí la matrícula: el sistema encuentra el ingreso y completa los datos.
 3. Confirmá.
 
-Queda registrada la permanencia. Si el visitante entró a pie o el ingreso no fue registrado,
-cargalo igual con lo que sepas y aclaralo en observaciones.
-
-## 7 · Dejar una novedad en la bitácora
-
-La bitácora es lo que permite reconstruir un turno después. Se deja novedad aunque no haya pasado
-nada — *"sin novedad"* también es información.
-
-> Anotá siempre: hora, qué pasó, qué hiciste y a quién avisaste. Si hay foto o audio, adjuntalos:
-> valen más que la descripción.
-
 ## 8 · Una emergencia
 
-Mantené presionado el **botón rojo** del centro. Si la tablet está bloqueada en el bolsillo, usá el
-botón de **volumen** (aplicación Android).
+Mantené presionado el **botón rojo** hasta que el anillo dé la vuelta entera. Si la tablet está
+bloqueada en el bolsillo, usá el botón de **volumen** (aplicación Android).
 
 Después de disparar la alerta: quedate donde estás si es seguro, la posición ya se envió. Si te
-movés, la posición se sigue actualizando.
+movés, se sigue actualizando.
 
 ## 9 · Se cortó el WiFi en medio del turno
 
@@ -448,6 +562,8 @@ Es el punto de color junto a tu perfil, abajo a la izquierda.
 
 | Síntoma | Qué hacer |
 |---|---|
+| La matrícula queda marcada como inválida | Fijate si está en **Moto** o en **Auto**: el formato esperado es distinto |
+| No encuentro el lote en la lista | Buscá por número y por apellido; si no está, avisá al administrador |
 | No lee las etiquetas NFC | Verificá que el NFC esté activado; acercá el **dorso**, no el frente |
 | No aparezco en el mapa | Ubicación en "siempre" y salí al exterior 30 segundos |
 | La aplicación se cierra sola | Optimización de batería: ponela en "No optimizar" |
@@ -458,12 +574,17 @@ Es el punto de color junto a tu perfil, abajo a la izquierda.
 > Si la tablet se pierde o la roban, avisá **de inmediato**: desde el panel se le revoca el acceso
 > y deja de recibir y enviar datos.
 
----
-
 # Preguntas frecuentes
 
 **¿Si se me apaga la tablet pierdo lo que registré?**
 No. Todo se guarda en la tablet apenas se confirma, y se sube cuando hay señal.
+
+**¿Puedo corregir un registro que cargué mal?**
+El registro no se borra. Cargá el dato correcto y aclaralo en observaciones: el historial muestra
+las dos entradas y se entiende qué pasó.
+
+**¿Y si el visitante no quiere dar el documento?**
+Registrá lo que tengas y anotalo en observaciones. Después es la unidad la que decide si autoriza.
 
 **¿Puedo usar mi celular?**
 Para el navegador sí, con limitaciones de pantalla. Para las funciones de ronda, pánico bloqueado

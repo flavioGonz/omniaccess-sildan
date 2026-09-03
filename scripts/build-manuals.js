@@ -37,6 +37,16 @@ const MARKS = (() => {
     try { return JSON.parse(fs.readFileSync(path.join(MDIR, "marks.json"), "utf8")); } catch { return {}; }
 })();
 
+/** Alto y ancho de un PNG leyendo su cabecera (para dar más altura a las apaisadas). */
+function medidaPng(p) {
+    try {
+        const fd = fs.openSync(p, "r"), b = Buffer.alloc(24);
+        fs.readSync(fd, b, 0, 24, 0); fs.closeSync(fd);
+        if (b.toString("ascii", 12, 16) !== "IHDR") return null;
+        return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+    } catch { return null; }
+}
+
 /* Isotipo OmniAccess — anillo de cobertura con el paso abierto. */
 const LOGO = (px) => `<svg width="${px}" height="${px}" viewBox="0 0 64 64" aria-label="OmniAccess">
   <defs><linearGradient id="oaG${px}" x1="6" y1="58" x2="58" y2="6" gradientUnits="userSpaceOnUse">
@@ -117,13 +127,21 @@ function render(md, ctx) {
                 out.push(`<figure class="falta"><div class="ph"><b>Falta la captura</b><code>${esc(file)}</code><span>${esc(alt)}</span></div></figure>`);
                 continue;
             }
-            const puntos = marcas.map((k, n) => k.w != null
-                ? `<span class="caja" style="left:${k.x}%;top:${k.y}%;width:${k.w}%;height:${k.h}%"><span class="mk">${n + 1}</span></span>`
-                : `<span class="mk punto" style="left:${k.x}%;top:${k.y}%">${n + 1}</span>`).join("");
-            const leyenda = marcas.length && marcas.some((k) => k.txt)
-                ? `<ol class="leyenda">${marcas.map((k) => `<li>${inline(k.txt)}</li>`).join("")}</ol>` : "";
-            out.push(`<figure><div class="lienzo"><img src="img/${file}" alt="${esc(alt)}">${puntos}</div>` +
-                `<figcaption>Fig. ${ctx.num}.${fig} — ${inline(alt)}</figcaption>${leyenda}</figure>`);
+            // La etiqueta va SOBRE la foto, pegada al recuadro. Se elige el lado para
+            // que no se salga del cuadro: arriba salvo que el recuadro toque el borde
+            // superior, y alineada a la derecha si está en la mitad derecha.
+            const puntos = marcas.map((k, n) => {
+                const eti = k.txt ? `<span class="eti"><span class="n">${n + 1}</span>${inline(k.txt)}</span>` : `<span class="mk">${n + 1}</span>`;
+                if (k.w == null) return `<span class="mk punto" style="left:${k.x}%;top:${k.y}%">${n + 1}</span>`;
+                const lado = [k.pos || (k.y < 7 ? "abajo" : "arriba"),
+                k.lado || (k.x + k.w / 2 > 55 ? "der" : "izq")].join(" ");
+                return `<span class="caja ${lado}" style="left:${k.x}%;top:${k.y}%;width:${k.w}%;height:${k.h}%">${eti}</span>`;
+            }).join("");
+            const dim = medidaPng(path.join(MDIR, "img", file));
+            const prop = dim ? dim.w / dim.h : 1;
+            const ancha = !dim ? "" : prop >= 1.4 ? " ancha" : prop <= 0.85 ? " alta" : "";
+            out.push(`<figure class="fig${ancha}"><div class="lienzo"><img src="img/${file}" alt="${esc(alt)}">${puntos}</div>` +
+                `<figcaption>Fig. ${ctx.num}.${fig} — ${inline(alt)}</figcaption></figure>`);
             continue;
         }
 
@@ -180,7 +198,7 @@ function render(md, ctx) {
 }
 
 /* ─────────────── Plantilla ─────────────── */
-function page({ man, prod, body, toc, fecha, pags }) {
+function page({ man, prod, body, toc, fecha, pags, compacto }) {
     const tocHtml = toc.map((t) =>
         `<li class="l${t.lvl}"><a href="#${t.id}"><span class="t">${esc(t.txt)}</span><span class="dots"></span>` +
         `<span class="pg">${pags && pags[t.id] ? pags[t.id] : ""}</span></a></li>`).join("");
@@ -223,18 +241,25 @@ body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-syst
 .p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
 .p-bot .der{text-align:right}
 
-/* ── ÍNDICE ── */
+/* ── ÍNDICE ── (siempre en una sola hoja: dos columnas, y una variante
+   compacta que el compilador activa cuando no entra) */
 .indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
-.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:22px}
-.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap}
-.indice li{margin:0}
-.indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:16px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap;columns:2;column-gap:11mm}
+.indice li{margin:0;break-inside:avoid;page-break-inside:avoid}
+.indice li a{display:flex;align-items:baseline;gap:6px;text-decoration:none;color:var(--tinta);padding:2.5px 0}
 .indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
-.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:12.5px;min-width:20px;text-align:right}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:11.5px;min-width:18px;text-align:right}
 .indice .l1 .pg{color:var(--tinta);font-weight:700}
-.indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:8px;border-top:1px solid var(--linea);padding-top:5px;font-size:13px}
+.indice .l1:first-child{margin-top:0;border-top:0;padding-top:0}
 .indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
-.indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
+.indice .l2{padding-left:13px;font-size:11.5px;color:#4b5563}
+.indice.compacto ol{column-gap:8mm}
+.indice.compacto li a{padding:1px 0}
+.indice.compacto .l1{margin-top:5px;padding-top:3px;font-size:11.5px}
+.indice.compacto .l2{font-size:10.2px;padding-left:11px}
+.indice.compacto .pg{font-size:10px}
 
 /* ── CUERPO ── */
 h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
@@ -262,27 +287,37 @@ blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
 blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
 blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
 blockquote.alerta::before{content:"⚠ ";font-weight:700}
-figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
-.lienzo{position:relative;line-height:0}
-figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+/* Las figuras se limitan en alto: una captura vertical a página completa obligaba
+   a saltar de hoja y dejaba la anterior casi vacía. */
+figure{margin:14px 0 16px;page-break-inside:avoid;break-inside:avoid;text-align:center}
+.lienzo{position:relative;line-height:0;display:inline-block;max-width:100%}
+figure img{max-width:100%;max-height:104mm;width:auto;border:1px solid var(--linea);border-radius:9px;
+  box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figure.ancha img{max-height:126mm}
+figure.alta img{max-height:142mm}
 figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
 figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
 figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
 /* ── marcaciones sobre la captura ──
-   .caja  = recuadro sobre el elemento real (no lo tapa)
-   .mk    = chapita numerada, pegada al borde del recuadro          */
+   .caja = recuadro sobre el elemento real; .eti = número + texto, pegados al
+   recuadro y SOBRE la foto (antes el texto iba en una leyenda debajo).       */
 .caja{position:absolute;border:2.4px solid var(--c);border-radius:7px;z-index:2;
   box-shadow:0 0 0 2px rgba(255,255,255,.9),0 2px 9px rgba(0,0,0,.28)}
+.eti{position:absolute;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;z-index:4;
+  background:var(--c);color:#fff;border-radius:13px;padding:2px 9px 2px 3px;
+  font:600 10.5px/1.55 "Segoe UI",sans-serif;letter-spacing:.01em;
+  box-shadow:0 0 0 2px #fff,0 2px 7px rgba(0,0,0,.45)}
+.eti .n{width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.3);
+  font:800 10px/16px "Segoe UI",sans-serif;text-align:center;flex:0 0 auto}
+.caja.arriba>.eti{top:0;transform:translateY(-112%)}
+.caja.abajo>.eti{top:100%;transform:translateY(12%)}
+.caja.izq>.eti{left:-3px}
+.caja.der>.eti{right:-3px}
 .mk{position:absolute;min-width:21px;height:21px;border-radius:11px;padding:0 6px;
   background:var(--c);color:#fff;font:800 12px/21px "Segoe UI",sans-serif;text-align:center;
   box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.4);z-index:3;white-space:nowrap}
 .caja>.mk{left:-9px;top:-11px}
 .punto{position:absolute;transform:translate(-50%,-50%);z-index:3}
-.leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
-  display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
-.leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
-.leyenda li::before{content:counter(mk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;
-  background:var(--c);color:#fff;font:800 10.5px/18px "Segoe UI",sans-serif;text-align:center}
 hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
 
 /* ── Cortes de página: que no se parta lo que se lee junto ── */
@@ -295,8 +330,10 @@ ul,ol{break-inside:auto}
 h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
 h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
 
-/* pie de página impreso */
+/* Todo el manual se imprime en UN solo pase, para que los enlaces del índice
+   sobrevivan: la portada va a sangre con @page:first y el pie se dibuja después. */
 @page{size:A4;margin:16mm 15mm 17mm}
+@page:first{margin:0}
 @media print{
   html,body{margin:0;padding:0;background:#fff}
   .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
@@ -335,7 +372,7 @@ body.sin-portada .portada{display:none}
   </div>
 </section>
 
-<section class="hoja indice">
+<section class="hoja indice${compacto ? " compacto" : ""}">
   <h2>Contenido</h2>
   <div class="sub">${esc(prod)} · ${esc(man.titulo)}</div>
   <ol>${tocHtml}</ol>
@@ -383,74 +420,79 @@ async function main() {
 
     if (args.includes("--pdf")) {
         const { chromium } = require("playwright");
-        const { PDFDocument } = require("pdf-lib");
+        const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
         const b = await chromium.launch();
         const p = await (await b.newContext({ colorScheme: "light" })).newPage();
         for (const { man, dest } of hechos) {
             const prod = man._render.prod;
             await p.goto("file://" + dest, { waitUntil: "networkidle" });
 
-            // ── PASE 1: medir en qué página cae cada título, para numerar el índice ──
-            // Se imprime el cuerpo sin índice y se mide la posición de cada ancla contra
-            // la altura útil de la hoja, respetando los saltos forzados de capítulo.
-            await p.evaluate(() => { document.body.className = "sin-portada medir"; });
-            await p.emulateMedia({ media: "print" });
-            const pags = await p.evaluate(() => {
-                const MM = 96 / 25.4;                       // px por mm a 96 dpi
-                const util = (297 - 16 - 17) * MM;          // alto imprimible
-                const ids = [...document.querySelectorAll("h1.cap,h2[id]")];
-                const idx = document.querySelector(".indice");
-                const idxAlto = idx ? idx.getBoundingClientRect().height : 0;
-                const idxPags = Math.max(1, Math.ceil(idxAlto / util));
-                const base = 1 + idxPags;                   // portada + páginas del índice
-                const out = {}; let pagCap = base; let capTop = 0; let primero = true;
-                for (const el of ids) {
-                    const top = el.getBoundingClientRect().top + window.scrollY;
-                    if (el.tagName === "H1") {              // cada capítulo abre página
-                        if (!primero) pagCap = pagCap + Math.max(1, Math.ceil((top - capTop) / util));
-                        primero = false; capTop = top;
-                        out[el.id] = pagCap;
-                    } else {
-                        out[el.id] = pagCap + Math.floor((top - capTop) / util);
+            // ── PASE 1: medir ──
+            // (a) si el índice entra en una hoja; (b) en qué página cae cada título.
+            // Se imprime el cuerpo sin índice y se mide cada ancla contra la altura útil
+            // de la hoja, respetando los saltos forzados de capítulo.
+            const medir = async () => {
+                await p.evaluate(() => { document.body.className = "sin-portada medir"; });
+                await p.emulateMedia({ media: "print" });
+                const r = await p.evaluate(() => {
+                    const MM = 96 / 25.4;                       // px por mm a 96 dpi
+                    const util = (297 - 16 - 17) * MM;          // alto imprimible
+                    const ids = [...document.querySelectorAll("h1.cap,h2[id]")];
+                    const idx = document.querySelector(".indice");
+                    const idxAlto = idx ? idx.getBoundingClientRect().height : 0;
+                    const idxPags = Math.max(1, Math.ceil(idxAlto / util));
+                    const base = 1 + idxPags;                   // portada + páginas del índice
+                    const out = {}; let pagCap = base; let capTop = 0; let primero = true;
+                    for (const el of ids) {
+                        const top = el.getBoundingClientRect().top + window.scrollY;
+                        if (el.tagName === "H1") {              // cada capítulo abre página
+                            if (!primero) pagCap = pagCap + Math.max(1, Math.ceil((top - capTop) / util));
+                            primero = false; capTop = top;
+                            out[el.id] = pagCap;
+                        } else {
+                            out[el.id] = pagCap + Math.floor((top - capTop) / util);
+                        }
                     }
-                }
-                return out;
-            });
-            await p.emulateMedia({ media: null });   // null = vuelve al default (print al generar el PDF)
+                    return { pags: out, cabe: idxAlto <= util - 6 };
+                });
+                await p.emulateMedia({ media: null });   // null = vuelve al default (print al generar el PDF)
+                return r;
+            };
+
+            let { pags, cabe } = await medir();
+            const compacto = !cabe;
+            if (compacto) {   // el índice no entraba: se achica y hay que volver a numerar
+                fs.writeFileSync(dest, page({ man, prod, body: man._render.html, toc: man._render.toc, fecha, pags: null, compacto }));
+                await p.goto("file://" + dest, { waitUntil: "networkidle" });
+                ({ pags } = await medir());
+                console.log(`    · índice compacto para que entre en una hoja`);
+            }
 
             // se regenera el HTML con el índice numerado y se recarga
-            fs.writeFileSync(dest, page({ man, prod, body: man._render.html, toc: man._render.toc, fecha, pags }));
+            fs.writeFileSync(dest, page({ man, prod, body: man._render.html, toc: man._render.toc, fecha, pags, compacto }));
             await p.goto("file://" + dest, { waitUntil: "networkidle" });
 
-            // 1) portada a sangre: hay que anular el @page del CSS, que le gana al margin de Playwright
-            await p.evaluate(() => {
-                document.body.className = "solo-portada";
-                const s = document.createElement("style");
-                s.id = "sangre"; s.textContent = "@page{size:A4;margin:0}";
-                document.head.appendChild(s);
-            });
-            const portada = await p.pdf({ format: "A4", printBackground: true, margin: { top: 0, bottom: 0, left: 0, right: 0 } });
-
-            // 2) cuerpo: con márgenes, numeración y pie
-            await p.evaluate(() => {
-                document.body.className = "sin-portada";
-                document.getElementById("sangre")?.remove();
-            });
-            const cuerpo = await p.pdf({
+            // Un solo pase: los márgenes salen del CSS (@page y @page:first), no de
+            // Playwright. Pegar dos PDF con pdf-lib perdía los enlaces del índice.
+            await p.evaluate(() => { document.body.className = ""; });
+            const impreso = await p.pdf({
                 format: "A4", printBackground: true,
-                margin: { top: "16mm", bottom: "17mm", left: "15mm", right: "15mm" },
-                displayHeaderFooter: true,
-                headerTemplate: `<div></div>`,
-                footerTemplate: `<div style="width:100%;font-size:8px;color:#94a3b8;padding:0 15mm;display:flex;justify-content:space-between;font-family:Segoe UI,sans-serif">
-                   <span>${prod} · ${man.titulo}</span><span class="pageNumber"></span></div>`,
+                tagged: true, outline: true,   // índice navegable: enlaces internos + marcadores
             });
 
-            const doc = await PDFDocument.create();
-            for (const src of [portada, cuerpo]) {
-                const s = await PDFDocument.load(src);
-                const pgs = await doc.copyPages(s, s.getPageIndices());
-                pgs.forEach((x) => doc.addPage(x));
-            }
+            // El pie se dibuja acá y no con displayHeaderFooter, que lo pondría también
+            // sobre la portada.
+            const doc = await PDFDocument.load(impreso);
+            const fuente = await doc.embedFont(StandardFonts.Helvetica);
+            const pie = `${prod} · ${man.titulo}`;
+            doc.getPages().forEach((pg, i) => {
+                if (i === 0) return;                       // la portada va limpia
+                const { width } = pg.getSize();
+                const gris = rgb(0.58, 0.64, 0.71);
+                pg.drawText(pie, { x: 42.5, y: 30, size: 7.5, font: fuente, color: gris });
+                const n = String(i + 1);
+                pg.drawText(n, { x: width - 42.5 - fuente.widthOfTextAtSize(n, 7.5), y: 30, size: 7.5, font: fuente, color: gris });
+            });
             doc.setTitle(`${prod} · ${man.titulo}`);
             doc.setAuthor(meta.producto.empresa);
             doc.setSubject(man.para);

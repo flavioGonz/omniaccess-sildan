@@ -37,18 +37,25 @@ body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-syst
 .p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
 .p-bot .der{text-align:right}
 
-/* ── ÍNDICE ── */
+/* ── ÍNDICE ── (siempre en una sola hoja: dos columnas, y una variante
+   compacta que el compilador activa cuando no entra) */
 .indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
-.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:22px}
-.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap}
-.indice li{margin:0}
-.indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:16px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap;columns:2;column-gap:11mm}
+.indice li{margin:0;break-inside:avoid;page-break-inside:avoid}
+.indice li a{display:flex;align-items:baseline;gap:6px;text-decoration:none;color:var(--tinta);padding:2.5px 0}
 .indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
-.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:12.5px;min-width:20px;text-align:right}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:11.5px;min-width:18px;text-align:right}
 .indice .l1 .pg{color:var(--tinta);font-weight:700}
-.indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:8px;border-top:1px solid var(--linea);padding-top:5px;font-size:13px}
+.indice .l1:first-child{margin-top:0;border-top:0;padding-top:0}
 .indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
-.indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
+.indice .l2{padding-left:13px;font-size:11.5px;color:#4b5563}
+.indice.compacto ol{column-gap:8mm}
+.indice.compacto li a{padding:1px 0}
+.indice.compacto .l1{margin-top:5px;padding-top:3px;font-size:11.5px}
+.indice.compacto .l2{font-size:10.2px;padding-left:11px}
+.indice.compacto .pg{font-size:10px}
 
 /* ── CUERPO ── */
 h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
@@ -76,27 +83,37 @@ blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
 blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
 blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
 blockquote.alerta::before{content:"⚠ ";font-weight:700}
-figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
-.lienzo{position:relative;line-height:0}
-figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+/* Las figuras se limitan en alto: una captura vertical a página completa obligaba
+   a saltar de hoja y dejaba la anterior casi vacía. */
+figure{margin:14px 0 16px;page-break-inside:avoid;break-inside:avoid;text-align:center}
+.lienzo{position:relative;line-height:0;display:inline-block;max-width:100%}
+figure img{max-width:100%;max-height:104mm;width:auto;border:1px solid var(--linea);border-radius:9px;
+  box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figure.ancha img{max-height:126mm}
+figure.alta img{max-height:142mm}
 figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
 figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
 figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
 /* ── marcaciones sobre la captura ──
-   .caja  = recuadro sobre el elemento real (no lo tapa)
-   .mk    = chapita numerada, pegada al borde del recuadro          */
+   .caja = recuadro sobre el elemento real; .eti = número + texto, pegados al
+   recuadro y SOBRE la foto (antes el texto iba en una leyenda debajo).       */
 .caja{position:absolute;border:2.4px solid var(--c);border-radius:7px;z-index:2;
   box-shadow:0 0 0 2px rgba(255,255,255,.9),0 2px 9px rgba(0,0,0,.28)}
+.eti{position:absolute;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;z-index:4;
+  background:var(--c);color:#fff;border-radius:13px;padding:2px 9px 2px 3px;
+  font:600 10.5px/1.55 "Segoe UI",sans-serif;letter-spacing:.01em;
+  box-shadow:0 0 0 2px #fff,0 2px 7px rgba(0,0,0,.45)}
+.eti .n{width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.3);
+  font:800 10px/16px "Segoe UI",sans-serif;text-align:center;flex:0 0 auto}
+.caja.arriba>.eti{top:0;transform:translateY(-112%)}
+.caja.abajo>.eti{top:100%;transform:translateY(12%)}
+.caja.izq>.eti{left:-3px}
+.caja.der>.eti{right:-3px}
 .mk{position:absolute;min-width:21px;height:21px;border-radius:11px;padding:0 6px;
   background:var(--c);color:#fff;font:800 12px/21px "Segoe UI",sans-serif;text-align:center;
   box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.4);z-index:3;white-space:nowrap}
 .caja>.mk{left:-9px;top:-11px}
 .punto{position:absolute;transform:translate(-50%,-50%);z-index:3}
-.leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
-  display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
-.leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
-.leyenda li::before{content:counter(mk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;
-  background:var(--c);color:#fff;font:800 10.5px/18px "Segoe UI",sans-serif;text-align:center}
 hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
 
 /* ── Cortes de página: que no se parta lo que se lee junto ── */
@@ -109,8 +126,10 @@ ul,ol{break-inside:auto}
 h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
 h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
 
-/* pie de página impreso */
+/* Todo el manual se imprime en UN solo pase, para que los enlaces del índice
+   sobrevivan: la portada va a sangre con @page:first y el pie se dibuja después. */
 @page{size:A4;margin:16mm 15mm 17mm}
+@page:first{margin:0}
 @media print{
   html,body{margin:0;padding:0;background:#fff}
   .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
@@ -160,7 +179,7 @@ body.sin-portada .portada{display:none}
 <section class="hoja indice">
   <h2>Contenido</h2>
   <div class="sub">OmniAccess LPR · Manual del Operador</div>
-  <ol><li class="l1"><a href="#que-hace-omniaccess"><span class="t">Qué hace OmniAccess</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#todo-lo-que-hace-en-detalle"><span class="t">Todo lo que hace, en detalle</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#en-que-nos-diferenciamos"><span class="t">En qué nos diferenciamos</span><span class="dots"></span><span class="pg">4</span></a></li><li class="l1"><a href="#antes-de-empezar"><span class="t">Antes de empezar</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#el-recorrido-de-un-acceso"><span class="t">El recorrido de un acceso</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#los-tres-estados-de-un-acceso"><span class="t">Los tres estados de un acceso</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#como-ingresar"><span class="t">Cómo ingresar</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l1"><a href="#el-monitor-en-vivo"><span class="t">El Monitor en Vivo</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l2"><a href="#como-esta-organizada"><span class="t">Cómo está organizada</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l2"><a href="#la-barra-superior"><span class="t">La barra superior</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l2"><a href="#el-foco-central"><span class="t">El foco central</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l2"><a href="#el-sonido"><span class="t">El sonido</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l1"><a href="#el-detalle-de-un-evento"><span class="t">El detalle de un evento</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#lo-que-ves-de-un-vistazo"><span class="t">Lo que ves de un vistazo</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#las-seis-acciones"><span class="t">Las seis acciones</span><span class="dots"></span><span class="pg">12</span></a></li><li class="l2"><a href="#las-tres-pestanas"><span class="t">Las tres pestañas</span><span class="dots"></span><span class="pg">12</span></a></li><li class="l2"><a href="#buscar-el-mismo-vehiculo-en-otras-camaras"><span class="t">Buscar el mismo vehículo en otras cámaras</span><span class="dots"></span><span class="pg">12</span></a></li><li class="l1"><a href="#buscar-en-el-historial"><span class="t">Buscar en el historial</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l2"><a href="#busqueda-inteligente"><span class="t">Búsqueda inteligente</span><span class="dots"></span><span class="pg">15</span></a></li><li class="l1"><a href="#el-mapa-del-barrio"><span class="t">El mapa del barrio</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l1"><a href="#plazas-de-parking"><span class="t">Plazas de parking</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l1"><a href="#la-tablet-del-guardia"><span class="t">La tablet del guardia</span><span class="dots"></span><span class="pg">20</span></a></li><li class="l2"><a href="#que-hacer-cuando-llega-una-alerta-de-un-guardia"><span class="t">Qué hacer cuando llega una alerta de un guardia</span><span class="dots"></span><span class="pg">20</span></a></li><li class="l1"><a href="#situaciones-frecuentes"><span class="t">Situaciones frecuentes</span><span class="dots"></span><span class="pg">21</span></a></li><li class="l2"><a href="#llega-un-vehiculo-que-no-esta-registrado"><span class="t">Llega un vehículo que no está registrado</span><span class="dots"></span><span class="pg">21</span></a></li><li class="l2"><a href="#un-residente-reclama-que-no-le-abrio"><span class="t">Un residente reclama que no le abrió</span><span class="dots"></span><span class="pg">21</span></a></li><li class="l2"><a href="#hay-que-entregar-evidencia-de-un-incidente"><span class="t">Hay que entregar evidencia de un incidente</span><span class="dots"></span><span class="pg">21</span></a></li><li class="l2"><a href="#una-camara-dejo-de-mostrar-imagen"><span class="t">Una cámara dejó de mostrar imagen</span><span class="dots"></span><span class="pg">21</span></a></li><li class="l2"><a href="#dejaron-de-entrar-matriculas-de-golpe"><span class="t">Dejaron de entrar matrículas de golpe</span><span class="dots"></span><span class="pg">21</span></a></li><li class="l1"><a href="#buenas-practicas-del-turno"><span class="t">Buenas prácticas del turno</span><span class="dots"></span><span class="pg">23</span></a></li></ol>
+  <ol><li class="l1"><a href="#que-hace-omniaccess"><span class="t">Qué hace OmniAccess</span><span class="dots"></span><span class="pg">2</span></a></li><li class="l2"><a href="#todo-lo-que-hace-en-detalle"><span class="t">Todo lo que hace, en detalle</span><span class="dots"></span><span class="pg">2</span></a></li><li class="l2"><a href="#en-que-nos-diferenciamos"><span class="t">En qué nos diferenciamos</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l1"><a href="#antes-de-empezar"><span class="t">Antes de empezar</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#el-recorrido-de-un-acceso"><span class="t">El recorrido de un acceso</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#los-tres-estados-de-un-acceso"><span class="t">Los tres estados de un acceso</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#como-ingresar"><span class="t">Cómo ingresar</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l1"><a href="#el-monitor-en-vivo"><span class="t">El Monitor en Vivo</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l2"><a href="#como-esta-organizada"><span class="t">Cómo está organizada</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l2"><a href="#la-barra-superior"><span class="t">La barra superior</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l2"><a href="#el-foco-central"><span class="t">El foco central</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l2"><a href="#el-sonido"><span class="t">El sonido</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l1"><a href="#el-detalle-de-un-evento"><span class="t">El detalle de un evento</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#lo-que-ves-de-un-vistazo"><span class="t">Lo que ves de un vistazo</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#las-seis-acciones"><span class="t">Las seis acciones</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#las-tres-pestanas"><span class="t">Las tres pestañas</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#buscar-el-mismo-vehiculo-en-otras-camaras"><span class="t">Buscar el mismo vehículo en otras cámaras</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l1"><a href="#buscar-en-el-historial"><span class="t">Buscar en el historial</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l2"><a href="#busqueda-inteligente"><span class="t">Búsqueda inteligente</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l1"><a href="#el-mapa-del-barrio"><span class="t">El mapa del barrio</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l1"><a href="#plazas-de-parking"><span class="t">Plazas de parking</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l1"><a href="#la-tablet-del-guardia"><span class="t">La tablet del guardia</span><span class="dots"></span><span class="pg">18</span></a></li><li class="l2"><a href="#que-hacer-cuando-llega-una-alerta-de-un-guardia"><span class="t">Qué hacer cuando llega una alerta de un guardia</span><span class="dots"></span><span class="pg">18</span></a></li><li class="l1"><a href="#situaciones-frecuentes"><span class="t">Situaciones frecuentes</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l2"><a href="#llega-un-vehiculo-que-no-esta-registrado"><span class="t">Llega un vehículo que no está registrado</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l2"><a href="#un-residente-reclama-que-no-le-abrio"><span class="t">Un residente reclama que no le abrió</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l2"><a href="#hay-que-entregar-evidencia-de-un-incidente"><span class="t">Hay que entregar evidencia de un incidente</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l2"><a href="#una-camara-dejo-de-mostrar-imagen"><span class="t">Una cámara dejó de mostrar imagen</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l2"><a href="#dejaron-de-entrar-matriculas-de-golpe"><span class="t">Dejaron de entrar matrículas de golpe</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l1"><a href="#buenas-practicas-del-turno"><span class="t">Buenas prácticas del turno</span><span class="dots"></span><span class="pg">21</span></a></li></ol>
 </section>
 
 <section class="hoja">
@@ -199,14 +218,14 @@ body.sin-portada .portada{display:none}
 <h2 id="como-ingresar">Cómo ingresar</h2>
 <div class="ruta"><span class="ruta-l">Cómo llegar</span>Navegador → dirección del sistema → usuario y contraseña</div>
 <p>El sistema funciona en cualquier navegador moderno. No hace falta instalar nada en la PC del puesto.</p>
-<figure><div class="lienzo"><img src="img/op-01-login.png" alt="Pantalla de ingreso"></div><figcaption>Fig. 1.1 — Pantalla de ingreso</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-01-login.png" alt="Pantalla de ingreso"></div><figcaption>Fig. 1.1 — Pantalla de ingreso</figcaption></figure>
 <p>Si te olvidaste la contraseña, el administrador te la restablece: no hay recuperación por correo en instalaciones sin internet.</p>
 <blockquote class="alerta">Una sesión abierta en el puesto de monitoreo queda abierta. Si el puesto es compartido entre turnos, cerrá sesión al irte — todo lo que se haga queda registrado a tu nombre en la auditoría.</blockquote>
 <hr>
 <h1 id="el-monitor-en-vivo" class="cap">El Monitor en Vivo</h1>
 <div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Monitor en Vivo</div>
 <p>Es la pantalla donde vas a pasar el turno. Está pensada para mirarse de lejos: los datos importantes son grandes y los colores dicen todo sin que tengas que leer.</p>
-<figure><div class="lienzo"><img src="img/op-02-monitor-completo.png" alt="Monitor LPR completo: entradas a la izquierda, foco central, salidas a la derecha"><span class="caja" style="left:0%;top:0%;width:16.5%;height:100%"><span class="mk">1</span></span><span class="caja" style="left:33.7%;top:3.6%;width:65%;height:4.9%"><span class="mk">2</span></span><span class="caja" style="left:67.7%;top:4%;width:15.1%;height:4%"><span class="mk">3</span></span><span class="caja" style="left:15.8%;top:11.7%;width:28.4%;height:32.7%"><span class="mk">4</span></span><span class="caja" style="left:43.8%;top:11.7%;width:28.5%;height:88.3%"><span class="mk">5</span></span><span class="caja" style="left:71.8%;top:11.7%;width:28.200000000000003%;height:32.8%"><span class="mk">6</span></span><span class="caja" style="left:15.8%;top:43.5%;width:28.4%;height:56.5%"><span class="mk">7</span></span></div><figcaption>Fig. 1.2 — Monitor LPR completo: entradas a la izquierda, foco central, salidas a la derecha</figcaption><ol class="leyenda"><li>Menú lateral: el resto de las pantallas del sistema</li><li>Barra de estado: conexión, vehículos adentro y totales del día</li><li>Filtro rápido: todos, permitidos o denegados</li><li>Mosaico de cámaras de entrada, en vivo</li><li>Foco central: la última detección, en grande</li><li>Mosaico de cámaras de salida, en vivo</li><li>Capturas recientes: cada lectura con matrícula, marca y tipo</li></ol></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-02-monitor-completo.png" alt="Monitor LPR completo: entradas a la izquierda, foco central, salidas a la derecha"><span class="caja abajo izq" style="left:0%;top:0%;width:16.5%;height:100%"><span class="eti"><span class="n">1</span>Menú lateral: el resto de las pantallas del sistema</span></span><span class="caja abajo der" style="left:33.7%;top:3.6%;width:65%;height:4.9%"><span class="eti"><span class="n">2</span>Barra de estado: conexión, vehículos adentro y totales del día</span></span><span class="caja abajo der" style="left:67.7%;top:4%;width:15.1%;height:4%"><span class="eti"><span class="n">3</span>Filtro rápido: todos, permitidos o denegados</span></span><span class="caja arriba izq" style="left:15.8%;top:11.7%;width:28.4%;height:32.7%"><span class="eti"><span class="n">4</span>Mosaico de cámaras de entrada, en vivo</span></span><span class="caja arriba der" style="left:43.8%;top:11.7%;width:28.5%;height:88.3%"><span class="eti"><span class="n">5</span>Foco central: la última detección, en grande</span></span><span class="caja arriba der" style="left:71.8%;top:11.7%;width:28.200000000000003%;height:32.8%"><span class="eti"><span class="n">6</span>Mosaico de cámaras de salida, en vivo</span></span><span class="caja arriba izq" style="left:15.8%;top:43.5%;width:28.4%;height:56.5%"><span class="eti"><span class="n">7</span>Capturas recientes: cada lectura con matrícula, marca y tipo</span></span></div><figcaption>Fig. 1.2 — Monitor LPR completo: entradas a la izquierda, foco central, salidas a la derecha</figcaption></figure>
 <h2 id="como-esta-organizada">Cómo está organizada</h2>
 <p>La pantalla tiene tres columnas:</p>
 <ul><li><strong>Izquierda — Entradas.</strong> Arriba, un mosaico con la última captura de cada cámara de entrada. Abajo, la lista de capturas recientes.</li><li><strong>Centro — El foco.</strong> La última detección, en grande, con la foto de la patente recortada. Es lo que mirás de reojo mientras hacés otra cosa.</li><li><strong>Derecha — Salidas.</strong> Igual que la izquierda, pero para las cámaras de salida.</li></ul>
@@ -214,7 +233,7 @@ body.sin-portada .portada{display:none}
 <table><thead><tr><th>Indicador</th><th>Qué te dice</th></tr></thead><tbody><tr><td><strong>LIVE</strong> (punto verde)</td><td>El monitor está recibiendo eventos en tiempo real. Si se pone gris, perdiste conexión con el servidor</td></tr><tr><td><strong>ADENTRO</strong></td><td>Cuántos vehículos entraron y todavía no salieron</td></tr><tr><td><strong>Hoy</strong></td><td>Total de lecturas del día, y el desglose de autorizados y denegados</td></tr><tr><td><strong>En buffer</strong></td><td>Eventos recibidos que todavía se están dibujando. Si crece mucho, la PC del puesto está exigida</td></tr><tr><td><strong>Campana</strong></td><td>Alertas sin leer (lista negra, merodeo, cámara caída)</td></tr><tr><td><strong>Parlante</strong></td><td>Activa o silencia el sonido de las alertas</td></tr></tbody></table>
 <p>Los botones <strong>Todos / Permitidos / Denegados</strong> filtran la vista. Los desplegables <strong>Color</strong> y <strong>Tipo</strong> filtran por características del vehículo — sirven cuando estás buscando "la camioneta blanca que acaba de pasar".</p>
 <h2 id="el-foco-central">El foco central</h2>
-<figure><div class="lienzo"><img src="img/op-03-monitor-foco.png" alt="Detalle del foco central con la matrícula leída"></div><figcaption>Fig. 1.3 — Detalle del foco central con la matrícula leída</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-03-monitor-foco.png" alt="Detalle del foco central con la matrícula leída"></div><figcaption>Fig. 1.3 — Detalle del foco central con la matrícula leída</figcaption></figure>
 <p>Muestra la última detección con:</p>
 <ul><li>La <strong>matrícula</strong> en grande y el recorte real de la patente (para que puedas verificar a ojo que el sistema leyó bien).</li><li><strong>Marca, tipo y color</strong> del vehículo, detectados por la cámara.</li><li><strong>Cámara y hora</strong>, y hace cuánto fue.</li><li>Dos botones: <strong>Investigar</strong> (abre el detalle completo) y <strong>Registrar</strong> (da de alta al vehículo).</li></ul>
 <blockquote class="nota">Si la lectura salió mal (una letra cambiada), no la corrijas en el momento: registrá el vehículo con la matrícula correcta y avisá al administrador. Una matrícula que se lee mal de forma repetida es un problema de calibración de la cámara, no de ese auto.</blockquote>
@@ -223,7 +242,7 @@ body.sin-portada .portada{display:none}
 <hr>
 <h1 id="el-detalle-de-un-evento" class="cap">El detalle de un evento</h1>
 <p>Hacé clic en cualquier captura y se abre la ficha completa de ese acceso. Es la herramienta que más vas a usar cuando algo hay que investigar.</p>
-<figure><div class="lienzo"><img src="img/op-04-evento-perfil.png" alt="Ficha del evento con el perfil del vehículo"></div><figcaption>Fig. 1.4 — Ficha del evento con el perfil del vehículo</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-04-evento-perfil.png" alt="Ficha del evento con el perfil del vehículo"></div><figcaption>Fig. 1.4 — Ficha del evento con el perfil del vehículo</figcaption></figure>
 <h2 id="lo-que-ves-de-un-vistazo">Lo que ves de un vistazo</h2>
 <ul><li><strong>Arriba</strong>: el estado del acceso (autorizado / denegado / lista negra) y la fecha y hora exacta.</li><li><strong>Izquierda</strong>: la foto completa de la captura, con la matrícula sobreimpresa, y debajo los datos del vehículo (dirección, credencial, cámara, marca, color, tipo).</li><li><strong>Derecha</strong>: quién es (si está registrado), la barra de acciones, y tres pestañas con el análisis.</li></ul>
 <h2 id="las-seis-acciones">Las seis acciones</h2>
@@ -236,7 +255,7 @@ body.sin-portada .portada{display:none}
 <p><strong>Historial</strong> — todos los accesos anteriores de esa matrícula, con fecha, cámara, dirección y resultado.</p>
 <p><strong>Datos</strong> — la información técnica del evento: dispositivo, ubicación, identificador, canal del NVR y los metadatos que envió la cámara.</p>
 <h2 id="buscar-el-mismo-vehiculo-en-otras-camaras">Buscar el mismo vehículo en otras cámaras</h2>
-<figure><div class="lienzo"><img src="img/op-05-evento-encuadrar.png" alt="Encuadrar el objetivo sobre la foto"></div><figcaption>Fig. 1.5 — Encuadrar el objetivo sobre la foto</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-05-evento-encuadrar.png" alt="Encuadrar el objetivo sobre la foto"></div><figcaption>Fig. 1.5 — Encuadrar el objetivo sobre la foto</figcaption></figure>
 <p>Con <strong>Encuadrar</strong> dibujás un recuadro sobre el vehículo (o sobre una persona) y el sistema lo busca en las cámaras de contexto del barrio. Sirve para reconstruir un recorrido: entró por el portón 1 y querés saber por dónde siguió.</p>
 <ol><li>Clic en <strong>Encuadrar</strong>.</li><li>Arrastrá el mouse para dibujar un recuadro sobre el objetivo.</li><li>Clic en <strong>Buscar recorte</strong> (o en el ícono de persona, si es una persona).</li><li>Aparecen las coincidencias ordenadas por parecido, con el porcentaje y la cámara.</li></ol>
 <blockquote class="tiempo">La búsqueda tarda entre <strong>10 y 40 segundos</strong> según el rango de días. Mientras trabaja ves una animación con el avance; podés cambiar el rango (24 h / 3 días / 7 días) y el nivel de parecido.</blockquote>
@@ -244,13 +263,13 @@ body.sin-portada .portada{display:none}
 <hr>
 <h1 id="buscar-en-el-historial" class="cap">Buscar en el historial</h1>
 <div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Historial de Acceso</div>
-<figure><div class="lienzo"><img src="img/op-07-historial.png" alt="Historial de accesos con filtros"><span class="caja" style="left:17.8%;top:3.1%;width:24.1%;height:5.1%"><span class="mk">1</span></span><span class="caja" style="left:17.8%;top:29.9%;width:80.4%;height:5.4%"><span class="mk">2</span></span></div><figcaption>Fig. 1.6 — Historial de accesos con filtros</figcaption><ol class="leyenda"><li>Historial completo de accesos</li><li>Columnas: foto, matrícula, acceso, dirección, decisión y grabación</li></ol></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-07-historial.png" alt="Historial de accesos con filtros"><span class="caja abajo izq" style="left:17.8%;top:3.1%;width:24.1%;height:5.1%"><span class="eti"><span class="n">1</span>Historial completo de accesos</span></span><span class="caja arriba der" style="left:17.8%;top:29.9%;width:80.4%;height:5.4%"><span class="eti"><span class="n">2</span>Columnas: foto, matrícula, acceso, dirección, decisión y grabación</span></span></div><figcaption>Fig. 1.6 — Historial de accesos con filtros</figcaption></figure>
 <p>Todos los accesos, con filtros por fecha, cámara, dirección, resultado y matrícula. Cada fila abre la misma ficha del evento.</p>
 <p>La columna <strong>Grabación</strong> indica si ese acceso tiene video disponible en el NVR. Si dice "sin NVR", esa cámara no está mapeada a un canal de grabación.</p>
 <h2 id="busqueda-inteligente">Búsqueda inteligente</h2>
 <div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Búsqueda inteligente</div>
 <p>Es la forma rápida de encontrar algo cuando no tenés la matrícula. Se escribe en lenguaje normal.</p>
-<figure><div class="lienzo"><img src="img/op-08-busqueda-accesos.png" alt="Búsqueda por descripción sobre los accesos"></div><figcaption>Fig. 1.7 — Búsqueda por descripción sobre los accesos</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-08-busqueda-accesos.png" alt="Búsqueda por descripción sobre los accesos"></div><figcaption>Fig. 1.7 — Búsqueda por descripción sobre los accesos</figcaption></figure>
 <p>Tiene tres modos, que se eligen con los íconos de la izquierda:</p>
 <table><thead><tr><th>Modo</th><th>Qué busca</th><th>Cuándo lo usás</th></tr></thead><tbody><tr><td><strong>Accesos</strong> (verde)</td><td>Los accesos de los portones, por descripción</td><td>"Camioneta blanca que entró ayer a la tarde"</td></tr><tr><td><strong>Por texto</strong> (violeta)</td><td>Las cámaras de contexto, por descripción</td><td>"Persona con mochila roja"</td></tr><tr><td><strong>Por imagen</strong> (fucsia)</td><td>Las cámaras de contexto, a partir de una foto</td><td>Tenés una foto y querés saber dónde más estuvo</td></tr></tbody></table>
 <p>En el modo <strong>Accesos</strong> podés combinar: color, tipo de vehículo (auto, camioneta, pickup, van, camión, ómnibus, buggy, moto), marca, matrícula, acceso (P1 a P7), entradas o salidas, autorizados o denegados, franja del día (mañana, tarde, noche, madrugada) y fechas ("hoy", "ayer", "esta semana", "últimos 3 días").</p>
@@ -261,12 +280,12 @@ body.sin-portada .portada{display:none}
 <hr>
 <h1 id="el-mapa-del-barrio" class="cap">El mapa del barrio</h1>
 <div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Mapa</div>
-<figure><div class="lienzo"><img src="img/op-09-mapa.png" alt="Mapa del barrio con cámaras, accesos y guardias"></div><figcaption>Fig. 1.8 — Mapa del barrio con cámaras, accesos y guardias</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-09-mapa.png" alt="Mapa del barrio con cámaras, accesos y guardias"></div><figcaption>Fig. 1.8 — Mapa del barrio con cámaras, accesos y guardias</figcaption></figure>
 <p>Muestra el plano del barrio con las cámaras, los accesos, las calles y — si hay guardias con tablet — su posición en tiempo real.</p>
 <ul><li>Clic en una cámara: ves su video en vivo.</li><li>Los vehículos que entran aparecen como íconos que se mueven por las calles hacia su destino.</li><li>El panel lateral muestra el flujo de entradas y salidas en vivo.</li></ul>
 <h1 id="plazas-de-parking" class="cap">Plazas de parking</h1>
 <div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Plazas de Parking</div>
-<figure><div class="lienzo"><img src="img/op-10-plazas.png" alt="Plazas con ocupación en tiempo real"></div><figcaption>Fig. 1.9 — Plazas con ocupación en tiempo real</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/op-10-plazas.png" alt="Plazas con ocupación en tiempo real"></div><figcaption>Fig. 1.9 — Plazas con ocupación en tiempo real</figcaption></figure>
 <p>Sobre la foto real del estacionamiento, cada plaza se pinta de <strong>verde</strong> (libre) o <strong>rojo</strong> (ocupada), según las lecturas de matrícula. Al pasar el mouse por una plaza ocupada ves qué vehículo está.</p>
 <hr>
 <h1 id="la-tablet-del-guardia" class="cap">La tablet del guardia</h1>

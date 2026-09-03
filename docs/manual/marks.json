@@ -106,5 +106,65 @@
       "h": 5.3,
       "label": "Estado real, latencia y hora de cada equipo"
     }
+  ],
+  "tab-02-acceso.png": [
+    {
+      "x": 2.3,
+      "y": 1.8,
+      "w": 42,
+      "h": 7.5,
+      "label": "Ingreso o egreso",
+      "pos": "abajo",
+      "lado": "izq"
+    },
+    {
+      "x": 18.3,
+      "y": 12.3,
+      "w": 63.3,
+      "h": 10.9,
+      "label": "Matrícula, un carácter por casillero",
+      "pos": "abajo",
+      "lado": "der"
+    },
+    {
+      "x": 2.3,
+      "y": 41.1,
+      "w": 95.3,
+      "h": 6.5,
+      "label": "Lote de destino",
+      "pos": "arriba",
+      "lado": "izq"
+    },
+    {
+      "x": 2.3,
+      "y": 49.1,
+      "w": 95.3,
+      "h": 9.9,
+      "label": "Motivo de la visita",
+      "pos": "abajo",
+      "lado": "der"
+    }
+  ],
+  "tab-10-salida.png": [
+    {
+      "x": 55.3,
+      "y": 1.7,
+      "w": 42.8,
+      "h": 7.6,
+      "label": "Al escribir la matrícula trae el ingreso previo",
+      "pos": "abajo",
+      "lado": "der"
+    }
+  ],
+  "tab-08-panico-boton.png": [
+    {
+      "x": 41,
+      "y": 92,
+      "w": 8.7,
+      "h": 6.5,
+      "label": "Pánico: se activa manteniéndolo, no tocándolo",
+      "pos": "arriba",
+      "lado": "der"
+    }
   ]
 }

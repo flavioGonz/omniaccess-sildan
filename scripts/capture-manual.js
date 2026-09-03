@@ -144,7 +144,13 @@ async function resolverMarcas(page, s) {
         const x = pct(r.x - ref.x - pad, ref.w), y = pct(r.y - ref.y - pad, ref.h);
         const w = pct(r.width + pad * 2, ref.w), h = pct(r.height + pad * 2, ref.h);
         if (x < -5 || y < -5 || x > 100 || y > 100) { console.log(`     · marca fuera de cuadro: "${mk.sel}"`); continue; }
-        salida.push({ x: Math.max(0, x), y: Math.max(0, y), w: Math.min(w, 100 - Math.max(0, x)), h: Math.min(h, 100 - Math.max(0, y)), label: mk.label || "" });
+        salida.push({
+            x: Math.max(0, x), y: Math.max(0, y),
+            w: Math.min(w, 100 - Math.max(0, x)), h: Math.min(h, 100 - Math.max(0, y)),
+            label: mk.label || "",
+            ...(mk.pos ? { pos: mk.pos } : {}),      // "arriba" | "abajo": de qué lado va la etiqueta
+            ...(mk.lado ? { lado: mk.lado } : {}),   // "izq" | "der"
+        });
     }
     return salida.length ? salida : null;
 }
@@ -205,6 +211,19 @@ async function main() {
                 await buscar(page, c).click({ timeout: 8000 }).catch(() => console.log(`   (no pude clickear "${c}")`));
                 await page.waitForTimeout(s.clickWait ?? 1400);
             }
+            // "press": mantener presionado un control durante la foto (el botón de pánico
+            // se activa manteniéndolo, así que hay que fotografiarlo a mitad de camino).
+            let soltar = null;
+            if (s.press) {
+                const caja = await buscar(page, s.press).boundingBox().catch(() => null);
+                if (caja) {
+                    await page.mouse.move(caja.x + caja.width / 2, caja.y + caja.height / 2);
+                    await page.mouse.down();
+                    soltar = async () => { await page.mouse.up().catch(() => { }); };
+                    await page.waitForTimeout(s.pressWait ?? 1200);
+                } else console.log(`   (no encontré para mantener presionado "${s.press}")`);
+            }
+
             for (const h of s.hide || []) {
                 await page.evaluate((sel) => document.querySelectorAll(sel).forEach((e) => (e.style.visibility = "hidden")), h).catch(() => { });
             }
@@ -216,6 +235,7 @@ async function main() {
             const raw = s.clip
                 ? await page.locator(s.clip).first().screenshot({ scale: "device" })
                 : await page.screenshot({ fullPage: !!s.full, scale: "device" });
+            if (soltar) await soltar();
             await optimize(raw, dest);
             const kb = Math.round(fs.statSync(dest).size / 1024);
             console.log(`  ✓ ${s.file.padEnd(34)} ${kb} KB${marcas ? `  ·  ${marcas.length} marcación(es)` : ""}`);

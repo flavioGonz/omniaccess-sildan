@@ -23,7 +23,37 @@
       "storage": {
         "guard_name": "Carlos Pérez",
         "bitacora_guard_name": "Carlos Pérez"
-      }
+      },
+      "marks": [
+        {
+          "sel": "js:__t('Registro de Ingreso')",
+          "up": 1,
+          "label": "Ingreso o egreso",
+          "pos": "abajo",
+          "lado": "izq"
+        },
+        {
+          "sel": "js:__t('Escribe la matricula en cada casillero')",
+          "up": 2,
+          "label": "Matrícula, un carácter por casillero",
+          "pos": "abajo",
+          "lado": "der"
+        },
+        {
+          "sel": "js:__t('Toca para abrir el panel de unidades')",
+          "up": 3,
+          "label": "Lote de destino",
+          "pos": "arriba",
+          "lado": "izq"
+        },
+        {
+          "sel": "js:__t('Observaciones')",
+          "up": 1,
+          "label": "Motivo de la visita",
+          "pos": "abajo",
+          "lado": "der"
+        }
+      ]
     },
     {
       "file": "tab-03-historial.png",
@@ -65,10 +95,10 @@
       "file": "tab-05-plazas.png",
       "desc": "Plazas de parking desde la tablet",
       "url": "/guard",
-      "wait": 5000,
+      "wait": 6000,
       "viewport": [
-        1200,
-        1600
+        1600,
+        1000
       ],
       "storage": {
         "guard_name": "Carlos Pérez",
@@ -514,6 +544,96 @@
         "Tasa de lectura"
       ],
       "clickWait": 3000
+    },
+    {
+      "file": "tab-08-panico-boton.png",
+      "desc": "La barra inferior con el botón de pánico",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "marks": [
+        {
+          "sel": "js:__c('button.w-20',0)",
+          "label": "Pánico: se activa manteniéndolo, no tocándolo",
+          "pos": "arriba",
+          "lado": "der"
+        }
+      ]
+    },
+    {
+      "file": "tab-09-panico-manteniendo.png",
+      "desc": "El anillo de progreso mientras se mantiene presionado",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "clip": "footer",
+      "press": "button.w-20.h-20",
+      "pressWait": 900,
+      "marks": [
+        {
+          "sel": "js:__c('button.w-20',0)",
+          "label": "El anillo se completa en 1,5 segundos"
+        }
+      ]
+    },
+    {
+      "file": "tab-10-salida.png",
+      "desc": "Registro de salida de un visitante",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "click": [
+        "Registro de Salida"
+      ],
+      "clickWait": 2000,
+      "marks": [
+        {
+          "sel": "js:__t('Registro de Salida')",
+          "up": 1,
+          "label": "Al escribir la matrícula trae el ingreso previo",
+          "pos": "abajo",
+          "lado": "der"
+        }
+      ]
+    },
+    {
+      "file": "tab-11-unidades.png",
+      "desc": "Panel de unidades y lotes del predio",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "click": [
+        "Toca para abrir el panel de unidades"
+      ],
+      "clickWait": 2500
     }
   ]
 }

@@ -37,18 +37,25 @@ body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-syst
 .p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
 .p-bot .der{text-align:right}
 
-/* ── ÍNDICE ── */
+/* ── ÍNDICE ── (siempre en una sola hoja: dos columnas, y una variante
+   compacta que el compilador activa cuando no entra) */
 .indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
-.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:22px}
-.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap}
-.indice li{margin:0}
-.indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:16px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap;columns:2;column-gap:11mm}
+.indice li{margin:0;break-inside:avoid;page-break-inside:avoid}
+.indice li a{display:flex;align-items:baseline;gap:6px;text-decoration:none;color:var(--tinta);padding:2.5px 0}
 .indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
-.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:12.5px;min-width:20px;text-align:right}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:11.5px;min-width:18px;text-align:right}
 .indice .l1 .pg{color:var(--tinta);font-weight:700}
-.indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:8px;border-top:1px solid var(--linea);padding-top:5px;font-size:13px}
+.indice .l1:first-child{margin-top:0;border-top:0;padding-top:0}
 .indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
-.indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
+.indice .l2{padding-left:13px;font-size:11.5px;color:#4b5563}
+.indice.compacto ol{column-gap:8mm}
+.indice.compacto li a{padding:1px 0}
+.indice.compacto .l1{margin-top:5px;padding-top:3px;font-size:11.5px}
+.indice.compacto .l2{font-size:10.2px;padding-left:11px}
+.indice.compacto .pg{font-size:10px}
 
 /* ── CUERPO ── */
 h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
@@ -76,27 +83,37 @@ blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
 blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
 blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
 blockquote.alerta::before{content:"⚠ ";font-weight:700}
-figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
-.lienzo{position:relative;line-height:0}
-figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+/* Las figuras se limitan en alto: una captura vertical a página completa obligaba
+   a saltar de hoja y dejaba la anterior casi vacía. */
+figure{margin:14px 0 16px;page-break-inside:avoid;break-inside:avoid;text-align:center}
+.lienzo{position:relative;line-height:0;display:inline-block;max-width:100%}
+figure img{max-width:100%;max-height:104mm;width:auto;border:1px solid var(--linea);border-radius:9px;
+  box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figure.ancha img{max-height:126mm}
+figure.alta img{max-height:142mm}
 figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
 figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
 figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
 /* ── marcaciones sobre la captura ──
-   .caja  = recuadro sobre el elemento real (no lo tapa)
-   .mk    = chapita numerada, pegada al borde del recuadro          */
+   .caja = recuadro sobre el elemento real; .eti = número + texto, pegados al
+   recuadro y SOBRE la foto (antes el texto iba en una leyenda debajo).       */
 .caja{position:absolute;border:2.4px solid var(--c);border-radius:7px;z-index:2;
   box-shadow:0 0 0 2px rgba(255,255,255,.9),0 2px 9px rgba(0,0,0,.28)}
+.eti{position:absolute;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;z-index:4;
+  background:var(--c);color:#fff;border-radius:13px;padding:2px 9px 2px 3px;
+  font:600 10.5px/1.55 "Segoe UI",sans-serif;letter-spacing:.01em;
+  box-shadow:0 0 0 2px #fff,0 2px 7px rgba(0,0,0,.45)}
+.eti .n{width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.3);
+  font:800 10px/16px "Segoe UI",sans-serif;text-align:center;flex:0 0 auto}
+.caja.arriba>.eti{top:0;transform:translateY(-112%)}
+.caja.abajo>.eti{top:100%;transform:translateY(12%)}
+.caja.izq>.eti{left:-3px}
+.caja.der>.eti{right:-3px}
 .mk{position:absolute;min-width:21px;height:21px;border-radius:11px;padding:0 6px;
   background:var(--c);color:#fff;font:800 12px/21px "Segoe UI",sans-serif;text-align:center;
   box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.4);z-index:3;white-space:nowrap}
 .caja>.mk{left:-9px;top:-11px}
 .punto{position:absolute;transform:translate(-50%,-50%);z-index:3}
-.leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
-  display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
-.leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
-.leyenda li::before{content:counter(mk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;
-  background:var(--c);color:#fff;font:800 10.5px/18px "Segoe UI",sans-serif;text-align:center}
 hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
 
 /* ── Cortes de página: que no se parta lo que se lee junto ── */
@@ -109,8 +126,10 @@ ul,ol{break-inside:auto}
 h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
 h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
 
-/* pie de página impreso */
+/* Todo el manual se imprime en UN solo pase, para que los enlaces del índice
+   sobrevivan: la portada va a sangre con @page:first y el pie se dibuja después. */
 @page{size:A4;margin:16mm 15mm 17mm}
+@page:first{margin:0}
 @media print{
   html,body{margin:0;padding:0;background:#fff}
   .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
@@ -160,7 +179,7 @@ body.sin-portada .portada{display:none}
 <section class="hoja indice">
   <h2>Contenido</h2>
   <div class="sub">OmniAccess LPR · Manual del Instalador</div>
-  <ol><li class="l1"><a href="#que-se-instala"><span class="t">Qué se instala</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#las-piezas-y-que-hace-cada-una"><span class="t">Las piezas y qué hace cada una</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#lo-que-este-sistema-resuelve-y-otros-no"><span class="t">Lo que este sistema resuelve y otros no</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l1"><a href="#antes-de-ir-a-la-obra"><span class="t">Antes de ir a la obra</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#lo-que-define-si-la-instalacion-sale-bien"><span class="t">Lo que define si la instalación sale bien</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#arquitectura-minima"><span class="t">Arquitectura mínima</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#requisitos-del-servidor"><span class="t">Requisitos del servidor</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l1"><a href="#emplazamiento-de-las-camaras"><span class="t">Emplazamiento de las cámaras</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l2"><a href="#las-cuatro-reglas"><span class="t">Las cuatro reglas</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l2"><a href="#iluminacion"><span class="t">Iluminación</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l1"><a href="#puesta-en-marcha-del-servidor"><span class="t">Puesta en marcha del servidor</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l2"><a href="#servicios-que-deben-quedar-arriba"><span class="t">Servicios que deben quedar arriba</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l2"><a href="#instalacion-sin-internet"><span class="t">Instalación sin internet</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l1"><a href="#alta-de-camaras"><span class="t">Alta de cámaras</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l2"><a href="#configurar-la-camara-para-que-envie-los-eventos"><span class="t">Configurar la cámara para que envíe los eventos</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l1"><a href="#calibracion-anpr"><span class="t">Calibración ANPR</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#la-region-de-deteccion"><span class="t">La región de detección</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#auto-calibracion"><span class="t">Auto-calibración</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#verificar-el-resultado"><span class="t">Verificar el resultado</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l1"><a href="#grabacion-y-nvr"><span class="t">Grabación y NVR</span><span class="dots"></span><span class="pg">12</span></a></li><li class="l2"><a href="#mapeo-de-canales"><span class="t">Mapeo de canales</span><span class="dots"></span><span class="pg">12</span></a></li><li class="l2"><a href="#la-hora"><span class="t">La hora</span><span class="dots"></span><span class="pg">12</span></a></li><li class="l1"><a href="#analisis-de-video-vs-lectura-de-matriculas"><span class="t">Análisis de video vs. lectura de matrículas</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l2"><a href="#como-revertirlo"><span class="t">Cómo revertirlo</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l2"><a href="#si-el-cliente-quiere-las-dos-cosas-en-un-acceso"><span class="t">Si el cliente quiere las dos cosas en un acceso</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l1"><a href="#monitoreo-y-mantenimiento"><span class="t">Monitoreo y mantenimiento</span><span class="dots"></span><span class="pg">15</span></a></li><li class="l2"><a href="#el-monitoreo-automatico"><span class="t">El monitoreo automático</span><span class="dots"></span><span class="pg">15</span></a></li><li class="l2"><a href="#rutina-de-mantenimiento"><span class="t">Rutina de mantenimiento</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l1"><a href="#diagnostico-de-problemas"><span class="t">Diagnóstico de problemas</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#no-llegan-matriculas-de-ninguna-camara"><span class="t">No llegan matrículas de ninguna cámara</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#no-llegan-matriculas-de-una-sola-camara"><span class="t">No llegan matrículas de una sola cámara</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#la-lectura-falla-de-noche"><span class="t">La lectura falla de noche</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#el-video-no-abre-desde-un-evento"><span class="t">El video no abre desde un evento</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#el-disco-se-llena"><span class="t">El disco se llena</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#las-tablets-no-reportan-posicion"><span class="t">Las tablets no reportan posición</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l1"><a href="#entrega-al-cliente"><span class="t">Entrega al cliente</span><span class="dots"></span><span class="pg">19</span></a></li></ol>
+  <ol><li class="l1"><a href="#que-se-instala"><span class="t">Qué se instala</span><span class="dots"></span><span class="pg">2</span></a></li><li class="l2"><a href="#las-piezas-y-que-hace-cada-una"><span class="t">Las piezas y qué hace cada una</span><span class="dots"></span><span class="pg">2</span></a></li><li class="l2"><a href="#lo-que-este-sistema-resuelve-y-otros-no"><span class="t">Lo que este sistema resuelve y otros no</span><span class="dots"></span><span class="pg">2</span></a></li><li class="l1"><a href="#antes-de-ir-a-la-obra"><span class="t">Antes de ir a la obra</span><span class="dots"></span><span class="pg">4</span></a></li><li class="l2"><a href="#lo-que-define-si-la-instalacion-sale-bien"><span class="t">Lo que define si la instalación sale bien</span><span class="dots"></span><span class="pg">4</span></a></li><li class="l2"><a href="#arquitectura-minima"><span class="t">Arquitectura mínima</span><span class="dots"></span><span class="pg">4</span></a></li><li class="l2"><a href="#requisitos-del-servidor"><span class="t">Requisitos del servidor</span><span class="dots"></span><span class="pg">4</span></a></li><li class="l1"><a href="#emplazamiento-de-las-camaras"><span class="t">Emplazamiento de las cámaras</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#las-cuatro-reglas"><span class="t">Las cuatro reglas</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#iluminacion"><span class="t">Iluminación</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l1"><a href="#puesta-en-marcha-del-servidor"><span class="t">Puesta en marcha del servidor</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l2"><a href="#servicios-que-deben-quedar-arriba"><span class="t">Servicios que deben quedar arriba</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l2"><a href="#instalacion-sin-internet"><span class="t">Instalación sin internet</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l1"><a href="#alta-de-camaras"><span class="t">Alta de cámaras</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l2"><a href="#configurar-la-camara-para-que-envie-los-eventos"><span class="t">Configurar la cámara para que envíe los eventos</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l1"><a href="#calibracion-anpr"><span class="t">Calibración ANPR</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#la-region-de-deteccion"><span class="t">La región de detección</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#auto-calibracion"><span class="t">Auto-calibración</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#verificar-el-resultado"><span class="t">Verificar el resultado</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l1"><a href="#grabacion-y-nvr"><span class="t">Grabación y NVR</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#mapeo-de-canales"><span class="t">Mapeo de canales</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#la-hora"><span class="t">La hora</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l1"><a href="#analisis-de-video-vs-lectura-de-matriculas"><span class="t">Análisis de video vs. lectura de matrículas</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l2"><a href="#como-revertirlo"><span class="t">Cómo revertirlo</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l2"><a href="#si-el-cliente-quiere-las-dos-cosas-en-un-acceso"><span class="t">Si el cliente quiere las dos cosas en un acceso</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l1"><a href="#monitoreo-y-mantenimiento"><span class="t">Monitoreo y mantenimiento</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l2"><a href="#el-monitoreo-automatico"><span class="t">El monitoreo automático</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l2"><a href="#rutina-de-mantenimiento"><span class="t">Rutina de mantenimiento</span><span class="dots"></span><span class="pg">15</span></a></li><li class="l1"><a href="#diagnostico-de-problemas"><span class="t">Diagnóstico de problemas</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l2"><a href="#no-llegan-matriculas-de-ninguna-camara"><span class="t">No llegan matrículas de ninguna cámara</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l2"><a href="#no-llegan-matriculas-de-una-sola-camara"><span class="t">No llegan matrículas de una sola cámara</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l2"><a href="#la-lectura-falla-de-noche"><span class="t">La lectura falla de noche</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l2"><a href="#el-video-no-abre-desde-un-evento"><span class="t">El video no abre desde un evento</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l2"><a href="#el-disco-se-llena"><span class="t">El disco se llena</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l2"><a href="#las-tablets-no-reportan-posicion"><span class="t">Las tablets no reportan posición</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l1"><a href="#entrega-al-cliente"><span class="t">Entrega al cliente</span><span class="dots"></span><span class="pg">18</span></a></li></ol>
 </section>
 
 <section class="hoja">
@@ -223,7 +242,7 @@ body.sin-portada .portada{display:none}
 <p>La cámara debe apuntar sus notificaciones HTTP al servidor:</p>
 <ul><li><strong>Destino</strong>: IP del servidor, puerto de webhooks.</li><li><strong>Ruta</strong>: la del driver correspondiente (Hikvision, Avicam, Akuvox).</li><li><strong>Formato</strong>: XML.</li><li><strong>Autenticación</strong>: ninguna (la red es privada).</li></ul>
 <p>Verificá en <em>Configuración → Avanzado → Monitor de webhooks</em> que lleguen los eventos.</p>
-<figure><div class="lienzo"><img src="img/ins-03-debug.png" alt="Monitor de webhooks recibiendo eventos"></div><figcaption>Fig. 1.1 — Monitor de webhooks recibiendo eventos</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/ins-03-debug.png" alt="Monitor de webhooks recibiendo eventos"></div><figcaption>Fig. 1.1 — Monitor de webhooks recibiendo eventos</figcaption></figure>
 <hr>
 <h1 id="calibracion-anpr" class="cap">Calibración ANPR</h1>
 <div class="ruta"><span class="ruta-l">Cómo llegar</span>Dispositivos → Calibrar</div>
@@ -242,7 +261,7 @@ body.sin-portada .portada{display:none}
 <hr>
 <h1 id="grabacion-y-nvr" class="cap">Grabación y NVR</h1>
 <h2 id="mapeo-de-canales">Mapeo de canales</h2>
-<figure><div class="lienzo"><img src="img/ins-07-nvr-canales.png" alt="Mapeo de canales del grabador"></div><figcaption>Fig. 1.2 — Mapeo de canales del grabador</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/ins-07-nvr-canales.png" alt="Mapeo de canales del grabador"></div><figcaption>Fig. 1.2 — Mapeo de canales del grabador</figcaption></figure>
 <p>Cada cámara del sistema se asocia a un canal del grabador. Ese mapeo es lo que permite abrir el video en el segundo exacto de un evento.</p>
 <p>El sistema puede detectar los canales consultando al grabador y mostrar una miniatura de cada uno, para confirmar visualmente cuál es cuál.</p>
 <h2 id="la-hora">La hora</h2>
@@ -264,7 +283,7 @@ body.sin-portada .portada{display:none}
 <hr>
 <h1 id="monitoreo-y-mantenimiento" class="cap">Monitoreo y mantenimiento</h1>
 <h2 id="el-monitoreo-automatico">El monitoreo automático</h2>
-<figure><div class="lienzo"><img src="img/ins-01-devices-salud.png" alt="Tabla de salud de los dispositivos"></div><figcaption>Fig. 1.3 — Tabla de salud de los dispositivos</figcaption></figure>
+<figure class="fig ancha"><div class="lienzo"><img src="img/ins-01-devices-salud.png" alt="Tabla de salud de los dispositivos"></div><figcaption>Fig. 1.3 — Tabla de salud de los dispositivos</figcaption></figure>
 <p>El sistema sondea todos los equipos cada minuto y guarda el historial. Abre alerta —y avisa por Telegram— ante:</p>
 <table><thead><tr><th>Alerta</th><th>Se dispara cuando</th></tr></thead><tbody><tr><td><strong>Sin respuesta</strong></td><td>Dos sondeos seguidos sin contestar</td></tr><tr><td><strong>Disco</strong></td><td>Un disco del grabador reporta estado no OK</td></tr><tr><td><strong>Memoria</strong></td><td>Uso sostenido por encima del 95 %</td></tr><tr><td><strong>Reloj</strong></td><td>Desfase mayor a 2 minutos contra el servidor</td></tr><tr><td><strong>Motor apagado</strong></td><td>Una cámara de matrículas salió del modo de lectura</td></tr></tbody></table>
 <p>El historial permite ver si una caída fue puntual o si el equipo viene degradándose.</p>
