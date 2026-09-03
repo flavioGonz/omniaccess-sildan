@@ -23,6 +23,16 @@
       "orden": 1
     },
     {
+      "id": "tablet",
+      "titulo": "Manual de la Tablet",
+      "subtitulo": "Aplicación del guardia para Android",
+      "para": "El guardia que recorre: rondas, pánico, hombre caído, bitácora y mapa desde la tablet.",
+      "color": "#0d9488",
+      "icono": "tablet",
+      "prefijo": "tab",
+      "orden": 2
+    },
+    {
       "id": "administrador",
       "titulo": "Manual del Administrador",
       "subtitulo": "Gestión, configuración y reportes",
@@ -30,7 +40,7 @@
       "color": "#8b5cf6",
       "icono": "settings",
       "prefijo": "adm",
-      "orden": 2
+      "orden": 3
     },
     {
       "id": "instalador",
@@ -40,7 +50,7 @@
       "color": "#f59e0b",
       "icono": "wrench",
       "prefijo": "ins",
-      "orden": 3
+      "orden": 4
     },
     {
       "id": "guia-rapida",
@@ -50,7 +60,7 @@
       "color": "#0ea5e9",
       "icono": "zap",
       "prefijo": "gr",
-      "orden": 4
+      "orden": 5
     }
   ]
 }

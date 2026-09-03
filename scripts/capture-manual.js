@@ -111,6 +111,11 @@ async function main() {
             else await page.setViewportSize({ width: 1600, height: 900 });
 
             await page.goto(BASE + s.url, { waitUntil: "networkidle", timeout: 45000 }).catch(() => { });
+            // sesiones que viven en localStorage (la consola del guardia, p.ej.)
+            if (s.storage) {
+                await page.evaluate((kv) => { for (const [k, v] of Object.entries(kv)) localStorage.setItem(k, v); }, s.storage);
+                await page.reload({ waitUntil: "networkidle", timeout: 45000 }).catch(() => { });
+            }
             await page.addStyleTag({ content: STEADY_CSS });
             await page.waitForTimeout(s.wait ?? 1800);
 

@@ -1,0 +1,273 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>OmniAccess LPR · Manual de la Tablet</title>
+<style>
+:root{--c:#0d9488;--tinta:#111827;--suave:#6b7280;--linea:#e5e7eb;--fondo:#fff;--code:#f3f4f6}
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--tinta)}
+.hoja{background:var(--fondo);width:210mm;min-height:297mm;margin:14px auto;padding:22mm 20mm 20mm;box-shadow:0 4px 24px rgba(0,0,0,.35)}
+
+/* ── PORTADA ── (posicionamiento absoluto: se imprime igual siempre) */
+.portada{position:relative;width:210mm;height:296.9mm;padding:0;overflow:hidden;color:#fff;
+  background:linear-gradient(150deg,#0b1220 0%,#111a2e 45%,var(--c) 190%)}
+.portada .malla{position:absolute;inset:0;opacity:.5;
+  background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:26px 26px}
+.portada .halo{position:absolute;width:640px;height:640px;right:-220px;top:-180px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 62%);opacity:.30}
+.portada .halo2{position:absolute;width:420px;height:420px;left:-160px;bottom:-140px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 65%);opacity:.18}
+.p-top{position:absolute;top:24mm;left:22mm;right:22mm}
+.marca{display:flex;align-items:center;gap:12px}
+.marca .ico{width:44px;height:44px;border-radius:12px;background:var(--c);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 8px 26px rgba(0,0,0,.4)}
+.marca .n{font-size:19px;font-weight:800;letter-spacing:.16em}
+.marca .s{font-size:9.5px;letter-spacing:.34em;color:#9aa4b2;margin-top:2px}
+.p-mid{position:absolute;left:22mm;right:22mm;bottom:62mm}
+.kicker{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.26em;color:var(--c);
+  border:1px solid var(--c);border-radius:999px;padding:5px 13px;margin-bottom:20px}
+.p-mid h1{font-size:53px;line-height:1.03;margin:0 0 8px;font-weight:800;letter-spacing:-.02em}
+.p-mid h2{font-size:21px;margin:0 0 22px;font-weight:500;color:#c7d2de}
+.p-mid .para{max-width:118mm;color:#9aa4b2;font-size:13.5px;line-height:1.6;border-left:3px solid var(--c);padding-left:14px}
+.p-bot{position:absolute;left:22mm;right:22mm;bottom:24mm;display:flex;justify-content:space-between;align-items:flex-end;
+  padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+.p-bot .campo{font-size:11px;color:#8b95a5}
+.p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
+.p-bot .der{text-align:right}
+
+/* ── ÍNDICE ── */
+.indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:22px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap}
+.indice li{margin:0}
+.indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
+.indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:12.5px;min-width:20px;text-align:right}
+.indice .l1 .pg{color:var(--tinta);font-weight:700}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
+.indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
+.indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
+
+/* ── CUERPO ── */
+h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
+  page-break-before:always;break-before:page}
+.hoja > h1.cap:first-child{page-break-before:auto;break-before:auto}
+h2{font-size:20.5px;margin:30px 0 10px;color:#0f172a}
+h3{font-size:16px;margin:22px 0 7px;color:#1f2937}
+h4{font-size:14px;margin:16px 0 5px;color:#374151}
+p{margin:0 0 11px}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:4px 0}
+code{background:var(--code);padding:1.5px 5px;border-radius:4px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#0f172a}
+pre{background:#0f172a;color:#e2e8f0;padding:13px 15px;border-radius:9px;overflow:auto;margin:0 0 13px}
+pre code{background:none;color:inherit;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:0 0 15px;font-size:13.5px}
+th{background:#f8fafc;text-align:left;padding:8px 10px;border-bottom:2px solid var(--c);font-weight:700}
+td{padding:7px 10px;border-bottom:1px solid var(--linea);vertical-align:top}
+tr:nth-child(even) td{background:#fcfcfd}
+.ruta{display:flex;align-items:center;gap:10px;background:#f8fafc;border-left:3px solid var(--c);
+  padding:8px 13px;border-radius:0 7px 7px 0;font-size:13px;margin:0 0 15px}
+.ruta-l{font-size:9px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--c);white-space:nowrap}
+blockquote{margin:0 0 14px;padding:11px 15px;border-radius:8px;font-size:13.5px;border-left:4px solid}
+blockquote.nota{background:#f8fafc;border-color:#94a3b8}
+blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
+blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
+blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
+blockquote.alerta::before{content:"⚠ ";font-weight:700}
+figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
+.lienzo{position:relative;line-height:0}
+figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
+figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
+figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
+/* marcadores numerados sobre la captura */
+.marca{position:absolute;transform:translate(-50%,-50%);width:23px;height:23px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 12.5px/23px "Segoe UI",sans-serif;text-align:center;
+  box-shadow:0 0 0 3px #fff,0 2px 7px rgba(0,0,0,.45);z-index:2}
+.leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
+  display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
+.leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
+.leyenda li::before{content:counter(mk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 10.5px/18px "Segoe UI",sans-serif;text-align:center}
+hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
+
+/* ── Cortes de página: que no se parta lo que se lee junto ── */
+h1,h2,h3,h4{break-after:avoid;page-break-after:avoid}
+h2,h3,h4{break-inside:avoid;page-break-inside:avoid}
+p,li{orphans:3;widows:3}
+table,blockquote,.ruta,pre{break-inside:avoid;page-break-inside:avoid}
+ul,ol{break-inside:auto}
+/* un título nunca queda solo al pie: arrastra lo que sigue */
+h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
+h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
+
+/* pie de página impreso */
+@page{size:A4;margin:16mm 15mm 17mm}
+@media print{
+  html,body{margin:0;padding:0;background:#fff}
+  .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  .portada{width:210mm;height:296.9mm;page-break-after:always;border-radius:0}
+  .indice{page-break-after:always}
+  .noprint{display:none}
+}
+/* La portada se imprime a sangre completa: se genera en un pase aparte, con
+   márgenes de página en cero (ver build). */
+body.solo-portada .hoja:not(.portada){display:none}
+body.sin-portada .portada{display:none}
+.noprint{position:fixed;right:16px;bottom:16px;z-index:9}
+.noprint button{background:var(--c);color:#fff;border:0;border-radius:9px;padding:11px 17px;font-weight:700;cursor:pointer;
+  box-shadow:0 5px 18px rgba(0,0,0,.3)}
+</style></head><body>
+
+<section class="hoja portada">
+  <div class="malla"></div><div class="halo"></div><div class="halo2"></div>
+  <div class="p-top">
+    <div class="marca">
+      <div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+      <div><div class="n">OMNIACCESS</div><div class="s">CONTROL Y ACCESO</div></div>
+    </div>
+  </div>
+  <div class="p-mid">
+    <span class="kicker">APLICACIÓN DEL GUARDIA PARA ANDROID</span>
+    <h1>Manual de la Tablet</h1>
+    <h2>OmniAccess LPR</h2>
+    <p class="para">El guardia que recorre: rondas, pánico, hombre caído, bitácora y mapa desde la tablet.</p>
+  </div>
+  <div class="p-bot">
+    <div class="campo">Versión<b>2026.09</b></div>
+    <div class="campo">Emitido<b>3 de setiembre de 2026</b></div>
+    <div class="campo der">Infratec<b>infratec.com.uy</b></div>
+  </div>
+</section>
+
+<section class="hoja indice">
+  <h2>Contenido</h2>
+  <div class="sub">OmniAccess LPR · Manual de la Tablet</div>
+  <ol><li class="l1"><a href="#la-consola-del-guardia"><span class="t">La consola del guardia</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#dos-formas-de-usarla"><span class="t">Dos formas de usarla</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#que-necesita-la-tablet"><span class="t">Qué necesita la tablet</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l1"><a href="#ingresar"><span class="t">Ingresar</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#la-barra-inferior"><span class="t">La barra inferior</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l1"><a href="#registrar-un-visitante"><span class="t">Registrar un visitante</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l2"><a href="#paso-a-paso"><span class="t">Paso a paso</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#los-botones-de-la-columna-derecha"><span class="t">Los botones de la columna derecha</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#egresos"><span class="t">Egresos</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l1"><a href="#historial-del-turno"><span class="t">Historial del turno</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l1"><a href="#accesos-por-matricula-lpr"><span class="t">Accesos por matrícula (LPR)</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l2"><a href="#que-muestra-cada-fila"><span class="t">Qué muestra cada fila</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l2"><a href="#las-tres-acciones-de-cada-fila"><span class="t">Las tres acciones de cada fila</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l2"><a href="#buscar"><span class="t">Buscar</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l1"><a href="#plazas-de-parking"><span class="t">Plazas de parking</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l1"><a href="#mapa"><span class="t">Mapa</span><span class="dots"></span><span class="pg">20</span></a></li><li class="l1"><a href="#el-boton-de-panico"><span class="t">El botón de pánico</span><span class="dots"></span><span class="pg">23</span></a></li><li class="l2"><a href="#como-se-activa"><span class="t">Cómo se activa</span><span class="dots"></span><span class="pg">23</span></a></li><li class="l2"><a href="#que-pasa-cuando-se-activa"><span class="t">Qué pasa cuando se activa</span><span class="dots"></span><span class="pg">23</span></a></li><li class="l2"><a href="#falsa-alarma"><span class="t">Falsa alarma</span><span class="dots"></span><span class="pg">23</span></a></li><li class="l1"><a href="#funciones-de-la-aplicacion-android"><span class="t">Funciones de la aplicación Android</span><span class="dots"></span><span class="pg">24</span></a></li><li class="l2"><a href="#rondas-con-etiquetas-nfc"><span class="t">Rondas con etiquetas NFC</span><span class="dots"></span><span class="pg">24</span></a></li><li class="l2"><a href="#hombre-caido"><span class="t">Hombre caído</span><span class="dots"></span><span class="pg">24</span></a></li><li class="l2"><a href="#modo-kiosco"><span class="t">Modo kiosco</span><span class="dots"></span><span class="pg">24</span></a></li><li class="l1"><a href="#instalacion-de-la-aplicacion-android"><span class="t">Instalación de la aplicación Android</span><span class="dots"></span><span class="pg">25</span></a></li><li class="l2"><a href="#los-permisos-y-por-que-cada-uno"><span class="t">Los permisos, y por qué cada uno</span><span class="dots"></span><span class="pg">25</span></a></li><li class="l1"><a href="#mantenimiento-y-problemas"><span class="t">Mantenimiento y problemas</span><span class="dots"></span><span class="pg">26</span></a></li><li class="l2"><a href="#rutina"><span class="t">Rutina</span><span class="dots"></span><span class="pg">26</span></a></li><li class="l2"><a href="#el-indicador-de-conexion"><span class="t">El indicador de conexión</span><span class="dots"></span><span class="pg">26</span></a></li><li class="l2"><a href="#problemas-frecuentes"><span class="t">Problemas frecuentes</span><span class="dots"></span><span class="pg">26</span></a></li><li class="l1"><a href="#preguntas-frecuentes"><span class="t">Preguntas frecuentes</span><span class="dots"></span><span class="pg">27</span></a></li></ol>
+</section>
+
+<section class="hoja">
+<h1 id="la-consola-del-guardia" class="cap">La consola del guardia</h1>
+<p>La consola del guardia es la aplicación que se usa en la tablet de la garita y en las tablets que llevan los guardias que recorren. Es la misma aplicación en los dos casos: cambia lo que se usa más, no lo que hay.</p>
+<p>Hace cuatro cosas:</p>
+<ol><li><strong>Registra ingresos y egresos de visitantes</strong>, con matrícula, documento y foto.</li><li><strong>Muestra lo que leen las cámaras</strong> de matrículas, con su grabación.</li><li><strong>Muestra el estado del predio</strong>: plazas ocupadas y mapa con los compañeros.</li><li><strong>Pide auxilio</strong> con el botón de pánico.</li></ol>
+<h2 id="dos-formas-de-usarla">Dos formas de usarla</h2>
+<table><thead><tr><th>Navegador (tablet o PC)</th><th>Aplicación Android (APK)</th></tr></thead><tbody><tr><td>Registro de visitantes</td><td>Sí</td><td>Sí</td></tr><tr><td>Historial y LPR</td><td>Sí</td><td>Sí</td></tr><tr><td>Plazas y mapa</td><td>Sí</td><td>Sí</td></tr><tr><td>Botón de pánico en pantalla</td><td>Sí</td><td>Sí</td></tr><tr><td><strong>Pánico con la pantalla bloqueada</strong></td><td>No</td><td>Sí (botón de volumen)</td></tr><tr><td><strong>Rondas con etiquetas NFC</strong></td><td>No</td><td>Sí</td></tr><tr><td><strong>Hombre caído</strong></td><td>No</td><td>Sí</td></tr><tr><td><strong>Posición GPS en segundo plano</strong></td><td>Limitada</td><td>Sí</td></tr><tr><td><strong>Modo kiosco</strong> (no se puede salir)</td><td>No</td><td>Sí</td></tr></tbody></table>
+<blockquote class="nota">La aplicación Android es la que se entrega a los guardias que recorren. En la garita, donde la tablet está fija y enchufada, el navegador alcanza.</blockquote>
+<h2 id="que-necesita-la-tablet">Qué necesita la tablet</h2>
+<table><thead><tr><th>Requisito</th><th>Mínimo</th><th>Recomendado</th></tr></thead><tbody><tr><td>Sistema</td><td>Android 9</td><td>Android 12 o superior</td></tr><tr><td>Pantalla</td><td>8″</td><td>10″</td></tr><tr><td>Memoria</td><td>3 GB</td><td>4 GB</td></tr><tr><td>NFC</td><td>Solo para rondas</td><td>Sí</td></tr><tr><td>GPS</td><td>Sí</td><td>Sí</td></tr><tr><td>Red</td><td>WiFi del predio</td><td>WiFi + datos de respaldo</td></tr></tbody></table>
+<blockquote class="alerta">La tablet que sale a recorrer tiene que quedar <strong>dedicada</strong>. Si se usa también para música o mensajería, Android termina cerrando la aplicación en segundo plano y se pierden posición y rondas.</blockquote>
+<hr>
+<h1 id="ingresar" class="cap">Ingresar</h1>
+<figure><div class="lienzo"><img src="img/tab-01-login.png" alt="Pantalla de ingreso de la consola"></div><figcaption>Fig. 1.1 — Pantalla de ingreso de la consola</figcaption></figure>
+<ol><li>Abrí la aplicación (o el navegador en la dirección del sistema, con <code>/guard</code> al final).</li><li>Ingresá <strong>usuario</strong> y <strong>contraseña</strong> de guardia.</li><li>Tocá <strong>Ingresar</strong>.</li></ol>
+<p>La sesión queda abierta durante el turno. Desde la pantalla de ingreso también se puede <strong>descargar la aplicación para tablet</strong> con el enlace de abajo.</p>
+<blockquote class="tiempo">El ingreso demora <strong>1 a 3 segundos</strong> con WiFi. Si la contraseña es correcta pero no entra, el problema es de red: fijate el indicador de conexión.</blockquote>
+<h2 id="la-barra-inferior">La barra inferior</h2>
+<p>Es la navegación principal y está siempre visible:</p>
+<table><thead><tr><th>Botón</th><th>Para qué</th></tr></thead><tbody><tr><td><strong>Acceso</strong></td><td>Registrar el ingreso o egreso de un visitante</td></tr><tr><td><strong>Historial</strong></td><td>Ver los registros del turno</td></tr><tr><td><strong>Pánico</strong> (centro, rojo)</td><td>Pedir auxilio manteniendo presionado</td></tr><tr><td><strong>LPR</strong></td><td>Ver las matrículas que leyeron las cámaras</td></tr><tr><td><strong>Plazas</strong></td><td>Ocupación del estacionamiento</td></tr><tr><td><strong>Mapa</strong></td><td>Ubicación de guardias y cámaras</td></tr></tbody></table>
+<p>A la izquierda del todo está tu <strong>perfil</strong> (con el punto verde de conexión) y a la derecha, la hora y la fecha.</p>
+<hr>
+<h1 id="registrar-un-visitante" class="cap">Registrar un visitante</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Barra inferior → Acceso</div>
+<p>Es la pantalla que más se usa en la garita. Sirve para dejar constancia de quién entró, con qué vehículo y a dónde iba.</p>
+<figure><div class="lienzo"><img src="img/tab-02-acceso.png" alt="Registro de ingreso de un visitante"><span class="marca" style="left:22%;top:6%">1</span><span class="marca" style="left:50%;top:17%">2</span><span class="marca" style="left:77%;top:17%">3</span><span class="marca" style="left:25%;top:37%">4</span><span class="marca" style="left:70%;top:37%">5</span><span class="marca" style="left:25%;top:52%">6</span><span class="marca" style="left:25%;top:63%">7</span><span class="marca" style="left:93%;top:66%">8</span></div><figcaption>Fig. 1.2 — Registro de ingreso de un visitante</figcaption><ol class="leyenda"><li>Ingreso o egreso: se elige primero</li><li>Matrícula, un carácter por casillero</li><li>Foto de la patente con la cámara</li><li>Nombre del visitante</li><li>Documento</li><li>Unidad de destino</li><li>Observaciones</li><li>Adjuntar foto o audio</li></ol></figure>
+<h2 id="paso-a-paso">Paso a paso</h2>
+<ol><li>Elegí <strong>Registro de ingreso</strong> o <strong>Registro de salida</strong> (arriba).</li><li>Escribí la <strong>matrícula</strong>, un carácter por casillero. Si el vehículo ya pasó por una cámara, el sistema lo reconoce y completa los datos.</li><li>Opcional: tocá el botón de <strong>cámara</strong> para fotografiar la patente.</li><li>Completá <strong>nombre</strong> y <strong>documento</strong> del visitante.</li><li>Elegí la <strong>unidad de destino</strong> (tocá el panel para abrir la lista).</li><li>Escribí el <strong>motivo de la visita</strong> en observaciones.</li><li>Si hace falta, adjuntá <strong>foto</strong> o <strong>nota de voz</strong> con los botones de la derecha.</li><li>Confirmá con el botón verde.</li></ol>
+<blockquote class="tiempo">El registro se guarda en <strong>menos de 2 segundos</strong>. Queda visible de inmediato en el puesto de monitoreo y en el historial.</blockquote>
+<h2 id="los-botones-de-la-columna-derecha">Los botones de la columna derecha</h2>
+<table><thead><tr><th>Botón</th><th>Qué hace</th></tr></thead><tbody><tr><td>Persona</td><td>Marca el tipo de visitante</td></tr><tr><td>Edificio</td><td>Elige la unidad de destino</td></tr><tr><td><strong>Auto / Moto</strong></td><td>Tipo de vehículo (cambia el formato de matrícula esperado)</td></tr><tr><td>Cámara</td><td>Saca una foto y la adjunta</td></tr><tr><td>Micrófono</td><td>Graba una nota de voz</td></tr><tr><td><strong>Confirmar</strong> (verde)</td><td>Guarda el registro</td></tr></tbody></table>
+<h2 id="egresos">Egresos</h2>
+<p>Al elegir <strong>Registro de salida</strong>, si el visitante fue registrado al entrar, el sistema completa los datos automáticamente al escribir la matrícula, y calcula cuánto tiempo estuvo adentro.</p>
+<hr>
+<h1 id="historial-del-turno" class="cap">Historial del turno</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Barra inferior → Historial</div>
+<figure><div class="lienzo"><img src="img/tab-03-historial.png" alt="Historial de registros del turno"></div><figcaption>Fig. 1.3 — Historial de registros del turno</figcaption></figure>
+<p>Muestra todo lo registrado, con hora, matrícula, visitante y destino. Sirve para dos cosas:</p>
+<ul><li><strong>Verificar</strong> algo que se registró hace un rato.</li><li><strong>Registrar la salida</strong> de alguien que entró: se busca el ingreso y se cierra desde ahí.</li></ul>
+<p>Arriba tiene búsqueda y filtro por fecha.</p>
+<hr>
+<h1 id="accesos-por-matricula-lpr" class="cap">Accesos por matrícula (LPR)</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Barra inferior → LPR</div>
+<p>Es la lista de lo que están leyendo las cámaras de los portones, en vivo.</p>
+<figure><div class="lienzo"><img src="img/tab-04-lpr.png" alt="Accesos leídos por las cámaras"><span class="marca" style="left:12%;top:4%">1</span><span class="marca" style="left:22%;top:11%">2</span><span class="marca" style="left:32%;top:11%">3</span><span class="marca" style="left:17%;top:15%">4</span><span class="marca" style="left:20%;top:20%">5</span><span class="marca" style="left:93%;top:12%">6</span><span class="marca" style="left:87%;top:12%">7</span></div><figcaption>Fig. 1.4 — Accesos leídos por las cámaras</figcaption><ol class="leyenda"><li>Foto de la captura</li><li>Matrícula leída</li><li>Ingreso o egreso</li><li>Quién es, si está registrado</li><li>Análisis y registro rápido</li><li>Ver la grabación de ese momento</li><li>Hora de la lectura</li></ol></figure>
+<h2 id="que-muestra-cada-fila">Qué muestra cada fila</h2>
+<ul><li><strong>Foto</strong> del vehículo en el momento de la lectura.</li><li><strong>Matrícula</strong> leída (o <code>NO_LEIDA</code> si la cámara no pudo).</li><li><strong>Ingreso</strong> o <strong>Egreso</strong>, según la cámara.</li><li><strong>Quién es</strong>: el nombre del propietario si está registrado, o "No identificado".</li><li><strong>Hora</strong> de la lectura.</li></ul>
+<h2 id="las-tres-acciones-de-cada-fila">Las tres acciones de cada fila</h2>
+<table><thead><tr><th>Acción</th><th>Qué hace</th></tr></thead><tbody><tr><td><strong>Análisis</strong></td><td>Abre la ficha completa: perfil de la matrícula, historial y datos</td></tr><tr><td><strong>Registrar</strong></td><td>Da de alta ese vehículo, con la matrícula ya cargada</td></tr><tr><td><strong>Grab.</strong></td><td>Abre la grabación del NVR en ese segundo exacto</td></tr></tbody></table>
+<blockquote class="nota">Cuando una matrícula figura como "No identificado" y el vehículo entra habitualmente, conviene registrarlo: cada vez que pasa genera un acceso denegado que ensucia las estadísticas.</blockquote>
+<h2 id="buscar">Buscar</h2>
+<p>Arriba a la derecha hay búsqueda por matrícula y filtro por fecha, para encontrar algo puntual sin salir de la tablet.</p>
+<hr>
+<h1 id="plazas-de-parking" class="cap">Plazas de parking</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Barra inferior → Plazas</div>
+<figure><div class="lienzo"><img src="img/tab-05-plazas.png" alt="Ocupación del estacionamiento"></div><figcaption>Fig. 1.5 — Ocupación del estacionamiento</figcaption></figure>
+<p>Sobre la foto real del estacionamiento, cada plaza se pinta según su estado:</p>
+<ul><li><strong>Verde</strong>: libre.</li><li><strong>Rojo</strong>: ocupada.</li></ul>
+<p>La ocupación se calcula con las lecturas de matrícula. Tocando una plaza ocupada se ve qué vehículo está y desde cuándo.</p>
+<hr>
+<h1 id="mapa" class="cap">Mapa</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Barra inferior → Mapa</div>
+<figure><div class="lienzo"><img src="img/tab-06-mapa.png" alt="Mapa con la posición de los guardias"></div><figcaption>Fig. 1.6 — Mapa con la posición de los guardias</figcaption></figure>
+<p>Muestra el plano del predio con:</p>
+<ul><li><strong>Tu posición</strong>, actualizada mientras te movés.</li><li><strong>Los otros guardias</strong> en turno, con nombre y batería.</li><li><strong>Las cámaras</strong> y los accesos.</li><li><strong>Los vehículos</strong> que están circulando.</li></ul>
+<blockquote class="nota">La posición se envía cada <strong>10 segundos</strong> con la aplicación en pantalla, y cada <strong>30 segundos</strong> con la pantalla apagada (solo en la aplicación Android). Es un compromiso entre precisión y duración de la batería.</blockquote>
+<hr>
+<h1 id="el-boton-de-panico" class="cap">El botón de pánico</h1>
+<p>Es la función más importante. Está diseñada para que <strong>no se dispare por accidente</strong> y para que <strong>funcione cuando hace falta</strong>.</p>
+<h2 id="como-se-activa">Cómo se activa</h2>
+<p><strong>Desde la aplicación:</strong> mantené presionado el botón rojo del centro de la barra inferior. Debajo dice <em>"Mantené presionado"</em>. Al soltarlo antes de tiempo no pasa nada — es a propósito.</p>
+<p><strong>Con la pantalla bloqueada</strong> (solo aplicación Android): presioná el botón de <strong>volumen</strong> varias veces seguidas. Se habilita durante la instalación.</p>
+<blockquote class="alerta">No hay activación por sacudida ni por gesto: se descartó porque genera falsas alarmas, y una alarma en la que nadie confía no sirve.</blockquote>
+<h2 id="que-pasa-cuando-se-activa">Qué pasa cuando se activa</h2>
+<p>En menos de 3 segundos:</p>
+<ol><li>La tablet vibra y confirma en pantalla.</li><li>Suena la alerta en el puesto de monitoreo.</li><li>Se envía tu posición GPS.</li><li>Se avisa al supervisor por los canales configurados.</li><li>Queda registrado con hora y ubicación.</li></ol>
+<blockquote class="tiempo">Del momento en que soltás el botón a que suene en el puesto pasan <strong>2 a 4 segundos</strong> con WiFi. Sin señal, la tablet reintenta y avisa en pantalla que la alerta está pendiente.</blockquote>
+<h2 id="falsa-alarma">Falsa alarma</h2>
+<p>Avisá por radio al puesto. La alerta queda registrada igual — y está bien que quede: lo que se anota es que fue falsa, no se borra.</p>
+<hr>
+<h1 id="funciones-de-la-aplicacion-android" class="cap">Funciones de la aplicación Android</h1>
+<p>Estas funciones <strong>no existen en el navegador</strong>: requieren la aplicación instalada.</p>
+<h2 id="rondas-con-etiquetas-nfc">Rondas con etiquetas NFC</h2>
+<p>Cada punto de control tiene una etiqueta pegada en el predio.</p>
+<ol><li>Caminá hasta el punto.</li><li>Acercá el <strong>dorso de la tablet</strong> a la etiqueta, a menos de 2 cm.</li><li>La tablet vibra y confirma el punto.</li></ol>
+<p>No hay que abrir nada: funciona aunque estés en otra pantalla.</p>
+<blockquote class="tiempo">La marca se registra en <strong>menos de 2 segundos</strong> con WiFi. Sin señal queda guardada y se sube sola: no esperes parado al lado del punto.</blockquote>
+<p>Si un punto tiene horario asignado y vence sin marcarse, se genera una alerta en el puesto. No es un reproche automático: puede haber una razón. Por eso conviene dejarla anotada.</p>
+<h2 id="hombre-caido">Hombre caído</h2>
+<p>La tablet vigila su propio movimiento. Si queda inmóvil y horizontal más del tiempo configurado (habitualmente 60 segundos):</p>
+<ol><li>Muestra un aviso con cuenta regresiva y suena.</li><li>Si nadie responde en <strong>30 segundos</strong>, dispara la alerta igual que el pánico.</li></ol>
+<p>Para cancelar, tocá <strong>Estoy bien</strong>.</p>
+<blockquote class="nota">Si tenés que dejar la tablet quieta un rato, apoyala <strong>de canto o en el bolsillo</strong>. La posición horizontal es parte de lo que dispara la detección.</blockquote>
+<h2 id="modo-kiosco">Modo kiosco</h2>
+<p>La aplicación queda fija: no se puede salir a otras aplicaciones ni a los ajustes. Para salir (solo el técnico): mantener presionado el logo 5 segundos e ingresar la clave de administración.</p>
+<hr>
+<h1 id="instalacion-de-la-aplicacion-android" class="cap">Instalación de la aplicación Android</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Pantalla de ingreso → Descargar app para tablet</div>
+<p>La aplicación no está en Google Play: se descarga desde el propio sistema.</p>
+<ol><li>Abrí el navegador de la tablet en la dirección del sistema, con <code>/guard</code>.</li><li>Tocá <strong>Descargar app para tablet</strong>.</li><li>Habilitá en Android: <strong>Ajustes → Seguridad → Instalar aplicaciones desconocidas</strong>.</li><li>Abrí el archivo descargado y confirmá.</li><li>Concedé los permisos (ver abajo).</li><li>Iniciá sesión.</li></ol>
+<h2 id="los-permisos-y-por-que-cada-uno">Los permisos, y por qué cada uno</h2>
+<table><thead><tr><th>Permiso</th><th>Para qué</th><th>Si falta</th></tr></thead><tbody><tr><td><strong>Ubicación (siempre)</strong></td><td>Posición en el mapa y en el pánico</td><td>No aparecés en el mapa</td></tr><tr><td><strong>Cámara</strong></td><td>Fotos de patentes y visitantes</td><td>No se pueden adjuntar fotos</td></tr><tr><td><strong>NFC</strong></td><td>Rondas</td><td>No se pueden marcar puntos</td></tr><tr><td><strong>Notificaciones</strong></td><td>Alertas y avisos de ronda</td><td>No te enterás de nada con la app cerrada</td></tr><tr><td><strong>Segundo plano</strong></td><td>Que el servicio siga vivo</td><td>Se pierde posición con la pantalla apagada</td></tr><tr><td><strong>Accesibilidad</strong> (opcional)</td><td>Pánico por volumen bloqueado</td><td>Solo funciona el pánico en pantalla</td></tr></tbody></table>
+<blockquote class="nota">La <strong>optimización de batería</strong> es la causa número uno de "la tablet dejó de reportar posición". Buscá la aplicación en <em>Ajustes → Batería → Optimización</em> y ponela en <strong>No optimizar</strong>.</blockquote>
+<hr>
+<h1 id="mantenimiento-y-problemas" class="cap">Mantenimiento y problemas</h1>
+<h2 id="rutina">Rutina</h2>
+<p><strong>Cada turno:</strong> cargarla al terminar y entregarla con más del 50 %. Verificar que el punto de conexión esté verde antes de salir.</p>
+<p><strong>Cada semana:</strong> reiniciar la tablet. Android acumula procesos y la aplicación se vuelve lenta. Limpiar la pantalla y el dorso (donde está el NFC).</p>
+<h2 id="el-indicador-de-conexion">El indicador de conexión</h2>
+<p>Es el punto de color junto a tu perfil, abajo a la izquierda.</p>
+<table><thead><tr><th>Color</th><th>Significa</th><th>Qué podés hacer</th></tr></thead><tbody><tr><td><strong>Verde</strong></td><td>Conectado</td><td>Todo</td></tr><tr><td><strong>Ámbar</strong></td><td>Sin conexión, con datos por subir</td><td>Registrar y marcar rondas (se guardan)</td></tr><tr><td><strong>Rojo</strong></td><td>Sin conexión hace rato</td><td>Lo mismo; avisá al puesto por radio</td></tr></tbody></table>
+<h2 id="problemas-frecuentes">Problemas frecuentes</h2>
+<table><thead><tr><th>Síntoma</th><th>Qué hacer</th></tr></thead><tbody><tr><td>No lee las etiquetas NFC</td><td>Verificá que el NFC esté activado; acercá el <strong>dorso</strong>, no el frente</td></tr><tr><td>No aparezco en el mapa</td><td>Ubicación en "siempre" y salí al exterior 30 segundos</td></tr><tr><td>La aplicación se cierra sola</td><td>Optimización de batería: ponela en "No optimizar"</td></tr><tr><td>Punto rojo con WiFi conectado</td><td>El servidor no responde: avisá al puesto</td></tr><tr><td>La lista de LPR no se actualiza</td><td>Deslizá hacia abajo para refrescar; si sigue, revisá la conexión</td></tr><tr><td>No responde a nada</td><td>Mantené el botón de encendido 10 segundos para forzar el reinicio</td></tr></tbody></table>
+<blockquote class="nota">Si la tablet se pierde o la roban, avisá <strong>de inmediato</strong>: desde el panel se le revoca el acceso y deja de recibir y enviar datos.</blockquote>
+<hr>
+<h1 id="preguntas-frecuentes" class="cap">Preguntas frecuentes</h1>
+<p><strong>¿Si se me apaga la tablet pierdo lo que registré?</strong> No. Todo se guarda en la tablet apenas se confirma, y se sube cuando hay señal.</p>
+<p><strong>¿Puedo usar mi celular?</strong> Para el navegador sí, con limitaciones de pantalla. Para las funciones de ronda, pánico bloqueado y hombre caído hace falta la aplicación en una tablet dedicada.</p>
+<p><strong>¿El supervisor ve todo lo que hago?</strong> Ve tu posición mientras estás en turno, lo que registrás y las rondas que marcás. No tiene acceso remoto al micrófono ni a la cámara.</p>
+<p><strong>¿Qué pasa si dos guardias usan la misma tablet?</strong> Cada uno abre sesión con su usuario. Lo registrado queda a nombre de quien tenía la sesión abierta.</p>
+<p><strong>¿Cuánto dura la batería?</strong> Una jornada de 8 horas usa entre 25 % y 40 % con la configuración de fábrica. Si consume mucho más, revisá que no haya otras aplicaciones corriendo.</p>
+</section>
+
+<div class="noprint"><button onclick="window.print()">Descargar PDF</button></div>
+</body></html>

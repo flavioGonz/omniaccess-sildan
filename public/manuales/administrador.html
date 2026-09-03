@@ -1,0 +1,307 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>OmniAccess LPR · Manual del Administrador</title>
+<style>
+:root{--c:#8b5cf6;--tinta:#111827;--suave:#6b7280;--linea:#e5e7eb;--fondo:#fff;--code:#f3f4f6}
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--tinta)}
+.hoja{background:var(--fondo);width:210mm;min-height:297mm;margin:14px auto;padding:22mm 20mm 20mm;box-shadow:0 4px 24px rgba(0,0,0,.35)}
+
+/* ── PORTADA ── (posicionamiento absoluto: se imprime igual siempre) */
+.portada{position:relative;width:210mm;height:296.9mm;padding:0;overflow:hidden;color:#fff;
+  background:linear-gradient(150deg,#0b1220 0%,#111a2e 45%,var(--c) 190%)}
+.portada .malla{position:absolute;inset:0;opacity:.5;
+  background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:26px 26px}
+.portada .halo{position:absolute;width:640px;height:640px;right:-220px;top:-180px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 62%);opacity:.30}
+.portada .halo2{position:absolute;width:420px;height:420px;left:-160px;bottom:-140px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 65%);opacity:.18}
+.p-top{position:absolute;top:24mm;left:22mm;right:22mm}
+.marca{display:flex;align-items:center;gap:12px}
+.marca .ico{width:44px;height:44px;border-radius:12px;background:var(--c);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 8px 26px rgba(0,0,0,.4)}
+.marca .n{font-size:19px;font-weight:800;letter-spacing:.16em}
+.marca .s{font-size:9.5px;letter-spacing:.34em;color:#9aa4b2;margin-top:2px}
+.p-mid{position:absolute;left:22mm;right:22mm;bottom:62mm}
+.kicker{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.26em;color:var(--c);
+  border:1px solid var(--c);border-radius:999px;padding:5px 13px;margin-bottom:20px}
+.p-mid h1{font-size:53px;line-height:1.03;margin:0 0 8px;font-weight:800;letter-spacing:-.02em}
+.p-mid h2{font-size:21px;margin:0 0 22px;font-weight:500;color:#c7d2de}
+.p-mid .para{max-width:118mm;color:#9aa4b2;font-size:13.5px;line-height:1.6;border-left:3px solid var(--c);padding-left:14px}
+.p-bot{position:absolute;left:22mm;right:22mm;bottom:24mm;display:flex;justify-content:space-between;align-items:flex-end;
+  padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+.p-bot .campo{font-size:11px;color:#8b95a5}
+.p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
+.p-bot .der{text-align:right}
+
+/* ── ÍNDICE ── */
+.indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:22px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap}
+.indice li{margin:0}
+.indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
+.indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:12.5px;min-width:20px;text-align:right}
+.indice .l1 .pg{color:var(--tinta);font-weight:700}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
+.indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
+.indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
+
+/* ── CUERPO ── */
+h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
+  page-break-before:always;break-before:page}
+.hoja > h1.cap:first-child{page-break-before:auto;break-before:auto}
+h2{font-size:20.5px;margin:30px 0 10px;color:#0f172a}
+h3{font-size:16px;margin:22px 0 7px;color:#1f2937}
+h4{font-size:14px;margin:16px 0 5px;color:#374151}
+p{margin:0 0 11px}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:4px 0}
+code{background:var(--code);padding:1.5px 5px;border-radius:4px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#0f172a}
+pre{background:#0f172a;color:#e2e8f0;padding:13px 15px;border-radius:9px;overflow:auto;margin:0 0 13px}
+pre code{background:none;color:inherit;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:0 0 15px;font-size:13.5px}
+th{background:#f8fafc;text-align:left;padding:8px 10px;border-bottom:2px solid var(--c);font-weight:700}
+td{padding:7px 10px;border-bottom:1px solid var(--linea);vertical-align:top}
+tr:nth-child(even) td{background:#fcfcfd}
+.ruta{display:flex;align-items:center;gap:10px;background:#f8fafc;border-left:3px solid var(--c);
+  padding:8px 13px;border-radius:0 7px 7px 0;font-size:13px;margin:0 0 15px}
+.ruta-l{font-size:9px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--c);white-space:nowrap}
+blockquote{margin:0 0 14px;padding:11px 15px;border-radius:8px;font-size:13.5px;border-left:4px solid}
+blockquote.nota{background:#f8fafc;border-color:#94a3b8}
+blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
+blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
+blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
+blockquote.alerta::before{content:"⚠ ";font-weight:700}
+figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
+.lienzo{position:relative;line-height:0}
+figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
+figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
+figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
+/* marcadores numerados sobre la captura */
+.marca{position:absolute;transform:translate(-50%,-50%);width:23px;height:23px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 12.5px/23px "Segoe UI",sans-serif;text-align:center;
+  box-shadow:0 0 0 3px #fff,0 2px 7px rgba(0,0,0,.45);z-index:2}
+.leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
+  display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
+.leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
+.leyenda li::before{content:counter(mk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 10.5px/18px "Segoe UI",sans-serif;text-align:center}
+hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
+
+/* ── Cortes de página: que no se parta lo que se lee junto ── */
+h1,h2,h3,h4{break-after:avoid;page-break-after:avoid}
+h2,h3,h4{break-inside:avoid;page-break-inside:avoid}
+p,li{orphans:3;widows:3}
+table,blockquote,.ruta,pre{break-inside:avoid;page-break-inside:avoid}
+ul,ol{break-inside:auto}
+/* un título nunca queda solo al pie: arrastra lo que sigue */
+h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
+h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
+
+/* pie de página impreso */
+@page{size:A4;margin:16mm 15mm 17mm}
+@media print{
+  html,body{margin:0;padding:0;background:#fff}
+  .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  .portada{width:210mm;height:296.9mm;page-break-after:always;border-radius:0}
+  .indice{page-break-after:always}
+  .noprint{display:none}
+}
+/* La portada se imprime a sangre completa: se genera en un pase aparte, con
+   márgenes de página en cero (ver build). */
+body.solo-portada .hoja:not(.portada){display:none}
+body.sin-portada .portada{display:none}
+.noprint{position:fixed;right:16px;bottom:16px;z-index:9}
+.noprint button{background:var(--c);color:#fff;border:0;border-radius:9px;padding:11px 17px;font-weight:700;cursor:pointer;
+  box-shadow:0 5px 18px rgba(0,0,0,.3)}
+</style></head><body>
+
+<section class="hoja portada">
+  <div class="malla"></div><div class="halo"></div><div class="halo2"></div>
+  <div class="p-top">
+    <div class="marca">
+      <div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+      <div><div class="n">OMNIACCESS</div><div class="s">CONTROL Y ACCESO</div></div>
+    </div>
+  </div>
+  <div class="p-mid">
+    <span class="kicker">GESTIÓN, CONFIGURACIÓN Y REPORTES</span>
+    <h1>Manual del Administrador</h1>
+    <h2>OmniAccess LPR</h2>
+    <p class="para">Quien administra el sistema: usuarios, vehículos, reglas, notificaciones y reportes.</p>
+  </div>
+  <div class="p-bot">
+    <div class="campo">Versión<b>2026.09</b></div>
+    <div class="campo">Emitido<b>3 de setiembre de 2026</b></div>
+    <div class="campo der">Infratec<b>infratec.com.uy</b></div>
+  </div>
+</section>
+
+<section class="hoja indice">
+  <h2>Contenido</h2>
+  <div class="sub">OmniAccess LPR · Manual del Administrador</div>
+  <ol><li class="l1"><a href="#que-administra-este-manual"><span class="t">Qué administra este manual</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#el-modelo-de-datos-en-una-pagina"><span class="t">El modelo de datos, en una página</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#los-roles"><span class="t">Los roles</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l1"><a href="#el-panel-principal"><span class="t">El panel principal</span><span class="dots"></span><span class="pg">4</span></a></li><li class="l1"><a href="#usuarios-y-residentes"><span class="t">Usuarios y residentes</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#dar-de-alta-un-usuario"><span class="t">Dar de alta un usuario</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#alta-rapida-desde-un-evento"><span class="t">Alta rápida desde un evento</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l2"><a href="#estados-de-un-usuario"><span class="t">Estados de un usuario</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l1"><a href="#unidades-y-lotes"><span class="t">Unidades y lotes</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l1"><a href="#vehiculos-y-matriculas"><span class="t">Vehículos y matrículas</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#para-que-se-usa"><span class="t">Para qué se usa</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#la-ficha-del-vehiculo"><span class="t">La ficha del vehículo</span><span class="dots"></span><span class="pg">12</span></a></li><li class="l1"><a href="#grupos-de-acceso-y-horarios"><span class="t">Grupos de acceso y horarios</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l2"><a href="#como-se-arma"><span class="t">Cómo se arma</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l2"><a href="#ejemplos-que-se-usan-siempre"><span class="t">Ejemplos que se usan siempre</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l1"><a href="#lista-de-vigilancia"><span class="t">Lista de vigilancia</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l1"><a href="#dispositivos"><span class="t">Dispositivos</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#que-muestra-cada-fila"><span class="t">Qué muestra cada fila</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#alta-de-una-camara"><span class="t">Alta de una cámara</span><span class="dots"></span><span class="pg">18</span></a></li><li class="l1"><a href="#notificaciones-y-despachos"><span class="t">Notificaciones y despachos</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l2"><a href="#armar-una-regla"><span class="t">Armar una regla</span><span class="dots"></span><span class="pg">19</span></a></li><li class="l2"><a href="#los-canales"><span class="t">Los canales</span><span class="dots"></span><span class="pg">20</span></a></li><li class="l1"><a href="#busqueda-inteligente"><span class="t">Búsqueda inteligente</span><span class="dots"></span><span class="pg">22</span></a></li><li class="l1"><a href="#reportes"><span class="t">Reportes</span><span class="dots"></span><span class="pg">24</span></a></li><li class="l1"><a href="#configuracion"><span class="t">Configuración</span><span class="dots"></span><span class="pg">26</span></a></li><li class="l2"><a href="#sistema"><span class="t">Sistema</span><span class="dots"></span><span class="pg">26</span></a></li><li class="l2"><a href="#branding"><span class="t">Branding</span><span class="dots"></span><span class="pg">27</span></a></li><li class="l2"><a href="#almacenamiento"><span class="t">Almacenamiento</span><span class="dots"></span><span class="pg">28</span></a></li><li class="l2"><a href="#avanzado"><span class="t">Avanzado</span><span class="dots"></span><span class="pg">29</span></a></li><li class="l1"><a href="#tags-rfid"><span class="t">Tags RFID</span><span class="dots"></span><span class="pg">30</span></a></li><li class="l1"><a href="#auditoria"><span class="t">Auditoría</span><span class="dots"></span><span class="pg">31</span></a></li><li class="l1"><a href="#pantallas-de-kiosko"><span class="t">Pantallas de kiosko</span><span class="dots"></span><span class="pg">33</span></a></li><li class="l1"><a href="#tareas-frecuentes"><span class="t">Tareas frecuentes</span><span class="dots"></span><span class="pg">34</span></a></li><li class="l2"><a href="#alta-de-un-residente-nuevo-con-dos-vehiculos"><span class="t">Alta de un residente nuevo con dos vehículos</span><span class="dots"></span><span class="pg">34</span></a></li><li class="l2"><a href="#habilitar-a-un-proveedor-por-tiempo-limitado"><span class="t">Habilitar a un proveedor por tiempo limitado</span><span class="dots"></span><span class="pg">34</span></a></li><li class="l2"><a href="#investigar-un-incidente-de-anoche"><span class="t">Investigar un incidente de anoche</span><span class="dots"></span><span class="pg">34</span></a></li><li class="l2"><a href="#responder-un-reclamo-de-no-me-abrio"><span class="t">Responder un reclamo de "no me abrió"</span><span class="dots"></span><span class="pg">34</span></a></li><li class="l2"><a href="#preparar-el-cierre-de-mes"><span class="t">Preparar el cierre de mes</span><span class="dots"></span><span class="pg">34</span></a></li></ol>
+</section>
+
+<section class="hoja">
+<h1 id="que-administra-este-manual" class="cap">Qué administra este manual</h1>
+<p>El administrador es quien decide <strong>quién entra, cuándo, y qué pasa cuando algo se sale de lo normal</strong>. No opera el portón: configura las reglas con las que el sistema opera solo.</p>
+<p>Este manual cubre el panel completo. Para el uso diario del monitor está el <em>Manual del Operador</em>; para la instalación y las cámaras, el <em>Manual del Instalador</em>.</p>
+<h2 id="el-modelo-de-datos-en-una-pagina">El modelo de datos, en una página</h2>
+<p>Antes de tocar nada conviene entender cómo se relacionan las cosas. Todo el sistema se apoya en esta cadena:</p>
+<pre><code>Unidad (lote / casa / oficina)
+  └── Usuario (residente, empleado, visitante)
+        └── Credencial (matrícula, tarjeta RFID, rostro)
+              └── Grupo de acceso (qué puertas, en qué horario)</code></pre>
+<ul><li>Una <strong>unidad</strong> agrupa personas: la casa 42, la oficina 3B.</li><li>Un <strong>usuario</strong> pertenece a una unidad y tiene un rol.</li><li>Una <strong>credencial</strong> identifica al usuario ante el sistema. Un usuario puede tener varias (dos autos y una tarjeta).</li><li>Un <strong>grupo de acceso</strong> define por dónde y cuándo puede pasar.</li></ul>
+<blockquote class="nota">El error más común al empezar es cargar matrículas sueltas sin usuario ni unidad. Funciona, pero el día que hay que buscar "todos los vehículos de la casa 42" no hay forma. Cargá siempre la cadena completa.</blockquote>
+<h2 id="los-roles">Los roles</h2>
+<table><thead><tr><th>Rol</th><th>Puede</th></tr></thead><tbody><tr><td><strong>Superadministrador</strong></td><td>Todo, incluida la configuración del sistema y otros administradores</td></tr><tr><td><strong>Administrador</strong></td><td>Usuarios, vehículos, reglas, reportes. No cambia el modo ni la configuración crítica</td></tr><tr><td><strong>Operador</strong></td><td>Ver el monitor, el historial y registrar. No modifica configuración</td></tr><tr><td><strong>Guardia</strong></td><td>La consola del guardia y la tablet</td></tr></tbody></table>
+<hr>
+<h1 id="el-panel-principal" class="cap">El panel principal</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Monitor en Vivo (o el panel, según la instalación)</div>
+<figure><div class="lienzo"><img src="img/adm-01-dashboard.png" alt="Panel principal con las métricas del día"></div><figcaption>Fig. 1.1 — Panel principal con las métricas del día</figcaption></figure>
+<p>Muestra el estado del sistema de un vistazo: accesos del día, vehículos adentro, dispositivos en línea y las alertas activas.</p>
+<blockquote class="tiempo">Los números se actualizan <strong>en vivo</strong> por websocket. Si dejan de moverse durante varios minutos con tráfico en los portones, revisá el estado de los dispositivos.</blockquote>
+<hr>
+<h1 id="usuarios-y-residentes" class="cap">Usuarios y residentes</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Usuarios &amp; Residentes</div>
+<figure><div class="lienzo"><img src="img/adm-02-usuarios.png" alt="Listado de usuarios"></div><figcaption>Fig. 1.2 — Listado de usuarios</figcaption></figure>
+<p>Es el registro de todas las personas del predio: residentes, empleados, proveedores frecuentes.</p>
+<h2 id="dar-de-alta-un-usuario">Dar de alta un usuario</h2>
+<figure><div class="lienzo"><img src="img/adm-03-usuario-alta.png" alt="Formulario de alta con matrícula"></div><figcaption>Fig. 1.3 — Formulario de alta con matrícula</figcaption></figure>
+<ol><li><strong>Nuevo usuario</strong>.</li><li>Nombre y apellido.</li><li><strong>Unidad</strong>: a qué lote o casa pertenece.</li><li><strong>Rol</strong>: define qué puede hacer en el sistema (la mayoría son residentes, sin acceso al panel).</li><li><strong>Credenciales</strong>: matrícula(s), tarjeta RFID, rostro.</li><li><strong>Grupo de acceso</strong>: por dónde y cuándo puede pasar.</li><li>Guardar.</li></ol>
+<blockquote class="tiempo">El alta tiene efecto <strong>inmediato</strong>: el vehículo que se acaba de cargar ya entra en la próxima lectura, sin reiniciar nada.</blockquote>
+<h2 id="alta-rapida-desde-un-evento">Alta rápida desde un evento</h2>
+<p>La forma más práctica de cargar un vehículo nuevo es desde donde apareció: en el monitor o en la ficha del evento, el botón <strong>Registrar</strong> abre el alta con la matrícula ya escrita. Evita errores de tipeo, que son la causa número uno de "no me abre".</p>
+<h2 id="estados-de-un-usuario">Estados de un usuario</h2>
+<table><thead><tr><th>Estado</th><th>Efecto</th></tr></thead><tbody><tr><td><strong>Activo</strong></td><td>Sus credenciales funcionan</td></tr><tr><td><strong>Suspendido</strong></td><td>Sus credenciales son rechazadas, pero el registro se conserva</td></tr><tr><td><strong>Eliminado</strong></td><td>Se borra; los eventos históricos quedan (con la matrícula, sin el nombre)</td></tr></tbody></table>
+<blockquote class="nota">Para una baja temporal (un residente que se muda por unos meses) usá <strong>suspendido</strong>, no eliminado: conserva el historial y la relación con la unidad.</blockquote>
+<hr>
+<h1 id="unidades-y-lotes" class="cap">Unidades y lotes</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Unidades / Lotes</div>
+<figure><div class="lienzo"><img src="img/adm-04-unidades.png" alt="Listado de unidades"></div><figcaption>Fig. 1.4 — Listado de unidades</figcaption></figure>
+<p>Las unidades son la estructura del predio: lotes, casas, oficinas, apartamentos. Cada usuario pertenece a una.</p>
+<p>Sirven para tres cosas concretas:</p>
+<ol><li><strong>Buscar por unidad</strong>: todos los vehículos de la casa 42.</li><li><strong>Reportes por unidad</strong>: cuántos accesos tuvo cada lote.</li><li><strong>Plazas de parking</strong>: qué plaza le corresponde a cada unidad.</li></ol>
+<p>Se pueden importar en lote desde una planilla al iniciar el sistema.</p>
+<hr>
+<h1 id="vehiculos-y-matriculas" class="cap">Vehículos y matrículas</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Vehículos / Matrículas</div>
+<figure><div class="lienzo"><img src="img/adm-05-vehiculos.png" alt="Listado de vehículos con su última detección"></div><figcaption>Fig. 1.5 — Listado de vehículos con su última detección</figcaption></figure>
+<p>Es la vista centrada en el vehículo, no en la persona. Cada fila muestra la matrícula, el propietario, la unidad, y <strong>la última vez que fue detectado</strong> con su foto.</p>
+<h2 id="para-que-se-usa">Para qué se usa</h2>
+<ul><li>Verificar si una matrícula está cargada y a nombre de quién.</li><li>Ver la última foto de un vehículo (útil cuando alguien reporta un auto sospechoso).</li><li>Corregir una matrícula mal cargada.</li><li>Dar de baja un vehículo que se vendió.</li></ul>
+<h2 id="la-ficha-del-vehiculo">La ficha del vehículo</h2>
+<p>Al abrir una fila se ve el historial completo de ese vehículo, con sus fotos y accesos.</p>
+<blockquote class="nota">Si una matrícula aparece dos veces con distinto propietario, el sistema usa la más reciente. Revisá los duplicados: casi siempre son un auto que cambió de dueño dentro del predio y quedó cargado dos veces.</blockquote>
+<hr>
+<h1 id="grupos-de-acceso-y-horarios" class="cap">Grupos de acceso y horarios</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Grupos de Acceso</div>
+<figure><div class="lienzo"><img src="img/adm-06-grupos.png" alt="Grupos de acceso"></div><figcaption>Fig. 1.6 — Grupos de acceso</figcaption></figure>
+<p>Un grupo de acceso responde a dos preguntas: <strong>por dónde</strong> puede pasar y <strong>cuándo</strong>.</p>
+<h2 id="como-se-arma">Cómo se arma</h2>
+<ol><li>Nombre del grupo (por ejemplo <em>Residentes</em>, <em>Personal de servicio</em>, <em>Proveedores</em>).</li><li><strong>Dispositivos</strong>: qué accesos habilita.</li><li><strong>Horario</strong>: qué franjas y qué días.</li><li>Asignar el grupo a los usuarios.</li></ol>
+<h2 id="ejemplos-que-se-usan-siempre">Ejemplos que se usan siempre</h2>
+<table><thead><tr><th>Grupo</th><th>Dispositivos</th><th>Horario</th></tr></thead><tbody><tr><td>Residentes</td><td>Todos</td><td>24/7</td></tr><tr><td>Personal de servicio</td><td>Portón principal</td><td>Lunes a viernes, 7 a 19</td></tr><tr><td>Proveedores</td><td>Portón de servicio</td><td>Lunes a sábado, 8 a 18</td></tr><tr><td>Obra</td><td>Portón de servicio</td><td>Lunes a viernes, 7 a 17, con fecha de vencimiento</td></tr></tbody></table>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Calendario</div>
+<figure><div class="lienzo"><img src="img/adm-07-calendario.png" alt="Calendario de horarios y excepciones"></div><figcaption>Fig. 1.7 — Calendario de horarios y excepciones</figcaption></figure>
+<p>El calendario define <strong>feriados y excepciones</strong>: días en los que los horarios normales no aplican. Es lo que evita tener que reconfigurar los grupos cada fin de semana largo.</p>
+<blockquote class="tiempo">Un cambio de horario tiene efecto <strong>en la siguiente lectura</strong>. No hace falta reiniciar ni esperar: probalo con un vehículo del grupo modificado.</blockquote>
+<hr>
+<h1 id="lista-de-vigilancia" class="cap">Lista de vigilancia</h1>
+<p>Sirve para marcar matrículas que requieren atención: vehículos buscados, prohibidos o VIP.</p>
+<p>Se accede desde el monitor (icono de vigilancia) o desde la ficha de cualquier evento con el botón <strong>Lista negra</strong>.</p>
+<table><thead><tr><th>Categoría</th><th>Efecto al detectarse</th></tr></thead><tbody><tr><td><strong>Lista negra</strong></td><td>Alerta sonora, tarjeta resaltada en rojo, notificación al supervisor</td></tr><tr><td><strong>Lista blanca</strong></td><td>Se marca como autorizado aunque no tenga usuario asociado</td></tr><tr><td><strong>Búsqueda</strong></td><td>Avisa cuando aparece, sin bloquear</td></tr></tbody></table>
+<blockquote class="nota">La lista se sincroniza con los <strong>roles de usuario</strong>: si un usuario tiene rol de bloqueado, sus matrículas figuran automáticamente en la lista negra sin cargarlas dos veces.</blockquote>
+<hr>
+<h1 id="dispositivos" class="cap">Dispositivos</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Dispositivos LPR</div>
+<figure><div class="lienzo"><img src="img/adm-08-dispositivos.png" alt="Dispositivos con su estado y salud"></div><figcaption>Fig. 1.8 — Dispositivos con su estado y salud</figcaption></figure>
+<p>Es el inventario de cámaras y grabadores, con su estado real.</p>
+<h2 id="que-muestra-cada-fila">Qué muestra cada fila</h2>
+<table><thead><tr><th>Columna</th><th>Qué significa</th></tr></thead><tbody><tr><td><strong>Estado</strong></td><td>Verde: responde. Rojo: sin respuesta (dos sondeos seguidos)</td></tr><tr><td><strong>Latencia</strong></td><td>Cuánto tarda en contestar. Más de 500 ms sostenidos indica problema de red</td></tr><tr><td><strong>Hora / NTP</strong></td><td>Desfase del reloj de la cámara contra el servidor</td></tr><tr><td><strong>Dirección</strong></td><td>Si es de entrada o de salida</td></tr><tr><td><strong>Canal NVR</strong></td><td>A qué canal del grabador corresponde (para la grabación)</td></tr></tbody></table>
+<blockquote class="alerta">El <strong>desfase de reloj</strong> es el problema silencioso más frecuente. Una cámara con la hora corrida genera eventos con hora incorrecta y la grabación no coincide. El botón de <strong>sincronizar hora</strong> lo resuelve en un clic.</blockquote>
+<h2 id="alta-de-una-camara">Alta de una cámara</h2>
+<p>Al agregar un dispositivo Hikvision, el sistema consulta la cámara y completa modelo, MAC y firmware solo. Solo hay que indicar nombre, IP, credenciales y dirección (entrada o salida).</p>
+<p>Para el detalle de calibración ANPR y mapeo de canales, ver el <em>Manual del Instalador</em>.</p>
+<hr>
+<h1 id="notificaciones-y-despachos" class="cap">Notificaciones y despachos</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Notificaciones</div>
+<figure><div class="lienzo"><img src="img/adm-09-notificaciones.png" alt="Reglas de notificación"></div><figcaption>Fig. 1.9 — Reglas de notificación</figcaption></figure>
+<p>Define <strong>qué avisa, a quién y por dónde</strong>.</p>
+<h2 id="armar-una-regla">Armar una regla</h2>
+<ol><li><strong>Evento disparador</strong>: acceso denegado, lista negra, merodeo, cámara caída, punto de ronda vencido, pánico.</li><li><strong>Condiciones</strong>: en qué cámaras, en qué horario.</li><li><strong>Destinatarios</strong>: personas o grupos.</li><li><strong>Canal</strong>: Telegram, WhatsApp, correo o notificación push.</li><li><strong>Contenido</strong>: con foto, con clip de video, o solo texto.</li></ol>
+<h2 id="los-canales">Los canales</h2>
+<table><thead><tr><th>Canal</th><th>Requiere</th><th>Entrega</th></tr></thead><tbody><tr><td><strong>Telegram</strong></td><td>Bot configurado</td><td>Inmediata, con foto o video</td></tr><tr><td><strong>WhatsApp</strong></td><td>Pasarela OpenWA en la red</td><td>Inmediata, con imagen o video</td></tr><tr><td><strong>Correo</strong></td><td>Servidor SMTP</td><td>Según el servidor, típicamente segundos</td></tr><tr><td><strong>Push</strong></td><td>Que el destinatario haya instalado la PWA</td><td>Inmediata</td></tr></tbody></table>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Despachos</div>
+<figure><div class="lienzo"><img src="img/adm-10-despachos.png" alt="Cola de despachos y envíos realizados"></div><figcaption>Fig. 1.10 — Cola de despachos y envíos realizados</figcaption></figure>
+<p>Muestra la cola de envíos pendientes (izquierda) y lo efectivamente enviado (derecha), con destinatario, canal y contenido. Es donde se verifica que un aviso salió.</p>
+<blockquote class="tiempo">Un aviso con foto sale en <strong>2 a 5 segundos</strong>. Con clip de video, entre <strong>10 y 20 segundos</strong> (hay que generar el clip). Si la cola crece y no baja, revisá que el servicio de despacho esté corriendo.</blockquote>
+<hr>
+<h1 id="busqueda-inteligente" class="cap">Búsqueda inteligente</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Búsqueda inteligente</div>
+<figure><div class="lienzo"><img src="img/adm-11-busqueda-imagen.png" alt="Búsqueda por imagen sobre las cámaras del predio"></div><figcaption>Fig. 1.11 — Búsqueda por imagen sobre las cámaras del predio</figcaption></figure>
+<p>Tiene tres modos. El detalle de uso está en el <em>Manual del Operador</em>; lo que el administrador necesita saber es <strong>qué cubre cada uno</strong>:</p>
+<table><thead><tr><th>Modo</th><th>Fuente</th><th>Cobertura</th></tr></thead><tbody><tr><td><strong>Accesos</strong></td><td>Base de datos propia</td><td>Todas las cámaras de matrículas</td></tr><tr><td><strong>Por texto</strong></td><td>Índice del grabador</td><td>Solo cámaras de contexto</td></tr><tr><td><strong>Por imagen</strong></td><td>Índice del grabador</td><td>Solo cámaras de contexto</td></tr></tbody></table>
+<blockquote class="alerta">Las cámaras que leen matrículas <strong>no</strong> alimentan la búsqueda del grabador: en esos equipos el motor de matrículas y el de análisis de video son excluyentes. Por eso existe el modo Accesos, que cubre los portones con la base propia. Si se necesita búsqueda visual en un acceso, hay que instalar una segunda cámara de contexto.</blockquote>
+<hr>
+<h1 id="reportes" class="cap">Reportes</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Reportes</div>
+<figure><div class="lienzo"><img src="img/adm-19-reportes.png" alt="Generación de reportes"></div><figcaption>Fig. 1.12 — Generación de reportes</figcaption></figure>
+<p>Genera Excel y PDF con la marca del cliente. Los reportes habituales:</p>
+<ul><li>Accesos por período, con filtros.</li><li>Accesos por unidad.</li><li>Vehículos no registrados que ingresaron.</li><li>Actividad por cámara.</li><li>Disponibilidad de dispositivos.</li></ul>
+<p>El diseño de la portada (logo, colores, firmas) se configura en <em>Configuración → Branding → Reportes</em>.</p>
+<hr>
+<h1 id="configuracion" class="cap">Configuración</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Configuración</div>
+<p>La configuración está agrupada en cuatro secciones.</p>
+<h2 id="sistema">Sistema</h2>
+<figure><div class="lienzo"><img src="img/adm-12-settings-modo.png" alt="Configuración del modo del sistema"></div><figcaption>Fig. 1.13 — Configuración del modo del sistema</figcaption></figure>
+<ul><li><strong>Modo del sistema</strong>: LPR, Control de Filas o Face. Es exclusivo: define qué módulos se ven.</li><li><strong>Datos de la instalación</strong>: nombre, zona horaria, idioma.</li><li><strong>Administradores</strong>: quién accede al panel y con qué rol.</li></ul>
+<blockquote class="alerta">Cambiar el modo del sistema reconfigura el menú completo y oculta módulos. No se pierden datos, pero conviene hacerlo fuera de horario.</blockquote>
+<h2 id="branding">Branding</h2>
+<figure><div class="lienzo"><img src="img/adm-13-settings-branding.png" alt="Configuración de marca"></div><figcaption>Fig. 1.14 — Configuración de marca</figcaption></figure>
+<ul><li>Logo y colores del login.</li><li>Marca de los reportes: portada, logo, firmas de "realizado por" y "autorizado por".</li><li>Imagen de fondo del acceso.</li></ul>
+<h2 id="almacenamiento">Almacenamiento</h2>
+<figure><div class="lienzo"><img src="img/adm-14-settings-almacenamiento.png" alt="Almacenamiento y retención"></div><figcaption>Fig. 1.15 — Almacenamiento y retención</figcaption></figure>
+<p>Define cuánto tiempo se guardan las fotos y con qué política se borran.</p>
+<table><thead><tr><th>Parámetro</th><th>Qué controla</th><th>Valor típico</th></tr></thead><tbody><tr><td><strong>Retención de fotos</strong></td><td>Días que se conservan las capturas</td><td>30 días</td></tr><tr><td><strong>Retención de clips</strong></td><td>Días de los videos generados</td><td>7 días</td></tr><tr><td><strong>Bucket</strong></td><td>Dónde se guardan</td><td>Según instalación</td></tr></tbody></table>
+<blockquote class="alerta">Este es el ajuste que decide si el disco se llena. Con 8 cámaras y tráfico normal se generan <strong>3 a 4 GB por día</strong>. Con 30 días de retención hacen falta unos 120 GB solo de fotos.</blockquote>
+<h2 id="avanzado">Avanzado</h2>
+<ul><li>Integración con Telegram y WhatsApp.</li><li>Parámetros de los drivers de cámara.</li><li>Monitor de webhooks (diagnóstico).</li><li>Respaldo y restauración de la base.</li></ul>
+<hr>
+<h1 id="tags-rfid" class="cap">Tags RFID</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Tags RFID</div>
+<figure><div class="lienzo"><img src="img/adm-15-rfid.png" alt="Gestión de tags RFID"></div><figcaption>Fig. 1.16 — Gestión de tags RFID</figcaption></figure>
+<p>Para instalaciones con lectores de proximidad. Cada tag se asocia a un usuario igual que una matrícula, y se le aplican los mismos grupos de acceso.</p>
+<hr>
+<h1 id="auditoria" class="cap">Auditoría</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Consola de Guardia → Auditoría (o Configuración → Auditoría)</div>
+<figure><div class="lienzo"><img src="img/adm-16-auditoria.png" alt="Registro de auditoría"></div><figcaption>Fig. 1.17 — Registro de auditoría</figcaption></figure>
+<p>Registra <strong>quién hizo qué</strong> en el panel: altas, bajas, cambios de configuración, apertura manual de portones. Cada entrada tiene usuario, fecha, acción y detalle.</p>
+<blockquote class="nota">Es lo que se revisa cuando hay que responder "¿quién autorizó este vehículo?" o "¿quién cambió este horario?". No se puede borrar desde el panel.</blockquote>
+<hr>
+<h1 id="pantallas-de-kiosko" class="cap">Pantallas de kiosko</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Kiosko</div>
+<figure><div class="lienzo"><img src="img/adm-20-kiosko.png" alt="Configuración de pantallas"></div><figcaption>Fig. 1.18 — Configuración de pantallas</figcaption></figure>
+<p>Permite armar vistas para televisores del predio: la última matrícula leída, el estado de las plazas, o un tablero de estadísticas. Se configuran acá y se abren en el navegador del TV.</p>
+<hr>
+<h1 id="tareas-frecuentes" class="cap">Tareas frecuentes</h1>
+<h2 id="alta-de-un-residente-nuevo-con-dos-vehiculos">Alta de un residente nuevo con dos vehículos</h2>
+<ol><li><em>Usuarios → Nuevo usuario</em>.</li><li>Nombre, unidad, rol Residente.</li><li>Agregar las dos matrículas como credenciales.</li><li>Grupo de acceso: Residentes.</li><li>Guardar. Efecto inmediato.</li></ol>
+<h2 id="habilitar-a-un-proveedor-por-tiempo-limitado">Habilitar a un proveedor por tiempo limitado</h2>
+<ol><li>Crear el usuario con rol Proveedor.</li><li>Asignarle un grupo con horario restringido.</li><li>En el usuario, poner <strong>fecha de vencimiento</strong>.</li><li>Al vencer, sus credenciales dejan de funcionar solas.</li></ol>
+<h2 id="investigar-un-incidente-de-anoche">Investigar un incidente de anoche</h2>
+<ol><li><em>Búsqueda inteligente → Accesos</em>: <code>entradas denegadas anoche</code>.</li><li>Abrir los eventos sospechosos.</li><li>En cada uno, <strong>Grabación</strong> para ver el video y <strong>Exportar</strong> para llevarse la evidencia.</li><li>Si hay un vehículo a seguir, <strong>Encuadrar → Buscar similares</strong> para ver por dónde más pasó.</li></ol>
+<h2 id="responder-un-reclamo-de-no-me-abrio">Responder un reclamo de "no me abrió"</h2>
+<ol><li>Buscar la matrícula en <em>Búsqueda inteligente</em>.</li><li>Si el evento existe y dice Denegado: revisar el grupo de acceso y el horario del usuario.</li><li>Si el evento no existe: la cámara no lo leyó. Mirar la grabación y revisar el estado de esa cámara en <em>Dispositivos</em>.</li><li>Exportar el ZIP como respaldo de la respuesta.</li></ol>
+<h2 id="preparar-el-cierre-de-mes">Preparar el cierre de mes</h2>
+<ol><li><em>Reportes</em>: accesos del mes, por unidad.</li><li>Revisar los vehículos no identificados recurrentes y darlos de alta o marcarlos.</li><li>Revisar las alertas de dispositivos del período.</li><li>Verificar el espacio en disco contra la retención configurada.</li></ol>
+</section>
+
+<div class="noprint"><button onclick="window.print()">Descargar PDF</button></div>
+</body></html>

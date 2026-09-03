@@ -77,17 +77,32 @@ function render(md, ctx) {
             i++; continue;
         }
 
-        // Imagen sola en su línea → figura numerada
+        // Imagen sola en su línea → figura numerada.
+        // Las líneas siguientes con "@x,y texto" son marcadores sobre la imagen (x,y en % del alto/ancho).
         m = l.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
         if (m) {
             fig++;
             const [, alt, src] = m;
             const file = src.replace(/^img\//, "");
             const exists = fs.existsSync(path.join(MDIR, "img", file));
-            out.push(exists
-                ? `<figure><img src="img/${file}" alt="${esc(alt)}"><figcaption>Fig. ${ctx.num}.${fig} — ${inline(alt)}</figcaption></figure>`
-                : `<figure class="falta"><div class="ph"><b>Falta la captura</b><code>${esc(file)}</code><span>${esc(alt)}</span></div></figure>`);
-            i++; continue;
+            i++;
+            const marcas = [];
+            while (i < lines.length && /^\s*@\s*\d+\s*,\s*\d+\s+/.test(lines[i])) {
+                const mm = lines[i].match(/^\s*@\s*(\d+)\s*,\s*(\d+)\s+(.*)$/);
+                marcas.push({ x: +mm[1], y: +mm[2], txt: mm[3].trim() });
+                i++;
+            }
+            if (!exists) {
+                out.push(`<figure class="falta"><div class="ph"><b>Falta la captura</b><code>${esc(file)}</code><span>${esc(alt)}</span></div></figure>`);
+                continue;
+            }
+            const puntos = marcas.map((k, n) =>
+                `<span class="marca" style="left:${k.x}%;top:${k.y}%">${n + 1}</span>`).join("");
+            const leyenda = marcas.length
+                ? `<ol class="leyenda">${marcas.map((k) => `<li>${inline(k.txt)}</li>`).join("")}</ol>` : "";
+            out.push(`<figure><div class="lienzo"><img src="img/${file}" alt="${esc(alt)}">${puntos}</div>` +
+                `<figcaption>Fig. ${ctx.num}.${fig} — ${inline(alt)}</figcaption>${leyenda}</figure>`);
+            continue;
         }
 
         // Cita / aviso
@@ -143,9 +158,10 @@ function render(md, ctx) {
 }
 
 /* ─────────────── Plantilla ─────────────── */
-function page({ man, prod, body, toc, fecha }) {
+function page({ man, prod, body, toc, fecha, pags }) {
     const tocHtml = toc.map((t) =>
-        `<li class="l${t.lvl}"><a href="#${t.id}"><span class="t">${esc(t.txt)}</span><span class="dots"></span></a></li>`).join("");
+        `<li class="l${t.lvl}"><a href="#${t.id}"><span class="t">${esc(t.txt)}</span><span class="dots"></span>` +
+        `<span class="pg">${pags && pags[t.id] ? pags[t.id] : ""}</span></a></li>`).join("");
     return `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <title>${prod} · ${man.titulo}</title>
 <style>
@@ -190,6 +206,8 @@ body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-syst
 .indice li{margin:0}
 .indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
 .indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:12.5px;min-width:20px;text-align:right}
+.indice .l1 .pg{color:var(--tinta);font-weight:700}
 .indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
 .indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
 .indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
@@ -221,11 +239,31 @@ blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
 blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
 blockquote.alerta::before{content:"⚠ ";font-weight:700}
 figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
+.lienzo{position:relative;line-height:0}
 figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
 figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
 figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
 figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
+/* marcadores numerados sobre la captura */
+.marca{position:absolute;transform:translate(-50%,-50%);width:23px;height:23px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 12.5px/23px "Segoe UI",sans-serif;text-align:center;
+  box-shadow:0 0 0 3px #fff,0 2px 7px rgba(0,0,0,.45);z-index:2}
+.leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
+  display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
+.leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
+.leyenda li::before{content:counter(mk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 10.5px/18px "Segoe UI",sans-serif;text-align:center}
 hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
+
+/* ── Cortes de página: que no se parta lo que se lee junto ── */
+h1,h2,h3,h4{break-after:avoid;page-break-after:avoid}
+h2,h3,h4{break-inside:avoid;page-break-inside:avoid}
+p,li{orphans:3;widows:3}
+table,blockquote,.ruta,pre{break-inside:avoid;page-break-inside:avoid}
+ul,ol{break-inside:auto}
+/* un título nunca queda solo al pie: arrastra lo que sigue */
+h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
+h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
 
 /* pie de página impreso */
 @page{size:A4;margin:16mm 15mm 17mm}
@@ -299,9 +337,11 @@ async function main() {
         const md = fs.readFileSync(src, "utf8");
         let num = 0;
         const { html, toc } = render(md, { num: ++num });
-        const out = page({ man, prod, body: html, toc, fecha });
+        // los números de página del índice se completan en el 2º pase (ver pdf)
+        const out = page({ man, prod, body: html, toc, fecha, pags: null });
         const dest = path.join(OUT, man.id + ".html");
         fs.writeFileSync(dest, out);
+        man._render = { html, toc, md };
         const faltan = (md.match(/!\[[^\]]*\]\(img\/([^)]+)\)/g) || [])
             .map((x) => x.match(/\(img\/([^)]+)\)/)[1])
             .filter((f) => !fs.existsSync(path.join(imgSrc, f)));
@@ -315,6 +355,38 @@ async function main() {
         const b = await chromium.launch();
         const p = await (await b.newContext({ colorScheme: "light" })).newPage();
         for (const { man, dest } of hechos) {
+            await p.goto("file://" + dest, { waitUntil: "networkidle" });
+
+            // ── PASE 1: medir en qué página cae cada título, para numerar el índice ──
+            // Se imprime el cuerpo sin índice y se mide la posición de cada ancla contra
+            // la altura útil de la hoja, respetando los saltos forzados de capítulo.
+            await p.evaluate(() => { document.body.className = "sin-portada medir"; });
+            await p.emulateMedia({ media: "print" });
+            const pags = await p.evaluate(() => {
+                const MM = 96 / 25.4;                       // px por mm a 96 dpi
+                const util = (297 - 16 - 17) * MM;          // alto imprimible
+                const ids = [...document.querySelectorAll("h1.cap,h2[id]")];
+                const idx = document.querySelector(".indice");
+                const idxAlto = idx ? idx.getBoundingClientRect().height : 0;
+                const idxPags = Math.max(1, Math.ceil(idxAlto / util));
+                const base = 1 + idxPags;                   // portada + páginas del índice
+                const out = {}; let pagCap = base; let capTop = 0; let primero = true;
+                for (const el of ids) {
+                    const top = el.getBoundingClientRect().top + window.scrollY;
+                    if (el.tagName === "H1") {              // cada capítulo abre página
+                        if (!primero) pagCap = pagCap + Math.max(1, Math.ceil((top - capTop) / util));
+                        primero = false; capTop = top;
+                        out[el.id] = pagCap;
+                    } else {
+                        out[el.id] = pagCap + Math.floor((top - capTop) / util);
+                    }
+                }
+                return out;
+            });
+            await p.emulateMedia({ media: null });   // null = vuelve al default (print al generar el PDF)
+
+            // se regenera el HTML con el índice numerado y se recarga
+            fs.writeFileSync(dest, page({ man, prod, body: man._render.html, toc: man._render.toc, fecha, pags }));
             await p.goto("file://" + dest, { waitUntil: "networkidle" });
 
             // 1) portada a sangre: hay que anular el @page del CSS, que le gana al margin de Playwright

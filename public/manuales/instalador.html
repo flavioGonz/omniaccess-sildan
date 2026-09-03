@@ -1,0 +1,275 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>OmniAccess LPR · Manual del Instalador</title>
+<style>
+:root{--c:#f59e0b;--tinta:#111827;--suave:#6b7280;--linea:#e5e7eb;--fondo:#fff;--code:#f3f4f6}
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--tinta)}
+.hoja{background:var(--fondo);width:210mm;min-height:297mm;margin:14px auto;padding:22mm 20mm 20mm;box-shadow:0 4px 24px rgba(0,0,0,.35)}
+
+/* ── PORTADA ── (posicionamiento absoluto: se imprime igual siempre) */
+.portada{position:relative;width:210mm;height:296.9mm;padding:0;overflow:hidden;color:#fff;
+  background:linear-gradient(150deg,#0b1220 0%,#111a2e 45%,var(--c) 190%)}
+.portada .malla{position:absolute;inset:0;opacity:.5;
+  background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:26px 26px}
+.portada .halo{position:absolute;width:640px;height:640px;right:-220px;top:-180px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 62%);opacity:.30}
+.portada .halo2{position:absolute;width:420px;height:420px;left:-160px;bottom:-140px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 65%);opacity:.18}
+.p-top{position:absolute;top:24mm;left:22mm;right:22mm}
+.marca{display:flex;align-items:center;gap:12px}
+.marca .ico{width:44px;height:44px;border-radius:12px;background:var(--c);display:flex;align-items:center;justify-content:center;
+  box-shadow:0 8px 26px rgba(0,0,0,.4)}
+.marca .n{font-size:19px;font-weight:800;letter-spacing:.16em}
+.marca .s{font-size:9.5px;letter-spacing:.34em;color:#9aa4b2;margin-top:2px}
+.p-mid{position:absolute;left:22mm;right:22mm;bottom:62mm}
+.kicker{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.26em;color:var(--c);
+  border:1px solid var(--c);border-radius:999px;padding:5px 13px;margin-bottom:20px}
+.p-mid h1{font-size:53px;line-height:1.03;margin:0 0 8px;font-weight:800;letter-spacing:-.02em}
+.p-mid h2{font-size:21px;margin:0 0 22px;font-weight:500;color:#c7d2de}
+.p-mid .para{max-width:118mm;color:#9aa4b2;font-size:13.5px;line-height:1.6;border-left:3px solid var(--c);padding-left:14px}
+.p-bot{position:absolute;left:22mm;right:22mm;bottom:24mm;display:flex;justify-content:space-between;align-items:flex-end;
+  padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+.p-bot .campo{font-size:11px;color:#8b95a5}
+.p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
+.p-bot .der{text-align:right}
+
+/* ── ÍNDICE ── */
+.indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:22px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap}
+.indice li{margin:0}
+.indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
+.indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:12.5px;min-width:20px;text-align:right}
+.indice .l1 .pg{color:var(--tinta);font-weight:700}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
+.indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
+.indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
+
+/* ── CUERPO ── */
+h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
+  page-break-before:always;break-before:page}
+.hoja > h1.cap:first-child{page-break-before:auto;break-before:auto}
+h2{font-size:20.5px;margin:30px 0 10px;color:#0f172a}
+h3{font-size:16px;margin:22px 0 7px;color:#1f2937}
+h4{font-size:14px;margin:16px 0 5px;color:#374151}
+p{margin:0 0 11px}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:4px 0}
+code{background:var(--code);padding:1.5px 5px;border-radius:4px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#0f172a}
+pre{background:#0f172a;color:#e2e8f0;padding:13px 15px;border-radius:9px;overflow:auto;margin:0 0 13px}
+pre code{background:none;color:inherit;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:0 0 15px;font-size:13.5px}
+th{background:#f8fafc;text-align:left;padding:8px 10px;border-bottom:2px solid var(--c);font-weight:700}
+td{padding:7px 10px;border-bottom:1px solid var(--linea);vertical-align:top}
+tr:nth-child(even) td{background:#fcfcfd}
+.ruta{display:flex;align-items:center;gap:10px;background:#f8fafc;border-left:3px solid var(--c);
+  padding:8px 13px;border-radius:0 7px 7px 0;font-size:13px;margin:0 0 15px}
+.ruta-l{font-size:9px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--c);white-space:nowrap}
+blockquote{margin:0 0 14px;padding:11px 15px;border-radius:8px;font-size:13.5px;border-left:4px solid}
+blockquote.nota{background:#f8fafc;border-color:#94a3b8}
+blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
+blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
+blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
+blockquote.alerta::before{content:"⚠ ";font-weight:700}
+figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
+.lienzo{position:relative;line-height:0}
+figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
+figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
+figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
+/* marcadores numerados sobre la captura */
+.marca{position:absolute;transform:translate(-50%,-50%);width:23px;height:23px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 12.5px/23px "Segoe UI",sans-serif;text-align:center;
+  box-shadow:0 0 0 3px #fff,0 2px 7px rgba(0,0,0,.45);z-index:2}
+.leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
+  display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
+.leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
+.leyenda li::before{content:counter(mk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 10.5px/18px "Segoe UI",sans-serif;text-align:center}
+hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
+
+/* ── Cortes de página: que no se parta lo que se lee junto ── */
+h1,h2,h3,h4{break-after:avoid;page-break-after:avoid}
+h2,h3,h4{break-inside:avoid;page-break-inside:avoid}
+p,li{orphans:3;widows:3}
+table,blockquote,.ruta,pre{break-inside:avoid;page-break-inside:avoid}
+ul,ol{break-inside:auto}
+/* un título nunca queda solo al pie: arrastra lo que sigue */
+h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
+h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
+
+/* pie de página impreso */
+@page{size:A4;margin:16mm 15mm 17mm}
+@media print{
+  html,body{margin:0;padding:0;background:#fff}
+  .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  .portada{width:210mm;height:296.9mm;page-break-after:always;border-radius:0}
+  .indice{page-break-after:always}
+  .noprint{display:none}
+}
+/* La portada se imprime a sangre completa: se genera en un pase aparte, con
+   márgenes de página en cero (ver build). */
+body.solo-portada .hoja:not(.portada){display:none}
+body.sin-portada .portada{display:none}
+.noprint{position:fixed;right:16px;bottom:16px;z-index:9}
+.noprint button{background:var(--c);color:#fff;border:0;border-radius:9px;padding:11px 17px;font-weight:700;cursor:pointer;
+  box-shadow:0 5px 18px rgba(0,0,0,.3)}
+</style></head><body>
+
+<section class="hoja portada">
+  <div class="malla"></div><div class="halo"></div><div class="halo2"></div>
+  <div class="p-top">
+    <div class="marca">
+      <div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+      <div><div class="n">OMNIACCESS</div><div class="s">CONTROL Y ACCESO</div></div>
+    </div>
+  </div>
+  <div class="p-mid">
+    <span class="kicker">PUESTA EN MARCHA, CÁMARAS, NVR Y MANTENIMIENTO</span>
+    <h1>Manual del Instalador</h1>
+    <h2>OmniAccess LPR</h2>
+    <p class="para">El técnico que instala y mantiene: servidor, cámaras, NVR, calibración y diagnóstico.</p>
+  </div>
+  <div class="p-bot">
+    <div class="campo">Versión<b>2026.09</b></div>
+    <div class="campo">Emitido<b>3 de setiembre de 2026</b></div>
+    <div class="campo der">Infratec<b>infratec.com.uy</b></div>
+  </div>
+</section>
+
+<section class="hoja indice">
+  <h2>Contenido</h2>
+  <div class="sub">OmniAccess LPR · Manual del Instalador</div>
+  <ol><li class="l1"><a href="#antes-de-ir-a-la-obra"><span class="t">Antes de ir a la obra</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#lo-que-define-si-la-instalacion-sale-bien"><span class="t">Lo que define si la instalación sale bien</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#arquitectura-minima"><span class="t">Arquitectura mínima</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#requisitos-del-servidor"><span class="t">Requisitos del servidor</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l1"><a href="#emplazamiento-de-las-camaras"><span class="t">Emplazamiento de las cámaras</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#las-cuatro-reglas"><span class="t">Las cuatro reglas</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l2"><a href="#iluminacion"><span class="t">Iluminación</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l1"><a href="#puesta-en-marcha-del-servidor"><span class="t">Puesta en marcha del servidor</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#servicios-que-deben-quedar-arriba"><span class="t">Servicios que deben quedar arriba</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l2"><a href="#instalacion-sin-internet"><span class="t">Instalación sin internet</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l1"><a href="#alta-de-camaras"><span class="t">Alta de cámaras</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l2"><a href="#configurar-la-camara-para-que-envie-los-eventos"><span class="t">Configurar la cámara para que envíe los eventos</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l1"><a href="#calibracion-anpr"><span class="t">Calibración ANPR</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l2"><a href="#la-region-de-deteccion"><span class="t">La región de detección</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l2"><a href="#auto-calibracion"><span class="t">Auto-calibración</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l2"><a href="#verificar-el-resultado"><span class="t">Verificar el resultado</span><span class="dots"></span><span class="pg">10</span></a></li><li class="l1"><a href="#grabacion-y-nvr"><span class="t">Grabación y NVR</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#mapeo-de-canales"><span class="t">Mapeo de canales</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l2"><a href="#la-hora"><span class="t">La hora</span><span class="dots"></span><span class="pg">11</span></a></li><li class="l1"><a href="#analisis-de-video-vs-lectura-de-matriculas"><span class="t">Análisis de video vs. lectura de matrículas</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l2"><a href="#como-revertirlo"><span class="t">Cómo revertirlo</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l2"><a href="#si-el-cliente-quiere-las-dos-cosas-en-un-acceso"><span class="t">Si el cliente quiere las dos cosas en un acceso</span><span class="dots"></span><span class="pg">13</span></a></li><li class="l1"><a href="#monitoreo-y-mantenimiento"><span class="t">Monitoreo y mantenimiento</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l2"><a href="#el-monitoreo-automatico"><span class="t">El monitoreo automático</span><span class="dots"></span><span class="pg">14</span></a></li><li class="l2"><a href="#rutina-de-mantenimiento"><span class="t">Rutina de mantenimiento</span><span class="dots"></span><span class="pg">16</span></a></li><li class="l1"><a href="#diagnostico-de-problemas"><span class="t">Diagnóstico de problemas</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#no-llegan-matriculas-de-ninguna-camara"><span class="t">No llegan matrículas de ninguna cámara</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#no-llegan-matriculas-de-una-sola-camara"><span class="t">No llegan matrículas de una sola cámara</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#la-lectura-falla-de-noche"><span class="t">La lectura falla de noche</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#el-video-no-abre-desde-un-evento"><span class="t">El video no abre desde un evento</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#el-disco-se-llena"><span class="t">El disco se llena</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l2"><a href="#las-tablets-no-reportan-posicion"><span class="t">Las tablets no reportan posición</span><span class="dots"></span><span class="pg">17</span></a></li><li class="l1"><a href="#entrega-al-cliente"><span class="t">Entrega al cliente</span><span class="dots"></span><span class="pg">19</span></a></li></ol>
+</section>
+
+<section class="hoja">
+<h1 id="antes-de-ir-a-la-obra" class="cap">Antes de ir a la obra</h1>
+<p>Este manual es para el técnico que instala y mantiene. Asume que sabés de redes y de cámaras IP; no explica qué es una IP ni cómo se poncha un cable.</p>
+<h2 id="lo-que-define-si-la-instalacion-sale-bien">Lo que define si la instalación sale bien</h2>
+<p>En orden de importancia, y por experiencia:</p>
+<ol><li><strong>La posición de la cámara.</strong> Una cámara mal colocada no se arregla con software. Ver el capítulo de emplazamiento.</li><li><strong>La iluminación nocturna.</strong> El 80 % de las lecturas fallidas ocurren de noche.</li><li><strong>El reloj.</strong> Cámaras, grabador y servidor con la misma hora. Si no, la grabación no coincide con el evento.</li><li><strong>La red.</strong> Cada cámara necesita llegar al servidor; el servidor, a las cámaras y al grabador.</li></ol>
+<h2 id="arquitectura-minima">Arquitectura mínima</h2>
+<pre><code>        Cámaras LPR (una por acceso, entrada y salida)
+                    │ ISAPI / HTTP
+                    ▼
+        ┌───────────────────────┐        ┌──────────────┐
+        │      Servidor         │◄──────►│  NVR / DVR   │
+        │  OmniAccess           │  RTSP  │  (grabación) │
+        │  - app web            │        └──────────────┘
+        │  - webhooks           │
+        │  - base de datos      │        ┌──────────────┐
+        │  - almacenamiento     │◄──────►│  Tablets     │
+        └───────────────────────┘  WiFi  │  de guardia  │
+                    │                    └──────────────┘
+                    ▼
+            Puesto de monitoreo</code></pre>
+<h2 id="requisitos-del-servidor">Requisitos del servidor</h2>
+<table><thead><tr><th>Hasta 4 cámaras</th><th>8 a 16 cámaras</th></tr></thead><tbody><tr><td>CPU</td><td>4 núcleos</td><td>8 núcleos</td></tr><tr><td>Memoria</td><td>8 GB</td><td>16 GB</td></tr><tr><td>Disco</td><td>250 GB SSD</td><td>500 GB SSD</td></tr><tr><td>Red</td><td>1 Gb</td><td>1 Gb</td></tr><tr><td>Sistema</td><td>Debian 12/13 o Ubuntu LTS</td><td>Igual</td></tr></tbody></table>
+<blockquote class="nota">El disco es la variable que más se subestima. Con 8 cámaras y tráfico normal se generan <strong>3 a 4 GB por día</strong> de fotos. Calculá el disco contra la retención que va a pedir el cliente.</blockquote>
+<hr>
+<h1 id="emplazamiento-de-las-camaras" class="cap">Emplazamiento de las cámaras</h1>
+<p>Es la parte que decide la tasa de lectura. Vale la pena discutirla con el cliente antes de tirar un solo cable.</p>
+<h2 id="las-cuatro-reglas">Las cuatro reglas</h2>
+<p><strong>1. Ángulo.</strong> La cámara debe mirar la patente lo más de frente posible. Hasta 30° horizontales y 30° verticales la lectura es buena; más allá cae rápido.</p>
+<p><strong>2. Distancia.</strong> La patente tiene que ocupar entre 100 y 300 píxeles de ancho en la imagen. En la práctica: entre 4 y 8 metros del punto donde el vehículo se detiene o pasa lento.</p>
+<p><strong>3. Un carril por cámara.</strong> Una cámara que cubre entrada y salida a la vez lee mal las dos. Si el acceso tiene dos carriles, van dos cámaras.</p>
+<p><strong>4. Punto de detención.</strong> Lo ideal es leer donde el vehículo va lento o frena: antes de la barrera, no después.</p>
+<h2 id="iluminacion">Iluminación</h2>
+<table><thead><tr><th>Situación</th><th>Qué hacer</th></tr></thead><tbody><tr><td>Acceso con luz artificial</td><td>Verificar que ilumine la patente, no el parabrisas</td></tr><tr><td>Sin iluminación</td><td>Cámara con IR propio, apuntado a la zona de la patente</td></tr><tr><td>Contraluz (sol de frente)</td><td>Reubicar o agregar visera. El WDR ayuda pero no hace milagros</td></tr><tr><td>Reflejo en patentes nuevas</td><td>Bajar la potencia del IR: el exceso satura y "quema" la patente</td></tr></tbody></table>
+<blockquote class="alerta">Probá <strong>de noche</strong> antes de dar por terminada la instalación. Una cámara que lee perfecto a las 15 h puede tener 40 % de aciertos a las 3 de la mañana, y es cuando más importa.</blockquote>
+<hr>
+<h1 id="puesta-en-marcha-del-servidor" class="cap">Puesta en marcha del servidor</h1>
+<p>El detalle completo está en <code>docs/INSTALL.md</code> del repositorio. Acá va el resumen operativo.</p>
+<h2 id="servicios-que-deben-quedar-arriba">Servicios que deben quedar arriba</h2>
+<table><thead><tr><th>Servicio</th><th>Rol</th><th>Verificación</th></tr></thead><tbody><tr><td><strong>Aplicación web</strong></td><td>Panel y API</td><td>Abre la página de ingreso</td></tr><tr><td><strong>Webhooks</strong></td><td>Recibe los eventos de las cámaras</td><td>Log con eventos entrando</td></tr><tr><td><strong>Base de datos</strong></td><td>Todo el registro</td><td>El panel muestra datos</td></tr><tr><td><strong>Almacenamiento</strong></td><td>Fotos y clips</td><td>Las capturas se ven</td></tr><tr><td><strong>Servidor de video</strong></td><td>Video en vivo</td><td>El monitor muestra imagen</td></tr><tr><td><strong>Cola de despacho</strong></td><td>Notificaciones</td><td>Los avisos salen</td></tr></tbody></table>
+<p>Todos arrancan solos al encender el servidor. Verificá eso <strong>reiniciando el servidor una vez</strong> antes de entregar: es la prueba que más problemas evita después.</p>
+<h2 id="instalacion-sin-internet">Instalación sin internet</h2>
+<p>El sistema funciona completo sin salida a internet. Lo único que requiere conexión:</p>
+<ul><li>Los avisos por Telegram y WhatsApp.</li><li>Los logos de marcas de vehículos en el panel (se degradan sin romper nada).</li></ul>
+<p>Todo lo demás —lectura, decisión, grabación, búsqueda, tablets— es local.</p>
+<hr>
+<h1 id="alta-de-camaras" class="cap">Alta de cámaras</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú lateral → Dispositivos LPR → Agregar</div>
+<ol><li><strong>Detectar</strong>: se ingresa IP y credenciales, y el sistema consulta la cámara. Completa modelo, MAC y firmware solo.</li><li><strong>Nombre</strong>: usá una convención clara y estable — <code>P1 - Entrada (204)</code>: acceso, dirección, último octeto de la IP. El nombre aparece en todos los reportes y alertas.</li><li><strong>Dirección</strong>: entrada o salida. Define de qué lado suma el vehículo y cómo se calcula la permanencia.</li><li><strong>Canal del NVR</strong>: a qué canal del grabador corresponde. Sin esto no hay grabación asociada.</li></ol>
+<h2 id="configurar-la-camara-para-que-envie-los-eventos">Configurar la cámara para que envíe los eventos</h2>
+<p>La cámara debe apuntar sus notificaciones HTTP al servidor:</p>
+<ul><li><strong>Destino</strong>: IP del servidor, puerto de webhooks.</li><li><strong>Ruta</strong>: la del driver correspondiente (Hikvision, Avicam, Akuvox).</li><li><strong>Formato</strong>: XML.</li><li><strong>Autenticación</strong>: ninguna (la red es privada).</li></ul>
+<p>Verificá en <em>Configuración → Avanzado → Monitor de webhooks</em> que lleguen los eventos.</p>
+<figure><div class="lienzo"><img src="img/ins-03-debug.png" alt="Monitor de webhooks recibiendo eventos"></div><figcaption>Fig. 1.1 — Monitor de webhooks recibiendo eventos</figcaption></figure>
+<hr>
+<h1 id="calibracion-anpr" class="cap">Calibración ANPR</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Dispositivos → Calibrar</div>
+<figure><div class="lienzo"><img src="img/ins-05-calibrador.png" alt="Calibrador de la cámara con vista en vivo"></div><figcaption>Fig. 1.2 — Calibrador de la cámara con vista en vivo</figcaption></figure>
+<p>El calibrador muestra el video en vivo y permite ajustar los parámetros de lectura sin entrar a la interfaz de la cámara.</p>
+<h2 id="la-region-de-deteccion">La región de detección</h2>
+<p>Define <strong>dónde</strong> busca patentes la cámara. Achicarla al carril real mejora la tasa de acierto y baja los falsos positivos (carteles, patentes de autos que pasan por la calle).</p>
+<p>Se ajusta arrastrando los carriles y la línea de disparo sobre el video.</p>
+<h2 id="auto-calibracion">Auto-calibración</h2>
+<p>Aplica un perfil probado para accesos de barrio con iluminación nocturna. Es el punto de partida recomendado; después se afina.</p>
+<blockquote class="tiempo">Aplicar la calibración lleva <strong>5 a 10 segundos</strong>. Algunos parámetros requieren que la cámara se reinicie: el sistema lo avisa y espera a que vuelva.</blockquote>
+<h2 id="verificar-el-resultado">Verificar el resultado</h2>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Dispositivos → Tasa de lectura</div>
+<p>Muestra el porcentaje de lecturas exitosas por cámara y por hora. Es la métrica que dice si la calibración sirvió.</p>
+<table><thead><tr><th>Tasa</th><th>Interpretación</th></tr></thead><tbody><tr><td>Más de 95 %</td><td>Correcta</td></tr><tr><td>85 – 95 %</td><td>Aceptable; revisar las horas malas</td></tr><tr><td>Menos de 85 %</td><td>Hay un problema de emplazamiento o iluminación</td></tr></tbody></table>
+<blockquote class="nota">Mirá la tasa <strong>por hora</strong>, no el promedio. Un 90 % general puede esconder un 60 % entre las 2 y las 5 de la mañana.</blockquote>
+<hr>
+<h1 id="grabacion-y-nvr" class="cap">Grabación y NVR</h1>
+<h2 id="mapeo-de-canales">Mapeo de canales</h2>
+<figure><div class="lienzo"><img src="img/ins-07-nvr-canales.png" alt="Mapeo de canales del grabador"></div><figcaption>Fig. 1.3 — Mapeo de canales del grabador</figcaption></figure>
+<p>Cada cámara del sistema se asocia a un canal del grabador. Ese mapeo es lo que permite abrir el video en el segundo exacto de un evento.</p>
+<p>El sistema puede detectar los canales consultando al grabador y mostrar una miniatura de cada uno, para confirmar visualmente cuál es cuál.</p>
+<h2 id="la-hora">La hora</h2>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Dispositivos → Sincronizar hora</div>
+<p>Cámaras, grabador y servidor deben tener la misma hora. El panel muestra el desfase de cada equipo y permite corregirlo en un clic (empuja la hora del servidor, o configura NTP).</p>
+<blockquote class="alerta">Un desfase de pocos minutos hace que la grabación no coincida con el evento y que la búsqueda por rango devuelva resultados equivocados. Verificalo en cada visita de mantenimiento.</blockquote>
+<hr>
+<h1 id="analisis-de-video-vs-lectura-de-matriculas" class="cap">Análisis de video vs. lectura de matrículas</h1>
+<p>Este punto genera confusión y conviene entenderlo antes de prometerle algo al cliente.</p>
+<p>Las cámaras con analítica propia (las que se usan para ANPR) tienen <strong>un solo motor de análisis</strong>. Puede estar en uno de dos modos:</p>
+<table><thead><tr><th>Modo</th><th>Hace</th><th>No hace</th></tr></thead><tbody><tr><td><strong>Detección vial</strong></td><td>Lee matrículas</td><td>No alimenta la búsqueda por imagen del grabador</td></tr><tr><td><strong>Análisis inteligente</strong></td><td>Alimenta la búsqueda del grabador</td><td><strong>No lee matrículas</strong></td></tr></tbody></table>
+<p>Si en el grabador se habilita la búsqueda por imagen sobre un canal LPR, el grabador <strong>fuerza a la cámara al modo de análisis y el ANPR deja de funcionar</strong>. Es silencioso: la cámara sigue mostrando imagen y parece sana.</p>
+<h2 id="como-revertirlo">Cómo revertirlo</h2>
+<p>En este orden, o no funciona:</p>
+<ol><li>Quitar el canal de la configuración de búsqueda por imagen del grabador.</li><li>Poner la cámara en modo de detección vial.</li><li>Reiniciar la cámara.</li><li>Esperar a que el motor de matrículas vuelva a estar activo (unos 80 segundos).</li></ol>
+<blockquote class="nota">El sistema vigila esto solo: si una cámara de matrículas sale del modo correcto, abre una alerta crítica y avisa. Es la clase de falla que sin monitoreo se descubre semanas después.</blockquote>
+<h2 id="si-el-cliente-quiere-las-dos-cosas-en-un-acceso">Si el cliente quiere las dos cosas en un acceso</h2>
+<p>Hace falta una <strong>segunda cámara de contexto</strong> apuntando a la misma zona, dedicada al análisis. No hay forma de que una sola cámara haga ambas.</p>
+<hr>
+<h1 id="monitoreo-y-mantenimiento" class="cap">Monitoreo y mantenimiento</h1>
+<h2 id="el-monitoreo-automatico">El monitoreo automático</h2>
+<figure><div class="lienzo"><img src="img/ins-01-devices-salud.png" alt="Tabla de salud de los dispositivos"></div><figcaption>Fig. 1.4 — Tabla de salud de los dispositivos</figcaption></figure>
+<p>El sistema sondea todos los equipos cada minuto y guarda el historial. Abre alerta —y avisa por Telegram— ante:</p>
+<table><thead><tr><th>Alerta</th><th>Se dispara cuando</th></tr></thead><tbody><tr><td><strong>Sin respuesta</strong></td><td>Dos sondeos seguidos sin contestar</td></tr><tr><td><strong>Disco</strong></td><td>Un disco del grabador reporta estado no OK</td></tr><tr><td><strong>Memoria</strong></td><td>Uso sostenido por encima del 95 %</td></tr><tr><td><strong>Reloj</strong></td><td>Desfase mayor a 2 minutos contra el servidor</td></tr><tr><td><strong>Motor apagado</strong></td><td>Una cámara de matrículas salió del modo de lectura</td></tr></tbody></table>
+<figure><div class="lienzo"><img src="img/ins-06-salud-historial.png" alt="Historial de salud de un dispositivo"></div><figcaption>Fig. 1.5 — Historial de salud de un dispositivo</figcaption></figure>
+<p>El historial permite ver si una caída fue puntual o si el equipo viene degradándose.</p>
+<h2 id="rutina-de-mantenimiento">Rutina de mantenimiento</h2>
+<p><strong>Cada visita:</strong></p>
+<ol><li>Revisar alertas activas.</li><li>Revisar la tasa de lectura por cámara, mirando las horas nocturnas.</li><li>Verificar el desfase de reloj de todos los equipos.</li><li>Verificar espacio en disco contra la retención configurada.</li><li>Limpiar los vidrios de las cámaras (la causa más tonta de caída de lectura).</li></ol>
+<p><strong>Cada seis meses:</strong></p>
+<ul><li>Revisar el enfoque de cada cámara (se mueven con el viento y las vibraciones).</li><li>Probar de noche.</li><li>Verificar que los servicios arranquen solos reiniciando el servidor.</li></ul>
+<hr>
+<h1 id="diagnostico-de-problemas" class="cap">Diagnóstico de problemas</h1>
+<h2 id="no-llegan-matriculas-de-ninguna-camara">No llegan matrículas de ninguna cámara</h2>
+<ol><li>¿Llegan webhooks? Mirá el monitor de webhooks. Si llegan pero sin matrícula, el problema es de las cámaras, no de la red.</li><li>Si llegan eventos de movimiento pero ninguno de matrícula: revisá el modo de análisis de las cámaras (ver el capítulo anterior). Es la causa más probable.</li><li>Si no llega nada: red o servicio de webhooks caído.</li></ol>
+<h2 id="no-llegan-matriculas-de-una-sola-camara">No llegan matrículas de una sola cámara</h2>
+<ol><li>Estado del dispositivo en el panel.</li><li>Ping y acceso web a la cámara.</li><li>Configuración de notificación HTTP en la cámara (se pierde tras un reset de fábrica).</li><li>Tasa de lectura: puede estar leyendo mal, no "no leyendo".</li></ol>
+<h2 id="la-lectura-falla-de-noche">La lectura falla de noche</h2>
+<ol><li>Iluminación de la patente, no del parabrisas.</li><li>Potencia del IR: demasiado satura la patente reflectiva.</li><li>Velocidad de obturación: si es lenta, la patente sale movida.</li><li>La región de detección puede estar apuntando a una zona sin luz.</li></ol>
+<h2 id="el-video-no-abre-desde-un-evento">El video no abre desde un evento</h2>
+<ol><li>Canal del NVR mapeado en el dispositivo.</li><li>El grabador responde y tiene grabación de ese día.</li><li>Hora del grabador contra la del servidor.</li></ol>
+<h2 id="el-disco-se-llena">El disco se llena</h2>
+<ol><li>Retención configurada en <em>Configuración → Almacenamiento</em>.</li><li>Verificar que la política de borrado esté activa.</li><li>Si hace falta más historia, ampliar el disco: bajar la retención es perder evidencia.</li></ol>
+<h2 id="las-tablets-no-reportan-posicion">Las tablets no reportan posición</h2>
+<ol><li>Permiso de ubicación en "siempre", no "mientras se usa".</li><li>Optimización de batería desactivada para la aplicación.</li><li>Cobertura WiFi en el recorrido (el punto ciego típico es el fondo del predio).</li></ol>
+<hr>
+<h1 id="entrega-al-cliente" class="cap">Entrega al cliente</h1>
+<p>Antes de dar la instalación por terminada:</p>
+<ul><li>[ ] Todas las cámaras leen, verificado <strong>de día y de noche</strong>.</li><li>[ ] Tasa de lectura por encima del 90 % en todas.</li><li>[ ] Grabación asociada funcionando desde un evento de cada cámara.</li><li>[ ] Relojes sincronizados.</li><li>[ ] El servidor reinicia y todo vuelve solo.</li><li>[ ] Retención configurada según lo acordado, con el disco dimensionado.</li><li>[ ] Notificaciones probadas con un evento real.</li><li>[ ] Usuarios y grupos de acceso cargados.</li><li>[ ] Tablets configuradas, con permisos y batería sin optimizar.</li><li>[ ] Personal capacitado, con los manuales entregados.</li><li>[ ] Credenciales de administrador entregadas y las de fábrica cambiadas.</li></ul>
+</section>
+
+<div class="noprint"><button onclick="window.print()">Descargar PDF</button></div>
+</body></html>

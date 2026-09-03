@@ -2,6 +2,120 @@
   "_comment": "Capturas de los manuales. 'file' debe coincidir exacto con el marcador ![...](img/archivo.png) del Markdown. Se generan con: node scripts/capture-manual.js",
   "shots": [
     {
+      "file": "tab-01-login.png",
+      "desc": "Ingreso a la consola del guardia",
+      "url": "/guard",
+      "wait": 4000,
+      "viewport": [
+        1200,
+        1600
+      ]
+    },
+    {
+      "file": "tab-02-acceso.png",
+      "desc": "Registro de ingreso de un visitante",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      }
+    },
+    {
+      "file": "tab-03-historial.png",
+      "desc": "Historial de registros del turno",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "click": [
+        "HISTORIAL"
+      ],
+      "clickWait": 2500
+    },
+    {
+      "file": "tab-04-lpr.png",
+      "desc": "Accesos por matrícula en la tablet",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "click": [
+        "LPR"
+      ],
+      "clickWait": 2800
+    },
+    {
+      "file": "tab-05-plazas.png",
+      "desc": "Plazas de parking desde la tablet",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "click": [
+        "PLAZAS"
+      ],
+      "clickWait": 2800
+    },
+    {
+      "file": "tab-06-mapa.png",
+      "desc": "Mapa con la posición de los guardias",
+      "url": "/guard",
+      "wait": 6000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "click": [
+        "MAPA"
+      ],
+      "clickWait": 3200
+    },
+    {
+      "file": "tab-07-perfil.png",
+      "desc": "Perfil del guardia y cierre de turno",
+      "url": "/guard",
+      "wait": 5000,
+      "viewport": [
+        1200,
+        1600
+      ],
+      "storage": {
+        "guard_name": "Carlos Pérez",
+        "bitacora_guard_name": "Carlos Pérez"
+      },
+      "click": [
+        ".rounded-full.bg-muted, [class*='rounded-full'] >> nth=0"
+      ],
+      "clickWait": 2200
+    },
+    {
       "file": "op-01-login.png",
       "desc": "Pantalla de ingreso",
       "url": "/login",
@@ -215,6 +329,101 @@
       "desc": "Historial de versiones",
       "url": "/admin/changelog",
       "wait": 2500
+    },
+    {
+      "file": "op-13-monitor-alertas.png",
+      "desc": "Panel de alertas del monitor",
+      "url": "/admin/monitor-lpr",
+      "wait": 6000,
+      "click": [
+        "[aria-label*=alert],[title*=Alerta]"
+      ],
+      "clickWait": 1800
+    },
+    {
+      "file": "op-14-timemachine.png",
+      "desc": "Grabación del NVR en el instante del evento",
+      "url": "/admin/monitor-lpr",
+      "wait": 6000,
+      "click": [
+        "[aria-haspopup=\"dialog\"]",
+        "Grabación"
+      ],
+      "clickWait": 4000
+    },
+    {
+      "file": "op-15-similares.png",
+      "desc": "Resultados de búsqueda por imagen",
+      "url": "/admin/monitor-lpr",
+      "wait": 6000,
+      "click": [
+        "[aria-haspopup=\"dialog\"]",
+        "Encuadrar",
+        "Buscar todo"
+      ],
+      "clickWait": 6000
+    },
+    {
+      "file": "adm-17-vehiculo-detalle.png",
+      "desc": "Ficha de un vehículo",
+      "url": "/admin/vehicles",
+      "wait": 4000,
+      "click": [
+        "[aria-haspopup=\"dialog\"]"
+      ],
+      "clickWait": 2500
+    },
+    {
+      "file": "adm-18-watchlist.png",
+      "desc": "Lista de vigilancia de matrículas",
+      "url": "/admin/monitor-lpr",
+      "wait": 5000,
+      "click": [
+        "[title*=vigilancia],[title*=Watch],[aria-label*=vigilancia]"
+      ],
+      "clickWait": 2000
+    },
+    {
+      "file": "adm-19-reportes.png",
+      "desc": "Reportes y exportaciones",
+      "url": "/admin/reportes-queue",
+      "wait": 3500
+    },
+    {
+      "file": "adm-20-kiosko.png",
+      "desc": "Pantallas de kiosko",
+      "url": "/admin/kiosko",
+      "wait": 3000
+    },
+    {
+      "file": "ins-05-calibrador.png",
+      "desc": "Calibrador ANPR de una cámara",
+      "url": "/admin/devices",
+      "wait": 5000,
+      "click": [
+        "Calibrar"
+      ],
+      "clickWait": 4500
+    },
+    {
+      "file": "ins-06-salud-historial.png",
+      "desc": "Historial de salud de un dispositivo",
+      "url": "/admin/devices",
+      "wait": 5000,
+      "click": [
+        "[title*=historial],[title*=Historial]"
+      ],
+      "clickWait": 2500
+    },
+    {
+      "file": "ins-07-nvr-canales.png",
+      "desc": "Mapeo de canales del NVR",
+      "url": "/admin/devices",
+      "wait": 5000,
+      "click": [
+        "NVR"
+      ],
+      "clickWait": 2500
     }
   ]
 }
