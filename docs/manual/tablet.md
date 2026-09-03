@@ -1,15 +1,38 @@
-# La consola del guardia
+# Qué hace la consola del guardia
 
 La consola del guardia es la aplicación que se usa en la tablet de la garita y en las tablets que
 llevan los guardias que recorren. Es la misma aplicación en los dos casos: cambia lo que se usa
 más, no lo que hay.
 
-Hace cuatro cosas:
+## Todo lo que hace, en detalle
 
-1. **Registra ingresos y egresos de visitantes**, con matrícula, documento y foto.
-2. **Muestra lo que leen las cámaras** de matrículas, con su grabación.
-3. **Muestra el estado del predio**: plazas ocupadas y mapa con los compañeros.
-4. **Pide auxilio** con el botón de pánico.
+| Función | Qué hace exactamente |
+|---|---|
+| **Registro de visitantes** | Ingreso y egreso con matrícula, nombre, documento, unidad de destino, observaciones, foto y nota de voz. Al escribir la matrícula completa sola los datos si el vehículo ya pasó por una cámara |
+| **Cierre de visita** | En el egreso reconoce el ingreso previo y calcula cuánto tiempo estuvo adentro |
+| **Historial del turno** | Todo lo registrado, con búsqueda por texto y filtro por fecha, para verificar o cerrar una visita |
+| **Accesos por matrícula** | La lectura en vivo de las cámaras de los portones, con foto, matrícula, dirección, propietario y hora |
+| **Grabación del acceso** | Un toque abre el video del NVR en el segundo exacto de esa lectura |
+| **Alta rápida de vehículo** | Registra ahí mismo una matrícula que aparece como no identificada |
+| **Plazas de parking** | Ocupación en vivo sobre la foto real del estacionamiento, calculada con las lecturas |
+| **Mapa del predio** | Posición propia, compañeros en turno con batería, cámaras y accesos |
+| **Botón de pánico** | Alerta con posición GPS al puesto de monitoreo y al supervisor |
+| **Pánico con pantalla bloqueada** | Botón de volumen, sin desbloquear ni abrir nada (aplicación Android) |
+| **Rondas con NFC** | Marca del punto de control acercando el dorso de la tablet a la etiqueta |
+| **Hombre caído** | La tablet detecta inmovilidad prolongada y dispara la alerta sola si nadie responde |
+| **Operación sin señal** | Registros y rondas quedan guardados en la tablet y se suben solos al recuperar red |
+
+## En qué nos diferenciamos
+
+| | OmniAccess | Lo habitual en el mercado |
+|---|---|---|
+| Registro de visita | Se completa solo con la lectura de la cámara | Se tipea todo a mano |
+| Matrícula no identificada | Se registra desde la misma pantalla, sin ir al panel | Hay que llamar al administrador |
+| Evidencia | Foto, video del NVR y datos, todo desde la fila del acceso | Video en un sistema aparte |
+| Pánico | En pantalla y con el equipo bloqueado, con GPS | Botón físico o nada |
+| Rondas | NFC sin abrir la aplicación; se suben sin señal | Planilla de papel |
+| Seguridad del guardia | Hombre caído automático | No existe |
+| Sin internet | Sigue registrando y sube después | Se corta la operación |
 
 ## Dos formas de usarla
 
@@ -85,14 +108,6 @@ Es la pantalla que más se usa en la garita. Sirve para dejar constancia de qui�
 vehículo y a dónde iba.
 
 ![Registro de ingreso de un visitante](img/tab-02-acceso.png)
-@ 22,6 Ingreso o egreso: se elige primero
-@ 50,17 Matrícula, un carácter por casillero
-@ 77,17 Foto de la patente con la cámara
-@ 25,37 Nombre del visitante
-@ 70,37 Documento
-@ 25,52 Unidad de destino
-@ 25,63 Observaciones
-@ 93,66 Adjuntar foto o audio
 
 ## Paso a paso
 
@@ -149,13 +164,6 @@ Arriba tiene búsqueda y filtro por fecha.
 Es la lista de lo que están leyendo las cámaras de los portones, en vivo.
 
 ![Accesos leídos por las cámaras](img/tab-04-lpr.png)
-@ 12,4 Foto de la captura
-@ 22,11 Matrícula leída
-@ 32,11 Ingreso o egreso
-@ 17,15 Quién es, si está registrado
-@ 20,20 Análisis y registro rápido
-@ 93,12 Ver la grabación de ese momento
-@ 87,12 Hora de la lectura
 
 ## Qué muestra cada fila
 
@@ -322,6 +330,99 @@ La aplicación no está en Google Play: se descarga desde el propio sistema.
 > Buscá la aplicación en *Ajustes → Batería → Optimización* y ponela en **No optimizar**.
 
 ---
+
+# Situaciones típicas del turno
+
+Este capítulo no explica pantallas: explica **qué hacer** en los casos que pasan todos los días.
+Cada situación está resuelta con la menor cantidad de toques posible.
+
+## 1 · Llega una visita anunciada
+
+El residente avisó que espera a alguien.
+
+1. **Acceso** → *Registro de ingreso*.
+2. Escribí la **matrícula**. Si el auto ya cruzó la línea de la cámara, nombre y unidad aparecen
+   solos.
+3. Completá **nombre** y **documento**.
+4. Elegí la **unidad de destino** y anotá el motivo.
+5. Confirmá con el botón verde.
+
+![La pantalla de acceso, con el ingreso ya cargado](img/tab-02-acceso.png)
+
+> ⏱ Con la matrícula reconocida, el registro completo lleva **menos de 20 segundos**.
+
+## 2 · Llega alguien que no está anunciado
+
+El procedimiento es el mismo, con un paso más antes: **verificá con la unidad** por portero o
+teléfono. Recién con la confirmación registrás el ingreso y abrís.
+
+> ⚠ Si no hay confirmación, no abras. Anotá el intento en la bitácora con la matrícula: si vuelve,
+> el sistema muestra que ya estuvo.
+
+## 3 · Un reparto o un proveedor
+
+Registralo como visita normal, con dos cuidados:
+
+- En **observaciones**, poné la empresa (`Reparto — nombre de la empresa`). Es lo que después
+  permite contar cuántos repartos entran por día.
+- Si es un vehículo que viene siempre, conviene **registrarlo** para que deje de figurar como
+  denegado. Se hace desde **LPR** → botón *Registrar* de esa fila.
+
+## 4 · La cámara leyó una matrícula que no está registrada
+
+Aparece en **LPR** con el cartel *No identificado* y el sello **DENY**.
+
+1. Abrí la pestaña **LPR**.
+2. Buscá la fila.
+3. Tocá **Análisis** para ver la ficha completa y confirmar de qué vehículo se trata.
+4. Si corresponde, tocá **Registrar**: la matrícula viene precargada.
+
+![Los accesos leídos por las cámaras, con las acciones de cada fila](img/tab-04-lpr.png)
+
+## 5 · Alguien reclama por un golpe en el estacionamiento
+
+Lo que se entrega como evidencia sale de acá:
+
+1. **LPR** → buscá la matrícula y el horario aproximado.
+2. Tocá **Grab.** en la fila: se abre la grabación del NVR en ese segundo.
+3. Si hace falta el archivo, pedile al puesto de monitoreo que **exporte el evento** (foto +
+   recorte de la patente + video de 30 segundos, en un ZIP).
+
+## 6 · Registrar la salida de un visitante
+
+1. **Acceso** → *Registro de salida*.
+2. Escribí la matrícula: el sistema encuentra el ingreso y completa los datos.
+3. Confirmá.
+
+Queda registrada la permanencia. Si el visitante entró a pie o el ingreso no fue registrado,
+cargalo igual con lo que sepas y aclaralo en observaciones.
+
+## 7 · Dejar una novedad en la bitácora
+
+La bitácora es lo que permite reconstruir un turno después. Se deja novedad aunque no haya pasado
+nada — *"sin novedad"* también es información.
+
+> Anotá siempre: hora, qué pasó, qué hiciste y a quién avisaste. Si hay foto o audio, adjuntalos:
+> valen más que la descripción.
+
+## 8 · Una emergencia
+
+Mantené presionado el **botón rojo** del centro. Si la tablet está bloqueada en el bolsillo, usá el
+botón de **volumen** (aplicación Android).
+
+Después de disparar la alerta: quedate donde estás si es seguro, la posición ya se envió. Si te
+movés, la posición se sigue actualizando.
+
+## 9 · Se cortó el WiFi en medio del turno
+
+El punto junto a tu perfil pasa a **ámbar**. Seguí trabajando igual:
+
+- Los registros se guardan en la tablet.
+- Las rondas NFC se marcan igual.
+- Al volver la señal, todo se sube solo, con la hora real en que ocurrió.
+
+> ⚠ Lo único que **no** funciona sin señal es ver el video en vivo y las grabaciones del NVR.
+> El pánico se envía apenas vuelve la red, y la tablet avisa en pantalla que quedó pendiente.
 
 # Mantenimiento y problemas
 

@@ -1,3 +1,74 @@
+# Qué hace OmniAccess LPR
+
+OmniAccess LPR controla los accesos vehiculares de un predio cerrado: lee la matrícula de cada
+vehículo que llega, decide si está autorizado y deja registro fotográfico y en video de todo lo
+que pasa. Funciona sin intervención humana; el operador interviene solo cuando el sistema levanta
+la mano.
+
+Este capítulo es el inventario completo de lo que el sistema puede hacer. El resto del manual
+explica cómo configurar cada cosa.
+
+## Lectura de matrículas y control de acceso
+
+| Función | Qué hace exactamente |
+|---|---|
+| **Lectura ANPR** | Cada cámara lee la matrícula del vehículo que cruza su línea de detección, con la confianza de lectura (habitualmente 95–99 %) |
+| **Decisión de acceso** | Contrasta contra la base de vehículos autorizados y su horario permitido: Autorizado, Denegado o Lista negra |
+| **Clasificación del vehículo** | La cámara reporta marca, color y tipo (auto, camioneta, pickup, van, camión, ómnibus, buggy, moto) sin configuración adicional |
+| **Entrada / salida** | Al salir, calcula cuánto tiempo estuvo adentro: el sistema sabe quién está adentro en cada momento |
+| **Merodeo** | Detecta un vehículo que pasa repetidas veces por el mismo acceso sin ingresar |
+| **Lista de vigilancia** | Matrículas marcadas (buscada, prohibida, VIP) que disparan alerta sonora y visual al aparecer |
+| **Registro fotográfico** | Foto completa de la escena y recorte de la patente, guardados por cada evento |
+| **Grabación asociada** | Un toque abre el video del grabador en el segundo exacto del acceso |
+
+## Gestión
+
+| Función | Qué hace exactamente |
+|---|---|
+| **Padrón de residentes** | Personas, unidades, vehículos y credenciales, con el vínculo entre ellos |
+| **Grupos y horarios** | Reglas de quién puede entrar y cuándo, con calendario de excepciones y feriados |
+| **Alta rápida** | Registrar un vehículo desde el propio evento, con la matrícula ya cargada |
+| **Vigencias** | Autorizaciones con fecha de inicio y fin, para proveedores y visitas temporales |
+| **Tags RFID** | Credenciales físicas como alternativa o complemento de la matrícula |
+| **Auditoría** | Quién cambió qué y cuándo, sobre toda la configuración |
+
+## Investigación y reportes
+
+| Función | Qué hace exactamente |
+|---|---|
+| **Búsqueda en lenguaje natural** | *"camioneta blanca ayer a la tarde"*, sobre los accesos propios del predio |
+| **Búsqueda por imagen** | Recortar un vehículo o una persona en una captura y buscar dónde más apareció |
+| **Ficha de la matrícula** | Frecuencia de paso por día, cámaras habituales, horarios típicos de entrada y salida |
+| **Exportación de evidencia** | ZIP con foto, recorte de patente, datos del evento y video de 30 segundos |
+| **Reportes** | Informes en PDF con portada de marca propia, gráficas y totales |
+
+## Operación y avisos
+
+| Función | Qué hace exactamente |
+|---|---|
+| **Notificaciones** | Reglas que disparan avisos por Telegram, WhatsApp o correo según lo que pase |
+| **Cola de despachos** | Todo aviso enviado queda registrado, con su resultado y su reintento |
+| **Salud de equipos** | Sondeo activo de cada cámara y del grabador: estado, latencia, hora, disco |
+| **Alertas de sistema** | Aviso cuando una cámara deja de reportar, se desincroniza la hora o se llena el disco |
+| **Módulo de guardias** | Bitácora, consola de puesto, tablets, rondas y botón de pánico |
+| **Plazas y mapa** | Ocupación del estacionamiento y plano del predio con cámaras y personal |
+
+## En qué nos diferenciamos
+
+| | OmniAccess | Lo habitual en el mercado |
+|---|---|---|
+| **Instalación** | Servidor propio en el predio; funciona sin internet | Nube obligatoria: sin internet no hay control de acceso |
+| **Marcas de cámara** | Hikvision, Bosch, Akuvox y ONVIF en el mismo sistema | Atado a una marca |
+| **Evidencia** | Foto, recorte y video en un ZIP, en dos clics | Video en un sistema aparte, que hay que buscar a mano |
+| **Búsqueda** | En lenguaje natural sobre los accesos propios | Filtros por fecha y matrícula exacta |
+| **Diagnóstico** | El sistema avisa que una cámara se cayó antes de que lo note el cliente | El cliente se entera cuando falta un registro |
+| **Guardias** | Tablets, rondas, pánico y bitácora integrados al mismo sistema | Producto separado, de otro proveedor |
+| **Reportes** | Con la marca del cliente, configurable desde el panel | Planilla exportada |
+| **Costo** | Licencia por instalación, sin cargo por evento ni por cámara en la nube | Abono mensual por cámara |
+
+> Este manual documenta el **modo LPR**. Los modos *Filas* y *Face* tienen sus propios manuales:
+> el sistema es el mismo, cambian las funciones habilitadas.
+
 # Qué administra este manual
 
 El administrador es quien decide **quién entra, cuándo, y qué pasa cuando algo se sale de lo

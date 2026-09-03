@@ -11,56 +11,114 @@
     "web": "infratec.com.uy",
     "version": "2026.09"
   },
+  "_nota": "Cada modo del sistema tiene su propia serie de manuales. 'modo' define el nombre del producto en la portada. Los manuales sin 'modo' son transversales (valen para cualquier modo).",
   "manuales": [
     {
       "id": "operador",
+      "modo": "LPR",
+      "grupo": "OmniAccess LPR",
       "titulo": "Manual del Operador",
       "subtitulo": "Guardia, portería y puesto de monitoreo",
-      "para": "Quien opera el sistema todos los días: mira el monitor, atiende accesos, usa la tablet.",
+      "para": "Quien opera el sistema todos los días: mira el monitor, atiende accesos, investiga una matrícula.",
       "color": "#10b981",
       "icono": "shield",
       "prefijo": "op",
       "orden": 1
     },
     {
-      "id": "tablet",
-      "titulo": "Manual de la Tablet",
-      "subtitulo": "Aplicación del guardia para Android",
-      "para": "El guardia que recorre: rondas, pánico, hombre caído, bitácora y mapa desde la tablet.",
-      "color": "#0d9488",
-      "icono": "tablet",
-      "prefijo": "tab",
-      "orden": 2
-    },
-    {
       "id": "administrador",
+      "modo": "LPR",
+      "grupo": "OmniAccess LPR",
       "titulo": "Manual del Administrador",
       "subtitulo": "Gestión, configuración y reportes",
       "para": "Quien administra el sistema: usuarios, vehículos, reglas, notificaciones y reportes.",
       "color": "#8b5cf6",
       "icono": "settings",
       "prefijo": "adm",
-      "orden": 3
+      "orden": 2
     },
     {
       "id": "instalador",
+      "modo": "LPR",
+      "grupo": "OmniAccess LPR",
       "titulo": "Manual del Instalador",
       "subtitulo": "Puesta en marcha, cámaras, NVR y mantenimiento",
       "para": "El técnico que instala y mantiene: servidor, cámaras, NVR, calibración y diagnóstico.",
       "color": "#f59e0b",
       "icono": "wrench",
       "prefijo": "ins",
-      "orden": 4
+      "orden": 3
     },
     {
       "id": "guia-rapida",
+      "modo": "LPR",
+      "grupo": "OmniAccess LPR",
       "titulo": "Guía rápida",
       "subtitulo": "Lo esencial en dos carillas",
-      "para": "Para imprimir y dejar en la garita. Las 10 cosas que se hacen todos los días.",
+      "para": "Para imprimir y dejar en la garita. Las diez cosas que se hacen todos los días.",
       "color": "#0ea5e9",
       "icono": "zap",
       "prefijo": "gr",
+      "orden": 4
+    },
+    {
+      "id": "tablet",
+      "grupo": "Módulo Guardias",
+      "titulo": "Manual de la Tablet",
+      "subtitulo": "Aplicación del guardia para Android",
+      "para": "El guardia que recorre: accesos, rondas, pánico, hombre caído, bitácora y mapa desde la tablet.",
+      "color": "#0d9488",
+      "icono": "tablet",
+      "prefijo": "tab",
       "orden": 5
+    },
+    {
+      "id": "filas-operador",
+      "modo": "QUEUE",
+      "grupo": "OmniAccess Filas",
+      "titulo": "Manual del Operador",
+      "subtitulo": "Aforo, filas y pantallas de sala",
+      "para": "Quien opera el control de filas: monitor de aforo, llamados, kiosko y pantallas.",
+      "color": "#8b5cf6",
+      "icono": "users",
+      "prefijo": "fop",
+      "orden": 6
+    },
+    {
+      "id": "filas-administrador",
+      "modo": "QUEUE",
+      "grupo": "OmniAccess Filas",
+      "titulo": "Manual del Administrador",
+      "subtitulo": "Configuración de filas, horarios y reportes",
+      "para": "Quien configura el control de filas: cámaras de conteo, umbrales, horarios y reportes.",
+      "color": "#7c3aed",
+      "icono": "settings",
+      "prefijo": "fadm",
+      "orden": 7
+    },
+    {
+      "id": "face-operador",
+      "modo": "FACE",
+      "grupo": "OmniAccess Face",
+      "titulo": "Manual del Operador",
+      "subtitulo": "Reconocimiento facial y control de personas",
+      "para": "Quien opera el reconocimiento facial: monitor de rostros, altas y verificación de identidad.",
+      "color": "#ec4899",
+      "icono": "scan-face",
+      "prefijo": "cop",
+      "orden": 8
+    },
+    {
+      "id": "face-administrador",
+      "modo": "FACE",
+      "grupo": "OmniAccess Face",
+      "titulo": "Manual del Administrador",
+      "subtitulo": "Altas biométricas, terminales y políticas",
+      "para": "Quien administra el reconocimiento facial: enrolamiento, terminales, umbrales y auditoría.",
+      "color": "#db2777",
+      "icono": "settings",
+      "prefijo": "cadm",
+      "orden": 9
     }
   ]
 }

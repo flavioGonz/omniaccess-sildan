@@ -31,6 +31,23 @@ const only = (() => { const i = args.indexOf("--only"); return i >= 0 ? args[i +
 
 const meta = JSON.parse(fs.readFileSync(path.join(MDIR, "00-meta.json"), "utf8"));
 
+/* Marcaciones calculadas por el capturador: { "archivo.png": [{x,y,w,h,label}] }.
+   Se usan cuando el Markdown no trae líneas @ propias. */
+const MARKS = (() => {
+    try { return JSON.parse(fs.readFileSync(path.join(MDIR, "marks.json"), "utf8")); } catch { return {}; }
+})();
+
+/* Isotipo OmniAccess — anillo de cobertura con el paso abierto. */
+const LOGO = (px) => `<svg width="${px}" height="${px}" viewBox="0 0 64 64" aria-label="OmniAccess">
+  <defs><linearGradient id="oaG${px}" x1="6" y1="58" x2="58" y2="6" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#0ea5e9"/><stop offset=".55" stop-color="#3b82f6"/><stop offset="1" stop-color="#22d3ee"/>
+  </linearGradient></defs>
+  <path d="M51.7 16.6 A25 25 0 1 0 51.7 47.4" fill="none" stroke="url(#oaG${px})" stroke-width="5.4" stroke-linecap="round"/>
+  <path d="M41 21.3 A14 14 0 1 0 41 42.7" fill="none" stroke="url(#oaG${px})" stroke-width="4.4" stroke-linecap="round" opacity=".78"/>
+  <path d="M41.5 24 L49.8 32 L41.5 40" fill="none" stroke="url(#oaG${px})" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M53.4 27.2 L58.2 32 L53.4 36.8" fill="none" stroke="url(#oaG${px})" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+</svg>`;
+
 /* ─────────────── Markdown mínimo (sin dependencias) ─────────────── */
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
@@ -78,7 +95,10 @@ function render(md, ctx) {
         }
 
         // Imagen sola en su línea → figura numerada.
-        // Las líneas siguientes con "@x,y texto" son marcadores sobre la imagen (x,y en % del alto/ancho).
+        // Marcaciones (opcionales) en las líneas siguientes:
+        //   @x,y,w,h  texto   → recuadro sobre el elemento (todo en % de la imagen)
+        //   @x,y      texto   → chapita suelta en ese punto
+        // Si no hay ninguna, se usan las que calculó el capturador en marks.json.
         m = l.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
         if (m) {
             fig++;
@@ -86,19 +106,21 @@ function render(md, ctx) {
             const file = src.replace(/^img\//, "");
             const exists = fs.existsSync(path.join(MDIR, "img", file));
             i++;
-            const marcas = [];
-            while (i < lines.length && /^\s*@\s*\d+\s*,\s*\d+\s+/.test(lines[i])) {
-                const mm = lines[i].match(/^\s*@\s*(\d+)\s*,\s*(\d+)\s+(.*)$/);
-                marcas.push({ x: +mm[1], y: +mm[2], txt: mm[3].trim() });
+            let marcas = [];
+            while (i < lines.length && /^\s*@\s*[\d.]+\s*,/.test(lines[i])) {
+                const mm = lines[i].match(/^\s*@\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+)\s*,\s*([\d.]+))?\s+(.*)$/);
+                if (mm) marcas.push({ x: +mm[1], y: +mm[2], w: mm[3] ? +mm[3] : null, h: mm[4] ? +mm[4] : null, txt: mm[5].trim() });
                 i++;
             }
+            if (!marcas.length && MARKS[file]) marcas = MARKS[file].map((k) => ({ ...k, txt: k.label || k.txt || "" }));
             if (!exists) {
                 out.push(`<figure class="falta"><div class="ph"><b>Falta la captura</b><code>${esc(file)}</code><span>${esc(alt)}</span></div></figure>`);
                 continue;
             }
-            const puntos = marcas.map((k, n) =>
-                `<span class="marca" style="left:${k.x}%;top:${k.y}%">${n + 1}</span>`).join("");
-            const leyenda = marcas.length
+            const puntos = marcas.map((k, n) => k.w != null
+                ? `<span class="caja" style="left:${k.x}%;top:${k.y}%;width:${k.w}%;height:${k.h}%"><span class="mk">${n + 1}</span></span>`
+                : `<span class="mk punto" style="left:${k.x}%;top:${k.y}%">${n + 1}</span>`).join("");
+            const leyenda = marcas.length && marcas.some((k) => k.txt)
                 ? `<ol class="leyenda">${marcas.map((k) => `<li>${inline(k.txt)}</li>`).join("")}</ol>` : "";
             out.push(`<figure><div class="lienzo"><img src="img/${file}" alt="${esc(alt)}">${puntos}</div>` +
                 `<figcaption>Fig. ${ctx.num}.${fig} — ${inline(alt)}</figcaption>${leyenda}</figure>`);
@@ -181,12 +203,14 @@ body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-syst
   background:radial-gradient(circle,var(--c) 0%,transparent 62%);opacity:.30}
 .portada .halo2{position:absolute;width:420px;height:420px;left:-160px;bottom:-140px;border-radius:50%;
   background:radial-gradient(circle,var(--c) 0%,transparent 65%);opacity:.18}
-.p-top{position:absolute;top:24mm;left:22mm;right:22mm}
-.marca{display:flex;align-items:center;gap:12px}
-.marca .ico{width:44px;height:44px;border-radius:12px;background:var(--c);display:flex;align-items:center;justify-content:center;
-  box-shadow:0 8px 26px rgba(0,0,0,.4)}
-.marca .n{font-size:19px;font-weight:800;letter-spacing:.16em}
-.marca .s{font-size:9.5px;letter-spacing:.34em;color:#9aa4b2;margin-top:2px}
+.p-top{position:absolute;top:24mm;left:22mm;right:22mm;display:flex;align-items:center;justify-content:space-between}
+.marca{display:flex;align-items:center;gap:13px}
+.marca svg{filter:drop-shadow(0 6px 18px rgba(14,165,233,.45))}
+.marca .n{font-size:21px;font-weight:800;letter-spacing:.15em;line-height:1}
+.marca .n .thin{font-weight:300}
+.marca .s{font-size:9px;letter-spacing:.32em;color:#8fa0b6;margin-top:6px}
+.linea-prod{font-size:9.5px;font-weight:800;letter-spacing:.22em;color:#cbd5e1;
+  border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:6px 13px;white-space:nowrap}
 .p-mid{position:absolute;left:22mm;right:22mm;bottom:62mm}
 .kicker{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.26em;color:var(--c);
   border:1px solid var(--c);border-radius:999px;padding:5px 13px;margin-bottom:20px}
@@ -244,10 +268,16 @@ figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow
 figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
 figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
 figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
-/* marcadores numerados sobre la captura */
-.marca{position:absolute;transform:translate(-50%,-50%);width:23px;height:23px;border-radius:50%;
-  background:var(--c);color:#fff;font:800 12.5px/23px "Segoe UI",sans-serif;text-align:center;
-  box-shadow:0 0 0 3px #fff,0 2px 7px rgba(0,0,0,.45);z-index:2}
+/* ── marcaciones sobre la captura ──
+   .caja  = recuadro sobre el elemento real (no lo tapa)
+   .mk    = chapita numerada, pegada al borde del recuadro          */
+.caja{position:absolute;border:2.4px solid var(--c);border-radius:7px;z-index:2;
+  box-shadow:0 0 0 2px rgba(255,255,255,.9),0 2px 9px rgba(0,0,0,.28)}
+.mk{position:absolute;min-width:21px;height:21px;border-radius:11px;padding:0 6px;
+  background:var(--c);color:#fff;font:800 12px/21px "Segoe UI",sans-serif;text-align:center;
+  box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.4);z-index:3;white-space:nowrap}
+.caja>.mk{left:-9px;top:-11px}
+.punto{position:absolute;transform:translate(-50%,-50%);z-index:3}
 .leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
   display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
 .leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
@@ -287,9 +317,10 @@ body.sin-portada .portada{display:none}
   <div class="malla"></div><div class="halo"></div><div class="halo2"></div>
   <div class="p-top">
     <div class="marca">
-      <div class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-      <div><div class="n">OMNIACCESS</div><div class="s">CONTROL Y ACCESO</div></div>
+      ${LOGO(46)}
+      <div><div class="n"><span class="thin">OMNI</span>ACCESS</div><div class="s">CONTROL Y ACCESO</div></div>
     </div>
+    <div class="linea-prod">${esc(prod.toUpperCase())}</div>
   </div>
   <div class="p-mid">
     <span class="kicker">${esc(man.subtitulo.toUpperCase())}</span>
@@ -321,9 +352,9 @@ ${body}
 /* ─────────────── Main ─────────────── */
 async function main() {
     fs.mkdirSync(path.join(OUT, "img"), { recursive: true });
-    const modo = process.env.MANUAL_MODO || "LPR";
-    const prod = meta.producto.porModo[modo] || meta.producto.familia;
     const fecha = new Date().toLocaleDateString("es-UY", { year: "numeric", month: "long", day: "numeric" });
+    // Cada manual declara su modo en 00-meta.json; los transversales no llevan modo.
+    const nombreProd = (man) => (man.modo && meta.producto.porModo[man.modo]) || meta.producto.familia;
 
     // copiar imágenes
     const imgSrc = path.join(MDIR, "img");
@@ -335,13 +366,14 @@ async function main() {
         const src = path.join(MDIR, man.id + ".md");
         if (!fs.existsSync(src)) { console.log(`  – ${man.id}: sin ${man.id}.md, salteado`); continue; }
         const md = fs.readFileSync(src, "utf8");
+        const prod = nombreProd(man);
         let num = 0;
         const { html, toc } = render(md, { num: ++num });
         // los números de página del índice se completan en el 2º pase (ver pdf)
         const out = page({ man, prod, body: html, toc, fecha, pags: null });
         const dest = path.join(OUT, man.id + ".html");
         fs.writeFileSync(dest, out);
-        man._render = { html, toc, md };
+        man._render = { html, toc, md, prod };
         const faltan = (md.match(/!\[[^\]]*\]\(img\/([^)]+)\)/g) || [])
             .map((x) => x.match(/\(img\/([^)]+)\)/)[1])
             .filter((f) => !fs.existsSync(path.join(imgSrc, f)));
@@ -355,6 +387,7 @@ async function main() {
         const b = await chromium.launch();
         const p = await (await b.newContext({ colorScheme: "light" })).newPage();
         for (const { man, dest } of hechos) {
+            const prod = man._render.prod;
             await p.goto("file://" + dest, { waitUntil: "networkidle" });
 
             // ── PASE 1: medir en qué página cae cada título, para numerar el índice ──

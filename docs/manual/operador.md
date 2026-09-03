@@ -148,13 +148,6 @@ Es la pantalla donde vas a pasar el turno. Está pensada para mirarse de lejos: 
 importantes son grandes y los colores dicen todo sin que tengas que leer.
 
 ![Monitor LPR completo: entradas a la izquierda, foco central, salidas a la derecha](img/op-02-monitor-completo.png)
-@ 10,4 Menú lateral: el resto de las pantallas
-@ 47,6 Barra de estado: LIVE, vehículos adentro, totales del día y alertas
-@ 22,20 Mosaico de cámaras de entrada
-@ 58,26 Foco: la última detección, en grande
-@ 88,20 Mosaico de cámaras de salida
-@ 22,70 Capturas recientes de entrada
-@ 88,70 Capturas recientes de salida
 
 ## Cómo está organizada
 
@@ -211,13 +204,6 @@ Hacé clic en cualquier captura y se abre la ficha completa de ese acceso. Es la
 vas a usar cuando algo hay que investigar.
 
 ![Ficha del evento con el perfil del vehículo](img/op-04-evento-perfil.png)
-@ 30,10 Estado del acceso y fecha/hora exacta
-@ 22,32 Foto de la captura con la matrícula leída
-@ 12,72 Datos del vehículo detectados por la cámara
-@ 62,14 Quién es, si está registrado
-@ 62,29 Las seis acciones
-@ 62,41 Pestañas: Perfil, Historial y Datos
-@ 62,60 Frecuencia de pasadas por día
 
 ## Lo que ves de un vistazo
 

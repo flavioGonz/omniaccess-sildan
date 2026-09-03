@@ -1,0 +1,110 @@
+{
+  "op-02-monitor-completo.png": [
+    {
+      "x": 0,
+      "y": 0,
+      "w": 16.5,
+      "h": 100,
+      "label": "Menú lateral: el resto de las pantallas del sistema"
+    },
+    {
+      "x": 33.7,
+      "y": 3.6,
+      "w": 65,
+      "h": 4.9,
+      "label": "Barra de estado: conexión, vehículos adentro y totales del día"
+    },
+    {
+      "x": 67.7,
+      "y": 4,
+      "w": 15.1,
+      "h": 4,
+      "label": "Filtro rápido: todos, permitidos o denegados"
+    },
+    {
+      "x": 15.8,
+      "y": 11.7,
+      "w": 28.4,
+      "h": 32.7,
+      "label": "Mosaico de cámaras de entrada, en vivo"
+    },
+    {
+      "x": 43.8,
+      "y": 11.7,
+      "w": 28.5,
+      "h": 88.3,
+      "label": "Foco central: la última detección, en grande"
+    },
+    {
+      "x": 71.8,
+      "y": 11.7,
+      "w": 28.200000000000003,
+      "h": 32.8,
+      "label": "Mosaico de cámaras de salida, en vivo"
+    },
+    {
+      "x": 15.8,
+      "y": 43.5,
+      "w": 28.4,
+      "h": 56.5,
+      "label": "Capturas recientes: cada lectura con matrícula, marca y tipo"
+    }
+  ],
+  "op-07-historial.png": [
+    {
+      "x": 17.8,
+      "y": 3.1,
+      "w": 24.1,
+      "h": 5.1,
+      "label": "Historial completo de accesos"
+    },
+    {
+      "x": 17.8,
+      "y": 29.9,
+      "w": 80.4,
+      "h": 5.4,
+      "label": "Columnas: foto, matrícula, acceso, dirección, decisión y grabación"
+    }
+  ],
+  "adm-02-usuarios.png": [
+    {
+      "x": 20.5,
+      "y": 1.3,
+      "w": 16.9,
+      "h": 4.4,
+      "label": "Padrón de residentes y usuarios"
+    },
+    {
+      "x": 17.4,
+      "y": 16,
+      "w": 81.3,
+      "h": 5.8,
+      "label": "Cada persona con su unidad, matrículas y credenciales"
+    }
+  ],
+  "adm-05-vehiculos.png": [
+    {
+      "x": 17.3,
+      "y": 25,
+      "w": 81.4,
+      "h": 5.4,
+      "label": "Un renglón por matrícula, con su última detección"
+    }
+  ],
+  "adm-08-dispositivos.png": [
+    {
+      "x": 20.6,
+      "y": 2.2,
+      "w": 8.9,
+      "h": 4.4,
+      "label": "Inventario de cámaras y NVR"
+    },
+    {
+      "x": 17.4,
+      "y": 19.9,
+      "w": 81.3,
+      "h": 5.3,
+      "label": "Estado real, latencia y hora de cada equipo"
+    }
+  ]
+}

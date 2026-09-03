@@ -1,3 +1,38 @@
+# Qué se instala
+
+OmniAccess LPR es un servidor propio en el predio del cliente, con cámaras ANPR que le reportan
+por red y un grabador que guarda el video. No depende de la nube: si se corta internet, el control
+de acceso sigue funcionando.
+
+## Las piezas y qué hace cada una
+
+| Pieza | Función | Notas de instalación |
+|---|---|---|
+| **Servidor OmniAccess** | Recibe los eventos, decide el acceso, guarda fotos y sirve el panel | Contenedor o máquina virtual Linux; ver requisitos |
+| **Cámaras ANPR** | Leen la matrícula a bordo y envían el evento por HTTP | Hikvision iDS/DeepinView, Bosch, Akuvox, ONVIF |
+| **NVR / grabador** | Graba 24/7 y sirve la reproducción del instante del acceso | Mapeo de canales por ISAPI |
+| **Base de datos** | Padrón, eventos, configuración | PostgreSQL |
+| **Almacenamiento de objetos** | Fotos y clips, con política de retención por días | MinIO compatible S3 |
+| **Reenvío de video** | Convierte el RTSP de cada cámara al video del panel | go2rtc |
+| **Tablets de guardia** | Registro de visitas, rondas, pánico y posición | Aplicación Android o navegador |
+| **Barrera / relé** | Apertura por matrícula autorizada | Salida de la cámara o módulo de relé |
+
+## Lo que este sistema resuelve y otros no
+
+| | OmniAccess | Lo habitual en el mercado |
+|---|---|---|
+| **Sin internet** | Opera completo: lee, decide, graba y avisa por la red local | Se cae con el enlace |
+| **Multi-marca** | Cámaras de distintos fabricantes conviviendo | Una marca por instalación |
+| **Diagnóstico** | Sondeo activo de cada equipo, con alerta antes de que falte un registro | Se descubre el problema buscando un evento que no está |
+| **Calibración** | Asistente de calibración ANPR desde el panel, con vista en vivo | Ir a la interfaz de cada cámara |
+| **Hora** | Detecta desfasaje y lo corrige en un clic | Se descubre cuando los eventos tienen hora rara |
+| **Retención** | Política de días por bucket, desde el panel | El disco se llena y alguien borra a mano |
+| **Entrega** | Manuales, credenciales y checklist de entrega | Un instalador que explica de palabra |
+
+> ⚠ Este manual cubre el **modo LPR**. Antes de instalar, confirmá con el cliente el modo
+> contratado: *LPR*, *Filas* o *Face*. El modo se elige en Configuración y define qué módulos
+> quedan habilitados.
+
 # Antes de ir a la obra
 
 Este manual es para el técnico que instala y mantiene. Asume que sabés de redes y de cámaras IP;
@@ -141,8 +176,6 @@ Verificá en *Configuración → Avanzado → Monitor de webhooks* que lleguen l
 
 » Dispositivos → Calibrar
 
-![Calibrador de la cámara con vista en vivo](img/ins-05-calibrador.png)
-
 El calibrador muestra el video en vivo y permite ajustar los parámetros de lectura sin entrar a la
 interfaz de la cámara.
 
@@ -254,8 +287,6 @@ Telegram— ante:
 | **Memoria** | Uso sostenido por encima del 95 % |
 | **Reloj** | Desfase mayor a 2 minutos contra el servidor |
 | **Motor apagado** | Una cámara de matrículas salió del modo de lectura |
-
-![Historial de salud de un dispositivo](img/ins-06-salud-historial.png)
 
 El historial permite ver si una caída fue puntual o si el equipo viene degradándose.
 

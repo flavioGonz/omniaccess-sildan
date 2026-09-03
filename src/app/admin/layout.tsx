@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { OmniLogo } from "@/components/brand/OmniLogo";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -10,6 +11,7 @@ import {
     Car,
     Settings,
     ShieldCheck,
+    BookOpen,
     History,
     DoorOpen,
     HelpCircle,
@@ -126,9 +128,7 @@ export default function AdminLayout({
             >
                 <div className="p-4 border-b border-border bg-foreground/[0.02] flex items-center justify-between h-[60px]">
                     <div className={cn("flex items-center gap-2 overflow-hidden transition-all", collapsed ? "w-0 opacity-0" : "w-auto opacity-100")}>
-                        <div className={cn("w-6 h-6 rounded flex items-center justify-center shrink-0", modules.MODULE_QUEUE ? "bg-violet-600" : "bg-blue-600")}>
-                            <ShieldCheck size={14} className="text-white" />
-                        </div>
+                        <OmniLogo size={24} className="shrink-0" />
                         <div className="whitespace-nowrap">
                             <h2 className="text-xs font-bold text-foreground uppercase tracking-[0.2em]">
                                 OmniAccess
@@ -231,7 +231,8 @@ export default function AdminLayout({
                     )}
 
                     <div className="my-2 border-t border-border" />
-                    <SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />
+                    <SidebarItem icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />
+                            <SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />
                 </nav>
 
                 <div className="p-3 border-t border-border space-y-2">

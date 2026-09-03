@@ -1,0 +1,200 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>OmniAccess Filas · Manual del Administrador</title>
+<style>
+:root{--c:#7c3aed;--tinta:#111827;--suave:#6b7280;--linea:#e5e7eb;--fondo:#fff;--code:#f3f4f6}
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--tinta)}
+.hoja{background:var(--fondo);width:210mm;min-height:297mm;margin:14px auto;padding:22mm 20mm 20mm;box-shadow:0 4px 24px rgba(0,0,0,.35)}
+
+/* ── PORTADA ── (posicionamiento absoluto: se imprime igual siempre) */
+.portada{position:relative;width:210mm;height:296.9mm;padding:0;overflow:hidden;color:#fff;
+  background:linear-gradient(150deg,#0b1220 0%,#111a2e 45%,var(--c) 190%)}
+.portada .malla{position:absolute;inset:0;opacity:.5;
+  background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:26px 26px}
+.portada .halo{position:absolute;width:640px;height:640px;right:-220px;top:-180px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 62%);opacity:.30}
+.portada .halo2{position:absolute;width:420px;height:420px;left:-160px;bottom:-140px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 65%);opacity:.18}
+.p-top{position:absolute;top:24mm;left:22mm;right:22mm;display:flex;align-items:center;justify-content:space-between}
+.marca{display:flex;align-items:center;gap:13px}
+.marca svg{filter:drop-shadow(0 6px 18px rgba(14,165,233,.45))}
+.marca .n{font-size:21px;font-weight:800;letter-spacing:.15em;line-height:1}
+.marca .n .thin{font-weight:300}
+.marca .s{font-size:9px;letter-spacing:.32em;color:#8fa0b6;margin-top:6px}
+.linea-prod{font-size:9.5px;font-weight:800;letter-spacing:.22em;color:#cbd5e1;
+  border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:6px 13px;white-space:nowrap}
+.p-mid{position:absolute;left:22mm;right:22mm;bottom:62mm}
+.kicker{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.26em;color:var(--c);
+  border:1px solid var(--c);border-radius:999px;padding:5px 13px;margin-bottom:20px}
+.p-mid h1{font-size:53px;line-height:1.03;margin:0 0 8px;font-weight:800;letter-spacing:-.02em}
+.p-mid h2{font-size:21px;margin:0 0 22px;font-weight:500;color:#c7d2de}
+.p-mid .para{max-width:118mm;color:#9aa4b2;font-size:13.5px;line-height:1.6;border-left:3px solid var(--c);padding-left:14px}
+.p-bot{position:absolute;left:22mm;right:22mm;bottom:24mm;display:flex;justify-content:space-between;align-items:flex-end;
+  padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+.p-bot .campo{font-size:11px;color:#8b95a5}
+.p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
+.p-bot .der{text-align:right}
+
+/* ── ÍNDICE ── */
+.indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:22px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap}
+.indice li{margin:0}
+.indice li a{display:flex;align-items:baseline;gap:8px;text-decoration:none;color:var(--tinta);padding:5px 0}
+.indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:12.5px;min-width:20px;text-align:right}
+.indice .l1 .pg{color:var(--tinta);font-weight:700}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:13px;border-top:1px solid var(--linea);padding-top:8px}
+.indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
+.indice .l2{padding-left:18px;font-size:13.5px;color:#374151}
+
+/* ── CUERPO ── */
+h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
+  page-break-before:always;break-before:page}
+.hoja > h1.cap:first-child{page-break-before:auto;break-before:auto}
+h2{font-size:20.5px;margin:30px 0 10px;color:#0f172a}
+h3{font-size:16px;margin:22px 0 7px;color:#1f2937}
+h4{font-size:14px;margin:16px 0 5px;color:#374151}
+p{margin:0 0 11px}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:4px 0}
+code{background:var(--code);padding:1.5px 5px;border-radius:4px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#0f172a}
+pre{background:#0f172a;color:#e2e8f0;padding:13px 15px;border-radius:9px;overflow:auto;margin:0 0 13px}
+pre code{background:none;color:inherit;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:0 0 15px;font-size:13.5px}
+th{background:#f8fafc;text-align:left;padding:8px 10px;border-bottom:2px solid var(--c);font-weight:700}
+td{padding:7px 10px;border-bottom:1px solid var(--linea);vertical-align:top}
+tr:nth-child(even) td{background:#fcfcfd}
+.ruta{display:flex;align-items:center;gap:10px;background:#f8fafc;border-left:3px solid var(--c);
+  padding:8px 13px;border-radius:0 7px 7px 0;font-size:13px;margin:0 0 15px}
+.ruta-l{font-size:9px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--c);white-space:nowrap}
+blockquote{margin:0 0 14px;padding:11px 15px;border-radius:8px;font-size:13.5px;border-left:4px solid}
+blockquote.nota{background:#f8fafc;border-color:#94a3b8}
+blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
+blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
+blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
+blockquote.alerta::before{content:"⚠ ";font-weight:700}
+figure{margin:16px 0 18px;page-break-inside:avoid;break-inside:avoid}
+.lienzo{position:relative;line-height:0}
+figure img{width:100%;border:1px solid var(--linea);border-radius:9px;box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
+figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
+figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
+/* ── marcaciones sobre la captura ──
+   .caja  = recuadro sobre el elemento real (no lo tapa)
+   .mk    = chapita numerada, pegada al borde del recuadro          */
+.caja{position:absolute;border:2.4px solid var(--c);border-radius:7px;z-index:2;
+  box-shadow:0 0 0 2px rgba(255,255,255,.9),0 2px 9px rgba(0,0,0,.28)}
+.mk{position:absolute;min-width:21px;height:21px;border-radius:11px;padding:0 6px;
+  background:var(--c);color:#fff;font:800 12px/21px "Segoe UI",sans-serif;text-align:center;
+  box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.4);z-index:3;white-space:nowrap}
+.caja>.mk{left:-9px;top:-11px}
+.punto{position:absolute;transform:translate(-50%,-50%);z-index:3}
+.leyenda{list-style:none;counter-reset:mk;padding:0;margin:9px 0 0;font-size:12.5px;
+  display:grid;grid-template-columns:1fr 1fr;gap:3px 18px}
+.leyenda li{counter-increment:mk;position:relative;padding-left:26px;margin:0;line-height:1.45}
+.leyenda li::before{content:counter(mk);position:absolute;left:0;top:1px;width:18px;height:18px;border-radius:50%;
+  background:var(--c);color:#fff;font:800 10.5px/18px "Segoe UI",sans-serif;text-align:center}
+hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
+
+/* ── Cortes de página: que no se parta lo que se lee junto ── */
+h1,h2,h3,h4{break-after:avoid;page-break-after:avoid}
+h2,h3,h4{break-inside:avoid;page-break-inside:avoid}
+p,li{orphans:3;widows:3}
+table,blockquote,.ruta,pre{break-inside:avoid;page-break-inside:avoid}
+ul,ol{break-inside:auto}
+/* un título nunca queda solo al pie: arrastra lo que sigue */
+h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
+h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
+
+/* pie de página impreso */
+@page{size:A4;margin:16mm 15mm 17mm}
+@media print{
+  html,body{margin:0;padding:0;background:#fff}
+  .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  .portada{width:210mm;height:296.9mm;page-break-after:always;border-radius:0}
+  .indice{page-break-after:always}
+  .noprint{display:none}
+}
+/* La portada se imprime a sangre completa: se genera en un pase aparte, con
+   márgenes de página en cero (ver build). */
+body.solo-portada .hoja:not(.portada){display:none}
+body.sin-portada .portada{display:none}
+.noprint{position:fixed;right:16px;bottom:16px;z-index:9}
+.noprint button{background:var(--c);color:#fff;border:0;border-radius:9px;padding:11px 17px;font-weight:700;cursor:pointer;
+  box-shadow:0 5px 18px rgba(0,0,0,.3)}
+</style></head><body>
+
+<section class="hoja portada">
+  <div class="malla"></div><div class="halo"></div><div class="halo2"></div>
+  <div class="p-top">
+    <div class="marca">
+      <svg width="46" height="46" viewBox="0 0 64 64" aria-label="OmniAccess">
+  <defs><linearGradient id="oaG46" x1="6" y1="58" x2="58" y2="6" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#0ea5e9"/><stop offset=".55" stop-color="#3b82f6"/><stop offset="1" stop-color="#22d3ee"/>
+  </linearGradient></defs>
+  <path d="M51.7 16.6 A25 25 0 1 0 51.7 47.4" fill="none" stroke="url(#oaG46)" stroke-width="5.4" stroke-linecap="round"/>
+  <path d="M41 21.3 A14 14 0 1 0 41 42.7" fill="none" stroke="url(#oaG46)" stroke-width="4.4" stroke-linecap="round" opacity=".78"/>
+  <path d="M41.5 24 L49.8 32 L41.5 40" fill="none" stroke="url(#oaG46)" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M53.4 27.2 L58.2 32 L53.4 36.8" fill="none" stroke="url(#oaG46)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+</svg>
+      <div><div class="n"><span class="thin">OMNI</span>ACCESS</div><div class="s">CONTROL Y ACCESO</div></div>
+    </div>
+    <div class="linea-prod">OMNIACCESS FILAS</div>
+  </div>
+  <div class="p-mid">
+    <span class="kicker">CONFIGURACIÓN DE FILAS, HORARIOS Y REPORTES</span>
+    <h1>Manual del Administrador</h1>
+    <h2>OmniAccess Filas</h2>
+    <p class="para">Quien configura el control de filas: cámaras de conteo, umbrales, horarios y reportes.</p>
+  </div>
+  <div class="p-bot">
+    <div class="campo">Versión<b>2026.09</b></div>
+    <div class="campo">Emitido<b>3 de setiembre de 2026</b></div>
+    <div class="campo der">Infratec<b>infratec.com.uy</b></div>
+  </div>
+</section>
+
+<section class="hoja indice">
+  <h2>Contenido</h2>
+  <div class="sub">OmniAccess Filas · Manual del Administrador</div>
+  <ol><li class="l1"><a href="#alcance-de-este-manual"><span class="t">Alcance de este manual</span><span class="dots"></span><span class="pg">2</span></a></li><li class="l1"><a href="#camaras-de-conteo"><span class="t">Cámaras de conteo</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l2"><a href="#verificar-que-el-contador-llega"><span class="t">Verificar que el contador llega</span><span class="dots"></span><span class="pg">3</span></a></li><li class="l1"><a href="#definir-las-filas"><span class="t">Definir las filas</span><span class="dots"></span><span class="pg">4</span></a></li><li class="l1"><a href="#umbrales-y-avisos"><span class="t">Umbrales y avisos</span><span class="dots"></span><span class="pg">5</span></a></li><li class="l1"><a href="#horarios-y-reseteo-automatico"><span class="t">Horarios y reseteo automático</span><span class="dots"></span><span class="pg">6</span></a></li><li class="l1"><a href="#pantallas-y-kiosko"><span class="t">Pantallas y kiosko</span><span class="dots"></span><span class="pg">7</span></a></li><li class="l1"><a href="#reportes-de-ocupacion"><span class="t">Reportes de ocupación</span><span class="dots"></span><span class="pg">8</span></a></li><li class="l1"><a href="#almacenamiento-y-retencion"><span class="t">Almacenamiento y retención</span><span class="dots"></span><span class="pg">9</span></a></li><li class="l1"><a href="#anexo-puesta-en-marcha-resumida"><span class="t">Anexo · Puesta en marcha resumida</span><span class="dots"></span><span class="pg">10</span></a></li></ol>
+</section>
+
+<section class="hoja">
+<h1 id="alcance-de-este-manual" class="cap">Alcance de este manual</h1>
+<blockquote class="alerta">Estructura del manual. El índice y las capturas están definidos; falta redactar el contenido. No entregar a un cliente hasta completarlo.</blockquote>
+<p>Este manual cubre la configuración de OmniAccess Filas: cámaras de conteo, definición de filas, umbrales de aforo, horarios de reseteo, pantallas y reportes.</p>
+<h1 id="camaras-de-conteo" class="cap">Cámaras de conteo</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú → Gestión → Dispositivos LPR</div>
+<p><em>(pendiente: alta de cámara con analítica de conteo — Bosch por ONVIF Profile M, Hikvision por ISAPI)</em></p>
+<figure class="falta"><div class="ph"><b>Falta la captura</b><code>fadm-01-camara.png</code><span>Alta de una cámara de conteo</span></div></figure>
+<h2 id="verificar-que-el-contador-llega">Verificar que el contador llega</h2>
+<p><em>(pendiente)</em></p>
+<h1 id="definir-las-filas" class="cap">Definir las filas</h1>
+<p><em>(pendiente: una fila por sector, nombre, cámara asociada, aforo máximo)</em></p>
+<figure class="falta"><div class="ph"><b>Falta la captura</b><code>fadm-02-filas.png</code><span>Configuración de filas</span></div></figure>
+<h1 id="umbrales-y-avisos" class="cap">Umbrales y avisos</h1>
+<p><em>(pendiente: umbral de alerta, a quién avisa, por qué canal)</em></p>
+<figure class="falta"><div class="ph"><b>Falta la captura</b><code>fadm-03-umbrales.png</code><span>Umbrales de aforo</span></div></figure>
+<h1 id="horarios-y-reseteo-automatico" class="cap">Horarios y reseteo automático</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú → Configuración → Horarios de Filas</div>
+<p><em>(pendiente: el contador vuelve a cero al abrir/cerrar; cómo se define el horario por día)</em></p>
+<figure class="falta"><div class="ph"><b>Falta la captura</b><code>fadm-04-horarios.png</code><span>Horarios de filas</span></div></figure>
+<h1 id="pantallas-y-kiosko" class="cap">Pantallas y kiosko</h1>
+<p><em>(pendiente)</em></p>
+<figure class="falta"><div class="ph"><b>Falta la captura</b><code>fadm-05-kiosko.png</code><span>Pantallas asignadas por fila</span></div></figure>
+<h1 id="reportes-de-ocupacion" class="cap">Reportes de ocupación</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Menú → Reportes → Reportes de Filas</div>
+<p><em>(pendiente: ocupación por hora, picos del día, exportación, marca del reporte)</em></p>
+<figure class="falta"><div class="ph"><b>Falta la captura</b><code>fadm-06-reportes.png</code><span>Reporte de ocupación</span></div></figure>
+<h1 id="almacenamiento-y-retencion" class="cap">Almacenamiento y retención</h1>
+<p><em>(pendiente: bucket de fotos del modo Filas y política de retención)</em></p>
+<h1 id="anexo-puesta-en-marcha-resumida" class="cap">Anexo · Puesta en marcha resumida</h1>
+<p><em>(pendiente)</em></p>
+</section>
+
+<div class="noprint"><button onclick="window.print()">Descargar PDF</button></div>
+</body></html>

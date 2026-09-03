@@ -1,5 +1,5 @@
 {
-  "_comment": "Capturas de los manuales. 'file' debe coincidir exacto con el marcador ![...](img/archivo.png) del Markdown. Se generan con: node scripts/capture-manual.js",
+  "_comment": "Capturas de los manuales. 'file' debe coincidir exacto con el marcador ![...](img/archivo.png) del Markdown. 'marks' declara QUE elemento señalar (js:__t('texto') o js:__c('selector',n), con 'up' para subir al bloque contenedor); el capturador calcula la posición exacta y la guarda en marks.json. Se generan con: node scripts/capture-manual.js",
   "shots": [
     {
       "file": "tab-01-login.png",
@@ -125,7 +125,42 @@
       "file": "op-02-monitor-completo.png",
       "desc": "Monitor LPR: entradas, foco central y salidas",
       "url": "/admin/monitor-lpr",
-      "wait": 6000
+      "wait": 6000,
+      "marks": [
+        {
+          "sel": "js:__c('aside',0)",
+          "label": "Menú lateral: el resto de las pantallas del sistema"
+        },
+        {
+          "sel": "js:__t('Adentro')",
+          "up": 3,
+          "label": "Barra de estado: conexión, vehículos adentro y totales del día"
+        },
+        {
+          "sel": "js:__t('Permitidos')",
+          "up": 1,
+          "label": "Filtro rápido: todos, permitidos o denegados"
+        },
+        {
+          "sel": "js:__t('Entradas')",
+          "up": 2,
+          "label": "Mosaico de cámaras de entrada, en vivo"
+        },
+        {
+          "sel": "js:__c('.flex.flex-col.overflow-hidden',1)",
+          "label": "Foco central: la última detección, en grande"
+        },
+        {
+          "sel": "js:__t('Salidas')",
+          "up": 2,
+          "label": "Mosaico de cámaras de salida, en vivo"
+        },
+        {
+          "sel": "js:__t('Capturas recientes')",
+          "up": 1,
+          "label": "Capturas recientes: cada lectura con matrícula, marca y tipo"
+        }
+      ]
     },
     {
       "file": "op-03-monitor-foco.png",
@@ -156,21 +191,20 @@
       "clickWait": 2600
     },
     {
-      "file": "op-06-evento-historial.png",
-      "desc": "Popup del evento — pestaña Historial",
-      "url": "/admin/monitor-lpr",
-      "wait": 6000,
-      "click": [
-        "[aria-haspopup=\"dialog\"]",
-        "Historial"
-      ],
-      "clickWait": 2600
-    },
-    {
       "file": "op-07-historial.png",
       "desc": "Historial de accesos con filtros",
       "url": "/admin/history",
-      "wait": 4000
+      "wait": 4000,
+      "marks": [
+        {
+          "sel": "js:__c('main h1',0)",
+          "label": "Historial completo de accesos"
+        },
+        {
+          "sel": "js:__c('table thead',0)",
+          "label": "Columnas: foto, matrícula, acceso, dirección, decisión y grabación"
+        }
+      ]
     },
     {
       "file": "op-08-busqueda-accesos.png",
@@ -206,13 +240,29 @@
       "file": "adm-01-dashboard.png",
       "desc": "Panel principal",
       "url": "/admin/dashboard",
-      "wait": 4500
+      "wait": 4500,
+      "marks": [
+        {
+          "sel": "js:__c('main h1',0)",
+          "label": "Resumen del día"
+        }
+      ]
     },
     {
       "file": "adm-02-usuarios.png",
       "desc": "Usuarios y residentes",
       "url": "/admin/users",
-      "wait": 3500
+      "wait": 3500,
+      "marks": [
+        {
+          "sel": "js:__c('main h1',0)",
+          "label": "Padrón de residentes y usuarios"
+        },
+        {
+          "sel": "js:__c('table thead',0)",
+          "label": "Cada persona con su unidad, matrículas y credenciales"
+        }
+      ]
     },
     {
       "file": "adm-03-usuario-alta.png",
@@ -230,7 +280,13 @@
       "file": "adm-05-vehiculos.png",
       "desc": "Vehículos y matrículas",
       "url": "/admin/vehicles",
-      "wait": 3500
+      "wait": 3500,
+      "marks": [
+        {
+          "sel": "js:__c('table thead',0)",
+          "label": "Un renglón por matrícula, con su última detección"
+        }
+      ]
     },
     {
       "file": "adm-06-grupos.png",
@@ -248,7 +304,17 @@
       "file": "adm-08-dispositivos.png",
       "desc": "Dispositivos LPR con estado y salud",
       "url": "/admin/devices",
-      "wait": 5000
+      "wait": 5000,
+      "marks": [
+        {
+          "sel": "js:__c('main h1',0)",
+          "label": "Inventario de cámaras y NVR"
+        },
+        {
+          "sel": "js:__c('table thead',0)",
+          "label": "Estado real, latencia y hora de cada equipo"
+        }
+      ]
     },
     {
       "file": "adm-09-notificaciones.png",
@@ -290,9 +356,10 @@
       "url": "/admin/settings",
       "wait": 3500,
       "click": [
+        "Sistema",
         "Almacenamiento"
       ],
-      "clickWait": 1800
+      "clickWait": 3000
     },
     {
       "file": "adm-15-rfid.png",
@@ -329,16 +396,6 @@
       "desc": "Historial de versiones",
       "url": "/admin/changelog",
       "wait": 2500
-    },
-    {
-      "file": "op-13-monitor-alertas.png",
-      "desc": "Panel de alertas del monitor",
-      "url": "/admin/monitor-lpr",
-      "wait": 6000,
-      "click": [
-        "[aria-label*=alert],[title*=Alerta]"
-      ],
-      "clickWait": 1800
     },
     {
       "file": "op-14-timemachine.png",
@@ -396,26 +453,6 @@
       "wait": 3000
     },
     {
-      "file": "ins-05-calibrador.png",
-      "desc": "Calibrador ANPR de una cámara",
-      "url": "/admin/devices",
-      "wait": 5000,
-      "click": [
-        "Calibrar"
-      ],
-      "clickWait": 4500
-    },
-    {
-      "file": "ins-06-salud-historial.png",
-      "desc": "Historial de salud de un dispositivo",
-      "url": "/admin/devices",
-      "wait": 5000,
-      "click": [
-        "[title*=historial],[title*=Historial]"
-      ],
-      "clickWait": 2500
-    },
-    {
       "file": "ins-07-nvr-canales.png",
       "desc": "Mapeo de canales del NVR",
       "url": "/admin/devices",
@@ -424,6 +461,59 @@
         "NVR"
       ],
       "clickWait": 2500
+    },
+    {
+      "file": "adm-22-settings-avanzado.png",
+      "desc": "Configuración — Avanzado",
+      "url": "/admin/settings",
+      "wait": 3500,
+      "click": [
+        "Avanzado",
+        "Drivers & Protocolos"
+      ],
+      "clickWait": 3000
+    },
+    {
+      "file": "adm-23-settings-estado.png",
+      "desc": "Configuración — Estado en vivo",
+      "url": "/admin/settings",
+      "wait": 3500,
+      "click": [
+        "Sistema",
+        "Estado del Sistema"
+      ],
+      "clickWait": 3000
+    },
+    {
+      "file": "adm-24-settings-modos.png",
+      "desc": "Configuración — Modos del sistema",
+      "url": "/admin/settings",
+      "wait": 3500,
+      "click": [
+        "Modos",
+        "Modos (LPR"
+      ],
+      "clickWait": 3000
+    },
+    {
+      "file": "op-18-historial-ficha.png",
+      "desc": "Ficha de un acceso abierta desde el historial",
+      "url": "/admin/history",
+      "wait": 4000,
+      "click": [
+        "[aria-haspopup=\"dialog\"]"
+      ],
+      "clickWait": 2600
+    },
+    {
+      "file": "ins-09-tasa-lectura.png",
+      "desc": "Tasa de lectura ANPR por cámara y por hora",
+      "url": "/admin/devices",
+      "wait": 5000,
+      "click": [
+        "Tasa de lectura"
+      ],
+      "clickWait": 3000
     }
   ]
 }

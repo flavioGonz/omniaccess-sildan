@@ -18,7 +18,14 @@
  *     "clip": "#selector",           recorta a ese elemento en vez de la página
  *     "viewport": [1600, 900],       tamaño de ventana
  *     "hide": [".selector"],         oculta elementos (datos sensibles)
- *     "full": true }                 página completa con scroll
+ *     "full": true,                  página completa con scroll
+ *     "marks": [{ "sel": "…", "label": "…" }] }
+ *
+ * Las "marks" son las anotaciones del manual: se declara QUÉ elemento señalar
+ * (selector CSS o texto visible) y el capturador calcula su posición exacta en la
+ * imagen, que queda guardada en docs/manual/marks.json. El compilador dibuja un
+ * recuadro numerado sobre ese elemento — nunca encima del contenido y sin coordenadas
+ * puestas a ojo.
  */
 const fs = require("fs");
 const path = require("path");
@@ -72,6 +79,76 @@ const STEADY_CSS = `
   html { -webkit-font-smoothing: antialiased; }
 `;
 
+/** Localiza un elemento por selector CSS o por texto visible. */
+function buscar(page, sel, nth = 0) {
+    const esCss = /^[.#\[]|^(?:div|span|button|a|table|section|header|aside|nav|img|video|input)\b/.test(sel);
+    const loc = esCss ? page.locator(sel) : page.getByText(sel, { exact: false });
+    return loc.nth(nth);
+}
+
+/**
+ * Convierte las marcaciones declaradas en el shot (selector + etiqueta) en
+ * recuadros en % sobre la imagen capturada. Así las anotaciones del manual caen
+ * SIEMPRE sobre el elemento real: no se ponen coordenadas a mano.
+ */
+/** Ayudantes disponibles dentro de las expresiones "js:" de las marcaciones:
+ *    __t("Adentro")     → el elemento hoja cuyo texto es exactamente ese
+ *    __c(".clase", 2)   → el enésimo elemento que matchea el selector       */
+const HELPERS = `
+  window.__t = (t) => [...document.querySelectorAll('*')]
+      .find(e => e.children.length === 0 && (e.textContent||'').trim() === t) || null;
+  window.__c = (sel, n) => document.querySelectorAll(sel)[n || 0] || null;
+`;
+
+async function resolverMarcas(page, s) {
+    if (!s.marks || !s.marks.length) return null;
+    await page.evaluate(HELPERS).catch(() => { });
+
+    // Sistema de referencia según cómo se saca la foto (recorte / página completa / ventana)
+    let ref = null;
+    if (s.clip) {
+        ref = await page.evaluate((sel) => {
+            const e = document.querySelector(sel); if (!e) return null;
+            const r = e.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height };
+        }, s.clip);
+    }
+    if (!ref) {
+        ref = s.full
+            ? await page.evaluate(() => ({ x: -window.scrollX, y: -window.scrollY, w: document.documentElement.scrollWidth, h: document.documentElement.scrollHeight }))
+            : await page.evaluate(() => ({ x: 0, y: 0, w: window.innerWidth, h: window.innerHeight }));
+    }
+
+    const salida = [];
+    for (const mk of s.marks) {
+        if (!mk.sel) continue;
+        const pad = mk.pad ?? 4;
+        const subir = mk.up ?? 0;                    // sube N padres antes de medir (marcar el bloque, no la etiqueta)
+        let r = null;
+        if (mk.sel.startsWith("js:")) {
+            // expresión JS que devuelve el elemento a señalar
+            r = await page.evaluate(([expr, up]) => {
+                let n = eval(expr); if (!n) return null;
+                for (let k = 0; k < up && n.parentElement; k++) n = n.parentElement;
+                const b = n.getBoundingClientRect();
+                return { x: b.left, y: b.top, width: b.width, height: b.height };
+            }, [mk.sel.slice(3), subir]).catch(() => null);
+        } else {
+            r = await buscar(page, mk.sel, mk.nth ?? 0).evaluate((el, up) => {
+                let n = el; for (let k = 0; k < up && n.parentElement; k++) n = n.parentElement;
+                const b = n.getBoundingClientRect();
+                return { x: b.left, y: b.top, width: b.width, height: b.height };
+            }, subir).catch(() => null);
+        }
+        if (!r || !r.width) { console.log(`     · marca sin elemento: "${mk.sel}"`); continue; }
+        const pct = (v, t) => Math.round((v / t) * 1000) / 10;
+        const x = pct(r.x - ref.x - pad, ref.w), y = pct(r.y - ref.y - pad, ref.h);
+        const w = pct(r.width + pad * 2, ref.w), h = pct(r.height + pad * 2, ref.h);
+        if (x < -5 || y < -5 || x > 100 || y > 100) { console.log(`     · marca fuera de cuadro: "${mk.sel}"`); continue; }
+        salida.push({ x: Math.max(0, x), y: Math.max(0, y), w: Math.min(w, 100 - Math.max(0, x)), h: Math.min(h, 100 - Math.max(0, y)), label: mk.label || "" });
+    }
+    return salida.length ? salida : null;
+}
+
 async function main() {
     const shotsFile = path.join(MDIR, "shots.json");
     if (!fs.existsSync(shotsFile)) { console.error("Falta docs/manual/shots.json"); process.exit(2); }
@@ -103,6 +180,11 @@ async function main() {
     const page = await ctx.newPage();
     page.on("pageerror", () => { });
 
+    // Marcaciones ya calculadas de capturas anteriores (se van actualizando)
+    const marksFile = path.join(MDIR, "marks.json");
+    let marks = {};
+    try { marks = JSON.parse(fs.readFileSync(marksFile, "utf8")); } catch { }
+
     let ok = 0, fail = 0;
     for (const s of pending) {
         const dest = path.join(IMGDIR, s.file);
@@ -120,10 +202,7 @@ async function main() {
             await page.waitForTimeout(s.wait ?? 1800);
 
             for (const c of s.click || []) {
-                const loc = c.startsWith(".") || c.startsWith("#") || c.startsWith("[")
-                    ? page.locator(c).first()
-                    : page.getByText(c, { exact: false }).first();
-                await loc.click({ timeout: 8000 }).catch(() => console.log(`   (no pude clickear "${c}")`));
+                await buscar(page, c).click({ timeout: 8000 }).catch(() => console.log(`   (no pude clickear "${c}")`));
                 await page.waitForTimeout(s.clickWait ?? 1400);
             }
             for (const h of s.hide || []) {
@@ -131,12 +210,15 @@ async function main() {
             }
             await page.waitForTimeout(400);
 
+            const marcas = await resolverMarcas(page, s);
+            if (marcas) marks[s.file] = marcas; else delete marks[s.file];
+
             const raw = s.clip
                 ? await page.locator(s.clip).first().screenshot({ scale: "device" })
                 : await page.screenshot({ fullPage: !!s.full, scale: "device" });
             await optimize(raw, dest);
             const kb = Math.round(fs.statSync(dest).size / 1024);
-            console.log(`  ✓ ${s.file.padEnd(34)} ${kb} KB`);
+            console.log(`  ✓ ${s.file.padEnd(34)} ${kb} KB${marcas ? `  ·  ${marcas.length} marcación(es)` : ""}`);
             ok++;
         } catch (e) {
             console.log(`  ✗ ${s.file.padEnd(34)} ${String(e.message).slice(0, 90)}`);
@@ -144,7 +226,8 @@ async function main() {
         }
     }
     await browser.close();
-    console.log(`\n${ok} captura(s) generada(s)${fail ? `, ${fail} con error` : ""}.`);
+    fs.writeFileSync(marksFile, JSON.stringify(marks, null, 2));
+    console.log(`\n${ok} captura(s) generada(s)${fail ? `, ${fail} con error` : ""}. Marcaciones en docs/manual/marks.json.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
