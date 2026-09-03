@@ -812,3 +812,24 @@ export async function getAvailableStreams(): Promise<string[]> {
         return [];
     }
 }
+
+
+// Conteo de matrículas/usuarios cargados (lista blanca ANPR) por cámara Hikvision LPR.
+// Liviano: usa totalMatches del primer resultado de searchLPListAudit (no baja toda la lista).
+export async function getCameraUserCounts(): Promise<Record<string, number | null>> {
+    const devices = await prisma.device.findMany({
+        where: { brand: "HIKVISION", deviceType: "LPR_CAMERA" as any },
+    });
+    const driver = new HikvisionDriver();
+    const out: Record<string, number | null> = {};
+    await Promise.all(devices.map(async (d) => {
+        try {
+            const searchId = Date.now().toString(16).slice(-8) + Math.random().toString(16).slice(2, 6);
+            const r = await driver.getPlatesPage({ ...d, authType: (d.authType || "DIGEST") } as any, searchId, 0, 1);
+            out[d.id] = typeof r.totalMatches === "number" ? r.totalMatches : (Array.isArray(r.plates) ? r.plates.length : null);
+        } catch {
+            out[d.id] = null;
+        }
+    }));
+    return out;
+}

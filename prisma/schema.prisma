@@ -531,3 +531,47 @@ model ReportSchedule {
 
   @@index([enabled])
 }
+
+
+// ── Salud de dispositivos: muestreo histórico + alertas (health tick 24/7) ──
+model DeviceHealthSample {
+  id        String   @id @default(cuid())
+  deviceId  String
+  ts        DateTime @default(now())
+  reachable Boolean
+  latencyMs Int?
+  memPct    Int?
+  uptimeSec Int?
+  driftSec  Int?
+  disksOk   Boolean?
+  viewers   Int?
+
+  @@index([deviceId, ts])
+}
+
+model DeviceAlert {
+  id         String    @id @default(cuid())
+  deviceId   String
+  type       String    // offline | disk | mem | drift
+  severity   String    @default("warning") // warning | critical
+  message    String
+  openedAt   DateTime  @default(now())
+  resolvedAt DateTime?
+  active     Boolean   @default(true)
+
+  @@index([active])
+  @@index([deviceId])
+}
+
+
+// ── Watchlist / lista negra de matrículas (resaltado + sonido + alerta) ──
+model PlateWatch {
+  id        String   @id @default(cuid())
+  plate     String   @unique
+  label     String   @default("")
+  category  String   @default("negra") // busca | negra | vip
+  color     String?
+  notify    Boolean  @default(true)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}

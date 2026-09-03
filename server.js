@@ -1408,6 +1408,31 @@ const handleWebhook = async (req, res, logPrefix) => {
         try { await checkMerodeo(finalPlate, device, event, logPrefix); }
         catch (e) { console.error(`${logPrefix} Merodeo check error:`, (e && e.message) || e); }
 
+        // ---- WATCHLIST (lista negra / búsqueda / VIP) — alineado a UserRole — LPR ----
+        let watchHit = null;
+        try {
+            if (!isUnknown) {
+                const w = await prisma.plateWatch.findFirst({ where: { plate: finalPlate, active: true } });
+                if (w) {
+                    const cat = normalizeWatchCat(w.category);
+                    watchHit = { label: w.label, category: cat, color: w.color, source: 'manual' };
+                    if (w.notify) {
+                        notifyWatchTelegram(`🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${w.label || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
+                    }
+                    console.log(`${logPrefix} [WATCHLIST] hit ${finalPlate} (${cat})`);
+                }
+            }
+            // Auto-derivado del rol del usuario registrado (si no hubo watch manual)
+            if (!watchHit && credential && credential.user && (credential.user.role === 'BLACKLISTED' || credential.user.role === 'WHITELISTED')) {
+                const cat = credential.user.role;
+                watchHit = { label: credential.user.name || '', category: cat, color: null, source: 'role' };
+                if (cat === 'BLACKLISTED') {
+                    notifyWatchTelegram(`🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${credential.user.name || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
+                }
+                console.log(`${logPrefix} [WATCHLIST] role-derived ${finalPlate} (${cat})`);
+            }
+        } catch (e) { console.error(`${logPrefix} Watchlist check error:`, (e && e.message) || e); }
+
         // Notify UI
         if (global.io) {
             console.log(`${logPrefix} [SOCKET] Emitting access_event for plate: ${cleanPlate}`);
@@ -1415,7 +1440,8 @@ const handleWebhook = async (req, res, logPrefix) => {
                 ...event,
                 device,
                 user: credential ? credential.user : null,
-                direction: event.direction // Ensure direction is explicitly sent
+                direction: event.direction, // Ensure direction is explicitly sent
+                watch: watchHit
             });
             // Emit webhook event for topology animation
             global.io.emit("webhook-event", {
@@ -2571,4 +2597,28 @@ async function checkMerodeo(plate, device, event, logPrefix) {
             direction: event.direction, timestamp: new Date().toISOString(),
         });
     }
+}
+
+
+// ── Watchlist: notificación Telegram (bot compartido, offline-safe) ──
+function normalizeWatchCat(x) {
+    const s = (x || '').toString().toUpperCase();
+    if (s === 'NEGRA' || s === 'BLACKLIST' || s === 'BLACKLISTED') return 'BLACKLISTED';
+    if (s === 'VIP' || s === 'WHITELIST' || s === 'WHITELISTED') return 'WHITELISTED';
+    if (s === 'BUSCA' || s === 'SEARCH') return 'SEARCH';
+    return 'BLACKLISTED';
+}
+function watchCatLabel(cat) {
+    const c = normalizeWatchCat(cat);
+    return c === 'SEARCH' ? 'EN BÚSQUEDA' : c === 'WHITELISTED' ? 'VIP / AUTORIZADO' : 'LISTA NEGRA';
+}
+async function notifyWatchTelegram(text) {
+    try {
+        const token = process.env.TELEGRAM_BOT_TOKEN || "8923590022:AAEas5wccmXq8zhE4tT1BZkehOgAcpmgPDc";
+        const chat = process.env.TELEGRAM_CHAT_ID || "-5200291969";
+        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: chat, text, parse_mode: "HTML" }),
+        });
+    } catch (e) { console.error("[Watchlist] telegram error:", (e && e.message) || e); }
 }

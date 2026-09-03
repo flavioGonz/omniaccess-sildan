@@ -8,7 +8,8 @@ import {
     testDeviceConnection,
     triggerDeviceRelay,
     getDeviceStats,
-    syncPlatesToDevice
+    syncPlatesToDevice,
+    getCameraUserCounts
 } from "@/app/actions/devices";
 import { getAccessGroups } from "@/app/actions/groups";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
@@ -59,7 +60,8 @@ import {
     AlertTriangle,
     Radio,
     TimerReset,
-    Play
+    Play,
+    ScanLine
 } from "lucide-react";
 import { sileo } from "sileo";
 // Adaptador estilo sonner (title, {description}) → sileo ({title, description})
@@ -78,6 +80,8 @@ import { DevicePlateListDialog } from "@/components/DevicePlateListDialog";
 import { AkuvoxActionUrlDialog } from "@/components/AkuvoxActionUrlDialog";
 import { DRIVER_MODELS, DEVICE_MODELS } from "@/lib/driver-models";
 import { CameraCalibrator } from "@/components/CameraCalibrator";
+import { HealthHistoryDialog } from "@/components/HealthHistoryDialog";
+import { ReadRateDialog } from "@/components/ReadRateDialog";
 
 import {
     DropdownMenu,
@@ -211,6 +215,11 @@ export default function DevicesPage() {
     const [health, setHealth] = useState<Record<string, any>>({});
     const [syncing, setSyncing] = useState<string | null>(null);
     const [streamBusy, setStreamBusy] = useState<string | null>(null);
+    const [userCounts, setUserCounts] = useState<Record<string, number | null>>({});
+    const [loadingCounts, setLoadingCounts] = useState(false);
+    const [alerts, setAlerts] = useState<any[]>([]);
+    const [healthHistory, setHealthHistory] = useState<any>(null);
+    const [showReadRate, setShowReadRate] = useState(false);
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
         MODULE_LPR: true,
         MODULE_FACE: true,
@@ -291,6 +300,11 @@ export default function DevicesPage() {
                 const j = await r.json();
                 if (!stop && j?.ok) setHealth(j.devices || {});
             } catch { }
+            try {
+                const ra = await fetch('/api/devices/alerts', { cache: 'no-store' });
+                const ja = await ra.json();
+                if (!stop && ja?.ok) setAlerts(ja.active || []);
+            } catch { }
         };
         pull();
         const iv = setInterval(pull, 30000);
@@ -303,6 +317,7 @@ export default function DevicesPage() {
             const [devData, groupData] = await Promise.all([getDevices(), getAccessGroups()]);
             setDevices(devData);
             setGroups(groupData as any[]);
+            loadUserCounts(); // conteo de matrículas/usuarios cargados en cada cámara (asíncrono)
 
             // Stats are no longer loaded automatically to prevent lag on entry
             // They will be loaded on demand or if the user clicks 'Refresh'
@@ -313,6 +328,12 @@ export default function DevicesPage() {
 
     async function refreshHealth() {
         try { const r = await fetch('/api/devices/health', { cache: 'no-store' }); const j = await r.json(); if (j?.ok) setHealth(j.devices || {}); } catch { }
+    }
+
+    async function loadUserCounts() {
+        setLoadingCounts(true);
+        try { const counts = await getCameraUserCounts(); setUserCounts(counts || {}); }
+        catch { } finally { setLoadingCounts(false); }
     }
 
     async function syncTime(opts: { deviceId?: string; all?: boolean }) {
@@ -459,6 +480,16 @@ export default function DevicesPage() {
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
+                                <Button onClick={() => setShowReadRate(true)} variant="outline" className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
+                                    <ScanLine size={15} className="text-amber-400" /> <span className="hidden sm:inline">Tasa de lectura</span>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p className="text-xs max-w-[200px]">% de placas leídas vs no reconocidas, por cámara y por hora</p></TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
                                 <Button
                                     onClick={() => syncTime({ all: true })}
                                     disabled={syncing === "__all__"}
@@ -479,6 +510,27 @@ export default function DevicesPage() {
                     </DeviceFormDialog>
                 </div>
             </header>
+
+            {alerts.length > 0 && (
+                <div className="border border-red-500/30 bg-red-500/[0.07] rounded-lg p-3 space-y-2 animate-in fade-in duration-300">
+                    <div className="flex items-center gap-2 text-red-400 text-[11px] font-bold uppercase tracking-wide">
+                        <AlertTriangle size={14} className="animate-pulse" /> {alerts.length} alerta{alerts.length !== 1 ? "s" : ""} activa{alerts.length !== 1 ? "s" : ""}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {alerts.slice(0, 10).map((a) => {
+                            const dev = devices.find((d) => d.id === a.deviceId);
+                            return (
+                                <button key={a.id} onClick={() => dev && setHealthHistory(dev)}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-card/70 border border-red-500/25 text-[11px] hover:bg-red-500/10 transition">
+                                    <span className={cn("w-1.5 h-1.5 rounded-full", a.severity === "critical" ? "bg-red-500 animate-pulse" : "bg-amber-500")} />
+                                    <span className="font-semibold text-foreground">{dev?.name || "Equipo"}</span>
+                                    <span className="text-muted-foreground">· {a.message}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
                 <Table>
@@ -753,26 +805,32 @@ export default function DevicesPage() {
                                             )}
                                         </div>
                                     </TableCell>
-                                    {/* Usuarios online (viewers que la plataforma sirve de esta cámara) */}
+                                    {/* Usuarios cargados = matrículas en la lista blanca de la cámara */}
                                     <TableCell className="text-center">
-                                        <TooltipProvider>
-                                            <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                    <span className={cn(
-                                                        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold font-mono cursor-help",
-                                                        (h?.viewers ?? 0) >= 4 ? "bg-red-500/10 text-red-400 border-red-500/25"
-                                                            : (h?.viewers ?? 0) >= 1 ? "bg-amber-500/10 text-amber-400 border-amber-500/25"
-                                                                : "bg-card/50 text-muted-foreground border-border/50"
-                                                    )}>
-                                                        <Users size={11} /> {h?.viewers ?? 0}
-                                                    </span>
-                                                </TooltipTrigger>
-                                                <TooltipContent>
-                                                    <p className="text-[10px] font-semibold">Streams activos vía plataforma</p>
-                                                    <p className="text-[10px] text-muted-foreground">Muchos a la vez pueden saturar la cámara</p>
-                                                </TooltipContent>
-                                            </Tooltip>
-                                        </TooltipProvider>
+                                        {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' ? (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <span className={cn(
+                                                            "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold font-mono cursor-help",
+                                                            userCounts[dev.id] == null ? "bg-card/50 text-muted-foreground border-border/50"
+                                                                : "bg-blue-500/10 text-blue-400 border-blue-500/25"
+                                                        )}>
+                                                            <Users size={11} />
+                                                            {(loadingCounts && userCounts[dev.id] === undefined)
+                                                                ? <Loader2 size={10} className="animate-spin" />
+                                                                : (userCounts[dev.id] == null ? '—' : userCounts[dev.id])}
+                                                        </span>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent>
+                                                        <p className="text-[10px] font-semibold">Matrículas cargadas en la cámara</p>
+                                                        <p className="text-[10px] text-muted-foreground">Lista blanca ANPR (whitelist del equipo)</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                        ) : (
+                                            <span className="text-muted-foreground text-xs">—</span>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-center">
                                         {(() => {
@@ -916,6 +974,9 @@ export default function DevicesPage() {
                                                             </DropdownMenuItem>
                                                             <DropdownMenuItem onClick={() => restartStream(dev.id)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-violet-400 focus:bg-foreground/10 focus:text-violet-400">
                                                                 <Radio size={14} /> Reiniciar stream
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => setHealthHistory(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-indigo-400 focus:bg-foreground/10 focus:text-indigo-400">
+                                                                <Activity size={14} /> Historial de salud
                                                             </DropdownMenuItem>
                                                         </>
                                                     )}
@@ -1095,6 +1156,9 @@ export default function DevicesPage() {
                                                         <DropdownMenuItem onClick={() => syncTime({ deviceId: dev.id })} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-emerald-400 focus:bg-foreground/10 focus:text-emerald-400">
                                                             <TimerReset size={14} /> Sincronizar hora
                                                         </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => setHealthHistory(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-indigo-400 focus:bg-foreground/10 focus:text-indigo-400">
+                                                            <Activity size={14} /> Historial de salud
+                                                        </DropdownMenuItem>
                                                         <DeviceFormDialog device={dev} groups={groups} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-accent hover:text-blue-400 gap-2">
                                                                 <Settings2 size={14} /> Editar / Mapeo de canales
@@ -1120,6 +1184,14 @@ export default function DevicesPage() {
 
             {calibrating && (
                 <CameraCalibrator device={calibrating} onClose={() => setCalibrating(null)} />
+            )}
+
+            {healthHistory && (
+                <HealthHistoryDialog device={healthHistory} onClose={() => setHealthHistory(null)} />
+            )}
+
+            {showReadRate && (
+                <ReadRateDialog onClose={() => setShowReadRate(false)} />
             )}
 
             {managingMemory && (

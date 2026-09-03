@@ -56,7 +56,7 @@ export default function AforoAlertOverlay() {
     useEffect(() => { refresh(); const r = setInterval(refresh, 20000); return () => clearInterval(r); }, []);
 
     useEffect(() => {
-        const socket = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"] });
+        const socket = io(window.location.origin, { path: "/io/socket.io", transports: ["websocket", "polling"] });
         socket.on("queue_update", (d: any) => { if (OCC.includes(d.channelName) && d.deviceId) setAforo((p) => ({ ...p, [d.deviceId]: d.peopleCount })); });
         return () => { socket.disconnect(); };
     }, []);

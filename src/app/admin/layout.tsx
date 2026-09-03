@@ -33,11 +33,12 @@ import {
     SlidersHorizontal,
     Building2,
     Map as MapIcon,
+    Sparkles,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { HelpMenu } from "@/components/HelpMenu";
 import { cn } from "@/lib/utils";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
+import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
 
@@ -76,29 +77,6 @@ function SidebarItem({ icon, label, href, active, collapsed }: SidebarItemProps)
 
 import { getSetting } from "@/app/actions/settings";
 
-function MinIORetentionBadge() {
-    const [days, setDays] = useState<string | null>(null);
-
-    React.useEffect(() => {
-        getSetting("S3_LIFECYCLE_DAYS").then(s => setDays(s?.value || "30"));
-    }, []);
-
-    if (!days) return null;
-
-    return (
-        <div className="px-4 pb-2 mt-auto">
-            <div className="bg-orange-500/5 border border-orange-500/20 rounded-lg p-2.5 flex flex-col items-center gap-0.5">
-                <p className="text-[8px] text-orange-400 font-bold uppercase tracking-widest text-center leading-tight opacity-80">
-                    Retención MinIO
-                </p>
-                <p className="text-xs text-orange-300 font-bold">
-                    {days} Días
-                </p>
-            </div>
-        </div>
-    );
-}
-
 export default function AdminLayout({
     children,
 }: {
@@ -108,6 +86,7 @@ export default function AdminLayout({
     const router = useRouter();
     const [collapsed, setCollapsed] = useState(false);
     const [loggingOut, setLoggingOut] = useState(false);
+    const [acuseekOk, setAcuseekOk] = useState(false);
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
         MODULE_LPR: true,
         MODULE_FACE: true,
@@ -117,6 +96,7 @@ export default function AdminLayout({
 
     useEffect(() => {
         getEnabledModules().then(setModules);
+        hasAcuSeekNvr().then(setAcuseekOk).catch(() => {});
     }, []);
 
     const handleLogout = async () => {
@@ -205,6 +185,7 @@ export default function AdminLayout({
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-amber-500/60 uppercase tracking-widest">LPR</div>}
                             <SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />
                             <SidebarItem icon={<Video size={18} />} label="Dispositivos LPR" href="/admin/devices?type=LPR_CAMERA" active={pathname?.includes("devices") && pathname.includes("type=LPR")} collapsed={collapsed} />
+                            {acuseekOk && <SidebarItem icon={<Sparkles size={18} />} label="Búsqueda inteligente" href="/admin/acuseek" active={pathname === "/admin/acuseek"} collapsed={collapsed} />}
                         </>
                     )}
 
@@ -253,18 +234,7 @@ export default function AdminLayout({
                     <SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />
                 </nav>
 
-                {!collapsed && <MinIORetentionBadge />}
-
                 <div className="p-3 border-t border-border space-y-2">
-                    {!collapsed && <HelpMenu />}
-                    {collapsed && (
-                        <div className="flex justify-center">
-                            <div className="p-2 rounded-lg bg-accent text-muted-foreground">
-                                <HelpCircle size={18} />
-                            </div>
-                        </div>
-                    )}
-
                     <div className={cn("flex items-center gap-3 group p-2 rounded-2xl hover:bg-accent/50 transition-colors", collapsed && "justify-center p-0 hover:bg-transparent")}>
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-blue-500/20 shrink-0">
                             A

@@ -29,6 +29,7 @@ export async function middleware(request: NextRequest) {
     if (
         pathname.startsWith('/api/apk') ||
         pathname.startsWith('/api/webhooks/') ||
+        pathname.startsWith('/api/devices/health/tick') ||
         pathname === '/api/subscribe' ||
         pathname.startsWith('/api/push/dispatch') ||
         pathname === '/api/events' ||

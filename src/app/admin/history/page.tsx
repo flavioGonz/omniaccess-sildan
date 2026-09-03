@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { getAccessEvents } from "@/app/actions/history";
 import { getEnabledModules } from "@/app/actions/modules";
 import {
@@ -60,6 +60,7 @@ import { cn } from "@/lib/utils";
 import { getCarLogo } from "@/lib/car-logos";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { VehicleMetaChips } from "@/components/VehicleMeta";
+import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { io } from "socket.io-client";
@@ -105,6 +106,8 @@ export default function HistoryPage() {
     const [filterType, setFilterType] = useState<"ALL" | "PLATE" | "FACE" | "TAG">("ALL");
     const [activeMode, setActiveMode] = useState<"LPR" | "FACE" | "QUEUE" | null>(null);
     const [filterDirection, setFilterDirection] = useState<"ALL" | "ENTRY" | "EXIT">("ALL");
+    const [filterColor, setFilterColor] = useState<string>("ALL");
+    const [filterVehType, setFilterVehType] = useState<string>("ALL");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
@@ -112,6 +115,8 @@ export default function HistoryPage() {
     useEffect(() => { setLastUpdate(new Date()); }, []);
     const [merodeoSet, setMerodeoSet] = useState<Set<string>>(new Set());
     const [mappedSet, setMappedSet] = useState<Set<string>>(new Set());
+    const [mappedNameSet, setMappedNameSet] = useState<Set<string>>(new Set());
+    const [mappedIpSet, setMappedIpSet] = useState<Set<string>>(new Set());
     const [filterMerodeo, setFilterMerodeo] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);
 
@@ -138,7 +143,11 @@ export default function HistoryPage() {
         };
         load();
         const iv = setInterval(load, 60000);
-        const loadMapped = () => fetch("/api/nvr/mapped-devices").then(r => r.json()).then(d => setMappedSet(new Set(d.deviceIds || []))).catch(() => {});
+        const loadMapped = () => fetch("/api/nvr/mapped-devices").then(r => r.json()).then(d => {
+            setMappedSet(new Set(d.deviceIds || []));
+            setMappedNameSet(new Set(d.deviceNames || []));
+            setMappedIpSet(new Set(d.deviceIps || []));
+        }).catch(() => {});
         loadMapped();
         const iv2 = setInterval(loadMapped, 30000);
         window.addEventListener("focus", loadMapped);
@@ -259,7 +268,15 @@ export default function HistoryPage() {
     // Compute stats
     const grantCount = events.filter(e => e.decision === "GRANT").length;
     const denyCount = events.filter(e => e.decision === "DENY").length;
-    const displayEvents = filterMerodeo ? events.filter(e => merodeoSet.has(cleanPlate(e.plateDetected))) : events;
+    const vehFacets = useMemo(() => collectVehicleFacets(events), [events]);
+    const displayEvents = (filterMerodeo ? events.filter(e => merodeoSet.has(cleanPlate(e.plateDetected))) : events)
+        .filter(e => {
+            if (filterColor === "ALL" && filterVehType === "ALL") return true;
+            const m = parseVehicleMeta(e.details);
+            if (filterColor !== "ALL" && m.color !== filterColor) return false;
+            if (filterVehType !== "ALL" && m.typeLabel !== filterVehType) return false;
+            return true;
+        });
 
     return (
         <div className="p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
@@ -390,6 +407,25 @@ export default function HistoryPage() {
                             Salida
                         </button>
                     </div>
+
+                    {/* Vehicle color / type filters (client-side, sobre details) */}
+                    {(vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
+                        <div className="flex items-center gap-1.5">
+                            <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
+                                className="h-9 bg-muted/40 border border-border/30 rounded-md px-2 text-xs font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
+                                <option value="ALL">Color: todos</option>
+                                {vehFacets.colors.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
+                            </select>
+                            <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
+                                className="h-9 bg-muted/40 border border-border/30 rounded-md px-2 text-xs font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
+                                <option value="ALL">Tipo: todos</option>
+                                {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                            {(filterColor !== "ALL" || filterVehType !== "ALL") && (
+                                <button onClick={() => { setFilterColor("ALL"); setFilterVehType("ALL"); }} title="Limpiar filtros de vehículo" className="h-9 w-9 rounded-md bg-muted/40 border border-border/30 text-muted-foreground hover:text-foreground flex items-center justify-center"><X size={14} /></button>
+                            )}
+                        </div>
+                    )}
 
                     {/* Merodeo filter */}
                     <button onClick={() => setFilterMerodeo(v => !v)} className={cn("flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold border transition-all", filterMerodeo ? "bg-red-600 text-foreground border-red-500" : "bg-muted/40 text-muted-foreground border-border/30 hover:text-foreground")}>
@@ -537,7 +573,7 @@ export default function HistoryPage() {
                                                 ) : <span className="text-xs text-muted-foreground">-</span>}
                                             </td>
                                             <td className="px-5 py-3 text-center">
-                                                {mappedSet.has(evt.device?.id) ? (
+                                                {(mappedSet.has(evt.device?.id) || (evt.device?.name && mappedNameSet.has(evt.device.name)) || (evt.device?.ip && mappedIpSet.has(evt.device.ip))) ? (
                                                     <EventDetailsDialog event={evt} autoRecording>
                                                         <button title="Ver grabación" className="text-blue-400 hover:text-blue-300 p-1.5 rounded-md hover:bg-blue-500/10"><Film size={15} /></button>
                                                     </EventDetailsDialog>

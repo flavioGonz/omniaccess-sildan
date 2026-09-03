@@ -14,6 +14,9 @@ import {
     TrendingDown,
     Zap,
     Shield,
+    ShieldAlert,
+    Volume2,
+    VolumeX,
     AlertTriangle,
     Filter,
     RefreshCw,
@@ -48,8 +51,12 @@ import { getSocketUrl } from "@/lib/socket-config";
 import { getUnits } from "@/app/actions/units";
 import { getAccessGroups } from "@/app/actions/groups";
 import { getParkingSlots, getPlateParking, getPlatesWithParking } from "@/app/actions/parking";
+import { getWatchMap } from "@/app/actions/watchlist";
+import { watchCatMeta } from "@/lib/watch-categories";
+import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements } from "@/app/actions/plazas";
 import { UserFormDialog } from "@/components/UserFormDialog";
+import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
 interface FullAccessEvent extends AccessEvent {
     user: {
@@ -166,7 +173,7 @@ function CamTile({ dev, accent = "emerald", ev }: { dev: any; accent?: string; e
         </div>
     );
     return ev ? (
-        <EventDetailsDialog event={ev} timeStatus={null}>
+        <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
             <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
         </EventDetailsDialog>
     ) : inner;
@@ -328,23 +335,28 @@ function VehicleCardSkeleton() {
     );
 }
 
-const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string> }) {
+const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking, watchMap }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string>; watchMap?: Record<string, any> }) {
     const router = useRouter();
     const meta = parseMeta(event.details);
     const logoUrl = getCarLogo(meta.Marca);
     const fullImageUrl = getImagePath(event.snapshotPath || event.imagePath) || "";
     const isAnomalous = event.plateDetected === "NO_LEIDA" || event.plateDetected === "unknown" || event.plateDetected === "S/P" || !event.plateDetected;
     const hasPlaza = !!(event.plateDetected && platesWithParking && platesWithParking.has(String(event.plateDetected).toUpperCase()));
+    const _wp = event.plateDetected ? String(event.plateDetected).toUpperCase() : "";
+    const watch = (event as any).watch || (watchMap && _wp ? watchMap[_wp] : null);
+    const watchMeta = watch ? watchCatMeta(watch.category) : null;
+    const watchStyle = watchMeta ? { ring: watchMeta.ring, badge: watchMeta.badge, label: watchMeta.label.toUpperCase() } : null;
     const [showPark, setShowPark] = useState(false);
     const [nvrCh, setNvrCh] = useState<number | null>(null);
     const [showVid, setShowVid] = useState(false);
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
     return (
       <>
-        <EventDetailsDialog event={event} timeStatus={null}>
+        <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)}>
             <div className={cn(
                 "p-3 cursor-pointer transition-all group border-b border-border last:border-0",
-                isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent"
+                isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent",
+                watchStyle?.ring
             )}>
                 <div className="flex items-center gap-3">
                     <div className="w-16 h-14 rounded-lg border border-border shrink-0 bg-card/60 flex items-center justify-center overflow-hidden p-1.5" title={meta.Marca || "Marca desconocida"}>
@@ -361,6 +373,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                                 <span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span>
                             )}
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
+                            {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                             {meta.Marca && <span className="text-[10px] text-muted-foreground font-semibold">{meta.Marca}{(meta.Modelo || meta.Tipo) ? ` · ${meta.Modelo || meta.Tipo}` : ""}</span>}
@@ -476,6 +489,8 @@ export default function MonitorLPR() {
     const [events, setEvents] = useState<FullAccessEvent[]>([]);
     const [socket, setSocket] = useState<Socket | null>(null);
     const [activeFilter, setActiveFilter] = useState<"ALL" | "GRANT" | "DENY">("ALL");
+    const [filterColor, setFilterColor] = useState<string>("ALL");
+    const [filterVehType, setFilterVehType] = useState<string>("ALL");
     const [stats, setStats] = useState({ total: 0, grants: 0, denies: 0 });
     const [aforo, setAforo] = useState({ entradas: 0, salidas: 0, inside: 0 });
     const [lastCapByDev, setLastCapByDev] = useState<Record<string, any>>({});
@@ -512,6 +527,24 @@ export default function MonitorLPR() {
     useEffect(() => { getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
     const [platesPark, setPlatesPark] = useState<Set<string>>(new Set());
     useEffect(() => { Promise.all([getUnits(), getAccessGroups(), getParkingSlots()]).then(([u, g, p]: any) => { setUnits(u || []); setGroups(g || []); setParkingSlots(p || []); }).catch(() => {}); getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => {}); }, []);
+
+    // Watchlist (lista negra / búsqueda / VIP) — resaltado + sonido
+    const [watchMap, setWatchMap] = useState<Record<string, any>>({});
+    const [showWatch, setShowWatch] = useState(false);
+    const [soundOn, setSoundOn] = useState(true);
+    const soundOnRef = useRef(true);
+    useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
+    const alertAudioRef = useRef<HTMLAudioElement | null>(null);
+    const lastAlertRef = useRef<Record<string, number>>({});
+    const refreshWatch = useCallback(() => { getWatchMap().then((m) => setWatchMap(m || {})).catch(() => { }); }, []);
+    useEffect(() => { refreshWatch(); const iv = setInterval(refreshWatch, 60000); return () => clearInterval(iv); }, [refreshWatch]);
+    const playWatchAlert = useCallback((plate: string) => {
+        if (!soundOnRef.current) return;
+        const now = Date.now();
+        if (lastAlertRef.current[plate] && now - lastAlertRef.current[plate] < 4000) return; // throttle por placa
+        lastAlertRef.current[plate] = now;
+        try { const a = alertAudioRef.current || (alertAudioRef.current = new Audio("/sounds/alert.mp3")); a.currentTime = 0; a.volume = 1; a.play().catch(() => { }); } catch { }
+    }, []);
 
     // Auto-refresh cada 5s: mismo efecto que el botón de refrescar (re-baja los eventos
     // con snapshotPath actualizado, no sólo cache-bust de imágenes).
@@ -568,6 +601,9 @@ export default function MonitorLPR() {
             const plate = (event.plateDetected || '').toUpperCase();
             if (plate === 'DOOR_OPEN' || plate === 'DOOR_CLOSE') return;
 
+            // Watchlist: alerta sonora inmediata si el server marcó la placa
+            if ((event as any).watch && plate) playWatchAlert(plate);
+
             // Buffer the event; a 250ms flush loop coalesces bursts into a single render
             // so the main thread stays free to paint incoming snapshots.
             pendingRef.current.push(event);
@@ -603,14 +639,20 @@ export default function MonitorLPR() {
         return () => clearInterval(iv);
     }, []);
 
+    const vehFacets = useMemo(() => collectVehicleFacets(events as any[]), [events]);
     const filteredEvents = useMemo(() => {
         return events.filter(e => {
             const plate = (e.plateDetected || '').toUpperCase();
             if (plate === 'DOOR_OPEN' || plate === 'DOOR_CLOSE') return false;
             if (activeFilter !== "ALL" && e.decision !== activeFilter) return false;
+            if (filterColor !== "ALL" || filterVehType !== "ALL") {
+                const m = parseVehicleMeta(e.details);
+                if (filterColor !== "ALL" && m.color !== filterColor) return false;
+                if (filterVehType !== "ALL" && m.typeLabel !== filterVehType) return false;
+            }
             return true;
         });
-    }, [events, activeFilter]);
+    }, [events, activeFilter, filterColor, filterVehType]);
 
     const entryEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'ENTRY'), [filteredEvents]);
     const exitEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'EXIT'), [filteredEvents]);
@@ -674,6 +716,16 @@ export default function MonitorLPR() {
                             {isConnected ? "LIVE" : "OFFLINE"}
                         </div>
 
+                        <button onClick={() => setShowWatch(true)} title="Lista de vigilancia (watchlist)" className="p-2 rounded-lg bg-card hover:bg-accent text-muted-foreground hover:text-red-400 border border-border transition-colors relative">
+                            <ShieldAlert size={16} />
+                            {Object.keys(watchMap).length > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{Object.keys(watchMap).length}</span>}
+                        </button>
+                        <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} className={cn("p-2 rounded-lg border transition-colors", soundOn ? "bg-card hover:bg-accent text-muted-foreground border-border" : "bg-red-500/10 text-red-400 border-red-500/30")}>
+                            {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                        </button>
+
+                        {showWatch && <WatchlistDialog onClose={() => { setShowWatch(false); refreshWatch(); }} />}
+
                         {/* Quick stats */}
                         <div className="flex items-center gap-3 pl-1">
                             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs"><Car size={13} className="text-blue-400" /><span className="text-muted-foreground uppercase tracking-wide text-[10px] font-bold">Adentro</span><span className="font-bold text-blue-400 text-sm">{aforo.inside}</span></span>
@@ -699,6 +751,32 @@ export default function MonitorLPR() {
                                 </button>
                             ))}
                         </div>
+
+                        {/* Color / tipo quick-filter */}
+                        {(vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
+                            <div className="flex items-center gap-1.5">
+                                {vehFacets.colors.length > 0 && (
+                                    <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
+                                        className="h-7 rounded-md bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                        <option value="ALL">Color</option>
+                                        {vehFacets.colors.map((c) => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                )}
+                                {vehFacets.types.length > 0 && (
+                                    <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
+                                        className="h-7 rounded-md bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                        <option value="ALL">Tipo</option>
+                                        {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                )}
+                                {(filterColor !== "ALL" || filterVehType !== "ALL") && (
+                                    <button onClick={() => { setFilterColor("ALL"); setFilterVehType("ALL"); }}
+                                        className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent" title="Limpiar filtros">
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+                        )}
 
                         <Button variant="ghost" size="icon" onClick={loadInitialData} className="text-muted-foreground hover:text-foreground">
                             <RefreshCw size={16} />
@@ -744,7 +822,7 @@ export default function MonitorLPR() {
                                     <span className="text-xs">Sin capturas recientes</span>
                                 </div>
                             ) : (
-                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} />)
+                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)
                             )}
                         </div>
                     </div>
@@ -760,7 +838,7 @@ export default function MonitorLPR() {
                             </div>
                             {eventsLoading && filteredEvents.length === 0
                                 ? Array.from({ length: 6 }).map((_, i) => <VehicleCardSkeleton key={i} />)
-                                : filteredEvents.slice(1, 15).map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} />)}
+                                : filteredEvents.slice(1, 15).map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)}
                         </div>
                     </div>
 
@@ -790,7 +868,7 @@ export default function MonitorLPR() {
                                     <span className="text-xs">Sin capturas recientes</span>
                                 </div>
                             ) : (
-                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} />)
+                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)
                             )}
                         </div>
                     </div>

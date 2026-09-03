@@ -113,7 +113,7 @@ export default function UsersPage() {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [userToDelete, setUserToDelete] = useState<UserWithRelations | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [createInitialData, setCreateInitialData] = useState<{ cara?: string } | undefined>(undefined);
+    const [createInitialData, setCreateInitialData] = useState<{ cara?: string; plate?: string } | undefined>(undefined);
     const observerTarget = useRef(null);
     const pageSize = 20; // Increased for denser view
     const searchParams = useSearchParams();
@@ -125,6 +125,7 @@ export default function UsersPage() {
         const face = searchParams.get("face");
         if (action === "create") {
             if (face) setCreateInitialData({ cara: decodeURIComponent(face) });
+            const plateQ = searchParams.get("plate"); if (plateQ) setCreateInitialData({ plate: decodeURIComponent(plateQ).toUpperCase() });
             setSelectedUser(null);
             setIsFormOpen(true);
             // Clean URL
