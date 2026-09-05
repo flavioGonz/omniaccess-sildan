@@ -167,6 +167,10 @@ model AccessEvent {
   device        Device?         @relation(fields: [deviceId], references: [id], map: "AccessEvent_deviceId_fkey_v2")
   user          User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
   bitacora      Bitacora?
+
+  // La presencia por lote y el historial de una matrícula consultan por estos campos.
+  @@index([plateDetected, timestamp])
+  @@index([timestamp])
 }
 
 model Bitacora {

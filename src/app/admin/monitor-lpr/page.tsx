@@ -401,10 +401,39 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     );
 });
 
+/** Une los puntos con las esquinas redondeadas, como una ruta de mapa. */
+function trazoRedondeado(pts: { x: number; y: number }[], radio = 14) {
+    if (!pts.length) return "";
+    if (pts.length < 3) return pts.map((p, i) => (i ? "L" : "M") + ` ${p.x} ${p.y}`).join(" ");
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length - 1; i++) {
+        const a = pts[i - 1], b = pts[i], c = pts[i + 1];
+        const v1 = { x: b.x - a.x, y: b.y - a.y }, v2 = { x: c.x - b.x, y: c.y - b.y };
+        const l1 = Math.hypot(v1.x, v1.y) || 1, l2 = Math.hypot(v2.x, v2.y) || 1;
+        const r = Math.min(radio, l1 / 2, l2 / 2);
+        d += ` L ${b.x - (v1.x / l1) * r} ${b.y - (v1.y / l1) * r}`;
+        d += ` Q ${b.x} ${b.y} ${b.x + (v2.x / l2) * r} ${b.y + (v2.y / l2) * r}`;
+    }
+    const f = pts[pts.length - 1];
+    return d + ` L ${f.x} ${f.y}`;
+}
+
 function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () => void }) {
     const [data, setData] = useState<any>(null);
     const [elems, setElems] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    // El overlay se dibuja en píxeles, no en un viewBox 0-100 deformado: si no, los
+    // círculos salen elípticos y los guiones de la ruta quedan de largo distinto
+    // según hacia dónde vaya la línea.
+    const imgRef = useRef<HTMLImageElement>(null);
+    const [caja, setCaja] = useState({ w: 0, h: 0 });
+    useEffect(() => {
+        const el = imgRef.current; if (!el) return;
+        const medir = () => setCaja({ w: el.clientWidth, h: el.clientHeight });
+        medir();
+        const ro = new ResizeObserver(medir); ro.observe(el);
+        return () => ro.disconnect();
+    }, [data?.mapUrl, loading]);
     useEffect(() => {
         let alive = true;
         Promise.all([getPlateParking(plate), getParkingElements().catch(() => null)])
@@ -443,11 +472,24 @@ function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () 
         return mid ? [ent, ...mid, centroid] : [ent, centroid];
     }, [centroid, elems]);
 
-    const routeD = route ? route.map((p, i) => (i === 0 ? "M" : "L") + " " + p.x + " " + p.y).join(" ") : "";
+    // Todo pasa a píxeles de la imagen ya renderizada
+    const aPx = (p: { x: number; y: number }) => ({ x: (p.x / 100) * caja.w, y: (p.y / 100) * caja.h });
+    const rutaPx = route && caja.w ? route.map(aPx) : null;
+    const routeD = rutaPx ? trazoRedondeado(rutaPx, Math.max(8, Math.min(caja.w, caja.h) * 0.02)) : "";
+    const largoRuta = rutaPx ? rutaPx.reduce((t, p, i) => (i ? t + Math.hypot(p.x - rutaPx[i - 1].x, p.y - rutaPx[i - 1].y) : 0), 0) : 0;
+    const destino = centroid && caja.w ? aPx(centroid) : null;
+    const origen = rutaPx?.[0] ?? null;
+    const escala = Math.max(0.7, Math.min(1.6, Math.min(caja.w, caja.h) / 700));
 
     return (
         <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-200" onClick={onClose}>
-            <style>{`@keyframes lprDash{to{stroke-dashoffset:-24}}`}</style>
+            <style>{`
+              @keyframes oaDibuja{from{stroke-dashoffset:var(--largo)}to{stroke-dashoffset:0}}
+              @keyframes oaFlujo{from{stroke-dashoffset:var(--largo)}to{stroke-dashoffset:calc(var(--largo) * -1)}}
+              @keyframes oaLatido{0%{transform:scale(.6);opacity:.55}70%{transform:scale(2.1);opacity:0}100%{opacity:0}}
+              @keyframes oaCae{0%{transform:translateY(-14px) scale(.85);opacity:0}60%{transform:translateY(2px) scale(1.03)}100%{transform:translateY(0) scale(1);opacity:1}}
+              @keyframes oaAura{0%,100%{opacity:.35}50%{opacity:.8}}
+            `}</style>
             <div className="relative w-[92vw] max-w-[1400px] rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
                 <button onClick={onClose} className="absolute top-3 right-3 z-20 p-2 rounded-full bg-black/50 backdrop-blur text-white/80 hover:text-white hover:bg-black/70 transition-colors"><X size={18} /></button>
                 {loading ? (
@@ -457,15 +499,52 @@ function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () 
                 ) : (
                     <div className="relative bg-black">
                         {data.mapUrl ? (
-                            <img src={data.mapUrl} alt="Plano del barrio" className="w-full max-h-[82vh] object-contain grayscale opacity-55 invert select-none pointer-events-none" draggable={false} />
+                            <img ref={imgRef} src={data.mapUrl} alt="Plano del barrio" className="w-full max-h-[82vh] object-contain grayscale opacity-55 invert select-none pointer-events-none" draggable={false} onLoad={() => setCaja({ w: imgRef.current?.clientWidth || 0, h: imgRef.current?.clientHeight || 0 })} />
                         ) : <div className="p-16 text-center text-xs text-muted-foreground">No hay plano del barrio cargado.</div>}
-                        {data.mapUrl && (
-                            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-                                {routeD && <path d={routeD} fill="none" stroke="#0b1220" strokeOpacity={0.6} strokeWidth="4.5" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />}
-                                {routeD && <path d={routeD} fill="none" stroke="#22d3ee" strokeWidth="2.4" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="6 5" style={{ animation: "lprDash 1s linear infinite" }} />}
-                                {route && route[0] && <circle cx={route[0].x} cy={route[0].y} r="1.3" fill="#22d3ee" stroke="#0b1220" strokeWidth="0.6" vectorEffect="non-scaling-stroke" />}
-                                {points && <path d={points.map((p: any, i: number) => (i === 0 ? "M" : "L") + " " + norm(p).x + " " + norm(p).y).join(" ") + " Z"} fill="rgba(59,130,246,0.5)" stroke="#60a5fa" strokeWidth="2" vectorEffect="non-scaling-stroke" className="animate-pulse" />}
-                                {centroid && <circle cx={centroid.x} cy={centroid.y} r="1.4" fill="#fff" stroke="#3b82f6" strokeWidth="0.8" vectorEffect="non-scaling-stroke" />}
+                        {data.mapUrl && caja.w > 0 && (
+                            <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox={`0 0 ${caja.w} ${caja.h}`}>
+                                <defs>
+                                    <linearGradient id="oaRuta" x1="0" y1="0" x2="1" y2="1">
+                                        <stop offset="0%" stopColor="#38bdf8" /><stop offset="55%" stopColor="#3b82f6" /><stop offset="100%" stopColor="#6366f1" />
+                                    </linearGradient>
+                                    <filter id="oaBrillo" x="-40%" y="-40%" width="180%" height="180%">
+                                        <feGaussianBlur stdDeviation={3 * escala} result="b" />
+                                        <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                    </filter>
+                                    <filter id="oaSombra" x="-60%" y="-60%" width="220%" height="220%">
+                                        <feDropShadow dx="0" dy={2 * escala} stdDeviation={2.5 * escala} floodColor="#000" floodOpacity="0.55" />
+                                    </filter>
+                                </defs>
+
+                                {/* La ruta: contorno oscuro, línea llena y un destello que la recorre */}
+                                {routeD && <>
+                                    <path d={routeD} fill="none" stroke="#0b1220" strokeOpacity={0.55} strokeWidth={11 * escala} strokeLinecap="round" strokeLinejoin="round" />
+                                    <path d={routeD} fill="none" stroke="url(#oaRuta)" strokeWidth={6 * escala} strokeLinecap="round" strokeLinejoin="round"
+                                        style={{ ["--largo" as any]: largoRuta, strokeDasharray: largoRuta, animation: "oaDibuja 1.1s cubic-bezier(.4,0,.2,1) forwards" }} />
+                                    <path d={routeD} fill="none" stroke="#e0f2fe" strokeWidth={3 * escala} strokeLinecap="round" strokeLinejoin="round" filter="url(#oaBrillo)" opacity={0.9}
+                                        style={{ ["--largo" as any]: largoRuta, strokeDasharray: `${Math.max(18, largoRuta * 0.07)} ${largoRuta}`, animation: "oaFlujo 2.6s linear infinite 1s" }} />
+                                </>}
+
+                                {/* El lote de destino */}
+                                {points && caja.w > 0 && <path
+                                    d={points.map((p: any, i: number) => { const q = aPx(norm(p)); return (i === 0 ? "M" : "L") + ` ${q.x} ${q.y}`; }).join(" ") + " Z"}
+                                    fill="rgba(59,130,246,0.28)" stroke="#60a5fa" strokeWidth={2 * escala} strokeLinejoin="round"
+                                    style={{ animation: "oaAura 2.2s ease-in-out infinite" }} />}
+
+                                {/* Punto de partida: la entrada */}
+                                {origen && <g>
+                                    <circle cx={origen.x} cy={origen.y} r={9 * escala} fill="#38bdf8" style={{ transformOrigin: `${origen.x}px ${origen.y}px`, animation: "oaLatido 2s ease-out infinite" }} />
+                                    <circle cx={origen.x} cy={origen.y} r={7 * escala} fill="#fff" filter="url(#oaSombra)" />
+                                    <circle cx={origen.x} cy={origen.y} r={4.5 * escala} fill="#0ea5e9" />
+                                </g>}
+
+                                {/* Destino: pin de gota que cae al abrir */}
+                                {destino && <g style={{ transformOrigin: `${destino.x}px ${destino.y}px`, animation: "oaCae .5s cubic-bezier(.34,1.4,.64,1) .9s backwards" }}>
+                                    <ellipse cx={destino.x} cy={destino.y + 1.5 * escala} rx={5.5 * escala} ry={2 * escala} fill="#000" opacity={0.35} />
+                                    <path d={`M ${destino.x} ${destino.y} c ${-6 * escala} ${-9 * escala} ${-9.5 * escala} ${-13 * escala} ${-9.5 * escala} ${-18.5 * escala} a ${9.5 * escala} ${9.5 * escala} 0 1 1 ${19 * escala} 0 c 0 ${5.5 * escala} ${-3.5 * escala} ${9.5 * escala} ${-9.5 * escala} ${18.5 * escala} z`}
+                                        fill="#2563eb" stroke="#fff" strokeWidth={1.6 * escala} filter="url(#oaSombra)" />
+                                    <circle cx={destino.x} cy={destino.y - 18.5 * escala} r={3.6 * escala} fill="#fff" />
+                                </g>}
                             </svg>
                         )}
                         {/* Datos en overlay — se ubica en el rincón opuesto a la plaza para no tapar el camino */}
@@ -476,7 +555,7 @@ function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () 
                                 {data.unitNumber && <div><span className="text-[9px] text-white/50 uppercase tracking-widest block">Unidad</span><span className="text-sm font-bold text-white">{data.unitNumber}</span></div>}
                                 {data.resident && <div className="min-w-0 max-w-[160px]"><span className="text-[9px] text-white/50 uppercase tracking-widest block">Residente</span><span className="text-sm font-bold text-white truncate block">{data.resident}</span></div>}
                             </div>
-                            {route && <div className="mt-2 flex items-center gap-1.5 text-[10px] text-cyan-300"><span className="inline-block w-3 h-0.5 bg-cyan-400 rounded" /> Camino desde la entrada</div>}
+                            {route && <div className="mt-2 flex items-center gap-1.5 text-[10px] text-sky-300"><span className="inline-block w-4 h-[3px] rounded-full bg-gradient-to-r from-sky-400 to-indigo-500" /> Camino desde la entrada</div>}
                         </div>
                     </div>
                 )}
