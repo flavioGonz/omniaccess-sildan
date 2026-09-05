@@ -362,12 +362,43 @@ export default function PlazasPage() {
             y: minY + (maxY - minY) / 2
         };
     };
+    /* ── Datos del modal de asignación ──
+       Todo lo que hace falta para decidir, junto: qué unidad tiene cada plaza,
+       cuántos residentes, qué matrículas, y si esa unidad YA está en otra plaza. */
+    const plazaSel = slots.find(s => s.id === selectedSlot) || null;
+    const unidadDe = (id: string | null | undefined) => units.find(u => u.id === id) || null;
+    const matriculasDe = (u: any): string[] => u?.users?.flatMap((x: any) => x.credentials?.map((c: any) => c.value) || []) || [];
+    /** unidad → etiqueta de la plaza que ya la tiene (para no asignarla dos veces) */
+    const plazaDeUnidad: Record<string, string> = {};
+    for (const s of slots) if (s.unitId) plazaDeUnidad[s.unitId] = s.label;
+    /** El sector son las letras del principio: "A-12" → "A", "A6" → "A", "101" → "#". */
+    const sectorDeEtiqueta = (l: string) => {
+        const m = String(l || "").trim().match(/^([A-Za-z]+)/);
+        return m ? m[1].toUpperCase() : "#";
+    };
+
     const filteredUnits = units.filter(u => {
         const searchLower = searchUnit.toLowerCase();
         const name = (u.name || '').toLowerCase();
         const number = (u.number || '').toLowerCase();
         return name.includes(searchLower) || number.includes(searchLower);
     });
+
+    /** La unidad ya asignada va primero; el resto agrupado por sector. */
+    const unidadesAgrupadas = (() => {
+        const asignada = plazaSel?.unitId || null;
+        const resto = filteredUnits.filter(u => u.id !== asignada);
+        // Ojo: en este archivo `Map` es el icono de lucide-react, no el de JS.
+        const grupos: Record<string, any[]> = {};
+        for (const u of resto) {
+            const k = sectorDeEtiqueta(u.number || u.name);
+            (grupos[k] ||= []).push(u);
+        }
+        return Object.entries(grupos).sort((a, b) => a[0].localeCompare(b[0], "es", { numeric: true }));
+    })();
+    const actual = plazaSel?.unitId ? unidadDe(plazaSel.unitId) : null;
+    const actualVisible = actual && filteredUnits.some(u => u.id === actual.id);
+    const [confirmarBorrado, setConfirmarBorrado] = useState(false);
 
     const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
 
@@ -880,210 +911,196 @@ export default function PlazasPage() {
             </div>
 
             {/* Unit Selector Modal - Enhanced */}
-            {showUnitSelector && selectedSlot && (
-                <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-in fade-in duration-300">
-                    <div className="bg-card/70 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 rounded-2xl w-full max-w-lg shadow-2xl shadow-black/40 animate-in zoom-in-95 duration-300 overflow-hidden">
-                        {/* Header with Gradient */}
-                        <div className="relative p-6 border-b border-white/10 bg-gradient-to-br from-blue-500/10 via-transparent to-indigo-500/10 overflow-hidden">
-                            <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl -mr-16 -mt-16" />
-                            <div className="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -ml-16 -mb-16" />
+            {showUnitSelector && selectedSlot && plazaSel && (() => {
+                const cerrar = () => { setShowUnitSelector(false); setSelectedSlot(null); setSearchUnit(""); setConfirmarBorrado(false); };
+                const matriculasActual = actual ? matriculasDe(actual) : [];
 
-                            <div className="relative flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div className="p-3 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-lg border border-blue-500/30 shadow-lg shadow-blue-500/10">
-                                        <Home size={24} className="text-blue-400" />
+                /** Una fila de la lista de unidades. */
+                const Fila = ({ u, esActual = false }: { u: any; esActual?: boolean }) => {
+                    const plates = matriculasDe(u);
+                    const ocupa = plazaDeUnidad[u.id];
+                    const enOtra = ocupa && ocupa !== plazaSel.label;
+                    return (
+                        <button
+                            onClick={() => linkSlotToUnit(selectedSlot!, u.id)}
+                            className={cn(
+                                "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-colors group",
+                                esActual
+                                    ? "border-emerald-500/40 bg-emerald-500/10"
+                                    : "border-transparent hover:border-sky-500/40 hover:bg-sky-500/[0.07]"
+                            )}
+                        >
+                            <span className={cn(
+                                "w-9 h-9 rounded-lg grid place-items-center text-[11px] font-bold shrink-0 tabular-nums",
+                                esActual ? "bg-emerald-500/20 text-emerald-300" : "bg-foreground/[0.06] text-muted-foreground group-hover:text-sky-300"
+                            )}>{sectorDeEtiqueta(u.number || u.name)}</span>
+
+                            <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-foreground truncate">{u.number || u.name}</span>
+                                    {u.name && u.number && u.name !== u.number && <span className="text-[11px] text-muted-foreground truncate">{u.name}</span>}
+                                </span>
+                                <span className="flex items-center gap-2 mt-1 min-w-0">
+                                    <span className="text-[10.5px] text-muted-foreground shrink-0">
+                                        {u.users?.length ? `${u.users.length} ${u.users.length === 1 ? "residente" : "residentes"}` : "sin residentes"}
+                                    </span>
+                                    {plates.slice(0, 3).map((p: string, i: number) => (
+                                        <span key={i} className="px-1.5 py-px rounded bg-foreground/[0.07] font-mono text-[10px] text-muted-foreground tracking-wide shrink-0">{p}</span>
+                                    ))}
+                                    {plates.length > 3 && <span className="text-[10px] text-muted-foreground shrink-0">+{plates.length - 3}</span>}
+                                </span>
+                            </span>
+
+                            {esActual ? (
+                                <span className="shrink-0 text-[9.5px] font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1"><CheckCircle2 size={13} /> Asignada</span>
+                            ) : enOtra ? (
+                                <span className="shrink-0 text-[9.5px] font-bold uppercase tracking-widest text-amber-400/90" title="Esta unidad ya tiene otra plaza; al elegirla se moverá acá">
+                                    Plaza {ocupa}
+                                </span>
+                            ) : (
+                                <span className="shrink-0 text-[9.5px] font-bold uppercase tracking-widest text-muted-foreground/60 group-hover:text-sky-400">Asignar</span>
+                            )}
+                        </button>
+                    );
+                };
+
+                return (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-center justify-center p-6 animate-in fade-in duration-200"
+                    onClick={cerrar}
+                    onKeyDown={(e) => { if (e.key === "Escape") cerrar(); }}>
+                    <div onClick={(e) => e.stopPropagation()}
+                        className="bg-card/80 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 rounded-2xl w-full max-w-2xl max-h-[86vh] shadow-2xl shadow-black/50 animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col">
+                        {/* ── Encabezado: la plaza, su estado y el nombre editable ── */}
+                        <div className="relative shrink-0 px-6 pt-5 pb-4 border-b border-white/10 bg-gradient-to-br from-sky-500/[0.07] via-transparent to-indigo-500/[0.07]">
+                            <div className="absolute top-0 right-0 w-40 h-40 bg-sky-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
+                            <div className="relative flex items-start justify-between gap-4">
+                                <div className="flex items-center gap-4 min-w-0">
+                                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-500/25 to-indigo-500/20 border border-sky-400/30 grid place-items-center shrink-0 shadow-lg shadow-sky-900/30">
+                                        <span className="text-lg font-bold text-sky-200 leading-none">{sectorDeEtiqueta(plazaSel.label)}</span>
                                     </div>
-                                    <div>
-                                        <h3 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-neutral-300 uppercase tracking-tight">
-                                            Gestionar Plaza
-                                        </h3>
-                                        <p className="text-xs text-muted-foreground font-bold mt-1 flex items-center gap-2">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                                            Plaza: {slots.find(s => s.id === selectedSlot)?.label}
-                                        </p>
-                                    </div>
-                                </div>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => {
-                                        setShowUnitSelector(false);
-                                        setSelectedSlot(null);
-                                    }}
-                                    className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-xl transition-all"
-                                >
-                                    <X size={20} />
-                                </Button>
-                            </div>
-
-                            {/* Controls */}
-                            <div className="mt-6 space-y-4">
-                                {/* Name Input */}
-                                <div>
-                                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-1.5 block">Identificador</label>
-                                    <input
-                                        type="text"
-                                        value={slots.find(s => s.id === selectedSlot)?.label || ''}
-                                        onChange={(e) => updateSlotLabel(selectedSlot!, e.target.value)}
-                                        className="w-full h-10 px-4 bg-background/40 border border-white/10 rounded-xl text-sm text-foreground focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition-all font-bold uppercase tracking-widest"
-                                    />
-                                </div>
-
-                                {/* Current Assignment - Show if assigned */}
-                                {slots.find(s => s.id === selectedSlot)?.unitId && (
-                                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-3">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                                                    <Home size={16} className="text-emerald-400" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs text-emerald-300 font-bold">Asignado a:</p>
-                                                    <p className="text-sm text-foreground font-bold">
-                                                        {units.find(u => u.id === slots.find(s => s.id === selectedSlot)?.unitId)?.number ||
-                                                            units.find(u => u.id === slots.find(s => s.id === selectedSlot)?.unitId)?.name}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                onClick={() => {
-                                                    setSlots(slots.map(s =>
-                                                        s.id === selectedSlot ? { ...s, unitId: null } : s
-                                                    ));
-                                                }}
-                                                className="text-red-400 hover:text-red-300 hover:bg-red-500/20 text-xs font-bold"
-                                            >
-                                                <Trash2 size={14} className="mr-1" />
-                                                Desasignar
-                                            </Button>
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2.5">
+                                            <input
+                                                type="text"
+                                                value={plazaSel.label}
+                                                onChange={(e) => updateSlotLabel(selectedSlot!, e.target.value)}
+                                                aria-label="Nombre de la plaza"
+                                                className="bg-transparent text-2xl font-bold text-foreground tracking-tight w-[9ch] border-b border-dashed border-transparent hover:border-white/20 focus:border-sky-400/60 focus:outline-none transition-colors"
+                                            />
+                                            <Pencil size={13} className="text-muted-foreground/50 shrink-0" />
+                                        </div>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9.5px] font-bold uppercase tracking-widest",
+                                                actual ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300")}>
+                                                <span className={cn("w-1.5 h-1.5 rounded-full", actual ? "bg-emerald-400" : "bg-amber-400")} />
+                                                {actual ? "Asignada" : "Sin asignar"}
+                                            </span>
+                                            <span className="text-[10.5px] text-muted-foreground">{units.length} unidades en el padrón</span>
                                         </div>
                                     </div>
-                                )}
-
-                                {/* Search Bar */}
-                                <div>
-                                    <label className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest mb-1.5 block">
-                                        {slots.find(s => s.id === selectedSlot)?.unitId ? 'Cambiar Unidad / Lote' : 'Asignar Unidad / Lote'}
-                                    </label>
-                                    <div className="relative">
-                                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                                        <input
-                                            type="text"
-                                            placeholder="Buscar por número o nombre..."
-                                            value={searchUnit}
-                                            onChange={(e) => setSearchUnit(e.target.value)}
-                                            className="w-full h-10 pl-10 pr-4 bg-background/40 border border-white/10 rounded-xl text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/30 transition-all"
-                                            autoFocus
-                                        />
-                                    </div>
                                 </div>
+                                <button onClick={cerrar} aria-label="Cerrar"
+                                    className="shrink-0 p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><X size={18} /></button>
+                            </div>
+
+                            {/* Asignación actual */}
+                            {actual && (
+                                <div className="relative mt-4 flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.08] px-3.5 py-3">
+                                    <Home size={16} className="text-emerald-400 shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[9.5px] font-bold uppercase tracking-widest text-emerald-400/80">Asignada a</p>
+                                        <p className="text-sm font-bold text-foreground truncate">
+                                            {actual.number || actual.name}
+                                            {actual.name && actual.number && actual.name !== actual.number && <span className="ml-2 text-[11px] font-normal text-muted-foreground">{actual.name}</span>}
+                                        </p>
+                                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                            <span className="text-[10.5px] text-muted-foreground">
+                                                {actual.users?.length ? `${actual.users.length} ${actual.users.length === 1 ? "residente" : "residentes"}` : "sin residentes"}
+                                            </span>
+                                            {matriculasActual.slice(0, 4).map((p: string, i: number) => (
+                                                <span key={i} className="px-1.5 py-px rounded bg-emerald-500/15 font-mono text-[10px] text-emerald-200 tracking-wide">{p}</span>
+                                            ))}
+                                            {matriculasActual.length > 4 && <span className="text-[10px] text-muted-foreground">+{matriculasActual.length - 4}</span>}
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setSlots(slots.map(s => s.id === selectedSlot ? { ...s, unitId: null } : s))}
+                                        className="shrink-0 px-3 h-8 rounded-lg text-[11px] font-bold text-muted-foreground hover:text-red-300 hover:bg-red-500/15 transition-colors">
+                                        Quitar
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Buscador */}
+                            <div className="relative mt-4">
+                                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                                <input
+                                    type="text"
+                                    placeholder={actual ? "Buscar otra unidad para reasignar…" : "Buscar unidad por número, nombre o matrícula…"}
+                                    value={searchUnit}
+                                    onChange={(e) => setSearchUnit(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter" && filteredUnits[0]) linkSlotToUnit(selectedSlot!, filteredUnits[0].id); }}
+                                    autoFocus
+                                    className="w-full h-10 pl-9 pr-20 bg-background/50 border border-white/10 rounded-xl text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/25 transition-all"
+                                />
+                                {searchUnit && (
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground tabular-nums">
+                                        {filteredUnits.length} {filteredUnits.length === 1 ? "resultado" : "resultados"}
+                                    </span>
+                                )}
                             </div>
                         </div>
 
-                        {/* Units List with Scroll */}
-                        <div className="p-4 max-h-[400px] overflow-y-auto custom-scrollbar space-y-2">
+                        {/* ── Lista de unidades, agrupada por sector ── */}
+                        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-3 py-3">
                             {filteredUnits.length === 0 ? (
-                                <div className="py-16 text-center">
-                                    <div className="w-16 h-16 mx-auto mb-4 bg-muted/50 rounded-lg flex items-center justify-center">
-                                        <Search size={24} className="text-muted-foreground" />
-                                    </div>
-                                    <p className="text-muted-foreground text-sm font-bold">No se encontraron unidades</p>
-                                    <p className="text-muted-foreground text-xs mt-1">Intenta con otro término de búsqueda</p>
+                                <div className="py-14 text-center">
+                                    <Search size={22} className="mx-auto text-muted-foreground/50 mb-3" />
+                                    <p className="text-sm font-bold text-foreground">Ninguna unidad coincide</p>
+                                    <p className="text-xs text-muted-foreground mt-1">Probá con el número de lote, el apellido o la matrícula.</p>
                                 </div>
                             ) : (
-                                filteredUnits.map((unit: any, index) => {
-                                    const plates = unit.users?.flatMap((u: any) =>
-                                        u.credentials?.map((c: any) => c.value) || []
-                                    ) || [];
-                                    const userCount = unit.users?.length || 0;
-
-                                    return (
-                                        <button
-                                            key={unit.id}
-                                            onClick={() => linkSlotToUnit(selectedSlot, unit.id)}
-                                            className="w-full p-4 bg-white/[0.03] hover:bg-blue-500/10 border border-white/10 hover:border-blue-500/40 rounded-xl text-left transition-all group relative overflow-hidden animate-in slide-in-from-bottom-2 duration-300"
-                                            style={{ animationDelay: (index * 30) + "ms" }}
-                                        >
-                                            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 to-purple-500/0 group-hover:from-blue-500/5 group-hover:to-purple-500/5 transition-all duration-500" />
-                                            <div className="relative space-y-3">
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-lg flex items-center justify-center border border-blue-500/20 group-hover:scale-110 transition-transform">
-                                                            <Home size={16} className="text-blue-400" />
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-sm font-bold text-foreground group-hover:text-blue-300 transition-colors">{unit.number || unit.name}</p>
-                                                            <p className="text-xs text-muted-foreground font-bold mt-0.5">{unit.name}</p>
-                                                        </div>
-                                                    </div>
-                                                    <CheckCircle2 size={18} className="text-emerald-500 opacity-0 group-hover:opacity-100 transition-all scale-0 group-hover:scale-100" />
-                                                </div>
-
-                                                {/* Users and Plates Info */}
-                                                {(userCount > 0 || plates.length > 0) && (
-                                                    <div className="pl-13 space-y-1.5 pt-2 border-t border-border">
-                                                        {userCount > 0 && (
-                                                            <div className="flex items-center gap-2 text-xs">
-                                                                <UserIcon size={12} className="text-muted-foreground" />
-                                                                <span className="text-muted-foreground font-bold">
-                                                                    {userCount} {userCount === 1 ? 'residente' : 'residentes'}
-                                                                </span>
-                                                            </div>
-                                                        )}
-                                                        {plates.length > 0 && (
-                                                            <div className="flex items-center gap-2 text-xs">
-                                                                <Car size={12} className="text-muted-foreground" />
-                                                                <div className="flex flex-wrap gap-1">
-                                                                    {plates.slice(0, 3).map((plate: string, i: number) => (
-                                                                        <span key={i} className="px-1.5 py-0.5 bg-muted/50 rounded text-[10px] font-mono text-muted-foreground">
-                                                                            {plate}
-                                                                        </span>
-                                                                    ))}
-                                                                    {plates.length > 3 && (
-                                                                        <span className="text-muted-foreground text-[10px] font-bold">
-                                                                            +{plates.length - 3}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </button>
-                                    );
-                                })
+                                <>
+                                    {actualVisible && actual && (
+                                        <div className="mb-2">
+                                            <p className="px-3 pb-1.5 text-[9.5px] font-bold uppercase tracking-widest text-emerald-400/70">Asignada ahora</p>
+                                            <Fila u={actual} esActual />
+                                        </div>
+                                    )}
+                                    {unidadesAgrupadas.map(([sector, us]) => (
+                                        <div key={sector} className="mb-1">
+                                            <p className="sticky top-0 z-10 px-3 py-1.5 -mx-3 bg-card/85 backdrop-blur text-[9.5px] font-bold uppercase tracking-widest text-muted-foreground">
+                                                Sector {sector} <span className="ml-1 text-muted-foreground/50">{us.length}</span>
+                                            </p>
+                                            {us.map((u: any) => <Fila key={u.id} u={u} />)}
+                                        </div>
+                                    ))}
+                                </>
                             )}
                         </div>
 
-                        {/* Footer Actions */}
-                        <div className="p-4 border-t border-white/10 bg-black/20 backdrop-blur-xl flex gap-3">
-                            <Button
-                                variant="outline"
-                                onClick={() => {
-                                    if (selectedSlot) {
-                                        linkSlotToUnit(selectedSlot, '');
-                                    }
-                                }}
-                                className="flex-1 border-border bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground h-11 rounded-xl text-xs font-bold uppercase tracking-wider transition-all"
-                            >
-                                <XCircle size={16} className="mr-2" />
-                                Desasignar
-                            </Button>
-                            <Button
-                                variant="outline"
-                                onClick={() => removeSlot(selectedSlot)}
-                                className="border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:border-red-500/50 h-11 px-6 rounded-xl text-xs font-bold uppercase tracking-wider transition-all"
-                            >
-                                <Trash2 size={16} className="mr-2" />
-                                Eliminar Plaza
-                            </Button>
+                        {/* ── Pie: solo lo destructivo, con confirmación en dos pasos ── */}
+                        <div className="shrink-0 px-4 py-3 border-t border-white/10 bg-black/25 backdrop-blur-xl flex items-center justify-between gap-3">
+                            <p className="text-[10.5px] text-muted-foreground">
+                                {actual ? "Elegí otra unidad para reasignar, o quitá la asignación." : "Elegí una unidad de la lista para asignarla."}
+                            </p>
+                            {confirmarBorrado ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-bold text-red-300">¿Eliminar la plaza {plazaSel.label}?</span>
+                                    <button onClick={() => setConfirmarBorrado(false)}
+                                        className="h-9 px-3 rounded-lg text-[11px] font-bold text-muted-foreground hover:bg-accent transition-colors">No</button>
+                                    <button onClick={() => { removeSlot(selectedSlot!); setConfirmarBorrado(false); setShowUnitSelector(false); }}
+                                        className="h-9 px-4 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-red-600 text-white hover:bg-red-500 transition-colors">Sí, eliminar</button>
+                                </div>
+                            ) : (
+                                <button onClick={() => setConfirmarBorrado(true)}
+                                    className="h-9 px-4 rounded-lg text-[11px] font-bold uppercase tracking-wider text-red-400 hover:bg-red-500/15 transition-colors flex items-center gap-1.5">
+                                    <Trash2 size={14} /> Eliminar plaza
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
-            )}
+            ); })()}
 
             <style jsx global>{`
                 .custom-scrollbar::-webkit-scrollbar {

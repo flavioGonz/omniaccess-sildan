@@ -1,6 +1,7 @@
 'use server'
 
 import { cookies } from 'next/headers'
+import { pantallaInicio } from '@/lib/landing'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { SignJWT, jwtVerify } from 'jose'
@@ -140,7 +141,11 @@ export async function login(formData: FormData) {
         path: '/'
     })
 
-    redirect('/admin/dashboard')
+    // Entrar directo al monitor del modo activo: es la pantalla de trabajo real,
+    // y la misma que abre "Monitor en Vivo" en el menú.
+    const modos = await prisma.setting.findMany({ where: { key: { in: ['MODULE_QUEUE', 'MODULE_FACE', 'MODULE_LPR'] } } })
+    const activo = (k: string) => modos.find(m => m.key === k)?.value === 'true'
+    redirect(pantallaInicio({ MODULE_QUEUE: activo('MODULE_QUEUE'), MODULE_FACE: activo('MODULE_FACE'), MODULE_LPR: activo('MODULE_LPR') }))
 }
 
 export async function resetPassword(formData: FormData) {

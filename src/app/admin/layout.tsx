@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { pantallaInicio } from "@/lib/landing";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import Link from "next/link";
