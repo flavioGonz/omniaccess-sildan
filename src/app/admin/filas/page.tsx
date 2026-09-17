@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { DeleteButton } from "@/components/ui/delete-button";
 import {
     Rows3, Plus, Trash2, Pencil, Save, X, Shield, Gauge, Video,
     RefreshCw, Bell, BellOff, AlertTriangle, Target, Clock,
@@ -383,7 +384,7 @@ function AlertFormModal({ open, editingId, formName, setFormName, formDevice, se
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
                                         <button onClick={() => onEditAlert && onEditAlert(a)} title="Editar" className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-blue-400"><Pencil size={12} /></button>
-                                        <button onClick={() => onDelete && onDelete(a.id)} title="Eliminar" className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-red-400"><Trash2 size={12} /></button>
+                                        <DeleteButton onConfirm={() => onDelete && onDelete(a.id)} />
                                     </div>
                                 </div>
                             ))}
@@ -678,7 +679,7 @@ export default function FilasPage() {
     };
 
     const toggleAlert = async (id: string, enabled: boolean) => { await updateQueueAlert(id, { enabled }); loadData(); };
-    const removeAlert = async (id: string) => { if (!confirm("Eliminar este umbral?")) return; await deleteQueueAlert(id); toast.success("Eliminado"); loadData(); };
+    const removeAlert = async (id: string) => { await deleteQueueAlert(id); toast.success("Eliminado"); loadData(); };
     const quickAdjustThreshold = async (id: string, delta: number) => {
         const alert = alerts.find(a => a.id === id);
         if (!alert) return;

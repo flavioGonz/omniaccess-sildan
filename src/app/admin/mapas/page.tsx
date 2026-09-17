@@ -259,8 +259,17 @@ export default function MapasPage() {
                     <div className="fixed inset-0 z-[999]" onClick={() => setLayersOpen(false)} />
                     <div className="absolute top-[64px] left-1/2 -translate-x-1/2 z-[1001] flex items-center gap-1 p-1 rounded-full bg-card/95 backdrop-blur-xl border border-border shadow-lg animate-in fade-in slide-in-from-top-1 duration-200">
                         <span className="pl-2 pr-1 text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Capa</span>
-                        <button onClick={() => { setTiles("calles"); setLayersOpen(false); }} className={cn("px-3 py-1.5 rounded-full text-[11px] font-bold transition", tiles === "calles" ? "bg-blue-500 text-white" : "text-foreground/60 hover:bg-accent")}>Calles</button>
-                        <button onClick={() => { setTiles("satelite"); setLayersOpen(false); }} className={cn("px-3 py-1.5 rounded-full text-[11px] font-bold transition", tiles === "satelite" ? "bg-blue-500 text-white" : "text-foreground/60 hover:bg-accent")}>Satélite</button>
+                        {[
+                            { k: "tactico", n: "Táctico" },
+                            { k: "hibrido", n: "Híbrido" },
+                            { k: "satelite", n: "Satélite" },
+                            { k: "calles", n: "Calles" },
+                        ].map((o) => (
+                            <button key={o.k} onClick={() => { setTiles(o.k); setLayersOpen(false); }}
+                                className={cn("px-3 py-1.5 rounded-full text-[11px] font-bold transition", tiles === o.k ? "bg-blue-500 text-white" : "text-foreground/60 hover:bg-accent")}>
+                                {o.n}
+                            </button>
+                        ))}
                     </div>
                 </>
             )}

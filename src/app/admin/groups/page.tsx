@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Trash2, Plus, Users, Search, Cpu, ShieldCheck, Loader2 } from "lucide-react";
+import { DeleteButton } from "@/components/ui/delete-button";
 
 type AccessGroupWithCounts = {
     id: string;
@@ -60,7 +61,7 @@ export default function GroupsPage() {
     }
 
     async function handleDelete(id: string) {
-        if (!confirm("¿Eliminar este grupo de acceso? Esta acción no se puede deshacer.")) return;
+        // la confirmacion la hace el propio boton (hay que mantenerlo apretado)
         await deleteAccessGroup(id);
         await load();
     }
@@ -183,15 +184,9 @@ export default function GroupsPage() {
                                         {new Date(g.createdAt).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}
                                     </TableCell>
                                     <TableCell className="text-right pr-4">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => handleDelete(g.id)}
-                                            className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
-                                            title="Eliminar grupo"
-                                        >
-                                            <Trash2 size={15} />
-                                        </Button>
+                                        <div className="flex justify-end">
+                                            <DeleteButton onConfirm={() => handleDelete(g.id)} />
+                                        </div>
                                     </TableCell>
                                 </TableRow>
                             ))

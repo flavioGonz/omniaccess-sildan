@@ -1,6 +1,6 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Pane, useMapEvents, useMap } from "react-leaflet";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "leaflet/dist/leaflet.css";
@@ -79,9 +79,33 @@ function VideoOverlays({ geo, devices, aforo, limit, onSelect }: { geo: Geo[]; d
     );
 }
 
-const TILES: Record<string, { url: string; attr: string }> = {
-    calles: { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", attr: "&copy; OpenStreetMap" },
-    satelite: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", attr: "&copy; Esri" },
+// Capas del mapa. "filter" es el tratamiento de color de cada base para que el
+// conjunto se lea como un mapa tactico y no como una foto de Google.
+const TILES: Record<string, { url: string; attr: string; filter: string; labels?: string; dark?: boolean }> = {
+    tactico: {
+        url: "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
+        labels: "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
+        attr: "&copy; OpenStreetMap, &copy; CARTO",
+        filter: "contrast(1.08) saturate(0.9)",
+        dark: true,
+    },
+    hibrido: {
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        labels: "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
+        attr: "&copy; Esri, &copy; CARTO",
+        filter: "saturate(0.45) contrast(1.22) brightness(0.82)",
+        dark: true,
+    },
+    satelite: {
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        attr: "&copy; Esri",
+        filter: "saturate(0.7) contrast(1.1) brightness(0.92)",
+    },
+    calles: {
+        url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+        attr: "&copy; OpenStreetMap, &copy; CARTO",
+        filter: "none",
+    },
 };
 
 export default function RealMap({ geo, devices, aforo, limit, center, edit, flashId, tiles = "calles", bright = 0, pip = true, onMove, onSelect, onView }: {
@@ -89,14 +113,30 @@ export default function RealMap({ geo, devices, aforo, limit, center, edit, flas
     center: { lat: number; lng: number; zoom: number }; edit: boolean; flashId: string | null; tiles?: string; bright?: number; pip?: boolean;
     onMove: (id: string, lat: number, lng: number) => void; onSelect: (id: string) => void; onView: (lat: number, lng: number, zoom: number) => void;
 }) {
-    const tl = TILES[tiles] || TILES.calles;
-    const tileFilter = bright !== 0 ? `brightness(${(1 + bright / 100).toFixed(2)})` : "none";
+    const tl = TILES[tiles] || TILES.tactico;
+    const brillo = bright !== 0 ? ` brightness(${(1 + bright / 100).toFixed(2)})` : "";
+    const tileFilter = `${tl.filter}${brillo}`.trim();
     const showVideo = pip && !edit;
     return (
         <>
-        <style>{`.omni-map .leaflet-tile-pane{filter:${tileFilter};transition:filter .2s ease;}`}</style>
-        <MapContainer center={[center.lat, center.lng]} zoom={center.zoom} className="w-full h-full omni-map" style={{ background: "#0a0a0b" }} preferCanvas>
+        <style>{`
+            .omni-map .leaflet-tile-pane{filter:${tileFilter};transition:filter .25s ease;}
+            /* las etiquetas de calles van sin tratamiento, para que se lean nitidas */
+            .omni-map .leaflet-pane.omni-labels{filter:none !important;opacity:.92;}
+            .omni-map .leaflet-control-attribution{background:rgba(10,10,11,.6)!important;color:#8b8b93!important;font-size:9px;border-radius:6px 0 0 0;}
+            .omni-map .leaflet-control-attribution a{color:#9aa4b2!important;}
+            /* vineteado: concentra la atencion en el centro del barrio */
+            .omni-vignette{position:absolute;inset:0;pointer-events:none;z-index:400;
+                box-shadow:inset 0 0 160px 40px rgba(0,0,0,.55);}
+            /* retícula tenue, estilo tablero de operaciones */
+            .omni-grid{position:absolute;inset:0;pointer-events:none;z-index:399;opacity:.16;
+                background-image:linear-gradient(rgba(148,163,184,.55) 1px,transparent 1px),
+                                 linear-gradient(90deg,rgba(148,163,184,.55) 1px,transparent 1px);
+                background-size:120px 120px;}
+        `}</style>
+        <MapContainer center={[center.lat, center.lng]} zoom={center.zoom} className="w-full h-full omni-map" style={{ background: "#07080a" }} preferCanvas>
             <TileLayer url={tl.url} attribution={tl.attr} maxZoom={19} />
+            {tl.labels && <Pane name="omni-labels" style={{ zIndex: 350 }}><TileLayer url={tl.labels} maxZoom={19} /></Pane>}
             <MapEvents onView={onView} />
             {geo.map((g) => {
                 const d = devices.find((x) => x.id === g.deviceId);
@@ -117,6 +157,7 @@ export default function RealMap({ geo, devices, aforo, limit, center, edit, flas
                 );
             })}
             {showVideo && <VideoOverlays geo={geo} devices={devices} aforo={aforo} limit={limit} onSelect={onSelect} />}
+            {tl.dark && <><div className="omni-grid" /><div className="omni-vignette" /></>}
         </MapContainer>
         </>
     );
