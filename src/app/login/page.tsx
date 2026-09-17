@@ -292,21 +292,22 @@ export default function LoginPage() {
                         </div>
                     </motion.div>
 
-                    {/* CLIENT LOGO - BOTTOM RIGHT */}
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.8, duration: 0.5 }}
-                        className="p-4"
-                    >
-                        <Image
-                            src="/logo-sildan-white.png"
-                            width={200}
-                            height={80}
-                            alt="Sildan Seguridad"
-                            className="object-contain drop-shadow-md"
-                        />
-                    </motion.div>
+                    {/* Logo del cliente: sale de la configuracion (Branding). Si no hay
+                        logo cargado no se muestra nada, para no dejar marca de otro barrio. */}
+                    {brand.logoUrl && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.8, duration: 0.5 }}
+                            className="p-4"
+                        >
+                            <img
+                                src={brand.logoUrl}
+                                alt={brand.name || "Logo"}
+                                className="h-14 w-auto object-contain drop-shadow-md opacity-90"
+                            />
+                        </motion.div>
+                    )}
                 </div>
             </div>
         </div>
