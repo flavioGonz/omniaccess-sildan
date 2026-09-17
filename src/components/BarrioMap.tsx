@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, LayersControl, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, LayersControl, LayerGroup, Pane, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import {
@@ -64,6 +64,8 @@ function LiveMp4({ deviceId }: { deviceId: string }) {
 
 export default function BarrioMap() {
     const [data, setData] = useState<BarrioMapData | null>(null);
+    // Capa base elegida: define el tratamiento de color del mapa.
+    const [base, setBase] = useState<string>("Táctico");
     const [devices, setDevices] = useState<any[]>([]);
     const [editing, setEditing] = useState(false);
     const [tool, setTool] = useState<Tool>("select");
@@ -124,6 +126,14 @@ export default function BarrioMap() {
 
     const deleteSelected = () => { if (!selected) return; if (selected.type === "camera") removeCamera(selected.id); else removeStreet(selected.id); setSelected(null); };
 
+    const FILTROS: Record<string, string> = {
+        "Táctico": "invert(1) hue-rotate(180deg) saturate(0.55) brightness(0.92) contrast(1.06)",
+        "Híbrido": "saturate(0.45) contrast(1.22) brightness(0.82)",
+        "Satélite": "saturate(0.72) contrast(1.08) brightness(0.94)",
+        "Calles": "none",
+    };
+    const oscura = base === "Táctico" || base === "Híbrido";
+
     const save = async () => {
         setSaving(true);
         const m = mapRef.current;
@@ -153,21 +163,49 @@ export default function BarrioMap() {
                 .cam-live-popup a.leaflet-popup-close-button{color:#fff;top:4px;right:6px}
                 .cam-name-tip{background:rgba(17,17,17,.85);color:#fff;border:0;box-shadow:none;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px}
                 .cam-name-tip:before{display:none}
+
+                /* ── Mapa táctico ── */
+                .omni-barrio .leaflet-tile-pane{filter:${FILTROS[base] || 'none'};transition:filter .25s ease}
+                .omni-barrio .leaflet-pane.omni-rotulos{filter:none !important;opacity:.95}
+                .omni-barrio .leaflet-control-attribution{background:rgba(8,9,11,.6)!important;color:#8b8b93!important;font-size:9px}
+                .omni-barrio .leaflet-control-attribution a{color:#9aa4b2!important}
+                .omni-barrio .leaflet-control-layers{background:rgba(14,16,20,.92)!important;color:#e5e7eb!important;
+                    border:1px solid rgba(148,163,184,.22)!important;border-radius:12px!important;
+                    box-shadow:0 12px 30px -12px rgba(0,0,0,.8)!important;backdrop-filter:blur(10px)}
+                .omni-barrio .leaflet-control-layers-toggle{background-color:rgba(14,16,20,.92)!important;border-radius:12px!important}
+                .omni-barrio .leaflet-control-layers label{font-size:12px;font-weight:600;padding:3px 2px}
+                .omni-barrio .leaflet-control-layers-separator{border-color:rgba(148,163,184,.2)}
+                .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;
+                    box-shadow:inset 0 0 170px 45px rgba(0,0,0,.55)}
+                .omni-reticula{position:absolute;inset:0;pointer-events:none;z-index:399;opacity:.14;
+                    background-image:linear-gradient(rgba(148,163,184,.6) 1px,transparent 1px),
+                                     linear-gradient(90deg,rgba(148,163,184,.6) 1px,transparent 1px);
+                    background-size:130px 130px}
             `}</style>
             <div className="relative h-full w-full">
-                <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
+                <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0 omni-barrio" style={{ background: "#07080a" }} zoomControl={false} scrollWheelZoom>
+                    <Pane name="omni-rotulos" style={{ zIndex: 350 }} />
                     <LayersControl position="topright">
-                        <LayersControl.BaseLayer name="Calles">
-                            <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                        <LayersControl.BaseLayer checked name="Táctico">
+                            <LayerGroup>
+                                <TileLayer attribution="&copy; Esri" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={20} />
+                                </LayerGroup>
                         </LayersControl.BaseLayer>
-                        <LayersControl.BaseLayer checked name="Satélite">
+                        <LayersControl.BaseLayer name="Híbrido">
+                            <LayerGroup>
+                                <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+                                <TileLayer pane="omni-rotulos" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxZoom={20} />
+                            </LayerGroup>
+                        </LayersControl.BaseLayer>
+                        <LayersControl.BaseLayer name="Satélite">
                             <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
                         </LayersControl.BaseLayer>
-                        <LayersControl.BaseLayer name="Oscuro">
-                            <TileLayer attribution="&copy; CARTO" url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+                        <LayersControl.BaseLayer name="Calles">
+                            <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}" maxZoom={20} />
                         </LayersControl.BaseLayer>
                     </LayersControl>
 
+                    <BaseWatcher onBase={setBase} />
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
                     {editing && tool !== "select" && <ClickHandler onClick={onMapClick} />}
 
@@ -226,6 +264,7 @@ export default function BarrioMap() {
                     ))}
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
                 </MapContainer>
+                {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
 
                 {/* Columnas de flujo en vivo */}
                 {!editing && (
@@ -308,4 +347,11 @@ export default function BarrioMap() {
             </div>
         </TooltipProvider>
     );
+}
+
+
+/** Avisa que capa base esta activa, para ajustar el tratamiento de color. */
+function BaseWatcher({ onBase }: { onBase: (n: string) => void }) {
+    useMapEvents({ baselayerchange: (e: any) => onBase(e.name) });
+    return null;
 }

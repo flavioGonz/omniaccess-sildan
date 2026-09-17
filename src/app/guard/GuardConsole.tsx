@@ -1522,7 +1522,9 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                             }}
                             className="w-40 h-40 flex items-center justify-center p-6 mb-4"
                         >
-                            <Image src={customLogo || logo || "/logo-transparent.png"} alt="Loading" width={160} height={160} className="object-contain" />
+                            {(customLogo || logo)
+                                ? <Image src={customLogo || logo} alt="Cargando" width={160} height={160} className="object-contain" />
+                                : <Shield size={90} className="text-[#B20D30]" />}
                         </motion.div>
                         <motion.p
                             initial={{ opacity: 0, y: 10 }}
@@ -1846,10 +1848,12 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                             {type === "ENTRY" && <div className="absolute top-0 right-0 w-12 h-12 bg-white/10 rounded-full -mr-6 -mt-6" />}
                                         </motion.button>
 
-                                        {/* CENTER LOGO */}
-                                        <div className="w-24 h-24 flex items-center justify-center shrink-0">
-                                            <Image src={customLogo || logo || "/logo-transparent.png"} alt="Logo" width={100} height={100} className="object-contain drop-shadow-md" />
-                                        </div>
+                                        {/* CENTER LOGO: solo si el barrio cargo uno en Branding */}
+                                        {(customLogo || logo) && (
+                                            <div className="w-24 h-24 flex items-center justify-center shrink-0">
+                                                <Image src={customLogo || logo} alt="Logo" width={100} height={100} className="object-contain drop-shadow-md" />
+                                            </div>
+                                        )}
 
                                         <motion.button
                                             whileHover={{ scale: 1.02 }}

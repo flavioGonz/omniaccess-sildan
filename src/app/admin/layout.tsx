@@ -237,7 +237,7 @@ export default function AdminLayout({
                     )}
 
                     <div className="my-2 border-t border-border" />
-                    <SidebarItem icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />
+                    {isAdmin && (<SidebarItem icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />)}
                             {isAdmin && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />)}
                 </nav>
 

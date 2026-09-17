@@ -48,7 +48,7 @@ export default async function GuardPage() {
     return (
         <GuardConsole
             initialEntries={initialEntries}
-            logo={logoSetting?.value || globalLogoSetting?.value || "/logo-transparent.png"}
+            logo={logoSetting?.value || globalLogoSetting?.value || ""}
             headerColor={headerColorSetting?.value || "#000000"}
             initialIcons={iconsSetting?.value ? JSON.parse(iconsSetting.value) : {}}
             units={units}

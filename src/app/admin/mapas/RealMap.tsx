@@ -83,16 +83,15 @@ function VideoOverlays({ geo, devices, aforo, limit, onSelect }: { geo: Geo[]; d
 // conjunto se lea como un mapa tactico y no como una foto de Google.
 const TILES: Record<string, { url: string; attr: string; filter: string; labels?: string; dark?: boolean }> = {
     tactico: {
-        url: "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",
-        labels: "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
-        attr: "&copy; OpenStreetMap, &copy; CARTO",
-        filter: "contrast(1.08) saturate(0.9)",
+        url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        attr: "&copy; Esri",
+        filter: "invert(1) hue-rotate(180deg) saturate(0.55) brightness(0.92) contrast(1.06)",
         dark: true,
     },
     hibrido: {
         url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        labels: "https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png",
-        attr: "&copy; Esri, &copy; CARTO",
+        labels: "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+        attr: "&copy; Esri",
         filter: "saturate(0.45) contrast(1.22) brightness(0.82)",
         dark: true,
     },
@@ -102,8 +101,8 @@ const TILES: Record<string, { url: string; attr: string; filter: string; labels?
         filter: "saturate(0.7) contrast(1.1) brightness(0.92)",
     },
     calles: {
-        url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-        attr: "&copy; OpenStreetMap, &copy; CARTO",
+        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+        attr: "&copy; Esri",
         filter: "none",
     },
 };

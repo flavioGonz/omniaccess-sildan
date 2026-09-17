@@ -254,13 +254,18 @@ export default function LoginPage() {
 
             {/* RIGHT SIDE: IMAGE & QUOTE (always dark — sits over a photo) */}
             <div className="hidden lg:block relative overflow-hidden bg-black">
-                <Image
-                    src={brand.loginBgUrl || "/login-bg-split.png"}
-                    alt="Security Command Center"
-                    fill
-                    className="object-cover"
-                    priority
-                />
+                {/* Video de fondo; si el navegador no puede reproducirlo queda la imagen */}
+                <video
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                    poster={brand.loginBgUrl || "/login-bg-split.png"}
+                    className="absolute inset-0 h-full w-full object-cover"
+                >
+                    <source src="/branding/intro-login-lpr.mp4" type="video/mp4" />
+                </video>
                 {/* Overlay Gradient */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
 
