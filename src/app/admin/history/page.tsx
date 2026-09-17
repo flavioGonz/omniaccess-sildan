@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import PlateActivity from "@/components/dashboard/PlateActivity";
 import { getAccessEvents } from "@/app/actions/history";
 import { getEnabledModules } from "@/app/actions/modules";
 import {
@@ -292,6 +293,10 @@ export default function HistoryPage() {
                     <p className="text-sm text-muted-foreground mt-1 ml-12">
                         Registro de autorizaciones y eventos en tiempo real
                     </p>
+                    {/* Mapa de actividad: lecturas por dia de los ultimos 6 meses */}
+                    <div className="mt-4 ml-12">
+                        <PlateActivity dias={180} label="lecturas" />
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">

@@ -41,6 +41,7 @@ import {
     Sparkles,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import AlertBell from "@/components/AlertBell";
 import { cn } from "@/lib/utils";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
 import { hasAcuSeekNvr } from "@/app/actions/acuseek";
@@ -254,6 +255,7 @@ export default function AdminLayout({
                         )}
                         {!collapsed && (
                             <div className="ml-auto flex items-center gap-1.5">
+                                <AlertBell className="cursor-pointer" />
                                 <ThemeToggle />
                                 <button
                                     onClick={handleLogout}
