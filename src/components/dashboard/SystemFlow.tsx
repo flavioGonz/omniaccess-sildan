@@ -126,19 +126,19 @@ const initialNodes: Node[] = [
     },
     {
         id: 'postgres',
-        data: { label: 'Primary DB', icon: Database, sub: 'PostgreSQL 15', ip: '127.0.0.1', port: '5432', status: 'unknown' },
+        data: { label: 'Primary DB', icon: Database, sub: 'PostgreSQL', ip: '127.0.0.1', port: '5432', status: 'unknown' },
         position: { x: 100, y: 250 },
         style: { background: '#1e1e24', color: '#fff', border: '2px solid #3b82f6', width: 200, borderRadius: 12, padding: 12 },
     },
     {
         id: 'minio',
-        data: { label: 'Object Storage', icon: HardDrive, sub: 'MinIO Cluster', ip: '192.168.99.108', port: '9000', status: 'unknown' },
+        data: { label: 'Object Storage', icon: HardDrive, sub: 'MinIO / S3', ip: '127.0.0.1', port: '9000', status: 'unknown' },
         position: { x: 100, y: 450 },
         style: { background: '#1e1e24', color: '#fff', border: '2px solid #ef4444', width: 200, borderRadius: 12, padding: 12 },
     },
     {
         id: 'waha',
-        data: { label: 'WhatsApp', icon: MessageSquare, sub: 'OpenWA Gateway', ip: '192.168.99.22', port: '2785', status: 'unknown' },
+        data: { label: 'WhatsApp', icon: MessageSquare, sub: 'WhatsApp Gateway', ip: '127.0.0.1', port: '3000', status: 'unknown' },
         position: { x: 700, y: 250 },
         style: { background: '#0b2e1a', color: '#fff', border: '2px solid #25D366', width: 220, borderRadius: 12, padding: 12, boxShadow: '0 0 28px rgba(37, 211, 102, 0.35)' },
     },
@@ -195,7 +195,19 @@ export default function SystemFlow() {
                 const res = await axios.get('/api/topology/positions');
                 const savedPositions = res.data;
 
+                // Endpoints reales de esta instalacion (no hardcodeados)
+                let realEndpoints: Record<string, { ip?: string; port?: string; sub?: string }> = {};
+                try {
+                    const ep = await axios.get('/api/system/endpoints');
+                    realEndpoints = ep.data || {};
+                } catch { }
+
                 // Create driver nodes dynamically
+                const baseNodes = initialNodes.map((n) => {
+                    const real = realEndpoints[n.id];
+                    return real ? { ...n, data: { ...n.data, ...real } } : n;
+                });
+
                 const driverNodes = webhookDrivers.map((driver, index) => ({
                     id: driver.id,
                     data: {
@@ -262,7 +274,7 @@ export default function SystemFlow() {
                     dragHandle: '.custom-drag-handle'
                 }));
 
-                setNodes([...initialNodes, ...driverNodes]);
+                setNodes([...baseNodes, ...driverNodes]);
 
                 const initialEdges: Edge[] = [
                     { id: 'e-frontend', source: 'frontend', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },

@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { Database, Folder, FileText, RefreshCw, Home, Search, ExternalLink, Image as ImageIcon, ChevronRight, LayoutGrid, List } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { listBuckets, listBucketObjects, getBucketStats } from "@/app/actions/settings";
+import { listBuckets, listBucketObjects, getBucketStats, getSetting } from "@/app/actions/settings";
+import { getEnabledModules } from "@/app/actions/modules";
 
 const fmtSize = (n: number) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
 const baseName = (key: string) => { const parts = key.replace(/\/$/, "").split("/"); return parts[parts.length - 1]; };
@@ -21,7 +22,28 @@ export default function StorageBrowser() {
     const [nextToken, setNextToken] = useState<string | null>(null);
     const [grid, setGrid] = useState(true);
 
-    useEffect(() => { (async () => { const r: any = await listBuckets(); if (r.success) { setBuckets(r.buckets); if (r.buckets[0]) setBucket(r.buckets[0].name); } })(); }, []);
+    // Solo se muestran los buckets de los modos activos: si el barrio usa LPR,
+    // no tiene sentido ver el bucket de facial ni el de filas.
+    useEffect(() => {
+        (async () => {
+            const [r, mods, bl, bf, bq]: any[] = await Promise.all([
+                listBuckets(),
+                getEnabledModules().catch(() => ({})),
+                getSetting("S3_BUCKET_LPR"), getSetting("S3_BUCKET_FACE"), getSetting("S3_BUCKET_QUEUE"),
+            ]);
+            if (!r?.success) return;
+            const permitidos = [
+                mods?.MODULE_LPR ? (bl?.value || "lpr-prod") : null,
+                mods?.MODULE_FACE ? (bf?.value || "face") : null,
+                mods?.MODULE_QUEUE ? (bq?.value || "queue") : null,
+            ].filter(Boolean) as string[];
+            const propios = permitidos.length
+                ? r.buckets.filter((b: any) => permitidos.includes(b.name))
+                : r.buckets;
+            setBuckets(propios);
+            if (propios[0]) setBucket(propios[0].name);
+        })();
+    }, []);
 
     const load = useCallback(async (b: string, p: string, append = false, token: string | null = null) => {
         if (!b) return;
@@ -46,7 +68,7 @@ export default function StorageBrowser() {
                     <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center"><Database size={18} /></div>
                     <div>
                         <div className="text-sm font-bold text-foreground">Explorador de objetos · MinIO / S3</div>
-                        <div className="text-[10px] text-muted-foreground">{buckets.length} bucket{buckets.length === 1 ? "" : "s"}</div>
+                        <div className="text-[10px] text-muted-foreground">{buckets.length} bucket{buckets.length === 1 ? "" : "s"} del modo activo</div>
                     </div>
                 </div>
                 <div className="flex items-center gap-1.5">

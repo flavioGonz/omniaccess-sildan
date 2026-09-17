@@ -931,3 +931,34 @@ export async function saveSplashConfig(target: string, config: any) {
         return { success: true };
     } catch (e: any) { return { success: false, error: e?.message || "error" }; }
 }
+
+// ── Capacidad real del disco donde vive MinIO ─────────────────────────────
+export async function getStorageCapacity() {
+    const { statfs } = await import("fs/promises");
+    const candidatos = [
+        process.env.MINIO_DATA_DIR,
+        "/datos/minio",
+        "/var/lib/minio",
+        "/datos",
+        "/",
+    ].filter(Boolean) as string[];
+
+    for (const dir of candidatos) {
+        try {
+            const st: any = await statfs(dir);
+            const total = Number(st.blocks) * Number(st.bsize);
+            const free = Number(st.bavail) * Number(st.bsize);
+            if (!total) continue;
+            const used = total - free;
+            return {
+                success: true,
+                path: dir,
+                total,
+                free,
+                used,
+                percent: Math.round((used / total) * 100),
+            };
+        } catch { }
+    }
+    return { success: false, path: null, total: 0, free: 0, used: 0, percent: 0 };
+}

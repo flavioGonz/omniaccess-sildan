@@ -756,19 +756,49 @@ video::-webkit-media-controls { display: none !important; }
 @keyframes vidshimmer { 0% { background-position: 220% 0; } 100% { background-position: -220% 0; } }
 
 
-/* ── Sileo toasts: paleta del sistema + iconos animados ── */
+/* ── Sileo toasts: contraste alto, texto legible y color por tipo ──
+   El "pill" lo dibuja un canvas SVG (fill = ThemedToaster), asi que aca
+   ajustamos tipografia, tonos y sombra; el relleno va por la prop fill.  */
+[data-sileo-viewport] {
+    --sileo-state-success: #10b981;
+    --sileo-state-error:   #f43f5e;
+    --sileo-state-warning: #f59e0b;
+    --sileo-state-info:    #38bdf8;
+    --sileo-state-action:  #6366f1;
+    --sileo-state-loading: color-mix(in oklab, var(--foreground) 55%, transparent);
+}
 [data-sileo-toast] {
     background: transparent !important;
     color: var(--foreground) !important;
     border: 0 !important;
-    border-radius: 9999px !important;
-    box-shadow: 0 10px 30px -10px rgb(0 0 0 / 0.45) !important;
 }
-[data-sileo-title] { color: var(--foreground) !important; font-weight: 600; }
-[data-sileo-description] { color: var(--muted-foreground) !important; }
-[data-sileo-button] {
-    background: var(--muted) !important;
+/* sombra y borde sutil sobre la forma real del pill */
+[data-sileo-canvas] {
+    filter:
+        drop-shadow(0 14px 30px rgb(0 0 0 / 0.55))
+        drop-shadow(0 0 0.5px color-mix(in oklab, var(--foreground) 35%, transparent));
+}
+[data-sileo-title] {
     color: var(--foreground) !important;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+    letter-spacing: -0.01em;
+    text-transform: none !important;   /* evita el "Texto Con Todas En Mayuscula" */
+}
+[data-sileo-description] {
+    color: color-mix(in oklab, var(--foreground) 78%, transparent) !important;
+    font-size: 0.8125rem !important;
+    line-height: 1.2rem !important;
+    text-transform: none !important;
+}
+[data-sileo-badge] {
+    color: var(--sileo-tone, currentColor) !important;
+    background-color: color-mix(in oklab, var(--sileo-tone, currentColor) 20%, transparent) !important;
+}
+[data-sileo-button] {
+    background: var(--foreground) !important;
+    color: var(--background) !important;
+    font-weight: 600 !important;
     border-radius: 0.5rem !important;
 }
 [data-sileo-svg] { animation: sileo-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; }

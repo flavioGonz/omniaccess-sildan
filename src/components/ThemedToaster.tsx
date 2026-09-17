@@ -14,7 +14,7 @@ export default function ThemedToaster() {
     useEffect(() => {
         try {
             const probe = document.createElement("span");
-            probe.style.cssText = "color:var(--card);position:absolute;left:-9999px";
+            probe.style.cssText = "color:color-mix(in oklab, var(--card) 86%, var(--foreground) 14%);position:absolute;left:-9999px";
             document.body.appendChild(probe);
             const rgb = getComputedStyle(probe).color; // el navegador convierte oklch → rgb
             document.body.removeChild(probe);
