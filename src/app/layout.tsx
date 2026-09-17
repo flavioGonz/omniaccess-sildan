@@ -25,8 +25,8 @@ export const metadata: Metadata = {
   title: "Omniacces",
   description: "Sistema de control de acceso LPR y Facial",
   icons: {
-    icon: "/iconos/sildan-pwa.png",
-    apple: "/iconos/sildan-pwa.png",
+    icon: "/iconos/guard-512.png",
+    apple: "/iconos/guard-512.png",
   },
   manifest: "/manifest.json",
 };

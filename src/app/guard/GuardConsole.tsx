@@ -488,7 +488,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                 if ("Notification" in window && Notification.permission === "granted") {
                     new Notification("⚠️ ALERTA DE SEGURIDAD - OMNIACCESS GUARD", {
                         body: `Modo de alerta activado por ${data.triggeredBy || "un compañero"}.`,
-                        icon: "/icons/sildan-icon-dot.png",
+                        icon: "/iconos/guard-192.png",
                         tag: "security-alert"
                     });
                 }
@@ -1433,91 +1433,69 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-[200] bg-white flex flex-col items-center justify-center p-8"
+                        className="fixed inset-0 z-[200] flex flex-col items-center justify-center p-8 bg-[#0A0B0D] bg-[radial-gradient(ellipse_at_top,rgba(225,29,72,0.16),transparent_60%)]"
                     >
                         <motion.div
                             initial={{ opacity: 0, scale: 0.9 }}
                             animate={{ opacity: 1, scale: 1 }}
                             className="w-full max-w-lg flex flex-col items-center"
                         >
-                            {/* Animated Logo Branding */}
-                            <motion.div
-                                animate={{
-                                    scale: [0.98, 1.02, 0.98],
-                                    opacity: [0.8, 1, 0.8]
-                                }}
-                                transition={{
-                                    duration: 4,
-                                    repeat: Infinity,
-                                    ease: "easeInOut"
-                                }}
-                                className="w-64 h-64 relative mb-12 p-4 flex items-center justify-center bg-white rounded-full shadow-inner"
-                            >
-                                <Image
-                                    src={customLogo || logo || "/logo-transparent.png"}
-                                    alt="Logo"
-                                    width={200}
-                                    height={200}
-                                    className="object-contain drop-shadow-xl"
-                                    priority
-                                />
+                            {/* Marca del sistema */}
+                            <div className="flex flex-col items-center gap-4 mb-10">
                                 <motion.div
-                                    animate={{ rotate: 360 }}
-                                    transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-                                    className="absolute inset-0 border-t-2 border-r-2 border-[#B20D30]/20 rounded-full"
-                                />
-                            </motion.div>
-
-                            <div className="bg-white border-2 border-slate-100 transition-all duration-300 p-10 rounded-[4rem] shadow-lg w-full flex flex-col items-center gap-6">
-                                <div className="text-center mb-4">
-                                    <div className="flex items-center justify-center gap-3 mb-4">
-                                        <div className="w-12 h-12 bg-[#B20D30] rounded-2xl flex items-center justify-center">
-                                            <Shield className="text-white" size={24} />
-                                        </div>
-                                        <h1 className="text-4xl font-bold text-black uppercase tracking-tighter">Omniaccess Guard</h1>
-                                    </div>
-                                    <p className="text-[12px] text-black/40 font-bold uppercase tracking-[0.4em]">Consola de Seguridad</p>
-                                </div>
-
-                                <div className="w-full max-w-md">
-                                    <form onSubmit={handleManualLogin} className="space-y-6">
-                                        <div className="space-y-4">
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold uppercase text-slate-400 tracking-widest ml-1">Usuario</label>
-                                                <Input
-                                                    value={loginUser}
-                                                    onChange={(e) => setLoginUser(e.target.value)}
-                                                    placeholder="Ingrese su usuario..."
-                                                    className="h-16 rounded-2xl bg-slate-50 border-slate-200 font-bold text-lg"
-                                                />
-                                            </div>
-                                            <div className="space-y-2">
-                                                <label className="text-xs font-bold uppercase text-slate-400 tracking-widest ml-1">Contraseña</label>
-                                                <Input
-                                                    type="password"
-                                                    value={loginPass}
-                                                    onChange={(e) => setLoginPass(e.target.value)}
-                                                    placeholder="Ingrese su clave..."
-                                                    className="h-16 rounded-2xl bg-slate-50 border-slate-200 font-bold text-lg"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <button
-                                            type="submit"
-                                            className="w-full h-16 bg-[#B20D30] hover:bg-[#d9123c] text-white rounded-2xl font-bold uppercase tracking-widest shadow-xl shadow-red-900/20 active:scale-95 transition-all flex items-center justify-center gap-3 text-lg"
-                                        >
-                                            <LogIn size={24} /> Ingresar
-                                        </button>
-                                    </form>
-                                    <a href="/api/apk" download className="mt-5 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-widest text-slate-400 hover:text-[#B20D30] transition-colors">
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="M8 11l4 4 4-4" /><path d="M5 21h14" /></svg>
-                                        Descargar app para tablet
-                                    </a>
+                                    animate={{ scale: [0.98, 1.02, 0.98] }}
+                                    transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+                                    className="w-20 h-20 rounded-[1.75rem] bg-gradient-to-br from-[#E11D48] to-[#7f0a22] flex items-center justify-center shadow-2xl shadow-[#B20D30]/40"
+                                >
+                                    <Shield className="text-white" size={36} strokeWidth={2.2} />
+                                </motion.div>
+                                <div className="text-center">
+                                    <h1 className="text-3xl md:text-4xl font-bold uppercase tracking-tight text-white">
+                                        Omniaccess <span className="text-[#F43F5E]">Guard</span>
+                                    </h1>
+                                    <p className="mt-2 text-[11px] font-bold uppercase tracking-[0.45em] text-white/35">Consola de Seguridad</p>
                                 </div>
                             </div>
 
-                            <p className="mt-12 text-[10px] font-bold text-black/20 uppercase tracking-[0.5em]">Security Systems Architecture</p>
+                            <div className="w-full max-w-md rounded-[2rem] border border-white/10 bg-white/[0.04] backdrop-blur-xl p-8 md:p-10 shadow-2xl shadow-black/40">
+                                <form onSubmit={handleManualLogin} className="space-y-5">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-bold uppercase text-white/40 tracking-[0.25em] ml-1">Usuario</label>
+                                        <Input
+                                            value={loginUser}
+                                            onChange={(e) => setLoginUser(e.target.value)}
+                                            placeholder="Ingrese su usuario..."
+                                            autoComplete="username"
+                                            className="h-14 rounded-2xl bg-white/[0.06] border-white/10 text-white font-semibold text-base placeholder:text-white/25 focus-visible:ring-2 focus-visible:ring-[#E11D48]/60 focus-visible:border-[#E11D48]/40"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-bold uppercase text-white/40 tracking-[0.25em] ml-1">Contraseña</label>
+                                        <Input
+                                            type="password"
+                                            value={loginPass}
+                                            onChange={(e) => setLoginPass(e.target.value)}
+                                            placeholder="Ingrese su clave..."
+                                            autoComplete="current-password"
+                                            className="h-14 rounded-2xl bg-white/[0.06] border-white/10 text-white font-semibold text-base placeholder:text-white/25 focus-visible:ring-2 focus-visible:ring-[#E11D48]/60 focus-visible:border-[#E11D48]/40"
+                                        />
+                                    </div>
+
+                                    <button
+                                        type="submit"
+                                        className="w-full h-14 mt-2 bg-gradient-to-r from-[#E11D48] to-[#B20D30] hover:from-[#f2295a] hover:to-[#c8103a] text-white rounded-2xl font-bold uppercase tracking-[0.2em] text-sm shadow-xl shadow-[#B20D30]/30 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                                    >
+                                        <LogIn size={20} /> Ingresar
+                                    </button>
+                                </form>
+
+                                <a href="/api/apk" download className="mt-6 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 hover:text-[#F43F5E] transition-colors">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="M8 11l4 4 4-4" /><path d="M5 21h14" /></svg>
+                                    Descargar app para tablet
+                                </a>
+                            </div>
+
+                            <p className="mt-10 text-[9px] font-bold text-white/15 uppercase tracking-[0.5em]">Security Systems Architecture</p>
                         </motion.div>
                     </motion.div>
                 )}
