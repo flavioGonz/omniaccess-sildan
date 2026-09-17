@@ -54,6 +54,7 @@ import StorageBrowser from "@/components/settings/StorageBrowser";
 import { Button } from "@/components/ui/button";
 const SystemFlow = nextDynamic(() => import("@/components/dashboard/SystemFlow"), { ssr: false, loading: _SLoad });
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { DriverDetailsDialog } from "@/components/DriverDetailsDialog";
@@ -114,7 +115,7 @@ const SETTINGS_SECTIONS = [
     {
         id: "users",
         icon: Users,
-        label: "Administradores",
+        label: "Usuarios",
         description: "Control de acceso al sistema",
         color: "purple"
     },
@@ -162,7 +163,7 @@ const NAV_GROUPS = [
         { sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
         { sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
         { sec: "database", btab: "", label: "Database", icon: Database },
-        { sec: "users", btab: "", label: "Administradores", icon: Users },
+        { sec: "users", btab: "", label: "Usuarios", icon: Users },
     ]},
     { id: "branding", label: "Branding", icon: Palette, items: [
         { sec: "branding", btab: "identidad", label: "Identidad Corporativa", icon: Palette },
@@ -2289,6 +2290,7 @@ function AdminsSection() {
         name: "",
         email: "",
         password: "",
+        role: "ADMIN",
         photo: null as File | null,
         currentPhoto: ""
     });
@@ -2303,7 +2305,7 @@ function AdminsSection() {
             const list = await getAdmins();
             setAdmins(list);
         } catch (error) {
-            toast.error({ title: "Error al cargar administradores" });
+            toast.error({ title: "Error al cargar usuarios" });
         } finally {
             setLoading(false);
         }
@@ -2317,16 +2319,17 @@ function AdminsSection() {
         data.append("name", formData.name);
         data.append("email", formData.email);
         data.append("password", formData.password); // Plain text mainly as per request
+        data.append("role", formData.role);
         if (formData.photo) data.append("photo", formData.photo);
         data.append("currentPhoto", formData.currentPhoto);
 
         try {
             await saveAdminAction(data);
-            toast.success({ title: editingAdmin ? "Administrador actualizado" : "Administrador creado" });
+            toast.success({ title: editingAdmin ? "Usuario actualizado" : "Usuario creado" });
             setIsDialogOpen(false);
             loadAdmins();
             setEditingAdmin(null);
-            setFormData({ name: "", email: "", password: "", photo: null, currentPhoto: "" });
+            setFormData({ name: "", email: "", password: "", role: "ADMIN", photo: null, currentPhoto: "" });
         } catch (error: any) {
             toast.error({ title: error.message || "Error al guardar administrador" });
         }
@@ -2336,7 +2339,7 @@ function AdminsSection() {
         if (confirm("¿Estás seguro de eliminar este administrador?")) {
             try {
                 await deleteAdminAction(id);
-                toast.success({ title: "Administrador eliminado" });
+                toast.success({ title: "Usuario eliminado" });
                 loadAdmins();
             } catch (error) {
                 toast.error({ title: "Error al eliminar" });
@@ -2350,6 +2353,7 @@ function AdminsSection() {
             name: admin.name,
             email: admin.email || "",
             password: admin.password || "", // This might be empty if we don't return passwords for security, but user requested 'pin' style display so we might have it
+            role: admin.role || "ADMIN",
             photo: null,
             currentPhoto: admin.cara || ""
         });
@@ -2358,7 +2362,7 @@ function AdminsSection() {
 
     const openNew = () => {
         setEditingAdmin(null);
-        setFormData({ name: "", email: "", password: "", photo: null, currentPhoto: "" });
+        setFormData({ name: "", email: "", password: "", role: "ADMIN", photo: null, currentPhoto: "" });
         setIsDialogOpen(true);
     };
 
@@ -2367,7 +2371,7 @@ function AdminsSection() {
             <div className="bg-card/50 backdrop-blur-xl border border-border rounded-2xl p-8">
                 <div className="flex items-center justify-between mb-8">
                     <div>
-                        <h2 className="text-2xl font-bold text-foreground tracking-tight">Administradores del Sistema</h2>
+                        <h2 className="text-2xl font-bold text-foreground tracking-tight">Usuarios del Sistema</h2>
                         <p className="text-sm text-muted-foreground mt-1">Gestión de usuarios con acceso al panel de control</p>
                     </div>
                     <Button
@@ -2375,7 +2379,7 @@ function AdminsSection() {
                         className="bg-blue-600 hover:bg-blue-500 text-foreground font-bold text-xs uppercase tracking-widest h-10 px-6"
                     >
                         <Plus size={16} className="mr-2" />
-                        Nuevo Admin
+                        Nuevo Usuario
                     </Button>
                 </div>
 
@@ -2447,7 +2451,7 @@ function AdminsSection() {
                             {!loading && admins.length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={5} className="h-32 text-center text-muted-foreground text-xs font-bold uppercase">
-                                        No hay administradores registrados
+                                        No hay usuarios registrados
                                     </TableCell>
                                 </TableRow>
                             )}
@@ -2460,7 +2464,7 @@ function AdminsSection() {
                 <DialogContent className="bg-background border-border text-foreground sm:max-w-[500px]">
                     <DialogHeader>
                         <DialogTitle className="text-xl font-bold uppercase tracking-tight">
-                            {editingAdmin ? "Editar Administrador" : "Nuevo Administrador"}
+                            {editingAdmin ? "Editar Usuario" : "Nuevo Usuario"}
                         </DialogTitle>
                     </DialogHeader>
 
@@ -2517,14 +2521,25 @@ function AdminsSection() {
                                 <Label htmlFor="password" className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
                                     {editingAdmin ? "Nueva Contraseña (Dejar vacío para mantener)" : "Contraseña"}
                                 </Label>
-                                <Input
+                                <PasswordInput
                                     id="password"
-                                    type="text"
                                     value={formData.password}
                                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                     className="bg-card border-border h-10 font-mono"
                                     placeholder="••••••"
                                 />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="role" className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Rol</Label>
+                                <select
+                                    id="role"
+                                    value={formData.role}
+                                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                                    className="bg-card border border-border h-10 rounded-md px-3 text-sm text-foreground"
+                                >
+                                    <option value="ADMIN">Administrador (acceso total)</option>
+                                    <option value="OPERATOR">Solo lectura (opera, no edita)</option>
+                                </select>
                             </div>
                         </div>
                     </div>

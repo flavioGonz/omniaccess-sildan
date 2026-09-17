@@ -54,7 +54,7 @@ import { getParkingSlots, getPlateParking, getPlatesWithParking } from "@/app/ac
 import { getWatchMap } from "@/app/actions/watchlist";
 import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
-import { getParkingElements } from "@/app/actions/plazas";
+import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
@@ -62,6 +62,7 @@ interface FullAccessEvent extends AccessEvent {
     user: {
         id: string;
         name: string;
+        role?: string | null;
         email: string | null;
         phone: string | null;
         dni: string | null;
@@ -71,6 +72,26 @@ interface FullAccessEvent extends AccessEvent {
         parkingSlotId: string | null;
     } | null;
     device: Device | null;
+}
+
+/** Tipo de usuario reconocido en cada detección (color + etiqueta).
+ *  Prioridad: lista negra > lista blanca (watch o rol) > rol del usuario. */
+type TipoMeta = { key: string; label: string; badge: string; ring: string; dot: string };
+function tipoDeteccion(event: any, watch?: any): TipoMeta | null {
+    const cat = (watch?.category || "").toString().toLowerCase();
+    if (cat === "negra" || cat === "blacklisted") return { key: "negra", label: "Lista Negra", badge: "bg-red-500/15 text-red-300 border border-red-500/40", ring: "ring-2 ring-red-500/70", dot: "bg-red-500" };
+    if (cat === "blanca" || cat === "whitelisted") return { key: "blanca", label: "Lista Blanca", badge: "bg-sky-500/15 text-sky-300 border border-sky-500/40", ring: "ring-2 ring-sky-400/70", dot: "bg-sky-400" };
+    const role = (event?.user?.role || "").toString().toUpperCase();
+    switch (role) {
+        case "RESIDENT": return { key: "residente", label: "Residente", badge: "bg-blue-500/15 text-blue-300 border border-blue-500/40", ring: "ring-1 ring-blue-500/50", dot: "bg-blue-500" };
+        case "VISITOR": case "TEMPORARY_VISITOR": return { key: "visitante", label: "Visitante", badge: "bg-purple-500/15 text-purple-300 border border-purple-500/40", ring: "ring-1 ring-purple-500/50", dot: "bg-purple-500" };
+        case "STAFF": case "SECURITY": return { key: "personal", label: "Personal", badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40", ring: "ring-1 ring-emerald-500/50", dot: "bg-emerald-500" };
+        case "PROVIDER": return { key: "proveedor", label: "Proveedor", badge: "bg-amber-500/15 text-amber-300 border border-amber-500/40", ring: "ring-1 ring-amber-500/50", dot: "bg-amber-500" };
+        case "WHITELISTED": return { key: "blanca", label: "Lista Blanca", badge: "bg-sky-500/15 text-sky-300 border border-sky-500/40", ring: "ring-2 ring-sky-400/70", dot: "bg-sky-400" };
+        case "BLACKLISTED": return { key: "negra", label: "Lista Negra", badge: "bg-red-500/15 text-red-300 border border-red-500/40", ring: "ring-2 ring-red-500/70", dot: "bg-red-500" };
+        case "ADMIN": case "OPERATOR": return null;
+        default: return event?.user ? { key: "otro", label: "Registrado", badge: "bg-zinc-500/15 text-zinc-300 border border-zinc-500/40", ring: "ring-1 ring-zinc-500/40", dot: "bg-zinc-400" } : { key: "desconocido", label: "Desconocido", badge: "bg-zinc-600/20 text-zinc-400 border border-zinc-600/40", ring: "", dot: "bg-zinc-500" };
+    }
 }
 
 function playShutter() { /* sonido de captura desactivado para evitar warnings de autoplay del navegador */ }
@@ -249,13 +270,17 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
     const marca = (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
     const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
     const dir = ev.direction;
+    const tipo = tipoDeteccion(ev, (ev as any).watch);
     const ring = dir === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
     return (
         <div className="p-4">
             <div className={cn("relative w-full aspect-video rounded-xl overflow-hidden vid-surface border transition-all duration-300", flash ? ring : "border-border")}>
                 <SmartThumb src={img} w={960} className="absolute inset-0 w-full h-full" />
                 {flash && <div className="iris-shot" />}
-                <div className="absolute top-3 left-3 z-10"><Badge className={cn("text-xs shadow-lg", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge></div>
+                <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
+                    <Badge className={cn("text-xs shadow-lg", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
+                    {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-lg backdrop-blur", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                </div>
                 <div className="absolute top-3 right-3 z-10"><Badge className={cn("text-xs shadow-lg", ok ? "bg-emerald-600" : "bg-red-600")}>{ok ? "PERMITIDO" : "DENEGADO"}</Badge></div>
                 {crop && (
                     <div className="absolute top-14 right-3 z-20 w-40 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
@@ -346,6 +371,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const watch = (event as any).watch || (watchMap && _wp ? watchMap[_wp] : null);
     const watchMeta = watch ? watchCatMeta(watch.category) : null;
     const watchStyle = watchMeta ? { ring: watchMeta.ring, badge: watchMeta.badge, label: watchMeta.label.toUpperCase() } : null;
+    const tipo = tipoDeteccion(event, watch);
     const [showPark, setShowPark] = useState(false);
     const [nvrCh, setNvrCh] = useState<number | null>(null);
     const [showVid, setShowVid] = useState(false);
@@ -354,10 +380,11 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
       <>
         <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)}>
             <div className={cn(
-                "p-3 cursor-pointer transition-all group border-b border-border last:border-0",
+                "relative p-3 cursor-pointer transition-all group border-b border-border last:border-0",
                 isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent",
-                watchStyle?.ring
+                watchStyle?.ring || tipo?.ring
             )}>
+                {tipo && <span className={cn("absolute left-0 top-0 bottom-0 w-1", tipo.dot)} />}
                 <div className="flex items-center gap-3">
                     <div className="w-16 h-14 rounded-lg border border-border shrink-0 bg-card/60 flex items-center justify-center overflow-hidden p-1.5" title={meta.Marca || "Marca desconocida"}>
                         {logoUrl ? <Image src={logoUrl} alt={meta.Marca || "marca"} width={48} height={48} className="object-contain w-full h-full" /> : <Car size={22} className="text-muted-foreground" />}
@@ -374,6 +401,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             )}
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
                             {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
+                            {!watchStyle && tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && event.user?.unit?.name ? ` · ${event.user.unit.name}` : ""}</span>}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                             {meta.Marca && <span className="text-[10px] text-muted-foreground font-semibold">{meta.Marca}{(meta.Modelo || meta.Tipo) ? ` · ${meta.Modelo || meta.Tipo}` : ""}</span>}
@@ -564,6 +592,78 @@ function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () 
     );
 }
 
+/** Mini-ventanas apiladas abajo a la derecha con las lecturas anómalas.
+ *  Quedan FIJAS hasta que el guardia cierra cada una (o todas). */
+function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void }) {
+    if (!items.length) return null;
+    return (
+        <div className="fixed bottom-4 right-4 z-[400] w-[340px] max-w-[92vw] flex flex-col gap-2 pointer-events-none">
+            <div className="flex items-center justify-between px-1 pointer-events-auto">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-yellow-300">
+                    <AlertTriangle size={13} /> Lecturas para revisar · {items.length}
+                </span>
+                <button onClick={onClear} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground bg-card border border-border rounded px-2 py-0.5">Cerrar todas</button>
+            </div>
+            <div className="flex flex-col gap-2 pr-0.5 pointer-events-auto">
+                {items.slice(0, 4).map((ev) => {
+                    const plate = (ev.plateDetected || "").toUpperCase();
+                    const anomalous = !ev.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
+                    const watch = ev.watch;
+                    const watchMeta = watch ? watchCatMeta(watch.category) : null;
+                    const tipo = tipoDeteccion(ev, watch);
+                    const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
+                    const dir = ev.direction;
+                    const isBlack = tipo?.key === "negra";
+                    return (
+                        <div key={ev.id} className={cn(
+                            "relative rounded-xl border bg-card shadow-2xl overflow-hidden animate-in slide-in-from-right-4 duration-200",
+                            isBlack ? "border-red-500/60 ring-2 ring-red-500/40" : anomalous ? "border-yellow-500/50" : "border-border"
+                        )}>
+                            <button onClick={() => onDismiss(ev.id)} title="Cerrar" className="absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md bg-black/50 hover:bg-black/70 text-white/80 hover:text-white flex items-center justify-center backdrop-blur"><X size={13} /></button>
+                            <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
+                                <div className="flex gap-2.5 p-2.5 cursor-pointer">
+                                    <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-border">
+                                        <SmartThumb src={img} w={240} className="w-full h-full" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            {anomalous ? (
+                                                <span className="inline-flex items-center gap-1 text-xs font-bold text-yellow-300"><AlertTriangle size={12} /> SIN LECTURA</span>
+                                            ) : (
+                                                <span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plateDetected}</span>
+                                            )}
+                                            <Badge className={cn("text-[8px] px-1 py-0", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
+                                        </div>
+                                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                            {watchMeta
+                                                ? <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchMeta.badge)}><ShieldAlert size={9} /> {watchMeta.label.toUpperCase()}</span>
+                                                : tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                                            {ev.user?.name && <span className="text-[10px] text-blue-400 truncate max-w-[120px]">{ev.user.name}</span>}
+                                        </div>
+                                        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                            <TimeAgo timestamp={ev.timestamp} />
+                                            {ev.device?.name && <span className="truncate">· {ev.device.name}</span>}
+                                        </div>
+                                    </div>
+                                </div>
+                            </EventDetailsDialog>
+                        </div>
+                    );
+                })}
+            </div>
+            {items.length > 4 && (
+                <div className="relative h-8 mt-0.5 pointer-events-auto">
+                    <div className="absolute inset-x-3 top-2 h-7 rounded-xl bg-card/50 border border-border" />
+                    <div className="absolute inset-x-1.5 top-1 h-7 rounded-xl bg-card/75 border border-border" />
+                    <div className="absolute inset-x-0 top-0 h-8 rounded-xl bg-card border border-border shadow-lg flex items-center justify-center gap-1.5 text-[11px] font-bold text-muted-foreground">
+                        <AlertTriangle size={12} className="text-yellow-400" /> +{items.length - 4} en cola
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function MonitorLPR() {
     const [events, setEvents] = useState<FullAccessEvent[]>([]);
     const [socket, setSocket] = useState<Socket | null>(null);
@@ -572,6 +672,8 @@ export default function MonitorLPR() {
     const [filterVehType, setFilterVehType] = useState<string>("ALL");
     const [stats, setStats] = useState({ total: 0, grants: 0, denies: 0 });
     const [aforo, setAforo] = useState({ entradas: 0, salidas: 0, inside: 0 });
+    // "Adentro" = autos en casa = plazas ocupadas / total (getPresenceSummary)
+    const [presence, setPresence] = useState({ adentro: 0, total: 0 });
     const [lastCapByDev, setLastCapByDev] = useState<Record<string, any>>({});
     const [isConnected, setIsConnected] = useState(false);
     const [devices, setDevices] = useState<Device[]>([]);
@@ -585,6 +687,14 @@ export default function MonitorLPR() {
     const [merodeo, setMerodeo] = useState<any | null>(null);
     const [eventsLoading, setEventsLoading] = useState(true);
     const pendingRef = useRef<any[]>([]);
+    // Lecturas anómalas fijadas (sin lectura / lista negra / lista blanca / vigilancia):
+    // quedan como mini-ventanas apiladas abajo hasta que el guardia las cierra.
+    const [pinned, setPinned] = useState<any[]>([]);
+    const dismissedRef = useRef<Set<string>>(new Set()); // ids que el guardia cerró: no reaparecen
+    const dismissPin = useCallback((id: string) => { dismissedRef.current.add(id); setPinned(p => p.filter(x => x.id !== id)); }, []);
+    // Toggle del popup automático de lecturas anómalas — DESHABILITADO por defecto.
+    const [pinEnabled, setPinEnabled] = useState(false);
+    useEffect(() => { if (!pinEnabled) { setPinned([]); dismissedRef.current.clear(); } }, [pinEnabled]);
 
     const lastEntry = events.find(e => e.direction === 'ENTRY');
     const lastExit = events.find(e => e.direction === 'EXIT');
@@ -598,6 +708,7 @@ export default function MonitorLPR() {
             const todayStats = await getEventsCountToday("PLATE");
             setStats(todayStats);
             getLprCounters().then(setAforo).catch(() => {});
+            getPresenceSummary().then((p) => setPresence({ adentro: p.adentro, total: p.total })).catch(() => {});
         } catch (error) {
             console.error("Error loading LPR data:", error);
         }
@@ -634,9 +745,15 @@ export default function MonitorLPR() {
 
     useEffect(() => {
         loadInitialData();
-        const socketUrl = getSocketUrl();
-        const newSocket = io(socketUrl, {
-            transports: ["websocket", "polling"],
+        // Conectar al MISMO origen con el path proxificado por NPM/next-server (/io/socket.io).
+        // Con el path por defecto (/socket.io) el socket quedaba OFFLINE al entrar por el dominio.
+        // Transporte POLLING only: por el dominio, el upgrade a WebSocket pasa por el doble
+        // proxy (NPM → next-server → server.js) y falla con "Invalid frame header", spameando
+        // reintentos. El long-polling es estable y casi en tiempo real; evita el flood.
+        const newSocket = io(window.location.origin, {
+            path: "/io/socket.io",
+            transports: ["polling"],
+            upgrade: false,
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
@@ -718,6 +835,26 @@ export default function MonitorLPR() {
         return () => clearInterval(iv);
     }, []);
 
+    // Popup automático de lecturas anómalas: cuando el toggle está activo, siembra las
+    // mini-ventanas desde los eventos ya cargados (poll + socket), no solo de eventos nuevos.
+    // Así aparecen apenas se activa, y quedan fijas hasta que el guardia las cierra.
+    const esAnomala = useCallback((e: any) => {
+        const plate = (e.plateDetected || "").toUpperCase();
+        if (plate === "DOOR_OPEN" || plate === "DOOR_CLOSE") return false;
+        const anomalous = !e.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
+        const role = (e.user?.role || "").toUpperCase();
+        return anomalous || !!e.watch || role === "WHITELISTED" || role === "BLACKLISTED";
+    }, []);
+    useEffect(() => {
+        if (!pinEnabled) return;
+        setPinned((prev) => {
+            const seen = new Set(prev.map((x) => x.id));
+            const nuevos = events.filter((e) => esAnomala(e) && !seen.has(e.id) && !dismissedRef.current.has(e.id));
+            if (!nuevos.length) return prev;
+            return [...nuevos, ...prev].slice(0, 24);
+        });
+    }, [pinEnabled, events, esAnomala]);
+
     const vehFacets = useMemo(() => collectVehicleFacets(events as any[]), [events]);
     const filteredEvents = useMemo(() => {
         return events.filter(e => {
@@ -785,81 +922,88 @@ export default function MonitorLPR() {
 
                     <PlateCommandBar />
 
-                    <div className="flex items-center gap-3">
-                        {/* Connection status */}
-                        <div className={cn(
-                            "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium",
-                            isConnected ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-                        )}>
-                            <div className={cn("w-2 h-2 rounded-full", isConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400")} />
-                            {isConnected ? "LIVE" : "OFFLINE"}
+                    <div className="flex items-center gap-2.5">
+                        {/* Métricas unificadas en un solo bloque */}
+                        <div className="flex items-center h-9 rounded-lg bg-card border border-border divide-x divide-border overflow-hidden">
+                            <span className="flex items-center gap-1.5 px-3 h-full" title="Autos en casa (plazas ocupadas / total)">
+                                <Home size={13} className="text-blue-400" />
+                                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">En casa</span>
+                                <span className="font-bold text-blue-400 text-sm tabular-nums">{presence.adentro}<span className="text-muted-foreground font-normal text-[11px]">/{presence.total}</span></span>
+                            </span>
+                            <span className="flex items-center gap-1.5 px-3 h-full" title="Lecturas de hoy">
+                                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">Hoy</span>
+                                <span className="font-bold text-foreground text-sm tabular-nums">{stats.total}</span>
+                            </span>
+                            <span className="flex items-center gap-1.5 px-3 h-full" title="Permitidos hoy">
+                                <CheckCircle2 size={13} className="text-emerald-400" />
+                                <span className="font-bold text-emerald-400 text-sm tabular-nums">{stats.grants}</span>
+                            </span>
+                            <span className="flex items-center gap-1.5 px-3 h-full" title="Denegados hoy">
+                                <XCircle size={13} className="text-red-400" />
+                                <span className="font-bold text-red-400 text-sm tabular-nums">{stats.denies}</span>
+                            </span>
                         </div>
 
-                        <button onClick={() => setShowWatch(true)} title="Lista de vigilancia (watchlist)" className="p-2 rounded-lg bg-card hover:bg-accent text-muted-foreground hover:text-red-400 border border-border transition-colors relative">
-                            <ShieldAlert size={16} />
-                            {Object.keys(watchMap).length > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{Object.keys(watchMap).length}</span>}
-                        </button>
-                        <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} className={cn("p-2 rounded-lg border transition-colors", soundOn ? "bg-card hover:bg-accent text-muted-foreground border-border" : "bg-red-500/10 text-red-400 border-red-500/30")}>
-                            {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
-                        </button>
-
-                        {showWatch && <WatchlistDialog onClose={() => { setShowWatch(false); refreshWatch(); }} />}
-
-                        {/* Quick stats */}
-                        <div className="flex items-center gap-3 pl-1">
-                            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs"><Car size={13} className="text-blue-400" /><span className="text-muted-foreground uppercase tracking-wide text-[10px] font-bold">Adentro</span><span className="font-bold text-blue-400 text-sm">{aforo.inside}</span></span>
-                            <span className="flex items-center gap-1.5 text-xs"><Activity size={13} className="text-blue-400" /><span className="text-muted-foreground">Hoy</span><span className="font-bold text-foreground">{stats.total}</span></span>
-                            <span className="flex items-center gap-1 text-xs"><CheckCircle2 size={13} className="text-emerald-400" /><span className="font-semibold text-emerald-400">{stats.grants}</span></span>
-                            <span className="flex items-center gap-1 text-xs"><XCircle size={13} className="text-red-400" /><span className="font-semibold text-red-400">{stats.denies}</span></span>
-                            <span className="text-[10px] text-muted-foreground hidden xl:inline">{filteredEvents.length} en buffer</span>
-                        </div>
-                        <div className="w-px h-5 bg-border" />
-
-                        {/* Decision filter */}
-                        <div className="flex bg-card rounded-lg p-0.5">
+                        {/* Filtro de decisión (segmentado) */}
+                        <div className="flex items-center h-9 bg-card border border-border rounded-lg p-0.5">
                             {(["ALL", "GRANT", "DENY"] as const).map(f => (
-                                <button
-                                    key={f}
-                                    onClick={() => setActiveFilter(f)}
-                                    className={cn(
-                                        "px-3 py-1 text-xs rounded-md transition-all",
-                                        activeFilter === f ? "bg-blue-500 text-foreground" : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
+                                <button key={f} onClick={() => setActiveFilter(f)}
+                                    className={cn("px-2.5 h-full text-[11px] font-semibold rounded-md transition-all",
+                                        activeFilter === f ? "bg-blue-500 text-white shadow" : "text-muted-foreground hover:text-foreground")}>
                                     {f === "ALL" ? "Todos" : f === "GRANT" ? "Permitidos" : "Denegados"}
                                 </button>
                             ))}
                         </div>
 
-                        {/* Color / tipo quick-filter */}
+                        {/* Filtros color / tipo */}
                         {(vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
                             <div className="flex items-center gap-1.5">
                                 {vehFacets.colors.length > 0 && (
                                     <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
-                                        className="h-7 rounded-md bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                        className="h-9 rounded-lg bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
                                         <option value="ALL">Color</option>
                                         {vehFacets.colors.map((c) => <option key={c} value={c}>{c}</option>)}
                                     </select>
                                 )}
                                 {vehFacets.types.length > 0 && (
                                     <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
-                                        className="h-7 rounded-md bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                        className="h-9 rounded-lg bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
                                         <option value="ALL">Tipo</option>
                                         {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
                                     </select>
                                 )}
                                 {(filterColor !== "ALL" || filterVehType !== "ALL") && (
                                     <button onClick={() => { setFilterColor("ALL"); setFilterVehType("ALL"); }}
-                                        className="h-7 w-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent" title="Limpiar filtros">
+                                        className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-border" title="Limpiar filtros">
                                         <X size={14} />
                                     </button>
                                 )}
                             </div>
                         )}
 
-                        <Button variant="ghost" size="icon" onClick={loadInitialData} className="text-muted-foreground hover:text-foreground">
-                            <RefreshCw size={16} />
-                        </Button>
+                        {/* Cluster de acciones (íconos) */}
+                        <div className="flex items-center h-9 bg-card border border-border rounded-lg divide-x divide-border overflow-hidden">
+                            <button onClick={() => setShowWatch(true)} title="Lista de vigilancia" className="relative h-full px-2.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
+                                <ShieldAlert size={16} />
+                                {Object.keys(watchMap).length > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{Object.keys(watchMap).length}</span>}
+                            </button>
+                            <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Popup automático de anomalías: ACTIVADO" : "Popup automático de anomalías: desactivado"}
+                                className={cn("h-full px-2.5 transition-colors flex items-center gap-1.5", pinEnabled ? "bg-yellow-500/15 text-yellow-400" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                                <AlertTriangle size={15} />
+                                <span className={cn("relative inline-flex h-4 w-7 items-center rounded-full transition-colors", pinEnabled ? "bg-yellow-500" : "bg-muted-foreground/30")}>
+                                    <span className={cn("inline-block h-3 w-3 transform rounded-full bg-white transition-transform", pinEnabled ? "translate-x-3.5" : "translate-x-0.5")} />
+                                </span>
+                            </button>
+                            <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"}
+                                className={cn("h-full px-2.5 transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-accent" : "bg-red-500/10 text-red-400")}>
+                                {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                            </button>
+                            <button onClick={loadInitialData} title="Refrescar" className="h-full px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                                <RefreshCw size={16} />
+                            </button>
+                        </div>
+
+                        {showWatch && <WatchlistDialog onClose={() => { setShowWatch(false); refreshWatch(); }} />}
                     </div>
                 </div>
 
@@ -953,6 +1097,7 @@ export default function MonitorLPR() {
                     </div>
                 </div>
             </div>
+                <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
                 <UserFormDialog open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
         </TooltipProvider>
     );

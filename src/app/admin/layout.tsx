@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import { pantallaInicio } from "@/lib/landing";
+import { useSessionRole } from "@/hooks/useSessionRole";
+import { OnlineUsersWidget } from "@/components/OnlineUsersWidget";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import Link from "next/link";
@@ -88,6 +90,8 @@ export default function AdminLayout({
     const pathname = usePathname();
     const router = useRouter();
     const [collapsed, setCollapsed] = useState(false);
+    const { role: sessionRole, loaded: roleLoaded } = useSessionRole();
+    const isAdmin = sessionRole === "ADMIN";
     const [loggingOut, setLoggingOut] = useState(false);
     const [acuseekOk, setAcuseekOk] = useState(false);
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
@@ -175,8 +179,8 @@ export default function AdminLayout({
                         <>
                             {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Gestión</div>}
                             {collapsed && <div className="my-2 border-t border-border" />}
-                            <SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users"} collapsed={collapsed} />
-                            <SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />
+                            {isAdmin && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users"} collapsed={collapsed} />)}
+                            {isAdmin && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             <SidebarItem icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />
                         </>
                     )}
@@ -184,8 +188,8 @@ export default function AdminLayout({
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-amber-500/60 uppercase tracking-widest">LPR</div>}
-                            <SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />
-                            <SidebarItem icon={<Video size={18} />} label="Dispositivos LPR" href="/admin/devices?type=LPR_CAMERA" active={pathname?.includes("devices") && pathname.includes("type=LPR")} collapsed={collapsed} />
+                            {isAdmin && (<SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
+                            {isAdmin && (<SidebarItem icon={<Video size={18} />} label="Dispositivos LPR" href="/admin/devices?type=LPR_CAMERA" active={pathname?.includes("devices") && pathname.includes("type=LPR")} collapsed={collapsed} />)}
                             {acuseekOk && <SidebarItem icon={<Sparkles size={18} />} label="Búsqueda inteligente" href="/admin/acuseek" active={pathname === "/admin/acuseek"} collapsed={collapsed} />}
                         </>
                     )}
@@ -212,8 +216,8 @@ export default function AdminLayout({
 
                     {!modules.MODULE_QUEUE && (
                         <>
-                            <SidebarItem icon={<CreditCard size={18} />} label="Tags RFID" href="/admin/rfid" active={pathname === "/admin/rfid"} collapsed={collapsed} />
-                            <SidebarItem icon={<Users size={18} />} label="Grupos de Acceso" href="/admin/groups" active={pathname === "/admin/groups"} collapsed={collapsed} />
+                            {isAdmin && (<SidebarItem icon={<CreditCard size={18} />} label="Tags RFID" href="/admin/rfid" active={pathname === "/admin/rfid"} collapsed={collapsed} />)}
+                            {isAdmin && (<SidebarItem icon={<Users size={18} />} label="Grupos de Acceso" href="/admin/groups" active={pathname === "/admin/groups"} collapsed={collapsed} />)}
                         </>
                     )}
 
@@ -233,10 +237,11 @@ export default function AdminLayout({
 
                     <div className="my-2 border-t border-border" />
                     <SidebarItem icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />
-                            <SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />
+                            {isAdmin && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />)}
                 </nav>
 
                 <div className="p-3 border-t border-border space-y-2">
+                    <OnlineUsersWidget collapsed={collapsed} />
                     <div className={cn("flex items-center gap-3 group p-2 rounded-2xl hover:bg-accent/50 transition-colors", collapsed && "justify-center p-0 hover:bg-transparent")}>
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-blue-500/20 shrink-0">
                             A
@@ -283,7 +288,13 @@ export default function AdminLayout({
                     collapsed ? "ml-[70px]" : "ml-64"
                 )}
             >
-                {children}
+                {roleLoaded && !isAdmin && ["/admin/settings", "/admin/users", "/admin/units", "/admin/devices", "/admin/groups", "/admin/rfid", "/admin/vehicles"].some((r) => pathname?.startsWith(r)) ? (
+                    <div className="flex flex-col items-center justify-center h-[70vh] text-center gap-3 text-muted-foreground p-8">
+                        <ShieldCheck size={40} className="text-amber-500" />
+                        <h2 className="text-lg font-bold text-foreground">Acceso restringido</h2>
+                        <p className="text-sm max-w-sm">Tu cuenta es de solo lectura: podés ver y operar el sistema, pero la gestión de usuarios/dispositivos y la configuración son para administradores.</p>
+                    </div>
+                ) : children}
             </main>
 
             <AforoAlertOverlay />

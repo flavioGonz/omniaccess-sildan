@@ -343,6 +343,7 @@ enum UserRole {
   BLACKLISTED
   WHITELISTED
   SECURITY
+  OPERATOR
 }
 
 enum CredentialType {

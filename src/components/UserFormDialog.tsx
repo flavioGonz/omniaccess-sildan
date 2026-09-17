@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -534,7 +535,7 @@ export function UserFormDialog({ user, initialData, units, groups, devices, park
                                                     </Label>
                                                     <div className="relative group">
                                                         <KeyRound size={14} className="absolute left-3 top-2.5 text-muted-foreground" />
-                                                        <Input
+                                                        <PasswordInput
                                                             name="pin"
                                                             value={pinValue}
                                                             onChange={(e) => setPinValue(e.target.value)}

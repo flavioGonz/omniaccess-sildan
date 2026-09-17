@@ -1355,7 +1355,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                 type: 'PLATE',
                 value: finalPlate
             },
-            include: { user: true }
+            include: { user: { include: { unit: true } } }
         }) : null;
 
         if (credential) {
@@ -1837,7 +1837,7 @@ const handleAkuvoxWebhook = async (req, res, logPrefix) => {
                     value: credentialValue,
                     type: credentialType
                 },
-                include: { user: true }
+                include: { user: { include: { unit: true } } }
             });
 
             if (credential) {
@@ -2317,6 +2317,24 @@ function guardsArray() {
     return out;
 }
 function broadcastGuards() { try { io.emit("guard_locations", guardsArray().filter(g => g.lat != null)); } catch (e) { } }
+
+// ── Usuarios en línea (panel + guardias) ─────────────────────────────────
+// Los clientes del panel (/admin) emiten panel_hello {name, role} al conectar
+// y panel_ping periódico. Se combinan con los guardias (guardState) y se
+// re-emiten como online_users a todos.
+const panelState = new Map(); // socket.id -> { name, role, ts }
+function onlineSnapshot() {
+    const now = Date.now();
+    const panel = [];
+    for (const [sid, p] of panelState) {
+        if (now - p.ts > 70000) { panelState.delete(sid); continue; } // 70s sin ping -> fuera
+        panel.push({ id: sid, name: p.name, role: p.role, ts: p.ts });
+    }
+    const guards = guardsArray().map(g => ({ id: g.id, name: g.guardName || "Guardia", role: "GUARD", lat: g.lat, lng: g.lng, ts: g.ts }));
+    return { panel, guards, total: panel.length + guards.length };
+}
+function broadcastOnline() { try { io.emit("online_users", onlineSnapshot()); } catch (e) { } }
+setInterval(broadcastOnline, 30000);
 setInterval(() => { const before = guardState.size; const arr = guardsArray(); if (arr.length !== before) broadcastGuards(); }, 30000);
 
 // ── MODULE_GUARD panic/backup relay ─────────────────────────────────────
@@ -2439,12 +2457,27 @@ io.on("connection", (socket) => {
         try { io.emit("guard_fence", { ...(data || {}), ts: Date.now() }); } catch (e) {}
     });
 
+    socket.on("panel_hello", (data) => {
+        try {
+            if (!data || !data.name) return;
+            panelState.set(socket.id, { name: String(data.name), role: String(data.role || "ADMIN"), ts: Date.now() });
+            broadcastOnline();
+        } catch (e) { }
+    });
+
+    socket.on("panel_ping", () => { const p = panelState.get(socket.id); if (p) p.ts = Date.now(); });
+
+    socket.on("get_online_users", () => { try { socket.emit("online_users", onlineSnapshot()); } catch (e) { } });
+
     socket.on("get_guard_locations", () => {
         try { socket.emit("guard_locations", guardsArray().filter(g => g.lat != null)); } catch (e) { }
     });
 
     socket.on("disconnect", () => {
-        if (guardState.delete(socket.id)) broadcastGuards();
+        const eraGuard = guardState.delete(socket.id);
+        const eraPanel = panelState.delete(socket.id);
+        if (eraGuard) broadcastGuards();
+        if (eraGuard || eraPanel) broadcastOnline();
     });
 });
 

@@ -1,5 +1,9 @@
 /** @type {import("next").NextConfig} */
 const nextConfig = {
+  // El rewrite de /io recibe pedidos con barra final y Next respondía 308.
+  // Los navegadores lo siguen, pero un cliente estricto no conecta y en polling
+  // cada pedido de la tablet costaba dos viajes.
+  skipTrailingSlashRedirect: true,
   serverExternalPackages: ["bullmq", "ioredis", "web-push"],
   typescript: {
     ignoreBuildErrors: true,

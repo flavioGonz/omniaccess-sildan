@@ -123,6 +123,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     const [originType, setOriginType] = useState<"PARTICULAR" | "EMPRESA" | "IMM" | "POLICIA" | "BOMBEROS" | "AMBULANCIA">("PARTICULAR");
     const [company, setCompany] = useState("");
     const [socket, setSocket] = useState<any>(null);
+    // OA-PERMISOS-TRAS-LOGIN: true recién cuando el guardia se identificó.
+    // Los permisos del navegador (GPS, notificaciones) se piden a partir de acá:
+    // un rechazo en la pantalla de login queda grabado para todo el origen.
+    const [identificado, setIdentificado] = useState(false);
     const [monitoringMissions, setMonitoringMissions] = useState<any[]>([]); // For observing multiple ongoing alerts
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
@@ -584,51 +588,61 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             setOtherGuards(data);
         });
 
-        // GPS WATCHER (CONTINUOUS IN BACKGROUND)
-        let watchId: number | null = null;
-        if ("geolocation" in navigator) {
-            watchId = navigator.geolocation.watchPosition(
-                (position) => {
-                    const { latitude, longitude, accuracy } = position.coords;
-                    setMyLocation({ lat: latitude, lng: longitude });
-                    if (newSocket && newSocket.connected) {
-                        try {
-                            const storedName = guardNameRef.current || localStorage.getItem("guard_name") || localStorage.getItem("bitacora_guard_name");
-                            newSocket.emit('guard_location_update', {
-                                lat: latitude,
-                                lng: longitude,
-                                accuracy,
-                                guardName: storedName || "Operario",
-                                timestamp: Date.now()
-                            });
-                        } catch (e) {
-                            console.error("Socket emit error", e);
-                        }
-                    }
-                },
-                (error) => console.error("GPS Error:", error),
-                {
-                    enableHighAccuracy: true,
-                    maximumAge: 5000,
-                    timeout: 10000
-                }
-            );
-        }
+        // El GPS ya no arranca acá: ver el efecto marcado OA-PERMISOS-TRAS-LOGIN.
 
         return () => {
             clearInterval(heartBeat);
-            if (watchId !== null) navigator.geolocation.clearWatch(watchId);
             newSocket.disconnect();
         };
     }, []); // Only establish once
 
-
-    // Notification Permission Request
+    // OA-PERMISOS-TRAS-LOGIN: seguimiento GPS.
+    // Arranca al identificarse el guardia, no en la pantalla de login, para que el
+    // permiso se pida cuando ya hay contexto y no quede denegado de entrada.
     useEffect(() => {
-        if ("Notification" in window && Notification.permission === "default") {
-            Notification.requestPermission();
+        if (!identificado) return;
+        if (!("geolocation" in navigator)) return;
+
+        const watchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const { latitude, longitude, accuracy } = position.coords;
+                setMyLocation({ lat: latitude, lng: longitude });
+                if (socket && socket.connected) {
+                    try {
+                        const storedName = guardNameRef.current || localStorage.getItem("guard_name") || localStorage.getItem("bitacora_guard_name");
+                        socket.emit('guard_location_update', {
+                            lat: latitude,
+                            lng: longitude,
+                            accuracy,
+                            guardName: storedName || "Operario",
+                            timestamp: Date.now()
+                        });
+                    } catch (e) {
+                        console.error("Socket emit error", e);
+                    }
+                }
+            },
+            (error) => console.error("GPS Error:", error),
+            { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+        );
+
+        return () => navigator.geolocation.clearWatch(watchId);
+    }, [identificado, socket]);
+
+
+    // OA-PERMISOS-TRAS-LOGIN: permiso de notificaciones, después de identificarse.
+    useEffect(() => {
+        if (!identificado) return;
+        if (!("Notification" in window)) return;
+        if (Notification.permission !== "default") {
+            if (Notification.permission === "granted") window.dispatchEvent(new Event("oa-push-listo"));
+            return;
         }
-    }, []);
+        Notification.requestPermission().then((estado) => {
+            // avisamos al gestor de push para que recién ahí se suscriba
+            if (estado === "granted") window.dispatchEvent(new Event("oa-push-listo"));
+        });
+    }, [identificado]);
 
     // R1: Wake Lock — mantener pantalla encendida y re-adquirir al volver de screen-off
     useEffect(() => {
@@ -878,7 +892,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             playTactileSound();
             toast.success({ title: `Bienvenido, ${guard.name}` });
 
-            setShowIdentityOverlay(false);
+            setShowIdentityOverlay(false); setIdentificado(true);
 
             // Reset form
             setLoginUser("");
@@ -897,7 +911,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             setGuardPhoto(guard.cara);
             localStorage.setItem("bitacora_guard_name", guard.name);
             if (guard.cara) localStorage.setItem("bitacora_guard_photo", guard.cara);
-            setShowIdentityOverlay(false);
+            setShowIdentityOverlay(false); setIdentificado(true);
             setShowProfileMenu(false); // Ensure menu is closed
             showNotification("BIENVENIDO", `Sesión iniciada como ${guard.name}.`, "success");
         } else if (pinCheck) {
@@ -911,7 +925,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         localStorage.removeItem("bitacora_guard_name");
         localStorage.removeItem("guard_name");
         localStorage.removeItem("bitacora_guard_photo");
-        setShowIdentityOverlay(true);
+        setShowIdentityOverlay(true); setIdentificado(false);
         showNotification("SESIÓN CERRADA", "Se ha finalizado la sesión del guardia exitosamente.", "info");
     };
 
@@ -922,29 +936,29 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         return () => clearInterval(timer);
     }, []);
 
-    // Geolocation
+    // OA-PERMISOS-TRAS-LOGIN: posición inicial, también después de identificarse.
     useEffect(() => {
-        if ("geolocation" in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    setLocation({
-                        lat: position.coords.latitude,
-                        lng: position.coords.longitude
-                    });
-                },
-                (error) => {
-                    console.error("Geolocation error:", error);
-                }
-            );
-        }
-    }, []);
+        if (!identificado) return;
+        if (!("geolocation" in navigator)) return;
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                setLocation({
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                });
+            },
+            (error) => {
+                console.error("Geolocation error:", error);
+            }
+        );
+    }, [identificado]);
 
     // Load guard name
     useEffect(() => {
         const savedGuard = localStorage.getItem("bitacora_guard_name");
         if (savedGuard) {
             setGuardName(savedGuard);
-            setShowIdentityOverlay(false);
+            setShowIdentityOverlay(false); setIdentificado(true);
         }
     }, []);
 

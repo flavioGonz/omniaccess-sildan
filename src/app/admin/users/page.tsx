@@ -322,258 +322,230 @@ export default function UsersPage() {
                     </div>
                 </div>
 
-                {/* Dense Table */}
-                <div className="flex-1 border border-border rounded-lg overflow-hidden bg-card/40 relative">
-                    <div className="absolute inset-0 overflow-auto custom-scrollbar">
-                        <Table>
-                            <TableHeader className="sticky top-0 bg-card z-10 shadow-sm">
-                                <TableRow className="border-border hover:bg-transparent h-11">
-                                    <TableHead className="w-[280px] text-[11px] font-semibold uppercase tracking-wide text-muted-foreground h-11">Identidad</TableHead>
-                                    <TableHead className="w-[120px] text-[11px] font-semibold uppercase tracking-wide text-muted-foreground h-11">Unidad / DNI</TableHead>
-                                    <TableHead className="w-[150px] text-[11px] font-semibold uppercase tracking-wide text-muted-foreground h-11 text-center">Matrículas</TableHead>
-                                    <TableHead className="w-[150px] text-[11px] font-semibold uppercase tracking-wide text-muted-foreground h-11 text-center">RFID / Tags</TableHead>
-                                    <TableHead className="w-[100px] text-[11px] font-semibold uppercase tracking-wide text-muted-foreground h-11 text-center">PIN Code</TableHead>
-                                    <TableHead className="w-[80px] text-[11px] font-semibold uppercase tracking-wide text-muted-foreground h-11 text-center">Biometría</TableHead>
-                                    <TableHead className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground h-11 text-right pr-4">Acciones</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {isLoading ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} className="h-32 text-center text-xs text-muted-foreground">
-                                            <Loader2 className="animate-spin inline-block mr-2" size={14} /> Cargando registros...
-                                        </TableCell>
-                                    </TableRow>
-                                ) : usersToDisplay.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} className="h-32 text-center text-xs text-muted-foreground uppercase tracking-widest">
-                                            Sin resultados
-                                        </TableCell>
-                                    </TableRow>
-                                ) : (
-                                    <>
-                                        {usersToDisplay.map((user) => {
-                                            const roleInfo = ROLE_LABELS[user.role] || ROLE_LABELS.RESIDENT;
-                                            const { hasFace, tags, pins, plates } = getCredentialsInfo(user);
-                                            const hasContact = user.email || user.phone;
+                {/* Dense Table — tabla nativa para que el ENCABEZADO quede sticky
+                    contra este contenedor de scroll (el <Table> de shadcn envuelve en
+                    un div overflow-auto propio que rompía el sticky). */}
+                <div className="flex-1 border border-border rounded-lg overflow-auto custom-scrollbar bg-card/40 relative">
+                    <table className="w-full border-collapse text-sm">
+                        <thead className="sticky top-0 z-20">
+                            <tr className="bg-card shadow-sm [&>th]:border-b [&>th]:border-border [&>th]:h-11 [&>th]:text-[11px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wide [&>th]:text-muted-foreground [&>th]:bg-card">
+                                <th className="w-[300px] text-left px-4">Identidad</th>
+                                <th className="w-[130px] text-left px-2">Unidad / DNI</th>
+                                <th className="w-[130px] text-center px-2">Matrículas</th>
+                                <th className="w-[130px] text-center px-2">RFID / Tags</th>
+                                <th className="w-[90px] text-center px-2">PIN Code</th>
+                                <th className="w-[80px] text-center px-2">Biometría</th>
+                                <th className="text-right px-4">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {isLoading ? (
+                                <tr>
+                                    <td colSpan={7} className="h-32 text-center text-xs text-muted-foreground">
+                                        <Loader2 className="animate-spin inline-block mr-2" size={14} /> Cargando registros...
+                                    </td>
+                                </tr>
+                            ) : usersToDisplay.length === 0 ? (
+                                <tr>
+                                    <td colSpan={7} className="h-32 text-center text-xs text-muted-foreground uppercase tracking-widest">
+                                        Sin resultados
+                                    </td>
+                                </tr>
+                            ) : (
+                                <>
+                                    {usersToDisplay.map((user) => {
+                                        const roleInfo = ROLE_LABELS[user.role] || ROLE_LABELS.RESIDENT;
+                                        const { hasFace, tags, pins, plates } = getCredentialsInfo(user);
 
-                                            return (
-                                                <TableRow key={user.id} className="border-border hover:bg-foreground/[0.04] h-14 group transition-colors">
-                                                    {/* IDENTITY */}
-                                                    <TableCell className="py-3">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="w-7 h-7 bg-muted rounded-full flex items-center justify-center border border-border overflow-hidden shrink-0">
-                                                                {user.cara ? (
-                                                                    <img src={user.cara} className="w-full h-full object-cover" />
-                                                                ) : (
-                                                                    <span className="text-[9px] font-bold text-muted-foreground">{user.name.charAt(0)}</span>
-                                                                )}
-                                                            </div>
-                                                            <div className="flex flex-col min-w-0">
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className="text-xs font-medium text-foreground truncate max-w-[140px] group-hover:text-foreground transition-colors">{user.name}</span>
-                                                                    <Tooltip>
-                                                                        <TooltipTrigger asChild>
-                                                                            <Badge variant="outline" className={cn("text-[8px] h-3.5 px-1 rounded-[3px] border-0 capitalize font-bold cursor-help", roleInfo.color)}>
-                                                                                {roleInfo.label.toLowerCase()}
-                                                                            </Badge>
-                                                                        </TooltipTrigger>
-                                                                        <TooltipContent className="bg-black border-border text-xs">
-                                                                            <p>Rol: {roleInfo.label}</p>
-                                                                            {hasContact && (
-                                                                                <div className="mt-1 pt-1 border-t border-border space-y-1">
-                                                                                    {user.email && <div className="flex items-center gap-2 text-muted-foreground"><Mail size={10} /> {user.email}</div>}
-                                                                                    {user.phone && <div className="flex items-center gap-2 text-muted-foreground"><Phone size={10} /> {user.phone}</div>}
-                                                                                </div>
-                                                                            )}
-                                                                        </TooltipContent>
-                                                                    </Tooltip>
-                                                                </div>
-                                                                <span className="text-[9px] text-muted-foreground font-mono tracking-tight truncate">ID: {user.id.slice(-6)}</span>
-                                                            </div>
-                                                        </div>
-                                                    </TableCell>
-
-                                                    {/* UNIT / DNI */}
-                                                    <TableCell className="py-3">
-                                                        <div className="flex flex-col">
-                                                            {user.unit ? (
-                                                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                                                    <MapPin size={10} className="text-muted-foreground" />
-                                                                    <span className="text-[10px] font-bold">{user.unit.name}</span>
-                                                                </div>
+                                        return (
+                                            <tr
+                                                key={user.id}
+                                                onClick={() => { setSelectedUser(user); setIsFormOpen(true); }}
+                                                className="border-b border-border hover:bg-foreground/[0.05] group transition-colors cursor-pointer"
+                                                title="Ver / editar usuario"
+                                            >
+                                                {/* IDENTITY + CONTACTO visible */}
+                                                <td className="py-2.5 px-4 align-middle">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center border border-border overflow-hidden shrink-0">
+                                                            {user.cara ? (
+                                                                <img src={user.cara} className="w-full h-full object-cover" />
                                                             ) : (
-                                                                <span className="text-[10px] text-muted-foreground italic px-4">--</span>
+                                                                <span className="text-[10px] font-bold text-muted-foreground">{user.name.charAt(0)}</span>
                                                             )}
-                                                            <div className="flex items-center gap-1.5 text-muted-foreground mt-0.5 ml-0.5">
-                                                                <Hash size={9} />
-                                                                <span className="text-[9px] font-mono">{user.dni || "S/DNI"}</span>
+                                                        </div>
+                                                        <div className="flex flex-col min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xs font-medium text-foreground truncate max-w-[150px]">{user.name}</span>
+                                                                <Badge variant="outline" className={cn("text-[8px] h-3.5 px-1 rounded-[3px] border-0 capitalize font-bold", roleInfo.color)}>
+                                                                    {roleInfo.label.toLowerCase()}
+                                                                </Badge>
+                                                            </div>
+                                                            <div className="flex items-center gap-3 mt-0.5 text-[10px] text-muted-foreground">
+                                                                {user.phone ? (
+                                                                    <span className="flex items-center gap-1 truncate"><Phone size={9} className="shrink-0" /> {user.phone}</span>
+                                                                ) : null}
+                                                                {user.email ? (
+                                                                    <span className="flex items-center gap-1 truncate max-w-[180px]"><Mail size={9} className="shrink-0" /> {user.email}</span>
+                                                                ) : null}
+                                                                {!user.phone && !user.email && <span className="italic opacity-60">Sin contacto</span>}
                                                             </div>
                                                         </div>
-                                                    </TableCell>
-
-                                                    {/* PLATES (LPR) */}
-                                                    <TableCell className="py-3 text-center">
-                                                        {plates.length > 0 ? (
-                                                            <div className="flex flex-col items-center gap-1">
-                                                                {plates.slice(0, 1).map((p: string) => (
-                                                                    <div key={p} className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20 max-w-[120px]">
-                                                                        <span className="font-mono text-[9px] font-bold text-blue-400 truncate">{p}</span>
-                                                                    </div>
-                                                                ))}
-                                                                {plates.length > 1 && (
-                                                                    <Tooltip>
-                                                                        <TooltipTrigger asChild>
-                                                                            <span className="text-[9px] text-muted-foreground cursor-help">+{plates.length - 1} más</span>
-                                                                        </TooltipTrigger>
-                                                                        <TooltipContent className="bg-black border-border p-2">
-                                                                            <div className="space-y-1">
-                                                                                {plates.map((p: string) => (
-                                                                                    <div key={p} className="flex items-center gap-2 bg-foreground/10 px-2 py-1 rounded border border-border">
-                                                                                        <div className="w-1 h-1 rounded-full bg-blue-500" />
-                                                                                        <span className="font-mono text-xs text-blue-200">{p}</span>
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        </TooltipContent>
-                                                                    </Tooltip>
-                                                                )}
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-muted-foreground">-</span>
-                                                        )}
-                                                    </TableCell>
-
-                                                    {/* RFID / TAGS */}
-                                                    <TableCell className="py-3 text-center">
-                                                        {tags.length > 0 ? (
-                                                            <div className="flex flex-col items-center gap-1">
-                                                                {tags.slice(0, 1).map((t: any) => (
-                                                                    <div key={t.id} className="flex items-center gap-1 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 max-w-[120px]">
-                                                                        <span className="font-mono text-[9px] font-bold text-emerald-400 truncate">{t.value}</span>
-                                                                    </div>
-                                                                ))}
-                                                                {tags.length > 1 && (
-                                                                    <Tooltip>
-                                                                        <TooltipTrigger asChild>
-                                                                            <span className="text-[9px] text-muted-foreground cursor-help">+{tags.length - 1} más</span>
-                                                                        </TooltipTrigger>
-                                                                        <TooltipContent className="bg-black border-border p-2">
-                                                                            <div className="space-y-1">
-                                                                                {tags.map((t: any) => (
-                                                                                    <div key={t.id} className="font-mono text-xs text-emerald-200 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                                                                                        {t.value}
-                                                                                    </div>
-                                                                                ))}
-                                                                            </div>
-                                                                        </TooltipContent>
-                                                                    </Tooltip>
-                                                                )}
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-muted-foreground">-</span>
-                                                        )}
-                                                    </TableCell>
-
-                                                    {/* PIN CODE */}
-                                                    <TableCell className="py-3 text-center">
-                                                        {pins.length > 0 ? (
-                                                            <div className="flex flex-col items-center gap-1">
-                                                                {pins.slice(0, 1).map((p: any) => (
-                                                                    <div key={p.id} className="flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
-                                                                        <span className="font-mono text-[9px] font-bold text-amber-500 tracking-widest">{p.value}</span>
-                                                                    </div>
-                                                                ))}
-                                                                {pins.length > 1 && (
-                                                                    <Tooltip>
-                                                                        <TooltipTrigger asChild>
-                                                                            <span className="text-[9px] text-muted-foreground cursor-help">+{pins.length - 1} más</span>
-                                                                        </TooltipTrigger>
-                                                                        <TooltipContent className="bg-black border-border p-2">
-                                                                            <div className="space-y-1">
-                                                                                {pins.map((p: any) => (
-                                                                                    <div key={p.id} className="font-mono text-xs text-amber-500">{p.value}</div>
-                                                                                ))}
-                                                                            </div>
-                                                                        </TooltipContent>
-                                                                    </Tooltip>
-                                                                )}
-                                                            </div>
-                                                        ) : (
-                                                            <span className="text-muted-foreground">-</span>
-                                                        )}
-                                                    </TableCell>
-
-                                                    {/* BIOMETRY */}
-                                                    <TableCell className="py-3 text-center">
-                                                        {hasFace ? (
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <div className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                                                                        <ScanFace size={12} />
-                                                                    </div>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent className="bg-black border-border">
-                                                                    <p className="text-xs">Rostro Enrolado</p>
-                                                                </TooltipContent>
-                                                            </Tooltip>
-                                                        ) : (
-                                                            <div className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-foreground/10 border border-border text-muted-foreground">
-                                                                <ScanFace size={12} />
-                                                            </div>
-                                                        )}
-                                                    </TableCell>
-
-                                                    {/* ACTIONS */}
-                                                    <TableCell className="py-3 text-right pr-4">
-                                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        onClick={() => { setSelectedUser(user); setIsFormOpen(true); }}
-                                                                        className="h-7 w-7 p-0 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
-                                                                    >
-                                                                        <Edit size={12} />
-                                                                    </Button>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent><p className="text-[10px]">Editar</p></TooltipContent>
-                                                            </Tooltip>
-
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        onClick={() => setUserToDelete(user)}
-                                                                        className="h-7 w-7 p-0 rounded-md hover:bg-red-900/20 text-muted-foreground hover:text-red-400"
-                                                                    >
-                                                                        <Trash2 size={12} />
-                                                                    </Button>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent><p className="text-[10px] text-red-400">Eliminar</p></TooltipContent>
-                                                            </Tooltip>
-                                                        </div>
-                                                    </TableCell>
-                                                </TableRow>
-                                            );
-                                        })}
-                                        {/* Sentinel for Infinite Scroll */}
-                                        {!isLoading && !searchQuery && !filterRole && visibleUsers.length < users.length && (
-                                            <TableRow>
-                                                <TableCell colSpan={7} className="p-0 border-0">
-                                                    <div ref={observerTarget} className="h-10 w-full flex items-center justify-center">
-                                                        <Loader2 className="animate-spin text-muted-foreground" size={14} />
                                                     </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        )}
-                                    </>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
+                                                </td>
+
+                                                {/* UNIT / DNI */}
+                                                <td className="py-2.5 px-2 align-middle">
+                                                    <div className="flex flex-col">
+                                                        {user.unit ? (
+                                                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                                                                <MapPin size={10} className="text-muted-foreground" />
+                                                                <span className="text-[10px] font-bold">{user.unit.name}</span>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-[10px] text-muted-foreground italic">--</span>
+                                                        )}
+                                                        <div className="flex items-center gap-1.5 text-muted-foreground mt-0.5">
+                                                            <Hash size={9} />
+                                                            <span className="text-[9px] font-mono">{user.dni || "S/DNI"}</span>
+                                                        </div>
+                                                    </div>
+                                                </td>
+
+                                                {/* PLATES (LPR) */}
+                                                <td className="py-2.5 px-2 text-center align-middle">
+                                                    {plates.length > 0 ? (
+                                                        <div className="flex flex-col items-center gap-1">
+                                                            {plates.slice(0, 1).map((p: string) => (
+                                                                <div key={p} className="flex items-center gap-1 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20 max-w-[120px]">
+                                                                    <span className="font-mono text-[9px] font-bold text-blue-400 truncate">{p}</span>
+                                                                </div>
+                                                            ))}
+                                                            {plates.length > 1 && (
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <span className="text-[9px] text-muted-foreground cursor-help">+{plates.length - 1} más</span>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent className="bg-black border-border p-2">
+                                                                        <div className="space-y-1">
+                                                                            {plates.map((p: string) => (
+                                                                                <div key={p} className="flex items-center gap-2 bg-foreground/10 px-2 py-1 rounded border border-border">
+                                                                                    <div className="w-1 h-1 rounded-full bg-blue-500" />
+                                                                                    <span className="font-mono text-xs text-blue-200">{p}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* RFID / TAGS */}
+                                                <td className="py-2.5 px-2 text-center align-middle">
+                                                    {tags.length > 0 ? (
+                                                        <div className="flex flex-col items-center gap-1">
+                                                            {tags.slice(0, 1).map((t: any) => (
+                                                                <div key={t.id} className="flex items-center gap-1 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 max-w-[120px]">
+                                                                    <span className="font-mono text-[9px] font-bold text-emerald-400 truncate">{t.value}</span>
+                                                                </div>
+                                                            ))}
+                                                            {tags.length > 1 && (
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <span className="text-[9px] text-muted-foreground cursor-help">+{tags.length - 1} más</span>
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent className="bg-black border-border p-2">
+                                                                        <div className="space-y-1">
+                                                                            {tags.map((t: any) => (
+                                                                                <div key={t.id} className="font-mono text-xs text-emerald-200 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                                                                    {t.value}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* PIN CODE */}
+                                                <td className="py-2.5 px-2 text-center align-middle">
+                                                    {pins.length > 0 ? (
+                                                        <div className="flex flex-col items-center gap-1">
+                                                            {pins.slice(0, 1).map((p: any) => (
+                                                                <div key={p.id} className="flex items-center gap-1 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                                                    <span className="font-mono text-[9px] font-bold text-amber-500 tracking-widest">{p.value}</span>
+                                                                </div>
+                                                            ))}
+                                                            {pins.length > 1 && (
+                                                                <span className="text-[9px] text-muted-foreground">+{pins.length - 1}</span>
+                                                            )}
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">-</span>
+                                                    )}
+                                                </td>
+
+                                                {/* BIOMETRY */}
+                                                <td className="py-2.5 px-2 text-center align-middle">
+                                                    {hasFace ? (
+                                                        <div className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-400" title="Rostro enrolado">
+                                                            <ScanFace size={12} />
+                                                        </div>
+                                                    ) : (
+                                                        <div className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-foreground/10 border border-border text-muted-foreground">
+                                                            <ScanFace size={12} />
+                                                        </div>
+                                                    )}
+                                                </td>
+
+                                                {/* ACTIONS */}
+                                                <td className="py-2.5 px-4 text-right align-middle">
+                                                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={(e) => { e.stopPropagation(); setSelectedUser(user); setIsFormOpen(true); }}
+                                                            className="h-7 w-7 p-0 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
+                                                            title="Editar"
+                                                        >
+                                                            <Edit size={12} />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={(e) => { e.stopPropagation(); setUserToDelete(user); }}
+                                                            className="h-7 w-7 p-0 rounded-md hover:bg-red-900/20 text-muted-foreground hover:text-red-400"
+                                                            title="Eliminar"
+                                                        >
+                                                            <Trash2 size={12} />
+                                                        </Button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                    {/* Sentinel for Infinite Scroll */}
+                                    {!isLoading && !searchQuery && !filterRole && visibleUsers.length < users.length && (
+                                        <tr>
+                                            <td colSpan={7} className="p-0 border-0">
+                                                <div ref={observerTarget} className="h-10 w-full flex items-center justify-center">
+                                                    <Loader2 className="animate-spin text-muted-foreground" size={14} />
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </>
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 

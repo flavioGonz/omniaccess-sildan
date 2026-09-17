@@ -10,6 +10,17 @@ const outfit = Outfit({
 // Force dynamic rendering for the entire application to avoid build-time DB access
 export const dynamic = 'force-dynamic';
 
+// Una sola etiqueta viewport: la manual chocaba con la que inyecta Next
+// y ganaba la de Next, perdiendo viewport-fit=cover y el bloqueo de zoom.
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover" as const,
+  themeColor: "#ffffff",
+};
+
 export const metadata: Metadata = {
   title: "Omniacces",
   description: "Sistema de control de acceso LPR y Facial",
@@ -36,7 +47,6 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 
       </head>
       <body

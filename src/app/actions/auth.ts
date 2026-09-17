@@ -76,10 +76,12 @@ export async function login(formData: FormData) {
         return { error: `Demasiados intentos. Intente de nuevo en ${minutes} minutos.` }
     }
 
+    // OA-LOGIN-ROL-CLARO: se busca por nombre sin filtrar rol; el rol se
+    // controla más abajo, DESPUÉS de validar la clave, para no revelar qué cuentas
+    // existen a quien no sabe la contraseña.
     const user = await prisma.user.findFirst({
         where: {
-            name: username,
-            role: 'ADMIN'
+            name: username
         },
         include: {
             credentials: true
@@ -119,6 +121,12 @@ export async function login(formData: FormData) {
 
     // Success - reset rate limit
     resetRateLimit(username.toLowerCase())
+
+    // OA-LOGIN-ROL-CLARO: clave correcta, pero sólo ADMIN entra al panel.
+    // Las cuentas de guardia (STAFF) usan la consola /guard, no este login.
+    if (user.role !== 'ADMIN' && user.role !== 'OPERATOR') {
+        return { error: 'Esta cuenta no tiene acceso al panel de administración. Las cuentas de guardia ingresan por la consola (/guard).' }
+    }
 
     if (!secretKey) {
         return { error: 'Error de configuración del servidor. Contacte al administrador.' }

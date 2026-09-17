@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
@@ -261,9 +262,8 @@ export default function AdminsSection() {
                                 <Label htmlFor="password" className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
                                     {editingAdmin ? "Nueva Contraseña (Dejar vacío para mantener)" : "Contraseña"}
                                 </Label>
-                                <Input
+                                <PasswordInput
                                     id="password"
-                                    type="text"
                                     value={formData.password}
                                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                     className="bg-card border-border h-10 font-mono"

@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 
-// Utility to convert VAPID key
+// Convierte la clave VAPID de base64url a Uint8Array
 function urlBase64ToUint8Array(base64String: string) {
     const padding = '='.repeat((4 - base64String.length % 4) % 4);
     const base64 = (base64String + padding)
@@ -20,20 +20,23 @@ function urlBase64ToUint8Array(base64String: string) {
 
 export function PushNotificationManager() {
     useEffect(() => {
-        // Feature check
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            return;
-        }
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
-        const registerPush = async () => {
+        const registrar = async () => {
             try {
-                // 1. Register Service Worker
-                const registration = await navigator.serviceWorker.register('/sw.js');
+                await navigator.serviceWorker.register('/sw.js');
 
-                // 2. Check for existing subscription
+                // Sin esto el primer arranque falla con
+                // "AbortError: Subscription failed - no active Service Worker":
+                // register() vuelve antes de que el worker esté activo.
+                const registration = await navigator.serviceWorker.ready;
+
+                // No suscribimos si todavía no hay permiso: subscribe() dispararía
+                // el cartel del navegador, y en la tablet eso pasaba en el login.
+                if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
                 let subscription = await registration.pushManager.getSubscription();
 
-                // 3. If no subscription, create one
                 if (!subscription) {
                     const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
                     if (!vapidKey) return console.error("No VAPID public key found");
@@ -44,23 +47,23 @@ export function PushNotificationManager() {
                     });
                 }
 
-                // 4. Send subscription to backend
                 await fetch('/api/subscribe', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(subscription)
                 });
-
-
             } catch (error) {
                 console.error("Push registration error:", error);
             }
         };
 
-        // Delay execution slightly to not block initial render
-        const timer = setTimeout(registerPush, 1000);
-        return () => clearTimeout(timer);
-
+        const timer = setTimeout(registrar, 1000);
+        // la consola avisa cuando el guardia concede el permiso
+        window.addEventListener('oa-push-listo', registrar);
+        return () => {
+            clearTimeout(timer);
+            window.removeEventListener('oa-push-listo', registrar);
+        };
     }, []);
 
     return null;

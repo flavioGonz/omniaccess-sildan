@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Shield, Mail, Lock, User, ArrowRight, RefreshCw, AlertCircle, CheckCircle2, ChevronLeft, Quote } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from '@/components/ui/button';
 import { login, resetPassword } from '@/app/actions/auth';
 import { getAppBranding } from '@/app/actions/settings';
@@ -134,9 +135,8 @@ export default function LoginPage() {
                                             </div>
                                             <div className="relative group">
                                                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-[#B20D30] transition-colors" size={20} />
-                                                <Input
+                                                <PasswordInput
                                                     name="password"
-                                                    type="password"
                                                     required
                                                     className="bg-muted/50 border-border h-14 pl-12 text-foreground text-base focus:ring-[#B20D30] focus:border-[#B20D30] rounded-xl placeholder:text-muted-foreground transition-all"
                                                     placeholder="••••••••"

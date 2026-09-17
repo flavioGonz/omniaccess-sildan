@@ -66,7 +66,7 @@ export async function verifyGuardCredential(identifier: string, secret: string):
 export async function getAdminsList() {
     const admins = await prisma.user.findMany({
         where: {
-            role: 'ADMIN'
+            role: { in: ['ADMIN', 'OPERATOR'] }
         },
         include: {
             credentials: true
@@ -217,10 +217,12 @@ export async function saveAdmin(formData: FormData) {
         }
     }
 
+    const rolRaw = (formData.get("role") as string) || "ADMIN";
+    const rol = (rolRaw === "ADMIN" || rolRaw === "OPERATOR") ? rolRaw : "ADMIN";
     const data: any = {
         name, // Username
         email: email || null,
-        role: 'ADMIN',
+        role: rol,
         cara: photoPath || null
     };
 
