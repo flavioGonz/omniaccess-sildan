@@ -1,4 +1,12 @@
 streams:
+  lpr_cam-calle-21:
+    - rtsp://admin:Ies.43784378@172.26.20.21:554/Streaming/Channels/101
+  lpr_cam-calle-21_hd:
+    - rtsp://admin:Ies.43784378@172.26.20.21:554/Streaming/Channels/101
+  lpr_cam-calle-22:
+    - rtsp://admin:Ies.43784378@172.26.20.22:554/Streaming/Channels/101
+  lpr_cam-calle-22_hd:
+    - rtsp://admin:Ies.43784378@172.26.20.22:554/Streaming/Channels/101
 api:
   listen: ":1984"
   origin: "*"

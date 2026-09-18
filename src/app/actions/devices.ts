@@ -143,7 +143,8 @@ export async function updateDevice(id: string, formData: FormData) {
     // Auto-registrar/actualizar el stream en go2rtc (LPR Hikvision)
     try {
         const { syncLprStream } = await import("@/lib/go2rtc-sync");
-        await syncLprStream({ id, ip, username, password, brand, deviceType } as any);
+        // Las camaras interiores se registran por su rtspUrl, asi que hay que pasarla.
+        await syncLprStream({ id, ip, username, password, brand, deviceType, ...camposSeguimiento(formData) } as any);
     } catch (err) {
         console.error("go2rtc sync failed on update:", err);
     }

@@ -11,6 +11,7 @@ type Dev = {
     password?: string | null;
     brand?: string | null;
     deviceType?: string | null;
+    rtspUrl?: string | null;
 };
 
 function rtsp(dev: Dev, channel: string): string {
@@ -28,14 +29,27 @@ function rtsp(dev: Dev, channel: string): string {
  */
 export async function syncLprStream(dev: Dev): Promise<void> {
     try {
-        if (!dev || dev.deviceType !== "LPR_CAMERA" || !dev.ip) return;
-        // Sólo Hikvision (la flota Los Olivos). Otras marcas: dejar manual.
-        if (dev.brand && dev.brand !== "HIKVISION") return;
+        if (!dev) return;
+
+        const interior = dev.deviceType === "LPR_INTERIOR";
+
+        // Las cámaras interiores traen su URL RTSP escrita a mano (puede ser de
+        // cualquier marca y con el canal que sea), así que se usa tal cual y no
+        // se arma a partir de la IP.
+        if (interior) {
+            if (!dev.rtspUrl || !dev.rtspUrl.trim()) return;
+        } else {
+            if (dev.deviceType !== "LPR_CAMERA" || !dev.ip) return;
+            // Sólo Hikvision (la flota Los Olivos). Otras marcas: dejar manual.
+            if (dev.brand && dev.brand !== "HIKVISION") return;
+        }
 
         const name = `lpr_${dev.id}`;
         const nameHd = `${name}_hd`;
-        const sd = rtsp(dev, "102");
-        const hd = rtsp(dev, "101");
+        // En una cámara interior no hay subflujo conocido: el mismo origen sirve
+        // para las dos entradas, así el visor en vivo encuentra el stream igual.
+        const sd = interior ? dev.rtspUrl!.trim() : rtsp(dev, "102");
+        const hd = interior ? dev.rtspUrl!.trim() : rtsp(dev, "101");
 
         // 1) Persistir en go2rtc.yaml
         try {
