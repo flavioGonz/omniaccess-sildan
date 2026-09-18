@@ -26,6 +26,7 @@ import { VehicleMetaChips } from "@/components/VehicleMeta";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
+import { TablaUnificada } from "@/components/history/TablaUnificada";
 import { io } from "socket.io-client";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -302,7 +303,16 @@ export default function HistoryPage() {
     const [isImportOpen, setIsImportOpen] = useState(false);
     // Accesos (AccessEvent) y seguimiento (PlateSighting) son dos registros distintos:
     // se miran por separado en vez de mezclarse en la misma tabla.
-    const [vista, setVista] = useState<"accesos" | "seguimiento">("accesos");
+    /**
+     * Qué clases de registro se muestran. Vacío es todas.
+     *
+     * Antes había dos pestañas, Accesos y Seguimiento, y eso obligaba a buscar la misma
+     * matrícula dos veces en dos pantallas para reconstruir un solo recorrido. La
+     * diferencia entre un acceso y un avistamiento sigue importando — y por eso cada fila
+     * dice de qué clase es — pero es una propiedad de la fila, no un lugar aparte.
+     */
+    const [tipos, setTipos] = useState<string[]>([]);
+    const [chapasMerodeo, setChapasMerodeo] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         getEnabledModules().then(modules => {
@@ -460,9 +470,15 @@ export default function HistoryPage() {
         if (searchTerm.trim()) l.push({ id: "q", texto: `«${searchTerm.trim()}»`, quitar: () => setSearchTerm("") });
         if (startDate) l.push({ id: "d1", texto: `desde ${startDate}`, quitar: () => setStartDate("") });
         if (endDate) l.push({ id: "d2", texto: `hasta ${endDate}`, quitar: () => setEndDate("") });
-        if (vista === "accesos") {
-            const tipos: Record<string, string> = { PLATE: "matrícula", FACE: "rostro", TAG: "RFID" };
-            if (filterType !== "ALL" && tipos[filterType]) l.push({ id: "t", texto: tipos[filterType], quitar: () => setFilterType("ALL") });
+        // Las clases elegidas también son un filtro puesto: si no se ven acá, la barra
+        // miente sobre por qué la tabla muestra lo que muestra.
+        for (const t of tipos) {
+            const nombre: Record<string, string> = { ACCESO: "accesos", PASO: "avistamientos", ESTACIONADO: "estacionados" };
+            l.push({ id: "cl_" + t, texto: nombre[t] || t, quitar: () => setTipos((p) => p.filter((x) => x !== t)) });
+        }
+        if (!(tipos.length > 0 && !tipos.includes("ACCESO"))) {
+            const ident: Record<string, string> = { PLATE: "matrícula", FACE: "rostro", TAG: "RFID" };
+            if (filterType !== "ALL" && ident[filterType]) l.push({ id: "t", texto: ident[filterType], quitar: () => setFilterType("ALL") });
             if (filterDecision !== "ALL") l.push({ id: "dec", texto: filterDecision === "GRANT" ? "permitidos" : "denegados", quitar: () => setFilterDecision("ALL") });
             if (filterDirection !== "ALL") l.push({ id: "dir", texto: filterDirection === "ENTRY" ? "entradas" : "salidas", quitar: () => setFilterDirection("ALL") });
             if (filterColor !== "ALL") l.push({ id: "col", texto: `color ${filterColor}`, quitar: () => setFilterColor("ALL") });
@@ -470,12 +486,12 @@ export default function HistoryPage() {
             if (filterMerodeo) l.push({ id: "mer", texto: "merodeo", quitar: () => setFilterMerodeo(false) });
         }
         return l;
-    }, [searchTerm, startDate, endDate, vista, filterType, filterDecision, filterDirection, filterColor, filterVehType, filterMerodeo]);
+    }, [searchTerm, startDate, endDate, tipos, filterType, filterDecision, filterDirection, filterColor, filterVehType, filterMerodeo]);
 
     const limpiarFiltros = useCallback(() => {
         setSearchTerm(""); setStartDate(""); setEndDate("");
         setFilterType("ALL"); setFilterDecision("ALL"); setFilterDirection("ALL");
-        setFilterColor("ALL"); setFilterVehType("ALL"); setFilterMerodeo(false);
+        setFilterColor("ALL"); setFilterVehType("ALL"); setFilterMerodeo(false); setTipos([]);
     }, []);
     const displayEvents = (filterMerodeo ? events.filter(e => merodeoSet.has(cleanPlate(e.plateDetected))) : events)
         .filter(e => {
@@ -570,18 +586,31 @@ export default function HistoryPage() {
                         />
                     </div>
 
-                    {/* Accesos vs seguimiento */}
-                    <GrupoFiltro rotulo="Registro" ayuda="Dos registros distintos. Accesos son las entradas y salidas que decidieron la barrera. Seguimiento son las lecturas de las cámaras interiores, que no deciden nada.">
-                        <button onClick={() => setVista("accesos")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", vista === "accesos" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Accesos
-                        </button>
-                        <button onClick={() => setVista("seguimiento")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", vista === "seguimiento" ? "bg-violet-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Seguimiento
-                        </button>
+                    <GrupoFiltro rotulo="Clase de registro"
+                        ayuda="Entradas y salidas las decide una cámara LPR y abren la barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre. Sin nada elegido se ven todos juntos.">
+                        {[
+                            { v: "", l: "Todo" },
+                            { v: "ACCESO", l: "Accesos" },
+                            { v: "PASO", l: "Avistamientos" },
+                            { v: "ESTACIONADO", l: "Estacionados" },
+                        ].map((t) => {
+                            const activo = t.v === "" ? tipos.length === 0 : tipos.includes(t.v);
+                            return (
+                                <button key={t.l}
+                                    onClick={() => {
+                                        if (t.v === "") { setTipos([]); return; }
+                                        setTipos((p) => p.includes(t.v) ? p.filter((x) => x !== t.v) : [...p, t.v]);
+                                    }}
+                                    className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all",
+                                        activo ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                                    {t.l}
+                                </button>
+                            );
+                        })}
                     </GrupoFiltro>
 
                     {/* Type filter tabs */}
-                    <GrupoFiltro rotulo="Identificación" oculto={vista === "seguimiento"}
+                    <GrupoFiltro rotulo="Identificación" oculto={tipos.length > 0 && !tipos.includes("ACCESO")}
                         ayuda="Con qué se identificó: la matrícula (LPR), el rostro, o una tarjeta o llavero (RFID).">
                         {activeMode === null && (
                             <button onClick={() => setFilterType("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -606,7 +635,7 @@ export default function HistoryPage() {
                     </GrupoFiltro>
 
                     {/* Decision filter */}
-                    <GrupoFiltro rotulo="Resultado" oculto={vista === "seguimiento"}
+                    <GrupoFiltro rotulo="Resultado" oculto={tipos.length > 0 && !tipos.includes("ACCESO")}
                         ayuda="Si el sistema abrió o no. Los denegados son los que conviene revisar: matrícula desconocida, permiso vencido u horario fuera de rango.">
                         <button onClick={() => setFilterDecision("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Todos
@@ -620,7 +649,7 @@ export default function HistoryPage() {
                     </GrupoFiltro>
 
                     {/* Direction filter */}
-                    <GrupoFiltro rotulo="Sentido" oculto={vista === "seguimiento"}
+                    <GrupoFiltro rotulo="Sentido" oculto={tipos.length > 0 && !tipos.includes("ACCESO")}
                         ayuda="Entradas o salidas. Sirve para responder quién está adentro, o para mirar solo el movimiento de una punta.">
                         <button onClick={() => setFilterDirection("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Todos
@@ -634,7 +663,7 @@ export default function HistoryPage() {
                     </GrupoFiltro>
 
                     {/* Vehicle color / type filters (client-side, sobre details) */}
-                    {vista === "accesos" && (vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
+                    {!(tipos.length > 0 && !tipos.includes("ACCESO")) && (vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
                         <div className="flex items-center gap-1.5">
                             <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
                                 className="h-9 bg-muted/40 border border-border/30 rounded-md px-2 text-xs font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
@@ -655,204 +684,19 @@ export default function HistoryPage() {
                     {/* Lo que está filtrando ahora, para no tener que deducirlo de la barra */}
                     {/* Merodeo filter */}
                     <button onClick={() => setFilterMerodeo(v => !v)} className={cn("flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold border transition-all", filterMerodeo ? "bg-red-600 text-foreground border-red-500" : "bg-muted/40 text-muted-foreground border-border/30 hover:text-foreground")}>
-                        <ShieldAlert size={14} /> Merodeo{merodeoSet.size > 0 ? ` (${merodeoSet.size})` : ""}
+                        <ShieldAlert size={14} /> Merodeo{chapasMerodeo.size > 0 ? ` (${chapasMerodeo.size})` : ""}
                     </button>
                 </div>
             </div>
 
-            {vista === "seguimiento" && <TablaSeguimiento buscar={searchTerm} desde={startDate} hasta={endDate} />}
-
-            {/* Events Table */}
-            <div className={cn("bg-card/60 border border-border/50 rounded-lg overflow-hidden", vista === "seguimiento" && "hidden")}>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left">
-                        <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
-                            <tr className="border-b border-border/50">
-                                <Columna icono={Clock} titulo="Cuándo pasó"
-                                    ayuda="Hora y fecha del evento, tal como lo reportó el equipo.">Momento</Columna>
-                                <Columna icono={UserIcon} titulo="Quién es"
-                                    ayuda="El residente o vehículo reconocido. Si no está registrado aparece la matrícula sola y dice Visitante.">Identidad</Columna>
-                                <Columna icono={Fingerprint} titulo="Cómo se identificó"
-                                    ayuda="LPR es por matrícula, Facial por rostro y RFID por tarjeta o llavero.">Tipo</Columna>
-                                <Columna icono={HardDrive} titulo="Por dónde"
-                                    ayuda="El equipo que registró el evento, y si fue entrada o salida.">Terminal</Columna>
-                                <Columna icono={CheckCircle2} titulo="Qué decidió el sistema"
-                                    ayuda="Autorizado abrió la barrera. Denegado la dejó cerrada: puede ser una matrícula desconocida, un permiso vencido o un horario fuera de rango.">Estado</Columna>
-                                <Columna icono={ShieldAlert} titulo="Señales para mirar"
-                                    ayuda="Marca lo que merece atención. Merodeo es un vehículo que aparece muchas veces en poco tiempo sin llegar a entrar.">Alertas</Columna>
-                                <Columna icono={Clock} titulo="Cuánto se quedó adentro"
-                                    ayuda="Solo en las salidas: el tiempo transcurrido desde que ese mismo vehículo entró.">Permanencia</Columna>
-                                <Columna icono={Film} alinear="center" titulo="Video del momento"
-                                    ayuda="Si la cámara está asociada a un grabador, se puede ver el video del instante del acceso.">Grab.</Columna>
-                                <Columna alinear="right" titulo="Ficha completa"
-                                    ayuda="Abre el detalle: fotos, datos del vehículo, permisos y por qué se decidió lo que se decidió.">Detalle</Columna>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {displayEvents.length === 0 && loading ? (
-                                <>{Array.from({ length: 8 }).map((_, i) => <FilaFantasma key={i} celdas={9} />)}</>
-                            ) : displayEvents.length === 0 ? (
-                                <tr>
-                                    <td colSpan={9} className="py-16 text-center">
-                                        <div className="flex flex-col items-center gap-2">
-                                            <History className="w-8 h-8 text-muted-foreground/50" />
-                                            <p className="text-sm text-muted-foreground">Ningún evento con estos filtros</p>
-                                            <p className="text-xs text-muted-foreground/70 max-w-sm mx-auto">
-                                                Probá ampliar el rango de fechas, o quitar alguno de los filtros de arriba.
-                                            </p>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ) : (
-                                displayEvents.map((evt, index) => {
-                                    const isLast = index === displayEvents.length - 1;
-                                    const isAuthorized = evt.decision === "GRANT";
-                                    const details: any = {};
-                                    if (evt.details) {
-                                        evt.details.split(',').forEach((p: string) => {
-                                            const [k, v] = p.split(':').map((s: string) => s.trim());
-                                            if (k && v) details[k] = v;
-                                        });
-                                    }
-                                    let brandName = details.Marca || "";
-                                    if (brandName.startsWith("Brand ")) {
-                                        brandName = getVehicleBrandName(brandName.replace("Brand ", ""));
-                                    }
-
-                                    return (
-                                        <motion.tr
-                                            key={evt.id}
-                                            ref={isLast ? lastElementRef : null}
-                                            initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                                            transition={{ duration: 0.18, delay: Math.min(index % 20, 14) * 0.015 }}
-                                            className="border-b border-border/30 hover:bg-muted/30 transition-colors cursor-pointer group"
-                                        >
-                                            <td className="px-5 py-3">
-                                                <EventDetailsDialog event={evt}>
-                                                    <div>
-                                                        <p className="text-sm font-medium text-foreground">
-                                                            {new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                                        </p>
-                                                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                                                            {new Date(evt.timestamp).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                                        </p>
-                                                    </div>
-                                                </EventDetailsDialog>
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                <EventDetailsDialog event={evt}>
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-9 h-9 rounded-lg bg-muted/80 border border-border/50 flex items-center justify-center overflow-hidden shrink-0 group-hover:border-blue-500/30 transition-colors">
-                                                            {(() => {
-                                                                const raw = getImageUrl(evt.snapshotPath || evt.imagePath) || (evt.accessType !== 'PLATE' ? getImageUrl(evt.user?.cara) : "");
-                                                                const src = raw ? (raw.includes("?") ? `${raw}&w=96` : `${raw}?w=96`) : "";
-                                                                if (src) {
-                                                                    return <img src={src} alt="Snapshot" width={36} height={36} className="w-full h-full object-cover" />;
-                                                                }
-                                                                return <Camera size={14} className="text-muted-foreground" />;
-                                                            })()}
-                                                        </div>
-                                                        <div>
-                                                            <div className="flex items-center gap-2">
-                                                                <p className="text-sm font-semibold text-foreground">
-                                                                    {evt.user?.name || (evt.accessType === 'PLATE' ? (evt.plateDetected || "S/M") : "Desconocido")}
-                                                                </p>
-                                                                {evt.accessType === 'PLATE' && evt.plateDetected && !evt.user?.name && (
-                                                                    <span className="bg-white text-black text-[9px] font-bold px-1.5 py-0.5 rounded-sm font-mono border-b-2 border-blue-600">
-                                                                        {evt.plateDetected}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <p className="text-[10px] text-muted-foreground mt-0.5">
-                                                                {evt.user?.unit?.name || (brandName ? brandName : "Visitante")}
-                                                            </p>
-                                                            <VehicleMetaChips details={evt.details} size="sm" className="mt-1" />
-                                                        </div>
-                                                    </div>
-                                                </EventDetailsDialog>
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                <EventDetailsDialog event={evt}>
-                                                    <div className="flex items-center gap-2">
-                                                        <div className={cn("p-1.5 rounded-md", evt.accessType === 'PLATE' ? "bg-amber-500/10 text-amber-400" : evt.accessType === 'FACE' ? "bg-teal-500/10 text-teal-400" : "bg-blue-500/10 text-blue-400")}>
-                                                            {evt.accessType === 'PLATE' ? <Car size={14} /> : evt.accessType === 'FACE' ? <ScanFace size={14} /> : <CreditCard size={14} />}
-                                                        </div>
-                                                        <span className="text-xs font-medium text-muted-foreground">
-                                                            {evt.accessType === 'PLATE' ? 'LPR' : evt.accessType === 'FACE' ? 'Facial' : 'RFID'}
-                                                        </span>
-                                                    </div>
-                                                </EventDetailsDialog>
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                <EventDetailsDialog event={evt}>
-                                                    <div>
-                                                        <p className="text-xs text-muted-foreground font-medium">{evt.device?.name || "Terminal"}</p>
-                                                        <div className={cn("flex items-center gap-1 text-[10px] font-semibold mt-0.5", evt.direction === 'ENTRY' ? "text-emerald-400" : "text-orange-400")}>
-                                                            {evt.direction === 'ENTRY' ? <ArrowDownLeft size={10} /> : <ArrowUpRight size={10} />}
-                                                            {evt.direction === 'ENTRY' ? 'Entrada' : 'Salida'}
-                                                        </div>
-                                                    </div>
-                                                </EventDetailsDialog>
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                <EventDetailsDialog event={evt}>
-                                                    <span className={cn(
-                                                        "inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold border",
-                                                        isAuthorized
-                                                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                                            : "bg-red-500/10 text-red-400 border-red-500/20"
-                                                    )}>
-                                                        {isAuthorized ? 'Autorizado' : 'Denegado'}
-                                                    </span>
-                                                </EventDetailsDialog>
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                {merodeoSet.has(cleanPlate(evt.plateDetected)) ? (
-                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-500/10 text-red-400 border border-red-500/20"><ShieldAlert size={11} /> Merodeo</span>
-                                                ) : <span className="text-xs text-muted-foreground">-</span>}
-                                            </td>
-                                            <td className="px-5 py-3">
-                                                {evt.direction === "EXIT" && (evt as any).stayDuration && (evt as any).previousDirection === "ENTRY" ? (
-                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">{fmtDur((evt as any).stayDuration)}</span>
-                                                ) : <span className="text-xs text-muted-foreground">-</span>}
-                                            </td>
-                                            <td className="px-5 py-3 text-center">
-                                                {(mappedSet.has(evt.device?.id) || (evt.device?.name && mappedNameSet.has(evt.device.name)) || (evt.device?.ip && mappedIpSet.has(evt.device.ip))) ? (
-                                                    <EventDetailsDialog event={evt} autoRecording>
-                                                        <button title="Ver grabación" className="text-blue-400 hover:text-blue-300 p-1.5 rounded-md hover:bg-blue-500/10"><Film size={15} /></button>
-                                                    </EventDetailsDialog>
-                                                ) : (
-                                                    <span title="Sin NVR asociado" className="text-[10px] text-muted-foreground/40">sin NVR</span>
-                                                )}
-                                            </td>
-                                            <td className="px-5 py-3 text-right">
-                                                <EventDetailsDialog event={evt}>
-                                                    <button className="text-muted-foreground hover:text-blue-400 transition-colors p-1.5 rounded-md hover:bg-blue-500/10">
-                                                        <MoreHorizontal size={16} />
-                                                    </button>
-                                                </EventDetailsDialog>
-                                            </td>
-                                        </motion.tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between px-5 py-3 border-t border-border/50">
-                    <p className="text-xs text-muted-foreground">
-                        Mostrando <span className="text-foreground font-semibold">{events.length}</span> de <span className="text-foreground font-semibold">{totalEvents.toLocaleString()}</span> eventos
-                    </p>
-                    {loading && (
-                        <div className="flex items-center gap-2 text-blue-400 text-xs font-semibold">
-                            <Loader2 size={14} className="animate-spin" />
-                            Cargando...
-                        </div>
-                    )}
-                </div>
-            </div>
+            <TablaUnificada
+                buscar={searchTerm}
+                desde={startDate}
+                hasta={endDate}
+                tipos={tipos}
+                merodeo={filterMerodeo ? chapasMerodeo : undefined}
+                onMerodeo={setChapasMerodeo}
+            />
 
             <ExportHistoryDialog
                 open={isExportDialogOpen}
