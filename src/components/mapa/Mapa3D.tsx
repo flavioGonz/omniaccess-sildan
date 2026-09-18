@@ -37,9 +37,14 @@ type Calle = { id: string; name?: string; points: [number, number][] };
  */
 export default function Mapa3D({
     center, zoom, perimeter, streets, cameras, puntos, indice,
+    pitch: pitchIni = 55, bearing: bearingIni = -20, onVista,
 }: {
     center: [number, number];
     zoom: number;
+    pitch?: number;
+    bearing?: number;
+    /** Para que "Guardar" pueda recordar cómo quedó la vista 3D, no solo que era 3D. */
+    onVista?: (v: { center: [number, number]; zoom: number; pitch: number; bearing: number }) => void;
     perimeter: [number, number][];
     streets: Calle[];
     cameras: Camara[];
@@ -49,6 +54,9 @@ export default function Mapa3D({
     const cont = useRef<HTMLDivElement>(null);
     const mapa = useRef<MLMap | null>(null);
     const marcadores = useRef<any[]>([]);
+    // En un ref para que el efecto de montaje no dependa de la identidad del callback.
+    const onVistaRef = useRef(onVista);
+    onVistaRef.current = onVista;
     const [listo, setListo] = useState(false);
 
     useEffect(() => {
@@ -58,8 +66,8 @@ export default function Mapa3D({
             container: cont.current,
             center: [center[1], center[0]],
             zoom,
-            pitch: 55,
-            bearing: -20,
+            pitch: pitchIni,
+            bearing: bearingIni,
             maxPitch: 80,
             attributionControl: { compact: true },
             style: {
@@ -114,6 +122,18 @@ export default function Mapa3D({
         const ro = new ResizeObserver(() => m.resize());
         ro.observe(cont.current);
         (m as any).__ro = ro;
+
+        // Se avisa al terminar cada movimiento, no en cada cuadro: alcanza para que
+        // "Guardar" recuerde dónde quedó la vista y no hace trabajar a React de más.
+        const avisar = () => {
+            try {
+                const c = m.getCenter();
+                onVistaRef.current?.({ center: [c.lat, c.lng], zoom: m.getZoom(), pitch: m.getPitch(), bearing: m.getBearing() });
+            } catch { }
+        };
+        m.on("moveend", avisar);
+        m.on("pitchend", avisar);
+        m.on("rotateend", avisar);
 
         return () => { try { (m as any).__ro?.disconnect(); } catch { } m.remove(); mapa.current = null; setListo(false); };
         // solo se monta una vez: el centro se ajusta abajo

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 const Mapa3D = dynamic(() => import("@/components/mapa/Mapa3D"), { ssr: false });
 import { motion } from "framer-motion";
@@ -71,7 +72,80 @@ function LiveMp4({ deviceId }: { deviceId: string }) {
         v.addEventListener("error", onErr);
         return () => { v.removeEventListener("error", onErr); try { v.pause(); v.removeAttribute("src"); v.load(); } catch {} };
     }, [deviceId]);
-    return <video ref={ref} muted autoPlay playsInline className="block w-[260px] h-[150px] object-cover rounded-lg bg-black" />;
+    return <video ref={ref} muted autoPlay playsInline className="block w-full h-full object-cover bg-black" />;
+}
+
+/**
+ * Todas las cámaras en vivo, cada una sobre su lugar del mapa.
+ *
+ * La gracia es ver qué pasa Y dónde al mismo tiempo: un mosaico aparte muestra lo
+ * primero pero pierde lo segundo, que en un barrio es la mitad de la información.
+ *
+ * Las burbujas no son marcadores de Leaflet. Un marcador lleva su contenido a un icono
+ * y ahí adentro un <video> se comporta mal; además Leaflet recrea el icono en cada
+ * cambio de vista, lo que cortaría el flujo en cada paneo. Acá el video se monta una
+ * sola vez y en cada movimiento del mapa se recalcula únicamente su posición.
+ */
+function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
+    camaras: { deviceId: string; lat: number; lng: number }[];
+    nombre: (id: string) => string;
+    onCerrarUna: (id: string) => void;
+}) {
+    const map = useMap();
+    const [, redibujar] = useReducer((n: number) => n + 1, 0);
+    useMapEvents({ move: redibujar, zoom: redibujar, resize: redibujar });
+
+    const utiles = camaras.filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng));
+    if (!utiles.length) return null;
+
+    return createPortal(
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 640 }}>
+            {utiles.map((c) => {
+                let p: L.Point;
+                try { p = map.latLngToContainerPoint([c.lat, c.lng]); } catch { return null; }
+
+                // Se mantiene dentro del mapa. Una cámara cerca del borde dejaba la burbuja
+                // cortada por la mitad, que es justo cuando más falta hace verla entera.
+                const tam = map.getSize();
+                const MEDIO = 118, ALTO = 168;
+                const x = Math.max(MEDIO + 6, Math.min(tam.x - MEDIO - 6, p.x));
+                const y = Math.max(ALTO + 6, p.y - 34);
+                return (
+                    <motion.div
+                        key={c.deviceId}
+                        initial={{ opacity: 0, scale: 0.9, y: 6 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        transition={{ type: "spring", stiffness: 420, damping: 32 }}
+                        className="absolute pointer-events-auto"
+                        /* Se ancla abajo, sobre el distintivo de la cámara, para no taparlo. */
+                        style={{ left: x, top: y, transform: "translate(-50%,-100%)" }}
+                    >
+                        <div className="rounded-xl overflow-hidden border border-white/15 shadow-2xl shadow-black/70 bg-[#0a0d12]">
+                            <div className="relative w-[224px] h-[126px]">
+                                <LiveMp4 deviceId={c.deviceId} />
+                            </div>
+                            <div className="px-2 py-1 bg-black/85 flex items-center gap-1.5">
+                                <Radio size={10} className="text-red-400 shrink-0 animate-pulse" />
+                                <span className="text-[11px] font-bold text-white truncate">{nombre(c.deviceId)}</span>
+                                <button onClick={() => onCerrarUna(c.deviceId)}
+                                    title="Ocultar esta cámara"
+                                    className="ml-auto w-5 h-5 rounded text-white/45 hover:text-white hover:bg-white/10 flex items-center justify-center shrink-0 transition-colors">
+                                    <X size={11} />
+                                </button>
+                            </div>
+                        </div>
+                        {/* Pico que la ata al marcador de abajo. Si hubo que correr la
+                            burbuja para que entrara, el pico apuntaría a cualquier lado. */}
+                        {Math.abs(x - p.x) < 2 && (
+                            <span className="block mx-auto w-2 h-2 rotate-45 -mt-1 bg-black/85 border-r border-b border-white/15" />
+                        )}
+                    </motion.div>
+                );
+            })}
+        </div>,
+        map.getContainer(),
+    );
 }
 
 export default function BarrioMap() {
@@ -98,6 +172,12 @@ export default function BarrioMap() {
     const [guards, setGuards] = useState<any[]>([]);
     // Usabilidad: capas que se pueden apagar y pantalla completa.
     const [verCapa, setVerCapa] = useState({ camaras: true, calles: true, lotes: true, perimetro: true, guardias: true });
+    // Vivo de todas las cámaras a la vez. `ocultas` deja apagar una sin apagar el resto.
+    const [vivoTodas, setVivoTodas] = useState(false);
+    // Cómo quedó la vista 3D. En un ref y no en estado: cambia en cada paneo y solo
+    // se lee al guardar, así que no hace falta redibujar por esto.
+    const vista3DRef = useRef<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null);
+    const [ocultas, setOcultas] = useState<string[]>([]);
     const [menuCapas, setMenuCapas] = useState(false);
     const [ayuda3D, setAyuda3D] = useState(false);
     const [pantallaCompleta, setPantallaCompleta] = useState(false);
@@ -127,14 +207,38 @@ export default function BarrioMap() {
 
     // La capa se recuerda: primero la guardada en el mapa (vale para todos),
     // y si no hay, la ultima que eligio este navegador.
+    //
+    // La vista 3D se restaura UNA sola vez, al llegar el mapa. Si se volviera a aplicar en
+    // cada cambio de `data` — y `data` cambia al guardar — el operador no podría salir de
+    // la 3D: la sacaría y el efecto se la volvería a poner.
+    const restaurada = useRef(false);
     useEffect(() => {
-        const guardada = (data as any)?.base;
-        if (guardada) { setBase(guardada); return; }
-        try { const g = localStorage.getItem("omni-mapa-capa"); if (g) setBase(g); } catch { }
+        if (!data) return;
+        const guardada = (data as any).base;
+        if (guardada) setBase(guardada);
+        else { try { const g = localStorage.getItem("omni-mapa-capa"); if (g) setBase(g); } catch { } }
+        if (!restaurada.current) {
+            restaurada.current = true;
+            // La elección de este navegador manda sobre la del mapa guardado.
+            //
+            // Mirar en 3D o en plano es una preferencia de quien mira, no una propiedad
+            // del barrio, y además "Editar mapa" apaga la 3D a propósito (el dibujo se
+            // hace en la vista plana). Si solo se recordara al guardar, la única manera de
+            // dejar el mapa en 3D sería entrar a editar, volver a ponerla y guardar — que
+            // es exactamente lo que no funcionaba. El mapa guardado queda como el valor
+            // por defecto, para quien nunca eligió.
+            let local: string | null = null;
+            try { local = localStorage.getItem("omni-mapa-3d"); } catch { }
+            setVista3D(local != null ? local === "1" : (data as any).tresD === true);
+        }
     }, [data]);
     useEffect(() => {
         try { localStorage.setItem("omni-mapa-capa", base); } catch { }
     }, [base]);
+    useEffect(() => {
+        if (!restaurada.current) return;   // no pisar antes de haber restaurado
+        try { localStorage.setItem("omni-mapa-3d", vista3D ? "1" : "0"); } catch { }
+    }, [vista3D]);
 
     // Atajos: "/" o Ctrl/Cmd+K enfocan el buscador de abajo (hay uno solo);
     // Esc cierra el menú de capas y el menú contextual.
@@ -240,13 +344,19 @@ export default function BarrioMap() {
         const m = mapRef.current;
         // Guardamos tambien la capa elegida: al volver, el mapa abre igual a
         // como lo dejo el operador.
+        // En 3D el mapa de Leaflet no está montado, así que el centro y el zoom salen de
+        // lo que informó la vista 3D. Antes se caía al valor viejo y "Guardar" en 3D
+        // parecía no hacer nada.
+        const v3 = vista3D ? vista3DRef.current : null;
         const payload: BarrioMapData = {
             ...data,
-            center: m ? [m.getCenter().lat, m.getCenter().lng] : data.center,
-            zoom: m ? m.getZoom() : data.zoom,
+            center: v3 ? v3.center : m ? [m.getCenter().lat, m.getCenter().lng] : data.center,
+            zoom: v3 ? v3.zoom : m ? m.getZoom() : data.zoom,
             base,
+            tresD: vista3D,
+            ...(v3 ? { pitch: v3.pitch, bearing: v3.bearing } : {}),
         } as BarrioMapData;
-        try { const r = await saveBarrioMap(payload); if (r.ok) { toast.success({ title: "Mapa guardado", description: `Vista, zoom y capa ${base} recordados` }); setData(payload); setEditing(false); setTool("select"); } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" }); }
+        try { const r = await saveBarrioMap(payload); if (r.ok) { toast.success({ title: "Mapa guardado", description: vista3D ? "Abre en vista 3D, con este giro e inclinación" : `Vista, zoom y capa ${base} recordados` }); setData(payload); setEditing(false); setTool("select"); } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" }); }
         catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); } finally { setSaving(false); }
     };
 
@@ -346,6 +456,9 @@ export default function BarrioMap() {
                     <Mapa3D
                         center={data.center as [number, number]}
                         zoom={data.zoom}
+                        pitch={data.pitch}
+                        bearing={data.bearing}
+                        onVista={(v) => { vista3DRef.current = v; }}
                         perimeter={data.perimeter as [number, number][]}
                         streets={data.streets as any}
                         cameras={data.cameras.map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
@@ -467,7 +580,14 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
-                    <CapaRecorrido puntos={rec.puntos} estacionados={rec.estacionados} tramos={rec.tramos} avance={rec.avance} indice={rec.indice}
+                    {vivoTodas && !editing && (
+                        <BurbujasVivo
+                            camaras={data.cameras.filter((c: any) => !ocultas.includes(c.deviceId))}
+                            nombre={(id) => devById[id]?.name || "Cámara"}
+                            onCerrarUna={(id) => setOcultas((o) => [...o, id])}
+                        />
+                    )}
+                    <CapaRecorrido puntos={rec.puntos} estacionados={rec.estacionados} avance={rec.avance} indice={rec.indice}
                         siguiendo={rec.siguiendo && rec.reproduciendo} onElegir={(i) => { rec.setReproduciendo(false); rec.setAvance(i); }} />
                 </MapContainer>
                 )}
@@ -561,12 +681,23 @@ export default function BarrioMap() {
                         { ic: Plus, t: "Acercar", fn: () => acercar(1), off: vista3D },
                         { ic: Minus, t: "Alejar", fn: () => acercar(-1), off: vista3D },
                         { ic: Crosshair, t: "Centrar en el barrio", fn: centrarBarrio, off: vista3D },
+                        {
+                            ic: vivoTodas ? EyeOff : Eye,
+                            t: vista3D
+                                ? "El vivo de las cámaras se ve en la vista plana"
+                                : vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo",
+                            fn: () => { setOcultas([]); setVivoTodas((v) => !v); },
+                            off: vista3D,
+                            activo: vivoTodas,
+                        },
                         { ic: pantallaCompleta ? Minimize2 : Maximize2, t: pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa", fn: alternarPantalla, off: false },
-                    ].map(({ ic: Ic, t, fn, off }) => (
+                    ].map(({ ic: Ic, t, fn, off, activo }: any) => (
                         <Tooltip key={t}><TooltipTrigger asChild>
                             <motion.button whileTap={{ scale: 0.88 }} onClick={fn} disabled={off}
                                 className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors shrink-0",
-                                    off ? "text-white/20" : "text-white/60 hover:text-white hover:bg-white/[0.12]")}>
+                                    off ? "text-white/20"
+                                        : activo ? "bg-red-500/85 text-white hover:bg-red-500"
+                                            : "text-white/60 hover:text-white hover:bg-white/[0.12]")}>
                                 <Ic size={15} />
                             </motion.button>
                         </TooltipTrigger><TooltipContent>{t}</TooltipContent></Tooltip>

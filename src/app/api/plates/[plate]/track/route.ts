@@ -49,37 +49,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
     const sinCoords = filas.filter((f) => f.lat == null || f.lng == null).length;
     const estacionados = filas.filter((f) => f.estado === "ESTACIONADO" && f.lat != null && f.lng != null);
 
-/**
- * Por encima de esto, el tramo no lo hizo un auto.
- *
- * Adentro de un barrio nadie va a 120 km/h, así que un tramo más rápido que eso no es un
- * dato de velocidad: es la señal de que algo de los dos extremos está mal. O una de las
- * dos matrículas se leyó mal y son autos distintos, o alguna de las cámaras no está en el
- * mapa donde está en la calle.
- *
- * Lo importante es no dibujarlo como un recorrido. Una línea entre dos puntos parece un
- * hecho, y llegó a mostrar "386 m en 1 s · 1442 km/h" con toda seriedad. Un dato imposible
- * presentado como cierto hace dudar de todos los demás, que sí son buenos.
- */
-const KMH_IMPOSIBLE = Number(process.env.TRACKING_MAX_KMH || 120);
-
-    // Tramos entre puntos: distancia y tiempo, para mostrar velocidad y pausas.
+    /**
+     * Tramos entre lecturas: SOLO el tiempo transcurrido.
+     *
+     * Antes esto también daba metros y km/h, calculados con la distancia entre las
+     * cámaras en el mapa. Eso resultó ser ficción: las posiciones son puntos puestos a
+     * mano y todavía no están verificadas contra dónde están los equipos en la calle.
+     * El síntoma fue "386 m en 1 s · 1442 km/h" mostrado con toda seriedad — y el
+     * problema no era el cálculo, que estaba bien, sino la entrada.
+     *
+     * Mientras las ubicaciones no estén confirmadas, el único dato honesto es el
+     * tiempo: sale de los relojes de las lecturas y no depende del mapa. Cuando las
+     * cámaras estén bien ubicadas se puede volver a agregar distancia y velocidad.
+     */
     const tramos = conCoords.slice(1).map((p, i) => {
         const a = conCoords[i];
         const dt = (new Date(p.timestamp).getTime() - new Date(a.timestamp).getTime()) / 1000;
-        const R = 6371000;
-        const rad = (x: number) => (x * Math.PI) / 180;
-        const dLat = rad(p.lat! - a.lat!);
-        const dLng = rad(p.lng! - a.lng!);
-        const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat!)) * Math.cos(rad(p.lat!)) * Math.sin(dLng / 2) ** 2;
-        const metros = 2 * R * Math.asin(Math.sqrt(h));
-        const kmh = dt > 0 ? Math.round((metros / dt) * 3.6) : null;
         return {
-            desde: a.id, hasta: p.id,
+            desde: a.id,
+            hasta: p.id,
             segundos: Math.round(dt),
-            metros: Math.round(metros),
-            kmh,
-            dudoso: kmh != null && kmh > KMH_IMPOSIBLE,
         };
     });
 
@@ -92,8 +81,5 @@ const KMH_IMPOSIBLE = Number(process.env.TRACKING_MAX_KMH || 120);
         puntos: conCoords,
         estacionados,
         tramos,
-        // Cuántos tramos no los pudo haber hecho un vehículo. Si hay alguno, el recorrido
-        // se muestra con la advertencia en vez de darse por bueno.
-        dudosos: tramos.filter((t) => t.dudoso).length,
     });
 }

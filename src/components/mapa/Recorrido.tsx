@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Polyline, CircleMarker, Marker, Tooltip as LTooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { AnimatePresence, motion } from "framer-motion";
-import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp, Video, Spline, Gauge, Crosshair, ParkingCircle, TriangleAlert } from "lucide-react";
+import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp, Video, Spline, Crosshair, ParkingCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const vidrio = "bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50";
@@ -15,8 +15,9 @@ export type Punto = {
     lat: number; lng: number; timestamp: string; source: string;
     eventType: string | null; decision: string | null; confidence: number | null; snapshotUrl: string | null;
 };
-/** Un tramo `dudoso` no lo pudo haber hecho un auto: ver el comentario en la API. */
-export type Tramo = { desde: string; hasta: string; segundos: number; metros: number; kmh: number | null; dudoso?: boolean };
+/** Entre dos lecturas solo se afirma el tiempo. La distancia dependía de dónde están
+  * las cámaras en el mapa, que todavía no está verificado — ver la API. */
+export type Tramo = { desde: string; hasta: string; segundos: number };
 export type Lugar = { tipo: "camara" | "calle"; id: string; nombre: string; lat: number; lng: number };
 /** Un vehiculo quieto: la pasarela lo siguio viendo en el mismo lugar del cuadro. */
 export type Estadia = Punto & { estDesde: string | null; estHasta: string | null; reads: number | null };
@@ -100,8 +101,8 @@ function posicionEn(linea: [number, number][], avance: number): [number, number]
 }
 
 /** Dibuja el recorrido dentro del mapa: camino, sentido, paradas y el vehículo. */
-export function CapaRecorrido({ puntos, estacionados = [], tramos = [], avance, indice, siguiendo, onElegir }: {
-    puntos: Punto[]; estacionados?: Estadia[]; tramos?: Tramo[]; avance: number; indice: number; siguiendo?: boolean; onElegir?: (i: number) => void;
+export function CapaRecorrido({ puntos, estacionados = [], avance, indice, siguiendo, onElegir }: {
+    puntos: Punto[]; estacionados?: Estadia[]; avance: number; indice: number; siguiendo?: boolean; onElegir?: (i: number) => void;
 }) {
     const map = useMap();
     const linea = useMemo(() => puntos.map((p) => [p.lat, p.lng] as [number, number]), [puntos]);
@@ -171,24 +172,6 @@ export function CapaRecorrido({ puntos, estacionados = [], tramos = [], avance, 
                 <>
                     <Polyline positions={linea} pathOptions={{ color: "#0ea5e9", weight: 10, opacity: 0.12 }} />
                     <Polyline positions={linea} pathOptions={{ color: "#38bdf8", weight: 2.5, opacity: 0.35, dashArray: "3 9" }} />
-                </>
-            )}
-
-            {/* Los saltos imposibles se tachan en rojo por encima de todo lo demás.
-                Un tramo que ningún auto pudo recorrer no se dibuja como si lo hubiera
-                recorrido: o una de las dos matrículas está mal leída, o alguna cámara no
-                está en el mapa donde está en la calle. */}
-            {tramos.map((t, i) => (
-                t.dudoso && linea[i] && linea[i + 1] ? (
-                    <Polyline key={`d${i}`} positions={[linea[i], linea[i + 1]]}
-                        pathOptions={{ color: "#f43f5e", weight: 3, opacity: 0.85, dashArray: "2 8" }} />
-                ) : null
-            ))}
-            {recorrida.length >= 2 && (
-                <>
-                    <Polyline positions={recorrida} pathOptions={{ color: "#f59e0b", weight: 12, opacity: 0.16 }} />
-                    <Polyline positions={recorrida} pathOptions={{ color: "#fbbf24", weight: 4, opacity: 0.9 }} />
-                    <Polyline positions={recorrida} pathOptions={{ color: "#fff7ed", weight: 2.5, opacity: 0.9, className: "omni-flujo" }} />
                 </>
             )}
 
@@ -264,10 +247,7 @@ export function PanelRecorrido({
     const tN = puntos.length ? new Date(puntos[puntos.length - 1].timestamp).getTime() : 0;
     const lapso = Math.max(1, tN - t0);
     const duracion = Math.round(lapso / 60000);
-    // Los saltos imposibles no se suman al recorrido: sumarlos daba un total que el
-    // vehículo nunca hizo, y encima el número grande tapaba el problema.
-    const dudosos = tramos.filter((t) => t.dudoso);
-    const metros = tramos.filter((t) => !t.dudoso).reduce((a, t) => a + t.metros, 0);
+
     const actual = puntos[Math.min(indice, puntos.length - 1)];
     const tramoPrevio = indice > 0 ? tramos[indice - 1] : null;
 
@@ -349,22 +329,6 @@ export function PanelRecorrido({
                                     </p>
                                 )}
 
-                                {dudosos.length > 0 && (
-                                    <div className="flex items-start gap-2 rounded-2xl bg-rose-500/[0.1] border border-rose-400/25 px-3 py-2">
-                                        <TriangleAlert size={14} className="text-rose-300 shrink-0 mt-[1px]" />
-                                        <div className="min-w-0 text-[11px] leading-relaxed">
-                                            <span className="text-white/85 font-semibold">
-                                                {dudosos.length === 1 ? "Un tramo imposible" : `${dudosos.length} tramos imposibles`}
-                                            </span>
-                                            <span className="text-white/50">
-                                                {" "}— para cubrirlo harían falta {Math.max(...dudosos.map((t) => t.kmh || 0))} km/h.
-                                                O una de las matrículas se leyó mal y son dos autos distintos, o alguna cámara
-                                                no está en el mapa donde está en la calle.
-                                            </span>
-                                        </div>
-                                    </div>
-                                )}
-
                                 {estacionados.length > 0 && (
                                     <div className="flex items-start gap-2 rounded-2xl bg-slate-500/[0.12] border border-slate-400/20 px-3 py-2">
                                         <ParkingCircle size={14} className="text-slate-300 shrink-0 mt-[1px]" />
@@ -406,8 +370,6 @@ export function PanelRecorrido({
                                             <span className="font-mono font-bold tracking-widest text-white text-[13px]">{puntos[0].plate}</span>
                                             <span className="text-white/30">·</span>
                                             <span className="text-white/60">{puntos.length} detecciones</span>
-                                            <span className="text-white/30">·</span>
-                                            <span className="text-white/60">{metros >= 1000 ? `${(metros / 1000).toFixed(1)} km` : `${metros} m`}</span>
                                             <span className="text-white/30">·</span>
                                             <span className="text-white/60">{duracion < 60 ? `${duracion} min` : `${Math.floor(duracion / 60)} h ${duracion % 60} min`}</span>
                                             <button onClick={() => { setReproduciendo(false); limpiar(); }}
@@ -472,12 +434,9 @@ export function PanelRecorrido({
                                                     </span>
                                                     {/* Cómo llegó hasta acá desde la parada anterior */}
                                                     {tramoPrevio && (
-                                                        <span className={cn("block text-[10px] flex items-center gap-1 mt-0.5",
-                                                            tramoPrevio.dudoso ? "text-rose-300/90" : "text-sky-300/70")}>
-                                                            {tramoPrevio.dudoso ? <TriangleAlert size={9} /> : <Gauge size={9} />}
-                                                            {tramoPrevio.metros} m en {duracionCorta(tramoPrevio.segundos)}
-                                                            {tramoPrevio.kmh != null && <> · {Math.round(tramoPrevio.kmh)} km/h</>}
-                                                            {tramoPrevio.dudoso && <span className="text-rose-300/70">· imposible</span>}
+                                                        <span className="block text-[10px] flex items-center gap-1 mt-0.5 text-sky-300/70">
+                                                            <Clock size={9} />
+                                                            {duracionCorta(tramoPrevio.segundos)} desde la lectura anterior
                                                         </span>
                                                     )}
                                                 </span>
