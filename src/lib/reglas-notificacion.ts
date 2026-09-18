@@ -41,6 +41,8 @@ const ETIQUETA: Record<string, string> = {
     DENY: "Acceso denegado",
     UNKNOWN: "No reconocido",
     WATCHLIST: "Vehículo en seguimiento",
+    PARKED: "Vehículo estacionó",
+    LEFT: "Vehículo se retiró",
 };
 
 /** Reemplaza las variables de la plantilla con lo que trae el evento. */

@@ -7,6 +7,27 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { Punto } from "@/components/mapa/Recorrido";
 
 type Camara = { deviceId: string; lat: number; lng: number; nombre?: string };
+
+/**
+ * El mismo distintivo de cámara que la vista plana.
+ *
+ * Antes en 3D las cámaras eran un puntito verde sin nombre, y en la práctica no se
+ * distinguían del fondo. Que el marcador sea idéntico en las dos vistas también evita
+ * tener que aprender dos lenguajes para leer el mismo mapa.
+ */
+function marcadorCamara(nombre: string) {
+    const el = document.createElement("div");
+    el.style.cssText = "display:flex;flex-direction:column;align-items:center;transform:translateY(-4px);pointer-events:none";
+    el.innerHTML = `
+        <span style="margin-bottom:3px;padding:1px 6px;border-radius:6px;background:rgba(17,17,17,.85);color:#fff;
+            font:700 10px/1.5 ui-sans-serif,system-ui;white-space:nowrap">${nombre}</span>
+        <span style="width:30px;height:30px;border-radius:8px;background:#2563eb;border:2px solid #fff;display:flex;
+            align-items:center;justify-content:center;box-shadow:0 3px 6px rgba(0,0,0,.4)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff"
+                stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
+        </span>`;
+    return el;
+}
 type Calle = { id: string; name?: string; points: [number, number][] };
 
 /**
@@ -27,6 +48,7 @@ export default function Mapa3D({
 }) {
     const cont = useRef<HTMLDivElement>(null);
     const mapa = useRef<MLMap | null>(null);
+    const marcadores = useRef<any[]>([]);
     const [listo, setListo] = useState(false);
 
     useEffect(() => {
@@ -103,14 +125,22 @@ export default function Mapa3D({
         const m = mapa.current;
         if (!m || !listo) return;
 
+        // Cada capa va aislada.
+        //
+        // Antes iban en fila dentro del mismo efecto, y eso escondía un problema serio:
+        // este barrio todavía no tiene el perímetro dibujado, así que el polígono salía
+        // con la lista de vértices vacía, MapLibre lo rechazaba y la excepción cortaba el
+        // efecto entero — antes de llegar a las cámaras. Por eso en 3D no se veía ninguna.
         const geo = (id: string, data: any, capas: any[]) => {
-            const src = m.getSource(id) as any;
-            if (src) { src.setData(data); return; }
-            m.addSource(id, { type: "geojson", data });
-            capas.forEach((c) => { if (!m.getLayer(c.id)) m.addLayer(c); });
+            try {
+                const src = m.getSource(id) as any;
+                if (src) { src.setData(data); return; }
+                m.addSource(id, { type: "geojson", data });
+                capas.forEach((c) => { if (!m.getLayer(c.id)) m.addLayer(c); });
+            } catch { /* una capa que falla no puede llevarse las demás */ }
         };
 
-        geo("perimetro", {
+        if (perimeter.length >= 3) geo("perimetro", {
             type: "Feature",
             geometry: { type: "Polygon", coordinates: [perimeter.map((p) => [p[1], p[0]])] },
             properties: {},
@@ -130,18 +160,28 @@ export default function Mapa3D({
             { id: "calles-barrio-linea", type: "line", source: "calles-barrio", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#38bdf8", "line-width": 4, "line-opacity": 0.85 } },
         ]);
 
-        geo("camaras", {
-            type: "FeatureCollection",
-            features: cameras.map((c) => ({
-                type: "Feature",
-                geometry: { type: "Point", coordinates: [c.lng, c.lat] },
-                properties: { nombre: c.nombre || "" },
-            })),
-        }, [
-            { id: "camaras-halo", type: "circle", source: "camaras", paint: { "circle-radius": 13, "circle-color": "#10b981", "circle-opacity": 0.18 } },
-            { id: "camaras-punto", type: "circle", source: "camaras", paint: { "circle-radius": 5, "circle-color": "#10b981", "circle-stroke-width": 2, "circle-stroke-color": "#ecfdf5" } },
-        ]);
+        // Las cámaras van como marcadores de HTML y no como capa de círculos: así llevan
+        // el nombre puesto, se ven igual que en la vista plana y no dependen de que el
+        // estilo tenga cargadas las fuentes para rotular.
+        for (const mk of marcadores.current) { try { mk.remove(); } catch { } }
+        marcadores.current = [];
+        for (const c of cameras) {
+            if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
+            try {
+                marcadores.current.push(
+                    new maplibregl.Marker({ element: marcadorCamara(c.nombre || "Cámara"), anchor: "bottom" })
+                        .setLngLat([c.lng, c.lat])
+                        .addTo(m),
+                );
+            } catch { }
+        }
     }, [listo, perimeter, streets, cameras]);
+
+    // Los marcadores viven fuera de React: si no se sacan a mano quedan pegados al mapa.
+    useEffect(() => () => {
+        for (const mk of marcadores.current) { try { mk.remove(); } catch { } }
+        marcadores.current = [];
+    }, []);
 
     // Recorrido del vehiculo
     useEffect(() => {

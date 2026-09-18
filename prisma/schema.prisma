@@ -640,6 +640,12 @@ model PlateSighting {
   estado        String   @default("PASO")
   estDesde      DateTime?
   estHasta      DateTime?
+  // Si ya se aviso que estaciono. Una estadia recien nacida todavia puede ser un auto
+  // detenido un momento; el aviso sale cuando la estadia se consolida.
+  estAvisado    Boolean  @default(false)
+  // Si la estadia ya se cerro (el vehiculo se fue). Un auto que se va no genera ninguna
+  // lectura: se nota por ausencia, y lo cierra el barrendero.
+  estCerrada    Boolean  @default(false)
 
   passId        String?
   pass          VehiclePass? @relation(fields: [passId], references: [id], onDelete: SetNull)

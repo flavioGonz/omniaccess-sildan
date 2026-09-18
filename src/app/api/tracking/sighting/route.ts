@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { confirmarEstadia, cerrarEstadia, estadiasAbiertas } from "@/lib/estadias";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,16 @@ function estaQuieto(a: Caja | null, b: Caja | null) {
  * nuevo llenaba el historial de repeticiones y hacía que el mapa dibujara recorridos que
  * nunca ocurrieron. Ahora una estadía es UNA fila, con su intervalo, que se va extendiendo
  * mientras el auto siga ahí.
+ *
+ * La zona o la línea del calibrador llegan acá como `enPuerta`, y deciden QUÉ CLASE de
+ * evento es, no si se guarda. Ese fue un error que costó corregir: descartar de entrada
+ * al que estaba fuera de la línea dejaba el historial limpio, pero también hacía imposible
+ * avisar que un auto estacionó o que se fue, porque esos autos justamente no pasan por la
+ * línea. El orden correcto es:
+ *
+ *   quieto               → estadía, esté donde esté del cuadro
+ *   en movimiento, cerca → pasada, va al recorrido
+ *   en movimiento, lejos → se descarta: es tránsito fuera de lo que interesa de esa cámara
  */
 export async function POST(req: NextRequest) {
     const token = req.headers.get("x-tracking-token") || "";
@@ -107,10 +118,35 @@ export async function POST(req: NextRequest) {
                 bbox: JSON.stringify(caja),
             },
         });
+        const recienAvisado = await confirmarEstadia(actualizado as any);
         return NextResponse.json({
-            ok: true, estado: "ESTACIONADO", id: actualizado.id,
+            ok: true, estado: "ESTACIONADO", id: actualizado.id, nuevo: recienAvisado,
             desde: actualizado.estDesde, hasta: actualizado.estHasta,
         });
+    }
+
+    // ── Se movió: si tenía una estadía abierta acá, arrancó y se va.
+    //
+    // Este es el único caso en que el "se fue" sale de una lectura y no del barrendero:
+    // el auto arrancó delante de la cámara y volvió a leerse en otro lugar del cuadro.
+    // Se cierra en el acto en vez de esperar a que venza.
+    if (caja) {
+        for (const abierta of await estadiasAbiertas(patente, body.deviceId || null)) {
+            if (abierta.id === previo?.id && estaQuieto(caja, leerCaja(abierta.bbox))) continue;
+            await cerrarEstadia(abierta as any).catch(() => { });
+        }
+    }
+
+    // ── Fuera de la zona o de la línea, y en movimiento: no interesa.
+    //
+    // Va después de lo anterior a propósito. Un auto que arranca puede dar su primera
+    // lectura en movimiento fuera de la línea, y esa lectura, aunque no se guarde, es la
+    // que permite saber que la estadía terminó.
+    if (body.enPuerta === false) {
+        return NextResponse.json(
+            { ok: true, ignorado: "fuera de la zona", puerta: body.puerta || null },
+            { status: 202 },
+        );
     }
 
     // Antirrebote. La pasarela ya consolida cada paso en una sola lectura; esto cubre dos

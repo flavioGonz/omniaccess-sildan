@@ -63,6 +63,14 @@ const MUDO_MS = Number(process.env.TRACKING_QUIET_MS || 4000);
 const COINCIDENCIAS_MIN = Number(process.env.TRACKING_MIN_AGREE || 2);
 // ...salvo que una sola lectura venga muy segura.
 const CONF_ALTA = Number(process.env.TRACKING_HIGH_CONF || 0.85);
+/** Cuantas chapas se atienden por recorte: mas que esto en una baldosa es ruido. */
+const CHAPAS_POR_BALDOSA = Number(process.env.TRACKING_PLATES_PER_TILE || 3);
+/**
+ * Piso para releer. La segunda lectura cuesta dos inferencias y sirve para decidir
+ * entre B y 8, no para rescatar un recorte de pasto que el detector creyo chapa: por
+ * debajo de esto la lectura se va a descartar igual, y releerla es GPU tirada.
+ */
+const RELEER_MIN = Number(process.env.TRACKING_RECHECK_MIN || 0.35);
 // Si la camara dejo de avisar por este tiempo, la pasarela vuelve sola al disparo
 // por escena. Vale para una regla mal dibujada, un firmware que dejo de clasificar
 // o un cambio en la camara hecho desde su propia web: el seguimiento sigue dando
@@ -319,60 +327,107 @@ const promedio = (c) => (Array.isArray(c) ? (c.length ? c.reduce((a, b) => a + b
  * relee sola, ya recortada, con el modelo de OCR grande. Leer una imagen de 50x25 con
  * el modelo bueno cuesta casi nada, y es justo donde se decide si dice B o D.
  */
-async function leerMatricula(jpeg) {
+async function leerMatriculas(jpeg) {
     const items = await invocar("detect_and_recognize_plate", {
         image_base64: jpeg.toString("base64"),
         detector_model: DETECTOR,
         ocr_model: OCR,
     });
 
-    let mejor = null;
+    // Todas las chapas del recorte, no la mejor.
+    //
+    // Antes se devolvia una sola y eso rompia la escena tipica de una calle de barrio:
+    // un auto pasando y dos estacionados contra el cordon. El quieto se lee mejor que
+    // el que se mueve -- esta enfocado y no arrastra -- asi que ganaba siempre, y el
+    // auto que de verdad paso se perdia. Comprobado en un cuadro real de Calle 22: el
+    // Corsa estacionado quedo registrado con 0,90 y el Tiida que salia no quedo.
+    const crudas = [];
     for (const it of items) {
         const texto = (it?.ocr?.text || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
         if (texto.length < 4) continue;
         const conf = Math.min(promedio(it?.ocr?.confidence) || 0, it?.detection?.confidence ?? 1);
-        const caja = it?.detection?.bounding_box || null;
-        if (!mejor || conf > mejor.confidence) mejor = { plate: texto, confidence: conf, chars: it?.ocr?.confidence, caja };
+        crudas.push({ plate: texto, confidence: conf, chars: it?.ocr?.confidence, caja: it?.detection?.bounding_box || null });
     }
-    if (!mejor) return null;
+    if (!crudas.length) return [];
 
-    if (RELEER && mejor.caja) {
-        try {
-            const meta = await sharp(jpeg).metadata();
-            // Un poco de aire alrededor: el recorte justo suele comerse el borde del ultimo caracter.
-            const aire = 0.12;
-            const an = mejor.caja.x2 - mejor.caja.x1, al = mejor.caja.y2 - mejor.caja.y1;
-            const x = Math.max(0, Math.round(mejor.caja.x1 - an * aire));
-            const y = Math.max(0, Math.round(mejor.caja.y1 - al * aire));
-            const w = Math.min((meta.width || 0) - x, Math.round(an * (1 + 2 * aire)));
-            const h = Math.min((meta.height || 0) - y, Math.round(al * (1 + 2 * aire)));
-            if (w > 20 && h > 10) {
-                const recorte = await sharp(jpeg).extract({ left: x, top: y, width: w, height: h }).jpeg({ quality: 95 }).toBuffer();
-                const [a, b] = await Promise.all([
-                    releer(recorte, OCR),
-                    releer(recorte, OCR_FINO),
-                ]);
-                // Los dos modelos sobre la chapa recortada son una SEGUNDA OPINION, no un
-                // reemplazo. Cuando coinciden, esa lectura vale mas que la del cuadro entero
-                // y se toma. Cuando no coinciden, el caracter dudoso existe de verdad: se
-                // deja la primera pero con menos confianza, para que decida la votacion de
-                // la rafaga en vez de darla por buena.
-                //
-                // No es teorico: sobre una chapa real el cuadro entero decia SBW3369 con
-                // 0,98 y el recorte decia SBV3369, que es lo que dice la chapa. La confianza
-                // alta no garantiza que este bien; el acuerdo entre dos modelos ayuda mas.
-                if (a && b && a === b) {
-                    mejor = { plate: a, confidence: Math.max(mejor.confidence, 0.9), chars: null, caja: mejor.caja };
-                } else if (a && b) {
-                    mejor = { ...mejor, confidence: mejor.confidence * 0.8 };
-                } else if (a || b) {
-                    const uno = a || b;
-                    if (uno !== mejor.plate) mejor = { ...mejor, confidence: mejor.confidence * 0.9 };
+    // Tope por recorte: mas de esto en una baldosa es ruido del detector, y cada una
+    // cuesta dos inferencias mas en la segunda lectura.
+    crudas.sort((a, b) => b.confidence - a.confidence);
+    const elegidas = crudas.slice(0, CHAPAS_POR_BALDOSA);
+
+    if (!RELEER) return elegidas.map((m) => ({ ...m, chars: Array.isArray(m.chars) ? m.chars : null }));
+
+    let meta = null;
+    try { meta = await sharp(jpeg).metadata(); } catch { }
+
+    const salida = [];
+    for (const m of elegidas) {
+        let fin = m;
+        if (meta && m.caja && m.confidence >= RELEER_MIN) {
+            try {
+                // Un poco de aire alrededor: el recorte justo suele comerse el borde del ultimo caracter.
+                const aire = 0.12;
+                const an = m.caja.x2 - m.caja.x1, al = m.caja.y2 - m.caja.y1;
+                const x = Math.max(0, Math.round(m.caja.x1 - an * aire));
+                const y = Math.max(0, Math.round(m.caja.y1 - al * aire));
+                const w = Math.min((meta.width || 0) - x, Math.round(an * (1 + 2 * aire)));
+                const h = Math.min((meta.height || 0) - y, Math.round(al * (1 + 2 * aire)));
+                if (w > 20 && h > 10) {
+                    const recorte = await sharp(jpeg).extract({ left: x, top: y, width: w, height: h }).jpeg({ quality: 95 }).toBuffer();
+                    const [a, b] = await Promise.all([releer(recorte, OCR), releer(recorte, OCR_FINO)]);
+                    // Los dos modelos sobre la chapa recortada son una SEGUNDA OPINION, no un
+                    // reemplazo. Cuando coinciden, esa lectura vale mas que la del cuadro entero
+                    // y se toma. Cuando no coinciden, el caracter dudoso existe de verdad: se
+                    // deja la primera pero con menos confianza, para que decida la votacion de
+                    // la rafaga en vez de darla por buena.
+                    //
+                    // No es teorico: sobre una chapa real el cuadro entero decia SBW3369 con
+                    // 0,98 y el recorte decia SBV3369, que es lo que dice la chapa. La confianza
+                    // alta no garantiza que este bien; el acuerdo entre dos modelos ayuda mas.
+                    if (a && b && a === b) {
+                        fin = { plate: a, confidence: Math.max(m.confidence, 0.9), chars: null, caja: m.caja };
+                    } else if (a && b) {
+                        fin = { ...m, confidence: m.confidence * 0.8 };
+                    } else if (a || b) {
+                        const uno = a || b;
+                        fin = uno !== m.plate ? { ...m, confidence: m.confidence * 0.9 } : m;
+                    }
                 }
-            }
-        } catch { /* si la segunda lectura falla, vale la primera */ }
+            } catch { /* si la segunda lectura falla, vale la primera */ }
+        }
+        salida.push({ plate: fin.plate, confidence: fin.confidence, chars: Array.isArray(fin.chars) ? fin.chars : null, caja: fin.caja || null });
     }
-    return { plate: mejor.plate, confidence: mejor.confidence, chars: Array.isArray(mejor.chars) ? mejor.chars : null, caja: mejor.caja || null };
+    return salida;
+}
+
+/**
+ * Dos lecturas del mismo auto o de autos distintos.
+ *
+ * El OCR no devuelve siempre lo mismo para la misma chapa -- ese es justamente el
+ * motivo por el que despues se vota -- asi que agrupar por texto exacto separaria en
+ * dos al mismo auto. Se agrupa por parecido: mismo largo y pocos caracteres de
+ * diferencia. Dos autos distintos no se parecen en seis o siete posiciones.
+ */
+function mismaChapa(a, b) {
+    if (a.length !== b.length) return false;
+    const tolera = a.length >= 6 ? 2 : 1;
+    let d = 0;
+    for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) { d++; if (d > tolera) return false; }
+    return true;
+}
+
+/** Parte las lecturas de la rafaga en un grupo por vehiculo. */
+function agruparPorVehiculo(lecturas) {
+    const grupos = [];
+    for (const l of lecturas) {
+        let g = grupos.find((x) => mismaChapa(x.patron, l.plate));
+        if (!g) { g = { patron: l.plate, mejorConf: -1, lecturas: [] }; grupos.push(g); }
+        g.lecturas.push(l);
+        // El patron del grupo es la lectura mas segura vista hasta ahora: si la primera
+        // fue mala, el grupo no queda anclado a ella.
+        if (l.confidence > g.mejorConf) { g.patron = l.plate; g.mejorConf = l.confidence; }
+    }
+    return grupos;
 }
 
 /**
@@ -455,6 +510,8 @@ async function avisarAvistamiento(cam, lectura, url) {
             confidence: lectura.confidence,
             reads: lectura.reads,
             bbox: lectura.recuadro || null,
+            enPuerta: lectura.enPuerta !== false,
+            puerta: lectura.puerta || null,
             deviceId: cam.deviceId || null,
             cameraName: cam.name,
             lat: cam.lat ?? null,
@@ -466,7 +523,30 @@ async function avisarAvistamiento(cam, lectura, url) {
         signal: AbortSignal.timeout(10000),
     });
     const d = await r.json().catch(() => ({}));
-    return { status: r.status, estado: d?.estado || null, id: d?.id || null };
+    return { status: r.status, estado: d?.estado || null, id: d?.id || null, nuevo: !!d?.nuevo, ignorado: d?.ignorado || null };
+}
+
+/**
+ * Cierra las estadias vencidas: los vehiculos que se fueron.
+ *
+ * Es el unico aviso del seguimiento que no nace de algo que la camara vio, sino de algo
+ * que dejo de ver. Un auto que arranca y se va no genera ninguna lectura, asi que sin
+ * este barrido su estadia quedaria abierta para siempre.
+ */
+async function barrerEstadias() {
+    try {
+        const r = await fetch(`${APP_URL}/api/tracking/stays/sweep`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-tracking-token": token },
+            signal: AbortSignal.timeout(15000),
+        });
+        const d = await r.json().catch(() => ({}));
+        for (const c of d?.cerradas || []) {
+            log(`se fue: ${c.plate} de ${c.camara || "una camara"} despues de ${c.minutos} min`);
+        }
+    } catch (e) {
+        log(`no se pudieron cerrar las estadias: ${e.message}`);
+    }
 }
 
 // ─────────────────────────── Rafagas ───────────────────────────
@@ -516,10 +596,11 @@ async function resolverRafaga(est) {
         const lecturas = [];
         for (let i = 0; i < cola.length; i += MAX_EN_VUELO) {
             const tanda = cola.slice(i, i + MAX_EN_VUELO);
-            const res = await Promise.all(tanda.map((t) => leerMatricula(t.jpeg).catch(() => null)));
-            res.forEach((x, k) => {
-                if (!x) return;
-                lecturas.push({ ...x, cuadro: tanda[k].cuadro, recuadro: recuadroEnCuadro(x.caja, tanda[k]) });
+            const res = await Promise.all(tanda.map((t) => leerMatriculas(t.jpeg).catch(() => [])));
+            res.forEach((lista, k) => {
+                for (const x of lista || []) {
+                    lecturas.push({ ...x, cuadro: tanda[k].cuadro, recuadro: recuadroEnCuadro(x.caja, tanda[k]) });
+                }
             });
         }
         if (!lecturas.length) {
@@ -536,40 +617,74 @@ async function resolverRafaga(est) {
             return;
         }
 
-        const v = votar(lecturas);
+        // Cada vehiculo del cuadro se resuelve por separado.
+        //
+        // Una calle de barrio casi nunca tiene un solo auto: hay uno pasando y dos
+        // estacionados. Votar una sola chapa para toda la rafaga hacia que ganara el que
+        // se lee mejor, que es el quieto, y el que pasaba se perdia. Ahora las lecturas
+        // se agrupan por vehiculo y cada grupo vota su propia chapa.
+        const grupos = agruparPorVehiculo(lecturas);
         const minima = cam.confianza ?? MIN_CONF;
+        const yaVistas = new Set();
+        const rozaron = [];
+        let ruido = 0;
 
-        // Dos caminos para aceptar: varios cuadros que coinciden, o uno muy seguro.
-        const respaldada = v.reads >= COINCIDENCIAS_MIN || v.maxima >= CONF_ALTA;
-        if (!respaldada) {
-            contadores.descartes++;
-            log(`${cam.name}: ${v.plate} descartada (${v.reads} de ${v.cuadros} cuadros, max ${v.maxima.toFixed(2)})`);
-            return;
-        }
-        if (v.confidence < minima) {
-            log(`${cam.name}: ${v.plate} bajo el minimo (${v.confidence.toFixed(2)} < ${minima})`);
-            return;
+        for (const g of grupos) {
+            const v = votar(g.lecturas);
+            if (!v || !v.plate || yaVistas.has(v.plate)) continue;
+
+            // Dos caminos para aceptar: varios cuadros que coinciden, o uno muy seguro.
+            const respaldada = v.reads >= COINCIDENCIAS_MIN || v.maxima >= CONF_ALTA;
+            if (!respaldada) {
+                contadores.descartes++;
+                // Solo se nombra la que estuvo cerca. Con varias matriculas por rafaga, el
+                // detector propone veinte recortes por cuadro y casi todos son ruido:
+                // escribir un renglon por cada uno tapaba el unico que importa.
+                if (v.maxima >= CONF_ALTA - 0.15) rozaron.push(`${v.plate} ${v.maxima.toFixed(2)}`);
+                else ruido++;
+                continue;
+            }
+            if (v.confidence < minima) {
+                rozaron.push(`${v.plate} ${v.confidence.toFixed(2)}<${minima}`);
+                continue;
+            }
+
+            // Se guarda el cuadro de la lectura mas segura que coincide con lo votado.
+            const candidatas = g.lecturas.filter((l) => l.plate === v.plate);
+            const mejor = (candidatas.length ? candidatas : g.lecturas).reduce((a, b) => (b.confidence > a.confidence ? b : a));
+
+            // Zona o linea, la que el calibrador tenga elegida. Se mira donde cayo la chapa
+            // de este vehiculo, no el cuadro entero.
+            const puerta = compuerta(mejor.recuadro, cam);
+
+            const url = guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
+            const resp = await avisarAvistamiento(cam, {
+                ...v,
+                recuadro: mejor.recuadro || null,
+                enPuerta: puerta.pasa,
+                puerta: puerta.motivo,
+            }, url);
+
+            if (resp.ignorado === "fuera de la zona") {
+                contadores.fueraDeLinea++;
+                log(`${cam.name}: ${v.plate} fuera de ${puerta.motivo} y en movimiento (${puerta.detalle || "-"})`);
+                continue;
+            }
+
+            yaVistas.add(v.plate);
+            // Un auto quieto que se vuelve a leer no es una lectura nueva: no se cuenta como
+            // tal, o la efectividad mediria el estacionamiento en vez del trabajo del lector.
+            if (resp.estado !== "ESTACIONADO") contadores.lecturas++;
+            const nota = resp.estado === "ESTACIONADO"
+                ? (resp.nuevo ? " · estaciono" : " · estacionado")
+                : (puerta.pasa ? "" : ` · fuera de ${puerta.motivo}`);
+            log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} lecturas de ${cola.length} baldosas · ${r.motivo}${nota}) -> ${resp.status}`);
         }
 
-        // Se guarda el cuadro de la lectura mas segura que coincide con lo votado.
-        const candidatas = lecturas.filter((l) => l.plate === v.plate);
-        const mejor = (candidatas.length ? candidatas : lecturas).reduce((a, b) => (b.confidence > a.confidence ? b : a));
-        // Zona o linea, la que el calibrador tenga elegida. Se mira donde cayo la chapa
-        // de la lectura que se va a guardar, no el cuadro entero.
-        const puerta = compuerta(mejor.recuadro, cam);
-        if (!puerta.pasa) {
-            contadores.fueraDeLinea++;
-            log(`${cam.name}: ${v.plate} descartada por ${puerta.motivo} (${puerta.detalle})`);
-            return;
+        if (rozaron.length || (!yaVistas.size && ruido)) {
+            const detalle = rozaron.length ? ` · cerca: ${rozaron.slice(0, 4).join(", ")}` : "";
+            log(`${cam.name}: ${yaVistas.size} matricula(s) de ${grupos.length} candidatas (${ruido} ruido)${detalle}`);
         }
-
-        const url = guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
-        const resp = await avisarAvistamiento(cam, { ...v, recuadro: mejor.recuadro || null }, url);
-        // Un auto quieto que se vuelve a leer no es una lectura nueva: no se cuenta como
-        // tal, o la efectividad mediria el estacionamiento en vez del trabajo del lector.
-        if (resp.estado !== "ESTACIONADO") contadores.lecturas++;
-        const nota = resp.estado === "ESTACIONADO" ? " · estacionado" : "";
-        log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} lecturas de ${cola.length} baldosas · ${r.motivo}${nota}) -> ${resp.status}`);
     } catch (e) {
         log(`${cam.name}: error resolviendo la rafaga: ${e.message}`);
     }
@@ -927,6 +1042,7 @@ function resumenAvisos() {
     setInterval(sincronizar, 60000);   // toma cambios de configuracion sin reiniciar
     setInterval(resumenAvisos, 120000);
     setInterval(vigilarDisparo, 60000);
+    setInterval(barrerEstadias, 60000);
     muestrear();
     setInterval(muestrear, 60000);
 })();

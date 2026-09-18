@@ -33,6 +33,8 @@ const EVENTOS: Record<string, { v: string; l: string }[]> = {
         { v: "DENY", l: "Acceso denegado" },
         { v: "UNKNOWN", l: "Matrícula no reconocida" },
         { v: "WATCHLIST", l: "Vehículo en seguimiento" },
+        { v: "PARKED", l: "Vehículo estacionó" },
+        { v: "LEFT", l: "Vehículo se retiró" },
     ],
     FACE: [
         { v: "ALLOW", l: "Acceso permitido" },

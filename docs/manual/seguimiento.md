@@ -107,7 +107,61 @@ el 8. Eso es lo que corrige las confusiones típicas del lector: el 0 con la O, 
 Una lectura se da por buena si coinciden **al menos dos cuadros**, o si una sola viene muy
 segura. Lo que aparece una vez y no se repite se descarta: casi siempre es un invento.
 
-## 5. Se guarda un avistamiento, y se arma el trayecto
+## 5. Se descarta lo que no pasó por donde interesa
+
+Leer bien una matrícula no alcanza: también hay que saber si ese auto **pasó**. Una cámara de
+calle ve, además de los que circulan, los que están estacionados contra el cordón, y esos se
+leen igual de bien una y otra vez.
+
+Por eso, antes de guardar nada, la lectura pasa por una compuerta. La compuerta es la **zona de
+interés** o la **línea de pasada**, según cuál tenga elegida esa cámara en el calibrador — se
+cambia de una a otra ahí mismo, y la que está activa es la que filtra.
+
+Lo que se mira no es el cuadro entero sino **dónde cayó la matrícula adentro del cuadro**. Con
+la zona, la matrícula tiene que caer adentro del rectángulo. Con la línea, tiene que caer cerca
+de ella.
+
+### La línea es una compuerta, no un alambre
+
+Un alambre de verdad — cruzar de un lado al otro — necesita ver el mismo auto dos veces, una de
+cada lado. Acá los autos no van despacio y no hay barrera que los frene, así que muchas pasadas
+dejan una sola lectura buena: pedir el cruce perdería justo los autos que más interesan.
+
+Entonces la línea define una **banda**: cuenta lo que pasa cerca de ella y descarta el resto. El
+ancho de la banda no se mide en píxeles fijos sino en **alturas de la matrícula leída**. La
+matrícula se ve más chica cuanto más lejos está, así que medida en alturas de matrícula la banda
+se adapta sola a la distancia, sin tener que calibrar nada por cámara.
+
+Conviene dibujar la línea **atravesando el carril**, más o menos perpendicular al sentido en que
+vienen los autos, y en la parte del cuadro donde las matrículas se leen mejor — ni el fondo
+lejano ni el borde de abajo.
+
+## 6. Un auto quieto no es una pasada nueva
+
+Un auto estacionado justo sobre la línea sí entra por la banda, y se leería una y otra vez. Esa
+es la segunda mitad del trabajo.
+
+Cada avistamiento guarda **dónde apareció la matrícula dentro del cuadro**. Si la próxima vez
+aparece en el mismo lugar, no es un paso nuevo: es el mismo auto, quieto. En vez de crear otra
+fila, se **extiende la estadía** de la que ya existe.
+
+Un vehículo así:
+
+- **no dibuja recorrido** en el mapa — un auto quieto no genera línea. Aparece aparte, con un
+  marcador cuadrado gris y cuánto lleva ahí;
+- **queda con su propia marca en el historial**, con la duración de la estadía, en vez de repetir
+  la misma fila decenas de veces;
+- **no cuenta para la efectividad**, que así vuelve a medir el trabajo del lector y no el
+  estacionamiento.
+
+Si el auto arranca y se va, la próxima lectura ya cae en otro lugar del cuadro y vuelve a
+contarse como pasada, con su estadía cerrada.
+
+Los dos mecanismos se complementan a propósito: el de afuera (la banda) saca a los que están
+lejos de donde interesa, y el de adentro (el quieto) agrupa a los que están cerca pero no se
+mueven. Por eso la banda puede ser generosa sin volver a llenar el historial.
+
+## 7. Se guarda un avistamiento, y se arma el trayecto
 
 Del paso entero queda **un** registro, no uno por cuadro. Los avistamientos de la misma matrícula
 cercanos en el tiempo se agrupan en un trayecto, que es lo que el mapa dibuja.
