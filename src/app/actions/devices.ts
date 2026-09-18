@@ -21,6 +21,20 @@ async function saveFile(file: any, folder: string): Promise<string | null> {
     }
 }
 
+
+/** Campos propios de las camaras interiores de seguimiento. */
+function camposSeguimiento(formData: FormData) {
+    const rtsp = ((formData.get("rtspUrl") as string) || "").trim();
+    const escenaRaw = ((formData.get("trackScene") as string) || "").trim();
+    const escena = escenaRaw === "" ? null : Number(escenaRaw);
+    const habilitada = (formData.get("trackEnabled") as string) !== "false";
+    return {
+        rtspUrl: rtsp || null,
+        trackScene: escena != null && !Number.isNaN(escena) ? escena : null,
+        trackEnabled: habilitada,
+    };
+}
+
 export async function createDevice(formData: FormData) {
     const name = formData.get("name") as string;
     const ip = formData.get("ip") as string;
@@ -58,6 +72,7 @@ export async function createDevice(formData: FormData) {
             modelPhoto,
             brandLogo,
             deviceModel: formData.get("deviceModel") as string,
+            ...camposSeguimiento(formData),
             accessGroups: groupId && groupId !== "none" ? {
                 connect: { id: groupId }
             } : undefined
@@ -119,6 +134,7 @@ export async function updateDevice(id: string, formData: FormData) {
             authType,
             mac,
             deviceModel,
+            ...camposSeguimiento(formData),
             ...(modelPhoto && { modelPhoto }),
             ...(brandLogo && { brandLogo }),
         },

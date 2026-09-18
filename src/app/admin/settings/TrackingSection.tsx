@@ -4,26 +4,25 @@ import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import { sileo as toast } from "sileo";
 import {
-    ScanLine, Video, Plus, Trash2, RefreshCw, Play, Square, Camera as CamIcon,
-    MapPin, Gauge, Loader2, Terminal, Route, CheckCircle2, XCircle, Save, Info
+    ScanLine, Video, Plus, RefreshCw, Play, Square, Camera as CamIcon,
+    MapPin, Gauge, Loader2, Terminal, Route, CheckCircle2, XCircle, Info
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 type Camara = {
+    id: string;
     name: string;
+    ip?: string;
+    location?: string | null;
     rtsp: string;
-    deviceId?: string;
-    lat?: number | string;
-    lng?: number | string;
-    escena?: number | string;
-    activa?: boolean;
     rtspVisible?: string;
+    escena?: number;
+    activa?: boolean;
+    enMapa?: boolean;
+    lat?: number | null;
+    lng?: number | null;
 };
-
-const CAMARA_VACIA: Camara = { name: "", rtsp: "", lat: "", lng: "", escena: "", activa: true };
 
 function Pastilla({ ok, texto }: { ok: boolean | null; texto: string }) {
     return (
@@ -47,10 +46,9 @@ export default function TrackingSection() {
     const [camaras, setCamaras] = useState<Camara[]>([]);
     const [parametros, setParametros] = useState<any>(null);
     const [cargando, setCargando] = useState(true);
-    const [guardando, setGuardando] = useState(false);
     const [operando, setOperando] = useState<string | null>(null);
-    const [nueva, setNueva] = useState<Camara>({ ...CAMARA_VACIA });
     const [probando, setProbando] = useState(false);
+    const [probada, setProbada] = useState<string | null>(null);
     const [prueba, setPrueba] = useState<any>(null);
     const [logs, setLogs] = useState<{ lpr: string; worker: string } | null>(null);
     const [verLogs, setVerLogs] = useState(false);
@@ -90,41 +88,11 @@ export default function TrackingSection() {
         }
     };
 
-    const guardar = async (lista: Camara[]) => {
-        setGuardando(true);
-        try {
-            const limpio = lista.map(({ rtspVisible, ...c }) => c);
-            const r = await axios.put("/api/tracking/cameras", { camaras: limpio });
-            toast.success({ title: `Guardado · ${r.data.total} cámara(s)`, description: "La pasarela toma el cambio en menos de un minuto." });
-            await cargar();
-        } catch (e: any) {
-            toast.error({ title: e?.response?.data?.error || "No se pudo guardar" });
-        } finally {
-            setGuardando(false);
-        }
-    };
-
-    const agregar = async () => {
-        if (!nueva.name.trim() || !nueva.rtsp.trim()) {
-            return toast.error({ title: "Faltan el nombre y la URL RTSP" });
-        }
-        await guardar([...camaras, nueva]);
-        setNueva({ ...CAMARA_VACIA });
-        setPrueba(null);
-    };
-
-    const quitar = async (i: number) => {
-        await guardar(camaras.filter((_, j) => j !== i));
-    };
-
-    const alternar = async (i: number) => {
-        await guardar(camaras.map((c, j) => (j === i ? { ...c, activa: c.activa === false } : c)));
-    };
-
-    const probar = async (rtsp: string) => {
-        if (!rtsp.trim()) return toast.error({ title: "Escribí primero la URL RTSP" });
+    const probar = async (rtsp: string, id?: string) => {
+        if (!rtsp.trim()) return toast.error({ title: "Esa cámara no tiene URL RTSP cargada" });
         setProbando(true);
         setPrueba(null);
+        setProbada(id || null);
         try {
             const r = await axios.post("/api/tracking/probe", { rtsp });
             setPrueba(r.data);
@@ -242,43 +210,31 @@ export default function TrackingSection() {
                 </div>
             )}
 
-            {/* Alta de camara */}
+            {/* Cómo se agrega una cámara interior */}
             <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
                 <div className="flex items-start gap-3">
                     <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20"><Video className="text-blue-500" size={18} /></div>
                     <div className="flex-1">
-                        <h3 className="font-semibold text-foreground">Agregar una cámara interior</h3>
+                        <h3 className="font-semibold text-foreground">Cámaras interiores</h3>
                         <p className="text-sm text-muted-foreground mt-0.5">
-                            Cualquier cámara común sirve como sensor: la pasarela le saca cuadros por RTSP y se los pasa al lector.
-                            Una cámara por canal — si el grabador tiene varios, cargá un renglón por cada canal que quieras leer.
+                            Se dan de alta en <b className="text-foreground">Dispositivos LPR</b>, con el tipo
+                            <b className="text-foreground"> Cámara Interior (seguimiento)</b>. Son las que el contenedor Omni-LPR
+                            procesa por RTSP; las de entrada y salida siguen siendo del tipo Cámara LPR y leen la matrícula ellas mismas.
                         </p>
                     </div>
+                    <a href="/admin/devices" className="shrink-0">
+                        <Button size="sm"><Plus size={15} /><span className="ml-1.5">Agregar cámara</span></Button>
+                    </a>
                 </div>
 
                 <div className="rounded-xl bg-muted/40 border border-border p-3 text-xs text-muted-foreground space-y-1">
-                    <div className="flex items-center gap-1.5 font-semibold text-foreground"><Info size={13} /> Cómo se arma la URL</div>
-                    <div className="font-mono">Hikvision / NVR · rtsp://usuario:clave@IP:554/Streaming/Channels/<b>101</b></div>
-                    <div className="font-mono">Dahua · rtsp://usuario:clave@IP:554/cam/realmonitor?channel=<b>1</b>&amp;subtype=0</div>
-                    <div className="font-mono">ONVIF genérica · rtsp://usuario:clave@IP:554/onvif1</div>
-                    <div>El canal es el número: <b>101</b> = canal 1 flujo principal, <b>201</b> = canal 2, y así. Usá el flujo principal: el secundario suele no tener resolución para la matrícula.</div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-                    <Input className="md:col-span-3" placeholder="Nombre (ej. Rotonda)" value={nueva.name} onChange={(e) => setNueva({ ...nueva, name: e.target.value })} />
-                    <Input className="md:col-span-9 font-mono text-xs" placeholder="rtsp://usuario:clave@192.168.1.50:554/Streaming/Channels/101" value={nueva.rtsp} onChange={(e) => setNueva({ ...nueva, rtsp: e.target.value })} />
-                    <Input className="md:col-span-3" placeholder="Latitud (-34.8590869)" value={nueva.lat as string} onChange={(e) => setNueva({ ...nueva, lat: e.target.value })} />
-                    <Input className="md:col-span-3" placeholder="Longitud (-56.0784090)" value={nueva.lng as string} onChange={(e) => setNueva({ ...nueva, lng: e.target.value })} />
-                    <Input className="md:col-span-2" placeholder="Sensibilidad 0.08" value={nueva.escena as string} onChange={(e) => setNueva({ ...nueva, escena: e.target.value })} />
-                    <div className="md:col-span-4 flex gap-2">
-                        <Button variant="outline" className="flex-1" disabled={probando} onClick={() => probar(nueva.rtsp)}>
-                            {probando ? <Loader2 className="animate-spin" size={15} /> : <CamIcon size={15} />}
-                            <span className="ml-1.5">Probar</span>
-                        </Button>
-                        <Button className="flex-1" disabled={guardando} onClick={agregar}>
-                            {guardando ? <Loader2 className="animate-spin" size={15} /> : <Plus size={15} />}
-                            <span className="ml-1.5">Agregar</span>
-                        </Button>
-                    </div>
+                    <div className="flex items-center gap-1.5 font-semibold text-foreground"><Info size={13} /> Los tres pasos</div>
+                    <div><b className="text-foreground/80">1.</b> En Dispositivos LPR, nueva cámara → tipo <b>Cámara Interior</b> → pegá la URL RTSP del canal.</div>
+                    <div className="font-mono pl-4">Hikvision / NVR · rtsp://usuario:clave@IP:554/Streaming/Channels/<b>101</b></div>
+                    <div className="font-mono pl-4">Dahua · rtsp://usuario:clave@IP:554/cam/realmonitor?channel=<b>1</b>&amp;subtype=0</div>
+                    <div className="pl-4">101 = canal 1 flujo principal, 201 = canal 2. Un dispositivo por canal, y siempre el flujo principal.</div>
+                    <div><b className="text-foreground/80">2.</b> Probala desde acá: toma un cuadro real y te dice si el lector ve la matrícula.</div>
+                    <div><b className="text-foreground/80">3.</b> Arrastrala en <b className="text-foreground">Mapa</b> hasta donde está instalada, para que el recorrido se dibuje bien.</div>
                 </div>
 
                 {prueba && (
@@ -316,32 +272,36 @@ export default function TrackingSection() {
             {/* Listado */}
             <div className="rounded-2xl border border-border bg-card overflow-hidden">
                 <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-                    <span className="text-sm font-semibold text-foreground">Cámaras cargadas ({camaras.length})</span>
-                    {guardando && <span className="text-xs text-muted-foreground flex items-center gap-1.5"><Save size={12} /> guardando…</span>}
+                    <span className="text-sm font-semibold text-foreground">Cámaras interiores dadas de alta ({camaras.length})</span>
                 </div>
                 {camaras.length === 0 ? (
                     <div className="p-8 text-center text-sm text-muted-foreground">
-                        Todavía no hay cámaras de seguimiento. Agregá la primera arriba.
+                        Todavía no hay ninguna. Agregala en Dispositivos LPR con el tipo <b className="text-foreground">Cámara Interior</b>.
                     </div>
                 ) : (
                     <div className="divide-y divide-border">
-                        {camaras.map((c, i) => (
-                            <div key={i} className="px-5 py-3 flex flex-col md:flex-row md:items-center gap-3">
-                                <div className="flex items-center gap-3 md:w-56">
-                                    <Switch checked={c.activa !== false} onCheckedChange={() => alternar(i)} />
-                                    <div>
-                                        <div className="font-semibold text-sm text-foreground">{c.name}</div>
-                                        <div className="text-[11px] text-muted-foreground flex items-center gap-1">
-                                            <MapPin size={10} />
-                                            {c.lat != null && c.lng != null ? `${Number(c.lat).toFixed(5)}, ${Number(c.lng).toFixed(5)}` : "sin ubicación"}
-                                        </div>
+                        {camaras.map((c) => (
+                            <div key={c.id} className="px-5 py-3 flex flex-col md:flex-row md:items-center gap-3">
+                                <div className="md:w-56">
+                                    <div className="flex items-center gap-2">
+                                        <span className={cn("h-1.5 w-1.5 rounded-full", c.activa ? "bg-emerald-500" : "bg-muted-foreground/40")} />
+                                        <span className="font-semibold text-sm text-foreground">{c.name}</span>
+                                    </div>
+                                    <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                        <MapPin size={10} />
+                                        {c.enMapa ? `${Number(c.lat).toFixed(5)}, ${Number(c.lng).toFixed(5)}` : "sin ubicar en el mapa"}
                                     </div>
                                 </div>
-                                <div className="flex-1 font-mono text-[11px] text-muted-foreground truncate">{c.rtspVisible || c.rtsp}</div>
+                                <div className="flex-1 font-mono text-[11px] text-muted-foreground truncate">
+                                    {c.rtspVisible || <span className="text-amber-500 font-sans">falta cargar la URL RTSP</span>}
+                                </div>
                                 <div className="flex items-center gap-2">
                                     <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Gauge size={11} />{c.escena ?? 0.08}</span>
-                                    <Button size="sm" variant="ghost" disabled={probando} onClick={() => probar(c.rtsp)}><CamIcon size={14} /></Button>
-                                    <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-600" onClick={() => quitar(i)}><Trash2 size={14} /></Button>
+                                    <Button size="sm" variant="outline" disabled={probando || !c.rtsp} onClick={() => probar(c.rtsp, c.id)}>
+                                        {probando && probada === c.id ? <Loader2 className="animate-spin" size={14} /> : <CamIcon size={14} />}
+                                        <span className="ml-1.5">Probar</span>
+                                    </Button>
+                                    <a href="/admin/devices" className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">editar</a>
                                 </div>
                             </div>
                         ))}

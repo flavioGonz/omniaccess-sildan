@@ -41,11 +41,17 @@ export async function GET() {
         if (p) worker = { estado: p.pm2_env?.status, reinicios: p.pm2_env?.restart_time, memoria: p.monit?.memory, cpu: p.monit?.cpu, desde: p.pm2_env?.pm_uptime };
     } catch { }
 
+    // Las camaras interiores viven en Dispositivos LPR; el Setting queda de respaldo.
     let camaras = 0;
     try {
-        const s = await prisma.setting.findUnique({ where: { key: "TRACK_CAMERAS" } });
-        const arr = JSON.parse(s?.value || "[]");
-        if (Array.isArray(arr)) camaras = arr.filter((c: any) => c?.rtsp && c?.name && c?.activa !== false).length;
+        camaras = await prisma.device.count({
+            where: { deviceType: "LPR_INTERIOR" as any, trackEnabled: true, NOT: { rtspUrl: null } },
+        });
+        if (camaras === 0) {
+            const s = await prisma.setting.findUnique({ where: { key: "TRACK_CAMERAS" } });
+            const arr = JSON.parse(s?.value || "[]");
+            if (Array.isArray(arr)) camaras = arr.filter((c: any) => c?.rtsp && c?.name && c?.activa !== false).length;
+        }
     } catch { }
 
     const desde24 = new Date(Date.now() - 24 * 60 * 60 * 1000);

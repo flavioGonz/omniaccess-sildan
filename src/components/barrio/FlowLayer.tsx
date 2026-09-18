@@ -224,7 +224,7 @@ export function FlowColumn({ side, title, icon: Icon, accent, events, onPick, }:
 }) {
     const [open, setOpen] = useState(true);
     return (
-        <div className={cn("absolute top-16 bottom-4 z-[500] flex items-start pointer-events-none", side === "left" ? "left-3" : "right-3")}>
+        <div className={cn("absolute top-16 z-[500] flex items-start pointer-events-none max-h-[52%]", side === "left" ? "left-3" : "right-3")}>
             {!open ? (
                 <button onClick={() => setOpen(true)}
                     className={cn("mt-1 flex flex-col items-center gap-1.5 px-2 py-3 rounded-2xl text-white/80 pointer-events-auto", glass)}>

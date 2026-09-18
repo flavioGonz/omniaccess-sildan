@@ -37,12 +37,51 @@ async function ajuste(clave, porDefecto = null) {
     catch { return porDefecto; }
 }
 
-async function camaras() {
-    const raw = await ajuste("TRACK_CAMERAS", "[]");
+/**
+ * Las camaras de seguimiento son dispositivos de tipo LPR_INTERIOR con su URL
+ * RTSP cargada desde Dispositivos LPR. La ubicacion sale del mapa del barrio
+ * (donde se arrastro esa camara), asi no hay que escribir coordenadas a mano.
+ * Se mantiene el Setting TRACK_CAMERAS como respaldo de instalaciones viejas.
+ */
+async function ubicacionesDelMapa() {
     try {
-        const arr = JSON.parse(raw || "[]");
-        return Array.isArray(arr) ? arr.filter((c) => c && c.rtsp && c.name) : [];
-    } catch { return []; }
+        const r = await prisma.setting.findUnique({ where: { key: "BARRIO_MAP" } });
+        const d = JSON.parse(r?.value || "{}");
+        const m = {};
+        for (const c of d?.cameras || []) if (c?.deviceId) m[c.deviceId] = { lat: c.lat, lng: c.lng };
+        return m;
+    } catch { return {}; }
+}
+
+async function camaras() {
+    const lista = [];
+    try {
+        const ubic = await ubicacionesDelMapa();
+        const devs = await prisma.device.findMany({
+            where: { deviceType: "LPR_INTERIOR", trackEnabled: true, NOT: { rtspUrl: null } },
+            select: { id: true, name: true, rtspUrl: true, trackScene: true },
+        });
+        for (const d of devs) {
+            if (!d.rtspUrl || !d.rtspUrl.trim()) continue;
+            lista.push({
+                name: d.name,
+                rtsp: d.rtspUrl.trim(),
+                deviceId: d.id,
+                lat: ubic[d.id]?.lat ?? null,
+                lng: ubic[d.id]?.lng ?? null,
+                escena: d.trackScene ?? undefined,
+            });
+        }
+    } catch (e) { log("no se pudieron leer los dispositivos interiores:", e.message); }
+
+    if (lista.length === 0) {
+        const raw = await ajuste("TRACK_CAMERAS", "[]");
+        try {
+            const arr = JSON.parse(raw || "[]");
+            if (Array.isArray(arr)) lista.push(...arr.filter((c) => c && c.rtsp && c.name && c.activa !== false));
+        } catch { }
+    }
+    return lista;
 }
 
 /** Manda un cuadro a Omni-LPR y devuelve { plate, confidence } o null. */

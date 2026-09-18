@@ -66,6 +66,8 @@ import { getAdminsList as getAdmins, saveAdmin as saveAdminAction, deleteAdmin a
 import { useEffect, useTransition } from "react";
 import { sileo as toast } from "sileo";
 import { getEnabledModules, toggleModule, setExclusiveMode } from "@/app/actions/modules";
+import { OtpInput, type OtpStatus } from "@/components/ui/otp-input";
+import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -217,7 +219,24 @@ export default function SettingsPage() {
     const [pendingMode, setPendingMode] = useState<{ moduleId: string; label: string } | null>(null);
     const [switchingTo, setSwitchingTo] = useState<string | null>(null);
     useEffect(() => { getEnabledModules().then((m: any) => { setEnabledModules(m); const act = m.MODULE_LPR ? "mode_lpr" : m.MODULE_FACE ? "mode_face" : m.MODULE_QUEUE ? "mode_queue" : "mode_lpr"; setModeSubTab(act); }).catch(() => {}); }, []);
-    const confirmSwitch = async () => { if (!pendingMode) return; const { moduleId, label } = pendingMode; setPendingMode(null); setSwitchingTo(label); try { await setExclusiveMode(moduleId as ModuleId); } catch {} setTimeout(() => window.location.reload(), 1800); };
+    const [pinEstado, setPinEstado] = useState<OtpStatus>("idle");
+    const [verificando, setVerificando] = useState(false);
+    const confirmSwitch = async () => { if (!pendingMode) return; const { moduleId, label } = pendingMode; setPendingMode(null); setPinEstado("idle"); setSwitchingTo(label); try { await setExclusiveMode(moduleId as ModuleId); } catch {} setTimeout(() => window.location.reload(), 1800); };
+    // Cambiar de modalidad apaga las otras: pedimos la clave de operacion antes.
+    const verificarPin = async (codigo: string) => {
+        if (verificando) return;
+        setVerificando(true);
+        try {
+            await axios.post("/api/modes/pin", { codigo });
+            setPinEstado("success");
+            setTimeout(confirmSwitch, 450);
+        } catch {
+            setPinEstado("error");
+        } finally {
+            setVerificando(false);
+        }
+    };
+    const cerrarPin = () => { setPendingMode(null); setPinEstado("idle"); };
 
     return (
         <div className="h-full overflow-y-auto px-6 pb-6 pt-0 space-y-6 animate-in fade-in duration-700 custom-scrollbar">
@@ -364,15 +383,29 @@ export default function SettingsPage() {
 
                             {/* Modal de confirmación */}
                             {pendingMode && (
-                                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setPendingMode(null)}>
+                                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={cerrarPin}>
                                     <div className="bg-card border border-border rounded-2xl shadow-lg max-w-sm w-full p-6" onClick={(e) => e.stopPropagation()}>
                                         <div className="w-12 h-12 rounded-xl bg-violet-500/15 flex items-center justify-center mb-4"><Layers size={22} className="text-violet-400" /></div>
                                         <h3 className="text-lg font-bold text-foreground">¿Cambiar a {pendingMode.label}?</h3>
-                                        <p className="text-sm text-muted-foreground mt-1.5">La aplicación se recargará en el nuevo modo. Las demás modalidades quedarán desactivadas.</p>
-                                        <div className="flex items-center gap-2 mt-5">
-                                            <button onClick={confirmSwitch} className="flex-1 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold transition">Sí, cambiar</button>
-                                            <button onClick={() => setPendingMode(null)} className="flex-1 px-4 py-2.5 rounded-lg bg-muted hover:bg-accent text-foreground text-sm font-bold transition">Cancelar</button>
+                                        <p className="text-sm text-muted-foreground mt-1.5">La aplicación se recargará en el nuevo modo y las demás modalidades quedarán desactivadas. Ingresá la clave de operación para confirmar.</p>
+                                        <div className="mt-5 flex justify-center">
+                                            <OtpInput
+                                                length={6}
+                                                size="md"
+                                                type="numbers"
+                                                mask
+                                                autoFocus
+                                                disabled={verificando || pinEstado === "success"}
+                                                status={pinEstado}
+                                                onChange={() => { if (pinEstado === "error") setPinEstado("idle"); }}
+                                                onComplete={verificarPin}
+                                            />
                                         </div>
+                                        <div className="h-5 mt-2 text-center text-xs font-semibold">
+                                            {pinEstado === "error" && <span className="text-red-500">Clave incorrecta</span>}
+                                            {pinEstado === "success" && <span className="text-emerald-500">Clave correcta, cambiando…</span>}
+                                        </div>
+                                        <button onClick={cerrarPin} className="w-full mt-2 px-4 py-2.5 rounded-lg bg-muted hover:bg-accent text-foreground text-sm font-bold transition">Cancelar</button>
                                     </div>
                                 </div>
                             )}

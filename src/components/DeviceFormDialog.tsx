@@ -171,6 +171,9 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
         username: device?.username || "admin",
         password: device?.password || "",
         authType: device?.authType || "BASIC",
+        rtspUrl: device?.rtspUrl || "",
+        trackScene: device?.trackScene != null ? String(device.trackScene) : "",
+        trackEnabled: device?.trackEnabled === false ? "false" : "true",
     });
     const [modelPhotoFile, setModelPhotoFile] = useState<File | null>(null);
     const [brandLogoFile, setBrandLogoFile] = useState<File | null>(null);
@@ -189,6 +192,9 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
         username: device?.username || "admin",
         password: device?.password || "",
         authType: device?.authType || "BASIC",
+        rtspUrl: device?.rtspUrl || "",
+        trackScene: device?.trackScene != null ? String(device.trackScene) : "",
+        trackEnabled: device?.trackEnabled === false ? "false" : "true",
     });
     const [detecting, setDetecting] = useState(false);
     const [detectInfo, setDetectInfo] = useState<any>(null);
@@ -398,6 +404,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                                     </SelectTrigger>
                                                     <SelectContent className="bg-popover border-border text-foreground rounded-md">
                                                         <SelectItem value="LPR_CAMERA" className="py-3 font-bold">Cámara LPR</SelectItem>
+                                                        <SelectItem value="LPR_INTERIOR" className="py-3 font-bold">Cámara Interior (seguimiento)</SelectItem>
                                                         <SelectItem value="NVR" className="py-3 font-bold">NVR / Grabador</SelectItem>
                                                         <SelectItem value="FACE_TERMINAL" className="py-3 font-bold">Acceso Facial</SelectItem>
                                                         <SelectItem value="QUEUE_COUNTER" className="py-3 font-bold">Contador de Filas</SelectItem>
@@ -420,6 +427,53 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                                 </Select>
                                             </div>
                                         </div>
+                                        {/* Cámara interior: la lee el contenedor Omni-LPR por RTSP */}
+                                        {formData.deviceType === "LPR_INTERIOR" && (
+                                            <div className="space-y-3 rounded-xl border border-teal-500/25 bg-teal-500/[0.06] p-4">
+                                                <div className="flex items-start gap-2">
+                                                    <Video size={14} className="text-teal-500 mt-0.5 shrink-0" />
+                                                    <div>
+                                                        <p className="text-xs font-bold text-foreground">Cámara interior de seguimiento</p>
+                                                        <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+                                                            No abre la barrera. La pasarela le saca cuadros por RTSP y se los manda al
+                                                            contenedor Omni-LPR para leer matrículas dentro del barrio. Ubicala después
+                                                            en el mapa para que el recorrido salga bien.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">URL RTSP del canal</Label>
+                                                    <Input name="rtspUrl" value={formData.rtspUrl} onChange={handleChange}
+                                                        placeholder="rtsp://usuario:clave@192.168.1.50:554/Streaming/Channels/101"
+                                                        className="bg-card border-border h-11 rounded-lg font-mono text-xs" />
+                                                    <div className="text-[10px] text-muted-foreground leading-relaxed space-y-0.5 pt-0.5">
+                                                        <p><b className="text-foreground/80">Hikvision / NVR:</b> <span className="font-mono">…:554/Streaming/Channels/<b>101</b></span> — 101 es canal 1 principal, 201 canal 2, y así.</p>
+                                                        <p><b className="text-foreground/80">Dahua:</b> <span className="font-mono">…:554/cam/realmonitor?channel=<b>1</b>&amp;subtype=0</span></p>
+                                                        <p>Usá siempre el flujo principal: el secundario no tiene resolución para la matrícula. Un dispositivo por canal.</p>
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="space-y-2">
+                                                        <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Sensibilidad</Label>
+                                                        <Input name="trackScene" value={formData.trackScene} onChange={handleChange} placeholder="0.08"
+                                                            className="bg-card border-border h-11 rounded-lg font-mono text-xs" />
+                                                        <p className="text-[10px] text-muted-foreground">Cuánto tiene que cambiar la escena para mandar un cuadro. Más bajo = más cuadros.</p>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Seguimiento</Label>
+                                                        <Select value={formData.trackEnabled} onValueChange={(v) => handleSelectChange("trackEnabled", v)}>
+                                                            <SelectTrigger className="bg-card border-border h-11 rounded-lg font-bold"><SelectValue /></SelectTrigger>
+                                                            <SelectContent className="bg-popover border-border text-foreground rounded-md">
+                                                                <SelectItem value="true" className="py-2.5 font-bold">Activo</SelectItem>
+                                                                <SelectItem value="false" className="py-2.5 font-bold">Pausado</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                        <p className="text-[10px] text-muted-foreground">Pausada, la cámara queda cargada pero no consume GPU.</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div className="space-y-2">
                                             <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
                                                 <Cpu size={10} /> Modelo Hardware

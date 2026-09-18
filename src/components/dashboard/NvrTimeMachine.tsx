@@ -3,9 +3,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     X, Play, Pause, ChevronLeft, ChevronRight, Radio, Film, ImageIcon,
-    Calendar, Rewind, FastForward, Car, AlertTriangle, Loader2, Clock, Download,
+    Calendar, Rewind, FastForward, Car, AlertTriangle, Loader2, Clock, Download, Hourglass,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DurationPicker } from "@/components/ui/duration-picker";
 
 type Tab = "grabacion" | "vivo" | "evidencia";
 
@@ -34,6 +35,20 @@ interface Props {
 const PRE_SEC = 3;
 const WINDOWS = [15, 30, 60, 180, 360, 1440];
 const WIN_LABEL: Record<number, string> = { 15: "15m", 30: "30m", 60: "1h", 180: "3h", 360: "6h", 1440: "24h" };
+/** La ventana ya no esta limitada a los presets: puede ser cualquier duracion. */
+const etiquetaVentana = (min: number) => {
+    if (WIN_LABEL[min]) return WIN_LABEL[min];
+    const h = Math.floor(min / 60), m = Math.round(min % 60);
+    if (h && m) return `${h}h ${m}m`;
+    if (h) return `${h}h`;
+    return `${m}m`;
+};
+/** Indice del preset mas parecido, para que el slider siga teniendo sentido. */
+const indicePreset = (min: number) => {
+    let mejor = 0, dif = Infinity;
+    WINDOWS.forEach((w, i) => { const d = Math.abs(w - min); if (d < dif) { dif = d; mejor = i; } });
+    return mejor;
+};
 const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Set", "Oct", "Nov", "Dic"];
 
 // Glass tokens (estilo vidrio esmerilado)
@@ -131,7 +146,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
     const [vidState, setVidState] = useState<"loading" | "ok" | "error">("loading");
     const [dragging, setDragging] = useState(false);
     const [videoCur, setVideoCur] = useState(0);
-    const [openPanel, setOpenPanel] = useState<null | "calendar" | "time">(null);
+    const [openPanel, setOpenPanel] = useState<null | "calendar" | "time" | "ventana">(null);
     const panRef = useRef<{ startY: number; startAnchor: number; moved: boolean } | null>(null);
     const [panY, setPanY] = useState<number | null>(null); // % fijo del playhead durante drag-pan
     const trackRef = useRef<HTMLDivElement>(null);
@@ -203,7 +218,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
 
     // Scroll sobre la barra = zoom temporal (ventana), centrado en el playhead visible
     const winIdxRef = useRef(WINDOWS.indexOf(60));
-    useEffect(() => { winIdxRef.current = WINDOWS.indexOf(winMin); }, [winMin]);
+    useEffect(() => { winIdxRef.current = indicePreset(winMin); }, [winMin]);
     const onWheel = useCallback((e: React.WheelEvent) => {
         e.preventDefault();
         const idx = winIdxRef.current;
@@ -261,14 +276,14 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                     <div className={cn("w-[120px] flex flex-col rounded-2xl", glass)}>
                         {/* Arriba: título + slider de zoom */}
                         <div className="px-2.5 pt-2.5 pb-2 border-b border-white/[0.06] shrink-0">
-                            <p className="text-[10px] font-bold text-white/70 leading-tight">Últimas {WIN_LABEL[winMin]}</p>
+                            <p className="text-[10px] font-bold text-white/70 leading-tight">Últimas {etiquetaVentana(winMin)}</p>
                             <p className="text-[9px] text-white/35 leading-tight">{events.length === 0 ? "Sin eventos" : `${events.length} eventos`}</p>
                             <div className="flex items-center gap-1 mt-1.5 w-full overflow-hidden">
-                                <button onClick={() => { const i = WINDOWS.indexOf(winMin); if (i < WINDOWS.length - 1) setWinMin(WINDOWS[i + 1]); }} className="shrink-0 w-4 text-white/50 hover:text-white text-xs leading-none font-bold">−</button>
-                                <input type="range" min={0} max={WINDOWS.length - 1} value={WINDOWS.length - 1 - WINDOWS.indexOf(winMin)}
+                                <button onClick={() => { const i = indicePreset(winMin); if (i < WINDOWS.length - 1) setWinMin(WINDOWS[i + 1]); }} className="shrink-0 w-4 text-white/50 hover:text-white text-xs leading-none font-bold">−</button>
+                                <input type="range" min={0} max={WINDOWS.length - 1} value={WINDOWS.length - 1 - indicePreset(winMin)}
                                     onChange={(e) => setWinMin(WINDOWS[WINDOWS.length - 1 - Number(e.target.value)])}
                                     className="flex-1 min-w-0 h-[3px] accent-blue-500 cursor-pointer" style={{ maxWidth: "100%" }} />
-                                <button onClick={() => { const i = WINDOWS.indexOf(winMin); if (i > 0) setWinMin(WINDOWS[i - 1]); }} className="shrink-0 w-4 text-white/50 hover:text-white text-xs leading-none font-bold">+</button>
+                                <button onClick={() => { const i = indicePreset(winMin); if (i > 0) setWinMin(WINDOWS[i - 1]); }} className="shrink-0 w-4 text-white/50 hover:text-white text-xs leading-none font-bold">+</button>
                             </div>
                         </div>
 
@@ -377,6 +392,10 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                                 className={cn("p-1.5 rounded-lg transition-all", openPanel === "time" ? "bg-white text-black shadow" : glassBtn + " text-white/70")}>
                                 <Clock size={13} />
                             </button>
+                            <button onClick={() => setOpenPanel(p => p === "ventana" ? null : "ventana")} title="Duración de la búsqueda"
+                                className={cn("p-1.5 rounded-lg transition-all", openPanel === "ventana" ? "bg-white text-black shadow" : glassBtn + " text-white/70")}>
+                                <Hourglass size={13} />
+                            </button>
                             <span className="text-[9px] text-white/40 font-mono ml-1">{new Date(displayMs).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })}</span>
                         </div>
 
@@ -405,6 +424,29 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                                     commit(d.getTime());
                                     setOpenPanel(null);
                                 }} className="mt-2 w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold transition-colors">Ir</button>
+                            </div>
+                        )}
+                        {/* Popover: cuanto tiempo mirar hacia atras */}
+                        {openPanel === "ventana" && (
+                            <div className={cn("absolute bottom-11 left-2 z-40 rounded-2xl p-3 bg-black/85 shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200", glass)}>
+                                <p className="text-[9px] font-bold text-white/45 uppercase tracking-widest mb-2">Mirar hacia atrás</p>
+                                <DurationPicker
+                                    value={{ hours: Math.floor(winMin / 60), minutes: Math.round(winMin % 60) }}
+                                    onChange={(d) => { const t = d.hours * 60 + d.minutes; if (t >= 1) setWinMin(t); }}
+                                    onConfirm={(d) => { const t = d.hours * 60 + d.minutes; setWinMin(Math.max(1, t)); setOpenPanel(null); }}
+                                    maxHours={72}
+                                    hoursLabel="h"
+                                    minutesLabel="min"
+                                />
+                                <div className="flex flex-wrap gap-1 mt-2.5">
+                                    {WINDOWS.map((w) => (
+                                        <button key={w} onClick={() => { setWinMin(w); setOpenPanel(null); }}
+                                            className={cn("px-2 py-1 rounded-lg text-[10px] font-bold transition-colors",
+                                                winMin === w ? "bg-white text-black" : "bg-white/10 text-white/70 hover:bg-white/20")}>
+                                            {WIN_LABEL[w]}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>

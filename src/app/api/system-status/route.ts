@@ -157,9 +157,17 @@ export async function GET(req: NextRequest) {
 
     // 5. Check pasarela de seguimiento (camaras comunes -> Omni-LPR)
     try {
-        const raw = await prisma.setting.findUnique({ where: { key: "TRACK_CAMERAS" } });
-        let camaras: any[] = [];
-        try { const arr = JSON.parse(raw?.value || "[]"); if (Array.isArray(arr)) camaras = arr.filter((c: any) => c?.rtsp && c?.name); } catch { }
+        // Las camaras interiores son dispositivos; TRACK_CAMERAS queda de respaldo.
+        let cuantas = await prisma.device.count({
+            where: { deviceType: "LPR_INTERIOR" as any, trackEnabled: true, NOT: { rtspUrl: null } },
+        });
+        if (cuantas === 0) {
+            try {
+                const raw = await prisma.setting.findUnique({ where: { key: "TRACK_CAMERAS" } });
+                const arr = JSON.parse(raw?.value || "[]");
+                if (Array.isArray(arr)) cuantas = arr.filter((c: any) => c?.rtsp && c?.name).length;
+            } catch { }
+        }
 
         const desde = new Date(Date.now() - 24 * 60 * 60 * 1000);
         let lecturas = 0;
@@ -175,10 +183,10 @@ export async function GET(req: NextRequest) {
         } catch { }
 
         status.tracking = {
-            status: camaras.length === 0 ? 'disabled' : 'connected',
+            status: cuantas === 0 ? 'disabled' : 'connected',
             latency: 0,
             details: {
-                cameras: camaras.length,
+                cameras: cuantas,
                 sightings24h: lecturas,
                 lastSighting: ultima ? ultima.toISOString() : null
             }

@@ -137,6 +137,11 @@ model Device {
   floorPlanId     String?
   mapX            Float?
   mapY            Float?
+  // Camaras interiores: la pasarela de seguimiento toma cuadros de este RTSP
+  // y se los manda al contenedor Omni-LPR.
+  rtspUrl         String?
+  trackScene      Float?
+  trackEnabled    Boolean          @default(true)
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   accessEvents    AccessEvent[]
@@ -367,6 +372,7 @@ enum DayOfWeek {
 
 enum DeviceType {
   LPR_CAMERA
+  LPR_INTERIOR
   NVR
   FACE_TERMINAL
   ACCESS_CONTROL
