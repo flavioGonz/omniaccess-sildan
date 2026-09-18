@@ -6,6 +6,8 @@ import type { Map as MLMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Punto } from "@/components/mapa/Recorrido";
 import { polilinea, posicionEnTraza, recorrida as trazaRecorrida, type TramoTraza } from "@/lib/traza";
+import { svgAuto, CSS_AUTO, TAM_AUTO } from "@/lib/auto-svg";
+import { burbujaVivo, montarVivo } from "@/lib/vivo";
 
 type Camara = { deviceId: string; lat: number; lng: number; nombre?: string };
 
@@ -16,19 +18,11 @@ type Camara = { deviceId: string; lat: number; lng: number; nombre?: string };
  * distinguían del fondo. Que el marcador sea idéntico en las dos vistas también evita
  * tener que aprender dos lenguajes para leer el mismo mapa.
  */
-/** El mismo auto que en la vista plana, para que las dos se lean igual. */
+/** El mismo autito que en la vista plana: el dibujo vive en `@/lib/auto-svg`. */
 function elementoAuto() {
     const el = document.createElement("div");
-    el.style.cssText = "width:34px;height:34px;position:relative;pointer-events:none";
-    el.innerHTML = `
-<span style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(251,191,36,.42) 0%,rgba(251,191,36,0) 70%);animation:omniPulsoAuto 1.6s ease-in-out infinite"></span>
-<div class="omni-auto-giro" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transition:transform .25s linear">
-  <svg width="26" height="26" viewBox="0 0 24 24" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.65))">
-    <circle cx="12" cy="12" r="11" fill="#0a0d12" stroke="#fbbf24" stroke-width="1.5"/>
-    <path d="M12 4.6 6.9 18.2a.5.5 0 0 0 .69.62L12 16.6l4.41 2.22a.5.5 0 0 0 .69-.62Z"
-          fill="#fbbf24" stroke="#fff7ed" stroke-width="1" stroke-linejoin="round"/>
-  </svg>
-</div>`;
+    el.style.cssText = `width:${TAM_AUTO}px;height:${TAM_AUTO}px;pointer-events:none`;
+    el.innerHTML = svgAuto(0);
     return el;
 }
 
@@ -55,6 +49,7 @@ type Calle = { id: string; name?: string; points: [number, number][] };
 export default function Mapa3D({
     center, zoom, perimeter, streets, cameras, puntos, traza = [], avance = 0, indice,
     pitch: pitchIni = 55, bearing: bearingIni = -20, onVista,
+    vivo = false, ocultas = [], nombre,
 }: {
     center: [number, number];
     zoom: number;
@@ -62,6 +57,10 @@ export default function Mapa3D({
     bearing?: number;
     /** Para que "Guardar" pueda recordar cómo quedó la vista 3D, no solo que era 3D. */
     onVista?: (v: { center: [number, number]; zoom: number; pitch: number; bearing: number }) => void;
+    /** El vivo de todas las cámaras, igual que en la vista plana. */
+    vivo?: boolean;
+    ocultas?: string[];
+    nombre?: (id: string) => string;
     perimeter: [number, number][];
     streets: Calle[];
     cameras: Camara[];
@@ -77,13 +76,14 @@ export default function Mapa3D({
         if (document.getElementById("omni-auto-css")) return;
         const st = document.createElement("style");
         st.id = "omni-auto-css";
-        st.textContent = "@keyframes omniPulsoAuto{0%,100%{transform:scale(.75);opacity:.85}50%{transform:scale(1.25);opacity:.25}}";
+        st.textContent = CSS_AUTO;
         document.head.appendChild(st);
     }, []);
     const mapa = useRef<MLMap | null>(null);
     const marcadores = useRef<any[]>([]);
     const auto = useRef<any>(null);
     const encuadrado = useRef<string>("");
+    const burbujas = useRef<{ marcador: any; cortar: () => void }[]>([]);
     // En un ref para que el efecto de montaje no dependa de la identidad del callback.
     const onVistaRef = useRef(onVista);
     onVistaRef.current = onVista;
@@ -285,7 +285,7 @@ export default function Mapa3D({
         };
 
         poner("ruta", { type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} }, [
-            { id: "ruta-base", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#38bdf8", "line-width": 3, "line-opacity": 0.35, "line-dasharray": [1, 2] } },
+            { id: "ruta-base", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#38bdf8", "line-width": 3, "line-opacity": 0.45, "line-dasharray": [0, 2, 3] } },
         ]);
         // Una linea necesita dos puntos: con uno solo se repite, que dibuja un punto gordo.
         const hechasOk = hechas.length >= 2 ? hechas : [coords[0], coords[0]];
@@ -326,8 +326,69 @@ export default function Mapa3D({
         }
     }, [listo, puntos, traza, avance, indice]);
 
+    /**
+     * El punteado del camino pendiente, corriendo hacia adelante.
+     *
+     * MapLibre no anima `line-dasharray` ni entiende `stroke-dashoffset`, asi que el
+     * movimiento se hace a mano: se recorre un ciclo de patrones donde el hueco se
+     * desplaza un paso por cuadro. Es el mismo truco que usa su propio ejemplo de linea
+     * animada, y a esta cadencia el ojo lee una linea que avanza y no una que parpadea.
+     */
+    useEffect(() => {
+        const m = mapa.current;
+        if (!m || !listo) return;
+        const ciclo = [
+            [0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1],
+            [2.5, 4, 0.5], [3, 4, 0], [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5],
+            [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5],
+        ];
+        let paso = 0, ultimo = 0, vivo = true, id = 0;
+        const tic = (t: number) => {
+            if (!vivo) return;
+            if (t - ultimo > 55) {
+                ultimo = t;
+                paso = (paso + 1) % ciclo.length;
+                try { if (m.getLayer("ruta-base")) m.setPaintProperty("ruta-base", "line-dasharray", ciclo[paso]); } catch { }
+            }
+            id = requestAnimationFrame(tic);
+        };
+        id = requestAnimationFrame(tic);
+        return () => { vivo = false; cancelAnimationFrame(id); };
+    }, [listo]);
+
     // El auto vive fuera de React: si no se saca a mano queda pegado al mapa.
     useEffect(() => () => { try { auto.current?.remove(); } catch { } auto.current = null; }, []);
+
+    /**
+     * Las cámaras en vivo, también acá.
+     *
+     * El control del ojo estaba apagado en esta vista, lo que dejaba un botón gris que no
+     * hacía nada y ninguna explicación de por qué. Un control que existe tiene que
+     * funcionar donde se lo ve: la 3D es una vista del mismo mapa, no un producto aparte.
+     */
+    useEffect(() => {
+        const m = mapa.current;
+        const soltar = () => {
+            for (const b of burbujas.current) { try { b.cortar(); b.marcador.remove(); } catch { } }
+            burbujas.current = [];
+        };
+        soltar();
+        if (!m || !listo || !vivo) return;
+
+        for (const c of cameras) {
+            if (ocultas.includes(c.deviceId)) continue;
+            if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
+            try {
+                const el = burbujaVivo(nombre ? nombre(c.deviceId) : (c.nombre || "Cámara"));
+                const video = el.querySelector("video") as HTMLVideoElement;
+                const cortar = video ? montarVivo(video, c.deviceId) : () => { };
+                const marcador = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -34] })
+                    .setLngLat([c.lng, c.lat]).addTo(m);
+                burbujas.current.push({ marcador, cortar });
+            } catch { }
+        }
+        return soltar;
+    }, [listo, vivo, cameras, ocultas, nombre]);
 
     // Centro del barrio cuando cambia la configuracion
     useEffect(() => {

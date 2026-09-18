@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp, Video, Spline, Crosshair, ParkingCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { polilinea, posicionEnTraza, recorrida as trazaRecorrida, type TramoTraza } from "@/lib/traza";
+import { svgAuto, TAM_AUTO } from "@/lib/auto-svg";
 
 const vidrio = "bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50";
 const resorte = { type: "spring" as const, stiffness: 420, damping: 34, mass: 0.7 };
@@ -28,32 +29,13 @@ const hora = (t: string) => new Date(t).toLocaleTimeString("es-UY", { hour: "2-d
 const fechaHora = (t: string) => new Date(t).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const duracionCorta = (seg: number) => seg < 60 ? `${Math.round(seg)} s` : seg < 3600 ? `${Math.round(seg / 60)} min` : `${Math.floor(seg / 3600)} h ${Math.round((seg % 3600) / 60)} min`;
 
-/**
- * El vehículo en movimiento.
- *
- * Era un círculo amarillo, que no dice nada: podría ser un punto de interés, un aviso o
- * una chincheta. Un auto visto desde arriba, apuntando hacia donde va, se entiende sin
- * leyenda — y el rumbo es información que antes no estaba en ningún lado, porque el
- * círculo es igual para los dos sentidos de la calle.
- *
- * El halo late aparte del auto: la rotación tiene que poder cambiar en cada cuadro sin
- * reiniciar la animación del pulso.
- */
+/** El autito del flujo. El dibujo vive en `@/lib/auto-svg`, compartido con la vista 3D. */
 function iconoAuto(grados: number) {
     return L.divIcon({
         className: "bg-transparent border-0",
-        html: `
-<div style="position:relative;width:34px;height:34px">
-  <span class="omni-pulso" style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(251,191,36,.42) 0%,rgba(251,191,36,0) 70%)"></span>
-  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transform:rotate(${Math.round(grados)}deg);transition:transform .25s linear">
-    <svg width="26" height="26" viewBox="0 0 24 24" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.65))">
-      <circle cx="12" cy="12" r="11" fill="#0a0d12" stroke="#fbbf24" stroke-width="1.5"/>
-      <path d="M12 4.6 6.9 18.2a.5.5 0 0 0 .69.62L12 16.6l4.41 2.22a.5.5 0 0 0 .69-.62Z"
-            fill="#fbbf24" stroke="#fff7ed" stroke-width="1" stroke-linejoin="round"/>
-    </svg>
-  </div>
-</div>`,
-        iconSize: [34, 34], iconAnchor: [17, 17],
+        html: svgAuto(grados),
+        iconSize: [TAM_AUTO, TAM_AUTO],
+        iconAnchor: [TAM_AUTO / 2, TAM_AUTO / 2],
     });
 }
 
@@ -205,7 +187,8 @@ export function CapaRecorrido({ puntos, estacionados = [], traza = [], avance, i
             {linea.length >= 2 && (
                 <>
                     <Polyline positions={linea} pathOptions={{ color: "#0ea5e9", weight: 10, opacity: 0.12 }} />
-                    <Polyline positions={linea} pathOptions={{ color: "#38bdf8", weight: 2.5, opacity: 0.35, dashArray: "3 9" }} />
+                    <Polyline positions={linea}
+                        pathOptions={{ color: "#38bdf8", weight: 2.5, opacity: 0.45, className: "omni-linea-pendiente" }} />
                 </>
             )}
 

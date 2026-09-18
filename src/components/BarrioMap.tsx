@@ -19,6 +19,8 @@ import {
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { CSS_AUTO } from "@/lib/auto-svg";
+import { montarVivo } from "@/lib/vivo";
 import { sileo as toast } from "sileo";
 import { getBarrioMap, saveBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
 import { io } from "socket.io-client";
@@ -63,14 +65,10 @@ function ClickHandler({ onClick }: { onClick: (ll: LL) => void }) {
 
 function LiveMp4({ deviceId }: { deviceId: string }) {
     const ref = useRef<HTMLVideoElement>(null);
-    const tries = useRef(0);
-    const src = `/go2rtc/api/stream.mp4?src=lpr_${deviceId}_hd&video=h264`;
     useEffect(() => {
-        const v = ref.current; if (!v) return; tries.current = 0;
-        v.src = src; v.play().catch(() => {});
-        const onErr = () => { tries.current++; if (tries.current > 4) return; setTimeout(() => { if (ref.current) { ref.current.src = src; ref.current.play().catch(() => {}); } }, 1400); };
-        v.addEventListener("error", onErr);
-        return () => { v.removeEventListener("error", onErr); try { v.pause(); v.removeAttribute("src"); v.load(); } catch {} };
+        const v = ref.current;
+        if (!v) return;
+        return montarVivo(v, deviceId);
     }, [deviceId]);
     return <video ref={ref} muted autoPlay playsInline className="block w-full h-full object-cover bg-black" />;
 }
@@ -442,11 +440,12 @@ export default function BarrioMap() {
                 .omni-vehiculo{filter:drop-shadow(0 0 10px rgba(251,191,36,.9))}
                 /* El halo late aparte del auto: la rotacion cambia en cada cuadro y no
                    puede reiniciar la animacion del pulso. */
-                .omni-pulso{animation:omniPulsoAuto 1.6s ease-in-out infinite}
-                @keyframes omniPulsoAuto{
-                    0%,100%{transform:scale(.75);opacity:.85}
-                    50%{transform:scale(1.25);opacity:.25}
-                }
+${CSS_AUTO}
+                /* El camino que falta, corriendo hacia adelante. Un tramo punteado quieto
+                   dice por donde se va; corriendo dice ademas hacia donde, que es la
+                   mitad de la informacion de un flujo. */
+                .omni-linea-pendiente{stroke-dasharray:10 14;animation:omniAvanza 1.05s linear infinite}
+                @keyframes omniAvanza{to{stroke-dashoffset:-24}}
                 .omni-punto-actual{filter:drop-shadow(0 0 7px rgba(251,191,36,.85));animation:omniLatido 1.8s ease-in-out infinite}
                 @keyframes omniLatido{0%,100%{opacity:1}50%{opacity:.55}}
                 .omni-sin-barra::-webkit-scrollbar{display:none}
@@ -466,6 +465,9 @@ export default function BarrioMap() {
                         pitch={data.pitch}
                         bearing={data.bearing}
                         onVista={(v) => { vista3DRef.current = v; }}
+                        vivo={vivoTodas}
+                        ocultas={ocultas}
+                        nombre={(id: string) => devById[id]?.name || "Cámara"}
                         perimeter={data.perimeter as [number, number][]}
                         streets={data.streets as any}
                         cameras={data.cameras.map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
@@ -692,11 +694,9 @@ export default function BarrioMap() {
                         { ic: Crosshair, t: "Centrar en el barrio", fn: centrarBarrio, off: vista3D },
                         {
                             ic: vivoTodas ? EyeOff : Eye,
-                            t: vista3D
-                                ? "El vivo de las cámaras se ve en la vista plana"
-                                : vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo",
+                            t: vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo",
                             fn: () => { setOcultas([]); setVivoTodas((v) => !v); },
-                            off: vista3D,
+                            off: false,
                             activo: vivoTodas,
                         },
                         { ic: pantallaCompleta ? Minimize2 : Maximize2, t: pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa", fn: alternarPantalla, off: false },
