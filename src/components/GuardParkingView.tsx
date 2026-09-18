@@ -64,7 +64,7 @@ export default function GuardParkingView() {
         const timer = setInterval(refreshOccupancy, 8000);
         let socket: any;
         try {
-            socket = io(window.location.origin, { path: "/io/socket.io", transports: ["polling", "websocket"], reconnection: true, reconnectionAttempts: Infinity });
+            socket = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], reconnection: true, reconnectionAttempts: Infinity });
             let deb: any;
             const onEv = () => { clearTimeout(deb); deb = setTimeout(refreshOccupancy, 900); };
             socket.on("access_event", onEv);

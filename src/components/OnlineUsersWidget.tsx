@@ -19,7 +19,7 @@ export function OnlineUsersWidget({ collapsed }: { collapsed?: boolean }) {
 
     useEffect(() => {
         if (!loaded) return;
-        const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling", "websocket"], reconnection: true });
+        const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], reconnection: true });
         const hello = () => s.emit("panel_hello", { name: name || "Usuario", role: role || "ADMIN" });
         s.on("connect", () => { hello(); s.emit("get_online_users"); });
         s.on("online_users", (d: any) => setData(d && d.panel ? d : { panel: [], guards: [], total: 0 }));

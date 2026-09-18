@@ -88,7 +88,7 @@ export function useGuardSocket({
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
             timeout: 20000,
-            transports: ["websocket", "polling"],
+            transports: ["polling"],
         });
         setSocket(newSocket);
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Polyline, CircleMarker, Marker, Tooltip as LTooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import { AnimatePresence, motion } from "framer-motion";
-import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp } from "lucide-react";
+import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp, Video, Spline } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const vidrio = "bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50";
@@ -126,16 +126,21 @@ export function CapaRecorrido({ puntos, indice }: { puntos: Punto[]; indice: num
  * Buscador y reproductor del recorrido. Vive abajo al centro, como una tarjeta
  * que sube: asi no pisa las columnas de entradas y salidas, que van a los lados.
  */
+export type Lugar = { tipo: "camara" | "calle"; id: string; nombre: string; lat: number; lng: number };
+
 export function PanelRecorrido({
     puntos, tramos, cargando, error, sinUbicacion,
     plate, setPlate, horas, setHoras, buscar, limpiar,
-    indice, setIndice,
+    indice, setIndice, lugares = [], onIrA,
 }: {
     puntos: Punto[]; tramos: Tramo[]; cargando: boolean; error: string | null; sinUbicacion: number;
     plate: string; setPlate: (v: string) => void;
     horas: number; setHoras: (v: number) => void;
     buscar: () => void; limpiar: () => void;
     indice: number; setIndice: (n: number) => void;
+    /** Cámaras y calles que coinciden con lo escrito: un solo buscador para todo. */
+    lugares?: Lugar[];
+    onIrA?: (lugar: Lugar) => void;
 }) {
     const [reproduciendo, setReproduciendo] = useState(false);
     const [abierto, setAbierto] = useState(false);
@@ -166,6 +171,28 @@ export function PanelRecorrido({
             <motion.div layout transition={resorte}
                 className={cn("rounded-[26px] overflow-hidden pointer-events-auto", vidrio)}>
 
+                {/* Cámaras y calles que coinciden con lo escrito */}
+                <AnimatePresence initial={false}>
+                    {lugares.length > 0 && (
+                        <motion.div key="lugares" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                            transition={resorte} className="overflow-hidden border-b border-white/[0.07]">
+                            <p className="px-4 pt-2.5 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Ir a</p>
+                            <div className="pb-1.5 max-h-40 overflow-y-auto">
+                                {lugares.map((l) => (
+                                    <button key={l.tipo + l.id} onClick={() => onIrA?.(l)}
+                                        className="w-full flex items-center gap-2.5 px-4 py-2 text-left hover:bg-white/[0.08] transition-colors">
+                                        {l.tipo === "camara"
+                                            ? <Video size={13} className="text-blue-400 shrink-0" />
+                                            : <Spline size={13} className="text-sky-400 shrink-0" />}
+                                        <span className="text-[12.5px] text-white/85 truncate">{l.nombre}</span>
+                                        <span className="ml-auto text-[10px] text-white/30 uppercase tracking-wider">{l.tipo}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {/* barra de busqueda, siempre visible */}
                 <motion.div layout className="flex items-center gap-2 p-2">
                     <div className="relative flex-1">
@@ -174,7 +201,7 @@ export function PanelRecorrido({
                             value={plate}
                             onChange={(e) => setPlate(e.target.value.toUpperCase())}
                             onKeyDown={(e) => e.key === "Enter" && buscar()}
-                            placeholder="Seguir una matrícula…"
+                            placeholder="Matrícula, cámara o calle…"
                             className="w-full h-11 pl-10 pr-3 rounded-[18px] bg-white/[0.06] text-[15px] font-semibold tracking-wide text-white placeholder:text-white/30 placeholder:font-normal placeholder:tracking-normal outline-none focus:bg-white/[0.1] transition-colors"
                         />
                     </div>

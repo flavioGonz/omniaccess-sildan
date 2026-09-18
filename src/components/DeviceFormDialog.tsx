@@ -443,7 +443,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                                 </div>
                                                 <div className="space-y-2">
                                                     <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">URL RTSP del canal</Label>
-                                                    <Input name="rtspUrl" value={formData.rtspUrl} onChange={handleChange}
+                                                    <Input name="rtspUrl" value={formData.rtspUrl} onChange={handleInputChange}
                                                         placeholder="rtsp://usuario:clave@192.168.1.50:554/Streaming/Channels/101"
                                                         className="bg-card border-border h-11 rounded-lg font-mono text-xs" />
                                                     <div className="text-[10px] text-muted-foreground leading-relaxed space-y-0.5 pt-0.5">
@@ -455,7 +455,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                                 <div className="grid grid-cols-2 gap-4">
                                                     <div className="space-y-2">
                                                         <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Sensibilidad</Label>
-                                                        <Input name="trackScene" value={formData.trackScene} onChange={handleChange} placeholder="0.08"
+                                                        <Input name="trackScene" value={formData.trackScene} onChange={handleInputChange} placeholder="0.08"
                                                             className="bg-card border-border h-11 rounded-lg font-mono text-xs" />
                                                         <p className="text-[10px] text-muted-foreground">Cuánto tiene que cambiar la escena para mandar un cuadro. Más bajo = más cuadros.</p>
                                                     </div>

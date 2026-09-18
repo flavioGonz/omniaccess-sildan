@@ -50,10 +50,17 @@ export default function Mapa3D({
                         tileSize: 256, maxzoom: 19,
                         attribution: "&copy; Esri",
                     },
+                    // Nombres de calles: las capas de referencia de Esri no llegan al
+                    // detalle de un barrio, asi que los rotulos salen de CARTO (OSM).
                     calles: {
                         type: "raster",
-                        tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"],
-                        tileSize: 256, maxzoom: 19,
+                        tiles: [
+                            "https://a.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}.png",
+                            "https://b.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}.png",
+                            "https://c.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}.png",
+                        ],
+                        tileSize: 256, maxzoom: 18,
+                        attribution: "&copy; OpenStreetMap &copy; CARTO",
                     },
                     relieve: {
                         type: "raster-dem",
@@ -63,12 +70,12 @@ export default function Mapa3D({
                 },
                 layers: [
                     { id: "foto", type: "raster", source: "foto", paint: { "raster-saturation": -0.35, "raster-contrast": 0.12, "raster-brightness-max": 0.92 } },
-                    { id: "calles", type: "raster", source: "calles", paint: { "raster-opacity": 0.9 } },
+                    { id: "calles", type: "raster", source: "calles", paint: { "raster-opacity": 1 } },
                 ],
             } as any,
         });
 
-        m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true }), "top-right");
+        m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showZoom: true }), "bottom-right");
         m.touchZoomRotate.enableRotation();
         m.on("error", (e: any) => console.warn("[mapa3d]", e?.error?.message || e));
         m.on("load", () => {

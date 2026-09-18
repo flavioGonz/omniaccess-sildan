@@ -181,7 +181,7 @@ export default function PlazasPage() {
 
     // Ocupación en vivo por LPR (verde=adentro, rojo=afuera). Socket vía proxy /io.
     useEffect(() => {
-        const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling", "websocket"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
+        const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
         let t: any = null;
         const refresh = () => { if (t) clearTimeout(t); t = setTimeout(() => { getParkingOccupancy().then(setOccupancy).catch(() => {}); }, 900); };
         s.on("access_event", (ev: any) => { if (ev?.accessType === "PLATE") refresh(); });

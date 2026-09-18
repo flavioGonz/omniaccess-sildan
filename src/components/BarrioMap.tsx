@@ -4,14 +4,15 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 const Mapa3D = dynamic(() => import("@/components/mapa/Mapa3D"), { ssr: false });
 import { motion } from "framer-motion";
-import { CapaRecorrido, PanelRecorrido, useRecorrido } from "@/components/mapa/Recorrido";
+import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar } from "@/components/mapa/Recorrido";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import {
     MousePointer2, Hexagon, Spline, Video, Trash2, Save, Pencil, X, Check,
     Loader2, MapPin, Undo2, Map as MapIco, Radio, Pencil as PencilIcon,
-    Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, ShieldCheck, Route as RouteIco,
+    Plus, Minus, Crosshair, Maximize2, Minimize2, Eye, EyeOff, ShieldCheck, Route as RouteIco,
+    Layers3, ChevronDown,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -85,18 +86,17 @@ export default function BarrioMap() {
     const [ctx, setCtx] = useState<{ x: number; y: number; type: "street" | "camera"; id: string } | null>(null);
     const mapRef = useRef<L.Map | null>(null);
     const [guards, setGuards] = useState<any[]>([]);
-    // Usabilidad: capas que se pueden apagar, buscador y pantalla completa.
+    // Usabilidad: capas que se pueden apagar y pantalla completa.
     const [verCapa, setVerCapa] = useState({ camaras: true, calles: true, perimetro: true, guardias: true });
-    const [buscando, setBuscando] = useState(false);
-    const [consulta, setConsulta] = useState("");
+    const [menuCapas, setMenuCapas] = useState(false);
+    const [ayuda3D, setAyuda3D] = useState(false);
     const [pantallaCompleta, setPantallaCompleta] = useState(false);
     const contenedorRef = useRef<HTMLDivElement | null>(null);
-    const buscadorRef = useRef<HTMLInputElement | null>(null);
     const [liveSocket, setLiveSocket] = useState<any>(null);
 
     // GPS de guardias en vivo (tablets PWA /guard) via socket
     useEffect(() => {
-        const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling", "websocket"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
+        const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
         s.on("guard_locations", (data: any[]) => setGuards(Array.isArray(data) ? data.filter((g) => g.lat != null) : []));
         s.on("connect", () => s.emit("get_guard_locations"));
         setLiveSocket(s);
@@ -109,7 +109,7 @@ export default function BarrioMap() {
         getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA" || x.deviceType === "LPR_INTERIOR"))).catch(() => {});
     }, []);
     useEffect(() => {
-        const close = () => setCtx(null);
+        const close = () => { setCtx(null); setMenuCapas(false); };
         window.addEventListener("click", close);
         return () => window.removeEventListener("click", close);
     }, []);
@@ -122,18 +122,29 @@ export default function BarrioMap() {
         try { localStorage.setItem("omni-mapa-capa", base); } catch { }
     }, [base]);
 
-    // Atajos: "/" o Ctrl/Cmd+K abren el buscador, Esc cierra lo que este abierto.
+    // Atajos: "/" o Ctrl/Cmd+K enfocan el buscador de abajo (hay uno solo);
+    // Esc cierra el menú de capas y el menú contextual.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
             const enCampo = ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName || "");
             if ((e.key === "/" && !enCampo) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
-                e.preventDefault(); setBuscando(true); setTimeout(() => buscadorRef.current?.focus(), 30);
+                e.preventDefault();
+                const campo = contenedorRef.current?.querySelector<HTMLInputElement>('input[placeholder^="Matrícula"]');
+                campo?.focus();
             }
-            if (e.key === "Escape") { setBuscando(false); setConsulta(""); setCtx(null); }
+            if (e.key === "Escape") { setMenuCapas(false); setCtx(null); }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, []);
+
+    // La ayuda de la vista 3D se muestra unos segundos y se va sola.
+    useEffect(() => {
+        if (!vista3D) { setAyuda3D(false); return; }
+        setAyuda3D(true);
+        const t = setTimeout(() => setAyuda3D(false), 7000);
+        return () => clearTimeout(t);
+    }, [vista3D]);
 
     useEffect(() => {
         const onFs = () => setPantallaCompleta(!!document.fullscreenElement);
@@ -202,23 +213,25 @@ export default function BarrioMap() {
             else await contenedorRef.current?.requestFullscreen();
         } catch { }
     };
-    const irA = (lat: number, lng: number, zoom = 19) => {
-        mapRef.current?.flyTo([lat, lng], zoom, { duration: 0.9 });
-        setBuscando(false); setConsulta("");
-    };
-
-    // Buscador: cámaras por nombre y calles por nombre.
-    const resultados = (() => {
-        const q = consulta.trim().toLowerCase();
-        if (!q) return [] as { tipo: "camara" | "calle"; id: string; nombre: string; lat: number; lng: number }[];
+    // Un solo buscador: lo que se escribe abajo sirve para matrículas y para
+    // saltar a una cámara o a una calle.
+    const lugares = (() => {
+        const q = (rec.plate || "").trim().toLowerCase();
+        if (q.length < 2) return [] as Lugar[];
         const cams = data.cameras
             .map((c) => ({ tipo: "camara" as const, id: c.deviceId, nombre: devById[c.deviceId]?.name || "Cámara", lat: c.lat, lng: c.lng }))
             .filter((c) => c.nombre.toLowerCase().includes(q));
         const calles = data.streets
             .filter((st) => (st.name || "").toLowerCase().includes(q) && st.points.length)
             .map((st) => ({ tipo: "calle" as const, id: st.id, nombre: st.name || "Calle", lat: st.points[Math.floor(st.points.length / 2)][0], lng: st.points[Math.floor(st.points.length / 2)][1] }));
-        return [...cams, ...calles].slice(0, 8);
+        return [...cams, ...calles].slice(0, 6);
     })();
+
+    const irALugar = (l: Lugar) => {
+        setVista3D(false);
+        mapRef.current?.flyTo([l.lat, l.lng], l.tipo === "camara" ? 19 : 18, { duration: 0.9 });
+        rec.setPlate("");
+    };
 
     const capas: { k: keyof typeof verCapa; label: string; icon: any }[] = [
         { k: "camaras", label: "Cámaras", icon: Video },
@@ -292,9 +305,13 @@ export default function BarrioMap() {
                     )}
                     {base === "Híbrido" && (
                         <>
-                            {/* calles y nombres sobre la foto satelital */}
-                            <TileLayer pane="omni-rotulos" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
-                            <TileLayer pane="omni-rotulos" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+                            {/* Nombres de calles sobre la foto satelital. Las capas de
+                                referencia de Esri no traen calles de barrio a este zoom,
+                                asi que los rotulos salen de CARTO (OpenStreetMap). */}
+                            <TileLayer pane="omni-rotulos"
+                                attribution="&copy; OpenStreetMap &copy; CARTO"
+                                url="https://{s}.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}{r}.png"
+                                subdomains="abcd" maxNativeZoom={18} maxZoom={20} />
                         </>
                     )}
 
@@ -364,6 +381,7 @@ export default function BarrioMap() {
                     sinUbicacion={rec.sinUbicacion} plate={rec.plate} setPlate={rec.setPlate}
                     horas={rec.horas} setHoras={rec.setHoras} buscar={rec.buscar} limpiar={rec.limpiar}
                     indice={rec.indice} setIndice={rec.setIndice as any}
+                    lugares={lugares} onIrA={irALugar}
                 />
 
                 {/* Columnas de flujo en vivo */}
@@ -375,11 +393,88 @@ export default function BarrioMap() {
                 )}
 
                 {/* Toolbar pill */}
-                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 left-1/2 -translate-x-1/2 z-[520] flex items-center gap-1 rounded-full px-1.5 py-1.5 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
+                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 right-3 z-[530] flex items-center gap-1 rounded-full px-1.5 py-1.5 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
                     {!editing ? (
-                        <Tooltip><TooltipTrigger asChild>
-                            <button onClick={() => { setVista3D(false); setEditing(true); }} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
-                        </TooltipTrigger><TooltipContent>Activar modo edición</TooltipContent></Tooltip>
+                        <>
+                            {/* Capas: un menú, no un panel escondido en una esquina */}
+                            <div className="relative">
+                                <motion.button whileTap={{ scale: 0.94 }} onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
+                                    className={cn("flex items-center gap-1.5 h-8 px-3 rounded-full text-[11.5px] font-semibold transition-colors",
+                                        menuCapas ? "bg-white/[0.16] text-white" : "text-white/60 hover:text-white hover:bg-white/[0.1]")}>
+                                    <Layers3 size={14} />
+                                    {vista3D ? "Vista 3D" : base}
+                                    <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
+                                </motion.button>
+                                <AnimatePresence>
+                                    {menuCapas && (
+                                        <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                                            transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
+                                            className="absolute top-10 -left-1 w-[188px] p-1.5 rounded-2xl bg-[#0a0d12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/60">
+                                            <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mapa de fondo</p>
+                                            <div className="grid grid-cols-2 gap-0.5">
+                                                {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
+                                                    <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
+                                                        className="relative h-7 rounded-lg text-[11px] font-semibold text-white/55 hover:text-white transition-colors">
+                                                        {base === nb && !vista3D && (
+                                                            <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                                                className="absolute inset-0 rounded-lg bg-white/[0.14]" />
+                                                        )}
+                                                        <span className={cn("relative", base === nb && !vista3D && "text-white")}>{nb}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <button onClick={() => setVista3D((v) => !v)}
+                                                className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-white/55 hover:text-white transition-colors">
+                                                {vista3D && ayuda3D && (
+                                                    <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                                        className="absolute inset-0 rounded-lg bg-sky-400/25" />
+                                                )}
+                                                <span className={cn("relative", vista3D && "text-sky-200")}>Vista 3D · girar e inclinar</span>
+                                            </button>
+                                            {!vista3D && (<>
+                                                <span className="block h-px bg-white/[0.08] mx-1 my-1.5" />
+                                                <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mostrar</p>
+                                                {capas.map(({ k, label, icon: Ic }) => {
+                                                    const on = verCapa[k];
+                                                    return (
+                                                        <button key={k} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
+                                                            className={cn("w-full flex items-center gap-2 h-7 px-2 rounded-lg text-[11px] font-semibold transition-colors",
+                                                                on ? "text-white hover:bg-white/[0.08]" : "text-white/35 hover:text-white/70")}>
+                                                            <Ic size={12} />
+                                                            <span className="flex-1 text-left">{label}</span>
+                                                            {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </>)}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+
+                            <span className="w-px h-5 bg-white/10 mx-0.5" />
+
+                            {[
+                                { ic: Plus, t: "Acercar", fn: () => acercar(1), off: vista3D },
+                                { ic: Minus, t: "Alejar", fn: () => acercar(-1), off: vista3D },
+                                { ic: Crosshair, t: "Centrar en el barrio", fn: centrarBarrio, off: vista3D },
+                                { ic: pantallaCompleta ? Minimize2 : Maximize2, t: pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa", fn: alternarPantalla, off: false },
+                            ].map(({ ic: Ic, t, fn, off }) => (
+                                <Tooltip key={t}><TooltipTrigger asChild>
+                                    <motion.button whileTap={{ scale: 0.88 }} onClick={fn} disabled={off}
+                                        className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors",
+                                            off ? "text-white/20" : "text-white/60 hover:text-white hover:bg-white/[0.12]")}>
+                                        <Ic size={15} />
+                                    </motion.button>
+                                </TooltipTrigger><TooltipContent>{t}</TooltipContent></Tooltip>
+                            ))}
+
+                            <span className="w-px h-5 bg-white/10 mx-0.5" />
+
+                            <Tooltip><TooltipTrigger asChild>
+                                <button onClick={() => { setVista3D(false); setEditing(true); setMenuCapas(false); }} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
+                            </TooltipTrigger><TooltipContent>Activar modo edición</TooltipContent></Tooltip>
+                        </>
                     ) : (
                         <>
                             {tools.map((t) => (
@@ -445,115 +540,9 @@ export default function BarrioMap() {
                     <div><p className="text-xs font-bold leading-none">Mapa del barrio</p><p className="text-[10px] text-muted-foreground">{data.cameras.length} cámaras · {data.streets.length} calles · <span className={guards.length ? "text-emerald-500 font-bold" : ""}>{guards.length} guardias</span></p></div>
                 </motion.div>
 
-                {/* Controles del mapa: cápsula de vidrio, sin marcos, abajo a la derecha */}
-                {!editing && (
-                    <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                        className="absolute bottom-[104px] left-3 z-[520] flex flex-col items-center gap-0.5 p-1 rounded-full bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
-                        {[
-                            { ic: Plus, t: "Acercar", fn: () => acercar(1), off: vista3D },
-                            { ic: Minus, t: "Alejar", fn: () => acercar(-1), off: vista3D },
-                            { ic: Crosshair, t: "Centrar en el barrio", fn: centrarBarrio, off: vista3D },
-                            { ic: pantallaCompleta ? Minimize2 : Maximize2, t: pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa", fn: alternarPantalla, off: false },
-                        ].map(({ ic: Ic, t, fn, off }) => (
-                            <Tooltip key={t}><TooltipTrigger asChild>
-                                <motion.button whileTap={{ scale: 0.88 }} whileHover={{ scale: 1.06 }} onClick={fn} disabled={off}
-                                    className={cn("w-9 h-9 rounded-full flex items-center justify-center transition-colors",
-                                        off ? "text-white/20" : "text-white/60 hover:text-white hover:bg-white/[0.12]")}>
-                                    <Ic size={16} />
-                                </motion.button>
-                            </TooltipTrigger><TooltipContent side="right">{t}</TooltipContent></Tooltip>
-                        ))}
-                    </motion.div>
-                )}
-
-                {/* Buscador rápido (tecla / o Ctrl+K) */}
-                {!editing && (
-                    <div className="absolute bottom-[252px] left-3 z-[540] w-[248px] max-w-[calc(100%-1.5rem)]">
-                        <AnimatePresence initial={false} mode="wait">
-                            {buscando ? (
-                                <motion.div key="abierto" initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                                    transition={{ type: "spring", stiffness: 460, damping: 34 }}
-                                    className="rounded-2xl bg-[#0a0d12]/85 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50 overflow-hidden">
-                                    <div className="flex items-center gap-2 px-3 h-10">
-                                        <Search size={14} className="text-white/45 shrink-0" />
-                                        <input ref={buscadorRef} autoFocus value={consulta} onChange={(e) => setConsulta(e.target.value)}
-                                            placeholder="Buscar cámara o calle…"
-                                            className="flex-1 bg-transparent text-[12px] text-white placeholder:text-white/35 focus:outline-none" />
-                                        <button onClick={() => { setBuscando(false); setConsulta(""); }} className="text-white/40 hover:text-white"><X size={13} /></button>
-                                    </div>
-                                    {consulta.trim() && (
-                                        <div className="border-t border-white/[0.06] max-h-56 overflow-y-auto custom-scrollbar">
-                                            {resultados.length === 0 ? (
-                                                <p className="px-3 py-3 text-[11px] text-white/40">Nada con ese nombre.</p>
-                                            ) : resultados.map((r) => (
-                                                <button key={r.tipo + r.id} onClick={() => irA(r.lat, r.lng, r.tipo === "camara" ? 19 : 18)}
-                                                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.08] transition-colors">
-                                                    {r.tipo === "camara" ? <Video size={12} className="text-blue-400 shrink-0" /> : <RouteIco size={12} className="text-sky-400 shrink-0" />}
-                                                    <span className="text-[11.5px] text-white/85 truncate">{r.nombre}</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </motion.div>
-                            ) : (
-                                <motion.button key="cerrado" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
-                                    whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.96 }}
-                                    onClick={() => { setBuscando(true); setTimeout(() => buscadorRef.current?.focus(), 30); }}
-                                    className="flex items-center gap-2 h-9 px-3 rounded-full bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50 text-white/50 hover:text-white transition-colors">
-                                    <Search size={14} />
-                                    <span className="text-[11px] font-semibold">Buscar</span>
-                                    <kbd className="ml-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-white/45">/</kbd>
-                                </motion.button>
-                            )}
-                        </AnimatePresence>
-                    </div>
-                )}
-
-                {/* Un solo panel de capas: qué mapa de fondo y qué se ve encima */}
-                {!editing && (
-                    <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                        className="absolute bottom-[104px] right-3 z-[520] flex flex-col gap-0.5 p-1 rounded-2xl bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
-                        <div className="grid grid-cols-2 gap-0.5 p-0.5">
-                            {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
-                                <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
-                                    className="relative h-7 rounded-lg text-[10.5px] font-semibold text-white/55 hover:text-white transition-colors">
-                                    {base === nb && !vista3D && (
-                                        <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                            className="absolute inset-0 rounded-lg bg-white/[0.14]" />
-                                    )}
-                                    <span className={cn("relative", base === nb && !vista3D && "text-white")}>{nb}</span>
-                                </button>
-                            ))}
-                        </div>
-                        <button onClick={() => setVista3D((v) => !v)} title="Vista 3D: girar e inclinar el mapa"
-                            className="relative h-7 mx-0.5 rounded-lg text-[10.5px] font-bold text-white/55 hover:text-white transition-colors">
-                            {vista3D && (
-                                <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                    className="absolute inset-0 rounded-lg bg-sky-400/25" />
-                            )}
-                            <span className={cn("relative", vista3D && "text-sky-200")}>Vista 3D</span>
-                        </button>
-                        <span className="h-px bg-white/[0.08] mx-1.5 my-1" />
-                        {(vista3D ? [] : capas).map(({ k, label, icon: Ic }) => {
-                            const on = verCapa[k];
-                            return (
-                                <Tooltip key={k}><TooltipTrigger asChild>
-                                    <motion.button whileTap={{ scale: 0.94 }} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
-                                        className={cn("flex items-center gap-2 h-8 px-2.5 rounded-xl text-[11px] font-semibold transition-colors",
-                                            on ? "text-white bg-white/[0.12]" : "text-white/35 hover:text-white/70")}>
-                                        <Ic size={13} />
-                                        <span className="w-[62px] text-left">{label}</span>
-                                        {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
-                                    </motion.button>
-                                </TooltipTrigger><TooltipContent side="left">{on ? "Ocultar" : "Mostrar"} {label.toLowerCase()}</TooltipContent></Tooltip>
-                            );
-                        })}
-                    </motion.div>
-                )}
-
                 {vista3D && (
                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                        className="absolute bottom-24 right-3 z-[520] rounded-2xl px-3 py-2 text-[10px] leading-relaxed text-white/60 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
+                        className="absolute bottom-[104px] left-3 z-[520] rounded-2xl px-3 py-2 text-[10px] leading-relaxed text-white/60 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
                         <b className="text-white/80">Vista 3D</b><br />
                         Arrastrar: mover · Ctrl + arrastrar: girar e inclinar<br />
                         Rueda: acercar · La edición se hace en la vista plana

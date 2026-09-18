@@ -234,7 +234,7 @@ export default function HistoryPage() {
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
-        const socket = io(socketUrl, { transports: ["websocket", "polling"] });
+        const socket = io(socketUrl, { transports: ["polling"] });
 
         socket.on("access_event", (event: FullAccessEvent) => {
             const { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page } = filtersRef.current;

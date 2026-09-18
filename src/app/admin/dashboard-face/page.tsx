@@ -390,7 +390,7 @@ function FaceDashboardContent() {
         loadInitialData();
 
         const socketUrl = getSocketUrl();
-        const newSocket = io(socketUrl, { transports: ["websocket", "polling"] });
+        const newSocket = io(socketUrl, { transports: ["polling"] });
 
         newSocket.on("connect", () => setIsConnected(true));
         newSocket.on("disconnect", () => setIsConnected(false));

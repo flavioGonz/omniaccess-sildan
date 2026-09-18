@@ -416,7 +416,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
     useEffect(() => {
         // Socket vía proxy same-origin /io/socket.io (robusto detrás del NPM HTTPS; :10000 no queda expuesto)
-        const newSocket = io(window.location.origin, { path: "/io/socket.io", transports: ["polling", "websocket"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000, timeout: 8000 });
+        const newSocket = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000, timeout: 8000 });
         setSocket(newSocket);
 
         // R2: estado de conexión visible + re-sync al reconectar (los eventos perdidos no se re-emiten solos)
