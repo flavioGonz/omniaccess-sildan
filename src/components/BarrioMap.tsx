@@ -597,7 +597,7 @@ export default function BarrioMap() {
                         />
                     )}
                     <CapaRecorrido puntos={rec.puntos} estacionados={rec.estacionados} traza={rec.traza} avance={rec.avance} indice={rec.indice}
-                        siguiendo={rec.siguiendo && rec.reproduciendo} onElegir={(i) => { rec.setReproduciendo(false); rec.setAvance(i); }} />
+                        onElegir={(i) => { rec.setReproduciendo(false); rec.setAvance(i); }} />
                 </MapContainer>
                 )}
                 {!vista3D && oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}

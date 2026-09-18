@@ -49,7 +49,7 @@ function rasgo(p: PasoFlujo) {
 }
 
 /**
- * El recorrido de una matrícula, como una fila de pasos.
+ * El flujo de una matrícula, como una fila de pasos.
  *
  * Una fila del historial dice dónde estuvo el vehículo en un instante. Eso casi nunca es
  * la pregunta: la pregunta es de dónde venía y a dónde fue. Acá se ven las dos cosas que
@@ -74,7 +74,7 @@ export function FlujoMatricula({ plate, at, onVerFoto }: {
         fetch(`/api/history/flujo?plate=${encodeURIComponent(plate)}&at=${encodeURIComponent(at)}`, { cache: "no-store" })
             .then((r) => r.json())
             .then((j) => { if (vivo) { if (j.error) setError(j.error); else setPasos(j.pasos || []); } })
-            .catch(() => { if (vivo) setError("No se pudo consultar el recorrido"); });
+            .catch(() => { if (vivo) setError("No se pudo consultar el flujo"); });
         return () => { vivo = false; };
     }, [plate, at]);
 
@@ -83,7 +83,7 @@ export function FlujoMatricula({ plate, at, onVerFoto }: {
     if (!pasos) {
         return (
             <div className="px-5 py-5 flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 size={13} className="animate-spin" /> Buscando el recorrido de {plate}…
+                <Loader2 size={13} className="animate-spin" /> Buscando el flujo de {plate}…
             </div>
         );
     }
@@ -92,7 +92,7 @@ export function FlujoMatricula({ plate, at, onVerFoto }: {
         return (
             <p className="px-5 py-4 text-xs text-muted-foreground">
                 Una sola detección de <span className="font-mono font-bold text-foreground">{plate}</span> en esta
-                ventana. No hay recorrido que mostrar: el vehículo no volvió a aparecer en ninguna otra cámara.
+                ventana. No hay flujo que mostrar: el vehículo no volvió a aparecer en ninguna otra cámara.
             </p>
         );
     }
@@ -101,7 +101,7 @@ export function FlujoMatricula({ plate, at, onVerFoto }: {
         <div className="px-5 py-4">
             <div className="flex items-center gap-2 mb-3">
                 <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                    Recorrido de {plate}
+                    Flujo de {plate}
                 </span>
                 <span className="text-[10px] text-muted-foreground/60">
                     {pasos.length} detecciones · {lapso(

@@ -160,7 +160,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, onMerodeo
                             <Columna icono={Activity} titulo="Qué clase de registro es"
                                 ayuda="Entrada y salida las decide una cámara LPR y abren barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre.">Tipo</Columna>
                             <Columna icono={Car} titulo="Matrícula o persona"
-                                ayuda="Lo que identificó el sistema. Hacé clic en la fila para ver el recorrido completo de esa matrícula.">Identificación</Columna>
+                                ayuda="Lo que identificó el sistema. Hacé clic en la fila para ver el flujo completo de esa matrícula: por qué cámaras pasó y cuánto tardó entre una y otra.">Identificación</Columna>
                             <Columna icono={Camera} titulo="Qué equipo lo registró"
                                 ayuda="La cámara o el dispositivo de acceso que generó el registro.">Cámara</Columna>
                             <Columna icono={ShieldCheck} titulo="Cómo salió"

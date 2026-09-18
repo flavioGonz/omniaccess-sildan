@@ -124,9 +124,9 @@ function posicionEn(linea: [number, number][], avance: number): [number, number]
 }
 
 /** Dibuja el recorrido dentro del mapa: camino, sentido, paradas y el vehículo. */
-export function CapaRecorrido({ puntos, estacionados = [], traza = [], avance, indice, siguiendo, onElegir }: {
+export function CapaRecorrido({ puntos, estacionados = [], traza = [], avance, indice, onElegir }: {
     puntos: Punto[]; estacionados?: Estadia[]; traza?: TramoTraza[];
-    avance: number; indice: number; siguiendo?: boolean; onElegir?: (i: number) => void;
+    avance: number; indice: number; onElegir?: (i: number) => void;
 }) {
     const map = useMap();
     /**
@@ -175,7 +175,7 @@ export function CapaRecorrido({ puntos, estacionados = [], traza = [], avance, i
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rectas, map, zoom]);
 
-    // Encuadre inicial: una sola vez por recorrido, no en cada cuadro de la reproducción.
+    // Encuadre inicial: una sola vez al abrir el flujo, no en cada cuadro.
     useEffect(() => {
         if (linea.length >= 2) {
             try { map.fitBounds(linea as any, { paddingTopLeft: [240, 90], paddingBottomRight: [240, 220], maxZoom: 18 }); } catch { }
@@ -185,20 +185,18 @@ export function CapaRecorrido({ puntos, estacionados = [], traza = [], avance, i
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [puntos]);
 
-    // Seguir al vehículo, pero solo cuando se está por salir de la vista: mover el mapa
-    // en cada cuadro marea y pelea con quien quiera arrastrarlo.
-    useEffect(() => {
-        if (!siguiendo || !vehiculo) return;
-        try {
-            const p = map.latLngToContainerPoint(vehiculo as any);
-            const t = map.getSize();
-            const margenX = t.x * 0.28, margenY = t.y * 0.28;
-            if (p.x < margenX || p.x > t.x - margenX || p.y < margenY || p.y > t.y - margenY) {
-                map.panTo(vehiculo as any, { animate: true, duration: 0.6 });
-            }
-        } catch { }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [vehiculo?.[0], vehiculo?.[1], siguiendo]);
+    /*
+        El mapa NO sigue al vehículo durante la reproducción.
+        =====================================================
+
+        Antes paneaba para mantenerlo en cuadro. Suena servicial y es lo contrario: el
+        vehículo queda clavado en el centro y lo que se mueve es el barrio, así que se
+        pierde justo lo que se estaba mirando — por dónde va respecto de las calles y las
+        otras cámaras. Encima pelea con quien quiera arrastrar el mapa mientras mira.
+
+        El encuadre se hace una vez, al abrir el flujo, y después el mapa se queda quieto.
+        Quien quiera acompañar al vehículo mueve el mapa a mano, cuando quiere.
+    */
 
     if (!puntos.length && !estacionados.length) return null;
 
@@ -260,7 +258,7 @@ export function PanelRecorrido({
     puntos, tramos, estacionados = [], cargando, error, sinUbicacion,
     plate, setPlate, horas, setHoras, buscar, limpiar,
     indice, setIndice, avance, setAvance,
-    reproduciendo, setReproduciendo, velocidad, setVelocidad, siguiendo, setSiguiendo,
+    reproduciendo, setReproduciendo, velocidad, setVelocidad,
     lugares = [], onIrA, onVerCuadro,
 }: {
     puntos: Punto[]; tramos: Tramo[]; estacionados?: Estadia[]; cargando: boolean; error: string | null; sinUbicacion: number;
@@ -271,7 +269,6 @@ export function PanelRecorrido({
     avance: number; setAvance: (n: number) => void;
     reproduciendo: boolean; setReproduciendo: (v: boolean) => void;
     velocidad: number; setVelocidad: (v: number) => void;
-    siguiendo: boolean; setSiguiendo: (v: boolean) => void;
     lugares?: Lugar[];
     onIrA?: (lugar: Lugar) => void;
     onVerCuadro?: (p: Punto) => void;
@@ -340,7 +337,7 @@ export function PanelRecorrido({
 
                     <motion.button whileTap={{ scale: 0.94 }} onClick={buscar} disabled={cargando || plate.trim().length < 4}
                         className="h-11 w-11 rounded-[18px] bg-amber-500 text-black disabled:opacity-30 disabled:bg-white/10 disabled:text-white/40 flex items-center justify-center transition-colors"
-                        title="Trazar recorrido">
+                        title="Trazar el flujo">
                         {cargando ? <Loader2 size={17} className="animate-spin" /> : <Route size={17} />}
                     </motion.button>
 
@@ -395,7 +392,7 @@ export function PanelRecorrido({
 
                                 {puntos.length === 0 && estacionados.length > 0 && !error && (
                                     <p className="text-[11px] text-white/45 px-1">
-                                        No hubo pasadas en ese período: el vehículo estuvo quieto todo el tiempo.
+                                        Sin flujo en ese período: el vehículo estuvo quieto todo el tiempo.
                                     </p>
                                 )}
 
@@ -410,7 +407,7 @@ export function PanelRecorrido({
                                             <span className="text-white/60">{duracion < 60 ? `${duracion} min` : `${Math.floor(duracion / 60)} h ${duracion % 60} min`}</span>
                                             <button onClick={() => { setReproduciendo(false); limpiar(); }}
                                                 className="ml-auto h-7 w-7 rounded-full bg-white/[0.06] hover:bg-white/[0.14] text-white/50 hover:text-white flex items-center justify-center transition-colors"
-                                                title="Limpiar el recorrido">
+                                                title="Limpiar el flujo">
                                                 <X size={13} />
                                             </button>
                                         </div>
@@ -442,12 +439,7 @@ export function PanelRecorrido({
                                                 ))}
                                             </div>
 
-                                            <button onClick={() => setSiguiendo(!siguiendo)}
-                                                title={siguiendo ? "El mapa sigue al vehículo" : "El mapa queda quieto"}
-                                                className={cn("h-7 px-2.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 transition-colors",
-                                                    siguiendo ? "bg-white/[0.16] text-white" : "bg-white/[0.06] text-white/45 hover:text-white")}>
-                                                <Crosshair size={11} /> seguir
-                                            </button>
+
 
                                             <span className="ml-auto text-[10px] text-white/45 tabular-nums">
                                                 {hora(puntos[0].timestamp)} → {hora(puntos[puntos.length - 1].timestamp)}

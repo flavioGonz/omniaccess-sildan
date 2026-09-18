@@ -83,6 +83,7 @@ export default function Mapa3D({
     const mapa = useRef<MLMap | null>(null);
     const marcadores = useRef<any[]>([]);
     const auto = useRef<any>(null);
+    const encuadrado = useRef<string>("");
     // En un ref para que el efecto de montaje no dependa de la identidad del callback.
     const onVistaRef = useRef(onVista);
     onVistaRef.current = onVista;
@@ -308,17 +309,21 @@ export default function Mapa3D({
 
         // Al abrir un recorrido se encuadra entero, una sola vez. Despues se sigue al
         // vehiculo, que es lo que hace util la reproduccion.
-        try {
-            if (hasta === 0) {
+        // El encuadre se hace UNA vez, al abrir el flujo, y después el mapa se queda
+        // quieto. Seguir al vehículo suena servicial y es lo contrario: lo deja clavado en
+        // el centro y lo que se mueve es el barrio, así que se pierde justo lo que se
+        // estaba mirando — por dónde va respecto de las calles y las otras cámaras.
+        const firma = puntos.map((p) => p.id).join("|");
+        if (encuadrado.current !== firma) {
+            encuadrado.current = firma;
+            try {
                 const lats = puntos.map((p) => p.lat), lngs = puntos.map((p) => p.lng);
                 m.fitBounds(
                     [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
                     { padding: 140, maxZoom: 18, duration: 900 },
                 );
-            } else {
-                m.easeTo({ center: hechas[hechas.length - 1] as [number, number], duration: 700 });
-            }
-        } catch { }
+            } catch { }
+        }
     }, [listo, puntos, traza, avance, indice]);
 
     // El auto vive fuera de React: si no se saca a mano queda pegado al mapa.
