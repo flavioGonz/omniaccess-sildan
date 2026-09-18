@@ -164,7 +164,7 @@ export default function MonitorFace() {
     useEffect(() => {
         loadInitialData();
         const socketUrl = getSocketUrl();
-        const newSocket = io(socketUrl, { transports: ["polling"] });
+        const newSocket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false,  transports: ["polling"] });
         newSocket.on("connect", () => setIsConnected(true));
         newSocket.on("disconnect", () => setIsConnected(false));
         newSocket.on("access_event", (event: FullAccessEvent) => {

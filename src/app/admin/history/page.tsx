@@ -96,6 +96,112 @@ function fmtDur(ms: number): string {
     return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`;
 }
 
+/**
+ * Avistamientos de las camaras interiores. Reusa el buscador y el rango de fechas
+ * de la barra de arriba; lo demas (permitido/denegado, entrada/salida) no aplica,
+ * porque una lectura interior no decide nada.
+ */
+function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: string; hasta: string }) {
+    const [filas, setFilas] = useState<any[]>([]);
+    const [total, setTotal] = useState(0);
+    const [cargando, setCargando] = useState(false);
+    const [pagina, setPagina] = useState(0);
+    const POR_PAGINA = 50;
+
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta]);
+
+    useEffect(() => {
+        let vivo = true;
+        setCargando(true);
+        const p = new URLSearchParams({ take: String(POR_PAGINA), skip: String(pagina * POR_PAGINA) });
+        if (buscar) p.set("search", buscar);
+        if (desde) p.set("from", desde);
+        if (hasta) p.set("to", hasta);
+        fetch(`/api/tracking/history?${p.toString()}`, { cache: "no-store" })
+            .then(r => r.json())
+            .then(j => { if (!vivo) return; setFilas(pagina === 0 ? (j.filas || []) : (f => [...f, ...(j.filas || [])]) as any); setTotal(j.total || 0); })
+            .catch(() => { })
+            .finally(() => { if (vivo) setCargando(false); });
+        return () => { vivo = false; };
+    }, [buscar, desde, hasta, pagina]);
+
+    return (
+        <div className="bg-card/60 border border-border/50 rounded-lg overflow-hidden">
+            <div className="px-5 py-3 border-b border-border/50 flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-violet-300">Seguimiento interior</span>
+                <span className="text-[11px] text-muted-foreground">
+                    lecturas de las camaras comunes procesadas por Omni-LPR · no abren barrera
+                </span>
+            </div>
+            <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                    <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
+                        <tr className="border-b border-border/50">
+                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Momento</th>
+                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Matricula</th>
+                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Camara</th>
+                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Confianza</th>
+                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold text-right">Cuadro</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filas.length === 0 && !cargando ? (
+                            <tr>
+                                <td colSpan={5} className="py-16 text-center">
+                                    <div className="flex flex-col items-center gap-3">
+                                        <History className="w-8 h-8 text-muted-foreground" />
+                                        <p className="text-sm text-muted-foreground">Sin avistamientos</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        ) : filas.map((f) => {
+                            const conf = typeof f.confidence === "number" ? Math.round(f.confidence * 100) : null;
+                            return (
+                                <tr key={f.id} className="border-b border-border/30 hover:bg-muted/30 transition-colors">
+                                    <td className="px-5 py-3">
+                                        <p className="text-sm font-medium text-foreground">{new Date(f.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5">{new Date(f.timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}</p>
+                                    </td>
+                                    <td className="px-5 py-3">
+                                        <span className="px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-foreground bg-violet-500/15 border border-violet-500/30">{f.plate}</span>
+                                    </td>
+                                    <td className="px-5 py-3 text-sm text-foreground">{f.cameraName || f.deviceId || "-"}</td>
+                                    <td className="px-5 py-3">
+                                        {conf == null ? <span className="text-muted-foreground text-xs">-</span> : (
+                                            <span className={cn("text-xs font-semibold", conf >= 85 ? "text-emerald-400" : conf >= 65 ? "text-amber-400" : "text-red-400")}>{conf}%</span>
+                                        )}
+                                    </td>
+                                    <td className="px-5 py-3 text-right">
+                                        {f.snapshotUrl ? (
+                                            <a href={f.snapshotUrl} target="_blank" rel="noreferrer" className="inline-block">
+                                                <img src={f.snapshotUrl} alt={f.plate} className="h-12 w-20 object-cover rounded border border-border/50 ml-auto" />
+                                            </a>
+                                        ) : <span className="text-muted-foreground text-xs">-</span>}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+            <div className="flex items-center justify-between px-5 py-3 border-t border-border/50">
+                <p className="text-xs text-muted-foreground">
+                    Mostrando <span className="text-foreground font-semibold">{filas.length}</span> de <span className="text-foreground font-semibold">{total.toLocaleString()}</span> avistamientos
+                </p>
+                <div className="flex items-center gap-3">
+                    {cargando && <span className="flex items-center gap-2 text-violet-400 text-xs font-semibold"><Loader2 size={14} className="animate-spin" /> Cargando...</span>}
+                    {filas.length < total && !cargando && (
+                        <button onClick={() => setPagina(p => p + 1)} className="px-3 py-1.5 rounded text-xs font-semibold bg-muted/60 border border-border/50 text-foreground hover:bg-muted">
+                            Cargar mas
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
 export default function HistoryPage() {
     const [events, setEvents] = useState<FullAccessEvent[]>([]);
     const [totalEvents, setTotalEvents] = useState(0);
@@ -120,6 +226,9 @@ export default function HistoryPage() {
     const [mappedIpSet, setMappedIpSet] = useState<Set<string>>(new Set());
     const [filterMerodeo, setFilterMerodeo] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);
+    // Accesos (AccessEvent) y seguimiento (PlateSighting) son dos registros distintos:
+    // se miran por separado en vez de mezclarse en la misma tabla.
+    const [vista, setVista] = useState<"accesos" | "seguimiento">("accesos");
 
     useEffect(() => {
         getEnabledModules().then(modules => {
@@ -234,7 +343,7 @@ export default function HistoryPage() {
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
-        const socket = io(socketUrl, { transports: ["polling"] });
+        const socket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false,  transports: ["polling"] });
 
         socket.on("access_event", (event: FullAccessEvent) => {
             const { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page } = filtersRef.current;
@@ -363,8 +472,18 @@ export default function HistoryPage() {
                         />
                     </div>
 
-                    {/* Type filter tabs */}
+                    {/* Accesos vs seguimiento */}
                     <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">
+                        <button onClick={() => setVista("accesos")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", vista === "accesos" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                            Accesos
+                        </button>
+                        <button onClick={() => setVista("seguimiento")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", vista === "seguimiento" ? "bg-violet-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                            Seguimiento
+                        </button>
+                    </div>
+
+                    {/* Type filter tabs */}
+                    <div className={cn("flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30", vista === "seguimiento" && "hidden")}>
                         {activeMode === null && (
                             <button onClick={() => setFilterType("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                                 Todos
@@ -439,8 +558,10 @@ export default function HistoryPage() {
                 </div>
             </div>
 
+            {vista === "seguimiento" && <TablaSeguimiento buscar={searchTerm} desde={startDate} hasta={endDate} />}
+
             {/* Events Table */}
-            <div className="bg-card/60 border border-border/50 rounded-lg overflow-hidden">
+            <div className={cn("bg-card/60 border border-border/50 rounded-lg overflow-hidden", vista === "seguimiento" && "hidden")}>
                 <div className="overflow-x-auto">
                     <table className="w-full text-left">
                         <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">

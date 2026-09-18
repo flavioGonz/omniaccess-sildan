@@ -16,7 +16,7 @@ export default function PanicButtonTab() {
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
-        const socket = io(socketUrl);
+        const socket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false,  path: "/io/socket.io", transports: ["polling"], upgrade: false, });
         socketRef.current = socket;
 
         socket.on("alert_status", (data: { active: boolean }) => {

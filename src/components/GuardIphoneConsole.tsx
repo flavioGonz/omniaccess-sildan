@@ -156,7 +156,7 @@ export default function GuardIphoneConsole({
         }
 
         const socketUrl = getSocketUrl();
-        socketRef.current = io(socketUrl, {
+        socketRef.current = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false, 
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,

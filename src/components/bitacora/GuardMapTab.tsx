@@ -24,7 +24,7 @@ export default function GuardMapTab() {
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
-        const socket = io(socketUrl);
+        const socket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false,  path: "/io/socket.io", transports: ["polling"], upgrade: false, });
         socketRef.current = socket;
 
         socket.on("guard_locations", (locations: any[]) => {

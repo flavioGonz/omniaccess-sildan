@@ -82,7 +82,7 @@ export function useGuardSocket({
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
-        const newSocket = io(socketUrl, {
+        const newSocket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false, 
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
