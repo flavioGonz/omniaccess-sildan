@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { CapaRecorrido, PanelRecorrido, useRecorrido } from "@/components/mapa/Recorrido";
-import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, LayersControl, LayerGroup, Pane, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import {
@@ -66,7 +67,7 @@ function LiveMp4({ deviceId }: { deviceId: string }) {
 export default function BarrioMap() {
     const [data, setData] = useState<BarrioMapData | null>(null);
     // Capa base elegida: define el tratamiento de color del mapa.
-    const [base, setBase] = useState<string>("Táctico");
+    const [base, setBase] = useState<string>("Híbrido");
     const rec = useRecorrido();
     const [devices, setDevices] = useState<any[]>([]);
     const [editing, setEditing] = useState(false);
@@ -132,7 +133,7 @@ export default function BarrioMap() {
         "Táctico": "invert(1) hue-rotate(180deg) saturate(0.55) brightness(0.92) contrast(1.06)",
         "Híbrido": "saturate(0.45) contrast(1.22) brightness(0.82)",
         "Satélite": "saturate(0.72) contrast(1.08) brightness(0.94)",
-        "Calles": "none",
+        "Calles": "saturate(0.85)",
     };
     const oscura = base === "Táctico" || base === "Híbrido";
 
@@ -179,6 +180,10 @@ export default function BarrioMap() {
                 .omni-barrio .leaflet-control-layers-separator{border-color:rgba(148,163,184,.2)}
                 .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;
                     box-shadow:inset 0 0 170px 45px rgba(0,0,0,.55)}
+                .omni-punto-actual{filter:drop-shadow(0 0 7px rgba(251,191,36,.85));animation:omniLatido 1.8s ease-in-out infinite}
+                @keyframes omniLatido{0%,100%{opacity:1}50%{opacity:.55}}
+                .omni-barrio .custom-scrollbar::-webkit-scrollbar{height:4px;width:4px}
+                .omni-barrio .custom-scrollbar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
                 .omni-reticula{position:absolute;inset:0;pointer-events:none;z-index:399;opacity:.14;
                     background-image:linear-gradient(rgba(148,163,184,.6) 1px,transparent 1px),
                                      linear-gradient(90deg,rgba(148,163,184,.6) 1px,transparent 1px);
@@ -187,27 +192,17 @@ export default function BarrioMap() {
             <div className="relative h-full w-full">
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0 omni-barrio" style={{ background: "#07080a" }} zoomControl={false} scrollWheelZoom>
                     <Pane name="omni-rotulos" style={{ zIndex: 350 }} />
-                    <LayersControl position="topright">
-                        <LayersControl.BaseLayer checked name="Táctico">
-                            <LayerGroup>
-                                <TileLayer attribution="&copy; Esri" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={20} />
-                                </LayerGroup>
-                        </LayersControl.BaseLayer>
-                        <LayersControl.BaseLayer name="Híbrido">
-                            <LayerGroup>
-                                <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
-                                <TileLayer pane="omni-rotulos" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxZoom={20} />
-                            </LayerGroup>
-                        </LayersControl.BaseLayer>
-                        <LayersControl.BaseLayer name="Satélite">
-                            <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
-                        </LayersControl.BaseLayer>
-                        <LayersControl.BaseLayer name="Calles">
-                            <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}" maxZoom={20} />
-                        </LayersControl.BaseLayer>
-                    </LayersControl>
+                    {/* Capas: se eligen con el selector flotante, no con el control de Leaflet */}
+                    {(base === "Táctico" || base === "Calles") && (
+                        <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxZoom={19} />
+                    )}
+                    {(base === "Híbrido" || base === "Satélite") && (
+                        <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+                    )}
+                    {base === "Híbrido" && (
+                        <TileLayer pane="omni-rotulos" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+                    )}
 
-                    <BaseWatcher onBase={setBase} />
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
                     {editing && tool !== "select" && <ClickHandler onClick={onMapClick} />}
 
@@ -284,7 +279,7 @@ export default function BarrioMap() {
                 )}
 
                 {/* Toolbar pill */}
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[500] flex items-center gap-1 bg-card/95 backdrop-blur border border-border rounded-full shadow-lg px-1.5 py-1.5">
+                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 left-1/2 -translate-x-1/2 z-[520] flex items-center gap-1 rounded-full px-1.5 py-1.5 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
                     {!editing ? (
                         <Tooltip><TooltipTrigger asChild>
                             <button onClick={() => setEditing(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
@@ -308,7 +303,7 @@ export default function BarrioMap() {
                             </TooltipTrigger><TooltipContent>Cancelar</TooltipContent></Tooltip>
                         </>
                     )}
-                </div>
+                </motion.div>
 
                 {/* Contextual editing panel */}
                 {editing && (
@@ -349,18 +344,28 @@ export default function BarrioMap() {
                 )}
 
                 {/* Legend */}
-                <div className="absolute top-4 left-4 z-[500] bg-card/90 backdrop-blur border border-border rounded-lg px-3 py-2 shadow flex items-center gap-2">
+                <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 left-3 z-[520] rounded-2xl px-3 py-2 flex items-center gap-2 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
                     <MapIco size={16} className="text-blue-400" />
                     <div><p className="text-xs font-bold leading-none">Mapa del barrio</p><p className="text-[10px] text-muted-foreground">{data.cameras.length} cámaras · {data.streets.length} calles · <span className={guards.length ? "text-emerald-500 font-bold" : ""}>{guards.length} guardias</span></p></div>
-                </div>
+                </motion.div>
+
+                {/* Selector de capas propio: capsula de vidrio, sin marcos */}
+                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    className="absolute top-4 right-3 z-[520] flex items-center gap-0.5 p-1 rounded-full bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
+                    {["Híbrido", "Táctico", "Satélite", "Calles"].map((n) => (
+                        <button key={n} onClick={() => setBase(n)}
+                            className="relative px-3 h-8 rounded-full text-[11px] font-semibold text-white/55 hover:text-white transition-colors">
+                            {base === n && (
+                                <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                    className="absolute inset-0 rounded-full bg-white/[0.14]" />
+                            )}
+                            <span className={cn("relative", base === n && "text-white")}>{n}</span>
+                        </button>
+                    ))}
+                </motion.div>
             </div>
         </TooltipProvider>
     );
 }
 
 
-/** Avisa que capa base esta activa, para ajustar el tratamiento de color. */
-function BaseWatcher({ onBase }: { onBase: (n: string) => void }) {
-    useMapEvents({ baselayerchange: (e: any) => onBase(e.name) });
-    return null;
-}
