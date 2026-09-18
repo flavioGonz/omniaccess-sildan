@@ -53,6 +53,7 @@ const WebhookDebugPage = nextDynamic(() => import("@/app/admin/debug/page"), { s
 import StorageBrowser from "@/components/settings/StorageBrowser";
 import { Button } from "@/components/ui/button";
 const SystemFlow = nextDynamic(() => import("@/components/dashboard/SystemFlow"), { ssr: false, loading: _SLoad });
+const TrackingSection = nextDynamic(() => import("./TrackingSection"), { ssr: false, loading: _SLoad });
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
@@ -154,6 +155,13 @@ const SETTINGS_SECTIONS = [
         description: "Notificaciones & IA WhatsApp",
         color: "emerald"
     },
+    {
+        id: "tracking",
+        icon: Video,
+        label: "Omni-LPR & Seguimiento",
+        description: "Lector en contenedor y cámaras interiores",
+        color: "teal"
+    },
 
 ];
 
@@ -179,6 +187,7 @@ const NAV_GROUPS = [
         { sec: "drivers", btab: "", label: "Drivers & Protocolos", icon: Camera },
         { sec: "audit", btab: "", label: "Auditoría Hardware", icon: ShieldCheck },
         { sec: "whatsapp", btab: "", label: "Chatbot (OpenWA)", icon: MessageSquare },
+        { sec: "tracking", btab: "", label: "Omni-LPR & Seguimiento", icon: Video },
         { sec: "prerec", btab: "", label: "Pre-grabación", icon: Video },
     ]},
 ];
@@ -512,6 +521,8 @@ export default function SettingsPage() {
                     {activeSection === "whatsapp" && (
                         <WhatsAppSection />
                     )}
+
+                    {activeSection === "tracking" && <TrackingSection />}
                 </div>
             </div>
 

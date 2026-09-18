@@ -42,7 +42,7 @@ const WebhookDriverNode = memo(({ data }: any) => {
 
     return (
         <div className={cn(
-            "relative flex flex-col p-3 transition-all duration-300 bg-[#1e1e24] border-2 rounded-xl min-w-[180px] custom-drag-handle group/node cursor-grab active:cursor-grabbing",
+            "relative flex flex-col p-3 transition-all duration-300 bg-card text-foreground border-2 rounded-xl min-w-[180px] custom-drag-handle group/node cursor-grab active:cursor-grabbing",
             isActive ? "border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.6)] scale-105" : "border-blue-500/50"
         )}>
             <Handle type="source" position={Position.Top} className="!bg-blue-500 !w-3 !h-3" />
@@ -114,67 +114,75 @@ const initialNodes: Node[] = [
         id: 'frontend',
         data: { label: 'Frontend', icon: Monitor, sub: 'Next.js App', ip: 'localhost', port: '10001', status: 'unknown' },
         position: { x: 400, y: 50 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #8b5cf6', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #8b5cf6', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {
         id: 'lpr-node',
         data: { label: 'OmniAccess', icon: ShieldCheck, sub: 'Backend API', ip: 'localhost', port: '10000', status: 'connected' },
         position: { x: 400, y: 250 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #6366f1', width: 220, borderRadius: 16, padding: 15, boxShadow: '0 0 30px rgba(99, 102, 241, 0.4)' },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #6366f1', width: 220, borderRadius: 16, padding: 15, boxShadow: '0 0 30px rgba(99, 102, 241, 0.4)' },
         type: 'default',
     },
     {
         id: 'postgres',
         data: { label: 'Primary DB', icon: Database, sub: 'PostgreSQL', ip: '127.0.0.1', port: '5432', status: 'unknown' },
         position: { x: 100, y: 250 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #3b82f6', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #3b82f6', width: 200, borderRadius: 12, padding: 12 },
     },
     {
         id: 'minio',
         data: { label: 'Object Storage', icon: HardDrive, sub: 'MinIO / S3', ip: '127.0.0.1', port: '9000', status: 'unknown' },
         position: { x: 100, y: 450 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #ef4444', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #ef4444', width: 200, borderRadius: 12, padding: 12 },
     },
     {
         id: 'waha',
         data: { label: 'WhatsApp', icon: MessageSquare, sub: 'WhatsApp Gateway', ip: '127.0.0.1', port: '3000', status: 'unknown' },
         position: { x: 700, y: 250 },
-        style: { background: '#0b2e1a', color: '#fff', border: '2px solid #25D366', width: 220, borderRadius: 12, padding: 12, boxShadow: '0 0 28px rgba(37, 211, 102, 0.35)' },
+        style: { background: 'color-mix(in oklab, var(--card) 88%, #25D366 12%)', color: 'var(--foreground)', border: '2px solid #25D366', width: 220, borderRadius: 12, padding: 12, boxShadow: '0 0 28px rgba(37, 211, 102, 0.35)' },
     },
     {
         id: 'webhook-api',
         data: { label: 'Webhook API', icon: Webhook, sub: 'Event Gateway', ip: 'localhost', port: '10000', status: 'idle', lastEvent: null },
         position: { x: 380, y: 450 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #3b82f6', width: 220, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #3b82f6', width: 220, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {
         id: 'redis',
         data: { label: 'Cola & Cache', icon: Zap, sub: 'Redis 8 + BullMQ', ip: '127.0.0.1', port: '6379', status: 'connected' },
         position: { x: 700, y: 450 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #f59e0b', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #f59e0b', width: 200, borderRadius: 12, padding: 12 },
+        type: 'default',
+    },
+    // --- Carril de captura: camara comun -> pasarela -> Omni-LPR -> nucleo ---
+    {
+        id: 'cams-track',
+        data: { label: 'Cámaras interiores', icon: Video, sub: 'RTSP por canal', ip: 'LAN', port: '554', status: 'unknown' },
+        position: { x: 980, y: 60 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #64748b', width: 200, borderRadius: 12, padding: 12 },
+        type: 'default',
+    },
+    {
+        id: 'tracking',
+        data: { label: 'Seguimiento', icon: Route, sub: 'Pasarela de cuadros', ip: 'localhost', port: 'pm2', status: 'unknown' },
+        position: { x: 980, y: 270 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #a78bfa', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {
         id: 'omni-lpr',
         data: { label: 'Omni-LPR', icon: ScanLine, sub: 'Lector de matrículas', ip: '127.0.0.1', port: '8000', status: 'unknown' },
-        position: { x: 700, y: 640 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #14b8a6', width: 200, borderRadius: 12, padding: 12 },
-        type: 'default',
-    },
-    {
-        id: 'tracking',
-        data: { label: 'Seguimiento', icon: Route, sub: 'Cámaras comunes', ip: 'localhost', port: 'pm2', status: 'unknown' },
-        position: { x: 400, y: 640 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #a78bfa', width: 200, borderRadius: 12, padding: 12 },
+        position: { x: 980, y: 480 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #14b8a6', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {
         id: 'media',
         data: { label: 'Media & Clips', icon: Film, sub: 'ffmpeg + go2rtc', ip: '127.0.0.1', port: '1984', status: 'connected' },
         position: { x: 100, y: 640 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #a855f7', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #a855f7', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
 ];
@@ -188,7 +196,24 @@ const webhookDrivers = [
     { id: 'webhook-waha', label: 'OpenWA Bot', path: '/api/webhooks/whatsapp', icon: MessageSquare, color: '#25D366' },
 ];
 
-const connectionLineStyle = { stroke: '#fff' };
+// Enlaces fijos del nucleo. Los dos caminos (con y sin posiciones guardadas)
+// usan exactamente la misma lista para que nunca queden nodos sueltos.
+const ENLACES_BASE: Edge[] = [
+    { id: 'e-frontend', source: 'frontend', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-postgres', source: 'lpr-node', target: 'postgres', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-minio', source: 'lpr-node', target: 'minio', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-waha', source: 'lpr-node', target: 'waha', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-redis', source: 'lpr-node', target: 'redis', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-media', source: 'lpr-node', target: 'media', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-webhook-core', source: 'webhook-api', target: 'lpr-node', type: 'floating', animated: false, data: { latency: 0, status: 'idle' } },
+    // Carril de captura: la camara entrega video a la pasarela, la pasarela
+    // consulta al lector y el avistamiento vuelve al nucleo.
+    { id: 'e-cams-track', source: 'cams-track', target: 'tracking', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-track-lpr', source: 'tracking', target: 'omni-lpr', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-track-core', source: 'tracking', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+];
+
+const connectionLineStyle = { stroke: "var(--foreground)" };
 const edgeTypes = {
     floating: FloatingEdge,
 };
@@ -250,15 +275,7 @@ export default function SystemFlow() {
 
                 // Create edges
                 const initialEdges: Edge[] = [
-                    { id: 'e-frontend', source: 'frontend', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-postgres', source: 'lpr-node', target: 'postgres', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-minio', source: 'lpr-node', target: 'minio', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-waha', source: 'lpr-node', target: 'waha', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-redis', source: 'lpr-node', target: 'redis', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-media', source: 'lpr-node', target: 'media', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-webhook-core', source: 'webhook-api', target: 'lpr-node', type: 'floating', animated: false, data: { latency: 0, status: 'idle' } },
-                    { id: 'e-track-lpr', source: 'tracking', target: 'omni-lpr', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-track-core', source: 'tracking', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+                    ...ENLACES_BASE,
                     ...webhookDrivers.map(driver => ({
                         id: `e-${driver.id}`,
                         source: driver.id,
@@ -293,12 +310,7 @@ export default function SystemFlow() {
                 setNodes([...baseNodes, ...driverNodes]);
 
                 const initialEdges: Edge[] = [
-                    { id: 'e-frontend', source: 'frontend', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-postgres', source: 'lpr-node', target: 'postgres', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-minio', source: 'lpr-node', target: 'minio', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-webhook-core', source: 'webhook-api', target: 'lpr-node', type: 'floating', animated: false, data: { latency: 0, status: 'idle' } },
-                    { id: 'e-track-lpr', source: 'tracking', target: 'omni-lpr', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
-                    { id: 'e-track-core', source: 'tracking', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+                    ...ENLACES_BASE,
                     ...webhookDrivers.map(driver => ({
                         id: `e-${driver.id}`,
                         source: driver.id,
@@ -493,6 +505,13 @@ export default function SystemFlow() {
                     } else if (edge.id === 'e-waha' && data.waha) {
                         status = data.waha.status === 'connected' ? 'connected' : 'error';
                         latency = data.waha.latency || 0;
+                    } else if (edge.id === 'e-track-lpr' && data.omniLpr) {
+                        status = data.omniLpr.status === 'connected' ? 'connected' : 'error';
+                        latency = data.omniLpr.latency || 0;
+                    } else if ((edge.id === 'e-cams-track' || edge.id === 'e-track-core') && data.tracking) {
+                        status = data.tracking.status === 'connected'
+                            ? 'connected'
+                            : data.tracking.status === 'disabled' ? 'disabled' : 'error';
                     } else if (edge.id === 'e-frontend') {
                         status = 'connected';
                     } else if (edge.id.startsWith('e-webhook')) {
@@ -507,8 +526,10 @@ export default function SystemFlow() {
                         ...edge,
                         data: { ...edge.data, status, latency },
                         style: {
-                            stroke: status === 'connected' ? '#22c55e' : status === 'error' ? '#ef4444' : '#6b7280',
-                            strokeWidth: 3
+                            stroke: status === 'connected' ? '#22c55e'
+                                : status === 'error' ? '#ef4444'
+                                    : status === 'disabled' ? 'var(--border)' : '#6b7280',
+                            strokeWidth: status === 'disabled' ? 2 : 3
                         },
                         animated: status === 'connected'
                     };
@@ -547,11 +568,35 @@ export default function SystemFlow() {
                         nodeStatus = data.waha.status === 'connected' ? 'connected' : 'error';
                         borderColor = nodeStatus === 'connected' ? '#22c55e' : '#ef4444';
                         if (data.waha.details) {
-                            stats = `${data.waha.details.sessions} Sesiones`;
+                            stats = `${data.waha.details.sessions} ses. · ${data.waha.details.sessionStatus || '-'}`;
                             const parts = data.waha.details.endpoint.split(':');
                             if (parts.length > 0) ip = parts[0];
                             if (parts.length > 1) port = parts[1];
                         }
+                    } else if (node.id === 'omni-lpr' && data.omniLpr) {
+                        nodeStatus = data.omniLpr.status;
+                        borderColor = nodeStatus === 'connected' ? '#22c55e' : '#ef4444';
+                        if (data.omniLpr.details) {
+                            stats = data.omniLpr.details.version;
+                            const partes = String(data.omniLpr.details.endpoint || '').split(':');
+                            if (partes[0]) ip = partes[0];
+                            if (partes[1]) port = partes[1];
+                        }
+                    } else if (node.id === 'tracking' && data.tracking) {
+                        nodeStatus = data.tracking.status;
+                        borderColor = nodeStatus === 'connected' ? '#22c55e'
+                            : nodeStatus === 'disabled' ? '#6b7280' : '#ef4444';
+                        const d = data.tracking.details;
+                        if (d) {
+                            stats = d.cameras === 0
+                                ? 'Sin cámaras cargadas'
+                                : `${d.cameras} cám · ${d.sightings24h} lecturas 24h`;
+                        }
+                    } else if (node.id === 'cams-track' && data.tracking) {
+                        const cant = data.tracking.details?.cameras ?? 0;
+                        nodeStatus = cant > 0 ? 'connected' : 'disabled';
+                        borderColor = cant > 0 ? '#22c55e' : '#6b7280';
+                        stats = cant > 0 ? `${cant} canal(es)` : 'Ninguna configurada';
                     } else if (node.id === 'lpr-node') {
                         nodeStatus = 'connected';
                         borderColor = '#22c55e';
@@ -690,7 +735,7 @@ export default function SystemFlow() {
                 fitViewOptions={fitViewOptions}
                 attributionPosition="bottom-left"
             >
-                <Background color="#333" gap={16} />
+                <Background color="var(--border)" gap={16} />
             </ReactFlow>
         </div>
     );

@@ -96,28 +96,36 @@ export async function GET(req: NextRequest) {
         status.minio = { status: 'error', latency: 0 };
     }
 
-    // 3. Check WAHA (WhatsApp)
+    // 3. Check WAHA / OpenWA (WhatsApp)
     try {
-        const wahaUrlSetting = await prisma.setting.findUnique({ where: { key: 'WAHA_URL' } });
-        const wahaApiKeySetting = await prisma.setting.findUnique({ where: { key: 'WAHA_API_KEY' } });
+        const claves = await prisma.setting.findMany({
+            where: { key: { in: ["WAHA_URL", "OPENWA_URL", "WAHA_API_KEY", "OPENWA_API_KEY"] } },
+        });
+        const valor = (k: string) => claves.find((c) => c.key === k)?.value || undefined;
 
-        const wahaUrl = wahaUrlSetting?.value;
+        // Esta instalacion puede guardar la pasarela como WAHA_* o como OPENWA_*.
+        const wahaUrl = valor("WAHA_URL") || valor("OPENWA_URL") || process.env.WAHA_URL || process.env.OPENWA_URL;
+        const wahaKey = valor("WAHA_API_KEY") || valor("OPENWA_API_KEY") || process.env.WAHA_API_KEY || process.env.OPENWA_API_KEY;
 
         if (wahaUrl) {
             const startWaha = performance.now();
             const headers: any = {};
-            if (wahaApiKeySetting?.value) headers['X-Api-Key'] = wahaApiKeySetting.value;
+            if (wahaKey) headers["X-Api-Key"] = wahaKey;
 
-            const response = await axios.get(`${wahaUrl}/api/sessions`, {
+            const response = await axios.get(`${wahaUrl.replace(/\/$/, "")}/api/sessions`, {
                 timeout: 3000,
-                headers
+                headers,
             });
+
+            const sesiones = Array.isArray(response.data) ? response.data : [];
+            const activa = sesiones.find((s: any) => s?.status === "WORKING") || sesiones[0];
 
             status.waha = {
                 status: 'connected',
                 latency: Math.floor(performance.now() - startWaha),
                 details: {
-                    sessions: response.data?.length || 0,
+                    sessions: sesiones.length,
+                    sessionStatus: activa?.status || "SIN SESION",
                     endpoint: wahaUrl.replace('http://', '').replace('https://', '')
                 }
             };
@@ -127,6 +135,56 @@ export async function GET(req: NextRequest) {
     } catch (error: any) {
         console.error("WAHA Check Failed:", error?.message);
         status.waha = { status: 'error', latency: 0 };
+    }
+
+    // 4. Check Omni-LPR (lector de matriculas en contenedor)
+    try {
+        const lprUrl = (process.env.OMNI_LPR_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+        const start = performance.now();
+        const r = await axios.get(`${lprUrl}/api/health`, { timeout: 3000 });
+        const u = new URL(lprUrl);
+        status.omniLpr = {
+            status: r.data?.status === "ok" ? 'connected' : 'error',
+            latency: Math.floor(performance.now() - start),
+            details: {
+                version: r.data?.version ? `v${r.data.version}` : "Omni-LPR",
+                endpoint: `${u.hostname}:${u.port || "8000"}`
+            }
+        };
+    } catch (error: any) {
+        status.omniLpr = { status: 'error', latency: 0 };
+    }
+
+    // 5. Check pasarela de seguimiento (camaras comunes -> Omni-LPR)
+    try {
+        const raw = await prisma.setting.findUnique({ where: { key: "TRACK_CAMERAS" } });
+        let camaras: any[] = [];
+        try { const arr = JSON.parse(raw?.value || "[]"); if (Array.isArray(arr)) camaras = arr.filter((c: any) => c?.rtsp && c?.name); } catch { }
+
+        const desde = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        let lecturas = 0;
+        let ultima: Date | null = null;
+        try {
+            lecturas = await prisma.plateSighting.count({ where: { source: "TRACK", timestamp: { gte: desde } } });
+            const u = await prisma.plateSighting.findFirst({
+                where: { source: "TRACK" },
+                orderBy: { timestamp: "desc" },
+                select: { timestamp: true },
+            });
+            ultima = u?.timestamp || null;
+        } catch { }
+
+        status.tracking = {
+            status: camaras.length === 0 ? 'disabled' : 'connected',
+            latency: 0,
+            details: {
+                cameras: camaras.length,
+                sightings24h: lecturas,
+                lastSighting: ultima ? ultima.toISOString() : null
+            }
+        };
+    } catch (error: any) {
+        status.tracking = { status: 'error', latency: 0 };
     }
 
     return NextResponse.json(status);

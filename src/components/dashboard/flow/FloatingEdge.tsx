@@ -23,8 +23,13 @@ export default function FloatingEdge({ id, source, target, markerEnd, style, dat
         targetY: ty,
     });
 
-    const isConnected = data?.status !== 'error';
-    const isPending = data?.status === 'unknown' || data?.latency === undefined;
+    const estado = data?.status;
+    const isConnected = estado !== 'error';
+    const isPending = estado === 'unknown' || estado === undefined;
+    const isDisabled = estado === 'disabled';
+    // Solo dibujamos el flujo animado cuando el enlace esta realmente vivo.
+    const fluye = estado === 'connected' || estado === 'active';
+    const trazo = (style as any)?.stroke as string | undefined;
 
     return (
         <>
@@ -34,20 +39,21 @@ export default function FloatingEdge({ id, source, target, markerEnd, style, dat
                 d={edgePath}
                 markerEnd={markerEnd}
                 style={{
-                    stroke: isPending ? '#555' : isConnected ? '#10b981' : '#ef4444',
+                    stroke: isDisabled || isPending ? 'var(--border)' : isConnected ? '#10b981' : '#ef4444',
                     strokeWidth: 2,
-                    opacity: 0.5,
+                    strokeDasharray: isDisabled ? '4 6' : undefined,
+                    opacity: isDisabled || isPending ? 0.85 : 0.5,
                     ...style // Allow overrides
                 }}
             />
             {/* Animated flow line on top */}
-            {isConnected && (
+            {fluye && (
                 <path
                     id={`${id}-anim`}
                     className="react-flow__edge-path"
                     d={edgePath}
                     style={{
-                        stroke: isConnected ? '#34d399' : '#ef4444',
+                        stroke: trazo || '#34d399',
                         strokeWidth: 2,
                         strokeDasharray: 10,
                         animation: 'dashdraw 1s linear infinite',
@@ -71,7 +77,7 @@ export default function FloatingEdge({ id, source, target, markerEnd, style, dat
             <text>
                 <textPath
                     href={`#${id}`}
-                    style={{ fontSize: 10, fill: isConnected ? '#fff' : '#ef4444', opacity: 0.6 }}
+                    style={{ fontSize: 10, fill: isConnected ? 'var(--foreground)' : '#ef4444', opacity: 0.65 }}
                     startOffset="50%"
                     textAnchor="middle"
                 >
