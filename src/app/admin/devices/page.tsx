@@ -107,6 +107,7 @@ const PLACEHOLDER_BRAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="
 
 const TYPE_META: Record<string, { label: string; color: string; activeClass: string }> = {
     LPR_CAMERA: { label: "LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+    LPR_INTERIOR: { label: "Interior", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
     FACE_TERMINAL: { label: "Face", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
     QUEUE_COUNTER: { label: "Queue", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
     NVR: { label: "NVR", color: "text-blue-400", activeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
@@ -232,7 +233,8 @@ export default function DevicesPage() {
 
     // Build allowed device types based on active modules
     const allowedTypes: string[] = [];
-    if (modules.MODULE_LPR) { allowedTypes.push("LPR_CAMERA"); allowedTypes.push("NVR"); }
+    // Las cámaras interiores son del módulo LPR: sin esto quedaban invisibles en la lista.
+    if (modules.MODULE_LPR) { allowedTypes.push("LPR_CAMERA"); allowedTypes.push("LPR_INTERIOR"); allowedTypes.push("NVR"); }
     if (modules.MODULE_FACE) allowedTypes.push("FACE_TERMINAL");
     if (modules.MODULE_QUEUE) allowedTypes.push("QUEUE_COUNTER");
 

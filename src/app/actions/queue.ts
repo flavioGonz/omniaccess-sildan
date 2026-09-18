@@ -588,6 +588,8 @@ export async function getNotificationRules() {
 type RuleInput = {
     name: string;
     enabled?: boolean;
+    modulo?: string;        // QUEUE | LPR | FACE
+    eventos?: string | null; // csv para LPR/FACE: ALLOW,DENY,UNKNOWN,WATCHLIST
     deviceId?: string | null;
     channelName?: string | null;
     metric?: string;        // aforo | entrada | salida
@@ -607,6 +609,8 @@ export async function createNotificationRule(data: RuleInput) {
         data: {
             name: data.name,
             enabled: data.enabled ?? true,
+            modulo: (data as any).modulo || "QUEUE",
+            eventos: (data as any).eventos || null,
             deviceId: data.deviceId || null,
             channelName: data.channelName || null,
             metric: data.metric || "aforo",
@@ -629,6 +633,8 @@ export async function updateNotificationRule(id: string, data: Partial<RuleInput
         data: {
             ...(data.name !== undefined ? { name: data.name } : {}),
             ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
+            ...((data as any).modulo !== undefined ? { modulo: (data as any).modulo } : {}),
+            ...((data as any).eventos !== undefined ? { eventos: (data as any).eventos || null } : {}),
             ...(data.deviceId !== undefined ? { deviceId: data.deviceId || null } : {}),
             ...(data.channelName !== undefined ? { channelName: data.channelName || null } : {}),
             ...(data.metric !== undefined ? { metric: data.metric } : {}),

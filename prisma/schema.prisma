@@ -485,6 +485,10 @@ model NotificationRule {
   id          String    @id @default(cuid())
   name        String
   enabled     Boolean   @default(true)
+  // Modulo al que aplica la regla y, para LPR/FACE, que eventos la disparan.
+  // QUEUE usa metric/operator/threshold; LPR y FACE usan eventos.
+  modulo      String    @default("QUEUE") // QUEUE | LPR | FACE
+  eventos     String?   // csv: ALLOW,DENY,UNKNOWN,WATCHLIST
   deviceId    String?   // null = todas las cámaras
   channelName String?   // zona/canal ("Aforo","Entrada","Salida"); null = cualquiera
   metric      String    @default("aforo") // aforo | entrada | salida

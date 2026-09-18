@@ -974,6 +974,17 @@ const handleWebhook = async (req, res, logPrefix) => {
                 });
             }
 
+            // Reglas de notificacion de Face, por el mismo motor que LPR y Filas.
+            notificarPorReglas({
+                modulo: "FACE",
+                evento: !user ? "UNKNOWN" : (finalDecision === "GRANTED" || finalDecision === "ALLOW" ? "ALLOW" : "DENY"),
+                deviceId: device ? device.id : null,
+                deviceName: (device && device.name) || null,
+                personName: personName || null,
+                direction: (device && device.direction) || "ENTRY",
+                snapshotPath: faceImagePath || null,
+            }).catch(() => { });
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ status: "processed", type: "FACE", decision: finalDecision }));
             return;
@@ -1418,6 +1429,18 @@ const handleWebhook = async (req, res, logPrefix) => {
             accessEventId: event.id,
         }).catch(() => { });
 
+        // Reglas de notificacion de LPR: destinatarios, horarios, plantillas y
+        // antirrebote, igual que Filas. Fuera del camino de la barrera.
+        notificarPorReglas({
+            modulo: "LPR",
+            evento: isUnknown ? "UNKNOWN" : (accessDecision === "GRANTED" || accessDecision === "ALLOW" ? "ALLOW" : "DENY"),
+            deviceId: device ? device.id : null,
+            deviceName: (device && device.name) || null,
+            plate: finalPlate,
+            direction: (device && device.direction) || "ENTRY",
+            snapshotPath: relativeImagePath || null,
+        }).catch(() => { });
+
         // ---- MERODEO (loitering) detection — LPR only ----
         try { await checkMerodeo(finalPlate, device, event, logPrefix); }
         catch (e) { console.error(`${logPrefix} Merodeo check error:`, (e && e.message) || e); }
@@ -1442,6 +1465,15 @@ const handleWebhook = async (req, res, logPrefix) => {
                 watchHit = { label: credential.user.name || '', category: cat, color: null, source: 'role' };
                 if (cat === 'BLACKLISTED') {
                     notifyWatchTelegram(`🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${credential.user.name || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
+                    notificarPorReglas({
+                        modulo: "LPR", evento: "WATCHLIST",
+                        deviceId: device ? device.id : null,
+                        deviceName: (device && device.name) || null,
+                        plate: finalPlate,
+                        direction: event.direction || "ENTRY",
+                        snapshotPath: relativeImagePath || null,
+                        extra: { categoria: watchCatLabel(cat) },
+                    }).catch(() => { });
                 }
                 console.log(`${logPrefix} [WATCHLIST] role-derived ${finalPlate} (${cat})`);
             }
@@ -2646,6 +2678,31 @@ async function checkMerodeo(plate, device, event, logPrefix) {
     }
 }
 
+
+/**
+ * Dispara las reglas de notificacion del modulo correspondiente. Va por la API
+ * interna porque el motor vive del lado de Next; si falla, no pasa nada: el
+ * acceso ya se resolvio.
+ */
+async function notificarPorReglas(evento) {
+    try {
+        let token = process.env.TRACKING_TOKEN || "";
+        if (!token) {
+            const s = await prisma.setting.findUnique({ where: { key: "TRACKING_TOKEN" } });
+            token = (s && s.value) || "";
+        }
+        if (!token) return;
+        const base = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001";
+        await fetch(`${base}/api/notifications/event`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-tracking-token": token },
+            body: JSON.stringify(evento),
+            signal: AbortSignal.timeout(8000),
+        });
+    } catch (e) {
+        console.error("[reglas] no se pudo notificar:", (e && e.message) || e);
+    }
+}
 
 // ── Watchlist: notificación Telegram (bot compartido, offline-safe) ──
 function normalizeWatchCat(x) {

@@ -16,17 +16,37 @@ type Rule = {
     id: string; name: string; enabled: boolean; deviceId: string | null; channelName: string | null;
     metric: string; operator: string; threshold: number; daysOfWeek: string; startTime: string;
     endTime: string; channels: string; minSeverity: string | null; cooldownSec: number; dedupe: boolean;
+    modulo?: string; eventos?: string | null;
 };
 type Dev = { id: string; name: string };
 
 const METRICS = [{ v: "aforo", l: "Aforo" }, { v: "entrada", l: "Entradas" }, { v: "salida", l: "Salidas" }];
+// Una regla pertenece a un modo. Filas dispara por umbral; LPR y Face, por evento.
+const MODULOS = [
+    { v: "QUEUE", l: "Filas", color: "bg-violet-500" },
+    { v: "LPR", l: "LPR (matrículas)", color: "bg-amber-500" },
+    { v: "FACE", l: "Face (rostros)", color: "bg-teal-500" },
+];
+const EVENTOS: Record<string, { v: string; l: string }[]> = {
+    LPR: [
+        { v: "ALLOW", l: "Acceso permitido" },
+        { v: "DENY", l: "Acceso denegado" },
+        { v: "UNKNOWN", l: "Matrícula no reconocida" },
+        { v: "WATCHLIST", l: "Vehículo en seguimiento" },
+    ],
+    FACE: [
+        { v: "ALLOW", l: "Acceso permitido" },
+        { v: "DENY", l: "Acceso denegado" },
+        { v: "UNKNOWN", l: "Rostro no reconocido" },
+    ],
+};
 const OPERATORS = [">=", ">", "==", "<="];
 const ZONES = ["Aforo", "Entrada", "Salida"];
 const CHANNEL_OPTS = [{ v: "telegram", l: "Telegram" }, { v: "whatsapp", l: "WhatsApp" }, { v: "email", l: "Email" }, { v: "webpush", l: "PWA / Push" }];
 const DAYS = [{ v: "1", l: "L" }, { v: "2", l: "M" }, { v: "3", l: "X" }, { v: "4", l: "J" }, { v: "5", l: "V" }, { v: "6", l: "S" }, { v: "7", l: "D" }];
 
 const empty = {
-    name: "", enabled: true, deviceId: "", channelName: "", metric: "aforo", operator: ">=",
+    name: "", enabled: true, modulo: "QUEUE", eventos: "", deviceId: "", channelName: "", metric: "aforo", operator: ">=",
     threshold: 5, daysOfWeek: "1,2,3,4,5,6,7", startTime: "00:00", endTime: "23:59",
     channels: "telegram", minSeverity: "", cooldownSec: 60, dedupe: true,
 };
@@ -49,7 +69,7 @@ export default function RulesManager() {
 
     const reset = () => { setForm(empty); setEditingId(null); setShowForm(false); };
     const edit = (r: Rule) => {
-        setForm({ ...r, deviceId: r.deviceId || "", channelName: r.channelName || "", minSeverity: r.minSeverity || "" });
+        setForm({ ...r, modulo: r.modulo || "QUEUE", eventos: r.eventos || "", deviceId: r.deviceId || "", channelName: r.channelName || "", minSeverity: r.minSeverity || "" });
         setEditingId(r.id); setShowForm(true);
     };
     const toggleDay = (d: string) => {
@@ -101,6 +121,19 @@ export default function RulesManager() {
             {showForm && (
                 <div className="p-4 border-b border-border bg-foreground/[0.02] space-y-3">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="md:col-span-2">
+                            <div className="text-xs font-medium text-foreground/70 mb-1.5">Modo</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {MODULOS.map(m => (
+                                    <button key={m.v} type="button"
+                                        onClick={() => setForm({ ...form, modulo: m.v, eventos: "" })}
+                                        className={cn("px-3 py-1.5 rounded-lg text-[11px] font-bold border transition",
+                                            form.modulo === m.v ? "bg-violet-500/20 border-violet-500/40 text-violet-200" : "bg-muted/40 border-border text-muted-foreground hover:text-foreground")}>
+                                        {m.l}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                         <label className="text-xs font-medium text-foreground/70 md:col-span-2">
                             Nombre
                             <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ej. Aforo crítico recepción"
@@ -114,6 +147,7 @@ export default function RulesManager() {
                                 {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                             </select>
                         </label>
+                        {form.modulo === "QUEUE" && (
                         <label className="text-xs font-medium text-foreground/70">
                             Zona / canal
                             <select value={form.channelName} onChange={e => setForm({ ...form, channelName: e.target.value })}
@@ -122,13 +156,43 @@ export default function RulesManager() {
                                 {ZONES.map(z => <option key={z} value={z}>{z}</option>)}
                             </select>
                         </label>
-                        <label className="text-xs font-medium text-foreground/70">
-                            Métrica
-                            <select value={form.metric} onChange={e => setForm({ ...form, metric: e.target.value })}
-                                className="mt-1 w-full bg-muted/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-violet-500">
-                                {METRICS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
-                            </select>
-                        </label>
+                        )}
+                        {form.modulo === "QUEUE" && (
+                            <label className="text-xs font-medium text-foreground/70">
+                                Métrica
+                                <select value={form.metric} onChange={e => setForm({ ...form, metric: e.target.value })}
+                                    className="mt-1 w-full bg-muted/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-violet-500">
+                                    {METRICS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
+                                </select>
+                            </label>
+                        )}
+                        {form.modulo !== "QUEUE" && (
+                            <div className="md:col-span-2">
+                                <div className="text-xs font-medium text-foreground/70 mb-1.5">
+                                    Eventos que disparan la regla
+                                    <span className="text-muted-foreground font-normal"> — ninguno marcado = todos</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {(EVENTOS[form.modulo] || []).map(ev => {
+                                        const puestos = String(form.eventos || "").split(",").filter(Boolean);
+                                        const on = puestos.includes(ev.v);
+                                        return (
+                                            <button key={ev.v} type="button"
+                                                onClick={() => {
+                                                    const set = new Set(puestos);
+                                                    on ? set.delete(ev.v) : set.add(ev.v);
+                                                    setForm({ ...form, eventos: Array.from(set).join(",") });
+                                                }}
+                                                className={cn("px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border transition",
+                                                    on ? "bg-violet-500/20 border-violet-500/40 text-violet-200" : "bg-muted/40 border-border text-muted-foreground hover:text-foreground")}>
+                                                {ev.l}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        {form.modulo === "QUEUE" && (
                         <div className="grid grid-cols-2 gap-2">
                             <label className="text-xs font-medium text-foreground/70">
                                 Operador
@@ -143,6 +207,7 @@ export default function RulesManager() {
                                     className="mt-1 w-full bg-muted/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-violet-500" />
                             </label>
                         </div>
+                        )}
                         <div className="grid grid-cols-2 gap-2">
                             <label className="text-xs font-medium text-foreground/70">
                                 Desde
@@ -201,13 +266,13 @@ export default function RulesManager() {
                     <div className="px-4 py-8 text-center text-sm text-muted-foreground flex flex-col items-center gap-2">
                         <Bell size={22} className="opacity-40" /> Sin reglas. Crea una para empezar a notificar según criterios.
                     </div>
-                ) : METRICS.map(group => {
-                    const groupRules = rules.filter(r => (r.metric || "aforo") === group.v);
+                ) : MODULOS.map(group => {
+                    const groupRules = rules.filter(r => (r.modulo || "QUEUE") === group.v);
                     if (groupRules.length === 0) return null;
                     return (
                       <div key={group.v}>
                         <div className="px-4 py-1.5 bg-muted/30 text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-500" /> {group.l} <span className="text-muted-foreground/60">({groupRules.length})</span>
+                          <span className={cn("w-1.5 h-1.5 rounded-full", group.color)} /> {group.l} <span className="text-muted-foreground/60">({groupRules.length})</span>
                         </div>
                         {groupRules.map(r => (
                     <div key={r.id} className="flex items-center gap-3 px-4 py-3 border-t border-border/40">
@@ -217,10 +282,14 @@ export default function RulesManager() {
                         <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                                 <span className="font-semibold text-sm text-foreground truncate">{r.name}</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 font-mono">{r.metric} {r.operator} {r.threshold}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 font-mono">
+                                    {(r.modulo || "QUEUE") === "QUEUE"
+                                        ? `${r.metric} ${r.operator} ${r.threshold}`
+                                        : (r.eventos && r.eventos.length ? r.eventos.split(",").join(" · ") : "todos los eventos")}
+                                </span>
                             </div>
                             <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
-                                <span>{devName(r.deviceId)}{r.channelName ? ` · ${r.channelName}` : ""}</span>
+                                <span>{devName(r.deviceId)}{r.channelName && (r.modulo || "QUEUE") === "QUEUE" ? ` · ${r.channelName}` : ""}</span>
                                 <span className="flex items-center gap-1"><Clock size={10} /> {r.startTime}–{r.endTime} · {r.daysOfWeek.split(",").map(d => DAYS.find(x => x.v === d)?.l).join("")}</span>
                                 <span className="flex items-center gap-1"><Gauge size={10} /> cooldown {r.cooldownSec}s</span>
                                 <span>→ {r.channels}</span>

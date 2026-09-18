@@ -170,17 +170,18 @@ export default function NotificacionesPage() {
                 setTesting(null);
                 return;
             }
+            // La prueba va por la misma cola que las alertas de verdad: si algo
+            // falla, falla en el mismo lugar donde fallaría en producción.
             await saveChannel(channelKey);
-            const res = await fetch("/api/queue/test-dispatch", {
+            const res = await fetch("/api/notifications/test", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ channel: channelKey }),
             });
-            if (res.ok) toast.success("Mensaje de prueba enviado");
-            else {
-                const data = await res.json().catch(() => ({}));
-                toast.error(data.error || "Error enviando prueba");
-            }
+            const data = await res.json().catch(() => ({} as any));
+            if (res.ok && data.estado === "SENT") toast.success("Mensaje de prueba enviado");
+            else if (res.ok) toast.info?.(data.aviso || "Encolado; mirá el resultado en Despachos");
+            else toast.error(data.error || "Error enviando prueba");
         } catch {
             toast.error("Error de conexión");
         }

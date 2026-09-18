@@ -157,6 +157,8 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
     const [open, setOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [step, setStep] = useState(1);
+    const [probandoRtsp, setProbandoRtsp] = useState(false);
+    const [pruebaRtsp, setPruebaRtsp] = useState<any>(null);
     const [modelComboOpen, setModelComboOpen] = useState(false);
     const [showGuide, setShowGuide] = useState(false);
     const [formData, setFormData] = useState({
@@ -340,7 +342,41 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
         }
     };
 
-    const nextStep = () => setStep(prev => Math.min(prev + 1, 3));
+    // Las cámaras interiores tienen un paso propio para el canal RTSP: meterlo
+    // dentro de Identidad reventaba el modal y obligaba a hacer scroll.
+    const PASOS = formData.deviceType === "LPR_INTERIOR"
+        ? ["identidad", "network", "protocolos", "rtsp"] as const
+        : ["identidad", "network", "protocolos"] as const;
+    const total = PASOS.length;
+    const paso = PASOS[Math.min(step, total) - 1];
+    useEffect(() => { if (step > total) setStep(total); }, [total, step]);
+
+    const META_PASO: Record<string, { titulo: string; detalle: string }> = {
+        identidad: { titulo: "Fase 01: Identidad", detalle: "Defina el fabricante y el modelo específico para cargar los controladores necesarios." },
+        network: { titulo: "Fase 02: Network", detalle: "Configure el direccionamiento IP y valide el enlace MAC para comunicación bidireccional." },
+        protocolos: { titulo: "Fase 03: Protocolos", detalle: "Ajuste los métodos de autenticación y el sentido de flujo del nodo de acceso." },
+        rtsp: { titulo: "Fase 04: Canal de video", detalle: "Elija el canal que va a leer el contenedor Omni-LPR y compruébelo antes de dar de alta la cámara." },
+    };
+
+    const probarRtsp = async () => {
+        if (!formData.rtspUrl.trim()) return;
+        setProbandoRtsp(true);
+        setPruebaRtsp(null);
+        try {
+            const r = await fetch("/api/tracking/probe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ rtsp: formData.rtspUrl.trim() }),
+            });
+            const j = await r.json();
+            if (!r.ok) throw new Error(j?.error || "No se pudo probar");
+            setPruebaRtsp(j);
+        } catch (e: any) {
+            setPruebaRtsp({ error: e?.message || "No se pudo probar la cámara" });
+        } finally { setProbandoRtsp(false); }
+    };
+
+    const nextStep = () => setStep(prev => Math.min(prev + 1, total));
     const prevStep = () => setStep(prev => Math.max(prev - 1, 1));
 
     return (
@@ -364,7 +400,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                             {/* Step Indicator Header */}
                             <div className="mb-8">
                                 <div className="flex items-center gap-1.5 mb-5">
-                                    {[1, 2, 3].map(i => (
+                                    {PASOS.map((_, idx) => idx + 1).map(i => (
                                         <div key={i} className={cn(
                                             "h-[3px] rounded-sm transition-all duration-500",
                                             step === i ? "w-10 bg-blue-500" :
@@ -381,7 +417,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                             </div>
 
                             <div className="space-y-8 animate-in fade-in slide-in-from-left-4 duration-500">
-                                {step === 1 && (
+                                {paso === "identidad" && (
                                     <div className="space-y-8">
                                         <div className="space-y-2">
                                             <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
@@ -427,53 +463,6 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                                 </Select>
                                             </div>
                                         </div>
-                                        {/* Cámara interior: la lee el contenedor Omni-LPR por RTSP */}
-                                        {formData.deviceType === "LPR_INTERIOR" && (
-                                            <div className="space-y-3 rounded-xl border border-teal-500/25 bg-teal-500/[0.06] p-4">
-                                                <div className="flex items-start gap-2">
-                                                    <Video size={14} className="text-teal-500 mt-0.5 shrink-0" />
-                                                    <div>
-                                                        <p className="text-xs font-bold text-foreground">Cámara interior de seguimiento</p>
-                                                        <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
-                                                            No abre la barrera. La pasarela le saca cuadros por RTSP y se los manda al
-                                                            contenedor Omni-LPR para leer matrículas dentro del barrio. Ubicala después
-                                                            en el mapa para que el recorrido salga bien.
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">URL RTSP del canal</Label>
-                                                    <Input name="rtspUrl" value={formData.rtspUrl} onChange={handleInputChange}
-                                                        placeholder="rtsp://usuario:clave@192.168.1.50:554/Streaming/Channels/101"
-                                                        className="bg-card border-border h-11 rounded-lg font-mono text-xs" />
-                                                    <div className="text-[10px] text-muted-foreground leading-relaxed space-y-0.5 pt-0.5">
-                                                        <p><b className="text-foreground/80">Hikvision / NVR:</b> <span className="font-mono">…:554/Streaming/Channels/<b>101</b></span> — 101 es canal 1 principal, 201 canal 2, y así.</p>
-                                                        <p><b className="text-foreground/80">Dahua:</b> <span className="font-mono">…:554/cam/realmonitor?channel=<b>1</b>&amp;subtype=0</span></p>
-                                                        <p>Usá siempre el flujo principal: el secundario no tiene resolución para la matrícula. Un dispositivo por canal.</p>
-                                                    </div>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Sensibilidad</Label>
-                                                        <Input name="trackScene" value={formData.trackScene} onChange={handleInputChange} placeholder="0.08"
-                                                            className="bg-card border-border h-11 rounded-lg font-mono text-xs" />
-                                                        <p className="text-[10px] text-muted-foreground">Cuánto tiene que cambiar la escena para mandar un cuadro. Más bajo = más cuadros.</p>
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Seguimiento</Label>
-                                                        <Select value={formData.trackEnabled} onValueChange={(v) => handleSelectChange("trackEnabled", v)}>
-                                                            <SelectTrigger className="bg-card border-border h-11 rounded-lg font-bold"><SelectValue /></SelectTrigger>
-                                                            <SelectContent className="bg-popover border-border text-foreground rounded-md">
-                                                                <SelectItem value="true" className="py-2.5 font-bold">Activo</SelectItem>
-                                                                <SelectItem value="false" className="py-2.5 font-bold">Pausado</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                        <p className="text-[10px] text-muted-foreground">Pausada, la cámara queda cargada pero no consume GPU.</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-
                                         <div className="space-y-2">
                                             <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
                                                 <Cpu size={10} /> Modelo Hardware
@@ -570,7 +559,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                     </div>
                                 )}
 
-                                {step === 2 && (
+                                {paso === "network" && (
                                     <div className="space-y-8">
                                         <div className="grid grid-cols-2 gap-8">
                                             <div className="space-y-2">
@@ -607,7 +596,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                     </div>
                                 )}
 
-                                {step === 3 && (
+                                {paso === "protocolos" && (
                                     <div className="space-y-8">
                                         <div className="grid grid-cols-2 gap-8">
                                             <div className="space-y-2">
@@ -763,6 +752,120 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                             </div>
                         </div>
 
+                                {paso === "rtsp" && (
+                                    <div className="space-y-7">
+                                        {/* Qué se está por hacer, en una línea de tiempo corta */}
+                                        <div className="rounded-xl border border-teal-500/25 bg-teal-500/[0.05] p-5">
+                                            <div className="flex items-start gap-3">
+                                                <div className="p-2 rounded-lg bg-teal-500/10 border border-teal-500/20 shrink-0">
+                                                    <Video size={16} className="text-teal-400" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-bold text-foreground">Esta cámara no abre la barrera</p>
+                                                    <p className="text-[11.5px] text-muted-foreground leading-relaxed mt-1">
+                                                        Es un sensor: la pasarela le saca cuadros por RTSP y se los manda al contenedor
+                                                        Omni-LPR, que lee la matrícula. Con eso se dibuja el recorrido de un vehículo
+                                                        dentro del barrio. El control de acceso lo siguen haciendo las cámaras LPR de
+                                                        entrada y salida.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mt-4">
+                                                {[
+                                                    { n: "1", t: "Elegís el canal", d: "Uno por cámara del grabador." },
+                                                    { n: "2", t: "Se prueba acá", d: "Un cuadro real y su lectura." },
+                                                    { n: "3", t: "Se calibra", d: "Zona, sensibilidad y confianza." },
+                                                    { n: "4", t: "Se ubica en el mapa", d: "Para dibujar el recorrido." },
+                                                ].map((e) => (
+                                                    <div key={e.n} className="rounded-lg bg-background/50 border border-border/60 p-2.5">
+                                                        <div className="text-[9px] font-bold text-teal-400 tracking-widest">PASO {e.n}</div>
+                                                        <div className="text-[11px] font-bold text-foreground mt-0.5">{e.t}</div>
+                                                        <div className="text-[10px] text-muted-foreground leading-snug mt-0.5">{e.d}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+                                                <Video size={10} /> URL RTSP del canal
+                                            </Label>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    name="rtspUrl"
+                                                    value={formData.rtspUrl}
+                                                    onChange={handleInputChange}
+                                                    placeholder="rtsp://usuario:clave@192.168.1.50:554/Streaming/Channels/101"
+                                                    className="bg-card border-border h-12 rounded-lg font-mono text-xs"
+                                                />
+                                                <Button type="button" variant="outline" disabled={probandoRtsp || !formData.rtspUrl.trim()}
+                                                    onClick={probarRtsp}
+                                                    className="h-12 px-5 rounded-lg shrink-0 font-bold uppercase tracking-wider text-[10px]">
+                                                    {probandoRtsp ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                                                    <span className="ml-1.5">Probar</span>
+                                                </Button>
+                                            </div>
+                                            <div className="rounded-lg bg-muted/30 border border-border/60 p-3 space-y-1">
+                                                <p className="text-[10.5px] text-muted-foreground"><b className="text-foreground/85">Hikvision / NVR</b> <span className="font-mono">…:554/Streaming/Channels/<b>101</b></span> — 101 es canal 1 principal, 201 canal 2, 301 canal 3.</p>
+                                                <p className="text-[10.5px] text-muted-foreground"><b className="text-foreground/85">Dahua</b> <span className="font-mono">…:554/cam/realmonitor?channel=<b>1</b>&amp;subtype=0</span></p>
+                                                <p className="text-[10.5px] text-muted-foreground"><b className="text-foreground/85">ONVIF genérica</b> <span className="font-mono">…:554/onvif1</span></p>
+                                                <p className="text-[10.5px] text-muted-foreground">Usá siempre el <b className="text-foreground/85">flujo principal</b>: el secundario no tiene resolución para leer una matrícula.</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Resultado de la prueba */}
+                                        {pruebaRtsp && (
+                                            <div className="rounded-xl border border-border bg-card/60 p-3">
+                                                {pruebaRtsp.error ? (
+                                                    <p className="text-xs text-red-400">{pruebaRtsp.error}</p>
+                                                ) : (
+                                                    <div className="grid grid-cols-1 sm:grid-cols-[210px_1fr] gap-4">
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                        <img src={pruebaRtsp.imagen} alt="Cuadro de prueba" className="rounded-lg w-full object-cover border border-border" />
+                                                        <div className="space-y-1.5">
+                                                            <p className="text-[10px] text-muted-foreground">
+                                                                Cuadro de {Math.round(pruebaRtsp.bytes / 1024)} KB · captura {pruebaRtsp.msCaptura} ms · lectura {pruebaRtsp.msLectura} ms
+                                                            </p>
+                                                            {pruebaRtsp.lecturas?.length ? pruebaRtsp.lecturas.slice(0, 3).map((l: any, i: number) => (
+                                                                <div key={i} className="flex items-center gap-2 text-xs">
+                                                                    <Check size={13} className={l.confidence >= pruebaRtsp.umbral ? "text-emerald-400" : "text-amber-400"} />
+                                                                    <span className="font-mono font-bold tracking-widest text-foreground">{l.plate}</span>
+                                                                    <span className="text-muted-foreground">{Math.round(l.confidence * 100)}%</span>
+                                                                </div>
+                                                            )) : (
+                                                                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                                                    La cámara responde y el cuadro llegó bien. No se ve ninguna matrícula,
+                                                                    lo cual es normal si no pasaba un auto en ese instante.
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        <div className="grid grid-cols-2 gap-8">
+                                            <div className="space-y-2">
+                                                <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Sensibilidad de escena</Label>
+                                                <Input name="trackScene" value={formData.trackScene} onChange={handleInputChange} placeholder="0.08"
+                                                    className="bg-card border-border h-12 rounded-lg font-mono text-sm" />
+                                                <p className="text-[10px] text-muted-foreground">Cuánto tiene que cambiar la imagen para mandar un cuadro. Se afina después en el calibrador.</p>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest">Seguimiento</Label>
+                                                <Select value={formData.trackEnabled} onValueChange={(v) => handleSelectChange("trackEnabled", v)}>
+                                                    <SelectTrigger className="bg-card border-border h-12 rounded-lg font-bold"><SelectValue /></SelectTrigger>
+                                                    <SelectContent className="bg-popover border-border text-foreground rounded-md">
+                                                        <SelectItem value="true" className="py-3 font-bold">Activo</SelectItem>
+                                                        <SelectItem value="false" className="py-3 font-bold">Pausado</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                <p className="text-[10px] text-muted-foreground">Pausada queda cargada pero no consume GPU.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
                         {/* Navigation Footer */}
                         <div className="flex gap-3 pt-8 border-t border-border/40">
                             {step > 1 && (
@@ -775,13 +878,13 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                     Atr&#225;s
                                 </Button>
                             )}
-                            {step < 3 ? (
+                            {step < total ? (
                                 <Button
                                     type="button"
                                     onClick={nextStep}
                                     className="flex-1 h-11 rounded-md bg-blue-600 hover:bg-blue-500 text-foreground font-bold uppercase tracking-wider text-[11px] transition-colors"
                                 >
-                                    Continuar a Fase {step + 1} <ArrowRightLeft size={14} className="ml-2 opacity-50" />
+                                    Continuar a Fase {String(step + 1).padStart(2, "0")} <ArrowRightLeft size={14} className="ml-2 opacity-50" />
                                 </Button>
                             ) : (
                                 <Button
@@ -796,7 +899,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                     </div>
 
                     {/* RIGHT SIDE: Tech Aesthetic + Large Floating Numbers */}
-                    {!(formData.deviceType === "NVR" && step === 3) && (
+                    {!(formData.deviceType === "NVR" && paso === "protocolos") && (
                     <div className="relative w-full md:w-[36%] bg-background flex flex-col items-center justify-center p-8 group overflow-hidden shrink-0">
                         <Image
                             src="/device_background.png"
@@ -810,7 +913,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
 
                         {/* Floating stylized numbers */}
                         <div className="relative w-full h-full flex flex-col items-center justify-center pointer-events-none">
-                            {[1, 2, 3].map(i => (
+                            {PASOS.map((_, idx) => idx + 1).map(i => (
                                 <div
                                     key={i}
                                     className={cn(
@@ -821,7 +924,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                     )}
                                 >
                                     <span className="text-[200px] text-blue-500/80 tracking-tighter select-none" style={{ textShadow: '0 0 60px rgba(59,130,246,0.2)' }}>
-                                        {i === 1 ? '01' : i === 2 ? '02' : '03'}
+                                        {String(i).padStart(2, '0')}
                                     </span>
                                 </div>
                             ))}
@@ -832,13 +935,11 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                             <div className="flex items-center gap-2.5 mb-3">
                                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
                                 <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">
-                                    {step === 1 ? "Fase 01: Identidad" : step === 2 ? "Fase 02: Network" : "Fase 03: Protocolos"}
+                                    {META_PASO[paso].titulo}
                                 </span>
                             </div>
                             <p className="text-[11px] text-muted-foreground leading-relaxed">
-                                {step === 1 ? "Defina el fabricante y el modelo específico para cargar los controladores necesarios." :
-                                    step === 2 ? "Configure el direccionamiento IP y valide el enlace MAC para comunicación bidireccional." :
-                                        "Ajuste los métodos de autenticación y el sentido de flujo del nodo de acceso."}
+                                {META_PASO[paso].detalle}
                             </p>
                         </div>
                     </div>

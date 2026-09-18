@@ -304,6 +304,30 @@ function getInternal(path) {
     });
 }
 
+/** POST JSON a una URL cualquiera (webhook externo), http o https. */
+function postJson(url, cuerpo, secreto) {
+    return new Promise((resolve) => {
+        let u;
+        try { u = new URL(url); } catch { return resolve({ ok: false, body: "URL inválida" }); }
+        const lib = u.protocol === "https:" ? https : http;
+        const headers = { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(cuerpo) };
+        if (secreto) headers["Authorization"] = /^(Bearer|Basic) /i.test(secreto) ? secreto : `Bearer ${secreto}`;
+        const req = lib.request({
+            hostname: u.hostname,
+            port: u.port || (u.protocol === "https:" ? 443 : 80),
+            path: u.pathname + u.search,
+            method: "POST", timeout: 15000, headers,
+        }, (res) => {
+            let d = "";
+            res.on("data", (c) => d += c);
+            res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: `${res.statusCode} ${d.slice(0, 200)}` }));
+        });
+        req.on("error", (e) => resolve({ ok: false, body: e.message }));
+        req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
+        req.write(cuerpo); req.end();
+    });
+}
+
 function postInternal(path, bodyObj) {
     return new Promise((resolve) => {
         const data = JSON.stringify(bodyObj || {});
@@ -377,6 +401,56 @@ async function handle(job) {
                     r = b64 ? await openwaSendImage(url, key, session, chatId, b64, text) : await openwaSend(url, key, session, chatId, text);
                 }
                 if (!r.ok) throw new Error("WhatsApp: " + (r.body || r.status));
+            } else if (dj.channel === "email") {
+                const host = await getSetting("SMTP_HOST", process.env.SMTP_HOST);
+                const port = Number(await getSetting("SMTP_PORT", process.env.SMTP_PORT || "587"));
+                const user = await getSetting("SMTP_USER", process.env.SMTP_USER);
+                const pass = await getSetting("SMTP_PASS", process.env.SMTP_PASS);
+                const para = (p.to || await getSetting("SMTP_TO", process.env.SMTP_TO) || "").trim();
+                if (!host) throw new Error("Falta el servidor SMTP");
+                if (!para) throw new Error("Faltan destinatarios (SMTP_TO)");
+
+                const nodemailer = require("nodemailer");
+                // 465 va con TLS directo; 587 y 25 arrancan en claro y suben con STARTTLS.
+                const transporte = nodemailer.createTransport({
+                    host, port, secure: port === 465,
+                    auth: user ? { user, pass } : undefined,
+                    tls: { rejectUnauthorized: false },
+                });
+                const asunto = p.asunto || p.ruleName || "Alerta de OmniAccess";
+                const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
+                const r = await transporte.sendMail({
+                    from: (await getSetting("SMTP_FROM", user || "omniaccess@localhost")),
+                    to: para,
+                    subject: asunto,
+                    text,
+                    html: `<div style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.55">`
+                        + `<p style="white-space:pre-wrap;margin:0 0 12px">${String(text).replace(/</g, "&lt;")}</p>`
+                        + (img ? `<img src="${img}" alt="" style="max-width:520px;border-radius:8px">` : "")
+                        + `</div>`,
+                });
+                if (!r || (r.rejected || []).length) throw new Error("SMTP rechazó: " + JSON.stringify(r.rejected));
+            } else if (dj.channel === "webhook") {
+                const url = await getSetting("DISPATCH_WEBHOOK_URL", process.env.DISPATCH_WEBHOOK_URL);
+                const secreto = await getSetting("DISPATCH_WEBHOOK_SECRET", process.env.DISPATCH_WEBHOOK_SECRET);
+                if (!url) throw new Error("Falta la URL del webhook");
+                const cuerpo = JSON.stringify({
+                    evento: p.evento || "alerta",
+                    texto: text,
+                    regla: p.ruleName || null,
+                    dispositivo: p.deviceName || null,
+                    deviceId: dj.deviceId || null,
+                    canal: p.channelName || null,
+                    valor: p.count ?? null,
+                    umbral: p.threshold ?? null,
+                    matricula: p.plate || null,
+                    imagen: imageUrlFor(base, p.snapshotPath, dj.deviceId),
+                    momento: new Date().toISOString(),
+                    // Slack y Teams leen "text"; así el mismo POST sirve para los dos.
+                    text,
+                });
+                const r = await postJson(url, cuerpo, secreto);
+                if (!r.ok) throw new Error("Webhook: " + r.body);
             } else if (dj.channel === "webpush") {
                 const title = p.ruleName || "Alerta de aforo";
                 const body = `${p.deviceName || "Fila"} · aforo ${p.count}${p.threshold != null ? ` / umbral ${p.threshold}` : ""}`;
