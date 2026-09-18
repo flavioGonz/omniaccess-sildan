@@ -248,18 +248,45 @@ async function leerMatricula(jpeg) {
             const h = Math.min((meta.height || 0) - y, Math.round(al * (1 + 2 * aire)));
             if (w > 20 && h > 10) {
                 const recorte = await sharp(jpeg).extract({ left: x, top: y, width: w, height: h }).jpeg({ quality: 95 }).toBuffer();
-                const fino = await invocar("recognize_plate", { image_base64: recorte.toString("base64"), ocr_model: OCR_FINO }, 15000);
-                const it = fino?.[0];
-                const texto = (it?.ocr?.text || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-                const conf = promedio(it?.ocr?.confidence);
-                // Se queda con la segunda lectura solo si viene mejor; no se pisa a ciegas.
-                if (texto.length >= 4 && conf > mejor.confidence) {
-                    mejor = { plate: texto, confidence: conf, chars: it?.ocr?.confidence, caja: mejor.caja };
+                const [a, b] = await Promise.all([
+                    releer(recorte, OCR),
+                    releer(recorte, OCR_FINO),
+                ]);
+                // Los dos modelos sobre la chapa recortada son una SEGUNDA OPINION, no un
+                // reemplazo. Cuando coinciden, esa lectura vale mas que la del cuadro entero
+                // y se toma. Cuando no coinciden, el caracter dudoso existe de verdad: se
+                // deja la primera pero con menos confianza, para que decida la votacion de
+                // la rafaga en vez de darla por buena.
+                //
+                // No es teorico: sobre una chapa real el cuadro entero decia SBW3369 con
+                // 0,98 y el recorte decia SBV3369, que es lo que dice la chapa. La confianza
+                // alta no garantiza que este bien; el acuerdo entre dos modelos ayuda mas.
+                if (a && b && a === b) {
+                    mejor = { plate: a, confidence: Math.max(mejor.confidence, 0.9), chars: null, caja: mejor.caja };
+                } else if (a && b) {
+                    mejor = { ...mejor, confidence: mejor.confidence * 0.8 };
+                } else if (a || b) {
+                    const uno = a || b;
+                    if (uno !== mejor.plate) mejor = { ...mejor, confidence: mejor.confidence * 0.9 };
                 }
             }
         } catch { /* si la segunda lectura falla, vale la primera */ }
     }
     return { plate: mejor.plate, confidence: mejor.confidence, chars: Array.isArray(mejor.chars) ? mejor.chars : null };
+}
+
+/**
+ * Relee una chapa ya recortada. Ojo: esta herramienta devuelve otra forma que la de
+ * deteccion -- { plate } en vez de { ocr: { text } } -- y no trae confianza por caracter.
+ * Leer mal esa forma fue lo que hizo que la segunda lectura no hiciera nada durante un rato.
+ */
+async function releer(recorte, modelo) {
+    try {
+        const d = await invocar("recognize_plate", { image_base64: recorte.toString("base64"), ocr_model: modelo }, 15000);
+        const bruto = d?.[0]?.plate ?? d?.[0]?.ocr?.text ?? "";
+        const texto = String(bruto).toUpperCase().replace(/[^A-Z0-9]/g, "");
+        return texto.length >= 4 ? texto : null;
+    } catch { return null; }
 }
 
 /**
