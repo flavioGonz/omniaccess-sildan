@@ -40,6 +40,7 @@ export async function GET() {
     const redis = parseUrl(process.env.REDIS_URL, "6379");
     const minio = parseUrl(s3Endpoint || process.env.S3_ENDPOINT, "9000");
     const waha = parseUrl(wahaUrl || process.env.OPENWA_URL, "3000");
+    const lpr = parseUrl(process.env.OMNI_LPR_URL, "8000");
     const appPort = process.env.PORT || "10001";
     const hookPort = process.env.WEBHOOK_PORT || "10000";
 
@@ -52,5 +53,7 @@ export async function GET() {
         "webhook-api": { ip: "localhost", port: hookPort, sub: "Event Gateway" },
         redis: { ip: redis.ip, port: redis.port, sub: "Redis + BullMQ" },
         media: { ip: "127.0.0.1", port: "1984", sub: "ffmpeg + go2rtc" },
+        "omni-lpr": { ip: lpr.ip, port: lpr.port, sub: "Lector de matrículas" },
+        tracking: { ip: "localhost", port: "pm2", sub: "Cámaras comunes" },
     });
 }

@@ -580,3 +580,27 @@ model PlateWatch {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 }
+
+/// Avistamiento de una matricula en una camara, con la posicion de esa camara
+/// congelada en el momento (si la camara se mueve despues, el historial no cambia).
+/// Alimenta el recorrido del vehiculo dentro del barrio.
+model PlateSighting {
+  id            String   @id @default(cuid())
+  plate         String
+  deviceId      String?
+  cameraName    String?
+  lat           Float?
+  lng           Float?
+  timestamp     DateTime
+  source        String   @default("LPR") // LPR | TRACK (camara comun + Omni-LPR)
+  eventType     String?                  // ENTRY | EXIT | INTERNAL | MOTION
+  decision      String?                  // GRANT | DENY | UNKNOWN
+  confidence    Float?
+  snapshotUrl   String?
+  accessEventId String?  @unique
+  createdAt     DateTime @default(now())
+
+  @@index([plate, timestamp])
+  @@index([timestamp])
+  @@index([deviceId, timestamp])
+}

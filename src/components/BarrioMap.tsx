@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { CapaRecorrido, PanelRecorrido, useRecorrido } from "@/components/mapa/Recorrido";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, LayersControl, LayerGroup, Pane, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -66,6 +67,7 @@ export default function BarrioMap() {
     const [data, setData] = useState<BarrioMapData | null>(null);
     // Capa base elegida: define el tratamiento de color del mapa.
     const [base, setBase] = useState<string>("Táctico");
+    const rec = useRecorrido();
     const [devices, setDevices] = useState<any[]>([]);
     const [editing, setEditing] = useState(false);
     const [tool, setTool] = useState<Tool>("select");
@@ -263,8 +265,15 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
+                    <CapaRecorrido puntos={rec.puntos} indice={rec.indice} />
                 </MapContainer>
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
+                <PanelRecorrido
+                    puntos={rec.puntos} tramos={rec.tramos} cargando={rec.cargando} error={rec.error}
+                    sinUbicacion={rec.sinUbicacion} plate={rec.plate} setPlate={rec.setPlate}
+                    horas={rec.horas} setHoras={rec.setHoras} buscar={rec.buscar} limpiar={rec.limpiar}
+                    indice={rec.indice} setIndice={rec.setIndice as any}
+                />
 
                 {/* Columnas de flujo en vivo */}
                 {!editing && (

@@ -20,7 +20,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import FloatingEdge from './flow/FloatingEdge';
-import { Database, Server, Smartphone, HardDrive, ShieldCheck, Video, Globe, MessageSquare, Film, Zap, Monitor, Webhook, Camera, Copy, Check } from 'lucide-react';
+import { Database, Server, Smartphone, HardDrive, ShieldCheck, Video, Globe, MessageSquare, Film, Zap, Monitor, Webhook, Camera, Copy, Check, ScanLine, Route } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -154,6 +154,20 @@ const initialNodes: Node[] = [
         data: { label: 'Cola & Cache', icon: Zap, sub: 'Redis 8 + BullMQ', ip: '127.0.0.1', port: '6379', status: 'connected' },
         position: { x: 700, y: 450 },
         style: { background: '#1e1e24', color: '#fff', border: '2px solid #f59e0b', width: 200, borderRadius: 12, padding: 12 },
+        type: 'default',
+    },
+    {
+        id: 'omni-lpr',
+        data: { label: 'Omni-LPR', icon: ScanLine, sub: 'Lector de matrículas', ip: '127.0.0.1', port: '8000', status: 'unknown' },
+        position: { x: 700, y: 640 },
+        style: { background: '#1e1e24', color: '#fff', border: '2px solid #14b8a6', width: 200, borderRadius: 12, padding: 12 },
+        type: 'default',
+    },
+    {
+        id: 'tracking',
+        data: { label: 'Seguimiento', icon: Route, sub: 'Cámaras comunes', ip: 'localhost', port: 'pm2', status: 'unknown' },
+        position: { x: 400, y: 640 },
+        style: { background: '#1e1e24', color: '#fff', border: '2px solid #a78bfa', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {

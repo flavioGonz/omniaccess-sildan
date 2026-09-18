@@ -46,6 +46,7 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/api/queue/report/tick') ||
         pathname.startsWith('/api/onvif/notify') ||
         pathname.startsWith('/api/snapshot/') ||
+        pathname.startsWith('/api/tracking/') ||
         pathname.startsWith('/api/nvr/') ||
         pathname.startsWith('/api/clip/') ||
         pathname.startsWith('/facepad/')

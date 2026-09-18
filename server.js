@@ -17,6 +17,7 @@ console.log(`DEBUG ENV: Target Database: ${maskedUrl}`);
 const { createServer } = require("https");
 const http = require("http");
 const { PrismaClient } = require("@prisma/client");
+const { registrarAvistamiento } = require("./lib-sightings");
 const { Server } = require("socket.io");
 const { XMLParser } = require("fast-xml-parser");
 const fs = require("fs");
@@ -1403,6 +1404,19 @@ const handleWebhook = async (req, res, logPrefix) => {
         });
 
         console.log(`${logPrefix} Event created: ${event.id} (${accessDecision}) - Plate: ${finalPlate}`);
+
+        // Recorrido del vehiculo: se registra al costado, sin demorar la barrera.
+        registrarAvistamiento({
+            plate: finalPlate,
+            deviceId: device ? device.id : null,
+            cameraName: device?.name || null,
+            timestamp: eventTimestamp,
+            source: "LPR",
+            eventType: device?.direction || "ENTRY",
+            decision: accessDecision || "DENY",
+            snapshotUrl: relativeImagePath || null,
+            accessEventId: event.id,
+        }).catch(() => { });
 
         // ---- MERODEO (loitering) detection — LPR only ----
         try { await checkMerodeo(finalPlate, device, event, logPrefix); }
