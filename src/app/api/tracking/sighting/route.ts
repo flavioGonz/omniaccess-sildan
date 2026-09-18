@@ -110,9 +110,30 @@ export async function POST(req: NextRequest) {
         orderBy: { timestamp: "desc" },
         take: 60,
     });
-    const previo = recientes.find((f) => mismaChapa(f.plate, patente)) || null;
+    const porChapa = recientes.find((f) => mismaChapa(f.plate, patente)) || null;
 
-    const quieto = !!(previo && caja && estaQuieto(caja, leerCaja(previo.bbox)));
+    /**
+     * Si la matrícula no engancha con nada, el recuadro todavía puede.
+     *
+     * Dos lecturas en el mismo lugar del cuadro son el mismo vehículo, diga lo que diga
+     * el OCR. Pasó con un auto real: la misma chapa quedó como ABM5064 y como ADH5004,
+     * con el recuadro idéntico (x=0.3287, w=0.0306) — tres caracteres de diferencia, así
+     * que compararlas por texto no las junta nunca, y aflojar esa comparación a tres
+     * diferencias empezaría a juntar autos distintos de verdad.
+     *
+     * El recuadro es una identidad más fuerte que la matrícula, pero se usa SOLO para
+     * estadías, nunca para pasadas. Si se usara también para las pasadas, un auto que
+     * cruza justo por donde hay otro estacionado se fusionaría con él, que es
+     * exactamente el problema que se acaba de resolver en la pasarela.
+     */
+    const porLugar = (!porChapa && caja && body.enPuerta === false)
+        ? recientes.find((f) => f.estado === "ESTACIONADO" && estaQuieto(caja, leerCaja(f.bbox))) || null
+        : null;
+
+    const previo = porChapa || porLugar;
+
+    // Si el enganche fue por el recuadro, por definición está en el mismo lugar.
+    const quieto = !!porLugar || !!(previo && caja && estaQuieto(caja, leerCaja(previo.bbox)));
     const fueraDePuerta = body.enPuerta === false;
 
     /**

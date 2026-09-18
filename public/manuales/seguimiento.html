@@ -1,0 +1,294 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8">
+<title>OmniAccess LPR · Seguimiento de vehículos</title>
+<style>
+:root{--c:#14b8a6;--tinta:#111827;--suave:#6b7280;--linea:#e5e7eb;--fondo:#fff;--code:#f3f4f6}
+*{box-sizing:border-box}
+html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#525659;font:15px/1.65 "Segoe UI",system-ui,-apple-system,sans-serif;color:var(--tinta)}
+.hoja{background:var(--fondo);width:210mm;min-height:297mm;margin:14px auto;padding:22mm 20mm 20mm;box-shadow:0 4px 24px rgba(0,0,0,.35)}
+
+/* ── PORTADA ── (posicionamiento absoluto: se imprime igual siempre) */
+.portada{position:relative;width:210mm;height:296.9mm;padding:0;overflow:hidden;color:#fff;
+  background:linear-gradient(150deg,#0b1220 0%,#111a2e 45%,var(--c) 190%)}
+.portada .malla{position:absolute;inset:0;opacity:.5;
+  background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+  background-size:26px 26px}
+.portada .halo{position:absolute;width:640px;height:640px;right:-220px;top:-180px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 62%);opacity:.30}
+.portada .halo2{position:absolute;width:420px;height:420px;left:-160px;bottom:-140px;border-radius:50%;
+  background:radial-gradient(circle,var(--c) 0%,transparent 65%);opacity:.18}
+.p-top{position:absolute;top:24mm;left:22mm;right:22mm;display:flex;align-items:center;justify-content:space-between}
+.marca{display:flex;align-items:center;gap:13px}
+.marca svg{filter:drop-shadow(0 6px 18px rgba(14,165,233,.45))}
+.marca .n{font-size:21px;font-weight:800;letter-spacing:.15em;line-height:1}
+.marca .n .thin{font-weight:300}
+.marca .s{font-size:9px;letter-spacing:.32em;color:#8fa0b6;margin-top:6px}
+.linea-prod{font-size:9.5px;font-weight:800;letter-spacing:.22em;color:#cbd5e1;
+  border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:6px 13px;white-space:nowrap}
+.p-mid{position:absolute;left:22mm;right:22mm;bottom:62mm}
+.kicker{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.26em;color:var(--c);
+  border:1px solid var(--c);border-radius:999px;padding:5px 13px;margin-bottom:20px}
+.p-mid h1{font-size:53px;line-height:1.03;margin:0 0 8px;font-weight:800;letter-spacing:-.02em}
+.p-mid h2{font-size:21px;margin:0 0 22px;font-weight:500;color:#c7d2de}
+.p-mid .para{max-width:118mm;color:#9aa4b2;font-size:13.5px;line-height:1.6;border-left:3px solid var(--c);padding-left:14px}
+.p-bot{position:absolute;left:22mm;right:22mm;bottom:24mm;display:flex;justify-content:space-between;align-items:flex-end;
+  padding-top:14px;border-top:1px solid rgba(255,255,255,.12)}
+.p-bot .campo{font-size:11px;color:#8b95a5}
+.p-bot .campo b{display:block;color:#e5e7eb;font-size:13.5px;font-weight:600;margin-top:3px}
+.p-bot .der{text-align:right}
+
+/* ── ÍNDICE ── (siempre en una sola hoja: dos columnas, y una variante
+   compacta que el compilador activa cuando no entra) */
+.indice h2{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.indice .sub{color:var(--suave);font-size:12.5px;margin-bottom:16px}
+.indice ol{list-style:none;padding:0;margin:0;counter-reset:cap;columns:2;column-gap:11mm}
+.indice li{margin:0;break-inside:avoid;page-break-inside:avoid}
+.indice li a{display:flex;align-items:baseline;gap:6px;text-decoration:none;color:var(--tinta);padding:2.5px 0}
+.indice .dots{flex:1;border-bottom:1px dotted #cbd5e1;transform:translateY(-3px)}
+.indice .pg{font-variant-numeric:tabular-nums;color:var(--suave);font-size:11.5px;min-width:18px;text-align:right}
+.indice .l1 .pg{color:var(--tinta);font-weight:700}
+.indice .l1{counter-increment:cap;font-weight:700;margin-top:8px;border-top:1px solid var(--linea);padding-top:5px;font-size:13px}
+.indice .l1:first-child{margin-top:0;border-top:0;padding-top:0}
+.indice .l1 .t::before{content:counter(cap) ". ";color:var(--c)}
+.indice .l2{padding-left:13px;font-size:11.5px;color:#4b5563}
+.indice.compacto ol{column-gap:8mm}
+.indice.compacto li a{padding:1px 0}
+.indice.compacto .l1{margin-top:5px;padding-top:3px;font-size:11.5px}
+.indice.compacto .l2{font-size:10.2px;padding-left:11px}
+.indice.compacto .pg{font-size:10px}
+
+/* ── CUERPO ── */
+h1.cap{font-size:30px;margin:0 0 16px;padding-bottom:11px;border-bottom:3px solid var(--c);letter-spacing:-.015em;
+  page-break-before:always;break-before:page}
+.hoja > h1.cap:first-child{page-break-before:auto;break-before:auto}
+h2{font-size:20.5px;margin:30px 0 10px;color:#0f172a}
+h3{font-size:16px;margin:22px 0 7px;color:#1f2937}
+h4{font-size:14px;margin:16px 0 5px;color:#374151}
+p{margin:0 0 11px}
+ul,ol{margin:0 0 12px;padding-left:22px}
+li{margin:4px 0}
+code{background:var(--code);padding:1.5px 5px;border-radius:4px;font:12.5px/1.5 ui-monospace,Menlo,Consolas,monospace;color:#0f172a}
+pre{background:#0f172a;color:#e2e8f0;padding:13px 15px;border-radius:9px;overflow:auto;margin:0 0 13px}
+pre code{background:none;color:inherit;font-size:12px}
+table{width:100%;border-collapse:collapse;margin:0 0 15px;font-size:13.5px}
+th{background:#f8fafc;text-align:left;padding:8px 10px;border-bottom:2px solid var(--c);font-weight:700}
+td{padding:7px 10px;border-bottom:1px solid var(--linea);vertical-align:top}
+tr:nth-child(even) td{background:#fcfcfd}
+.ruta{display:flex;align-items:center;gap:10px;background:#f8fafc;border-left:3px solid var(--c);
+  padding:8px 13px;border-radius:0 7px 7px 0;font-size:13px;margin:0 0 15px}
+.ruta-l{font-size:9px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--c);white-space:nowrap}
+blockquote{margin:0 0 14px;padding:11px 15px;border-radius:8px;font-size:13.5px;border-left:4px solid}
+blockquote.nota{background:#f8fafc;border-color:#94a3b8}
+blockquote.alerta{background:#fffbeb;border-color:#f59e0b}
+blockquote.tiempo{background:#f0fdf4;border-color:#10b981}
+blockquote.tiempo::before{content:"⏱ Tiempo de respuesta — ";font-weight:700;color:#047857}
+blockquote.alerta::before{content:"⚠ ";font-weight:700}
+/* Las figuras se limitan en alto: una captura vertical a página completa obligaba
+   a saltar de hoja y dejaba la anterior casi vacía. */
+figure{margin:14px 0 16px;page-break-inside:avoid;break-inside:avoid;text-align:center}
+.lienzo{position:relative;line-height:0;display:inline-block;max-width:100%}
+figure img{max-width:100%;max-height:104mm;width:auto;border:1px solid var(--linea);border-radius:9px;
+  box-shadow:0 2px 10px rgba(0,0,0,.09);display:block}
+figure.ancha img{max-height:126mm}
+figure.alta img{max-height:142mm}
+figcaption{font-size:11.5px;color:var(--suave);margin-top:6px;text-align:center}
+figure.falta .ph{border:2px dashed #cbd5e1;border-radius:9px;padding:30px;text-align:center;background:#f8fafc;color:var(--suave)}
+figure.falta code{display:block;margin:7px 0 3px;color:#b91c1c}
+/* ── marcaciones sobre la captura ──
+   .caja = recuadro sobre el elemento real; .eti = número + texto, pegados al
+   recuadro y SOBRE la foto (antes el texto iba en una leyenda debajo).       */
+.caja{position:absolute;border:2.4px solid var(--c);border-radius:7px;z-index:2;
+  box-shadow:0 0 0 2px rgba(255,255,255,.9),0 2px 9px rgba(0,0,0,.28)}
+.eti{position:absolute;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;z-index:4;
+  background:var(--c);color:#fff;border-radius:13px;padding:2px 9px 2px 3px;
+  font:600 10.5px/1.55 "Segoe UI",sans-serif;letter-spacing:.01em;
+  box-shadow:0 0 0 2px #fff,0 2px 7px rgba(0,0,0,.45)}
+.eti .n{width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.3);
+  font:800 10px/16px "Segoe UI",sans-serif;text-align:center;flex:0 0 auto}
+.caja.arriba>.eti{top:0;transform:translateY(-112%)}
+.caja.abajo>.eti{top:100%;transform:translateY(12%)}
+.caja.izq>.eti{left:-3px}
+.caja.der>.eti{right:-3px}
+.mk{position:absolute;min-width:21px;height:21px;border-radius:11px;padding:0 6px;
+  background:var(--c);color:#fff;font:800 12px/21px "Segoe UI",sans-serif;text-align:center;
+  box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.4);z-index:3;white-space:nowrap}
+.caja>.mk{left:-9px;top:-11px}
+.punto{position:absolute;transform:translate(-50%,-50%);z-index:3}
+hr{border:0;border-top:1px solid var(--linea);margin:22px 0}
+
+/* ── Cortes de página: que no se parta lo que se lee junto ── */
+h1,h2,h3,h4{break-after:avoid;page-break-after:avoid}
+h2,h3,h4{break-inside:avoid;page-break-inside:avoid}
+p,li{orphans:3;widows:3}
+table,blockquote,.ruta,pre{break-inside:avoid;page-break-inside:avoid}
+ul,ol{break-inside:auto}
+/* un título nunca queda solo al pie: arrastra lo que sigue */
+h2+p,h2+ul,h2+ol,h2+table,h2+figure,h2+blockquote,h2+.ruta,
+h3+p,h3+ul,h3+ol,h3+table,h3+figure,h3+blockquote{break-before:avoid;page-break-before:avoid}
+
+/* Todo el manual se imprime en UN solo pase, para que los enlaces del índice
+   sobrevivan: la portada va a sangre con @page:first y el pie se dibuja después. */
+@page{size:A4;margin:16mm 15mm 17mm}
+@page:first{margin:0}
+@media print{
+  html,body{margin:0;padding:0;background:#fff}
+  .hoja{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}
+  .portada{width:210mm;height:296.9mm;page-break-after:always;border-radius:0}
+  .indice{page-break-after:always}
+  .noprint{display:none}
+}
+/* La portada se imprime a sangre completa: se genera en un pase aparte, con
+   márgenes de página en cero (ver build). */
+body.solo-portada .hoja:not(.portada){display:none}
+body.sin-portada .portada{display:none}
+.noprint{position:fixed;right:16px;bottom:16px;z-index:9}
+.noprint button{background:var(--c);color:#fff;border:0;border-radius:9px;padding:11px 17px;font-weight:700;cursor:pointer;
+  box-shadow:0 5px 18px rgba(0,0,0,.3)}
+</style></head><body>
+
+<section class="hoja portada">
+  <div class="malla"></div><div class="halo"></div><div class="halo2"></div>
+  <div class="p-top">
+    <div class="marca">
+      <svg width="46" height="46" viewBox="0 0 64 64" aria-label="OmniAccess">
+  <defs><linearGradient id="oaG46" x1="6" y1="58" x2="58" y2="6" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#0ea5e9"/><stop offset=".55" stop-color="#3b82f6"/><stop offset="1" stop-color="#22d3ee"/>
+  </linearGradient></defs>
+  <path d="M51.7 16.6 A25 25 0 1 0 51.7 47.4" fill="none" stroke="url(#oaG46)" stroke-width="5.4" stroke-linecap="round"/>
+  <path d="M41 21.3 A14 14 0 1 0 41 42.7" fill="none" stroke="url(#oaG46)" stroke-width="4.4" stroke-linecap="round" opacity=".78"/>
+  <path d="M41.5 24 L49.8 32 L41.5 40" fill="none" stroke="url(#oaG46)" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M53.4 27.2 L58.2 32 L53.4 36.8" fill="none" stroke="url(#oaG46)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+</svg>
+      <div><div class="n"><span class="thin">OMNI</span>ACCESS</div><div class="s">CONTROL Y ACCESO</div></div>
+    </div>
+    <div class="linea-prod">OMNIACCESS LPR</div>
+  </div>
+  <div class="p-mid">
+    <span class="kicker">CÁMARAS INTERIORES, LECTOR EN CONTENEDOR Y RECORRIDO</span>
+    <h1>Seguimiento de vehículos</h1>
+    <h2>OmniAccess LPR</h2>
+    <p class="para">El técnico que suma cámaras comunes al seguimiento: alta por RTSP, calibración, línea de pasada y diagnóstico.</p>
+  </div>
+  <div class="p-bot">
+    <div class="campo">Versión<b>2026.09</b></div>
+    <div class="campo">Emitido<b>18 de setiembre de 2026</b></div>
+    <div class="campo der">Infratec<b>infratec.com.uy</b></div>
+  </div>
+</section>
+
+<section class="hoja indice">
+  <h2>Contenido</h2>
+  <div class="sub">OmniAccess LPR · Seguimiento de vehículos</div>
+  <ol><li class="l1"><a href="#que-es-el-seguimiento"><span class="t">Qué es el seguimiento</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#las-dos-clases-de-camara"><span class="t">Las dos clases de cámara</span><span class="dots"></span><span class="pg"></span></a></li><li class="l1"><a href="#como-funciona-por-dentro"><span class="t">Cómo funciona por dentro</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#1-alguien-decide-cuando-leer"><span class="t">1. Alguien decide cuándo leer</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#2-se-recorta-la-zona-de-interes"><span class="t">2. Se recorta la zona de interés</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#3-el-lector-mira-el-recorte-no-el-cuadro-entero"><span class="t">3. El lector mira el recorte, no el cuadro entero</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#4-se-juntan-varios-cuadros-no-uno"><span class="t">4. Se juntan varios cuadros, no uno</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#5-cada-vehiculo-del-cuadro-se-resuelve-por-separado"><span class="t">5. Cada vehículo del cuadro se resuelve por separado</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#6-se-descarta-lo-que-no-paso-por-donde-interesa"><span class="t">6. Se descarta lo que no pasó por donde interesa</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#7-un-auto-quieto-no-es-una-pasada-nueva"><span class="t">7. Un auto quieto no es una pasada nueva</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#8-se-guarda-un-avistamiento-y-se-arma-el-trayecto"><span class="t">8. Se guarda un avistamiento, y se arma el trayecto</span><span class="dots"></span><span class="pg"></span></a></li><li class="l1"><a href="#dar-de-alta-una-camara-interior"><span class="t">Dar de alta una cámara interior</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#paso-1-la-url-del-canal"><span class="t">Paso 1 · La URL del canal</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#paso-2-probarla"><span class="t">Paso 2 · Probarla</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#paso-3-calibrarla"><span class="t">Paso 3 · Calibrarla</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#paso-4-ubicarla-en-el-mapa"><span class="t">Paso 4 · Ubicarla en el mapa</span><span class="dots"></span><span class="pg"></span></a></li><li class="l1"><a href="#mirar-como-viene-funcionando"><span class="t">Mirar cómo viene funcionando</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#lo-primero-que-hay-que-mirar"><span class="t">Lo primero que hay que mirar</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#rendimiento"><span class="t">Rendimiento</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#lecturas-por-hora"><span class="t">Lecturas por hora</span><span class="dots"></span><span class="pg"></span></a></li><li class="l1"><a href="#cuando-algo-no-anda"><span class="t">Cuando algo no anda</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#encender-y-apagar-todo-el-seguimiento"><span class="t">Encender y apagar todo el seguimiento</span><span class="dots"></span><span class="pg"></span></a></li><li class="l1"><a href="#el-lector-por-dentro"><span class="t">El lector por dentro</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#los-modelos"><span class="t">Los modelos</span><span class="dots"></span><span class="pg"></span></a></li><li class="l2"><a href="#la-lectura-en-dos-pasos"><span class="t">La lectura en dos pasos</span><span class="dots"></span><span class="pg"></span></a></li></ol>
+</section>
+
+<section class="hoja">
+<h1 id="que-es-el-seguimiento" class="cap">Qué es el seguimiento</h1>
+<p>Las cámaras de entrada y salida leen la matrícula ellas mismas y abren la barrera. Dentro del barrio no hay nada de eso: hay cámaras comunes, que ven pero no leen.</p>
+<p>El seguimiento las convierte en lectores. Un contenedor llamado <strong>Omni-LPR</strong>, que corre sobre la placa de video del servidor, recibe cuadros de esas cámaras por RTSP, encuentra la matrícula y la registra. Con eso el sistema puede dibujar por dónde anduvo un vehículo adentro del barrio.</p>
+<blockquote class="nota">Todo esto corre por fuera del camino de la barrera. Si el contenedor se cae, si la placa se satura o si una cámara deja de responder, el control de acceso sigue funcionando igual. El seguimiento es información, no decisión.</blockquote>
+<h2 id="las-dos-clases-de-camara">Las dos clases de cámara</h2>
+<table><thead><tr><th>Cámara LPR</th><th>Cámara Interior</th></tr></thead><tbody><tr><td>Para qué</td><td>entrada y salida</td><td>seguimiento adentro</td></tr><tr><td>Quién lee la matrícula</td><td>la cámara, de fábrica</td><td>el contenedor Omni-LPR</td></tr><tr><td>Cómo llega el dato</td><td>la cámara avisa por red</td><td>la pasarela le saca cuadros</td></tr><tr><td>Abre barrera</td><td>sí</td><td>no</td></tr><tr><td>Qué deja registrado</td><td>un acceso y un avistamiento</td><td>solo un avistamiento</td></tr></tbody></table>
+<p>Esa diferencia explica por qué los avistamientos no aparecen mezclados con los accesos: una lectura interior no decide nada, y ponerla entre las entradas y salidas falsearía el registro. Tienen su propia vista en el historial.</p>
+<h1 id="como-funciona-por-dentro" class="cap">Cómo funciona por dentro</h1>
+<p>Conviene entenderlo porque casi todos los problemas de lectura se resuelven en uno de estos cuatro pasos.</p>
+<h2 id="1-alguien-decide-cuando-leer">1. Alguien decide cuándo leer</h2>
+<p>Leer todos los cuadros todo el tiempo no se puede: son veinticinco por segundo y por cámara. Hace falta algo que diga <em>ahora</em>. Hay tres formas, y cuál se puede usar depende de la cámara.</p>
+<h3 id="camaras-con-analitica-propia-acusense-y-similares">Cámaras con analítica propia (AcuSense y similares)</h3>
+<p>Distinguen una persona de un auto dentro del propio equipo. Se les configura una regla con objetivo <em>vehículo</em> y el sistema se queda escuchando su flujo de avisos. La placa de video queda en reposo hasta que pasa un auto de verdad.</p>
+<table><thead><tr><th>Modo</th><th>Cómo dispara</th><th>Cuándo conviene</th></tr></thead><tbody><tr><td><strong>Al cruzar una línea</strong></td><td>En el instante en que un vehículo cruza una raya dibujada sobre el cuadro</td><td><strong>La mejor para una calle.</strong> La lectura queda centrada en el paso, y un auto estacionado dentro del encuadre deja de disparar</td></tr><tr><td><strong>Al entrar en una zona</strong></td><td>Mientras haya un vehículo dentro del área marcada</td><td>Para un sector entero: una playa de estacionamiento, una rotonda. Ojo: un auto quieto adentro vuelve a disparar</td></tr></tbody></table>
+<h3 id="camaras-que-solo-entregan-rtsp">Cámaras que solo entregan RTSP</h3>
+<p>Son la mayoría de las cámaras comunes, y las que van a aparecer cuando se sumen equipos de otras marcas o más viejos. No tienen analítica: dan video y nada más.</p>
+<table><thead><tr><th>Modo</th><th>Cómo dispara</th><th>Qué implica</th></tr></thead><tbody><tr><td><strong>Por cambio de imagen</strong></td><td>Lo decide el servidor mirando si la imagen cambió respecto del cuadro anterior</td><td>Funciona con <strong>cualquier</strong> cámara. A cambio trabaja más, y se despierta también con una sombra, una rama o un peatón</td></tr></tbody></table>
+<p>No es un modo de segunda: es el modo pensado para ese caso, y anda. Pero exige más cuidado en dos cosas, porque no hay nadie filtrando antes:</p>
+<ul><li><strong>La zona de interés tiene que ser ajustada.</strong> Todo lo que quede adentro puede despertarlo.</li><li><strong>La sensibilidad de escena hay que buscarla.</strong> Muy baja, se dispara con cualquier cosa; muy alta, se pierde un auto rápido.</li></ul>
+<blockquote class="nota">El calibrador ya sabe cuál de los tres puede usar cada cámara: los modos que el equipo no soporta aparecen apagados y dicen por qué. No hay que averiguarlo a mano.</blockquote>
+<blockquote class="nota">Si una cámara con analítica deja de avisar durante quince minutos, el sistema vuelve solo al cambio de imagen y lo deja anotado. Prefiere seguir leyendo algo antes que quedarse mudo.</blockquote>
+<h2 id="2-se-recorta-la-zona-de-interes">2. Se recorta la zona de interés</h2>
+<p>La cámara entrega un cuadro grande, y casi siempre la mitad es pared, vereda o cielo. La <strong>zona de interés</strong> marca por dónde pasan los autos, y el sistema recorta ahí antes de leer.</p>
+<p>Esto es lo que más mueve la aguja, y por dos motivos a la vez: la matrícula llega con más detalle, y ocupa una porción mayor de lo que el lector mira. Los dos suman.</p>
+<h2 id="3-el-lector-mira-el-recorte-no-el-cuadro-entero">3. El lector mira el recorte, no el cuadro entero</h2>
+<p>Acá hay algo que conviene entender porque va contra la intuición. El lector <strong>achica cualquier imagen</strong> a un tamaño fijo antes de buscar la matrícula. Entonces lo que decide si la ve no son los píxeles de la foto, sino qué porción del encuadre ocupa la chapa.</p>
+<p>Mandarle una panorámica de la calle entera, por más resolución que tenga, es peor que mandarle pedazos. Medido sobre el mismo cuadro, con un auto cuya patente se lee perfecto a ojo:</p>
+<table><thead><tr><th>Lo que se le manda</th><th>Resultado</th></tr></thead><tbody><tr><td>la calle entera, 1600 × 670</td><td>no ve nada</td></tr><tr><td>la mitad izquierda, 720 × 468</td><td>la lee, 87%</td></tr><tr><td>recortado al auto, 352 × 234</td><td>la lee, 91%</td></tr></tbody></table>
+<p>Por eso el sistema parte el cuadro en pedazos con un poco de solape y lee cada uno por separado. Y por eso <strong>cerrar la zona de interés ayuda dos veces</strong>: la matrícula llega con más detalle, y ocupa más de lo que el lector mira.</p>
+<h2 id="4-se-juntan-varios-cuadros-no-uno">4. Se juntan varios cuadros, no uno</h2>
+<p>Una lectura suelta es una apuesta. Cada aviso abre una <strong>ráfaga</strong>: se juntan varios cuadros, incluidos los de justo antes del aviso —que suelen ser los mejores, porque el vehículo recién entra en cuadro— y se leen todos.</p>
+<p>Después se vota carácter por carácter. Si tres cuadros dicen <code>SCV4478</code> y uno dice <code>SCV447B</code>, gana el 8. Eso es lo que corrige las confusiones típicas del lector: el 0 con la O, el 8 con la B.</p>
+<p>Una lectura se da por buena si coinciden <strong>al menos dos cuadros</strong>, o si una sola viene muy segura. Lo que aparece una vez y no se repite se descarta: casi siempre es un invento.</p>
+<h2 id="5-cada-vehiculo-del-cuadro-se-resuelve-por-separado">5. Cada vehículo del cuadro se resuelve por separado</h2>
+<p>Una calle de barrio casi nunca tiene un solo auto. Lo normal es uno pasando y dos estacionados contra el cordón, y las tres matrículas se leen bien.</p>
+<p>Esto importa más de lo que parece, porque el sesgo va para el lado malo: <strong>un auto quieto se lee mejor que uno en movimiento</strong> — está enfocado y no arrastra. Si de cada ráfaga saliera una sola matrícula, ganaría casi siempre el estacionado y se perdería justo el que pasó.</p>
+<p>Por eso las lecturas se agrupan por vehículo y cada grupo vota su propia matrícula. El agrupamiento es <strong>por parecido y no por texto exacto</strong>: el lector no devuelve siempre lo mismo para la misma chapa, así que agrupar por texto exacto partiría en dos al mismo auto. Dos vehículos distintos no coinciden en seis o siete posiciones.</p>
+<h2 id="6-se-descarta-lo-que-no-paso-por-donde-interesa">6. Se descarta lo que no pasó por donde interesa</h2>
+<p>Leer bien una matrícula no alcanza: también hay que saber si ese auto <strong>pasó</strong>. Una cámara de calle ve, además de los que circulan, los que están estacionados contra el cordón, y esos se leen igual de bien una y otra vez.</p>
+<p>Por eso, antes de guardar nada, la lectura pasa por una compuerta. La compuerta es la <strong>zona de interés</strong> o la <strong>línea de pasada</strong>, según cuál tenga elegida esa cámara en el calibrador — se cambia de una a otra ahí mismo, y la que está activa es la que filtra.</p>
+<p>Lo que se mira no es el cuadro entero sino <strong>dónde cayó la matrícula adentro del cuadro</strong>. Con la zona, la matrícula tiene que caer adentro del rectángulo. Con la línea, tiene que caer cerca de ella.</p>
+<h3 id="la-linea-es-una-compuerta-no-un-alambre">La línea es una compuerta, no un alambre</h3>
+<p>Un alambre de verdad — cruzar de un lado al otro — necesita ver el mismo auto dos veces, una de cada lado. Acá los autos no van despacio y no hay barrera que los frene, así que muchas pasadas dejan una sola lectura buena: pedir el cruce perdería justo los autos que más interesan.</p>
+<p>Entonces la línea define una <strong>banda</strong>: cuenta lo que pasa cerca de ella y descarta el resto. El ancho de la banda no se mide en píxeles fijos sino en <strong>alturas de la matrícula leída</strong>. La matrícula se ve más chica cuanto más lejos está, así que medida en alturas de matrícula la banda se adapta sola a la distancia, sin tener que calibrar nada por cámara.</p>
+<p>Conviene dibujar la línea <strong>atravesando el carril</strong>, más o menos perpendicular al sentido en que vienen los autos, y en la parte del cuadro donde las matrículas se leen mejor — ni el fondo lejano ni el borde de abajo.</p>
+<h2 id="7-un-auto-quieto-no-es-una-pasada-nueva">7. Un auto quieto no es una pasada nueva</h2>
+<p>Un auto estacionado justo sobre la línea sí entra por la banda, y se leería una y otra vez. Esa es la segunda mitad del trabajo.</p>
+<p>Cada avistamiento guarda <strong>dónde apareció la matrícula dentro del cuadro</strong>. Si la próxima vez aparece en el mismo lugar, no es un paso nuevo: es el mismo auto, quieto. En vez de crear otra fila, se <strong>extiende la estadía</strong> de la que ya existe.</p>
+<p>Un vehículo así:</p>
+<ul><li><strong>no dibuja recorrido</strong> en el mapa — un auto quieto no genera línea. Aparece aparte, con un marcador cuadrado gris y cuánto lleva ahí;</li><li><strong>queda con su propia marca en el historial</strong>, con la duración de la estadía, en vez de repetir la misma fila decenas de veces;</li><li><strong>no cuenta para la efectividad</strong>, que así vuelve a medir el trabajo del lector y no el estacionamiento.</li></ul>
+<p>Si el auto arranca y se va, la próxima lectura ya cae en otro lugar del cuadro y vuelve a contarse como pasada, con su estadía cerrada.</p>
+<h3 id="los-dos-avisos">Los dos avisos</h3>
+<p>De la estadía salen dos eventos, que se pueden notificar como cualquier otro (» Notificaciones → Reglas, modo LPR):</p>
+<table><thead><tr><th>Aviso</th><th>Cuándo sale</th></tr></thead><tbody><tr><td><strong>Vehículo estacionó</strong></td><td>cuando la estadía se consolida</td></tr><tr><td><strong>Vehículo se retiró</strong></td><td>cuando el vehículo deja de verse</td></tr></tbody></table>
+<p>El "estacionó" <strong>no sale en la primera lectura quieta</strong>, a propósito: un auto parado en la esquina esperando para doblar también se lee quieto. Se espera a que lleve un rato ahí — tres minutos por defecto, <code>TRACKING_PARKED_CONFIRM_MIN</code>.</p>
+<p>El "se retiró" es distinto de todo lo demás del seguimiento: <strong>un auto que se va no genera ninguna lectura</strong>. No hay nada que la cámara vea; se nota por ausencia. Por eso hay un barrido que corre cada minuto y cierra las estadías que llevan rato sin refrescarse — doce minutos por defecto, <code>TRACKING_PARKED_EXPIRE_MIN</code>. La única excepción es el auto que arranca delante de la cámara y vuelve a leerse en otro lugar del cuadro: ese cierra en el acto.</p>
+<p>Eso quiere decir que el "se retiró" llega con el retraso del vencimiento. Es el precio de detectar una ausencia, y bajarlo demasiado hace que un auto tapado un rato por un camión figure como que se fue y volvió.</p>
+<p>Los dos mecanismos se complementan a propósito: el de afuera (la banda) saca a los que están lejos de donde interesa, y el de adentro (el quieto) agrupa a los que están cerca pero no se mueven. Por eso la banda puede ser generosa sin volver a llenar el historial.</p>
+<h2 id="8-se-guarda-un-avistamiento-y-se-arma-el-trayecto">8. Se guarda un avistamiento, y se arma el trayecto</h2>
+<p>Del paso entero queda <strong>un</strong> registro, no uno por cuadro. Los avistamientos de la misma matrícula cercanos en el tiempo se agrupan en un trayecto, que es lo que el mapa dibuja.</p>
+<h1 id="dar-de-alta-una-camara-interior" class="cap">Dar de alta una cámara interior</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Dispositivos LPR → Nuevo → tipo <strong>Cámara Interior (seguimiento)</strong></div>
+<h2 id="paso-1-la-url-del-canal">Paso 1 · La URL del canal</h2>
+<p>Cada cámara, o cada canal del grabador, es un dispositivo aparte. Siempre el flujo principal.</p>
+<table><thead><tr><th>Marca</th><th>Cómo se arma</th></tr></thead><tbody><tr><td>Hikvision y NVR</td><td><code>rtsp://usuario:clave@IP:554/Streaming/Channels/101</code></td></tr><tr><td>Dahua</td><td><code>rtsp://usuario:clave@IP:554/cam/realmonitor?channel=1&amp;subtype=0</code></td></tr></tbody></table>
+<p>En Hikvision, <code>101</code> es el canal 1 en flujo principal y <code>201</code> el canal 2. El segundo dígito es el flujo: 1 principal, 2 secundario.</p>
+<blockquote class="alerta">Si la clave tiene paréntesis, arroba o signos raros, hay que escribirlos codificados o la cámara rechaza la conexión. El sistema lo hace solo al guardar; si armás la URL a mano, tenelo en cuenta.</blockquote>
+<h2 id="paso-2-probarla">Paso 2 · Probarla</h2>
+<p>El botón <strong>Probar</strong> saca un cuadro real y te dice si el lector ve la matrícula. Es la forma más rápida de saber si la cámara sirve para esto antes de seguir configurando.</p>
+<p>Que no lea en la prueba no siempre es un problema: si no pasaba ningún auto, no hay nada que leer. Probá de nuevo con un vehículo en el encuadre.</p>
+<h2 id="paso-3-calibrarla">Paso 3 · Calibrarla</h2>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Dispositivos LPR → la cámara → <strong>Calibrar</strong></div>
+<table><thead><tr><th>Ajuste</th><th>Qué hace</th><th>Cuándo tocarlo</th></tr></thead><tbody><tr><td>Zona de interés</td><td>Marca por dónde pasan los autos</td><td>Siempre. Es el ajuste que más rinde</td></tr><tr><td>Línea de pasada</td><td>La raya que el auto cruza al pasar</td><td>Si la cámara la soporta, es el mejor disparo</td></tr><tr><td>Quién decide cuándo leer</td><td>Línea, zona o cambio de imagen</td><td>La primera que la cámara permita</td></tr><tr><td>Confianza mínima</td><td>Por debajo de eso la lectura se descarta</td><td>Subilo si aparecen matrículas inventadas</td></tr><tr><td>Sensibilidad de escena</td><td>Cuánto tiene que cambiar la imagen</td><td>Solo en modo escena</td></tr><tr><td>Cuadros por segundo</td><td>Ritmo de muestreo</td><td>Rara vez</td></tr></tbody></table>
+<p>La zona de interés se dibuja sobre un cuadro en vivo de la cámara. Dejá afuera la vereda, la pared y el cielo: lo que quede adentro es lo único que el lector va a mirar.</p>
+<h2 id="paso-4-ubicarla-en-el-mapa">Paso 4 · Ubicarla en el mapa</h2>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Mapa → arrastrar la cámara hasta donde está instalada</div>
+<p>Sin esto el recorrido no se puede dibujar: el sistema sabe qué cámara vio la matrícula, pero no dónde está esa cámara.</p>
+<h1 id="mirar-como-viene-funcionando" class="cap">Mirar cómo viene funcionando</h1>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Configuración → Avanzado → <strong>Omni-LPR · Seguimiento</strong></div>
+<h2 id="lo-primero-que-hay-que-mirar">Lo primero que hay que mirar</h2>
+<table><thead><tr><th>Dato</th><th>Qué significa</th><th>Qué hacer si está mal</th></tr></thead><tbody><tr><td><strong>Lector: GPU / CPU</strong></td><td>Si está usando la placa de video o cayó al procesador</td><td>En CPU va veinte veces más lento. Reiniciar el lector</td></tr><tr><td><strong>Pasarela</strong></td><td>Cuántas cámaras están enganchadas y cómo disparan</td><td>Si dice 0, revisar que las cámaras estén activas</td></tr><tr><td><strong>Lecturas</strong></td><td>Cuántas matrículas se registraron en el período</td><td>Si es 0 con tránsito, mirar la efectividad</td></tr><tr><td><strong>Efectividad</strong></td><td>De cada cien disparos, cuántos terminaron en una lectura</td><td>Debajo del 30% la zona está mal puesta</td></tr></tbody></table>
+<p>La efectividad es la medida honesta. Muchos disparos y pocas lecturas quiere decir que el sistema se está despertando para nada: o la zona abarca de más, o la cámara mira donde las matrículas quedan de costado.</p>
+<h2 id="rendimiento">Rendimiento</h2>
+<p>Las cuatro líneas muestran cómo vino trabajando el equipo, no cómo está justo ahora. Que la placa esté al 10% en este instante no dice nada; que haya estado al 90% durante una hora, sí.</p>
+<ul><li><strong>GPU</strong> — debería estar baja y con picos cortos. Alta y sostenida quiere decir demasiadas cámaras o zonas demasiado abiertas.</li><li><strong>CPU del lector</strong> — si sube mientras la GPU queda en cero, el lector cayó al procesador.</li><li><strong>Memoria</strong> — plana. Si crece sin parar durante días, avisá.</li><li><strong>Temperatura</strong> — en rango normal, bien por debajo del límite de la placa.</li></ul>
+<h2 id="lecturas-por-hora">Lecturas por hora</h2>
+<p>El gráfico de barras dice cuándo hubo movimiento. Sirve para dos cosas: confirmar que las horas de más tránsito tienen más lecturas, y notar un hueco raro —una cámara que se cayó a las tres de la mañana se ve enseguida.</p>
+<p>Debajo está el par que importa: cuántas se aceptaron y cuántas se descartaron por no coincidir entre cuadros. Descartes altos no son necesariamente malos; significa que el filtro está trabajando y no dejando pasar inventos.</p>
+<h1 id="cuando-algo-no-anda" class="cap">Cuando algo no anda</h1>
+<table><thead><tr><th>Síntoma</th><th>Causa habitual</th><th>Qué hacer</th></tr></thead><tbody><tr><td>El lector dice CPU</td><td>El contenedor arrancó sin ver la placa</td><td>Reiniciar el lector; si sigue, es la instalación del contenedor</td></tr><tr><td>0 cámaras enganchadas</td><td>Ninguna cámara interior activa, o el seguimiento apagado</td><td>Modos → LPR, y revisar las cámaras en Dispositivos LPR</td></tr><tr><td>Dispara mucho, lee poco</td><td>Zona demasiado abierta, o mal ángulo</td><td>Cerrar la zona en el calibrador</td></tr><tr><td>No dispara nunca</td><td>La regla de la cámara quedó apagada</td><td>En el calibrador, volver a aplicar <em>avisa la cámara</em></td></tr><tr><td>Lee una matrícula parecida</td><td>El lector confunde caracteres a esa distancia</td><td>Cerrar la zona, o acercar la cámara. Contrastar con un auto de patente conocida</td></tr><tr><td>Un auto estacionado se relee</td><td>Está adentro de la zona y entra en cada ráfaga</td><td>Correr la zona para dejarlo afuera</td></tr></tbody></table>
+<h2 id="encender-y-apagar-todo-el-seguimiento">Encender y apagar todo el seguimiento</h2>
+<div class="ruta"><span class="ruta-l">Cómo llegar</span>Configuración → Modos → LPR</div>
+<p>Es un interruptor. Apagado, no corre nada: ni el lector ni la pasarela, y el control de acceso queda exactamente igual. Sirve para descartarlo cuando se está diagnosticando otra cosa.</p>
+<h1 id="el-lector-por-dentro" class="cap">El lector por dentro</h1>
+<p>No hace falta para operar, pero sirve cuando algo no cierra.</p>
+<p>El lector es un contenedor llamado <strong>Omni-LPR</strong> que corre sobre la placa de video. Habla dos idiomas: una API REST, que es la que usa el sistema, y <strong>MCP</strong>, que permite que un asistente de IA le consulte directamente. La documentación viva de su API está en <code>/api/v1/apidoc/swagger</code> sobre el puerto del contenedor.</p>
+<h2 id="los-modelos">Los modelos</h2>
+<p>Trabaja en dos etapas, y cada una tiene su modelo. Se pueden cambiar sin tocar el contenedor.</p>
+<table><thead><tr><th>Etapa</th><th>Qué hace</th><th>Opciones</th></tr></thead><tbody><tr><td>Detector</td><td>Encuentra dónde está la chapa</td><td>Seis tamaños, de 256 a 640 píxeles de entrada</td></tr><tr><td>OCR</td><td>Lee los caracteres de la chapa ya recortada</td><td>Dos: uno chico y rápido, uno grande y preciso</td></tr></tbody></table>
+<p>El detector que trae por defecto es el de <strong>384 píxeles</strong>, el más chico. Eso explica por qué una imagen amplia no devolvía nada: todo se achica a ese tamaño antes de buscar. Medido sobre el mismo cuadro:</p>
+<table><thead><tr><th>Detector</th><th>Resultado</th></tr></thead><tbody><tr><td>384 (el de fábrica)</td><td>no encuentra nada</td></tr><tr><td>512</td><td>la encuentra, 41%</td></tr><tr><td>640</td><td>la encuentra, 68%</td></tr></tbody></table>
+<p>La diferencia de tiempo entre el de 384 y el de 640, una vez cargado, es de 15 a 24 milésimas. No hay motivo para usar el chico, así que el sistema usa el de 640.</p>
+<h2 id="la-lectura-en-dos-pasos">La lectura en dos pasos</h2>
+<p>El detector devuelve además <strong>el recuadro</strong> donde está la chapa. Con eso el sistema hace algo más: recorta la matrícula sola y la vuelve a leer con el modelo de OCR grande. Leer una imagen de cincuenta por veinticinco píxeles con el modelo bueno cuesta casi nada, y es justo donde se decide si dice B o D.</p>
+<blockquote class="alerta">Ninguna de estas dos mejoras arregla un caso: si la matrícula se ve mal en <strong>todos</strong> los cuadros, todos se van a equivocar igual y la votación no lo puede saber. Antes de dar por buena la tasa de acierto de una cámara, conviene contrastarla contra un vehículo de patente conocida.</blockquote>
+</section>
+
+<div class="noprint"><button onclick="window.print()">Descargar PDF</button></div>
+</body></html>
