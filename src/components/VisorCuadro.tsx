@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { X, ChevronLeft, ChevronRight } from "lucide-react";
+import { motion } from "framer-motion";
+import { X, ChevronLeft, ChevronRight, Camera, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type CuadroAvistamiento = {
@@ -17,10 +18,10 @@ export type CuadroAvistamiento = {
 /**
  * Visor del cuadro de un avistamiento.
  *
- * La foto sin marco ni recuadro, tan grande como entre, y los datos encima. Lo que uno
- * quiere ahí es poder mirar la matrícula: cualquier cosa que le robe lugar a la imagen
- * está de más. Los datos flotan en las esquinas y se pasa de un avistamiento al otro con
- * el teclado, sin volver a la lista.
+ * Una ventana que abraza la imagen, no una foto pegada al borde de la pantalla con los
+ * datos desparramados en las esquinas. Los rótulos van SOBRE la imagen, sobre una
+ * sombra degradada que los hace legibles sin tapar nada, y la ventana mide lo que mide
+ * la foto: así se lee como una ficha y no como una pantalla completa.
  */
 export function VisorCuadro({ fila, hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar }: {
     fila: CuadroAvistamiento;
@@ -42,66 +43,86 @@ export function VisorCuadro({ fila, hayAnterior, haySiguiente, onAnterior, onSig
 
     const conf = typeof fila.confidence === "number" ? Math.round(fila.confidence * 100) : null;
     const momento = new Date(fila.timestamp);
+    const tonoConf = conf == null ? "" : conf >= 85 ? "text-emerald-300" : conf >= 65 ? "text-amber-300" : "text-rose-300";
 
     return (
         <div onClick={onCerrar}
-            className="fixed inset-0 z-[3400] bg-black/95 backdrop-blur-sm flex items-center justify-center animate-in fade-in duration-150">
+            className="fixed inset-0 z-[3400] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-150">
 
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={fila.snapshotUrl || ""} alt={fila.plate}
+            <motion.div
+                initial={{ opacity: 0, scale: 0.97, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ type: "spring", stiffness: 380, damping: 30, mass: 0.7 }}
                 onClick={(e) => e.stopPropagation()}
-                className="max-h-screen max-w-full object-contain select-none" draggable={false} />
+                className="relative inline-block rounded-2xl overflow-hidden border border-white/[0.12] shadow-2xl shadow-black/70 bg-[#0a0d12] max-w-[min(1100px,92vw)]">
 
-            <div className="absolute top-5 left-5 flex items-center gap-3 pointer-events-none">
-                <span className="px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur border border-white/15 font-mono text-xl font-bold tracking-widest text-white">
-                    {fila.plate}
-                </span>
-                <div className="px-3 py-1.5 rounded-lg bg-black/50 backdrop-blur border border-white/10">
-                    <div className="text-[11px] font-semibold text-white/90">{fila.cameraName || fila.deviceId || "cámara desconocida"}</div>
-                    <div className="text-[10px] text-white/55 tabular-nums">
-                        {momento.toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })} · {momento.toLocaleTimeString("es-UY")}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={fila.snapshotUrl || ""} alt={fila.plate}
+                    className="block max-h-[76vh] max-w-full w-auto select-none" draggable={false} />
+
+                {/* Sombra de arriba: hace legibles los rótulos sin taparle nada a la imagen */}
+                <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/85 via-black/45 to-transparent pointer-events-none" />
+
+                <div className="absolute inset-x-0 top-0 p-3 flex items-start gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="px-2.5 py-1 rounded-lg bg-white text-black font-mono text-base font-bold tracking-widest shadow-lg">
+                            {fila.plate}
+                        </span>
+                        <div className="min-w-0">
+                            <div className="text-[12px] font-semibold text-white/95 truncate flex items-center gap-1.5">
+                                <Camera size={11} className="text-white/50 shrink-0" />
+                                {fila.cameraName || fila.deviceId || "cámara desconocida"}
+                            </div>
+                            <div className="text-[10.5px] text-white/60 tabular-nums flex items-center gap-1.5">
+                                <Clock size={10} className="text-white/40 shrink-0" />
+                                {momento.toLocaleDateString("es-UY", { day: "2-digit", month: "short" })} · {momento.toLocaleTimeString("es-UY")}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="ml-auto flex items-center gap-2 shrink-0">
+                        {conf != null && (
+                            <div className="px-2.5 py-1 rounded-lg bg-black/45 backdrop-blur-sm border border-white/10 text-center">
+                                <div className={cn("text-sm font-bold tabular-nums leading-none", tonoConf)}>{conf}%</div>
+                                <div className="text-[9px] text-white/45 mt-0.5 leading-none">confianza</div>
+                            </div>
+                        )}
+                        {fila.reads != null && (
+                            <div className="px-2.5 py-1 rounded-lg bg-black/45 backdrop-blur-sm border border-white/10 text-center">
+                                <div className="text-sm font-bold tabular-nums leading-none text-white">{fila.reads}</div>
+                                <div className="text-[9px] text-white/45 mt-0.5 leading-none">cuadros</div>
+                            </div>
+                        )}
+                        <button onClick={onCerrar}
+                            className="w-8 h-8 rounded-lg bg-black/45 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/70 flex items-center justify-center transition-colors">
+                            <X size={15} />
+                        </button>
                     </div>
                 </div>
-            </div>
 
-            <div className="absolute top-5 right-5 flex items-center gap-2">
-                {conf != null && (
-                    <div className="px-3 py-1.5 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-center pointer-events-none">
-                        <div className={cn("text-lg font-bold tabular-nums leading-none",
-                            conf >= 85 ? "text-emerald-400" : conf >= 65 ? "text-amber-400" : "text-red-400")}>{conf}%</div>
-                        <div className="text-[10px] text-white/50 mt-0.5">confianza</div>
-                    </div>
+                {/* Moverse entre avistamientos, dentro de la ventana */}
+                {hayAnterior && (
+                    <button onClick={onAnterior}
+                        className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/75 flex items-center justify-center transition-colors">
+                        <ChevronLeft size={17} />
+                    </button>
                 )}
-                {fila.reads != null && (
-                    <div className="px-3 py-1.5 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-center pointer-events-none">
-                        <div className="text-lg font-bold tabular-nums leading-none text-white">{fila.reads}</div>
-                        <div className="text-[10px] text-white/50 mt-0.5">cuadros de acuerdo</div>
-                    </div>
+                {haySiguiente && (
+                    <button onClick={onSiguiente}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white/70 hover:text-white hover:bg-black/75 flex items-center justify-center transition-colors">
+                        <ChevronRight size={17} />
+                    </button>
                 )}
-                <button onClick={(e) => { e.stopPropagation(); onCerrar(); }}
-                    className="w-10 h-10 rounded-lg bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-black/70 flex items-center justify-center">
-                    <X size={18} />
-                </button>
-            </div>
 
-            {hayAnterior && (
-                <button onClick={(e) => { e.stopPropagation(); onAnterior?.(); }}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-black/70 flex items-center justify-center">
-                    <ChevronLeft size={20} />
-                </button>
-            )}
-            {haySiguiente && (
-                <button onClick={(e) => { e.stopPropagation(); onSiguiente?.(); }}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/50 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-black/70 flex items-center justify-center">
-                    <ChevronRight size={20} />
-                </button>
-            )}
-
-            {(hayAnterior || haySiguiente) && (
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[10px] text-white/35 pointer-events-none">
-                    ← → para moverse · Esc para cerrar
-                </div>
-            )}
+                {(hayAnterior || haySiguiente) && (
+                    <>
+                        <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
+                        <div className="absolute inset-x-0 bottom-2 text-center text-[10px] text-white/45 pointer-events-none">
+                            ← → para moverse · Esc para cerrar
+                        </div>
+                    </>
+                )}
+            </motion.div>
         </div>
     );
 }

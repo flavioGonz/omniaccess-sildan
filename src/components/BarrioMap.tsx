@@ -4,7 +4,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 const Mapa3D = dynamic(() => import("@/components/mapa/Mapa3D"), { ssr: false });
 import { motion } from "framer-motion";
-import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar } from "@/components/mapa/Recorrido";
+import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar, type Punto } from "@/components/mapa/Recorrido";
+import { VisorCuadro } from "@/components/VisorCuadro";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -79,6 +80,7 @@ export default function BarrioMap() {
     const [base, setBase] = useState<string>("Híbrido");
     const [vista3D, setVista3D] = useState(false);
     const rec = useRecorrido();
+    const [cuadroRecorrido, setCuadroRecorrido] = useState<Punto | null>(null);
     const [devices, setDevices] = useState<any[]>([]);
     const [editing, setEditing] = useState(false);
     const [tool, setTool] = useState<Tool>("select");
@@ -465,17 +467,25 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
-                    <CapaRecorrido puntos={rec.puntos} indice={rec.indice} />
+                    <CapaRecorrido puntos={rec.puntos} avance={rec.avance} indice={rec.indice}
+                        siguiendo={rec.siguiendo && rec.reproduciendo} onElegir={(i) => { rec.setReproduciendo(false); rec.setAvance(i); }} />
                 </MapContainer>
                 )}
                 {!vista3D && oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
-                <PanelRecorrido
-                    puntos={rec.puntos} tramos={rec.tramos} cargando={rec.cargando} error={rec.error}
-                    sinUbicacion={rec.sinUbicacion} plate={rec.plate} setPlate={rec.setPlate}
-                    horas={rec.horas} setHoras={rec.setHoras} buscar={rec.buscar} limpiar={rec.limpiar}
-                    indice={rec.indice} setIndice={rec.setIndice as any}
-                    lugares={lugares} onIrA={irALugar}
-                />
+                <PanelRecorrido {...rec} lugares={lugares} onIrA={irALugar} onVerCuadro={setCuadroRecorrido} />
+
+                {cuadroRecorrido && (
+                    <VisorCuadro
+                        fila={{
+                            plate: cuadroRecorrido.plate,
+                            cameraName: cuadroRecorrido.cameraName,
+                            timestamp: cuadroRecorrido.timestamp,
+                            confidence: cuadroRecorrido.confidence,
+                            snapshotUrl: cuadroRecorrido.snapshotUrl,
+                        }}
+                        onCerrar={() => setCuadroRecorrido(null)}
+                    />
+                )}
 
                 {/* Columnas de flujo en vivo */}
                 {!editing && (
