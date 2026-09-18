@@ -67,12 +67,18 @@ export async function syncLprStream(dev: Dev): Promise<void> {
             console.error("[go2rtc-sync] yaml write failed:", (e as any)?.message);
         }
 
-        // 2) Agregar en caliente por la API (efecto inmediato, sin restart)
+        // 2) Agregar en caliente por la API (efecto inmediato, sin restart).
+        //    Van dos origenes: el RTSP y un ffmpeg de respaldo. Sin el segundo,
+        //    una camara que entrega H.265 devuelve 500 cuando el visor pide
+        //    h264, porque no hay quien transcodifique.
         const put = async (n: string, src: string) => {
             try {
                 const ctrl = new AbortController();
                 const to = setTimeout(() => ctrl.abort(), 5000);
-                await fetch(`${GO2RTC}/api/streams?name=${encodeURIComponent(n)}&src=${encodeURIComponent(src)}`, { method: "PUT", signal: ctrl.signal });
+                const qs = `name=${encodeURIComponent(n)}`
+                    + `&src=${encodeURIComponent(src)}`
+                    + `&src=${encodeURIComponent(`ffmpeg:${n}#video=h264`)}`;
+                await fetch(`${GO2RTC}/api/streams?${qs}`, { method: "PUT", signal: ctrl.signal });
                 clearTimeout(to);
             } catch { }
         };

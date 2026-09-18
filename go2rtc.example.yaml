@@ -1,0 +1,16 @@
+# Plantilla. El archivo real (go2rtc.yaml) lo escribe go2rtc-sync a partir de los
+# dispositivos dados de alta, y lleva las credenciales de cada camara: no se versiona.
+streams:
+  lpr_<slug-de-la-camara>:
+    - rtsp://<usuario>:<clave-codificada>@<ip>:554/Streaming/Channels/102
+    - ffmpeg:lpr_<slug-de-la-camara>#video=h264   # respaldo: transcodifica si la camara entrega H.265
+
+api:
+  listen: ":1984"
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
