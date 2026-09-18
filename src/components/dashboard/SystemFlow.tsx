@@ -257,6 +257,8 @@ export default function SystemFlow() {
                     { id: 'e-redis', source: 'lpr-node', target: 'redis', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
                     { id: 'e-media', source: 'lpr-node', target: 'media', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
                     { id: 'e-webhook-core', source: 'webhook-api', target: 'lpr-node', type: 'floating', animated: false, data: { latency: 0, status: 'idle' } },
+                    { id: 'e-track-lpr', source: 'tracking', target: 'omni-lpr', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+                    { id: 'e-track-core', source: 'tracking', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
                     ...webhookDrivers.map(driver => ({
                         id: `e-${driver.id}`,
                         source: driver.id,
@@ -295,6 +297,8 @@ export default function SystemFlow() {
                     { id: 'e-postgres', source: 'lpr-node', target: 'postgres', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
                     { id: 'e-minio', source: 'lpr-node', target: 'minio', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
                     { id: 'e-webhook-core', source: 'webhook-api', target: 'lpr-node', type: 'floating', animated: false, data: { latency: 0, status: 'idle' } },
+                    { id: 'e-track-lpr', source: 'tracking', target: 'omni-lpr', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+                    { id: 'e-track-core', source: 'tracking', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
                     ...webhookDrivers.map(driver => ({
                         id: `e-${driver.id}`,
                         source: driver.id,

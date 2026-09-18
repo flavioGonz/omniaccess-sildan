@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Polyline, CircleMarker, Tooltip as LTooltip, useMap } from "react-leaflet";
+import { Polyline, CircleMarker, Marker, Tooltip as LTooltip, useMap } from "react-leaflet";
+import L from "leaflet";
 import { AnimatePresence, motion } from "framer-motion";
 import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -16,6 +17,15 @@ export type Punto = {
 };
 export type Tramo = { desde: string; hasta: string; segundos: number; metros: number; kmh: number | null };
 
+/** Punto luminoso que representa al vehiculo sobre el recorrido. */
+const iconoVehiculo = typeof window !== "undefined"
+    ? L.divIcon({
+        className: "bg-transparent border-0 omni-vehiculo",
+        html: `<span style="display:block;width:16px;height:16px;border-radius:50%;background:#fbbf24;border:3px solid #fff7ed;box-shadow:0 0 0 6px rgba(251,191,36,.22)"></span>`,
+        iconSize: [16, 16], iconAnchor: [8, 8],
+    })
+    : (undefined as any);
+
 const hora = (t: string) => new Date(t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" });
 const fechaHora = (t: string) => new Date(t).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
@@ -25,6 +35,34 @@ export function CapaRecorrido({ puntos, indice }: { puntos: Punto[]; indice: num
     const linea = useMemo(() => puntos.map((p) => [p.lat, p.lng] as [number, number]), [puntos]);
     const hasta = Math.min(indice, puntos.length - 1);
     const recorrida = linea.slice(0, hasta + 1);
+
+    // El vehiculo no salta entre camaras: se desliza de una a la siguiente.
+    const [vehiculo, setVehiculo] = useState<[number, number] | null>(null);
+    const anim = useRef<number | null>(null);
+    const previo = useRef<[number, number] | null>(null);
+
+    useEffect(() => {
+        if (!linea.length) { setVehiculo(null); previo.current = null; return; }
+        const destino = linea[Math.max(0, Math.min(hasta, linea.length - 1))];
+        const origen = previo.current || destino;
+        previo.current = destino;
+
+        const t0 = performance.now();
+        const dur = 750;
+        if (anim.current) cancelAnimationFrame(anim.current);
+        const paso = (t: number) => {
+            const k = Math.min(1, (t - t0) / dur);
+            // suavizado: arranca y frena despacio
+            const e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+            setVehiculo([
+                origen[0] + (destino[0] - origen[0]) * e,
+                origen[1] + (destino[1] - origen[1]) * e,
+            ]);
+            if (k < 1) anim.current = requestAnimationFrame(paso);
+        };
+        anim.current = requestAnimationFrame(paso);
+        return () => { if (anim.current) cancelAnimationFrame(anim.current); };
+    }, [hasta, linea]);
 
     useEffect(() => {
         if (linea.length >= 2) {
@@ -46,9 +84,15 @@ export function CapaRecorrido({ puntos, indice }: { puntos: Punto[]; indice: num
             )}
             {recorrida.length >= 2 && (
                 <>
-                    <Polyline positions={recorrida} pathOptions={{ color: "#f59e0b", weight: 11, opacity: 0.18 }} />
-                    <Polyline positions={recorrida} pathOptions={{ color: "#fbbf24", weight: 4, opacity: 0.95 }} />
+                    <Polyline positions={recorrida} pathOptions={{ color: "#f59e0b", weight: 12, opacity: 0.16 }} />
+                    <Polyline positions={recorrida} pathOptions={{ color: "#fbbf24", weight: 4, opacity: 0.9 }} />
+                    {/* pulsos que corren por el camino, como los trazos de viaje */}
+                    <Polyline positions={recorrida} pathOptions={{ color: "#fff7ed", weight: 2.5, opacity: 0.9, className: "omni-flujo" }} />
                 </>
+            )}
+
+            {vehiculo && (
+                <Marker position={vehiculo} icon={iconoVehiculo} interactive={false} />
             )}
 
             {puntos.map((p, i) => {

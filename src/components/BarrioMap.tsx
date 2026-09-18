@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+const Mapa3D = dynamic(() => import("@/components/mapa/Mapa3D"), { ssr: false });
 import { motion } from "framer-motion";
 import { CapaRecorrido, PanelRecorrido, useRecorrido } from "@/components/mapa/Recorrido";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
@@ -68,6 +70,7 @@ export default function BarrioMap() {
     const [data, setData] = useState<BarrioMapData | null>(null);
     // Capa base elegida: define el tratamiento de color del mapa.
     const [base, setBase] = useState<string>("Híbrido");
+    const [vista3D, setVista3D] = useState(false);
     const rec = useRecorrido();
     const [devices, setDevices] = useState<any[]>([]);
     const [editing, setEditing] = useState(false);
@@ -180,6 +183,9 @@ export default function BarrioMap() {
                 .omni-barrio .leaflet-control-layers-separator{border-color:rgba(148,163,184,.2)}
                 .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;
                     box-shadow:inset 0 0 170px 45px rgba(0,0,0,.55)}
+                .omni-flujo{stroke-dasharray:14 16;animation:omniFlujo 1.15s linear infinite}
+                @keyframes omniFlujo{to{stroke-dashoffset:-30}}
+                .omni-vehiculo{filter:drop-shadow(0 0 10px rgba(251,191,36,.9))}
                 .omni-punto-actual{filter:drop-shadow(0 0 7px rgba(251,191,36,.85));animation:omniLatido 1.8s ease-in-out infinite}
                 @keyframes omniLatido{0%,100%{opacity:1}50%{opacity:.55}}
                 .omni-barrio .custom-scrollbar::-webkit-scrollbar{height:4px;width:4px}
@@ -190,6 +196,17 @@ export default function BarrioMap() {
                     background-size:130px 130px}
             `}</style>
             <div className="relative h-full w-full">
+                {vista3D ? (
+                    <Mapa3D
+                        center={data.center as [number, number]}
+                        zoom={data.zoom}
+                        perimeter={data.perimeter as [number, number][]}
+                        streets={data.streets as any}
+                        cameras={data.cameras.map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
+                        puntos={rec.puntos}
+                        indice={rec.indice}
+                    />
+                ) : (
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0 omni-barrio" style={{ background: "#07080a" }} zoomControl={false} scrollWheelZoom>
                     <Pane name="omni-rotulos" style={{ zIndex: 350 }} />
                     {/* Capas: se eligen con el selector flotante, no con el control de Leaflet */}
@@ -200,7 +217,11 @@ export default function BarrioMap() {
                         <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
                     )}
                     {base === "Híbrido" && (
-                        <TileLayer pane="omni-rotulos" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+                        <>
+                            {/* calles y nombres sobre la foto satelital */}
+                            <TileLayer pane="omni-rotulos" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+                            <TileLayer pane="omni-rotulos" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxZoom={19} />
+                        </>
                     )}
 
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
@@ -262,7 +283,8 @@ export default function BarrioMap() {
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
                     <CapaRecorrido puntos={rec.puntos} indice={rec.indice} />
                 </MapContainer>
-                {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
+                )}
+                {!vista3D && oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
                 <PanelRecorrido
                     puntos={rec.puntos} tramos={rec.tramos} cargando={rec.cargando} error={rec.error}
                     sinUbicacion={rec.sinUbicacion} plate={rec.plate} setPlate={rec.setPlate}
@@ -282,7 +304,7 @@ export default function BarrioMap() {
                 <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 left-1/2 -translate-x-1/2 z-[520] flex items-center gap-1 rounded-full px-1.5 py-1.5 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
                     {!editing ? (
                         <Tooltip><TooltipTrigger asChild>
-                            <button onClick={() => setEditing(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
+                            <button onClick={() => { setVista3D(false); setEditing(true); }} className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
                         </TooltipTrigger><TooltipContent>Activar modo edición</TooltipContent></Tooltip>
                     ) : (
                         <>
@@ -353,16 +375,35 @@ export default function BarrioMap() {
                 <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }}
                     className="absolute top-4 right-3 z-[520] flex items-center gap-0.5 p-1 rounded-full bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
                     {["Híbrido", "Táctico", "Satélite", "Calles"].map((n) => (
-                        <button key={n} onClick={() => setBase(n)}
+                        <button key={n} onClick={() => { setBase(n); setVista3D(false); }}
                             className="relative px-3 h-8 rounded-full text-[11px] font-semibold text-white/55 hover:text-white transition-colors">
                             {base === n && (
                                 <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
                                     className="absolute inset-0 rounded-full bg-white/[0.14]" />
                             )}
-                            <span className={cn("relative", base === n && "text-white")}>{n}</span>
+                            <span className={cn("relative", base === n && !vista3D && "text-white")}>{n}</span>
                         </button>
                     ))}
+                    <span className="w-px h-5 bg-white/10 mx-0.5" />
+                    <button onClick={() => setVista3D((v) => !v)}
+                        className="relative px-3 h-8 rounded-full text-[11px] font-bold text-white/55 hover:text-white transition-colors"
+                        title="Vista 3D: girar e inclinar el mapa">
+                        {vista3D && (
+                            <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                className="absolute inset-0 rounded-full bg-sky-400/25" />
+                        )}
+                        <span className={cn("relative", vista3D && "text-sky-200")}>3D</span>
+                    </button>
                 </motion.div>
+
+                {vista3D && (
+                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                        className="absolute bottom-24 right-3 z-[520] rounded-2xl px-3 py-2 text-[10px] leading-relaxed text-white/60 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
+                        <b className="text-white/80">Vista 3D</b><br />
+                        Arrastrar: mover · Ctrl + arrastrar: girar e inclinar<br />
+                        Rueda: acercar · La edición se hace en la vista plana
+                    </motion.div>
+                )}
             </div>
         </TooltipProvider>
     );
