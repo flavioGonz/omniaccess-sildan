@@ -112,6 +112,10 @@ unidad. La vista, el zoom y la capa elegida se guardan con el mapa.
 
 - **Comentarios y mensajes de commit en español**, explicando *por qué*, no *qué*.
 - Sin credenciales en el repositorio: van en `.env` o en los ajustes de la aplicación.
+- `go2rtc.yaml` no se versiona: lo escribe `go2rtc-sync` con las claves de cada cámara. La
+  plantilla es `go2rtc.example.yaml`. Cada stream lleva dos orígenes, el RTSP y un
+  `ffmpeg:<nombre>#video=h264` de respaldo, porque hay cámaras que entregan H.265 y el
+  navegador no las reproduce.
 - Las migraciones se crean con `prisma migrate dev` y se aplican con `migrate deploy`.
 - Antes de subir: `npm run build` tiene que pasar limpio.
 
