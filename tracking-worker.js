@@ -38,6 +38,7 @@ const http = require("http");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const sharp = require("sharp");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
@@ -62,6 +63,20 @@ const MUDO_MS = Number(process.env.TRACKING_QUIET_MS || 4000);
 const COINCIDENCIAS_MIN = Number(process.env.TRACKING_MIN_AGREE || 2);
 // ...salvo que una sola lectura venga muy segura.
 const CONF_ALTA = Number(process.env.TRACKING_HIGH_CONF || 0.85);
+// Si la camara dejo de avisar por este tiempo, la pasarela vuelve sola al disparo
+// por escena. Vale para una regla mal dibujada, un firmware que dejo de clasificar
+// o un cambio en la camara hecho desde su propia web: el seguimiento sigue dando
+// algo en vez de quedarse mudo sin que nadie se entere.
+const RESPALDO_MS = Number(process.env.TRACKING_FALLBACK_MS || 15 * 60 * 1000);
+// El lector reescala la imagen por dentro antes de buscar la matricula, asi que lo
+// que decide si la ve no son los pixeles de la foto sino QUE FRACCION del encuadre
+// ocupa la chapa. Mandar un cuadro panoramico es peor que mandar tres pedazos: la
+// misma calle entera devuelve nada, y partida en baldosas devuelve la matricula con
+// 0,9 de confianza. De ahi que el cuadro se corte antes de leerlo.
+const BALDOSA_PX = Number(process.env.TRACKING_TILE_PX || 800);
+const BALDOSA_SOLAPE = Number(process.env.TRACKING_TILE_OVERLAP || 0.18);
+// Techo de inferencias por rafaga, para que una calle con movimiento no acapare la GPU.
+const INFERENCIAS_MAX = Number(process.env.TRACKING_BURST_INFER || 24);
 
 let token = process.env.TRACKING_TOKEN || "";
 const camarasVivas = new Map();   // nombre -> estado de esa camara
@@ -131,6 +146,38 @@ async function camaras() {
 }
 
 // ─────────────────────────── Lectura ───────────────────────────
+
+/**
+ * Parte un cuadro en baldosas con solape. El solape importa: una matricula justo en
+ * la union se perderia en las dos mitades, y con 18% siempre cae entera en alguna.
+ */
+async function baldosas(jpeg) {
+    try {
+        const meta = await sharp(jpeg).metadata();
+        const an = meta.width || 0, al = meta.height || 0;
+        if (!an || !al) return [jpeg];
+        const cols = Math.max(1, Math.ceil(an / BALDOSA_PX));
+        const filas = Math.max(1, Math.ceil(al / BALDOSA_PX));
+        if (cols === 1 && filas === 1) return [jpeg];
+
+        const anchoUtil = an / cols, altoUtil = al / filas;
+        const margenX = anchoUtil * BALDOSA_SOLAPE, margenY = altoUtil * BALDOSA_SOLAPE;
+        const trozos = [];
+        for (let f = 0; f < filas; f++) {
+            for (let c = 0; c < cols; c++) {
+                const x = Math.max(0, Math.round(c * anchoUtil - margenX));
+                const y = Math.max(0, Math.round(f * altoUtil - margenY));
+                const w = Math.min(an - x, Math.round(anchoUtil + 2 * margenX));
+                const h = Math.min(al - y, Math.round(altoUtil + 2 * margenY));
+                if (w < 60 || h < 40) continue;
+                trozos.push(await sharp(jpeg).extract({ left: x, top: y, width: w, height: h }).jpeg({ quality: 88 }).toBuffer());
+            }
+        }
+        return trozos.length ? trozos : [jpeg];
+    } catch {
+        return [jpeg];
+    }
+}
 
 /** Manda un cuadro a Omni-LPR y devuelve { plate, confidence } o null. */
 async function leerMatricula(jpeg) {
@@ -243,6 +290,7 @@ function disparar(est, motivo) {
     // todavia esta entrando en cuadro y la chapa no se fue de foco.
     const previos = est.memoria.filter((c) => ahora - c.t <= RAFAGA_ANTES_MS).map((c) => c.jpeg);
     est.rafaga = { motivo, cuadros: previos.slice(-RAFAGA_MAX_CUADROS) };
+    if (motivo !== "escena") log(`${est.cam.name}: rafaga abierta por ${motivo} (${previos.length} cuadros previos)`);
     est.temporizador = setTimeout(() => resolverRafaga(est), RAFAGA_DESPUES_MS);
 }
 
@@ -258,13 +306,39 @@ async function resolverRafaga(est) {
 
     try {
         // Concurrencia acotada: el lector es uno solo y encima esta compartido.
-        const lecturas = [];
-        for (let i = 0; i < cuadros.length; i += MAX_EN_VUELO) {
-            const tanda = cuadros.slice(i, i + MAX_EN_VUELO);
-            const res = await Promise.all(tanda.map((j) => leerMatricula(j).catch(() => null)));
-            for (const x of res) if (x) lecturas.push(x);
+        // Cada cuadro se parte en baldosas y cada baldosa es una inferencia. La lectura
+        // recuerda de que CUADRO salio (no de que baldosa), que es lo que se guarda como
+        // foto: al operador le sirve ver la escena, no el recorte.
+        const trabajo = [];
+        for (let i = 0; i < cuadros.length; i++) {
+            for (const trozo of await baldosas(cuadros[i])) trabajo.push({ jpeg: trozo, cuadro: i });
         }
-        if (!lecturas.length) return;
+        // Si hay demasiado, se reparte parejo en el tiempo en vez de cortar por la mitad:
+        // el final de la rafaga suele ser mejor que el principio.
+        let cola = trabajo;
+        if (trabajo.length > INFERENCIAS_MAX) {
+            const paso = trabajo.length / INFERENCIAS_MAX;
+            cola = Array.from({ length: INFERENCIAS_MAX }, (_, k) => trabajo[Math.floor(k * paso)]);
+        }
+
+        const lecturas = [];
+        for (let i = 0; i < cola.length; i += MAX_EN_VUELO) {
+            const tanda = cola.slice(i, i + MAX_EN_VUELO);
+            const res = await Promise.all(tanda.map((t) => leerMatricula(t.jpeg).catch(() => null)));
+            res.forEach((x, k) => { if (x) lecturas.push({ ...x, cuadro: tanda[k].cuadro }); });
+        }
+        if (!lecturas.length) {
+            if (r.motivo !== "escena") log(`${cam.name}: rafaga sin matricula (${cuadros.length} cuadros, ${cola.length} baldosas)`);
+            // Se guarda un cuadro del ultimo intento fallido, siempre el mismo archivo por
+            // camara. Cuando alguien pregunta "por que no lee", esto contesta en un vistazo
+            // si el problema es la zona, el angulo o la distancia; sin esto hay que adivinar.
+            try {
+                fs.mkdirSync(DIR_SHOTS, { recursive: true });
+                const medio = cuadros[Math.floor(cuadros.length / 2)];
+                if (medio) fs.writeFileSync(path.join(DIR_SHOTS, `ultimo-fallo-${cam.deviceId || cam.name}.jpg`), medio);
+            } catch { }
+            return;
+        }
 
         const v = votar(lecturas);
         const minima = cam.confianza ?? MIN_CONF;
@@ -280,11 +354,12 @@ async function resolverRafaga(est) {
             return;
         }
 
-        // Se guarda el cuadro de la lectura mas segura, no uno cualquiera.
-        const mejorIdx = lecturas.indexOf(lecturas.reduce((a, b) => (b.confidence > a.confidence ? b : a)));
-        const url = guardarCuadro(cuadros[Math.min(mejorIdx, cuadros.length - 1)], v.plate);
+        // Se guarda el cuadro de la lectura mas segura que coincide con lo votado.
+        const candidatas = lecturas.filter((l) => l.plate === v.plate);
+        const mejor = (candidatas.length ? candidatas : lecturas).reduce((a, b) => (b.confidence > a.confidence ? b : a));
+        const url = guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
         const st = await avisarAvistamiento(cam, v, url);
-        log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} cuadros · ${r.motivo}) -> ${st}`);
+        log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} lecturas de ${cola.length} baldosas · ${r.motivo}) -> ${st}`);
     } catch (e) {
         log(`${cam.name}: error resolviendo la rafaga: ${e.message}`);
     }
@@ -297,7 +372,7 @@ function engancharCamara(est) {
     if (est.ffmpeg) return;
 
     const escena = cam.escena ?? 0.08;
-    const porCamara = cam.disparo === "camara";
+    const porCamara = est.modoEfectivo === "camara";
     // En modo camara conviene un ritmo mas alto: el disparo ya es preciso, y lo que
     // se quiere es tener varios cuadros del auto pasando. En modo escena se muestrea
     // bajo y es ffmpeg el que decide cual vale.
@@ -324,7 +399,7 @@ function engancharCamara(est) {
     ];
     const ch = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
     est.ffmpeg = ch;
-    log(`camara enganchada: ${cam.name} (disparo: ${porCamara ? "camara" : "escena"}, ${fps} c/s${recorte ? ", con zona de interes" : ""})`);
+    log(`camara enganchada: ${cam.name} (disparo: ${porCamara ? "camara" : "escena por respaldo"}, ${fps} c/s${recorte ? ", con zona de interes" : ""})`);
 
     let buffer = Buffer.alloc(0);
     ch.stdout.on("data", (chunk) => {
@@ -365,7 +440,7 @@ function recibirCuadro(est, jpeg) {
         return;
     }
     // En modo escena, que ffmpeg emita un cuadro YA significa que algo cambio.
-    if (est.cam.disparo !== "camara") disparar(est, "escena");
+    if (est.modoEfectivo !== "camara") disparar(est, "escena");
 }
 
 // ──────────────── Aviso de la propia camara (AcuSense) ────────────────
@@ -471,13 +546,49 @@ function escucharCamara(est) {
  */
 function procesarAviso(est, xml) {
     const tipo = (/<eventType>([^<]+)<\/eventType>/i.exec(xml) || [])[1] || "";
+    // Se lleva la cuenta de TODO lo que manda la camara, no solo de lo que se usa:
+    // sin esto, "no llego ningun aviso" y "llegaron y los descarte" se parecen
+    // demasiado, y son problemas distintos.
+    est.recuento[tipo] = (est.recuento[tipo] || 0) + 1;
     if (!/linedetection|fielddetection|regionEntrance|regionExiting/i.test(tipo)) return;
     // "duration" y "VMD" son el latido y el movimiento crudo: justo lo que este modo vino a evitar.
     const estado = (/<eventState>([^<]+)<\/eventState>/i.exec(xml) || [])[1] || "active";
     if (estado !== "active") return;
     // Si el aviso trae clasificacion y dice que es una persona, no es lo nuestro.
     if (/<detectionTarget>human<\/detectionTarget>/i.test(xml) && !/vehicle/i.test(xml)) return;
+    est.ultimoAviso = Date.now();
+    if (est.modoEfectivo !== "camara" && est.cam.disparo === "camara") {
+        log(`${est.cam.name}: la camara volvio a avisar, se deja el respaldo por escena`);
+        est.modoEfectivo = "camara";
+        rearmar(est);
+    }
     disparar(est, `camara:${tipo}`);
+}
+
+/** Rearma el ffmpeg de una camara (cambio de modo o de calibracion). */
+function rearmar(est) {
+    const viejo = est.ffmpeg;
+    est.ffmpeg = null;
+    if (viejo) { try { viejo.kill("SIGKILL"); } catch { } }
+    est.memoria = [];
+    engancharCamara(est);
+}
+
+/**
+ * Vigia del disparo por camara. Que el flujo de avisos este abierto no garantiza que
+ * la regla este bien puesta: la camara puede estar mandando solo movimiento y ninguna
+ * analitica. Si pasa demasiado tiempo sin un aviso util, se vuelve al disparo por
+ * escena y queda dicho en el log por que.
+ */
+function vigilarDisparo() {
+    for (const [, est] of camarasVivas) {
+        if (est.cam.disparo !== "camara" || est.modoEfectivo !== "camara") continue;
+        if (Date.now() - est.ultimoAviso < RESPALDO_MS) continue;
+        log(`${est.cam.name}: la camara no avisa hace ${Math.round(RESPALDO_MS / 60000)} min; se pasa al disparo por escena. Revisar la zona y el objetivo de la regla en el calibrador.`);
+        est.modoEfectivo = "escena";
+        est.ultimoAviso = Date.now();
+        rearmar(est);
+    }
 }
 
 // ─────────────────────────── Ciclo ───────────────────────────
@@ -512,7 +623,7 @@ async function sincronizar() {
         }
         if (camarasVivas.has(cam.name)) { camarasVivas.get(cam.name).cam = cam; continue; }
 
-        const est = { cam, huella, memoria: [], rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false };
+        const est = { cam, huella, modoEfectivo: cam.disparo, ultimoAviso: Date.now(), memoria: [], recuento: {}, rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false };
         camarasVivas.set(cam.name, est);
         engancharCamara(est);
         if (cam.disparo === "camara") escucharCamara(est);
@@ -521,10 +632,23 @@ async function sincronizar() {
     if (!lista.length) log("sin camaras de seguimiento configuradas");
 }
 
+/** Que esta recibiendo cada camara, en una linea por vez. */
+function resumenAvisos() {
+    for (const [nombre, est] of camarasVivas) {
+        const partes = Object.entries(est.recuento)
+            .filter(([t]) => t !== "videoloss" && t !== "duration")
+            .map(([t, n]) => `${t}=${n}`);
+        est.recuento = {};
+        if (partes.length) log(`${nombre}: avisos ${partes.join(" ")}`);
+    }
+}
+
 (async () => {
     log(`pasarela iniciada · Omni-LPR en ${LPR_URL}`);
     await sincronizar();
     setInterval(sincronizar, 60000);   // toma cambios de configuracion sin reiniciar
+    setInterval(resumenAvisos, 120000);
+    setInterval(vigilarDisparo, 60000);
 })();
 
 process.on("SIGTERM", () => {
