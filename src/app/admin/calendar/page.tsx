@@ -18,7 +18,7 @@ import {
     Minimize,
     Search,
     CreditCard,
-    DoorOpen
+    DoorOpen, Camera
 } from "lucide-react";
 import { AccessEvent, Device } from "@prisma/client";
 import { cn } from "@/lib/utils";
@@ -125,7 +125,46 @@ export default function CalendarPage() {
                     omitEnrichment: true,
                     type: mode === "FACE" ? "FACE" : "PLATE",
                 });
-                setEvents(Array.isArray(data.events) ? data.events : []);
+                const accesos = Array.isArray(data.events) ? data.events : [];
+
+                /**
+                 * Los avistamientos de las cámaras interiores, que faltaban.
+                 *
+                 * El calendario cargaba solo AccessEvent, y en una instalación sin
+                 * barreras dadas de alta eso es cero: quedaba un mes entero en blanco
+                 * mientras el historial tenía cientos de lecturas. La misma trampa que
+                 * tenía el mapa de actividad — mirar una sola tabla y dar por hecho que
+                 * es toda la actividad del sistema.
+                 *
+                 * No son decisiones de acceso, así que entran sin GRANT ni DENY: no
+                 * suman a los contadores de permitidos y denegados, que seguirían
+                 * midiendo lo que miden.
+                 */
+                let vistos: any[] = [];
+                if (mode !== "FACE") {
+                    try {
+                        const q = new URLSearchParams({
+                            from: start.toISOString(), to: end.toISOString(), take: "5000",
+                        });
+                        const j = await fetch(`/api/tracking/history?${q}`, { cache: "no-store" }).then((r) => r.json());
+                        vistos = (j.filas || []).map((f: any) => ({
+                            id: `s_${f.id}`,
+                            timestamp: f.timestamp,
+                            accessType: "TRACK",
+                            decision: null,
+                            plateDetected: f.plate,
+                            snapshotPath: f.snapshotUrl || null,
+                            user: null,
+                            device: { name: f.cameraName || "Cámara interior" },
+                            _track: true,
+                            _estado: f.estado,
+                        }));
+                    } catch { /* si falla, el calendario muestra los accesos igual */ }
+                }
+
+                setEvents([...accesos, ...vistos].sort(
+                    (a: any, b: any) => +new Date(b.timestamp) - +new Date(a.timestamp),
+                ) as any);
             }
         } catch (error) {
             console.error("Error loading events:", error);
@@ -311,6 +350,7 @@ export default function CalendarPage() {
                                     const isToday = day === new Date().getDate() && month === new Date().getMonth() && year === new Date().getFullYear();
                                     const grants = dayEvents.filter(e => e.decision === 'GRANT').length;
                                     const denies = dayEvents.filter(e => e.decision === 'DENY').length;
+                                    const vistos = dayEvents.filter((e: any) => e._track).length;
                                     const maxAforo = dayEvents.reduce((m: number, e: any) => Math.max(m, e.peopleCount || 0), 0);
 
                                     return (
@@ -322,6 +362,7 @@ export default function CalendarPage() {
                                             hasEvents={hasEvents}
                                             grants={grants}
                                             denies={denies}
+                                            vistos={vistos}
                                             eventCount={dayEvents.length}
                                             mode={mode}
                                             maxAforo={maxAforo}
@@ -366,6 +407,7 @@ export default function CalendarPage() {
 
                                 const grants = dayEvents.filter(e => e.decision === 'GRANT').length;
                                 const denies = dayEvents.filter(e => e.decision === 'DENY').length;
+                                const vistos = dayEvents.filter((e: any) => e._track).length;
                                 const maxAforo = dayEvents.reduce((m: number, e: any) => Math.max(m, e.peopleCount || 0), 0);
 
                                 return (
@@ -377,6 +419,7 @@ export default function CalendarPage() {
                                         hasEvents={hasEvents}
                                         grants={grants}
                                         denies={denies}
+                                        vistos={vistos}
                                         eventCount={dayEvents.length}
                                         mode={mode}
                                         maxAforo={maxAforo}
@@ -452,6 +495,10 @@ export default function CalendarPage() {
                                 <div className="w-2 h-2 rounded-full bg-red-500" />
                                 <span className="text-xs text-muted-foreground font-bold">{selectedDayEvents.filter(e => e.decision === 'DENY').length} Denegados</span>
                             </div>
+                            <div className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-violet-500" />
+                                <span className="text-xs text-muted-foreground font-bold">{selectedDayEvents.filter((e: any) => e._track).length} Avistamientos</span>
+                            </div>
                         </div>
                     ))}
 
@@ -524,13 +571,16 @@ export default function CalendarPage() {
                                             <div className="flex justify-between items-start gap-2">
                                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                                     {/* Icon based on accessType */}
+                                                    {(evt.accessType as string) === 'TRACK' && <Camera size={12} className="text-violet-400 shrink-0" />}
                                                     {evt.accessType === 'PLATE' && <Car size={12} className="text-blue-400 shrink-0" />}
                                                     {evt.accessType === 'FACE' && <UserIcon size={12} className="text-purple-400 shrink-0" />}
                                                     {evt.accessType === 'TAG' && <CreditCard size={12} className="text-amber-400 shrink-0" />}
                                                     {(evt.accessType as string) === 'DOOR' && <DoorOpen size={12} className="text-emerald-400 shrink-0" />}
 
                                                     <span className="text-xs font-bold text-foreground truncate">
-                                                        {evt.accessType === 'PLATE' && evt.plateDetected
+                                                        {(evt.accessType as string) === 'TRACK'
+                                                            ? `${evt.plateDetected}${(evt as any)._estado === 'ESTACIONADO' ? ' · estacionado' : ''}`
+                                                            : evt.accessType === 'PLATE' && evt.plateDetected
                                                             ? `${evt.plateDetected}`
                                                             : evt.accessType === 'FACE' && evt.user?.name
                                                                 ? evt.user.name
@@ -594,7 +644,7 @@ export default function CalendarPage() {
     );
 }
 
-function DayCell({ day, isSelected, isToday, hasEvents, grants, denies, eventCount, onClick, className, mode, maxAforo }: any) {
+function DayCell({ day, isSelected, isToday, hasEvents, grants, denies, vistos = 0, eventCount, onClick, className, mode, maxAforo }: any) {
     return (
         <button
             onClick={onClick}
@@ -624,6 +674,13 @@ function DayCell({ day, isSelected, isToday, hasEvents, grants, denies, eventCou
                     {denies > 0 && (
                         <div className="flex-1 h-1.5 rounded-full bg-red-500/20 flex overflow-hidden">
                             <div className="bg-red-500 h-full" style={{ width: `${Math.min(100, (denies / (grants + denies)) * 100)}%` }} />
+                        </div>
+                    )}
+                    {/* Los avistamientos tienen su propia barra: sin esto, un día con
+                        lecturas de cámaras interiores y ningún acceso quedaba en blanco. */}
+                    {vistos > 0 && (
+                        <div className="flex-1 h-1.5 rounded-full bg-violet-500/20 flex overflow-hidden">
+                            <div className="bg-violet-500 h-full w-full" />
                         </div>
                     )}
                 </div>

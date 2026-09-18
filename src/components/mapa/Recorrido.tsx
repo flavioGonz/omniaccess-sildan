@@ -184,11 +184,35 @@ export function CapaRecorrido({ puntos, estacionados = [], traza = [], avance, i
 
     return (
         <>
+            {/*
+                El camino es una LINEA SOLIDA, no un punteado.
+                ==============================================
+
+                Un punteado se lee como "camino sugerido" o "acá faltan datos", y acá no
+                falta nada: por esas calles pasó el vehículo. Una línea sólida con borde
+                oscuro lo afirma, y además se despega de la foto satelital, que es de
+                tonos medios y se come cualquier trazo fino.
+
+                La animación no está en la línea sino ENCIMA: un destello corto que corre
+                por el camino ya hecho. Así el movimiento cuenta hacia dónde va sin
+                romper la solidez de la línea.
+            */}
             {linea.length >= 2 && (
                 <>
-                    <Polyline positions={linea} pathOptions={{ color: "#0ea5e9", weight: 10, opacity: 0.12 }} />
-                    <Polyline positions={linea}
-                        pathOptions={{ color: "#38bdf8", weight: 2.5, opacity: 0.45, className: "omni-linea-pendiente" }} />
+                    <Polyline positions={linea} pathOptions={{ color: "#0b1220", weight: 9, opacity: 0.55, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline positions={linea} pathOptions={{ color: "#64748b", weight: 5, opacity: 0.85, lineCap: "round", lineJoin: "round" }} />
+                </>
+            )}
+
+            {/* El camino ya hecho, encima del pendiente. Esto se había perdido al sacar
+                el aviso de tramos imposibles: quedaba el camino entero dibujado igual de
+                gris y no se veía por dónde iba el vehículo. */}
+            {recorrida.length >= 2 && (
+                <>
+                    <Polyline positions={recorrida} pathOptions={{ color: "#fbbf24", weight: 13, opacity: 0.18, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline positions={recorrida} pathOptions={{ color: "#0b1220", weight: 9, opacity: 0.6, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline positions={recorrida} pathOptions={{ color: "#fbbf24", weight: 5, opacity: 1, lineCap: "round", lineJoin: "round" }} />
+                    <Polyline positions={recorrida} pathOptions={{ color: "#fff7ed", weight: 5, opacity: 0.95, lineCap: "round", className: "omni-destello" }} />
                 </>
             )}
 

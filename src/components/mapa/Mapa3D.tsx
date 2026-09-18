@@ -251,7 +251,7 @@ export default function Mapa3D({
         const m = mapa.current;
         if (!m || !listo) return;
 
-        const ID_CAPAS = ["ruta-base", "ruta-hecha-halo", "ruta-hecha-linea", "vehiculo-halo", "vehiculo-punto"];
+        const ID_CAPAS = ["ruta-borde", "ruta-base", "ruta-hecha-halo", "ruta-hecha-borde", "ruta-hecha-linea"];
         const ID_FUENTES = ["ruta", "ruta-hecha", "vehiculo"];
 
         const limpiar = () => {
@@ -285,13 +285,15 @@ export default function Mapa3D({
         };
 
         poner("ruta", { type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} }, [
-            { id: "ruta-base", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#38bdf8", "line-width": 3, "line-opacity": 0.45, "line-dasharray": [0, 2, 3] } },
+            { id: "ruta-borde", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0b1220", "line-width": 9, "line-opacity": 0.6 } },
+            { id: "ruta-base", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#64748b", "line-width": 5, "line-opacity": 0.9 } },
         ]);
         // Una linea necesita dos puntos: con uno solo se repite, que dibuja un punto gordo.
         const hechasOk = hechas.length >= 2 ? hechas : [coords[0], coords[0]];
         poner("ruta-hecha", { type: "Feature", geometry: { type: "LineString", coordinates: hechasOk }, properties: {} }, [
-            { id: "ruta-hecha-halo", type: "line", source: "ruta-hecha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#f59e0b", "line-width": 11, "line-opacity": 0.2, "line-blur": 3 } },
-            { id: "ruta-hecha-linea", type: "line", source: "ruta-hecha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fbbf24", "line-width": 4 } },
+            { id: "ruta-hecha-halo", type: "line", source: "ruta-hecha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fbbf24", "line-width": 14, "line-opacity": 0.3, "line-blur": 4 } },
+            { id: "ruta-hecha-borde", type: "line", source: "ruta-hecha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#0b1220", "line-width": 9, "line-opacity": 0.65 } },
+            { id: "ruta-hecha-linea", type: "line", source: "ruta-hecha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fbbf24", "line-width": 5 } },
         ]);
         // El vehículo es un marcador de HTML y no una capa de círculos: así puede girar
         // hacia donde va, que es información que un círculo no puede dar.
@@ -325,36 +327,6 @@ export default function Mapa3D({
             } catch { }
         }
     }, [listo, puntos, traza, avance, indice]);
-
-    /**
-     * El punteado del camino pendiente, corriendo hacia adelante.
-     *
-     * MapLibre no anima `line-dasharray` ni entiende `stroke-dashoffset`, asi que el
-     * movimiento se hace a mano: se recorre un ciclo de patrones donde el hueco se
-     * desplaza un paso por cuadro. Es el mismo truco que usa su propio ejemplo de linea
-     * animada, y a esta cadencia el ojo lee una linea que avanza y no una que parpadea.
-     */
-    useEffect(() => {
-        const m = mapa.current;
-        if (!m || !listo) return;
-        const ciclo = [
-            [0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1],
-            [2.5, 4, 0.5], [3, 4, 0], [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5],
-            [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5],
-        ];
-        let paso = 0, ultimo = 0, vivo = true, id = 0;
-        const tic = (t: number) => {
-            if (!vivo) return;
-            if (t - ultimo > 55) {
-                ultimo = t;
-                paso = (paso + 1) % ciclo.length;
-                try { if (m.getLayer("ruta-base")) m.setPaintProperty("ruta-base", "line-dasharray", ciclo[paso]); } catch { }
-            }
-            id = requestAnimationFrame(tic);
-        };
-        id = requestAnimationFrame(tic);
-        return () => { vivo = false; cancelAnimationFrame(id); };
-    }, [listo]);
 
     // El auto vive fuera de React: si no se saca a mano queda pegado al mapa.
     useEffect(() => () => { try { auto.current?.remove(); } catch { } auto.current = null; }, []);

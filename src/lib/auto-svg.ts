@@ -9,20 +9,25 @@
  * así que el rumbo —que es la mitad de lo que se quiere saber de un vehículo en
  * movimiento— no estaba en ningún lado. Un auto visto de arriba se entiende sin leyenda.
  *
+ * Y por qué oscuro y no amarillo: en amarillo era un taxi. El color no es decoración,
+ * dice algo — acá el vehículo es uno cualquiera del barrio, así que va en el gris oscuro
+ * de la interfaz, con el acento reservado para lo que sí lo necesita (el halo y el camino
+ * ya recorrido).
+ *
  * El dibujo mira al NORTE (grados 0). Quien lo use lo rota por el rumbo.
  */
 
 /** Los keyframes van aparte: el marcador de la 3D vive fuera de React. */
 export const CSS_AUTO = `
-@keyframes omniPulsoAuto{0%,100%{transform:scale(.7);opacity:.9}50%{transform:scale(1.3);opacity:.2}}
-@keyframes omniFaros{0%,100%{opacity:.95}50%{opacity:.45}}
-.omni-auto-halo{animation:omniPulsoAuto 1.8s ease-in-out infinite}
-.omni-auto-faro{animation:omniFaros 1.8s ease-in-out infinite}
+@keyframes omniPulsoAuto{0%,100%{transform:scale(.72);opacity:.85}50%{transform:scale(1.25);opacity:.18}}
+@keyframes omniFaros{0%,100%{opacity:.95}50%{opacity:.5}}
+.omni-auto-halo{animation:omniPulsoAuto 1.9s ease-in-out infinite}
+.omni-auto-faro{animation:omniFaros 1.9s ease-in-out infinite}
 /* La rotación se interpola sola: sin esto el auto salta de ángulo en cada lectura. */
 .omni-auto-giro{transition:transform .28s cubic-bezier(.22,1,.36,1)}
 `;
 
-export const TAM_AUTO = 46;
+export const TAM_AUTO = 32;
 
 /**
  * El marcador completo. `grados` es el rumbo (0 = norte).
@@ -33,54 +38,41 @@ export const TAM_AUTO = 46;
 export function svgAuto(grados = 0) {
     return `
 <div style="position:relative;width:${TAM_AUTO}px;height:${TAM_AUTO}px">
-  <span class="omni-auto-halo" style="position:absolute;inset:0;border-radius:50%;
-        background:radial-gradient(circle,rgba(251,191,36,.45) 0%,rgba(251,191,36,.12) 45%,rgba(251,191,36,0) 70%)"></span>
+  <span class="omni-auto-halo" style="position:absolute;inset:-6px;border-radius:50%;
+        background:radial-gradient(circle,rgba(251,191,36,.4) 0%,rgba(251,191,36,.1) 45%,rgba(251,191,36,0) 70%)"></span>
   <div class="omni-auto-giro" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
         transform:rotate(${Math.round(grados)}deg)">
     <svg width="${TAM_AUTO}" height="${TAM_AUTO}" viewBox="0 0 48 48"
-         style="filter:drop-shadow(0 3px 5px rgba(0,0,0,.7))">
-      <!-- Cono de luz: ayuda a leer el sentido cuando el mapa está muy alejado y el
-           auto queda de pocos píxeles. -->
-      <path d="M24 6 14 -6h20z" fill="url(#omniCono)" opacity=".5"/>
-      <defs>
-        <linearGradient id="omniCono" x1="0" y1="1" x2="0" y2="0">
-          <stop offset="0%" stop-color="#fde68a" stop-opacity=".55"/>
-          <stop offset="100%" stop-color="#fde68a" stop-opacity="0"/>
-        </linearGradient>
-      </defs>
-
+         style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.75))">
       <!-- Ruedas, asomando a los costados -->
-      <rect x="10.2" y="13" width="4.6" height="8" rx="2.1" fill="#12141a"/>
-      <rect x="33.2" y="13" width="4.6" height="8" rx="2.1" fill="#12141a"/>
-      <rect x="10.2" y="28" width="4.6" height="8" rx="2.1" fill="#12141a"/>
-      <rect x="33.2" y="28" width="4.6" height="8" rx="2.1" fill="#12141a"/>
+      <rect x="11" y="14" width="4.2" height="7.6" rx="2" fill="#07080a"/>
+      <rect x="32.8" y="14" width="4.2" height="7.6" rx="2" fill="#07080a"/>
+      <rect x="11" y="27.4" width="4.2" height="7.6" rx="2" fill="#07080a"/>
+      <rect x="32.8" y="27.4" width="4.2" height="7.6" rx="2" fill="#07080a"/>
 
-      <!-- Carrocería: trompa más angosta que la cola, que es lo que hace que se lea
+      <!-- Carrocería: la trompa más angosta que la cola es lo que hace que se lea
            hacia dónde apunta sin necesidad de flecha. -->
-      <path d="M24 4.6c-4.3 0-7.3 2.7-8.1 7.2l-1 9.6c-.32 3.1-.32 9.1 0 12.2l1 5.6
-               c.62 3.3 3.5 4.6 8.1 4.6s7.48-1.3 8.1-4.6l1-5.6c.32-3.1.32-9.1 0-12.2l-1-9.6
-               C31.3 7.3 28.3 4.6 24 4.6z"
-            fill="#fbbf24" stroke="#fff7ed" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M24 5.4c-4.1 0-7 2.6-7.8 7l-.95 9.3c-.3 3-.3 8.8 0 11.8l.95 5.4
+               c.6 3.2 3.3 4.5 7.8 4.5s7.2-1.3 7.8-4.5l.95-5.4c.3-3 .3-8.8 0-11.8l-.95-9.3
+               C31 8 28.1 5.4 24 5.4z"
+            fill="#20242d" stroke="#e7ebf2" stroke-width="1.5" stroke-linejoin="round"/>
 
-      <!-- Parabrisas -->
-      <path d="M17.5 15.6c1.9-1.1 4.1-1.7 6.5-1.7s4.6.6 6.5 1.7l-.95 4.3
-               c-1.75-.72-3.6-1.05-5.55-1.05s-3.8.33-5.55 1.05z" fill="#0a0d12" opacity=".82"/>
-      <!-- Techo -->
-      <rect x="16.9" y="21.2" width="14.2" height="9.2" rx="2.6" fill="#0a0d12" opacity=".42"/>
-      <!-- Luneta -->
-      <path d="M17.7 33.6c1.8-.62 3.75-.92 6.3-.92s4.5.3 6.3.92l.5 2.7
-               c-1.95-.6-4.1-.9-6.8-.9s-4.85.3-6.8.9z" fill="#0a0d12" opacity=".68"/>
+      <!-- Parabrisas y luneta, apenas más claros que la chapa -->
+      <path d="M18 16.2c1.8-1 3.8-1.5 6-1.5s4.2.5 6 1.5l-.85 4c-1.65-.65-3.4-.98-5.15-.98
+               s-3.5.33-5.15.98z" fill="#5b667a" opacity=".85"/>
+      <rect x="17.6" y="21.6" width="12.8" height="8.6" rx="2.4" fill="#2b313c"/>
+      <path d="M18.2 33.2c1.7-.58 3.5-.86 5.8-.86s4.1.28 5.8.86l.45 2.4
+               c-1.8-.55-3.85-.83-6.25-.83s-4.45.28-6.25.83z" fill="#5b667a" opacity=".7"/>
 
       <!-- Espejos -->
-      <rect x="12.4" y="21.4" width="3.4" height="2.3" rx="1.15" fill="#fbbf24" stroke="#fff7ed" stroke-width=".7"/>
-      <rect x="32.2" y="21.4" width="3.4" height="2.3" rx="1.15" fill="#fbbf24" stroke="#fff7ed" stroke-width=".7"/>
+      <rect x="13.4" y="21.8" width="3" height="2" rx="1" fill="#20242d" stroke="#e7ebf2" stroke-width=".6"/>
+      <rect x="31.6" y="21.8" width="3" height="2" rx="1" fill="#20242d" stroke="#e7ebf2" stroke-width=".6"/>
 
-      <!-- Faros -->
-      <circle class="omni-auto-faro" cx="19.1" cy="8.4" r="1.6" fill="#fff7ed"/>
-      <circle class="omni-auto-faro" cx="28.9" cy="8.4" r="1.6" fill="#fff7ed"/>
-      <!-- Luces de cola -->
-      <rect x="18.2" y="39.4" width="3.2" height="1.5" rx=".75" fill="#f43f5e" opacity=".9"/>
-      <rect x="26.6" y="39.4" width="3.2" height="1.5" rx=".75" fill="#f43f5e" opacity=".9"/>
+      <!-- Faros y luces de cola -->
+      <circle class="omni-auto-faro" cx="19.4" cy="9" r="1.5" fill="#fef3c7"/>
+      <circle class="omni-auto-faro" cx="28.6" cy="9" r="1.5" fill="#fef3c7"/>
+      <rect x="18.6" y="38.6" width="3" height="1.5" rx=".75" fill="#f43f5e" opacity=".9"/>
+      <rect x="26.4" y="38.6" width="3" height="1.5" rx=".75" fill="#f43f5e" opacity=".9"/>
     </svg>
   </div>
 </div>`;

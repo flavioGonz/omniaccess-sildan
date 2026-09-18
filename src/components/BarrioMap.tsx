@@ -435,17 +435,17 @@ export default function BarrioMap() {
                 .omni-barrio .leaflet-control-layers-separator{border-color:rgba(148,163,184,.2)}
                 .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;
                     box-shadow:inset 0 0 170px 45px rgba(0,0,0,.55)}
-                .omni-flujo{stroke-dasharray:14 16;animation:omniFlujo 1.15s linear infinite}
-                @keyframes omniFlujo{to{stroke-dashoffset:-30}}
                 .omni-vehiculo{filter:drop-shadow(0 0 10px rgba(251,191,36,.9))}
                 /* El halo late aparte del auto: la rotacion cambia en cada cuadro y no
                    puede reiniciar la animacion del pulso. */
 ${CSS_AUTO}
-                /* El camino que falta, corriendo hacia adelante. Un tramo punteado quieto
-                   dice por donde se va; corriendo dice ademas hacia donde, que es la
-                   mitad de la informacion de un flujo. */
-                .omni-linea-pendiente{stroke-dasharray:10 14;animation:omniAvanza 1.05s linear infinite}
-                @keyframes omniAvanza{to{stroke-dashoffset:-24}}
+                /* Un destello corto que corre por el camino ya hecho.
+                   La linea de abajo queda solida: lo que se mueve es la luz, no el
+                   camino. Un punteado en movimiento se lee como "ruta estimada", y esto
+                   no es una estimacion: por ahi paso el vehiculo. */
+                .omni-destello{stroke-dasharray:26 1400;stroke-linecap:round;
+                    animation:omniDestello 2.6s linear infinite}
+                @keyframes omniDestello{from{stroke-dashoffset:26}to{stroke-dashoffset:-1400}}
                 .omni-punto-actual{filter:drop-shadow(0 0 7px rgba(251,191,36,.85));animation:omniLatido 1.8s ease-in-out infinite}
                 @keyframes omniLatido{0%,100%{opacity:1}50%{opacity:.55}}
                 .omni-sin-barra::-webkit-scrollbar{display:none}
