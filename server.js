@@ -2593,11 +2593,17 @@ httpServer.listen(port, "0.0.0.0", () => {
 
 
 
-// --- Device reachability poller: ONLINE/OFFLINE fiable (TCP connect :80 cada 60s) ---
+// --- Sondeo de alcance: ONLINE/OFFLINE fiable (TCP al 554 de cada equipo, cada 60 s) ---
+// Antes se tragaba cualquier error sin decir nada, asi que una camara podia quedar
+// OFFLINE para siempre sin dejar rastro de por que. Ahora avisa una vez por ciclo.
 const _netReach = require("net");
+let _sondeoAviso = 0;
 setInterval(async () => {
     try {
-        const devs = await prisma.device.findMany({ where: { ip: { not: null } } });
+        // Ojo: en el esquema "ip" es String no nulo, asi que { not: null } hace fallar
+        // toda la consulta. El filtro real se hace abajo, descartando las vacias.
+        const devs = await prisma.device.findMany({ select: { id: true, ip: true } });
+        if (!devs.length && Date.now() - _sondeoAviso > 600000) { _sondeoAviso = Date.now(); console.log("[sondeo] no hay equipos con IP"); }
         for (const d of devs) {
             const host = String(d.ip || "").replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
             if (!host) continue;
@@ -2612,7 +2618,9 @@ setInterval(async () => {
                 sock.on("timeout", () => { if (!done) { try { sock.destroy(); } catch (e) {} resolve(); } });
             });
         }
-    } catch (e) {}
+    } catch (e) {
+        if (Date.now() - _sondeoAviso > 600000) { _sondeoAviso = Date.now(); console.log("[sondeo] fallo:", e && e.message ? String(e.message).split("\n")[0] : e); }
+    }
 }, 60000);
 
 

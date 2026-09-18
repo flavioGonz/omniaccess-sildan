@@ -109,7 +109,7 @@ async function probe(d: any, streams: Record<string, { consumers: number; produc
 export async function GET() {
     try {
         const devices = await prisma.device.findMany({
-            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
+            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR", "LPR_INTERIOR"] as any } },
             select: { id: true, ip: true, username: true, password: true, authType: true, deviceType: true },
         });
         const streams = await go2rtcStreams();

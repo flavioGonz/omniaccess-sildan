@@ -693,7 +693,11 @@ export default function DevicesPage() {
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-center">
-                                        {dev.deviceType === 'LPR_CAMERA' && dev.direction ? (
+                                        {dev.deviceType === 'LPR_INTERIOR' ? (
+                                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border bg-violet-500/10 text-violet-300 border-violet-500/20">
+                                                Interior
+                                            </span>
+                                        ) : dev.deviceType === 'LPR_CAMERA' && dev.direction ? (
                                             <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border", dev.direction === 'ENTRY' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-orange-500/10 text-orange-400 border-orange-500/20")}>
                                                 {dev.direction === 'ENTRY' ? 'Entrada' : 'Salida'}
                                             </span>

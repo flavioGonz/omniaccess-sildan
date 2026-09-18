@@ -5,37 +5,7 @@ import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice } from "@/app/actions/history";
 import { getDevices, getAvailableStreams } from "@/app/actions/devices";
-import {
-    Car,
-    CheckCircle2,
-    XCircle,
-    Clock,
-    TrendingUp,
-    TrendingDown,
-    Zap,
-    Shield,
-    ShieldAlert,
-    Volume2,
-    VolumeX,
-    AlertTriangle,
-    Filter,
-    RefreshCw,
-    Camera,
-    LogIn,
-    LogOut,
-    Truck,
-    Bus,
-    Bike,
-    Activity,
-    Search,
-    SquareParking,
-    X,
-    MapPin,
-    Home,
-    Loader2,
-    UserPlus,
-    PlayCircle
-} from "lucide-react";
+import { Car, CheckCircle2, XCircle, Clock, TrendingUp, TrendingDown, Zap, Shield, ShieldAlert, Volume2, VolumeX, AlertTriangle, Filter, RefreshCw, Camera, LogIn, LogOut, Truck, Bus, Bike, Activity, Search, SquareParking, X, MapPin, Home, Loader2, UserPlus, PlayCircle, Route, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -198,6 +168,38 @@ function CamTile({ dev, accent = "emerald", ev }: { dev: any; accent?: string; e
             <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
         </EventDetailsDialog>
     ) : inner;
+}
+
+/**
+ * Baldosa de camara interior. No abre barrera ni tiene evento de acceso, asi que
+ * muestra el cuadro en vivo y encima la ultima matricula que leyo Omni-LPR.
+ */
+function TrackTile({ dev, av }: { dev: any; av?: any }) {
+    const [rk, setRk] = useState(0);
+    useEffect(() => { const iv = setInterval(() => setRk(x => x + 1), 15000); return () => clearInterval(iv); }, []);
+    const src = `/api/snapshot/${dev.id}?rk=${rk}`;
+    const hace = av?.timestamp ? Math.round((Date.now() - new Date(av.timestamp).getTime()) / 1000) : null;
+    const fresco = hace != null && hace < 120;
+    return (
+        <div className={cn("relative rounded-lg overflow-hidden border vid-surface aspect-video transition-all duration-300", fresco ? "border-violet-400 shadow-[0_0_18px_rgba(167,139,250,0.6)]" : "border-neutral-800")}>
+            <SmartThumb src={src} w={384} className="absolute inset-0 w-full h-full" />
+            <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 pointer-events-none">
+                <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-violet-500"></span></span>
+                <span className="text-[9px] font-bold text-white/90 truncate max-w-[130px]">{dev.name}</span>
+            </div>
+            {av?.plate && (
+                <div className="absolute inset-x-1.5 bottom-1.5 z-20 pointer-events-none flex flex-col items-center gap-0.5">
+                    <div className="px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-white backdrop-blur-sm border shadow-lg bg-violet-600/80 border-violet-300/40">
+                        {av.plate}
+                    </div>
+                    <span className="text-[9px] text-white/70 font-medium">
+                        {hace != null ? (hace < 60 ? `hace ${hace}s` : `hace ${Math.round(hace / 60)} min`) : ""}
+                        {av.confidence ? ` · ${Math.round(av.confidence * 100)}%` : ""}
+                    </span>
+                </div>
+            )}
+        </div>
+    );
 }
 
 function PlateCommandBar() {
@@ -678,6 +680,9 @@ export default function MonitorLPR() {
     const [isConnected, setIsConnected] = useState(false);
     const [devices, setDevices] = useState<Device[]>([]);
     const [streams, setStreams] = useState<string[]>([]);
+    const [interiores, setInteriores] = useState<any[]>([]);
+    const [avistPorCam, setAvistPorCam] = useState<Record<string, any>>({});
+    const [verInteriores, setVerInteriores] = useState(true);
     const router = useRouter();
     const [units, setUnits] = useState<any[]>([]);
     const [groups, setGroups] = useState<any[]>([]);
@@ -714,7 +719,18 @@ export default function MonitorLPR() {
         }
     };
 
-    useEffect(() => { getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
+    useEffect(() => { getDevices().then((d: any) => { const todos = d || []; setDevices(todos.filter((x: any) => x.deviceType === "LPR_CAMERA")); setInteriores(todos.filter((x: any) => x.deviceType === "LPR_INTERIOR" && x.trackEnabled !== false)); }).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
+    // Las interiores no generan evento de acceso: lo unico que se sabe de ellas son
+    // los avistamientos que publica Omni-LPR, asi que se piden aparte.
+    useEffect(() => {
+        let vivo = true;
+        const traer = async () => {
+            try { const r = await fetch("/api/tracking/recent", { cache: "no-store" }); const j = await r.json(); if (vivo) setAvistPorCam(j?.porCamara || {}); } catch { }
+        };
+        traer();
+        const iv = setInterval(traer, 10000);
+        return () => { vivo = false; clearInterval(iv); };
+    }, []);
     const [platesPark, setPlatesPark] = useState<Set<string>>(new Set());
     useEffect(() => { Promise.all([getUnits(), getAccessGroups(), getParkingSlots()]).then(([u, g, p]: any) => { setUnits(u || []); setGroups(g || []); setParkingSlots(p || []); }).catch(() => {}); getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => {}); }, []);
 
@@ -1055,6 +1071,21 @@ export default function MonitorLPR() {
                         <div className="shrink-0">
                             <CenterShot ev={filteredEvents[0]} onRegister={openRegister} />
                         </div>
+                        {interiores.length > 0 && (
+                            <div className="shrink-0 border-t border-neutral-800 px-4 py-2">
+                                <button type="button" onClick={() => setVerInteriores(v => !v)} className="w-full flex items-center gap-1.5 mb-2 text-left">
+                                    <Route size={13} className="text-violet-400" />
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-violet-300">Interiores · seguimiento</span>
+                                    <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold border border-violet-500/40 text-violet-300">{interiores.length} cam</span>
+                                    <ChevronDown size={13} className={cn("text-violet-300/70 transition-transform", verInteriores ? "" : "-rotate-90")} />
+                                </button>
+                                {verInteriores && (
+                                    <div className={cn("grid gap-2", interiores.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+                                        {interiores.map((d: any) => <TrackTile key={d.id} dev={d} av={avistPorCam[d.id]} />)}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             <div className="px-4 pt-2 pb-2">
                                 <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
