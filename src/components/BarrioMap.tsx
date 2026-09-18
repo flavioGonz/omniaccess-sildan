@@ -114,10 +114,13 @@ export default function BarrioMap() {
         return () => window.removeEventListener("click", close);
     }, []);
 
-    // La capa elegida se recuerda entre visitas; si el navegador la bloquea, no pasa nada.
+    // La capa se recuerda: primero la guardada en el mapa (vale para todos),
+    // y si no hay, la ultima que eligio este navegador.
     useEffect(() => {
+        const guardada = (data as any)?.base;
+        if (guardada) { setBase(guardada); return; }
         try { const g = localStorage.getItem("omni-mapa-capa"); if (g) setBase(g); } catch { }
-    }, []);
+    }, [data]);
     useEffect(() => {
         try { localStorage.setItem("omni-mapa-capa", base); } catch { }
     }, [base]);
@@ -190,8 +193,15 @@ export default function BarrioMap() {
     const save = async () => {
         setSaving(true);
         const m = mapRef.current;
-        const payload: BarrioMapData = { ...data, center: m ? [m.getCenter().lat, m.getCenter().lng] : data.center, zoom: m ? m.getZoom() : data.zoom };
-        try { const r = await saveBarrioMap(payload); if (r.ok) { toast.success({ title: "Mapa guardado" }); setData(payload); setEditing(false); setTool("select"); } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" }); }
+        // Guardamos tambien la capa elegida: al volver, el mapa abre igual a
+        // como lo dejo el operador.
+        const payload: BarrioMapData = {
+            ...data,
+            center: m ? [m.getCenter().lat, m.getCenter().lng] : data.center,
+            zoom: m ? m.getZoom() : data.zoom,
+            base,
+        } as BarrioMapData;
+        try { const r = await saveBarrioMap(payload); if (r.ok) { toast.success({ title: "Mapa guardado", description: `Vista, zoom y capa ${base} recordados` }); setData(payload); setEditing(false); setTool("select"); } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" }); }
         catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); } finally { setSaving(false); }
     };
 
@@ -393,67 +403,67 @@ export default function BarrioMap() {
                 )}
 
                 {/* Toolbar pill */}
-                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 right-3 z-[530] flex items-center gap-1 rounded-full px-1.5 py-1.5 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
+                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] flex items-center gap-1 rounded-full px-1.5 py-1.5 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
+                            {/* Capas: un menú, no un panel escondido en una esquina */}
+                    <div className="relative">
+                        <motion.button whileTap={{ scale: 0.94 }} onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
+                            className={cn("flex items-center gap-1.5 h-8 px-3 rounded-full text-[11.5px] font-semibold transition-colors",
+                                menuCapas ? "bg-white/[0.16] text-white" : "text-white/60 hover:text-white hover:bg-white/[0.1]")}>
+                            <Layers3 size={14} />
+                            {vista3D ? "Vista 3D" : base}
+                            <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
+                        </motion.button>
+                        <AnimatePresence>
+                            {menuCapas && (
+                                <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                                    transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
+                                    className="absolute top-10 left-0 w-[188px] p-1.5 rounded-2xl bg-[#0a0d12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/60">
+                                    <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mapa de fondo</p>
+                                    <div className="grid grid-cols-2 gap-0.5">
+                                        {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
+                                            <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
+                                                className="relative h-7 rounded-lg text-[11px] font-semibold text-white/55 hover:text-white transition-colors">
+                                                {base === nb && !vista3D && (
+                                                    <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                                        className="absolute inset-0 rounded-lg bg-white/[0.14]" />
+                                                )}
+                                                <span className={cn("relative", base === nb && !vista3D && "text-white")}>{nb}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <button onClick={() => setVista3D((v) => !v)}
+                                        className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-white/55 hover:text-white transition-colors">
+                                        {vista3D && ayuda3D && (
+                                            <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                                className="absolute inset-0 rounded-lg bg-sky-400/25" />
+                                        )}
+                                        <span className={cn("relative", vista3D && "text-sky-200")}>Vista 3D · girar e inclinar</span>
+                                    </button>
+                                    {!vista3D && (<>
+                                        <span className="block h-px bg-white/[0.08] mx-1 my-1.5" />
+                                        <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mostrar</p>
+                                        {capas.map(({ k, label, icon: Ic }) => {
+                                            const on = verCapa[k];
+                                            return (
+                                                <button key={k} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
+                                                    className={cn("w-full flex items-center gap-2 h-7 px-2 rounded-lg text-[11px] font-semibold transition-colors",
+                                                        on ? "text-white hover:bg-white/[0.08]" : "text-white/35 hover:text-white/70")}>
+                                                    <Ic size={12} />
+                                                    <span className="flex-1 text-left">{label}</span>
+                                                    {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </>)}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+
+                    <span className="w-px h-5 bg-white/10 mx-0.5" />
+
                     {!editing ? (
                         <>
-                            {/* Capas: un menú, no un panel escondido en una esquina */}
-                            <div className="relative">
-                                <motion.button whileTap={{ scale: 0.94 }} onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
-                                    className={cn("flex items-center gap-1.5 h-8 px-3 rounded-full text-[11.5px] font-semibold transition-colors",
-                                        menuCapas ? "bg-white/[0.16] text-white" : "text-white/60 hover:text-white hover:bg-white/[0.1]")}>
-                                    <Layers3 size={14} />
-                                    {vista3D ? "Vista 3D" : base}
-                                    <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
-                                </motion.button>
-                                <AnimatePresence>
-                                    {menuCapas && (
-                                        <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                                            transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
-                                            className="absolute top-10 -left-1 w-[188px] p-1.5 rounded-2xl bg-[#0a0d12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/60">
-                                            <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mapa de fondo</p>
-                                            <div className="grid grid-cols-2 gap-0.5">
-                                                {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
-                                                    <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
-                                                        className="relative h-7 rounded-lg text-[11px] font-semibold text-white/55 hover:text-white transition-colors">
-                                                        {base === nb && !vista3D && (
-                                                            <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                                className="absolute inset-0 rounded-lg bg-white/[0.14]" />
-                                                        )}
-                                                        <span className={cn("relative", base === nb && !vista3D && "text-white")}>{nb}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                            <button onClick={() => setVista3D((v) => !v)}
-                                                className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-white/55 hover:text-white transition-colors">
-                                                {vista3D && ayuda3D && (
-                                                    <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                        className="absolute inset-0 rounded-lg bg-sky-400/25" />
-                                                )}
-                                                <span className={cn("relative", vista3D && "text-sky-200")}>Vista 3D · girar e inclinar</span>
-                                            </button>
-                                            {!vista3D && (<>
-                                                <span className="block h-px bg-white/[0.08] mx-1 my-1.5" />
-                                                <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mostrar</p>
-                                                {capas.map(({ k, label, icon: Ic }) => {
-                                                    const on = verCapa[k];
-                                                    return (
-                                                        <button key={k} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
-                                                            className={cn("w-full flex items-center gap-2 h-7 px-2 rounded-lg text-[11px] font-semibold transition-colors",
-                                                                on ? "text-white hover:bg-white/[0.08]" : "text-white/35 hover:text-white/70")}>
-                                                            <Ic size={12} />
-                                                            <span className="flex-1 text-left">{label}</span>
-                                                            {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </>)}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-
-                            <span className="w-px h-5 bg-white/10 mx-0.5" />
-
                             {[
                                 { ic: Plus, t: "Acercar", fn: () => acercar(1), off: vista3D },
                                 { ic: Minus, t: "Alejar", fn: () => acercar(-1), off: vista3D },

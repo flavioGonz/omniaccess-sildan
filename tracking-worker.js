@@ -54,6 +54,10 @@ async function ubicacionesDelMapa() {
 }
 
 async function camaras() {
+    // Funcion opcional: si el interruptor de Modos > LPR esta apagado, no se
+    // engancha ninguna camara.
+    if ((await ajuste("OMNI_LPR_ENABLED", "false")) !== "true") return [];
+
     const lista = [];
     try {
         const ubic = await ubicacionesDelMapa();

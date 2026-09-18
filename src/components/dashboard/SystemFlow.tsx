@@ -226,6 +226,8 @@ export default function SystemFlow() {
     const [nodes, setNodes] = useState<Node[]>([]);
     const [edges, setEdges] = useState<Edge[]>([]);
     const [webhookActive, setWebhookActive] = useState<string | null>(null);
+    // El carril de captura (Omni-LPR) es opcional: si esta apagado no se dibuja.
+    const [conCaptura, setConCaptura] = useState(true);
 
     // Load saved positions from database
     useEffect(() => {
@@ -492,6 +494,8 @@ export default function SystemFlow() {
                 const res = await axios.get('/api/system-status');
                 const data = res.data;
 
+                setConCaptura(data.omniLprEnabled !== false);
+
                 setEdges(eds => eds.map(edge => {
                     let status = 'unknown';
                     let latency = 0;
@@ -630,7 +634,13 @@ export default function SystemFlow() {
         return () => clearInterval(interval);
     }, []);
 
-    const nodesWithIcons = nodes.map(node => {
+    const DEL_CARRIL = ['cams-track', 'tracking', 'omni-lpr'];
+    const nodesVisibles = conCaptura ? nodes : nodes.filter(n => !DEL_CARRIL.includes(n.id));
+    const edgesVisibles = conCaptura
+        ? edges
+        : edges.filter(e => !DEL_CARRIL.includes(e.source) && !DEL_CARRIL.includes(e.target));
+
+    const nodesWithIcons = nodesVisibles.map(node => {
         if (node.type === 'webhook') return node;
 
         const Icon = node.data.icon;
@@ -723,7 +733,7 @@ export default function SystemFlow() {
             `}</style>
             <ReactFlow
                 nodes={nodesWithIcons}
-                edges={edges}
+                edges={edgesVisibles}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}

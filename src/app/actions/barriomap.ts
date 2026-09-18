@@ -9,6 +9,8 @@ export interface BarrioMapData {
     perimeter: [number, number][];
     streets: { id: string; name?: string; points: [number, number][] }[];
     cameras: { deviceId: string; lat: number; lng: number }[];
+    /** Capa de fondo con la que abre el mapa: Híbrido, Táctico, Satélite o Calles. */
+    base?: string;
 }
 
 const DEFAULT: BarrioMapData = {
@@ -17,6 +19,7 @@ const DEFAULT: BarrioMapData = {
     perimeter: [],
     streets: [],
     cameras: [],
+    base: "Híbrido",
 };
 
 export async function getBarrioMap(): Promise<BarrioMapData> {
@@ -30,6 +33,7 @@ export async function getBarrioMap(): Promise<BarrioMapData> {
             perimeter: Array.isArray(d.perimeter) ? d.perimeter : [],
             streets: Array.isArray(d.streets) ? d.streets : [],
             cameras: Array.isArray(d.cameras) ? d.cameras : [],
+            base: typeof d.base === "string" ? d.base : DEFAULT.base,
         };
     } catch {
         return DEFAULT;

@@ -54,6 +54,7 @@ import StorageBrowser from "@/components/settings/StorageBrowser";
 import { Button } from "@/components/ui/button";
 const SystemFlow = nextDynamic(() => import("@/components/dashboard/SystemFlow"), { ssr: false, loading: _SLoad });
 const TrackingSection = nextDynamic(() => import("./TrackingSection"), { ssr: false, loading: _SLoad });
+const OmniLprToggle = nextDynamic(() => import("./OmniLprToggle"), { ssr: false });
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
@@ -368,6 +369,7 @@ export default function SettingsPage() {
                                     ]}
                                 />
                             )}
+                            {modeSubTab === "mode_lpr" && <OmniLprToggle />}
                             {modeSubTab === "mode_queue" && (
                                 <ModeConfiguration
                                     title="Modo Filas"

@@ -5,7 +5,8 @@ import axios from "axios";
 import { sileo as toast } from "sileo";
 import {
     ScanLine, Video, Plus, RefreshCw, Play, Square, Camera as CamIcon,
-    MapPin, Gauge, Loader2, Terminal, Route, CheckCircle2, XCircle, Info
+    MapPin, Gauge, Loader2, Terminal, Route, CheckCircle2, XCircle, Info,
+    Cpu, MemoryStick, Thermometer, Zap, Activity
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ export default function TrackingSection() {
     const [probando, setProbando] = useState(false);
     const [probada, setProbada] = useState<string | null>(null);
     const [prueba, setPrueba] = useState<any>(null);
+    const [metricas, setMetricas] = useState<any>(null);
     const [logs, setLogs] = useState<{ lpr: string; worker: string } | null>(null);
     const [verLogs, setVerLogs] = useState(false);
 
@@ -74,6 +76,17 @@ export default function TrackingSection() {
         const t = setInterval(cargar, 15000);
         return () => clearInterval(t);
     }, [cargar]);
+
+    // Las métricas van aparte: se refrescan más seguido y no bloquean el resto.
+    useEffect(() => {
+        let vivo = true;
+        const leer = async () => {
+            try { const r = await axios.get("/api/tracking/metrics"); if (vivo) setMetricas(r.data); } catch { }
+        };
+        leer();
+        const t = setInterval(leer, 5000);
+        return () => { vivo = false; clearInterval(t); };
+    }, []);
 
     const operar = async (accion: string, etiqueta: string) => {
         setOperando(accion);
@@ -192,6 +205,63 @@ export default function TrackingSection() {
                     </div>
                 </div>
             </div>
+
+            {/* Consumo en vivo */}
+            {metricas && (
+                <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Activity size={15} className="text-muted-foreground" />
+                            <span className="text-sm font-semibold text-foreground">Consumo en vivo</span>
+                        </div>
+                        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                            metricas.enGpu ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400")}>
+                            <Cpu size={11} /> Procesando en {metricas.motor}
+                        </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        <Medidor icono={Cpu} titulo="CPU del contenedor"
+                            valor={metricas.contenedor ? `${metricas.contenedor.cpu.toFixed(0)}%` : "—"}
+                            pct={metricas.contenedor?.cpu ?? 0}
+                            pie={metricas.anfitrion?.nucleos ? `${metricas.anfitrion.nucleos} núcleos · carga ${metricas.anfitrion.carga?.[0]?.toFixed(2)}` : ""} />
+                        <Medidor icono={MemoryStick} titulo="Memoria"
+                            valor={metricas.contenedor ? `${(metricas.contenedor.memUsada / 1e9).toFixed(1)} GB` : "—"}
+                            pct={metricas.contenedor?.memPorcentaje ?? 0}
+                            pie={metricas.contenedor ? `de ${(metricas.contenedor.memTotal / 1e9).toFixed(0)} GB · ${metricas.contenedor.procesos} hilos` : ""} />
+                        <Medidor icono={Zap} titulo="GPU"
+                            valor={metricas.gpu ? `${metricas.gpu.uso}%` : "sin datos"}
+                            pct={metricas.gpu?.uso ?? 0}
+                            pie={metricas.gpu ? `${metricas.gpu.memUsada} / ${metricas.gpu.memTotal} MB` : ""} />
+                        <Medidor icono={Thermometer} titulo="Temperatura GPU"
+                            valor={metricas.gpu ? `${metricas.gpu.temperatura} °C` : "—"}
+                            pct={metricas.gpu ? Math.min(100, (metricas.gpu.temperatura / 90) * 100) : 0}
+                            pie={metricas.gpu ? `${metricas.gpu.potencia?.toFixed(0)} de ${metricas.gpu.potenciaMax?.toFixed(0)} W` : ""} />
+                    </div>
+
+                    <div>
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                            Cámaras enganchadas ({metricas.camarasVivas?.length || 0})
+                        </div>
+                        {metricas.camarasVivas?.length ? (
+                            <div className="space-y-1">
+                                {metricas.camarasVivas.map((c: any) => (
+                                    <div key={c.pid} className="flex items-center gap-3 text-[11px] rounded-lg bg-background/50 border border-border px-3 py-1.5">
+                                        <span className="font-mono text-muted-foreground w-14">pid {c.pid}</span>
+                                        <span className="flex-1 font-mono text-muted-foreground truncate">{c.destino || "—"}</span>
+                                        <span className="text-muted-foreground">{c.cpu.toFixed(0)}% CPU</span>
+                                        <span className="text-muted-foreground tabular-nums">{Math.floor(c.segundos / 60)} min</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-muted-foreground">
+                                Ninguna. La pasarela engancha un proceso por cámara interior activa.
+                            </p>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {verLogs && (
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
@@ -325,6 +395,23 @@ export default function TrackingSection() {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+/** Barra de consumo: número grande arriba y una barra de progreso sobria. */
+function Medidor({ icono: Ic, titulo, valor, pct, pie }: { icono: any; titulo: string; valor: string; pct: number; pie?: string }) {
+    const tono = pct >= 85 ? "bg-red-500" : pct >= 60 ? "bg-amber-500" : "bg-emerald-500";
+    return (
+        <div className="rounded-xl border border-border bg-background/40 p-3">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                <Ic size={11} /> {titulo}
+            </div>
+            <div className="text-xl font-bold text-foreground tabular-nums mt-1">{valor}</div>
+            <div className="h-1 rounded-full bg-muted mt-2 overflow-hidden">
+                <div className={cn("h-full rounded-full transition-all duration-500", tono)} style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
+            </div>
+            {pie && <div className="text-[10px] text-muted-foreground mt-1.5">{pie}</div>}
         </div>
     );
 }

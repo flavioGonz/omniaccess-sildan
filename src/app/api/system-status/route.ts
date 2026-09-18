@@ -137,6 +137,14 @@ export async function GET(req: NextRequest) {
         status.waha = { status: 'error', latency: 0 };
     }
 
+    // El reconocimiento por contenedor es opcional.
+    let omniActivo = false;
+    try {
+        const s = await prisma.setting.findUnique({ where: { key: "OMNI_LPR_ENABLED" } });
+        omniActivo = s?.value === "true";
+    } catch { }
+    status.omniLprEnabled = omniActivo;
+
     // 4. Check Omni-LPR (lector de matriculas en contenedor)
     try {
         const lprUrl = (process.env.OMNI_LPR_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
