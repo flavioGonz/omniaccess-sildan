@@ -1,51 +1,126 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+/**
+ * Panel del seguimiento — Ajustes › Avanzado.
+ *
+ * Criterio de lo que se muestra: solo lo que cambia una decisión. El pid de un ffmpeg,
+ * la URL RTSP con la clave tapada o cuántas veces se reinició la pasarela no le dicen
+ * nada a quien tiene que decidir si esto anda bien, así que no están. Lo que sí está es
+ * la serie: si la GPU viene trabajando, si el lector viene leyendo, y de cada disparo
+ * cuántos terminaron en una matrícula.
+ */
+import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { sileo as toast } from "sileo";
 import {
     ScanLine, Video, Plus, RefreshCw, Play, Square, Camera as CamIcon,
-    MapPin, Gauge, Loader2, Terminal, Route, CheckCircle2, XCircle, Info,
-    Cpu, MemoryStick, Thermometer, Zap, Activity
+    Loader2, Terminal, CheckCircle2, XCircle, BookOpen, Cpu, Zap,
+    MemoryStick, Thermometer, AlertTriangle, SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type Camara = {
-    id: string;
-    name: string;
-    ip?: string;
-    location?: string | null;
-    rtsp: string;
-    rtspVisible?: string;
-    escena?: number;
-    activa?: boolean;
-    enMapa?: boolean;
-    lat?: number | null;
-    lng?: number | null;
-};
+type Camara = { id: string; name: string; rtsp: string; rtspVisible?: string; activa?: boolean; enMapa?: boolean; lat?: number | null; lng?: number | null };
 
-function Pastilla({ ok, texto }: { ok: boolean | null; texto: string }) {
+const RANGOS = [
+    { horas: 6, etiqueta: "6 h" },
+    { horas: 24, etiqueta: "24 h" },
+    { horas: 168, etiqueta: "7 días" },
+];
+
+/* ─────────────────────────── piezas ─────────────────────────── */
+
+function Pastilla({ tono, texto }: { tono: "ok" | "mal" | "tibio" | "gris"; texto: string }) {
     return (
-        <span className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
-            ok === true && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-            ok === false && "bg-red-500/10 text-red-600 dark:text-red-400",
-            ok === null && "bg-muted text-muted-foreground"
-        )}>
+        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
+            tono === "ok" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+            tono === "mal" && "bg-red-500/10 text-red-600 dark:text-red-400",
+            tono === "tibio" && "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+            tono === "gris" && "bg-muted text-muted-foreground")}>
             <span className={cn("h-1.5 w-1.5 rounded-full",
-                ok === true && "bg-emerald-500 animate-pulse",
-                ok === false && "bg-red-500",
-                ok === null && "bg-muted-foreground/50")} />
+                tono === "ok" && "bg-emerald-500 animate-pulse",
+                tono === "mal" && "bg-red-500",
+                tono === "tibio" && "bg-amber-500",
+                tono === "gris" && "bg-muted-foreground/50")} />
             {texto}
         </span>
     );
 }
 
+/** Dato suelto: rótulo chico arriba, número grande abajo. Sin caja ni borde. */
+function Dato({ rotulo, valor, pie, tono }: { rotulo: string; valor: string; pie?: string; tono?: string }) {
+    return (
+        <div className="min-w-0">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{rotulo}</div>
+            <div className={cn("text-xl font-bold tabular-nums mt-0.5 truncate", tono || "text-foreground")}>{valor}</div>
+            {pie && <div className="text-[11px] text-muted-foreground truncate">{pie}</div>}
+        </div>
+    );
+}
+
+/** Línea de tendencia. El área rellena ayuda a leer el nivel de un vistazo. */
+function Linea({ datos, color, max }: { datos: (number | null)[]; color: string; max?: number }) {
+    const vals = datos.map((v) => (v == null ? 0 : v));
+    if (vals.length < 2) return <div className="h-10 rounded bg-muted/30" />;
+    const tope = Math.max(max ?? 0, ...vals, 1);
+    const an = 100, al = 30;
+    const px = (i: number) => (i / (vals.length - 1)) * an;
+    const py = (v: number) => al - (v / tope) * (al - 2) - 1;
+    const linea = vals.map((v, i) => `${i ? "L" : "M"}${px(i).toFixed(2)},${py(v).toFixed(2)}`).join(" ");
+    const area = `${linea} L${an},${al} L0,${al} Z`;
+    return (
+        <svg viewBox={`0 0 ${an} ${al}`} preserveAspectRatio="none" className="h-10 w-full" aria-hidden>
+            <path d={area} fill={color} opacity={0.14} />
+            <path d={linea} fill="none" stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
+        </svg>
+    );
+}
+
+/** Barras por hora. Cada barra es una hora; el pie dice cuál es cuál. */
+function Barras({ datos }: { datos: { hora: string; lecturas: number }[] }) {
+    const tope = Math.max(1, ...datos.map((d) => d.lecturas));
+    return (
+        <div>
+            <div className="flex items-end gap-[2px] h-20">
+                {datos.map((d) => {
+                    const h = (d.lecturas / tope) * 100;
+                    return (
+                        <div key={d.hora} className="flex-1 min-w-0 flex items-end h-full group relative">
+                            <div
+                                className={cn("w-full rounded-sm transition-colors", d.lecturas ? "bg-violet-500/70 group-hover:bg-violet-400" : "bg-muted/50")}
+                                style={{ height: `${Math.max(d.lecturas ? 6 : 2, h)}%` }}
+                            />
+                            <div className="pointer-events-none absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 whitespace-nowrap rounded bg-popover border border-border px-2 py-1 text-[10px] text-popover-foreground shadow">
+                                {new Date(d.hora).toLocaleString("es-UY", { day: "2-digit", month: "short", hour: "2-digit" })} · {d.lecturas}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5">
+                <span>{datos[0] ? new Date(datos[0].hora).toLocaleString("es-UY", { day: "2-digit", month: "short", hour: "2-digit" }) : ""}</span>
+                <span>ahora</span>
+            </div>
+        </div>
+    );
+}
+
+function haceCuanto(iso: string | null) {
+    if (!iso) return "nunca";
+    const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 60) return `hace ${s} s`;
+    if (s < 3600) return `hace ${Math.round(s / 60)} min`;
+    if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
+    return new Date(iso).toLocaleDateString("es-UY", { day: "2-digit", month: "short" });
+}
+
+/* ─────────────────────────── panel ─────────────────────────── */
+
 export default function TrackingSection() {
     const [estado, setEstado] = useState<any>(null);
     const [camaras, setCamaras] = useState<Camara[]>([]);
-    const [parametros, setParametros] = useState<any>(null);
+    const [serie, setSerie] = useState<any>(null);
+    const [horas, setHoras] = useState(24);
     const [cargando, setCargando] = useState(true);
     const [operando, setOperando] = useState<string | null>(null);
     const [probando, setProbando] = useState(false);
@@ -57,34 +132,29 @@ export default function TrackingSection() {
 
     const cargar = useCallback(async () => {
         try {
-            const [s, c] = await Promise.all([
-                axios.get("/api/tracking/service"),
-                axios.get("/api/tracking/cameras"),
-            ]);
+            const [s, c] = await Promise.all([axios.get("/api/tracking/service"), axios.get("/api/tracking/cameras")]);
             setEstado(s.data);
             setCamaras(c.data.camaras || []);
-            setParametros(c.data.parametros || null);
         } catch {
             toast.error({ title: "No se pudo leer el estado de Omni-LPR" });
-        } finally {
-            setCargando(false);
-        }
+        } finally { setCargando(false); }
     }, []);
 
-    useEffect(() => {
-        cargar();
-        const t = setInterval(cargar, 15000);
-        return () => clearInterval(t);
-    }, [cargar]);
+    useEffect(() => { cargar(); const t = setInterval(cargar, 20000); return () => clearInterval(t); }, [cargar]);
 
-    // Las métricas van aparte: se refrescan más seguido y no bloquean el resto.
     useEffect(() => {
         let vivo = true;
-        const leer = async () => {
-            try { const r = await axios.get("/api/tracking/metrics"); if (vivo) setMetricas(r.data); } catch { }
-        };
+        const leer = async () => { try { const r = await axios.get(`/api/tracking/series?horas=${horas}`); if (vivo) setSerie(r.data); } catch { } };
         leer();
-        const t = setInterval(leer, 5000);
+        const t = setInterval(leer, 60000);
+        return () => { vivo = false; clearInterval(t); };
+    }, [horas]);
+
+    useEffect(() => {
+        let vivo = true;
+        const leer = async () => { try { const r = await axios.get("/api/tracking/metrics"); if (vivo) setMetricas(r.data); } catch { } };
+        leer();
+        const t = setInterval(leer, 8000);
         return () => { vivo = false; clearInterval(t); };
     }, []);
 
@@ -96,16 +166,12 @@ export default function TrackingSection() {
             setTimeout(cargar, 2500);
         } catch (e: any) {
             toast.error({ title: e?.response?.data?.error || `No se pudo ${etiqueta.toLowerCase()}` });
-        } finally {
-            setOperando(null);
-        }
+        } finally { setOperando(null); }
     };
 
     const probar = async (rtsp: string, id?: string) => {
         if (!rtsp.trim()) return toast.error({ title: "Esa cámara no tiene URL RTSP cargada" });
-        setProbando(true);
-        setPrueba(null);
-        setProbada(id || null);
+        setProbando(true); setPrueba(null); setProbada(id || null);
         try {
             const r = await axios.post("/api/tracking/probe", { rtsp });
             setPrueba(r.data);
@@ -114,152 +180,146 @@ export default function TrackingSection() {
             else toast.info?.({ title: "Cuadro capturado, sin matrícula visible" });
         } catch (e: any) {
             toast.error({ title: e?.response?.data?.error || "No se pudo probar la cámara" });
-        } finally {
-            setProbando(false);
-        }
+        } finally { setProbando(false); }
     };
 
-    const abrirLogs = async () => {
-        setVerLogs(true);
-        try { const r = await axios.get("/api/tracking/logs"); setLogs(r.data); } catch { }
-    };
+    const abrirLogs = async () => { setVerLogs(true); try { const r = await axios.get("/api/tracking/logs"); setLogs(r.data); } catch { } };
 
-    const lprVivo = estado?.salud?.status === "ok";
     const contVivo = estado?.contenedor?.estado === "running";
+    const lprVivo = estado?.salud?.status === "ok";
     const workerVivo = estado?.worker?.estado === "online";
+    const enGpu = metricas?.enGpu ?? serie?.resumen?.enGpu;
+    const m = serie?.muestras || [];
+
+    /** Un solo veredicto arriba, para no obligar a leer cuatro tarjetas. */
+    const veredicto = useMemo(() => {
+        if (!estado) return { tono: "gris" as const, texto: "consultando" };
+        if (!contVivo || !lprVivo) return { tono: "mal" as const, texto: "el lector no responde" };
+        if (!workerVivo) return { tono: "mal" as const, texto: "la pasarela está caída" };
+        if (!estado.camaras) return { tono: "tibio" as const, texto: "sin cámaras interiores" };
+        if (enGpu === false) return { tono: "tibio" as const, texto: "trabajando en CPU" };
+        return { tono: "ok" as const, texto: "en marcha" };
+    }, [estado, contVivo, lprVivo, workerVivo, enGpu]);
+
+    const camarasPorId = useMemo(() => {
+        const x: Record<string, any> = {};
+        for (const c of serie?.porCamara || []) x[c.id] = c;
+        return x;
+    }, [serie]);
 
     if (cargando) {
         return <div className="flex items-center gap-3 p-10 text-muted-foreground"><Loader2 className="animate-spin" size={18} /> Consultando el servicio…</div>;
     }
 
+    const r = serie?.resumen;
+
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
-            {/* Encabezado */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h2 className="text-2xl font-bold text-foreground tracking-tight">Omni-LPR · Seguimiento</h2>
-                    <p className="text-sm text-muted-foreground mt-1">
-                        Lector de matrículas en contenedor y pasarela de cámaras comunes
-                    </p>
-                </div>
-                <div className="p-2 bg-teal-500/10 rounded-xl border border-teal-500/20">
-                    <ScanLine className="text-teal-500" size={24} />
-                </div>
-            </div>
-
-            {/* Estado del servicio */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contenedor</span>
-                        <Pastilla ok={contVivo ? true : estado?.contenedor ? false : null} texto={estado?.contenedor?.estado || "sin datos"} />
-                    </div>
-                    <div className="font-mono text-sm text-foreground">{estado?.lprUrl}</div>
-                    <div className="text-xs text-muted-foreground">
-                        {lprVivo ? <>API v{estado?.salud?.version} · {estado?.salud?.latencia} ms</> : "La API no responde"}
-                    </div>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                        <Button size="sm" variant="outline" disabled={!!operando} onClick={() => operar("reiniciar-lpr", "Reiniciar lector")}>
-                            {operando === "reiniciar-lpr" ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
-                            <span className="ml-1.5">Reiniciar</span>
-                        </Button>
-                        {contVivo ? (
-                            <Button size="sm" variant="outline" disabled={!!operando} onClick={() => operar("detener-lpr", "Detener lector")}>
-                                <Square size={14} /><span className="ml-1.5">Detener</span>
-                            </Button>
-                        ) : (
-                            <Button size="sm" variant="outline" disabled={!!operando} onClick={() => operar("iniciar-lpr", "Iniciar lector")}>
-                                <Play size={14} /><span className="ml-1.5">Iniciar</span>
-                            </Button>
-                        )}
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Pasarela</span>
-                        <Pastilla ok={workerVivo ? true : estado?.worker ? false : null} texto={estado?.worker?.estado || "sin datos"} />
-                    </div>
-                    <div className="text-sm text-foreground">{estado?.camaras || 0} cámara(s) activa(s)</div>
-                    <div className="text-xs text-muted-foreground">
-                        {estado?.worker ? <>{estado.worker.reinicios} reinicios · {Math.round((estado.worker.memoria || 0) / 1048576)} MB</> : "tracking-worker no encontrado"}
-                    </div>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                        <Button size="sm" variant="outline" disabled={!!operando} onClick={() => operar("reiniciar-worker", "Reiniciar pasarela")}>
-                            {operando === "reiniciar-worker" ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
-                            <span className="ml-1.5">Reiniciar</span>
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={abrirLogs}><Terminal size={14} /><span className="ml-1.5">Logs</span></Button>
-                    </div>
-                </div>
-
-                <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Lecturas</span>
-                        <Route className="text-violet-500" size={16} />
-                    </div>
-                    <div className="text-3xl font-bold text-foreground tabular-nums">{estado?.lecturas24 ?? 0}</div>
-                    <div className="text-xs text-muted-foreground">avistamientos en las últimas 24 h</div>
-                    <div className="text-xs text-muted-foreground pt-1">
-                        Confianza mínima {Math.round((parametros?.minConfidence ?? 0.6) * 100)}% · antirrebote {parametros?.dedupeSeconds ?? 45}s
-                    </div>
-                </div>
-            </div>
-
-            {/* Consumo en vivo */}
-            {metricas && (
-                <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <Activity size={15} className="text-muted-foreground" />
-                            <span className="text-sm font-semibold text-foreground">Consumo en vivo</span>
+        <div className="space-y-5 animate-in fade-in duration-500">
+            {/* ── Encabezado con las acciones a mano ── */}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                    <div className="p-2 bg-teal-500/10 rounded-xl border border-teal-500/20 shrink-0"><ScanLine className="text-teal-500" size={22} /></div>
+                    <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h2 className="text-xl font-bold text-foreground tracking-tight">Omni-LPR · Seguimiento</h2>
+                            <Pastilla tono={veredicto.tono} texto={veredicto.texto} />
                         </div>
-                        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold",
-                            metricas.enGpu ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/10 text-amber-600 dark:text-amber-400")}>
-                            <Cpu size={11} /> Procesando en {metricas.motor}
+                        <p className="text-sm text-muted-foreground mt-0.5">Lector de matrículas en contenedor, leyendo cámaras comunes por RTSP</p>
+                    </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" disabled={!!operando} onClick={() => operar("reiniciar-lpr", "Reiniciar lector")}>
+                        {operando === "reiniciar-lpr" ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}<span className="ml-1.5">Lector</span>
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={!!operando} onClick={() => operar("reiniciar-worker", "Reiniciar pasarela")}>
+                        {operando === "reiniciar-worker" ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}<span className="ml-1.5">Pasarela</span>
+                    </Button>
+                    {contVivo ? (
+                        <Button size="sm" variant="ghost" disabled={!!operando} onClick={() => operar("detener-lpr", "Detener lector")}><Square size={14} /></Button>
+                    ) : (
+                        <Button size="sm" variant="ghost" disabled={!!operando} onClick={() => operar("iniciar-lpr", "Iniciar lector")}><Play size={14} /></Button>
+                    )}
+                    <Button size="sm" variant="ghost" onClick={abrirLogs}><Terminal size={14} /><span className="ml-1.5">Logs</span></Button>
+                </div>
+            </div>
+
+            {/* ── Los cuatro datos que contestan "¿anda?" ── */}
+            <div className="rounded-2xl border border-border bg-card px-5 py-4 grid grid-cols-2 lg:grid-cols-4 gap-5">
+                <Dato rotulo="Lector"
+                    valor={enGpu === true ? "GPU" : enGpu === false ? "CPU" : "—"}
+                    tono={enGpu === false ? "text-amber-500" : undefined}
+                    pie={lprVivo ? `v${estado?.salud?.version} · responde en ${estado?.salud?.latencia} ms` : "la API no responde"} />
+                <Dato rotulo="Pasarela"
+                    valor={`${estado?.camaras || 0} cámara${estado?.camaras === 1 ? "" : "s"}`}
+                    pie={workerVivo ? (serie?.porCamara?.some((c: any) => c.modo === "camara") ? "disparo por aviso de la cámara" : "disparo por cambio de escena") : "detenida"} />
+                <Dato rotulo={`Lecturas · ${horas >= 168 ? "7 días" : horas + " h"}`}
+                    valor={String(r?.avistamientos ?? 0)}
+                    pie={r?.confianzaMediana != null ? `confianza mediana ${r.confianzaMediana}%` : "sin lecturas todavía"} />
+                <Dato rotulo="Efectividad"
+                    valor={r?.efectividad != null ? `${r.efectividad}%` : "—"}
+                    tono={r?.efectividad != null && r.efectividad < 30 ? "text-amber-500" : undefined}
+                    pie={r?.disparos ? `${r.lecturas} de ${r.disparos} disparos` : "sin disparos en el período"} />
+            </div>
+
+            {/* ── Rendimiento con historia ── */}
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <span className="text-sm font-semibold text-foreground">Rendimiento</span>
+                    <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">
+                        {RANGOS.map((x) => (
+                            <button key={x.horas} onClick={() => setHoras(x.horas)}
+                                className={cn("px-2.5 py-1 rounded text-[11px] font-semibold transition-all",
+                                    horas === x.horas ? "bg-teal-600 text-white" : "text-muted-foreground hover:text-foreground")}>
+                                {x.etiqueta}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {m.length < 2 ? (
+                    <p className="text-xs text-muted-foreground py-6 text-center">
+                        Todavía no hay historia. La pasarela guarda una muestra por minuto; en un rato esto se llena.
+                    </p>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                        {[
+                            { ic: Zap, t: "GPU", col: "#10b981", k: "gpuUso", v: metricas?.gpu ? `${metricas.gpu.uso}%` : "—", pie: r?.gpuPico != null ? `pico ${r.gpuPico}% · promedio ${r.gpuProm}%` : "", max: 100 },
+                            { ic: Cpu, t: "CPU del lector", col: "#0ea5e9", k: "cpuCont", v: metricas?.contenedor ? `${metricas.contenedor.cpu.toFixed(0)}%` : "—", pie: "del total de la máquina", max: 100 },
+                            { ic: MemoryStick, t: "Memoria del lector", col: "#8b5cf6", k: "memCont", v: metricas?.contenedor ? `${(metricas.contenedor.memUsada / 1e9).toFixed(1)} GB` : "—", pie: "residente", max: undefined },
+                            { ic: Thermometer, t: "Temperatura", col: "#f59e0b", k: "gpuTemp", v: metricas?.gpu ? `${metricas.gpu.temperatura} °C` : "—", pie: metricas?.gpu ? `${metricas.gpu.potencia?.toFixed(0)} de ${metricas.gpu.potenciaMax?.toFixed(0)} W` : "", max: 90 },
+                        ].map((x) => (
+                            <div key={x.k}>
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"><x.ic size={11} /> {x.t}</span>
+                                    <span className="text-sm font-bold text-foreground tabular-nums">{x.v}</span>
+                                </div>
+                                <div className="mt-1.5"><Linea datos={m.map((d: any) => d[x.k])} color={x.col} max={x.max} /></div>
+                                {x.pie && <div className="text-[10px] text-muted-foreground mt-0.5">{x.pie}</div>}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* ── Lecturas en el tiempo ── */}
+            {!!serie?.porHora?.length && (
+                <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <span className="text-sm font-semibold text-foreground">Lecturas por hora</span>
+                        <span className="text-[11px] text-muted-foreground">
+                            {r?.lecturas ?? 0} aceptadas · {r?.descartes ?? 0} descartadas por no coincidir entre cuadros
                         </span>
                     </div>
-
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                        <Medidor icono={Cpu} titulo="CPU del contenedor"
-                            valor={metricas.contenedor ? `${metricas.contenedor.cpu.toFixed(0)}%` : "—"}
-                            pct={metricas.contenedor?.cpu ?? 0}
-                            pie={metricas.anfitrion?.nucleos ? `${metricas.anfitrion.nucleos} núcleos · carga ${metricas.anfitrion.carga?.[0]?.toFixed(2)}` : ""} />
-                        <Medidor icono={MemoryStick} titulo="Memoria"
-                            valor={metricas.contenedor ? `${(metricas.contenedor.memUsada / 1e9).toFixed(1)} GB` : "—"}
-                            pct={metricas.contenedor?.memPorcentaje ?? 0}
-                            pie={metricas.contenedor ? `de ${(metricas.contenedor.memTotal / 1e9).toFixed(0)} GB · ${metricas.contenedor.procesos} hilos` : ""} />
-                        <Medidor icono={Zap} titulo="GPU"
-                            valor={metricas.gpu ? `${metricas.gpu.uso}%` : "sin datos"}
-                            pct={metricas.gpu?.uso ?? 0}
-                            pie={metricas.gpu ? `${metricas.gpu.memUsada} / ${metricas.gpu.memTotal} MB` : ""} />
-                        <Medidor icono={Thermometer} titulo="Temperatura GPU"
-                            valor={metricas.gpu ? `${metricas.gpu.temperatura} °C` : "—"}
-                            pct={metricas.gpu ? Math.min(100, (metricas.gpu.temperatura / 90) * 100) : 0}
-                            pie={metricas.gpu ? `${metricas.gpu.potencia?.toFixed(0)} de ${metricas.gpu.potenciaMax?.toFixed(0)} W` : ""} />
-                    </div>
-
-                    <div>
-                        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
-                            Cámaras enganchadas ({metricas.camarasVivas?.length || 0})
+                    <Barras datos={serie.porHora} />
+                    {r?.efectividad != null && r.efectividad < 30 && r.disparos > 10 && (
+                        <div className="flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+                            <AlertTriangle size={13} className="mt-px shrink-0" />
+                            <span>
+                                Se dispara mucho y se lee poco. Suele ser la zona de interés demasiado abierta, o una cámara
+                                que mira donde las matrículas quedan de costado. El calibrador de cada cámara lo muestra sobre un cuadro real.
+                            </span>
                         </div>
-                        {metricas.camarasVivas?.length ? (
-                            <div className="space-y-1">
-                                {metricas.camarasVivas.map((c: any) => (
-                                    <div key={c.pid} className="flex items-center gap-3 text-[11px] rounded-lg bg-background/50 border border-border px-3 py-1.5">
-                                        <span className="font-mono text-muted-foreground w-14">pid {c.pid}</span>
-                                        <span className="flex-1 font-mono text-muted-foreground truncate">{c.destino || "—"}</span>
-                                        <span className="text-muted-foreground">{c.cpu.toFixed(0)}% CPU</span>
-                                        <span className="text-muted-foreground tabular-nums">{Math.floor(c.segundos / 60)} min</span>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <p className="text-xs text-muted-foreground">
-                                Ninguna. La pasarela engancha un proceso por cámara interior activa.
-                            </p>
-                        )}
-                    </div>
+                    )}
                 </div>
             )}
 
@@ -280,35 +340,65 @@ export default function TrackingSection() {
                 </div>
             )}
 
-            {/* Cómo se agrega una cámara interior */}
-            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-                <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20"><Video className="text-blue-500" size={18} /></div>
-                    <div className="flex-1">
-                        <h3 className="font-semibold text-foreground">Cámaras interiores</h3>
-                        <p className="text-sm text-muted-foreground mt-0.5">
-                            Se dan de alta en <b className="text-foreground">Dispositivos LPR</b>, con el tipo
-                            <b className="text-foreground"> Cámara Interior (seguimiento)</b>. Son las que el contenedor Omni-LPR
-                            procesa por RTSP; las de entrada y salida siguen siendo del tipo Cámara LPR y leen la matrícula ellas mismas.
+            {/* ── Cámaras ── */}
+            <div className="rounded-2xl border border-border bg-card overflow-hidden">
+                <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                        <span className="text-sm font-semibold text-foreground">Cámaras interiores</span>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                            No abren barrera: solo alimentan el recorrido. Se dan de alta en Dispositivos LPR con el tipo <b className="text-foreground/80">Cámara Interior</b>.
                         </p>
                     </div>
-                    <a href="/admin/devices" className="shrink-0">
-                        <Button size="sm"><Plus size={15} /><span className="ml-1.5">Agregar cámara</span></Button>
-                    </a>
+                    <div className="flex gap-2">
+                        <a href="/admin/manuales?m=seguimiento"><Button size="sm" variant="ghost"><BookOpen size={14} /><span className="ml-1.5">Manual</span></Button></a>
+                        <a href="/admin/devices"><Button size="sm"><Plus size={15} /><span className="ml-1.5">Agregar</span></Button></a>
+                    </div>
                 </div>
 
-                <div className="rounded-xl bg-muted/40 border border-border p-3 text-xs text-muted-foreground space-y-1">
-                    <div className="flex items-center gap-1.5 font-semibold text-foreground"><Info size={13} /> Los tres pasos</div>
-                    <div><b className="text-foreground/80">1.</b> En Dispositivos LPR, nueva cámara → tipo <b>Cámara Interior</b> → pegá la URL RTSP del canal.</div>
-                    <div className="font-mono pl-4">Hikvision / NVR · rtsp://usuario:clave@IP:554/Streaming/Channels/<b>101</b></div>
-                    <div className="font-mono pl-4">Dahua · rtsp://usuario:clave@IP:554/cam/realmonitor?channel=<b>1</b>&amp;subtype=0</div>
-                    <div className="pl-4">101 = canal 1 flujo principal, 201 = canal 2. Un dispositivo por canal, y siempre el flujo principal.</div>
-                    <div><b className="text-foreground/80">2.</b> Probala desde acá: toma un cuadro real y te dice si el lector ve la matrícula.</div>
-                    <div><b className="text-foreground/80">3.</b> Arrastrala en <b className="text-foreground">Mapa</b> hasta donde está instalada, para que el recorrido se dibuje bien.</div>
-                </div>
+                {camaras.length === 0 ? (
+                    <div className="p-8 text-center text-sm text-muted-foreground">
+                        Todavía no hay ninguna. El seguimiento no hace nada hasta que se dé de alta la primera.
+                    </div>
+                ) : (
+                    <div className="divide-y divide-border">
+                        {camaras.map((c) => {
+                            const d = camarasPorId[c.id];
+                            return (
+                                <div key={c.id} className="px-5 py-3 flex flex-col lg:flex-row lg:items-center gap-3">
+                                    <div className="lg:w-64 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", c.activa ? "bg-emerald-500" : "bg-muted-foreground/40")} />
+                                            <span className="font-semibold text-sm text-foreground truncate">{c.name}</span>
+                                        </div>
+                                        <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2">
+                                            <span>{d?.modo === "camara" ? "avisa la cámara" : "cambio de escena"}</span>
+                                            <span>·</span>
+                                            <span className={d?.conZona ? "" : "text-amber-500"}>{d?.conZona ? "con zona" : "sin zona de interés"}</span>
+                                            {!c.enMapa && <><span>·</span><span className="text-amber-500">sin ubicar</span></>}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex-1 grid grid-cols-3 gap-3 text-[11px]">
+                                        <div><div className="text-muted-foreground">Lecturas</div><div className="text-foreground font-semibold tabular-nums">{d?.lecturas ?? 0}</div></div>
+                                        <div><div className="text-muted-foreground">Confianza</div><div className="text-foreground font-semibold tabular-nums">{d?.confianzaProm != null ? `${d.confianzaProm}%` : "—"}</div></div>
+                                        <div><div className="text-muted-foreground">Última</div><div className="text-foreground font-semibold">{haceCuanto(d?.ultima ?? null)}</div></div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <Button size="sm" variant="outline" disabled={probando || !c.rtsp} onClick={() => probar(c.rtsp, c.id)}>
+                                            {probando && probada === c.id ? <Loader2 className="animate-spin" size={14} /> : <CamIcon size={14} />}
+                                            <span className="ml-1.5">Probar</span>
+                                        </Button>
+                                        <a href="/admin/devices"><Button size="sm" variant="ghost"><SlidersHorizontal size={14} /><span className="ml-1.5">Calibrar</span></Button></a>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
 
                 {prueba && (
-                    <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4 rounded-xl border border-border bg-background/50 p-3">
+                    <div className="border-t border-border p-4 grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={prueba.imagen} alt="Cuadro de prueba" className="rounded-lg w-full object-cover border border-border" />
                         <div className="space-y-2 text-sm">
@@ -330,8 +420,7 @@ export default function TrackingSection() {
                                 );
                             }) : !prueba.errorLpr && (
                                 <div className="text-muted-foreground text-xs">
-                                    No se vio ninguna matrícula en ese cuadro. Es normal si no pasaba ningún auto:
-                                    probá de nuevo con un vehículo en el encuadre, o apuntá la cámara más baja.
+                                    No se vio ninguna matrícula en ese cuadro. Es normal si no pasaba ningún auto.
                                 </div>
                             )}
                         </div>
@@ -339,79 +428,25 @@ export default function TrackingSection() {
                 )}
             </div>
 
-            {/* Listado */}
-            <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-                    <span className="text-sm font-semibold text-foreground">Cámaras interiores dadas de alta ({camaras.length})</span>
-                </div>
-                {camaras.length === 0 ? (
-                    <div className="p-8 text-center text-sm text-muted-foreground">
-                        Todavía no hay ninguna. Agregala en Dispositivos LPR con el tipo <b className="text-foreground">Cámara Interior</b>.
-                    </div>
-                ) : (
-                    <div className="divide-y divide-border">
-                        {camaras.map((c) => (
-                            <div key={c.id} className="px-5 py-3 flex flex-col md:flex-row md:items-center gap-3">
-                                <div className="md:w-56">
-                                    <div className="flex items-center gap-2">
-                                        <span className={cn("h-1.5 w-1.5 rounded-full", c.activa ? "bg-emerald-500" : "bg-muted-foreground/40")} />
-                                        <span className="font-semibold text-sm text-foreground">{c.name}</span>
-                                    </div>
-                                    <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                                        <MapPin size={10} />
-                                        {c.enMapa ? `${Number(c.lat).toFixed(5)}, ${Number(c.lng).toFixed(5)}` : "sin ubicar en el mapa"}
-                                    </div>
-                                </div>
-                                <div className="flex-1 font-mono text-[11px] text-muted-foreground truncate">
-                                    {c.rtspVisible || <span className="text-amber-500 font-sans">falta cargar la URL RTSP</span>}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Gauge size={11} />{c.escena ?? 0.08}</span>
-                                    <Button size="sm" variant="outline" disabled={probando || !c.rtsp} onClick={() => probar(c.rtsp, c.id)}>
-                                        {probando && probada === c.id ? <Loader2 className="animate-spin" size={14} /> : <CamIcon size={14} />}
-                                        <span className="ml-1.5">Probar</span>
-                                    </Button>
-                                    <a href="/admin/devices" className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2">editar</a>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </div>
-
-            {/* Ultimos avistamientos */}
+            {/* ── Últimos avistamientos ── */}
             {!!estado?.ultimas?.length && (
                 <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                    <div className="px-5 py-3 border-b border-border text-sm font-semibold text-foreground">Últimos avistamientos</div>
+                    <div className="px-5 py-3 border-b border-border flex items-center justify-between">
+                        <span className="text-sm font-semibold text-foreground">Últimos avistamientos</span>
+                        <a href="/admin/history" className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">ver el historial completo</a>
+                    </div>
                     <div className="divide-y divide-border">
-                        {estado.ultimas.map((u: any, i: number) => (
+                        {estado.ultimas.slice(0, 8).map((u: any, i: number) => (
                             <div key={i} className="px-5 py-2.5 flex items-center gap-4 text-sm">
                                 <span className="font-mono font-bold tracking-widest text-foreground w-28">{u.plate}</span>
                                 <span className="text-muted-foreground flex-1 truncate">{u.cameraName || "—"}</span>
                                 <span className="text-xs text-muted-foreground">{u.confidence != null ? `${Math.round(u.confidence * 100)}%` : ""}</span>
-                                <span className="text-xs text-muted-foreground tabular-nums">{new Date(u.timestamp).toLocaleString("es-UY")}</span>
+                                <span className="text-xs text-muted-foreground tabular-nums">{haceCuanto(u.timestamp)}</span>
                             </div>
                         ))}
                     </div>
                 </div>
             )}
-        </div>
-    );
-}
-
-/** Barra de consumo: número grande arriba y una barra de progreso sobria. */
-function Medidor({ icono: Ic, titulo, valor, pct, pie }: { icono: any; titulo: string; valor: string; pct: number; pie?: string }) {
-    const tono = pct >= 85 ? "bg-red-500" : pct >= 60 ? "bg-amber-500" : "bg-emerald-500";
-    return (
-        <div className="rounded-xl border border-border bg-background/40 p-3">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                <Ic size={11} /> {titulo}
-            </div>
-            <div className="text-xl font-bold text-foreground tabular-nums mt-1">{valor}</div>
-            <div className="h-1 rounded-full bg-muted mt-2 overflow-hidden">
-                <div className={cn("h-full rounded-full transition-all duration-500", tono)} style={{ width: `${Math.max(0, Math.min(100, pct))}%` }} />
-            </div>
-            {pie && <div className="text-[10px] text-muted-foreground mt-1.5">{pie}</div>}
         </div>
     );
 }

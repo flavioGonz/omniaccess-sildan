@@ -33,7 +33,7 @@
  * RTSP, zona de interes y modo de disparo. Se mantiene el Setting TRACK_CAMERAS
  * como respaldo de instalaciones viejas.
  */
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
 const http = require("http");
 const crypto = require("crypto");
 const fs = require("fs");
@@ -78,10 +78,28 @@ const BALDOSA_SOLAPE = Number(process.env.TRACKING_TILE_OVERLAP || 0.18);
 // Techo de inferencias por rafaga, para que una calle con movimiento no acapare la GPU.
 const INFERENCIAS_MAX = Number(process.env.TRACKING_BURST_INFER || 24);
 
+// Modelos del lector. El detector por defecto del contenedor es el de 384 px, el mas
+// chico de los seis: achica cualquier imagen a eso antes de buscar nada, y por eso un
+// cuadro panoramico no devolvia ninguna matricula. Medido sobre el mismo cuadro:
+//   384 -> nada · 512 -> 0,41 · 640 -> 0,68 · s-608 -> 0,64
+// y en caliente la diferencia es de 15 a 24 ms, asi que no hay motivo para el chico.
+const DETECTOR = process.env.TRACKING_DETECTOR || "yolo-v9-t-640-license-plate-end2end";
+const OCR = process.env.TRACKING_OCR || "cct-xs-v1-global-model";
+// Segunda lectura sobre el recorte de la chapa, con el modelo grande. Es barata porque
+// la imagen es diminuta, y es donde se juegan las confusiones de un solo caracter.
+const OCR_FINO = process.env.TRACKING_OCR_FINE || "cct-s-v1-global-model";
+const RELEER = (process.env.TRACKING_SECOND_PASS || "true") !== "false";
+
 let token = process.env.TRACKING_TOKEN || "";
 const camarasVivas = new Map();   // nombre -> estado de esa camara
 
 const log = (...a) => console.log(new Date().toISOString(), "[track]", ...a);
+
+/** Modos en los que es la camara la que avisa: por zona de intrusion o por cruce de linea. */
+const porAviso = (m) => m === "camara" || m === "zona" || m === "linea";
+
+// Contadores del minuto en curso. Se vuelcan a la muestra y se ponen en cero.
+const contadores = { disparos: 0, lecturas: 0, descartes: 0 };
 
 async function ajuste(clave, porDefecto = null) {
     try { const r = await prisma.setting.findUnique({ where: { key: clave } }); return r?.value ?? porDefecto; }
@@ -179,29 +197,69 @@ async function baldosas(jpeg) {
     }
 }
 
-/** Manda un cuadro a Omni-LPR y devuelve { plate, confidence } o null. */
-async function leerMatricula(jpeg) {
-    const cuerpo = JSON.stringify({ image_base64: jpeg.toString("base64") });
-    const r = await fetch(`${LPR_URL}/api/v1/tools/detect_and_recognize_plate/invoke`, {
+async function invocar(herramienta, cuerpo, ms = 20000) {
+    const r = await fetch(`${LPR_URL}/api/v1/tools/${herramienta}/invoke`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: cuerpo,
-        signal: AbortSignal.timeout(20000),
+        body: JSON.stringify(cuerpo),
+        signal: AbortSignal.timeout(ms),
     });
     if (!r.ok) throw new Error(`Omni-LPR ${r.status}`);
     const d = await r.json();
-    const items = d?.content?.[0]?.data || [];
+    return d?.content?.[0]?.data || [];
+}
+
+/** Promedio de la confianza por caracter que devuelve el OCR. */
+const promedio = (c) => (Array.isArray(c) ? (c.length ? c.reduce((a, b) => a + b, 0) / c.length : 0) : (c ?? 0));
+
+/**
+ * Lee una imagen y devuelve { plate, confidence, chars } o null.
+ *
+ * Son dos pasos a proposito. El primero encuentra donde esta la chapa; el segundo la
+ * relee sola, ya recortada, con el modelo de OCR grande. Leer una imagen de 50x25 con
+ * el modelo bueno cuesta casi nada, y es justo donde se decide si dice B o D.
+ */
+async function leerMatricula(jpeg) {
+    const items = await invocar("detect_and_recognize_plate", {
+        image_base64: jpeg.toString("base64"),
+        detector_model: DETECTOR,
+        ocr_model: OCR,
+    });
+
     let mejor = null;
     for (const it of items) {
         const texto = (it?.ocr?.text || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
         if (texto.length < 4) continue;
-        const confOcr = Array.isArray(it?.ocr?.confidence)
-            ? it.ocr.confidence.reduce((a, b) => a + b, 0) / it.ocr.confidence.length
-            : (it?.ocr?.confidence ?? 0);
-        const conf = Math.min(confOcr || 0, it?.detection?.confidence ?? 1);
-        if (!mejor || conf > mejor.confidence) mejor = { plate: texto, confidence: conf };
+        const conf = Math.min(promedio(it?.ocr?.confidence) || 0, it?.detection?.confidence ?? 1);
+        const caja = it?.detection?.bounding_box || null;
+        if (!mejor || conf > mejor.confidence) mejor = { plate: texto, confidence: conf, chars: it?.ocr?.confidence, caja };
     }
-    return mejor;
+    if (!mejor) return null;
+
+    if (RELEER && mejor.caja) {
+        try {
+            const meta = await sharp(jpeg).metadata();
+            // Un poco de aire alrededor: el recorte justo suele comerse el borde del ultimo caracter.
+            const aire = 0.12;
+            const an = mejor.caja.x2 - mejor.caja.x1, al = mejor.caja.y2 - mejor.caja.y1;
+            const x = Math.max(0, Math.round(mejor.caja.x1 - an * aire));
+            const y = Math.max(0, Math.round(mejor.caja.y1 - al * aire));
+            const w = Math.min((meta.width || 0) - x, Math.round(an * (1 + 2 * aire)));
+            const h = Math.min((meta.height || 0) - y, Math.round(al * (1 + 2 * aire)));
+            if (w > 20 && h > 10) {
+                const recorte = await sharp(jpeg).extract({ left: x, top: y, width: w, height: h }).jpeg({ quality: 95 }).toBuffer();
+                const fino = await invocar("recognize_plate", { image_base64: recorte.toString("base64"), ocr_model: OCR_FINO }, 15000);
+                const it = fino?.[0];
+                const texto = (it?.ocr?.text || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+                const conf = promedio(it?.ocr?.confidence);
+                // Se queda con la segunda lectura solo si viene mejor; no se pisa a ciegas.
+                if (texto.length >= 4 && conf > mejor.confidence) {
+                    mejor = { plate: texto, confidence: conf, chars: it?.ocr?.confidence, caja: mejor.caja };
+                }
+            }
+        } catch { /* si la segunda lectura falla, vale la primera */ }
+    }
+    return { plate: mejor.plate, confidence: mejor.confidence, chars: Array.isArray(mejor.chars) ? mejor.chars : null };
 }
 
 /**
@@ -230,7 +288,11 @@ function votar(lecturas) {
         const votos = new Map();
         for (const l of utiles) {
             const c = l.plate[i];
-            votos.set(c, (votos.get(c) || 0) + l.confidence);
+            // El OCR da una confianza POR CARACTER. Usar el promedio de la lectura
+            // desperdicia eso: si un cuadro esta segurisimo de seis letras y flojo de la
+            // septima, conviene que pese mucho en las seis y poco en la septima.
+            const peso = (Array.isArray(l.chars) && l.chars.length === l.plate.length ? l.chars[i] : l.confidence) || 0.01;
+            votos.set(c, (votos.get(c) || 0) + peso);
         }
         let ganador = null, peso = -1;
         for (const [c, p] of votos) if (p > peso) { peso = p; ganador = c; }
@@ -289,6 +351,7 @@ function disparar(est, motivo) {
     // Los cuadros de justo antes del aviso suelen ser los mejores: el vehiculo
     // todavia esta entrando en cuadro y la chapa no se fue de foco.
     const previos = est.memoria.filter((c) => ahora - c.t <= RAFAGA_ANTES_MS).map((c) => c.jpeg);
+    contadores.disparos++;
     est.rafaga = { motivo, cuadros: previos.slice(-RAFAGA_MAX_CUADROS) };
     if (motivo !== "escena") log(`${est.cam.name}: rafaga abierta por ${motivo} (${previos.length} cuadros previos)`);
     est.temporizador = setTimeout(() => resolverRafaga(est), RAFAGA_DESPUES_MS);
@@ -328,6 +391,7 @@ async function resolverRafaga(est) {
             res.forEach((x, k) => { if (x) lecturas.push({ ...x, cuadro: tanda[k].cuadro }); });
         }
         if (!lecturas.length) {
+            contadores.descartes++;
             if (r.motivo !== "escena") log(`${cam.name}: rafaga sin matricula (${cuadros.length} cuadros, ${cola.length} baldosas)`);
             // Se guarda un cuadro del ultimo intento fallido, siempre el mismo archivo por
             // camara. Cuando alguien pregunta "por que no lee", esto contesta en un vistazo
@@ -346,6 +410,7 @@ async function resolverRafaga(est) {
         // Dos caminos para aceptar: varios cuadros que coinciden, o uno muy seguro.
         const respaldada = v.reads >= COINCIDENCIAS_MIN || v.maxima >= CONF_ALTA;
         if (!respaldada) {
+            contadores.descartes++;
             log(`${cam.name}: ${v.plate} descartada (${v.reads} de ${v.cuadros} cuadros, max ${v.maxima.toFixed(2)})`);
             return;
         }
@@ -358,6 +423,7 @@ async function resolverRafaga(est) {
         const candidatas = lecturas.filter((l) => l.plate === v.plate);
         const mejor = (candidatas.length ? candidatas : lecturas).reduce((a, b) => (b.confidence > a.confidence ? b : a));
         const url = guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
+        contadores.lecturas++;
         const st = await avisarAvistamiento(cam, v, url);
         log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} lecturas de ${cola.length} baldosas · ${r.motivo}) -> ${st}`);
     } catch (e) {
@@ -372,7 +438,8 @@ function engancharCamara(est) {
     if (est.ffmpeg) return;
 
     const escena = cam.escena ?? 0.08;
-    const porCamara = est.modoEfectivo === "camara";
+    // "camara" quedo de la primera version; ahora el modo dice ademas COMO avisa.
+    const porCamara = porAviso(est.modoEfectivo);
     // En modo camara conviene un ritmo mas alto: el disparo ya es preciso, y lo que
     // se quiere es tener varios cuadros del auto pasando. En modo escena se muestrea
     // bajo y es ffmpeg el que decide cual vale.
@@ -440,7 +507,7 @@ function recibirCuadro(est, jpeg) {
         return;
     }
     // En modo escena, que ffmpeg emita un cuadro YA significa que algo cambio.
-    if (est.modoEfectivo !== "camara") disparar(est, "escena");
+    if (!porAviso(est.modoEfectivo)) disparar(est, "escena");
 }
 
 // ──────────────── Aviso de la propia camara (AcuSense) ────────────────
@@ -557,9 +624,9 @@ function procesarAviso(est, xml) {
     // Si el aviso trae clasificacion y dice que es una persona, no es lo nuestro.
     if (/<detectionTarget>human<\/detectionTarget>/i.test(xml) && !/vehicle/i.test(xml)) return;
     est.ultimoAviso = Date.now();
-    if (est.modoEfectivo !== "camara" && est.cam.disparo === "camara") {
+    if (!porAviso(est.modoEfectivo) && porAviso(est.cam.disparo)) {
         log(`${est.cam.name}: la camara volvio a avisar, se deja el respaldo por escena`);
-        est.modoEfectivo = "camara";
+        est.modoEfectivo = est.cam.disparo;
         rearmar(est);
     }
     disparar(est, `camara:${tipo}`);
@@ -582,12 +649,79 @@ function rearmar(est) {
  */
 function vigilarDisparo() {
     for (const [, est] of camarasVivas) {
-        if (est.cam.disparo !== "camara" || est.modoEfectivo !== "camara") continue;
+        if (!porAviso(est.cam.disparo) || !porAviso(est.modoEfectivo)) continue;
         if (Date.now() - est.ultimoAviso < RESPALDO_MS) continue;
         log(`${est.cam.name}: la camara no avisa hace ${Math.round(RESPALDO_MS / 60000)} min; se pasa al disparo por escena. Revisar la zona y el objetivo de la regla en el calibrador.`);
         est.modoEfectivo = "escena";
         est.ultimoAviso = Date.now();
         rearmar(est);
+    }
+}
+
+// ───────────────────────── Muestreo ─────────────────────────
+
+function ejecutar(cmd, args) {
+    return new Promise((res) => {
+        execFile(cmd, args, { timeout: 12000, maxBuffer: 256 * 1024 }, (e, out) => res(e ? "" : String(out).trim()));
+    });
+}
+
+/**
+ * Una muestra por minuto de como viene trabajando el seguimiento.
+ *
+ * El panel mostraba solo el instante, y el instante no alcanza para decidir nada: que la
+ * GPU este al 10% ahora no dice si estuvo al 90% hace media hora, ni si el lector viene
+ * leyendo o hace rato que no ve un auto. Con la serie se puede mirar el dia.
+ */
+async function muestrear() {
+    try {
+        const [stats, gpu, proveedor] = await Promise.all([
+            ejecutar("docker", ["stats", "omni-lpr", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}"]),
+            ejecutar("nvidia-smi", ["--query-gpu=utilization.gpu,memory.used,temperature.gpu,power.draw", "--format=csv,noheader,nounits"]),
+            ejecutar("bash", ["-lc", "docker logs omni-lpr 2>&1 | grep -i ExecutionProvider | tail -1"]),
+        ]);
+
+        let cpuCont = null, memCont = null;
+        if (stats) {
+            const [cpu, mem] = stats.split("|");
+            cpuCont = parseFloat(cpu) || 0;
+            const usada = (mem || "").split("/")[0].trim();
+            const n = parseFloat(usada);
+            if (!isNaN(n)) memCont = Math.round(/GiB|GB/i.test(usada) ? n * 1024 : /KiB|KB/i.test(usada) ? n / 1024 : n);
+        }
+
+        let gpuUso = null, gpuMem = null, gpuTemp = null, gpuWatts = null;
+        if (gpu) {
+            const p = gpu.split(",").map((x) => parseFloat(x.trim()));
+            [gpuUso, gpuMem, gpuTemp, gpuWatts] = p.map((x) => (isNaN(x) ? null : Math.round(x)));
+        }
+
+        // Si el lector cae a CPU no lo dice en ninguna metrica: hay que preguntarselo al log.
+        // Dos intentos fallidos antes de dar con esto: mirar solo las ultimas lineas no sirve
+        // (el aviso queda atras al poco de arrancar) y cruzar los PID del contenedor con los
+        // que reporta la placa tampoco, porque no viven en el mismo espacio de nombres.
+        const enGpu = /CUDAExecutionProvider/.test(proveedor) && !/Failed to create/i.test(proveedor);
+
+        await prisma.trackingSample.create({
+            data: {
+                gpuUso, gpuMem, gpuTemp, gpuWatts, cpuCont, memCont,
+                camaras: camarasVivas.size,
+                disparos: contadores.disparos,
+                lecturas: contadores.lecturas,
+                descartes: contadores.descartes,
+                enGpu,
+            },
+        });
+        contadores.disparos = 0; contadores.lecturas = 0; contadores.descartes = 0;
+
+        // Limpieza barata: una vez por hora, y solo lo que ya no se muestra.
+        if (new Date().getMinutes() === 7) {
+            await prisma.trackingSample.deleteMany({
+                where: { momento: { lt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } },
+            });
+        }
+    } catch (e) {
+        log("no se pudo guardar la muestra:", e.message);
     }
 }
 
@@ -626,7 +760,7 @@ async function sincronizar() {
         const est = { cam, huella, modoEfectivo: cam.disparo, ultimoAviso: Date.now(), memoria: [], recuento: {}, rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false };
         camarasVivas.set(cam.name, est);
         engancharCamara(est);
-        if (cam.disparo === "camara") escucharCamara(est);
+        if (porAviso(cam.disparo)) escucharCamara(est);
     }
 
     if (!lista.length) log("sin camaras de seguimiento configuradas");
@@ -649,6 +783,8 @@ function resumenAvisos() {
     setInterval(sincronizar, 60000);   // toma cambios de configuracion sin reiniciar
     setInterval(resumenAvisos, 120000);
     setInterval(vigilarDisparo, 60000);
+    muestrear();
+    setInterval(muestrear, 60000);
 })();
 
 process.on("SIGTERM", () => {

@@ -69,7 +69,10 @@ export async function GET() {
     }
 
     // ¿El lector esta realmente usando la GPU o cayo a CPU?
-    const logs = await salida(`docker logs --tail 400 omni-lpr 2>&1 | grep -i "provider" | tail -5`);
+    // El log entero, no las ultimas lineas: el aviso del proveedor lo escribe el lector al
+    // cargar los modelos y queda atras enseguida, asi que con --tail el panel decia "CPU"
+    // con la placa trabajando.
+    const logs = await salida(`docker logs omni-lpr 2>&1 | grep -i ExecutionProvider | tail -2`);
     const enGpu = /CUDAExecutionProvider/.test(logs) && !/Failed to create CUDAExecutionProvider/.test(logs);
     const motor = enGpu ? "GPU (CUDA)" : "CPU";
 

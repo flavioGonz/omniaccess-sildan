@@ -50,6 +50,18 @@
       "orden": 3
     },
     {
+      "id": "seguimiento",
+      "modo": "LPR",
+      "grupo": "OmniAccess LPR",
+      "titulo": "Seguimiento de vehículos",
+      "subtitulo": "Cámaras interiores, lector en contenedor y recorrido",
+      "para": "El técnico que suma cámaras comunes al seguimiento: alta por RTSP, calibración, línea de pasada y diagnóstico.",
+      "color": "#14b8a6",
+      "icono": "route",
+      "prefijo": "seg",
+      "orden": 4
+    },
+    {
       "id": "guia-rapida",
       "modo": "LPR",
       "grupo": "OmniAccess LPR",
@@ -59,7 +71,7 @@
       "color": "#0ea5e9",
       "icono": "zap",
       "prefijo": "gr",
-      "orden": 4
+      "orden": 5
     },
     {
       "id": "tablet",
@@ -70,7 +82,7 @@
       "color": "#0d9488",
       "icono": "tablet",
       "prefijo": "tab",
-      "orden": 5
+      "orden": 6
     },
     {
       "id": "filas-operador",
@@ -82,7 +94,7 @@
       "color": "#8b5cf6",
       "icono": "users",
       "prefijo": "fop",
-      "orden": 6
+      "orden": 7
     },
     {
       "id": "filas-administrador",
@@ -94,7 +106,7 @@
       "color": "#7c3aed",
       "icono": "settings",
       "prefijo": "fadm",
-      "orden": 7
+      "orden": 8
     },
     {
       "id": "face-operador",
@@ -106,7 +118,7 @@
       "color": "#ec4899",
       "icono": "scan-face",
       "prefijo": "cop",
-      "orden": 8
+      "orden": 9
     },
     {
       "id": "face-administrador",
@@ -118,7 +130,7 @@
       "color": "#db2777",
       "icono": "settings",
       "prefijo": "cadm",
-      "orden": 9
+      "orden": 10
     }
   ]
 }

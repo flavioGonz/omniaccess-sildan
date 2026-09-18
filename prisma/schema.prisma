@@ -149,6 +149,10 @@ model Device {
   // "camara": la propia camara avisa que paso un vehiculo (AcuSense) y recien ahi
   // se leen cuadros. Mucho mas preciso y deja la GPU en reposo el resto del tiempo.
   trackTrigger  String?  @default("escena")
+  // Linea de pasada, cuando el disparo es por cruce: {x1,y1,x2,y2,sentido} en fracciones
+  // del cuadro. Una linea es mejor que una zona para una calle: dispara en el instante
+  // del cruce, y un auto estacionado adentro del encuadre deja de importar.
+  trackLine     String?
   trackMinConf    Float?
   trackFps        Float?
   createdAt       DateTime         @default(now())
@@ -647,4 +651,27 @@ model VehiclePass {
 
   @@index([plate, startedAt])
   @@index([startedAt])
+}
+
+
+/// Una muestra por minuto del estado del seguimiento. El panel dejaba ver solo la foto
+/// del instante, que no sirve para decidir nada: si la GPU esta al 10% ahora no dice si
+/// estuvo al 90% hace media hora, ni si el lector viene leyendo o hace rato que no.
+/// Se guardan dos semanas y se borra lo viejo en la misma pasada.
+model TrackingSample {
+  id        String   @id @default(cuid())
+  momento   DateTime @default(now())
+  gpuUso    Int?
+  gpuMem    Int?
+  gpuTemp   Int?
+  gpuWatts  Int?
+  cpuCont   Float?
+  memCont   Int?     // MB
+  camaras   Int?
+  disparos  Int?     // rafagas abiertas desde la muestra anterior
+  lecturas  Int?     // avistamientos aceptados
+  descartes Int?     // rafagas que no dieron una lectura confiable
+  enGpu     Boolean?
+
+  @@index([momento])
 }

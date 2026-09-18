@@ -4,10 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import { sileo as toast } from "sileo";
-import {
-    X, Loader2, Play, Pause, Save, RotateCcw, SquareDashed, Crosshair,
-    CheckCircle2, XCircle, Gauge, Timer, ScanLine, Info,
-} from "lucide-react";
+import { X, Loader2, Play, Pause, Save, RotateCcw, SquareDashed, Crosshair, CheckCircle2, XCircle, Gauge, Timer, ScanLine, Info, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Roi = { x: number; y: number; w: number; h: number };
@@ -30,6 +27,8 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     const [fps, setFps] = useState(2);
     const [roi, setRoi] = useState<Roi>(ROI_COMPLETA);
     const [editandoRoi, setEditandoRoi] = useState(false);
+    const [editandoLinea, setEditandoLinea] = useState(false);
+    const [linea, setLinea] = useState<any>(null);
     const [regla, setRegla] = useState<any>(null);
     const [cambiandoModo, setCambiandoModo] = useState(false);
 
@@ -37,18 +36,19 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     useEffect(() => {
         let vivo = true;
         axios.get(`/api/tracking/camera-rule?deviceId=${device.id}`)
-            .then((r) => { if (vivo) setRegla(r.data); })
+            .then((r) => { if (vivo) { setRegla(r.data); if (r.data?.linea) setLinea(r.data.linea); } })
             .catch(() => { if (vivo) setRegla({ soportada: false }); });
         return () => { vivo = false; };
     }, [device.id]);
 
-    const cambiarModo = async (activar: boolean) => {
+    const cambiarModo = async (modo: "escena" | "zona" | "linea") => {
         setCambiandoModo(true);
         try {
-            const r = await axios.post("/api/tracking/camera-rule", { deviceId: device.id, activar });
-            setRegla((x: any) => ({ ...(x || {}), modo: r.data.modo, activa: activar }));
+            const r = await axios.post("/api/tracking/camera-rule", { deviceId: device.id, modo, linea: modo === "linea" ? linea : undefined });
+            setRegla((x: any) => ({ ...(x || {}), modo: r.data.modo }));
+            toast.success({ title: modo === "escena" ? "Disparo por cambio de escena" : modo === "linea" ? "La cámara avisa al cruzar la línea" : "La cámara avisa al entrar en la zona" });
         } catch (e: any) {
-            alert(e?.response?.data?.error || "No se pudo cambiar el modo de disparo.");
+            toast.error({ title: e?.response?.data?.error || "No se pudo cambiar el modo de disparo." });
         } finally {
             setCambiandoModo(false);
         }
@@ -117,20 +117,28 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
         };
     };
     const alBajar = (e: React.MouseEvent) => {
-        if (!editandoRoi) return;
+        if (!editandoRoi && !editandoLinea) return;
         e.preventDefault();
         arrastre.current = aRelativo(e);
-        setRoi({ ...arrastre.current, w: 0, h: 0 });
+        if (editandoLinea) setLinea((l: any) => ({ x1: arrastre.current!.x, y1: arrastre.current!.y, x2: arrastre.current!.x, y2: arrastre.current!.y, sentido: l?.sentido || "any" }));
+        else setRoi({ ...arrastre.current, w: 0, h: 0 });
     };
     const alMover = (e: React.MouseEvent) => {
-        if (!editandoRoi || !arrastre.current) return;
+        if (!arrastre.current) return;
         const p = aRelativo(e);
         const a = arrastre.current;
+        if (editandoLinea) { setLinea((l: any) => ({ ...(l || {}), x1: a.x, y1: a.y, x2: p.x, y2: p.y, sentido: l?.sentido || "any" })); return; }
+        if (!editandoRoi) return;
         setRoi({ x: Math.min(a.x, p.x), y: Math.min(a.y, p.y), w: Math.abs(p.x - a.x), h: Math.abs(p.y - a.y) });
     };
     const alSoltar = () => {
         if (!arrastre.current) return;
         arrastre.current = null;
+        if (editandoLinea) {
+            // Una raya de dos píxeles no es una línea: si quedó demasiado corta, se descarta.
+            setLinea((l: any) => (l && Math.hypot(l.x2 - l.x1, l.y2 - l.y1) > 0.08 ? l : null));
+            return;
+        }
         setRoi((r) => (r.w < 0.05 || r.h < 0.05 ? ROI_COMPLETA : r));
     };
 
@@ -179,7 +187,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                             <div ref={lienzo}
                                 onMouseDown={alBajar} onMouseMove={alMover} onMouseUp={alSoltar} onMouseLeave={alSoltar}
                                 className={cn("relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-white/[0.08]",
-                                    editandoRoi && "cursor-crosshair")}>
+                                    (editandoRoi || editandoLinea) && "cursor-crosshair")}>
                                 {cuadro?.imagen ? (
                                     /* eslint-disable-next-line @next/next/no-img-element */
                                     <img src={cuadro.imagen} alt="" className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none" draggable={false} />
@@ -194,6 +202,16 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                                 {editandoRoi && !zonaCompleta && (
                                     <div className="absolute border-2 border-amber-400 bg-amber-400/10 pointer-events-none"
                                         style={{ left: `${roi.x * 100}%`, top: `${roi.y * 100}%`, width: `${roi.w * 100}%`, height: `${roi.h * 100}%` }} />
+                                )}
+
+                                {linea && (
+                                    <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                        <line x1={linea.x1 * 100} y1={linea.y1 * 100} x2={linea.x2 * 100} y2={linea.y2 * 100}
+                                            stroke="#f43f5e" strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
+                                        {[[linea.x1, linea.y1], [linea.x2, linea.y2]].map(([cx, cy], i) => (
+                                            <circle key={i} cx={cx * 100} cy={cy * 100} r={0.9} fill="#f43f5e" vectorEffect="non-scaling-stroke" />
+                                        ))}
+                                    </svg>
                                 )}
 
                                 {tomando && (
@@ -221,7 +239,12 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                                     className="h-9 px-3 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] text-white/80 text-xs font-bold flex items-center gap-1.5 disabled:opacity-40">
                                     <Crosshair size={14} /> Un cuadro
                                 </button>
-                                <button onClick={() => { setEditandoRoi((v) => !v); if (!editandoRoi) tomar(false, false); }}
+                                <button onClick={() => { setEditandoLinea((v) => !v); setEditandoRoi(false); if (!editandoLinea) tomar(false, false); }}
+                                    className={cn("h-9 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors",
+                                        editandoLinea ? "bg-rose-500 text-white" : "bg-white/[0.07] text-white/80 hover:bg-white/[0.12]")}>
+                                    <Minus size={14} /> {editandoLinea ? "Listo" : "Marcar línea"}
+                                </button>
+                                <button onClick={() => { setEditandoRoi((v) => !v); setEditandoLinea(false); if (!editandoRoi) tomar(false, false); }}
                                     className={cn("h-9 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors",
                                         editandoRoi ? "bg-amber-500 text-black" : "bg-white/[0.07] text-white/80 hover:bg-white/[0.12]")}>
                                     <SquareDashed size={14} /> {editandoRoi ? "Listo" : "Marcar zona"}
@@ -281,43 +304,63 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                                 </p>
                             </div>
 
-                            <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 space-y-2">
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">Modo de disparo</div>
+                            <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 space-y-2.5">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">Quién decide cuándo leer</div>
+
                                 {regla === null ? (
                                     <div className="text-xs text-white/50 flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> consultando la cámara…</div>
-                                ) : regla.soportada === false ? (
-                                    <p className="text-[10px] text-white/40 leading-relaxed">
-                                        Esta cámara no responde la configuración de analítica, así que el disparo queda
-                                        por cambio de escena.
-                                    </p>
                                 ) : (
                                     <>
-                                        <div className="flex items-center gap-2">
-                                            <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border",
-                                                regla.modo === "camara"
-                                                    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
-                                                    : "bg-white/5 text-white/50 border-white/10")}>
-                                                {regla.modo === "camara" ? "Avisa la cámara" : "Cambio de escena"}
-                                            </span>
-                                            <button
-                                                type="button"
-                                                disabled={cambiandoModo}
-                                                onClick={() => cambiarModo(regla.modo !== "camara")}
-                                                className="ml-auto px-2.5 py-1 rounded-md text-[10px] font-semibold bg-white/[0.06] border border-white/10 text-white/80 hover:bg-white/10 disabled:opacity-50"
-                                            >
-                                                {cambiandoModo ? "Aplicando…" : regla.modo === "camara" ? "Volver a escena" : "Que avise la cámara"}
-                                            </button>
-                                        </div>
-                                        <p className="text-[10px] text-white/40 leading-relaxed">
-                                            Esta cámara sabe distinguir un vehículo de una persona por su cuenta. Con el aviso
-                                            de la cámara, el lector solo trabaja cuando pasa un auto de verdad: se terminan las
-                                            lecturas disparadas por una sombra o una rama, y la placa queda en reposo el resto
-                                            del tiempo. Usa la misma zona de interés que dibujaste acá arriba.
-                                        </p>
+                                        {[
+                                            {
+                                                id: "linea" as const, titulo: "Al cruzar una línea", icono: Minus,
+                                                puede: regla.soportaLinea, listo: !!linea,
+                                                falta: "Marcá la línea sobre el cuadro, del lado por donde pasan los autos.",
+                                                texto: "La cámara avisa en el instante exacto del cruce. Es lo mejor para una calle: la lectura queda centrada en el paso, y un auto estacionado dentro del encuadre deja de disparar.",
+                                            },
+                                            {
+                                                id: "zona" as const, titulo: "Al entrar en una zona", icono: SquareDashed,
+                                                puede: regla.soportaZona, listo: !zonaCompleta,
+                                                falta: "Marcá primero la zona de interés.",
+                                                texto: "La cámara avisa mientras haya un vehículo dentro del área marcada. Sirve para un sector entero, pero un auto quieto adentro vuelve a disparar con cada movimiento.",
+                                            },
+                                            {
+                                                id: "escena" as const, titulo: "Por cambio de imagen", icono: Gauge,
+                                                puede: true, listo: true, falta: "",
+                                                texto: "Lo decide el servidor mirando si la imagen cambió. Funciona con CUALQUIER cámara, incluso una que solo entregue RTSP y no tenga analítica propia. A cambio trabaja más y se despierta también con una sombra o una rama.",
+                                            },
+                                        ].map((o) => {
+                                            const activo = (regla.modo === "camara" ? "zona" : regla.modo) === o.id;
+                                            const bloqueado = !o.puede || (!o.listo && o.id !== "escena");
+                                            return (
+                                                <button key={o.id} type="button" disabled={cambiandoModo || bloqueado}
+                                                    onClick={() => cambiarModo(o.id)}
+                                                    className={cn("w-full text-left rounded-lg border p-2.5 transition-colors disabled:cursor-not-allowed",
+                                                        activo ? "border-emerald-500/40 bg-emerald-500/[0.07]" : "border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]",
+                                                        bloqueado && "opacity-45")}>
+                                                    <div className="flex items-center gap-2">
+                                                        <o.icono size={12} className={activo ? "text-emerald-400" : "text-white/50"} />
+                                                        <span className={cn("text-[11px] font-bold", activo ? "text-emerald-300" : "text-white/80")}>{o.titulo}</span>
+                                                        {activo && <span className="ml-auto text-[9px] font-bold uppercase tracking-wide text-emerald-400">en uso</span>}
+                                                    </div>
+                                                    <p className="text-[10px] text-white/45 leading-relaxed mt-1">{o.texto}</p>
+                                                    {!o.puede && <p className="text-[10px] text-amber-300/80 mt-1">Esta cámara no ofrece esta analítica.</p>}
+                                                    {o.puede && !o.listo && o.id !== "escena" && <p className="text-[10px] text-amber-300/80 mt-1">{o.falta}</p>}
+                                                </button>
+                                            );
+                                        })}
+
+                                        {regla.soportada === false && (
+                                            <p className="text-[10px] text-white/45 leading-relaxed">
+                                                No se pudo consultar la analítica de esta cámara. Si es una cámara que solo entrega
+                                                RTSP —sin analítica propia—, es lo esperable: queda en cambio de imagen, que es el
+                                                modo pensado justamente para ese caso.
+                                            </p>
+                                        )}
                                         {regla.avisaAlServidor === false && (
                                             <p className="text-[10px] text-amber-300/80 leading-relaxed">
-                                                Ojo: en la cámara está apagado el aviso al centro de vigilancia, así que el evento
-                                                no llegaría. Hay que prenderlo en su configuración de eventos.
+                                                En la cámara está apagado el aviso al centro de vigilancia, así que el evento no
+                                                llegaría. Hay que prenderlo en su configuración de eventos.
                                             </p>
                                         )}
                                     </>
