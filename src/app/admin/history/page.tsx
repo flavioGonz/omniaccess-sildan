@@ -18,6 +18,7 @@ import { AccessEvent, User, Device } from "@prisma/client";
 import Image from "next/image";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
 import { cn } from "@/lib/utils";
+import { Pista, Columna } from "@/components/ui/pista";
 import { getCarLogo } from "@/lib/car-logos";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { VehicleMetaChips } from "@/components/VehicleMeta";
@@ -61,6 +62,53 @@ function fmtDur(ms: number): string {
  * de la barra de arriba; lo demas (permitido/denegado, entrada/salida) no aplica,
  * porque una lectura interior no decide nada.
  */
+/**
+ * Un grupo de filtros con su rótulo arriba y la explicación al pasar el mouse.
+ *
+ * La barra tenía cuatro segmentados pegados sin nada que dijera qué filtraba cada uno:
+ * había que apretar para averiguarlo. El rótulo cuesta una línea y lo resuelve.
+ */
+function GrupoFiltro({ rotulo, ayuda, children, oculto }: { rotulo: string; ayuda: string; children: React.ReactNode; oculto?: boolean }) {
+    if (oculto) return null;
+    return (
+        <div className="flex flex-col gap-1">
+            <Pista titulo={rotulo} texto={ayuda} lado="arriba" className="self-start">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 cursor-help hover:text-muted-foreground transition-colors">{rotulo}</span>
+            </Pista>
+            <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">{children}</div>
+        </div>
+    );
+}
+
+/** Lo que está filtrando ahora mismo, y cómo sacarlo de encima. */
+function ChipFiltro({ children, onQuitar }: { children: React.ReactNode; onQuitar: () => void }) {
+    return (
+        <motion.span
+            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+            transition={{ duration: 0.15 }}
+            className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/25 text-[11px] font-semibold text-blue-300">
+            {children}
+            <button onClick={onQuitar} className="w-4 h-4 rounded-full hover:bg-blue-500/25 flex items-center justify-center text-blue-300/70 hover:text-blue-200">
+                <X size={10} />
+            </button>
+        </motion.span>
+    );
+}
+
+/** Fila gris con latido, para que la tabla no salte de vacía a llena de golpe. */
+function FilaFantasma({ celdas }: { celdas: number }) {
+    const anchos = [70, 55, 40, 60, 45, 30, 35, 25, 20];
+    return (
+        <tr className="border-b border-border/20">
+            {Array.from({ length: celdas }).map((_, i) => (
+                <td key={i} className="px-5 py-4">
+                    <div className="h-3 rounded bg-muted/60 animate-pulse" style={{ width: `${anchos[i % anchos.length]}%` }} />
+                </td>
+            ))}
+        </tr>
+    );
+}
+
 function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: string; hasta: string }) {
     const [filas, setFilas] = useState<any[]>([]);
     const [total, setTotal] = useState(0);
@@ -98,27 +146,42 @@ function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: str
                 <table className="w-full text-left">
                     <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
                         <tr className="border-b border-border/50">
-                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Momento</th>
-                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Matricula</th>
-                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Camara</th>
-                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Confianza</th>
-                            <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold text-right">Cuadro</th>
+                            <Columna icono={Clock} titulo="Momento de la lectura"
+                                ayuda="Cuándo pasó el vehículo por esa cámara. No es cuándo se guardó: es el momento del cuadro.">Momento</Columna>
+                            <Columna icono={Car} titulo="Matrícula leída"
+                                ayuda="Lo que el lector sacó del cuadro, después de comparar varias tomas del mismo paso.">Matrícula</Columna>
+                            <Columna icono={Camera} titulo="Cámara que la vio"
+                                ayuda="Una cámara interior. No abre barrera: solo deja constancia de por dónde pasó el vehículo.">Cámara</Columna>
+                            <Columna icono={Activity} titulo="Qué tan segura es la lectura"
+                                ayuda="Verde arriba de 85%, ámbar entre 65 y 85, rojo debajo. Una lectura baja no es necesariamente errada, pero conviene mirar el cuadro.">Confianza</Columna>
+                            <Columna icono={Camera} alinear="right" titulo="El cuadro guardado"
+                                ayuda="La foto del momento. Hacé clic en la fila para verla grande, con los datos encima.">Cuadro</Columna>
                         </tr>
                     </thead>
                     <tbody>
-                        {filas.length === 0 && !cargando ? (
+                        {filas.length === 0 && cargando ? (
+                            <>{Array.from({ length: 6 }).map((_, i) => <FilaFantasma key={i} celdas={5} />)}</>
+                        ) : filas.length === 0 ? (
                             <tr>
                                 <td colSpan={5} className="py-16 text-center">
-                                    <div className="flex flex-col items-center gap-3">
-                                        <History className="w-8 h-8 text-muted-foreground" />
-                                        <p className="text-sm text-muted-foreground">Sin avistamientos</p>
+                                    <div className="flex flex-col items-center gap-2">
+                                        <Route className="w-8 h-8 text-muted-foreground/50" />
+                                        <p className="text-sm text-muted-foreground">Sin avistamientos en este período</p>
+                                        <p className="text-xs text-muted-foreground/70 max-w-sm mx-auto">
+                                            Las cámaras interiores registran cada vehículo que pasa. Si está vacío, o no pasó
+                                            ninguno, o todavía no hay cámaras interiores dadas de alta.
+                                        </p>
                                     </div>
                                 </td>
                             </tr>
-                        ) : filas.map((f) => {
+                        ) : filas.map((f, i) => {
                             const conf = typeof f.confidence === "number" ? Math.round(f.confidence * 100) : null;
                             return (
-                                <tr key={f.id} className="border-b border-border/30 hover:bg-muted/30 transition-colors">
+                                <motion.tr key={f.id}
+                                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                                    transition={{ duration: 0.18, delay: Math.min(i, 14) * 0.015 }}
+                                    onClick={() => f.snapshotUrl && setViendo(i)}
+                                    className={cn("border-b border-border/30 hover:bg-muted/30 transition-colors", f.snapshotUrl && "cursor-pointer")}>
                                     <td className="px-5 py-3">
                                         <p className="text-sm font-medium text-foreground">{new Date(f.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
                                         <p className="text-[10px] text-muted-foreground mt-0.5">{new Date(f.timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}</p>
@@ -139,7 +202,7 @@ function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: str
                                                 className="h-12 w-20 object-cover rounded border border-border/50 ml-auto hover:border-violet-400/60 transition-colors" />
                                         ) : <span className="text-muted-foreground text-xs">-</span>}
                                     </td>
-                                </tr>
+                                </motion.tr>
                             );
                         })}
                     </tbody>
@@ -439,6 +502,30 @@ export default function HistoryPage() {
     const grantCount = events.filter(e => e.decision === "GRANT").length;
     const denyCount = events.filter(e => e.decision === "DENY").length;
     const vehFacets = useMemo(() => collectVehicleFacets(events), [events]);
+
+    /** Los filtros activos, en palabras, cada uno con su forma de sacarlo. */
+    const filtrosPuestos = useMemo(() => {
+        const l: { id: string; texto: string; quitar: () => void }[] = [];
+        if (searchTerm.trim()) l.push({ id: "q", texto: `«${searchTerm.trim()}»`, quitar: () => setSearchTerm("") });
+        if (startDate) l.push({ id: "d1", texto: `desde ${startDate}`, quitar: () => setStartDate("") });
+        if (endDate) l.push({ id: "d2", texto: `hasta ${endDate}`, quitar: () => setEndDate("") });
+        if (vista === "accesos") {
+            const tipos: Record<string, string> = { PLATE: "matrícula", FACE: "rostro", TAG: "RFID" };
+            if (filterType !== "ALL" && tipos[filterType]) l.push({ id: "t", texto: tipos[filterType], quitar: () => setFilterType("ALL") });
+            if (filterDecision !== "ALL") l.push({ id: "dec", texto: filterDecision === "GRANT" ? "permitidos" : "denegados", quitar: () => setFilterDecision("ALL") });
+            if (filterDirection !== "ALL") l.push({ id: "dir", texto: filterDirection === "ENTRY" ? "entradas" : "salidas", quitar: () => setFilterDirection("ALL") });
+            if (filterColor !== "ALL") l.push({ id: "col", texto: `color ${filterColor}`, quitar: () => setFilterColor("ALL") });
+            if (filterVehType !== "ALL") l.push({ id: "veh", texto: filterVehType, quitar: () => setFilterVehType("ALL") });
+            if (filterMerodeo) l.push({ id: "mer", texto: "merodeo", quitar: () => setFilterMerodeo(false) });
+        }
+        return l;
+    }, [searchTerm, startDate, endDate, vista, filterType, filterDecision, filterDirection, filterColor, filterVehType, filterMerodeo]);
+
+    const limpiarFiltros = useCallback(() => {
+        setSearchTerm(""); setStartDate(""); setEndDate("");
+        setFilterType("ALL"); setFilterDecision("ALL"); setFilterDirection("ALL");
+        setFilterColor("ALL"); setFilterVehType("ALL"); setFilterMerodeo(false);
+    }, []);
     const displayEvents = (filterMerodeo ? events.filter(e => merodeoSet.has(cleanPlate(e.plateDetected))) : events)
         .filter(e => {
             if (filterColor === "ALL" && filterVehType === "ALL") return true;
@@ -533,17 +620,18 @@ export default function HistoryPage() {
                     </div>
 
                     {/* Accesos vs seguimiento */}
-                    <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">
+                    <GrupoFiltro rotulo="Registro" ayuda="Dos registros distintos. Accesos son las entradas y salidas que decidieron la barrera. Seguimiento son las lecturas de las cámaras interiores, que no deciden nada.">
                         <button onClick={() => setVista("accesos")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", vista === "accesos" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Accesos
                         </button>
                         <button onClick={() => setVista("seguimiento")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", vista === "seguimiento" ? "bg-violet-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Seguimiento
                         </button>
-                    </div>
+                    </GrupoFiltro>
 
                     {/* Type filter tabs */}
-                    <div className={cn("flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30", vista === "seguimiento" && "hidden")}>
+                    <GrupoFiltro rotulo="Identificación" oculto={vista === "seguimiento"}
+                        ayuda="Con qué se identificó: la matrícula (LPR), el rostro, o una tarjeta o llavero (RFID).">
                         {activeMode === null && (
                             <button onClick={() => setFilterType("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                                 Todos
@@ -564,10 +652,11 @@ export default function HistoryPage() {
                                 RFID
                             </button>
                         )}
-                    </div>
+                    </GrupoFiltro>
 
                     {/* Decision filter */}
-                    <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">
+                    <GrupoFiltro rotulo="Resultado" oculto={vista === "seguimiento"}
+                        ayuda="Si el sistema abrió o no. Los denegados son los que conviene revisar: matrícula desconocida, permiso vencido u horario fuera de rango.">
                         <button onClick={() => setFilterDecision("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Todos
                         </button>
@@ -577,10 +666,11 @@ export default function HistoryPage() {
                         <button onClick={() => setFilterDecision("DENY")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "DENY" ? "bg-red-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Denegados
                         </button>
-                    </div>
+                    </GrupoFiltro>
 
                     {/* Direction filter */}
-                    <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">
+                    <GrupoFiltro rotulo="Sentido" oculto={vista === "seguimiento"}
+                        ayuda="Entradas o salidas. Sirve para responder quién está adentro, o para mirar solo el movimiento de una punta.">
                         <button onClick={() => setFilterDirection("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Todos
                         </button>
@@ -590,10 +680,10 @@ export default function HistoryPage() {
                         <button onClick={() => setFilterDirection("EXIT")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "EXIT" ? "bg-orange-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Salida
                         </button>
-                    </div>
+                    </GrupoFiltro>
 
                     {/* Vehicle color / type filters (client-side, sobre details) */}
-                    {(vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
+                    {vista === "accesos" && (vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
                         <div className="flex items-center gap-1.5">
                             <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
                                 className="h-9 bg-muted/40 border border-border/30 rounded-md px-2 text-xs font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
@@ -611,6 +701,7 @@ export default function HistoryPage() {
                         </div>
                     )}
 
+                    {/* Lo que está filtrando ahora, para no tener que deducirlo de la barra */}
                     {/* Merodeo filter */}
                     <button onClick={() => setFilterMerodeo(v => !v)} className={cn("flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold border transition-all", filterMerodeo ? "bg-red-600 text-foreground border-red-500" : "bg-muted/40 text-muted-foreground border-border/30 hover:text-foreground")}>
                         <ShieldAlert size={14} /> Merodeo{merodeoSet.size > 0 ? ` (${merodeoSet.size})` : ""}
@@ -626,24 +717,38 @@ export default function HistoryPage() {
                     <table className="w-full text-left">
                         <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
                             <tr className="border-b border-border/50">
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Timestamp</th>
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Identidad</th>
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Tipo</th>
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Terminal</th>
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Estado</th>
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Alertas</th>
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold">Permanencia</th>
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold text-center">Grab.</th>
-                                <th className="px-5 py-3 text-[11px] text-muted-foreground uppercase tracking-wide font-semibold text-right">Detalle</th>
+                                <Columna icono={Clock} titulo="Cuándo pasó"
+                                    ayuda="Hora y fecha del evento, tal como lo reportó el equipo.">Momento</Columna>
+                                <Columna icono={UserIcon} titulo="Quién es"
+                                    ayuda="El residente o vehículo reconocido. Si no está registrado aparece la matrícula sola y dice Visitante.">Identidad</Columna>
+                                <Columna icono={Fingerprint} titulo="Cómo se identificó"
+                                    ayuda="LPR es por matrícula, Facial por rostro y RFID por tarjeta o llavero.">Tipo</Columna>
+                                <Columna icono={HardDrive} titulo="Por dónde"
+                                    ayuda="El equipo que registró el evento, y si fue entrada o salida.">Terminal</Columna>
+                                <Columna icono={CheckCircle2} titulo="Qué decidió el sistema"
+                                    ayuda="Autorizado abrió la barrera. Denegado la dejó cerrada: puede ser una matrícula desconocida, un permiso vencido o un horario fuera de rango.">Estado</Columna>
+                                <Columna icono={ShieldAlert} titulo="Señales para mirar"
+                                    ayuda="Marca lo que merece atención. Merodeo es un vehículo que aparece muchas veces en poco tiempo sin llegar a entrar.">Alertas</Columna>
+                                <Columna icono={Clock} titulo="Cuánto se quedó adentro"
+                                    ayuda="Solo en las salidas: el tiempo transcurrido desde que ese mismo vehículo entró.">Permanencia</Columna>
+                                <Columna icono={Film} alinear="center" titulo="Video del momento"
+                                    ayuda="Si la cámara está asociada a un grabador, se puede ver el video del instante del acceso.">Grab.</Columna>
+                                <Columna alinear="right" titulo="Ficha completa"
+                                    ayuda="Abre el detalle: fotos, datos del vehículo, permisos y por qué se decidió lo que se decidió.">Detalle</Columna>
                             </tr>
                         </thead>
                         <tbody>
-                            {displayEvents.length === 0 && !loading ? (
+                            {displayEvents.length === 0 && loading ? (
+                                <>{Array.from({ length: 8 }).map((_, i) => <FilaFantasma key={i} celdas={9} />)}</>
+                            ) : displayEvents.length === 0 ? (
                                 <tr>
                                     <td colSpan={9} className="py-16 text-center">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <History className="w-8 h-8 text-muted-foreground" />
-                                            <p className="text-sm text-muted-foreground">Sin registros</p>
+                                        <div className="flex flex-col items-center gap-2">
+                                            <History className="w-8 h-8 text-muted-foreground/50" />
+                                            <p className="text-sm text-muted-foreground">Ningún evento con estos filtros</p>
+                                            <p className="text-xs text-muted-foreground/70 max-w-sm mx-auto">
+                                                Probá ampliar el rango de fechas, o quitar alguno de los filtros de arriba.
+                                            </p>
                                         </div>
                                     </td>
                                 </tr>
@@ -664,9 +769,11 @@ export default function HistoryPage() {
                                     }
 
                                     return (
-                                        <tr
+                                        <motion.tr
                                             key={evt.id}
                                             ref={isLast ? lastElementRef : null}
+                                            initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                                            transition={{ duration: 0.18, delay: Math.min(index % 20, 14) * 0.015 }}
                                             className="border-b border-border/30 hover:bg-muted/30 transition-colors cursor-pointer group"
                                         >
                                             <td className="px-5 py-3">
@@ -774,7 +881,7 @@ export default function HistoryPage() {
                                                     </button>
                                                 </EventDetailsDialog>
                                             </td>
-                                        </tr>
+                                        </motion.tr>
                                     );
                                 })
                             )}
