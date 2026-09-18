@@ -627,10 +627,25 @@ model PlateSighting {
   // vista en cinco cuadros seguidos vale mucho mas que una vista en uno solo,
   // y es lo que permite separar una lectura buena de un invento del OCR.
   reads         Int?
+
+  // Donde aparecio la chapa dentro del cuadro, en fracciones {x,y,w,h}. Es la senal que
+  // distingue un vehiculo que pasa de uno estacionado: el que pasa mueve el recuadro
+  // entre una lectura y la siguiente; el que esta quieto lo deja en el mismo lugar.
+  bbox          String?
+
+  // PASO o ESTACIONADO. Un auto quieto dentro del encuadre se relee con cada vehiculo
+  // que pasa: tratarlo como avistamiento nuevo llenaba el historial de repeticiones y
+  // dibujaba recorridos que nunca ocurrieron. Ahora es UNA fila por estadia, con su
+  // intervalo, que se va extendiendo mientras el auto siga ahi.
+  estado        String   @default("PASO")
+  estDesde      DateTime?
+  estHasta      DateTime?
+
   passId        String?
   pass          VehiclePass? @relation(fields: [passId], references: [id], onDelete: SetNull)
 
   @@index([passId])
+  @@index([estado, timestamp])
   @@index([plate, timestamp])
   @@index([timestamp])
   @@index([deviceId, timestamp])

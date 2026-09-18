@@ -99,7 +99,14 @@ const log = (...a) => console.log(new Date().toISOString(), "[track]", ...a);
 const porAviso = (m) => m === "camara" || m === "zona" || m === "linea";
 
 // Contadores del minuto en curso. Se vuelcan a la muestra y se ponen en cero.
-const contadores = { disparos: 0, lecturas: 0, descartes: 0 };
+const contadores = { disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0 };
+
+// Ancho de la banda de la linea de pasada, medido en alturas de la chapa leida.
+// Se mide asi y no en fracciones fijas porque la chapa se ve mas chica cuanto mas
+// lejos esta: en alturas de chapa, la banda se adapta sola a la distancia.
+const BANDA_ALTURAS = Number(process.env.TRACKING_LINE_BAND_HEIGHTS || 6);
+const BANDA_MIN = Number(process.env.TRACKING_LINE_BAND_MIN || 0.06);
+const BANDA_MAX = Number(process.env.TRACKING_LINE_BAND_MAX || 0.35);
 
 async function ajuste(clave, porDefecto = null) {
     try { const r = await prisma.setting.findUnique({ where: { key: clave } }); return r?.value ?? porDefecto; }
@@ -129,12 +136,17 @@ async function camaras() {
             select: {
                 id: true, name: true, rtspUrl: true, ip: true, username: true, password: true,
                 trackScene: true, trackRoi: true, trackMinConf: true, trackFps: true, trackTrigger: true,
+                trackLine: true,
             },
         });
         for (const d of devs) {
             if (!d.rtspUrl || !d.rtspUrl.trim()) continue;
             let roi = null;
             try { roi = d.trackRoi ? JSON.parse(d.trackRoi) : null; } catch { }
+            let linea = null;
+            try { linea = d.trackLine ? JSON.parse(d.trackLine) : null; } catch { }
+            if (linea && !(Number.isFinite(linea.x1) && Number.isFinite(linea.y1)
+                && Number.isFinite(linea.x2) && Number.isFinite(linea.y2))) linea = null;
             lista.push({
                 name: d.name,
                 rtsp: d.rtspUrl.trim(),
@@ -146,6 +158,7 @@ async function camaras() {
                 lng: ubic[d.id]?.lng ?? null,
                 escena: d.trackScene ?? undefined,
                 roi,
+                linea,
                 confianza: d.trackMinConf ?? undefined,
                 fps: d.trackFps ?? undefined,
                 disparo: d.trackTrigger || "escena",
@@ -173,10 +186,10 @@ async function baldosas(jpeg) {
     try {
         const meta = await sharp(jpeg).metadata();
         const an = meta.width || 0, al = meta.height || 0;
-        if (!an || !al) return [jpeg];
+        if (!an || !al) return [{ jpeg, dx: 0, dy: 0, AN: 0, AL: 0 }];
         const cols = Math.max(1, Math.ceil(an / BALDOSA_PX));
         const filas = Math.max(1, Math.ceil(al / BALDOSA_PX));
-        if (cols === 1 && filas === 1) return [jpeg];
+        if (cols === 1 && filas === 1) return [{ jpeg, dx: 0, dy: 0, AN: an, AL: al }];
 
         const anchoUtil = an / cols, altoUtil = al / filas;
         const margenX = anchoUtil * BALDOSA_SOLAPE, margenY = altoUtil * BALDOSA_SOLAPE;
@@ -188,13 +201,100 @@ async function baldosas(jpeg) {
                 const w = Math.min(an - x, Math.round(anchoUtil + 2 * margenX));
                 const h = Math.min(al - y, Math.round(altoUtil + 2 * margenY));
                 if (w < 60 || h < 40) continue;
-                trozos.push(await sharp(jpeg).extract({ left: x, top: y, width: w, height: h }).jpeg({ quality: 88 }).toBuffer());
+                trozos.push({
+                    jpeg: await sharp(jpeg).extract({ left: x, top: y, width: w, height: h }).jpeg({ quality: 88 }).toBuffer(),
+                    dx: x, dy: y, AN: an, AL: al,
+                });
             }
         }
-        return trozos.length ? trozos : [jpeg];
+        return trozos.length ? trozos : [{ jpeg, dx: 0, dy: 0, AN: an, AL: al }];
     } catch {
-        return [jpeg];
+        return [{ jpeg, dx: 0, dy: 0, AN: 0, AL: 0 }];
     }
+}
+
+/**
+ * Donde cayo la chapa dentro del CUADRO ENTERO, en fracciones {x,y,w,h}.
+ *
+ * El detector trabaja sobre la baldosa, asi que devuelve pixeles relativos a ella.
+ * Sin esta traduccion el recuadro no sirve para nada: ni para saber si el auto se
+ * movio, ni para saber si paso por la linea.
+ */
+function recuadroEnCuadro(caja, t) {
+    if (!caja || !t || !t.AN || !t.AL) return null;
+    const x1 = (t.dx + caja.x1) / t.AN, x2 = (t.dx + caja.x2) / t.AN;
+    const y1 = (t.dy + caja.y1) / t.AL, y2 = (t.dy + caja.y2) / t.AL;
+    const x = Math.min(x1, x2), y = Math.min(y1, y2);
+    const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+    if (!(w > 0 && h > 0) || x < -0.05 || y < -0.05 || x > 1.05 || y > 1.05) return null;
+    return { x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), h: +h.toFixed(4), ar: t.AN / t.AL };
+}
+
+/**
+ * La linea de pasada, aplicada como COMPUERTA y no como alambre.
+ *
+ * Un alambre de verdad (cruzar de un lado al otro) necesita dos lecturas del mismo
+ * auto en lados opuestos. Aca los autos no van despacio y no hay barrera que los
+ * frene, asi que muchas pasadas dejan una sola lectura buena: pedir el cruce
+ * perderia justo los autos que mas interesan.
+ *
+ * Entonces la linea define una banda: cuenta lo que pasa CERCA de ella y se descarta
+ * lo demas. Un auto estacionado en otra parte del cuadro no entra nunca. Uno parado
+ * justo sobre la linea si entra, y de ese se ocupa la deteccion de quieto, que lo
+ * agrupa en una sola estadia en vez de repetirlo.
+ *
+ * Las distancias van en alturas de cuadro (la x se corrige por la relacion de
+ * aspecto), que es lo que se ve derecho en la imagen.
+ */
+function cercaDeLaLinea(recuadro, linea) {
+    const ar = recuadro.ar || 1;
+    const px = (recuadro.x + recuadro.w / 2) * ar, py = recuadro.y + recuadro.h / 2;
+    const x1 = linea.x1 * ar, y1 = linea.y1, x2 = linea.x2 * ar, y2 = linea.y2;
+    const vx = x2 - x1, vy = y2 - y1;
+    const largo2 = vx * vx + vy * vy;
+    if (largo2 < 1e-9) return { pasa: true, motivo: "linea degenerada" };
+    const t = Math.max(0, Math.min(1, ((px - x1) * vx + (py - y1) * vy) / largo2));
+    const cx = x1 + t * vx, cy = y1 + t * vy;
+    const d = Math.hypot(px - cx, py - cy);
+    const banda = Math.min(BANDA_MAX, Math.max(BANDA_MIN, recuadro.h * BANDA_ALTURAS));
+    const lado = Math.sign(vx * (py - y1) - vy * (px - x1));
+    return {
+        pasa: d <= banda, lado,
+        detalle: `${d.toFixed(3)} de la linea, banda ${banda.toFixed(3)}`,
+    };
+}
+
+/**
+ * La zona de interes, aplicada a la chapa y no al cuadro.
+ *
+ * Que el recorte ya venga acotado no alcanza: la zona suele abarcar media imagen, y
+ * adentro entran igual los autos estacionados contra el cordon. Se pide que el centro
+ * de la chapa caiga adentro, con un poco de aire por el borde.
+ */
+function dentroDeLaZona(recuadro, roi) {
+    const px = recuadro.x + recuadro.w / 2, py = recuadro.y + recuadro.h / 2;
+    const aire = 0.02;
+    const dentro = px >= roi.x - aire && px <= roi.x + roi.w + aire
+        && py >= roi.y - aire && py <= roi.y + roi.h + aire;
+    return { pasa: dentro, detalle: `chapa en ${px.toFixed(2)},${py.toFixed(2)}` };
+}
+
+/**
+ * La compuerta, segun lo que el calibrador tenga elegido para esa camara.
+ *
+ * El calibrador permite cambiar entre zona y linea, asi que las dos tienen que hacer
+ * algo de verdad: la que esta activa es la que filtra. Sin recuadro no se filtra nada
+ * -- mejor una lectura de mas que una camara que se calla sola por un cambio del lector.
+ */
+function compuerta(recuadro, cam) {
+    if (!recuadro) return { pasa: true, motivo: "sin recuadro" };
+    if (cam.disparo === "linea" && cam.linea) {
+        return { ...cercaDeLaLinea(recuadro, cam.linea), motivo: "linea" };
+    }
+    if (cam.roi && Number.isFinite(cam.roi.w) && Number.isFinite(cam.roi.h) && cam.roi.w > 0 && cam.roi.h > 0) {
+        return { ...dentroDeLaZona(recuadro, cam.roi), motivo: "zona" };
+    }
+    return { pasa: true, motivo: "sin geometria" };
 }
 
 async function invocar(herramienta, cuerpo, ms = 20000) {
@@ -272,7 +372,7 @@ async function leerMatricula(jpeg) {
             }
         } catch { /* si la segunda lectura falla, vale la primera */ }
     }
-    return { plate: mejor.plate, confidence: mejor.confidence, chars: Array.isArray(mejor.chars) ? mejor.chars : null };
+    return { plate: mejor.plate, confidence: mejor.confidence, chars: Array.isArray(mejor.chars) ? mejor.chars : null, caja: mejor.caja || null };
 }
 
 /**
@@ -354,6 +454,7 @@ async function avisarAvistamiento(cam, lectura, url) {
             plate: lectura.plate,
             confidence: lectura.confidence,
             reads: lectura.reads,
+            bbox: lectura.recuadro || null,
             deviceId: cam.deviceId || null,
             cameraName: cam.name,
             lat: cam.lat ?? null,
@@ -364,7 +465,8 @@ async function avisarAvistamiento(cam, lectura, url) {
         }),
         signal: AbortSignal.timeout(10000),
     });
-    return r.status;
+    const d = await r.json().catch(() => ({}));
+    return { status: r.status, estado: d?.estado || null, id: d?.id || null };
 }
 
 // ─────────────────────────── Rafagas ───────────────────────────
@@ -401,7 +503,7 @@ async function resolverRafaga(est) {
         // foto: al operador le sirve ver la escena, no el recorte.
         const trabajo = [];
         for (let i = 0; i < cuadros.length; i++) {
-            for (const trozo of await baldosas(cuadros[i])) trabajo.push({ jpeg: trozo, cuadro: i });
+            for (const trozo of await baldosas(cuadros[i])) trabajo.push({ ...trozo, cuadro: i });
         }
         // Si hay demasiado, se reparte parejo en el tiempo en vez de cortar por la mitad:
         // el final de la rafaga suele ser mejor que el principio.
@@ -415,7 +517,10 @@ async function resolverRafaga(est) {
         for (let i = 0; i < cola.length; i += MAX_EN_VUELO) {
             const tanda = cola.slice(i, i + MAX_EN_VUELO);
             const res = await Promise.all(tanda.map((t) => leerMatricula(t.jpeg).catch(() => null)));
-            res.forEach((x, k) => { if (x) lecturas.push({ ...x, cuadro: tanda[k].cuadro }); });
+            res.forEach((x, k) => {
+                if (!x) return;
+                lecturas.push({ ...x, cuadro: tanda[k].cuadro, recuadro: recuadroEnCuadro(x.caja, tanda[k]) });
+            });
         }
         if (!lecturas.length) {
             contadores.descartes++;
@@ -449,10 +554,22 @@ async function resolverRafaga(est) {
         // Se guarda el cuadro de la lectura mas segura que coincide con lo votado.
         const candidatas = lecturas.filter((l) => l.plate === v.plate);
         const mejor = (candidatas.length ? candidatas : lecturas).reduce((a, b) => (b.confidence > a.confidence ? b : a));
+        // Zona o linea, la que el calibrador tenga elegida. Se mira donde cayo la chapa
+        // de la lectura que se va a guardar, no el cuadro entero.
+        const puerta = compuerta(mejor.recuadro, cam);
+        if (!puerta.pasa) {
+            contadores.fueraDeLinea++;
+            log(`${cam.name}: ${v.plate} descartada por ${puerta.motivo} (${puerta.detalle})`);
+            return;
+        }
+
         const url = guardarCuadro(cuadros[mejor.cuadro] || cuadros[0], v.plate);
-        contadores.lecturas++;
-        const st = await avisarAvistamiento(cam, v, url);
-        log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} lecturas de ${cola.length} baldosas · ${r.motivo}) -> ${st}`);
+        const resp = await avisarAvistamiento(cam, { ...v, recuadro: mejor.recuadro || null }, url);
+        // Un auto quieto que se vuelve a leer no es una lectura nueva: no se cuenta como
+        // tal, o la efectividad mediria el estacionamiento en vez del trabajo del lector.
+        if (resp.estado !== "ESTACIONADO") contadores.lecturas++;
+        const nota = resp.estado === "ESTACIONADO" ? " · estacionado" : "";
+        log(`${cam.name}: ${v.plate} (${v.confidence.toFixed(2)} · ${v.reads}/${v.cuadros} lecturas de ${cola.length} baldosas · ${r.motivo}${nota}) -> ${resp.status}`);
     } catch (e) {
         log(`${cam.name}: error resolviendo la rafaga: ${e.message}`);
     }

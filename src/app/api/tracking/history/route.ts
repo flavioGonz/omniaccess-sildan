@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
             orderBy: { timestamp: "desc" },
             take: tomar,
             skip: saltar,
-            select: { id: true, plate: true, deviceId: true, cameraName: true, timestamp: true, confidence: true, snapshotUrl: true, eventType: true },
+            select: { id: true, plate: true, deviceId: true, cameraName: true, timestamp: true, confidence: true, snapshotUrl: true, eventType: true, estado: true, estDesde: true, estHasta: true, reads: true },
         }),
         prisma.plateSighting.count({ where: donde }),
     ]);

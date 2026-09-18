@@ -5,9 +5,15 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/plates/[plate]/track?from=ISO&to=ISO&limit=500
- * Recorrido cronologico de una matricula: los puntos que despues dibuja el mapa.
- * Solo devuelve avistamientos con coordenadas (los que no tienen camara ubicada
- * en el mapa se informan aparte, para poder avisar en la interfaz).
+ *
+ * Recorrido cronologico de una matricula: los puntos que despues dibuja el mapa. Solo
+ * devuelve avistamientos con coordenadas; los de camaras que todavia no estan ubicadas
+ * en el mapa se informan aparte para poder avisarlo en la pantalla.
+ *
+ * Las estadias van SEPARADAS del recorrido. Un vehiculo estacionado dentro del encuadre
+ * de una camara no viajo a ningun lado: meterlo entre los puntos del camino dibujaba
+ * tramos que nunca ocurrieron y arruinaba las velocidades, porque el sistema veia un
+ * salto entre dos camaras que en realidad estaban mirando el mismo auto quieto.
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ plate: string }> }) {
     const { plate } = await params;
@@ -35,11 +41,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
             id: true, plate: true, deviceId: true, cameraName: true,
             lat: true, lng: true, timestamp: true, source: true,
             eventType: true, decision: true, confidence: true, snapshotUrl: true,
+            estado: true, estDesde: true, estHasta: true, reads: true,
         },
     });
 
-    const conCoords = filas.filter((f) => f.lat != null && f.lng != null);
-    const sinCoords = filas.length - conCoords.length;
+    const conCoords = filas.filter((f) => f.lat != null && f.lng != null && f.estado !== "ESTACIONADO");
+    const sinCoords = filas.filter((f) => f.lat == null || f.lng == null).length;
+    const estacionados = filas.filter((f) => f.estado === "ESTACIONADO" && f.lat != null && f.lng != null);
 
     // Tramos entre puntos: distancia y tiempo, para mostrar velocidad y pausas.
     const tramos = conCoords.slice(1).map((p, i) => {
@@ -66,6 +74,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
         total: filas.length,
         sinUbicacion: sinCoords,
         puntos: conCoords,
+        estacionados,
         tramos,
     });
 }

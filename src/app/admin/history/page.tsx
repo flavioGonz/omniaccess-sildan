@@ -13,7 +13,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { History, Search, Filter, Calendar as CalendarIcon, User as UserIcon, HardDrive, ArrowRightCircle, ArrowLeftCircle, Download, Camera, Loader2, Clock, Car, CreditCard, Building2, ArrowUpRight, ArrowDownLeft, Phone, MapPin, CheckCircle2, XCircle, X, MoreHorizontal, TrendingUp, ShieldAlert, Activity, Fingerprint, ScanFace, BadgeAlert, Cpu, Wifi, ChevronDown, RefreshCw, AlertTriangle, Film, Upload, FileJson, Users, Zap, ChevronLeft, ChevronRight, Route } from "lucide-react";
+import { History, Search, Filter, Calendar as CalendarIcon, User as UserIcon, HardDrive, ArrowRightCircle, ArrowLeftCircle, Download, Camera, Loader2, Clock, Car, CreditCard, Building2, ArrowUpRight, ArrowDownLeft, Phone, MapPin, CheckCircle2, XCircle, X, MoreHorizontal, TrendingUp, ShieldAlert, Activity, Fingerprint, ScanFace, BadgeAlert, Cpu, Wifi, ChevronDown, RefreshCw, AlertTriangle, Film, Upload, FileJson, Users, Zap, ChevronLeft, ChevronRight, Route, ParkingCircle } from "lucide-react";
 import { AccessEvent, User, Device } from "@prisma/client";
 import Image from "next/image";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
@@ -110,6 +110,23 @@ function FilaFantasma({ celdas }: { celdas: number }) {
     );
 }
 
+/**
+ * Cuanto estuvo quieto el vehiculo, en texto corto.
+ *
+ * Una lectura ESTACIONADO no es una pasada: es el mismo auto visto en el mismo lugar del
+ * cuadro durante un rato. Se muestra aparte para que la tabla no parezca decir que dio
+ * cuarenta vueltas cuando en realidad no se movio.
+ */
+function duracionQuieto(f: any) {
+    if (!f?.estDesde) return null;
+    const a = new Date(f.estDesde).getTime();
+    const b = new Date(f.estHasta || f.timestamp).getTime();
+    const seg = Math.max(0, (b - a) / 1000);
+    if (seg < 60) return "< 1 min";
+    if (seg < 3600) return `${Math.round(seg / 60)} min`;
+    return `${Math.floor(seg / 3600)} h ${Math.round((seg % 3600) / 60)} min`;
+}
+
 function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: string; hasta: string }) {
     const [filas, setFilas] = useState<any[]>([]);
     const [total, setTotal] = useState(0);
@@ -148,7 +165,7 @@ function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: str
                     <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
                         <tr className="border-b border-border/50">
                             <Columna icono={Clock} titulo="Momento de la lectura"
-                                ayuda="Cuándo pasó el vehículo por esa cámara. No es cuándo se guardó: es el momento del cuadro.">Momento</Columna>
+                                ayuda="Cuándo pasó el vehículo por esa cámara. No es cuándo se guardó: es el momento del cuadro. Si el vehículo estaba quieto, la fila abarca toda la estadía en vez de repetirse.">Momento</Columna>
                             <Columna icono={Car} titulo="Matrícula leída"
                                 ayuda="Lo que el lector sacó del cuadro, después de comparar varias tomas del mismo paso.">Matrícula</Columna>
                             <Columna icono={Camera} titulo="Cámara que la vio"
@@ -177,6 +194,8 @@ function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: str
                             </tr>
                         ) : filas.map((f, i) => {
                             const conf = typeof f.confidence === "number" ? Math.round(f.confidence * 100) : null;
+                            const quieto = f.estado === "ESTACIONADO";
+                            const estadia = quieto ? duracionQuieto(f) : null;
                             return (
                                 <motion.tr key={f.id}
                                     initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
@@ -185,10 +204,28 @@ function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: str
                                     className={cn("border-b border-border/30 hover:bg-muted/30 transition-colors", f.snapshotUrl && "cursor-pointer")}>
                                     <td className="px-5 py-3">
                                         <p className="text-sm font-medium text-foreground">{new Date(f.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
-                                        <p className="text-[10px] text-muted-foreground mt-0.5">{new Date(f.timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}</p>
+                                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                                            {quieto && f.estDesde
+                                                ? <>desde {new Date(f.estDesde).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {new Date(f.timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short" })}</>
+                                                : new Date(f.timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}
+                                        </p>
                                     </td>
                                     <td className="px-5 py-3">
-                                        <span className="px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-foreground bg-violet-500/15 border border-violet-500/30">{f.plate}</span>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className={cn(
+                                                "px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-foreground border",
+                                                quieto ? "bg-slate-500/15 border-slate-400/30" : "bg-violet-500/15 border-violet-500/30",
+                                            )}>{f.plate}</span>
+                                            {quieto && (
+                                                <Pista titulo="Vehículo quieto"
+                                                    texto="El lector lo siguió viendo en el mismo lugar del cuadro. Se guarda una sola fila por estadía, no se dibuja en el recorrido del mapa y no cuenta para la efectividad.">
+                                                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/20 border border-slate-400/25 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+                                                        <ParkingCircle className="w-3 h-3" />
+                                                        Estacionado{estadia ? ` · ${estadia}` : ""}
+                                                    </span>
+                                                </Pista>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="px-5 py-3 text-sm text-foreground">{f.cameraName || f.deviceId || "-"}</td>
                                     <td className="px-5 py-3">

@@ -467,7 +467,7 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
-                    <CapaRecorrido puntos={rec.puntos} avance={rec.avance} indice={rec.indice}
+                    <CapaRecorrido puntos={rec.puntos} estacionados={rec.estacionados} avance={rec.avance} indice={rec.indice}
                         siguiendo={rec.siguiendo && rec.reproduciendo} onElegir={(i) => { rec.setReproduciendo(false); rec.setAvance(i); }} />
                 </MapContainer>
                 )}

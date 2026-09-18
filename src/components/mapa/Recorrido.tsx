@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Polyline, CircleMarker, Marker, Tooltip as LTooltip, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { AnimatePresence, motion } from "framer-motion";
-import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp, Video, Spline, Gauge, Crosshair } from "lucide-react";
+import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp, Video, Spline, Gauge, Crosshair, ParkingCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const vidrio = "bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50";
@@ -17,6 +17,8 @@ export type Punto = {
 };
 export type Tramo = { desde: string; hasta: string; segundos: number; metros: number; kmh: number | null };
 export type Lugar = { tipo: "camara" | "calle"; id: string; nombre: string; lat: number; lng: number };
+/** Un vehiculo quieto: la pasarela lo siguio viendo en el mismo lugar del cuadro. */
+export type Estadia = Punto & { estDesde: string | null; estHasta: string | null; reads: number | null };
 
 const hora = (t: string) => new Date(t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" });
 const fechaHora = (t: string) => new Date(t).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -50,6 +52,29 @@ function iconoParada(n: number, estado: "pasado" | "actual" | "futuro", color: s
     });
 }
 
+/**
+ * Marcador de un vehiculo quieto. Deliberadamente distinto de una parada del recorrido:
+ * cuadrado y no circulo, gris y no color, borde punteado. Un auto estacionado no es un
+ * paso mas del camino — no tiene numero de orden ni flecha de salida.
+ */
+function iconoEstacionado(minutos: number) {
+    const tam = minutos >= 60 ? 30 : 26;
+    return L.divIcon({
+        className: "bg-transparent border-0",
+        html: `<span style="display:flex;align-items:center;justify-content:center;width:${tam}px;height:${tam}px;border-radius:9px;
+            background:rgba(100,116,139,.92);border:2px dashed rgba(226,232,240,.75);color:#f1f5f9;
+            font:800 ${tam >= 30 ? 13 : 11}px/1 ui-sans-serif,system-ui;box-shadow:0 2px 10px rgba(0,0,0,.55)">P</span>`,
+        iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2],
+    });
+}
+
+/** Cuanto estuvo quieto, en segundos. Si falta un extremo, se asume instantaneo. */
+function segundosEstadia(e: Estadia) {
+    const a = e.estDesde ? new Date(e.estDesde).getTime() : new Date(e.timestamp).getTime();
+    const b = e.estHasta ? new Date(e.estHasta).getTime() : new Date(e.timestamp).getTime();
+    return Math.max(0, (b - a) / 1000);
+}
+
 /** Punta de flecha sobre el camino: sin esto no se sabe hacia dónde iba. */
 function iconoFlecha(angulo: number, encendida: boolean) {
     return L.divIcon({
@@ -74,8 +99,8 @@ function posicionEn(linea: [number, number][], avance: number): [number, number]
 }
 
 /** Dibuja el recorrido dentro del mapa: camino, sentido, paradas y el vehículo. */
-export function CapaRecorrido({ puntos, avance, indice, siguiendo, onElegir }: {
-    puntos: Punto[]; avance: number; indice: number; siguiendo?: boolean; onElegir?: (i: number) => void;
+export function CapaRecorrido({ puntos, estacionados = [], avance, indice, siguiendo, onElegir }: {
+    puntos: Punto[]; estacionados?: Estadia[]; avance: number; indice: number; siguiendo?: boolean; onElegir?: (i: number) => void;
 }) {
     const map = useMap();
     const linea = useMemo(() => puntos.map((p) => [p.lat, p.lng] as [number, number]), [puntos]);
@@ -137,7 +162,7 @@ export function CapaRecorrido({ puntos, avance, indice, siguiendo, onElegir }: {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [vehiculo?.[0], vehiculo?.[1], siguiendo]);
 
-    if (!puntos.length) return null;
+    if (!puntos.length && !estacionados.length) return null;
 
     return (
         <>
@@ -160,6 +185,20 @@ export function CapaRecorrido({ puntos, avance, indice, siguiendo, onElegir }: {
             ))}
 
             {vehiculo && <Marker position={vehiculo} icon={iconoVehiculo} interactive={false} zIndexOffset={600} />}
+
+            {/* Los quietos van primero, debajo de las paradas: son contexto del recorrido,
+                no parte de el. Si un auto estaciono y despues siguio, la linea no lo toca. */}
+            {estacionados.map((e) => {
+                const seg = segundosEstadia(e);
+                return (
+                    <Marker key={`e${e.id}`} position={[e.lat, e.lng]} icon={iconoEstacionado(seg / 60)} zIndexOffset={-100}>
+                        <LTooltip direction="top" offset={[0, -16]} className="cam-name-tip">
+                            Estacionado {seg >= 60 ? duracionCorta(seg) : "un momento"} · {e.cameraName || "Cámara"}
+                            <br />desde {hora(e.estDesde || e.timestamp)}
+                        </LTooltip>
+                    </Marker>
+                );
+            })}
 
             {puntos.map((p, i) => {
                 const estado = i === indice ? "actual" : i <= hasta ? "pasado" : "futuro";
@@ -187,13 +226,13 @@ export function CapaRecorrido({ puntos, avance, indice, siguiendo, onElegir }: {
  * así no pisa las columnas de entradas y salidas, que van a los lados.
  */
 export function PanelRecorrido({
-    puntos, tramos, cargando, error, sinUbicacion,
+    puntos, tramos, estacionados = [], cargando, error, sinUbicacion,
     plate, setPlate, horas, setHoras, buscar, limpiar,
     indice, setIndice, avance, setAvance,
     reproduciendo, setReproduciendo, velocidad, setVelocidad, siguiendo, setSiguiendo,
     lugares = [], onIrA, onVerCuadro,
 }: {
-    puntos: Punto[]; tramos: Tramo[]; cargando: boolean; error: string | null; sinUbicacion: number;
+    puntos: Punto[]; tramos: Tramo[]; estacionados?: Estadia[]; cargando: boolean; error: string | null; sinUbicacion: number;
     plate: string; setPlate: (v: string) => void;
     horas: number; setHoras: (v: number) => void;
     buscar: () => void; limpiar: () => void;
@@ -207,7 +246,7 @@ export function PanelRecorrido({
     onVerCuadro?: (p: Punto) => void;
 }) {
     const [abierto, setAbierto] = useState(false);
-    useEffect(() => { if (puntos.length) setAbierto(true); }, [puntos.length]);
+    useEffect(() => { if (puntos.length || estacionados.length) setAbierto(true); }, [puntos.length, estacionados.length]);
 
     const t0 = puntos.length ? new Date(puntos[0].timestamp).getTime() : 0;
     const tN = puntos.length ? new Date(puntos[puntos.length - 1].timestamp).getTime() : 0;
@@ -283,7 +322,7 @@ export function PanelRecorrido({
                 </motion.div>
 
                 <AnimatePresence initial={false}>
-                    {abierto && (puntos.length > 0 || error || sinUbicacion > 0) && (
+                    {abierto && (puntos.length > 0 || estacionados.length > 0 || error || sinUbicacion > 0) && (
                         <motion.div key="detalle"
                             initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                             transition={resorte} className="overflow-hidden">
@@ -292,6 +331,40 @@ export function PanelRecorrido({
                                 {sinUbicacion > 0 && (
                                     <p className="text-[11px] text-amber-400/90 px-1">
                                         {sinUbicacion} detección(es) de cámaras que todavía no están ubicadas en el mapa.
+                                    </p>
+                                )}
+
+                                {estacionados.length > 0 && (
+                                    <div className="flex items-start gap-2 rounded-2xl bg-slate-500/[0.12] border border-slate-400/20 px-3 py-2">
+                                        <ParkingCircle size={14} className="text-slate-300 shrink-0 mt-[1px]" />
+                                        <div className="min-w-0 text-[11px] leading-relaxed">
+                                            <span className="text-white/80 font-semibold">
+                                                {estacionados.length === 1 ? "1 parada quieta" : `${estacionados.length} paradas quietas`}
+                                            </span>
+                                            <span className="text-white/45">
+                                                {" "}— el vehículo se quedó en el mismo lugar del cuadro, así que no cuenta como pasada.
+                                            </span>
+                                            <div className="mt-1 flex flex-wrap gap-1.5">
+                                                {estacionados.map((e) => {
+                                                    const seg = segundosEstadia(e);
+                                                    return (
+                                                        <span key={e.id}
+                                                            className="inline-flex items-center gap-1 rounded-full bg-white/[0.07] px-2 py-0.5 text-[10px] text-white/70">
+                                                            <span className="truncate max-w-[110px]">{e.cameraName || "Cámara"}</span>
+                                                            <span className="text-white/30">·</span>
+                                                            <span className="text-slate-200 font-semibold">{seg >= 60 ? duracionCorta(seg) : "< 1 min"}</span>
+                                                            <span className="text-white/25">{hora(e.estDesde || e.timestamp)}</span>
+                                                        </span>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {puntos.length === 0 && estacionados.length > 0 && !error && (
+                                    <p className="text-[11px] text-white/45 px-1">
+                                        No hubo pasadas en ese período: el vehículo estuvo quieto todo el tiempo.
                                     </p>
                                 )}
 
@@ -456,6 +529,7 @@ export function useRecorrido() {
     const [horas, setHoras] = useState(24);
     const [puntos, setPuntos] = useState<Punto[]>([]);
     const [tramos, setTramos] = useState<Tramo[]>([]);
+    const [estacionados, setEstacionados] = useState<Estadia[]>([]);
     const [sinUbicacion, setSinUbicacion] = useState(0);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -501,24 +575,25 @@ export function useRecorrido() {
             const ps: Punto[] = d.puntos || [];
             setPuntos(ps);
             setTramos(d.tramos || []);
+            setEstacionados(d.estacionados || []);
             setSinUbicacion(d.sinUbicacion || 0);
             // Arranca desde el principio y se reproduce solo: al abrir un recorrido lo que
             // se quiere ver es cómo fue, no el último punto quieto.
             setAvance(0);
             if (ps.length >= 2) setTimeout(() => setReproduciendo(true), 700);
-            if (!ps.length) setError("Sin detecciones en ese período.");
+            if (!ps.length && !(d.estacionados || []).length) setError("Sin detecciones en ese período.");
         } catch (e: any) {
             setError(e.message || "Error de consulta");
-            setPuntos([]); setTramos([]);
+            setPuntos([]); setTramos([]); setEstacionados([]);
         } finally { setCargando(false); }
     }, [plate, horas]);
 
     const limpiar = useCallback(() => {
-        setPuntos([]); setTramos([]); setAvance(0); setSinUbicacion(0); setError(null); setReproduciendo(false);
+        setPuntos([]); setTramos([]); setEstacionados([]); setAvance(0); setSinUbicacion(0); setError(null); setReproduciendo(false);
     }, []);
 
     return {
-        plate, setPlate, horas, setHoras, puntos, tramos, sinUbicacion, cargando, error,
+        plate, setPlate, horas, setHoras, puntos, tramos, estacionados, sinUbicacion, cargando, error,
         indice, setIndice, avance, setAvance, reproduciendo, setReproduciendo,
         velocidad, setVelocidad, siguiendo, setSiguiendo, buscar, limpiar,
     };
