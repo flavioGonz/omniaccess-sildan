@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { VisorCuadro } from "@/components/VisorCuadro";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
 import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
 import Image from "next/image";
@@ -198,6 +199,60 @@ function TrackTile({ dev, av }: { dev: any; av?: any }) {
                     </span>
                 </div>
             )}
+        </div>
+    );
+}
+
+/**
+ * Las últimas lecturas de las cámaras interiores, en fila.
+ *
+ * Las columnas de entrada y salida muestran sus capturas recientes debajo del vivo; esto
+ * es lo mismo para las interiores. Queda visible aunque la sección esté plegada: plegar
+ * es para recuperar lugar, no para dejar de ver lo que pasó.
+ */
+function TiraInteriores({ avistamientos, onAbrir }: { avistamientos: any[]; onAbrir: (i: number) => void }) {
+    if (!avistamientos.length) {
+        return (
+            <p className="text-[10px] text-foreground/35 py-1.5">
+                Sin lecturas recientes. Las interiores solo registran cuando pasa un vehículo.
+            </p>
+        );
+    }
+    return (
+        <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Capturas recientes</div>
+            <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+                {avistamientos.slice(0, 14).map((a, i) => {
+                    const t = new Date(a.timestamp);
+                    const seg = Math.round((Date.now() - t.getTime()) / 1000);
+                    const conf = typeof a.confidence === "number" ? Math.round(a.confidence * 100) : null;
+                    return (
+                        <button key={a.id || i} type="button" onClick={() => onAbrir(i)}
+                            className="shrink-0 w-[104px] text-left group">
+                            <div className="relative rounded-lg overflow-hidden border border-neutral-800 group-hover:border-violet-400/60 transition-colors aspect-video bg-black">
+                                {a.snapshotUrl ? (
+                                    /* eslint-disable-next-line @next/next/no-img-element */
+                                    <img src={a.snapshotUrl} alt={a.plate} className="absolute inset-0 w-full h-full object-cover" />
+                                ) : (
+                                    <div className="absolute inset-0 flex items-center justify-center text-foreground/25"><Car size={16} /></div>
+                                )}
+                                <div className="absolute inset-x-0 bottom-0 flex justify-center pb-0.5">
+                                    <span className="px-1.5 rounded bg-violet-600/85 font-mono text-[10px] font-bold tracking-wider text-white">{a.plate}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1 mt-1 text-[9px] text-muted-foreground">
+                                <span className="truncate flex-1">{a.cameraName || "—"}</span>
+                                {conf != null && (
+                                    <span className={cn("font-semibold", conf >= 85 ? "text-emerald-400" : conf >= 65 ? "text-amber-400" : "text-red-400")}>{conf}%</span>
+                                )}
+                            </div>
+                            <div className="text-[9px] text-muted-foreground/70">
+                                {seg < 60 ? `hace ${seg}s` : seg < 3600 ? `hace ${Math.round(seg / 60)} min` : t.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
         </div>
     );
 }
@@ -1079,11 +1134,15 @@ export default function MonitorLPR() {
                                     <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold border border-violet-500/40 text-violet-300">{interiores.length} cam</span>
                                     <ChevronDown size={13} className={cn("text-violet-300/70 transition-transform", verInteriores ? "" : "-rotate-90")} />
                                 </button>
+                                {/* El vivo se pliega; las capturas no. Plegar la sección es para
+                                    recuperar lugar en pantalla, no para dejar de ver lo que pasó. */}
                                 {verInteriores && (
-                                    <div className={cn("grid gap-2", interiores.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
+                                    <div className={cn("grid gap-2 mb-2", interiores.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
                                         {interiores.map((d: any) => <TrackTile key={d.id} dev={d} av={avistPorCam[d.id]} />)}
                                     </div>
                                 )}
+
+                                <TiraInteriores avistamientos={avistUltimos} onAbrir={setCuadroAbierto} />
                             </div>
                         )}
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -1129,6 +1188,17 @@ export default function MonitorLPR() {
                 </div>
             </div>
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
+                {cuadroAbierto !== null && avistUltimos[cuadroAbierto] && (
+                    <VisorCuadro
+                        fila={avistUltimos[cuadroAbierto]}
+                        hayAnterior={cuadroAbierto > 0}
+                        haySiguiente={cuadroAbierto < avistUltimos.length - 1}
+                        onAnterior={() => setCuadroAbierto((v) => (v === null ? v : Math.max(0, v - 1)))}
+                        onSiguiente={() => setCuadroAbierto((v) => (v === null ? v : Math.min(avistUltimos.length - 1, v + 1)))}
+                        onCerrar={() => setCuadroAbierto(null)}
+                    />
+                )}
+
                 <UserFormDialog open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
         </TooltipProvider>
     );

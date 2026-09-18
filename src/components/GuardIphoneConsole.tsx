@@ -162,8 +162,7 @@ export default function GuardIphoneConsole({
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
             timeout: 20000,
-            transports: ['polling']
-        });
+            });
 
         // Request notification permission for panic and mission alerts
         if ("Notification" in window && Notification.permission === "default") {

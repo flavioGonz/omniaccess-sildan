@@ -92,7 +92,7 @@ export default function ConsolasAdminPage() {
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
-        const socket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false,  path: "/io/socket.io", transports: ["polling"], upgrade: false, });
+        const socket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false,  });
         socketRef.current = socket;
 
         socket.on("connect", () => { setSocketId(socket.id || null); });

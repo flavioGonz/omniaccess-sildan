@@ -410,7 +410,6 @@ export default function UnifiedDashboard({ variant = "acceso" }: DashboardProps)
         const socketUrl = getSocketUrl();
 
         const newSocket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false, 
-            transports: ["polling"],
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
