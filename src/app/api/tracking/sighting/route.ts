@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { confirmarEstadia, cerrarEstadia, estadiasAbiertas } from "@/lib/estadias";
+import { mismaChapa } from "@/lib/matriculas";
 
 export const dynamic = "force-dynamic";
 
@@ -92,71 +93,128 @@ export async function POST(req: NextRequest) {
 
     // ── ¿Sigue ahí el mismo auto quieto?
     const desdeEstadia = new Date(cuando.getTime() - CORTE_ESTADIA_MIN * 60 * 1000);
-    const previo = await prisma.plateSighting.findFirst({
+
+    // Se traen las lecturas recientes de ESA cámara y el antecedente se elige por
+    // parecido, no por matrícula exacta.
+    //
+    // Buscar por texto exacto partía en dos al mismo vehículo cuando el OCR cambiaba un
+    // carácter entre dos ráfagas: el mismo auto quedó como DAF1168 y, dos segundos
+    // después, como OAF1168. La agrupación de la pasarela no alcanza para esto porque
+    // trabaja dentro de una ráfaga, y acá son dos.
+    const recientes = await prisma.plateSighting.findMany({
         where: {
-            plate: patente,
             deviceId: body.deviceId || null,
             source: "TRACK",
             timestamp: { gte: desdeEstadia, lte: cuando },
         },
         orderBy: { timestamp: "desc" },
+        take: 60,
     });
+    const previo = recientes.find((f) => mismaChapa(f.plate, patente)) || null;
 
-    if (previo && caja && estaQuieto(caja, leerCaja(previo.bbox))) {
-        // No es una lectura nueva: es el mismo auto, en el mismo lugar. Se extiende la
-        // estadía en vez de agregar una fila, y se guarda la mejor foto de las dos.
+    const quieto = !!(previo && caja && estaQuieto(caja, leerCaja(previo.bbox)));
+    const fueraDePuerta = body.enPuerta === false;
+
+    /**
+     * Una estadía: el mismo vehículo, visto otra vez en la misma cámara sin haber pasado
+     * por donde interesa.
+     *
+     * Las dos ramas que llevan acá son distintas en un punto que importa. Si está QUIETO,
+     * la permanencia se acumula desde la primera vez que se lo vio ahí. Si se movió pero
+     * sigue fuera de la zona o de la línea — un auto circulando por un rincón del cuadro
+     * que esa cámara no vigila — la permanencia se reinicia, y por eso nunca llega a
+     * confirmarse como estacionamiento: se queda dando vueltas hasta que vence y se
+     * cierra en silencio, sin avisar que se retiró de ningún lado.
+     *
+     * De un modo u otro queda UNA fila por vehículo y cámara, que es lo que evita que el
+     * historial se llene con el mismo auto veinte veces.
+     */
+    if (previo && (quieto || fueraDePuerta)) {
         const mejorFoto = confianza != null && (previo.confidence ?? 0) < confianza;
         const actualizado = await prisma.plateSighting.update({
             where: { id: previo.id },
             data: {
                 estado: "ESTACIONADO",
-                estDesde: previo.estDesde ?? previo.timestamp,
+                // Si esta lectura es mejor, manda su ortografía: la fila se queda con la
+                // versión más segura de la matrícula y no con la primera que entró.
+                ...(mejorFoto ? { plate: patente } : {}),
+                estDesde: quieto ? (previo.estDesde ?? previo.timestamp) : cuando,
                 estHasta: cuando,
+                timestamp: cuando,
                 confidence: mejorFoto ? confianza : previo.confidence,
                 reads: mejorFoto ? (lecturas ?? previo.reads) : previo.reads,
                 snapshotUrl: mejorFoto ? (body.snapshotUrl || previo.snapshotUrl) : previo.snapshotUrl,
-                bbox: JSON.stringify(caja),
+                ...(caja ? { bbox: JSON.stringify(caja) } : {}),
+                // Si se movió, lo de antes dejó de valer: vuelve a estar por confirmarse.
+                ...(quieto ? {} : { estAvisado: false }),
             },
         });
-        const recienAvisado = await confirmarEstadia(actualizado as any);
+        const recienAvisado = quieto ? await confirmarEstadia(actualizado as any) : false;
         return NextResponse.json({
             ok: true, estado: "ESTACIONADO", id: actualizado.id, nuevo: recienAvisado,
-            desde: actualizado.estDesde, hasta: actualizado.estHasta,
+            quieto, desde: actualizado.estDesde, hasta: actualizado.estHasta,
         });
     }
 
-    // ── Se movió: si tenía una estadía abierta acá, arrancó y se va.
-    //
-    // Este es el único caso en que el "se fue" sale de una lectura y no del barrendero:
-    // el auto arrancó delante de la cámara y volvió a leerse en otro lugar del cuadro.
-    // Se cierra en el acto en vez de esperar a que venza.
-    if (caja) {
-        for (const abierta of await estadiasAbiertas(patente, body.deviceId || null)) {
-            if (abierta.id === previo?.id && estaQuieto(caja, leerCaja(abierta.bbox))) continue;
-            await cerrarEstadia(abierta as any).catch(() => { });
-        }
+    /**
+     * Primera lectura de un vehículo fuera de la zona o de la línea.
+     *
+     * Acá había un error de orden que dejaba la función inservible: se descartaba de
+     * entrada, así que nunca quedaba un antecedente contra el cual comparar la lectura
+     * siguiente, y por lo tanto ninguna estadía podía abrirse nunca. El vehículo
+     * estacionado no desaparecía del historial porque se hubiera resuelto, sino porque
+     * ya no se guardaba nada de él — incluido el dato de que estaba ahí.
+     *
+     * Se abre una estadía tentativa. No es una pasada: no entra al recorrido del mapa ni
+     * cuenta para la efectividad, y si resulta ser un auto que iba circulando por donde
+     * esa cámara no mira, vence sin avisar nada.
+     */
+    if (fueraDePuerta) {
+        const abierta = await prisma.plateSighting.create({
+            data: {
+                plate: patente,
+                deviceId: body.deviceId || null,
+                cameraName: body.cameraName || null,
+                lat: body.lat ?? null,
+                lng: body.lng ?? null,
+                timestamp: cuando,
+                source: "TRACK",
+                eventType: body.eventType || "INTERNAL",
+                confidence: confianza,
+                reads: lecturas,
+                snapshotUrl: body.snapshotUrl || null,
+                bbox: caja ? JSON.stringify(caja) : null,
+                estado: "ESTACIONADO",
+                estDesde: cuando,
+                estHasta: cuando,
+            },
+        });
+        return NextResponse.json({
+            ok: true, estado: "ESTACIONADO", id: abierta.id, nuevo: false, quieto: false,
+            puerta: body.puerta || null,
+        });
     }
 
-    // ── Fuera de la zona o de la línea, y en movimiento: no interesa.
+    // ── Pasó por donde interesa, y se movió: si tenía una estadía abierta acá, arrancó.
     //
-    // Va después de lo anterior a propósito. Un auto que arranca puede dar su primera
-    // lectura en movimiento fuera de la línea, y esa lectura, aunque no se guarde, es la
-    // que permite saber que la estadía terminó.
-    if (body.enPuerta === false) {
-        return NextResponse.json(
-            { ok: true, ignorado: "fuera de la zona", puerta: body.puerta || null },
-            { status: 202 },
-        );
+    // Este es el único caso en que el "se retiró" sale de una lectura y no del barrido:
+    // el auto arrancó delante de la cámara y cruzó la línea. Se cierra en el acto en vez
+    // de esperar a que venza.
+    for (const abiertaPrev of await estadiasAbiertas(patente, body.deviceId || null)) {
+        await cerrarEstadia(abiertaPrev as any).catch(() => { });
     }
 
     // Antirrebote. La pasarela ya consolida cada paso en una sola lectura; esto cubre dos
     // ráfagas encadenadas y las instalaciones viejas que mandan un aviso por cuadro.
     const ventanaSeg = Number(process.env.TRACKING_DEDUPE_SECONDS || 45);
-    if (previo && cuando.getTime() - new Date(previo.timestamp).getTime() <= ventanaSeg * 1000) {
-        if (confianza != null && (previo.confidence ?? 0) < confianza) {
+    if (previo && previo.estado !== "ESTACIONADO"
+        && cuando.getTime() - new Date(previo.timestamp).getTime() <= ventanaSeg * 1000) {
+        const mejora = confianza != null && (previo.confidence ?? 0) < confianza;
+        if (mejora) {
             await prisma.plateSighting.update({
                 where: { id: previo.id },
                 data: {
+                    plate: patente,
                     confidence: confianza,
                     reads: lecturas ?? previo.reads,
                     snapshotUrl: body.snapshotUrl || previo.snapshotUrl,
@@ -164,7 +222,14 @@ export async function POST(req: NextRequest) {
                 },
             }).catch(() => { });
         }
-        return NextResponse.json({ ok: true, ignorado: "repetido", estado: "PASO", id: previo.id }, { status: 202 });
+        return NextResponse.json({
+            ok: true,
+            ignorado: "repetido",
+            estado: "PASO",
+            id: previo.id,
+            plate: mejora ? patente : previo.plate,
+            corregida: previo.plate !== patente,
+        }, { status: 202 });
     }
 
     let { lat, lng } = body;

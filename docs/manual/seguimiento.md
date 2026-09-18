@@ -107,7 +107,22 @@ el 8. Eso es lo que corrige las confusiones típicas del lector: el 0 con la O, 
 Una lectura se da por buena si coinciden **al menos dos cuadros**, o si una sola viene muy
 segura. Lo que aparece una vez y no se repite se descarta: casi siempre es un invento.
 
-## 5. Se descarta lo que no pasó por donde interesa
+## 5. Cada vehículo del cuadro se resuelve por separado
+
+Una calle de barrio casi nunca tiene un solo auto. Lo normal es uno pasando y dos
+estacionados contra el cordón, y las tres matrículas se leen bien.
+
+Esto importa más de lo que parece, porque el sesgo va para el lado malo: **un auto quieto
+se lee mejor que uno en movimiento** — está enfocado y no arrastra. Si de cada ráfaga
+saliera una sola matrícula, ganaría casi siempre el estacionado y se perdería justo el que
+pasó.
+
+Por eso las lecturas se agrupan por vehículo y cada grupo vota su propia matrícula. El
+agrupamiento es **por parecido y no por texto exacto**: el lector no devuelve siempre lo
+mismo para la misma chapa, así que agrupar por texto exacto partiría en dos al mismo auto.
+Dos vehículos distintos no coinciden en seis o siete posiciones.
+
+## 6. Se descarta lo que no pasó por donde interesa
 
 Leer bien una matrícula no alcanza: también hay que saber si ese auto **pasó**. Una cámara de
 calle ve, además de los que circulan, los que están estacionados contra el cordón, y esos se
@@ -136,7 +151,7 @@ Conviene dibujar la línea **atravesando el carril**, más o menos perpendicular
 vienen los autos, y en la parte del cuadro donde las matrículas se leen mejor — ni el fondo
 lejano ni el borde de abajo.
 
-## 6. Un auto quieto no es una pasada nueva
+## 7. Un auto quieto no es una pasada nueva
 
 Un auto estacionado justo sobre la línea sí entra por la banda, y se leería una y otra vez. Esa
 es la segunda mitad del trabajo.
@@ -157,11 +172,35 @@ Un vehículo así:
 Si el auto arranca y se va, la próxima lectura ya cae en otro lugar del cuadro y vuelve a
 contarse como pasada, con su estadía cerrada.
 
+### Los dos avisos
+
+De la estadía salen dos eventos, que se pueden notificar como cualquier otro (» Notificaciones
+→ Reglas, modo LPR):
+
+| Aviso | Cuándo sale |
+|---|---|
+| **Vehículo estacionó** | cuando la estadía se consolida |
+| **Vehículo se retiró** | cuando el vehículo deja de verse |
+
+El "estacionó" **no sale en la primera lectura quieta**, a propósito: un auto parado en la
+esquina esperando para doblar también se lee quieto. Se espera a que lleve un rato ahí —
+tres minutos por defecto, `TRACKING_PARKED_CONFIRM_MIN`.
+
+El "se retiró" es distinto de todo lo demás del seguimiento: **un auto que se va no genera
+ninguna lectura**. No hay nada que la cámara vea; se nota por ausencia. Por eso hay un
+barrido que corre cada minuto y cierra las estadías que llevan rato sin refrescarse — doce
+minutos por defecto, `TRACKING_PARKED_EXPIRE_MIN`. La única excepción es el auto que arranca
+delante de la cámara y vuelve a leerse en otro lugar del cuadro: ese cierra en el acto.
+
+Eso quiere decir que el "se retiró" llega con el retraso del vencimiento. Es el precio de
+detectar una ausencia, y bajarlo demasiado hace que un auto tapado un rato por un camión
+figure como que se fue y volvió.
+
 Los dos mecanismos se complementan a propósito: el de afuera (la banda) saca a los que están
 lejos de donde interesa, y el de adentro (el quieto) agrupa a los que están cerca pero no se
 mueven. Por eso la banda puede ser generosa sin volver a llenar el historial.
 
-## 7. Se guarda un avistamiento, y se arma el trayecto
+## 8. Se guarda un avistamiento, y se arma el trayecto
 
 Del paso entero queda **un** registro, no uno por cuadro. Los avistamientos de la misma matrícula
 cercanos en el tiempo se agrupan en un trayecto, que es lo que el mapa dibuja.
