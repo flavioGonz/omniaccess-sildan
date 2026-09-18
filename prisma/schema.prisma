@@ -145,6 +145,10 @@ model Device {
   // Calibracion de la camara interior: zona de interes (JSON {x,y,w,h} en 0..1),
   // confianza minima propia y cuadros por segundo a muestrear.
   trackRoi        String?
+  // "escena": ffmpeg decide mirando el cambio de imagen (sirve en cualquier camara).
+  // "camara": la propia camara avisa que paso un vehiculo (AcuSense) y recien ahi
+  // se leen cuadros. Mucho mas preciso y deja la GPU en reposo el resto del tiempo.
+  trackTrigger  String?  @default("escena")
   trackMinConf    Float?
   trackFps        Float?
   createdAt       DateTime         @default(now())
@@ -615,7 +619,32 @@ model PlateSighting {
   accessEventId String?  @unique
   createdAt     DateTime @default(now())
 
+  // Cuantos cuadros de la rafaga coincidieron en esta lectura. Una matricula
+  // vista en cinco cuadros seguidos vale mucho mas que una vista en uno solo,
+  // y es lo que permite separar una lectura buena de un invento del OCR.
+  reads         Int?
+  passId        String?
+  pass          VehiclePass? @relation(fields: [passId], references: [id], onDelete: SetNull)
+
+  @@index([passId])
   @@index([plate, timestamp])
   @@index([timestamp])
   @@index([deviceId, timestamp])
+}
+
+
+/// Un paso del vehiculo por el barrio: agrupa los avistamientos de una misma
+/// matricula que ocurren cerca en el tiempo. El mapa dibuja trayectos, no puntos
+/// sueltos, y la pantalla puede decir "entro 12:35, paso por Calle 21, salio 12:41"
+/// en vez de mostrar una lista plana que con volumen se vuelve ilegible.
+model VehiclePass {
+  id         String          @id @default(cuid())
+  plate      String
+  startedAt  DateTime
+  endedAt    DateTime
+  sightings  PlateSighting[]
+  createdAt  DateTime        @default(now())
+
+  @@index([plate, startedAt])
+  @@index([startedAt])
 }

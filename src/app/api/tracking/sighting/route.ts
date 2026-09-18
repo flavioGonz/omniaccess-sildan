@@ -3,11 +3,16 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+// Dos avistamientos de la misma matricula separados por menos que esto son el mismo
+// paso por el barrio. Mas que esto, el auto se fue y volvio: es otro trayecto.
+const VENTANA_TRAYECTO_MIN = Number(process.env.TRACKING_PASS_WINDOW_MIN || 10);
+
 /**
  * POST /api/tracking/sighting
- * Lo usa la pasarela de camaras comunes: manda la lectura ya resuelta por
- * Omni-LPR y aca solo se normaliza y se guarda. Protegido con un token propio
- * (TRACKING_TOKEN en Settings o en el entorno), porque no lleva sesion.
+ * Lo usa la pasarela de camaras comunes: manda la lectura ya consolidada por la
+ * rafaga y aca solo se normaliza, se guarda y se engancha al trayecto que
+ * corresponda. Protegido con un token propio (TRACKING_TOKEN en Settings o en el
+ * entorno), porque no lleva sesion.
  */
 export async function POST(req: NextRequest) {
     const token = req.headers.get("x-tracking-token") || "";
@@ -33,9 +38,11 @@ export async function POST(req: NextRequest) {
     }
 
     const cuando = body.timestamp ? new Date(body.timestamp) : new Date();
+    const lecturas = body.reads != null ? Number(body.reads) : null;
 
-    // Antirrebote: la misma patente en la misma camara dentro de la ventana no
-    // genera un punto nuevo (una camara comun dispara muchos frames seguidos).
+    // Antirrebote. La pasarela ya consolida cada paso en una sola lectura, asi que
+    // esto es la segunda red: cubre el caso de dos rafagas encadenadas y el de una
+    // instalacion vieja que todavia mande un aviso por cuadro.
     const ventanaSeg = Number(process.env.TRACKING_DEDUPE_SECONDS || 45);
     const reciente = await prisma.plateSighting.findFirst({
         where: {
@@ -46,6 +53,18 @@ export async function POST(req: NextRequest) {
         orderBy: { timestamp: "desc" },
     });
     if (reciente) {
+        // Si la nueva viene mejor respaldada, se queda con la mejor foto y confianza
+        // en vez de tirarla: es informacion del mismo paso, no ruido.
+        if (confianza != null && (reciente.confidence ?? 0) < confianza) {
+            await prisma.plateSighting.update({
+                where: { id: reciente.id },
+                data: {
+                    confidence: confianza,
+                    reads: lecturas ?? reciente.reads,
+                    snapshotUrl: body.snapshotUrl || reciente.snapshotUrl,
+                },
+            }).catch(() => { });
+        }
         return NextResponse.json({ ok: true, ignorado: "repetido", id: reciente.id }, { status: 202 });
     }
 
@@ -56,6 +75,22 @@ export async function POST(req: NextRequest) {
             const cam = (JSON.parse(row?.value || "{}").cameras || []).find((c: any) => c.deviceId === body.deviceId);
             if (cam) { lat = cam.lat; lng = cam.lng; }
         } catch { }
+    }
+
+    // ── Trayecto: se engancha al ultimo paso abierto de esa matricula, o se abre uno.
+    const desde = new Date(cuando.getTime() - VENTANA_TRAYECTO_MIN * 60 * 1000);
+    let pass = await prisma.vehiclePass.findFirst({
+        where: { plate: patente, endedAt: { gte: desde } },
+        orderBy: { endedAt: "desc" },
+    });
+    if (pass) {
+        if (cuando > pass.endedAt) {
+            await prisma.vehiclePass.update({ where: { id: pass.id }, data: { endedAt: cuando } });
+        }
+    } else {
+        pass = await prisma.vehiclePass.create({
+            data: { plate: patente, startedAt: cuando, endedAt: cuando },
+        });
     }
 
     const creado = await prisma.plateSighting.create({
@@ -70,9 +105,11 @@ export async function POST(req: NextRequest) {
             eventType: body.eventType || "INTERNAL",
             decision: null,
             confidence: confianza,
+            reads: lecturas,
             snapshotUrl: body.snapshotUrl || null,
+            passId: pass.id,
         },
     });
 
-    return NextResponse.json({ ok: true, id: creado.id });
+    return NextResponse.json({ ok: true, id: creado.id, passId: pass.id });
 }

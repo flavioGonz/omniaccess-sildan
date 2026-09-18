@@ -30,6 +30,29 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     const [fps, setFps] = useState(2);
     const [roi, setRoi] = useState<Roi>(ROI_COMPLETA);
     const [editandoRoi, setEditandoRoi] = useState(false);
+    const [regla, setRegla] = useState<any>(null);
+    const [cambiandoModo, setCambiandoModo] = useState(false);
+
+    // Estado de la regla de vehiculo en la propia camara.
+    useEffect(() => {
+        let vivo = true;
+        axios.get(`/api/tracking/camera-rule?deviceId=${device.id}`)
+            .then((r) => { if (vivo) setRegla(r.data); })
+            .catch(() => { if (vivo) setRegla({ soportada: false }); });
+        return () => { vivo = false; };
+    }, [device.id]);
+
+    const cambiarModo = async (activar: boolean) => {
+        setCambiandoModo(true);
+        try {
+            const r = await axios.post("/api/tracking/camera-rule", { deviceId: device.id, activar });
+            setRegla((x: any) => ({ ...(x || {}), modo: r.data.modo, activa: activar }));
+        } catch (e: any) {
+            alert(e?.response?.data?.error || "No se pudo cambiar el modo de disparo.");
+        } finally {
+            setCambiandoModo(false);
+        }
+    };
 
     const lienzo = useRef<HTMLDivElement>(null);
     const arrastre = useRef<{ x: number; y: number } | null>(null);
@@ -254,8 +277,51 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                                 <p className="text-[10px] text-white/40 leading-relaxed">
                                     {zonaCompleta
                                         ? "Sin recorte. Marcá la zona por donde pasan los autos para ganar precisión."
-                                        : "El lector solo mira ese recorte, así que ignora veredas, cielo y jardines."}
+                                        : "El lector solo mira ese recorte, y lo recibe en resolución nativa: con menos superficie inútil, la matrícula llega con más píxeles y se lee mejor."}
                                 </p>
+                            </div>
+
+                            <div className="rounded-xl border border-white/[0.07] bg-white/[0.03] p-3 space-y-2">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-white/40">Modo de disparo</div>
+                                {regla === null ? (
+                                    <div className="text-xs text-white/50 flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> consultando la cámara…</div>
+                                ) : regla.soportada === false ? (
+                                    <p className="text-[10px] text-white/40 leading-relaxed">
+                                        Esta cámara no responde la configuración de analítica, así que el disparo queda
+                                        por cambio de escena.
+                                    </p>
+                                ) : (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border",
+                                                regla.modo === "camara"
+                                                    ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/25"
+                                                    : "bg-white/5 text-white/50 border-white/10")}>
+                                                {regla.modo === "camara" ? "Avisa la cámara" : "Cambio de escena"}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                disabled={cambiandoModo}
+                                                onClick={() => cambiarModo(regla.modo !== "camara")}
+                                                className="ml-auto px-2.5 py-1 rounded-md text-[10px] font-semibold bg-white/[0.06] border border-white/10 text-white/80 hover:bg-white/10 disabled:opacity-50"
+                                            >
+                                                {cambiandoModo ? "Aplicando…" : regla.modo === "camara" ? "Volver a escena" : "Que avise la cámara"}
+                                            </button>
+                                        </div>
+                                        <p className="text-[10px] text-white/40 leading-relaxed">
+                                            Esta cámara sabe distinguir un vehículo de una persona por su cuenta. Con el aviso
+                                            de la cámara, el lector solo trabaja cuando pasa un auto de verdad: se terminan las
+                                            lecturas disparadas por una sombra o una rama, y la placa queda en reposo el resto
+                                            del tiempo. Usa la misma zona de interés que dibujaste acá arriba.
+                                        </p>
+                                        {regla.avisaAlServidor === false && (
+                                            <p className="text-[10px] text-amber-300/80 leading-relaxed">
+                                                Ojo: en la cámara está apagado el aviso al centro de vigilancia, así que el evento
+                                                no llegaría. Hay que prenderlo en su configuración de eventos.
+                                            </p>
+                                        )}
+                                    </>
+                                )}
                             </div>
 
                             <p className="text-[10px] text-white/35 leading-relaxed">
