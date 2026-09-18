@@ -126,7 +126,7 @@ function ThumbImg({ src, className }: { src?: string; className?: string }) {
     return <img src={src} alt="" className={className} loading="eager" decoding="async" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />;
 }
 
-function CamTile({ dev, accent = "emerald", ev }: { dev: any; accent?: string; ev?: any }) {
+function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent?: string; ev?: any; onRegister?: (p: string) => void }) {
     const [lit, setLit] = useState(false);
     const last = useRef<string | undefined>(undefined);
     const snap = useMemo(() => `/api/snapshot/${dev.id}?t=${Date.now()}`, [dev.id]);
@@ -737,6 +737,8 @@ export default function MonitorLPR() {
     const [streams, setStreams] = useState<string[]>([]);
     const [interiores, setInteriores] = useState<any[]>([]);
     const [avistPorCam, setAvistPorCam] = useState<Record<string, any>>({});
+    const [avistUltimos, setAvistUltimos] = useState<any[]>([]);
+    const [cuadroAbierto, setCuadroAbierto] = useState<number | null>(null);
     const [verInteriores, setVerInteriores] = useState(true);
     const router = useRouter();
     const [units, setUnits] = useState<any[]>([]);
@@ -780,7 +782,7 @@ export default function MonitorLPR() {
     useEffect(() => {
         let vivo = true;
         const traer = async () => {
-            try { const r = await fetch("/api/tracking/recent", { cache: "no-store" }); const j = await r.json(); if (vivo) setAvistPorCam(j?.porCamara || {}); } catch { }
+            try { const r = await fetch("/api/tracking/recent", { cache: "no-store" }); const j = await r.json(); if (vivo) { setAvistPorCam(j?.porCamara || {}); setAvistUltimos(j?.ultimos || []); } } catch { }
         };
         traer();
         const iv = setInterval(traer, 10000);
@@ -1102,7 +1104,7 @@ export default function MonitorLPR() {
                                 <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de entrada</div>
                             ) : (
                                 <div className={cn("grid gap-2", entryCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-                                    {entryCams.map((d: any) => <CamTile key={d.id} dev={d} accent="emerald" ev={lastByCam[d.id] || lastCapByDev[d.id]} />)}
+                                    {entryCams.map((d: any) => <CamTile key={d.id} dev={d} accent="emerald" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} />)}
                                 </div>
                             )}
                         </div>
@@ -1167,7 +1169,7 @@ export default function MonitorLPR() {
                                 <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de salida</div>
                             ) : (
                                 <div className={cn("grid gap-2", exitCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-                                    {exitCams.map((d: any) => <CamTile key={d.id} dev={d} accent="orange" ev={lastByCam[d.id] || lastCapByDev[d.id]} />)}
+                                    {exitCams.map((d: any) => <CamTile key={d.id} dev={d} accent="orange" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} />)}
                                 </div>
                             )}
                         </div>
