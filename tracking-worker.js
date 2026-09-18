@@ -63,10 +63,12 @@ async function camaras() {
         const ubic = await ubicacionesDelMapa();
         const devs = await prisma.device.findMany({
             where: { deviceType: "LPR_INTERIOR", trackEnabled: true, NOT: { rtspUrl: null } },
-            select: { id: true, name: true, rtspUrl: true, trackScene: true },
+            select: { id: true, name: true, rtspUrl: true, trackScene: true, trackRoi: true, trackMinConf: true, trackFps: true },
         });
         for (const d of devs) {
             if (!d.rtspUrl || !d.rtspUrl.trim()) continue;
+            let roi = null;
+            try { roi = d.trackRoi ? JSON.parse(d.trackRoi) : null; } catch { }
             lista.push({
                 name: d.name,
                 rtsp: d.rtspUrl.trim(),
@@ -74,6 +76,9 @@ async function camaras() {
                 lat: ubic[d.id]?.lat ?? null,
                 lng: ubic[d.id]?.lng ?? null,
                 escena: d.trackScene ?? undefined,
+                roi,
+                confianza: d.trackMinConf ?? undefined,
+                fps: d.trackFps ?? undefined,
             });
         }
     } catch (e) { log("no se pudieron leer los dispositivos interiores:", e.message); }
@@ -146,10 +151,17 @@ async function avisarAvistamiento(cam, lectura, url) {
 function engancharCamara(cam) {
     if (procesos.has(cam.name)) return;
     const escena = cam.escena ?? 0.08;
+    const fps = cam.fps ?? 2;
+    // Zona de interes: el lector solo mira el recorte calibrado, asi ignora
+    // veredas, cielo y jardines, y de paso gasta menos GPU.
+    const r = cam.roi;
+    const recorte = r && r.w > 0 && r.h > 0 && (r.w < 1 || r.h < 1 || r.x > 0 || r.y > 0)
+        ? `crop=iw*${r.w}:ih*${r.h}:iw*${r.x}:ih*${r.y},`
+        : "";
     const args = [
         "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp",
         "-i", cam.rtsp,
-        "-vf", `fps=2,select='gt(scene\\,${escena})',scale=1280:-2`,
+        "-vf", `${recorte}fps=${fps},select='gt(scene\\,${escena})',scale=1280:-2`,
         "-vsync", "vfr", "-q:v", "4", "-f", "image2pipe", "-vcodec", "mjpeg", "-",
     ];
     const ch = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -192,7 +204,9 @@ async function despachar(cam, jpeg) {
     enVuelo.set(cam.name, n + 1);
     try {
         const lectura = await leerMatricula(jpeg);
-        if (lectura && lectura.confidence >= MIN_CONF) {
+        // Cada camara puede tener su propia confianza minima (calibrador).
+        const minima = cam.confianza ?? MIN_CONF;
+        if (lectura && lectura.confidence >= minima) {
             const url = guardarCuadro(jpeg, lectura.plate);
             const st = await avisarAvistamiento(cam, lectura, url);
             log(`${cam.name}: ${lectura.plate} (${lectura.confidence.toFixed(2)}) -> ${st}`);

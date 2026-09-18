@@ -80,6 +80,7 @@ import { DevicePlateListDialog } from "@/components/DevicePlateListDialog";
 import { AkuvoxActionUrlDialog } from "@/components/AkuvoxActionUrlDialog";
 import { DRIVER_MODELS, DEVICE_MODELS } from "@/lib/driver-models";
 import { CameraCalibrator } from "@/components/CameraCalibrator";
+import { InteriorCalibrator } from "@/components/InteriorCalibrator";
 import { HealthHistoryDialog } from "@/components/HealthHistoryDialog";
 import { ReadRateDialog } from "@/components/ReadRateDialog";
 
@@ -212,6 +213,7 @@ export default function DevicesPage() {
     const [viewingLive, setViewingLive] = useState<any>(null);
     const [managingPlates, setManagingPlates] = useState<any>(null);
     const [calibrating, setCalibrating] = useState<any>(null);
+    const [calibrandoInterior, setCalibrandoInterior] = useState<any>(null);
     const [health, setHealth] = useState<Record<string, any>>({});
     const [syncing, setSyncing] = useState<string | null>(null);
     const [streamBusy, setStreamBusy] = useState<string | null>(null);
@@ -907,6 +909,24 @@ export default function DevicesPage() {
                                                 </div>
                                             )}
 
+                                            {dev.deviceType === 'LPR_INTERIOR' && (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            onClick={() => setCalibrandoInterior(dev)}
+                                                            className="h-8 w-8 rounded-md bg-card/50 text-muted-foreground hover:text-teal-400 hover:bg-teal-500/10 border border-border/50 hover:border-teal-500/30 transition-all"
+                                                        >
+                                                            <Wand2 size={15} />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent><p>Calibrar cámara interior</p></TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                            )}
+
                                             {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
                                             <TooltipProvider>
                                                 <Tooltip>
@@ -1184,6 +1204,10 @@ export default function DevicesPage() {
 
             {calibrating && (
                 <CameraCalibrator device={calibrating} onClose={() => setCalibrating(null)} />
+            )}
+
+            {calibrandoInterior && (
+                <InteriorCalibrator device={calibrandoInterior} onClose={() => setCalibrandoInterior(null)} />
             )}
 
             {healthHistory && (
