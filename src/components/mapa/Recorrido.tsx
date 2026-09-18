@@ -6,6 +6,7 @@ import L from "leaflet";
 import { AnimatePresence, motion } from "framer-motion";
 import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp, Video, Spline, Crosshair, ParkingCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { polilinea, posicionEnTraza, recorrida as trazaRecorrida, type TramoTraza } from "@/lib/traza";
 
 const vidrio = "bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50";
 const resorte = { type: "spring" as const, stiffness: 420, damping: 34, mass: 0.7 };
@@ -18,6 +19,7 @@ export type Punto = {
 /** Entre dos lecturas solo se afirma el tiempo. La distancia dependía de dónde están
   * las cámaras en el mapa, que todavía no está verificado — ver la API. */
 export type Tramo = { desde: string; hasta: string; segundos: number };
+export type { TramoTraza };
 export type Lugar = { tipo: "camara" | "calle"; id: string; nombre: string; lat: number; lng: number };
 /** Un vehiculo quieto: la pasarela lo siguio viendo en el mismo lugar del cuadro. */
 export type Estadia = Punto & { estDesde: string | null; estHasta: string | null; reads: number | null };
@@ -26,13 +28,34 @@ const hora = (t: string) => new Date(t).toLocaleTimeString("es-UY", { hour: "2-d
 const fechaHora = (t: string) => new Date(t).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const duracionCorta = (seg: number) => seg < 60 ? `${Math.round(seg)} s` : seg < 3600 ? `${Math.round(seg / 60)} min` : `${Math.floor(seg / 3600)} h ${Math.round((seg % 3600) / 60)} min`;
 
-const iconoVehiculo = typeof window !== "undefined"
-    ? L.divIcon({
-        className: "bg-transparent border-0 omni-vehiculo",
-        html: `<span style="display:block;width:16px;height:16px;border-radius:50%;background:#fbbf24;border:3px solid #fff7ed;box-shadow:0 0 0 6px rgba(251,191,36,.22)"></span>`,
-        iconSize: [16, 16], iconAnchor: [8, 8],
-    })
-    : (undefined as any);
+/**
+ * El vehículo en movimiento.
+ *
+ * Era un círculo amarillo, que no dice nada: podría ser un punto de interés, un aviso o
+ * una chincheta. Un auto visto desde arriba, apuntando hacia donde va, se entiende sin
+ * leyenda — y el rumbo es información que antes no estaba en ningún lado, porque el
+ * círculo es igual para los dos sentidos de la calle.
+ *
+ * El halo late aparte del auto: la rotación tiene que poder cambiar en cada cuadro sin
+ * reiniciar la animación del pulso.
+ */
+function iconoAuto(grados: number) {
+    return L.divIcon({
+        className: "bg-transparent border-0",
+        html: `
+<div style="position:relative;width:34px;height:34px">
+  <span class="omni-pulso" style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(251,191,36,.42) 0%,rgba(251,191,36,0) 70%)"></span>
+  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transform:rotate(${Math.round(grados)}deg);transition:transform .25s linear">
+    <svg width="26" height="26" viewBox="0 0 24 24" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.65))">
+      <circle cx="12" cy="12" r="11" fill="#0a0d12" stroke="#fbbf24" stroke-width="1.5"/>
+      <path d="M12 4.6 6.9 18.2a.5.5 0 0 0 .69.62L12 16.6l4.41 2.22a.5.5 0 0 0 .69-.62Z"
+            fill="#fbbf24" stroke="#fff7ed" stroke-width="1" stroke-linejoin="round"/>
+    </svg>
+  </div>
+</div>`,
+        iconSize: [34, 34], iconAnchor: [17, 17],
+    });
+}
 
 /**
  * Marcador de una parada: el número adentro, no en el globo de ayuda.
@@ -101,29 +124,42 @@ function posicionEn(linea: [number, number][], avance: number): [number, number]
 }
 
 /** Dibuja el recorrido dentro del mapa: camino, sentido, paradas y el vehículo. */
-export function CapaRecorrido({ puntos, estacionados = [], avance, indice, siguiendo, onElegir }: {
-    puntos: Punto[]; estacionados?: Estadia[]; avance: number; indice: number; siguiendo?: boolean; onElegir?: (i: number) => void;
+export function CapaRecorrido({ puntos, estacionados = [], traza = [], avance, indice, siguiendo, onElegir }: {
+    puntos: Punto[]; estacionados?: Estadia[]; traza?: TramoTraza[];
+    avance: number; indice: number; siguiendo?: boolean; onElegir?: (i: number) => void;
 }) {
     const map = useMap();
-    const linea = useMemo(() => puntos.map((p) => [p.lat, p.lng] as [number, number]), [puntos]);
+    /**
+     * El camino que se dibuja.
+     *
+     * Con traza de calles es el camino real; sin ella, la recta entre cámaras. Unir dos
+     * cámaras con una recta dibuja algo que no pasó — el vehículo fue por la calle, no
+     * por arriba de las casas — así que la recta queda como último recurso.
+     */
+    const rectas = useMemo(() => puntos.map((p) => [p.lat, p.lng] as [number, number]), [puntos]);
+    const hayTraza = traza.length > 0;
+    const linea = useMemo(() => (hayTraza ? polilinea(traza) : rectas), [traza, rectas, hayTraza]);
     const [zoom, setZoom] = useState(0);
     useMapEvents({ zoomend: () => setZoom((z) => z + 1) });
 
-    const vehiculo = posicionEn(linea, avance);
-    const hasta = Math.floor(Math.max(0, Math.min(avance, linea.length - 1)));
+    const enTraza = hayTraza ? posicionEnTraza(traza, avance) : null;
+    const vehiculo = enTraza ? enTraza.pos : posicionEn(rectas, avance);
+    const grados = enTraza ? enTraza.grados : 0;
+    const hasta = Math.floor(Math.max(0, Math.min(avance, rectas.length - 1)));
 
     /** El camino ya recorrido, cortado justo donde va el vehículo. */
     const recorrida = useMemo(() => {
-        if (!vehiculo || linea.length < 2) return [];
-        return [...linea.slice(0, hasta + 1), vehiculo];
-    }, [linea, hasta, vehiculo]);
+        if (hayTraza) return trazaRecorrida(traza, avance);
+        if (!vehiculo || rectas.length < 2) return [];
+        return [...rectas.slice(0, hasta + 1), vehiculo];
+    }, [hayTraza, traza, avance, rectas, hasta, vehiculo]);
 
     /** Flechas de sentido en el medio de cada tramo, giradas según se ven en pantalla. */
     const flechas = useMemo(() => {
-        if (linea.length < 2) return [];
+        if (rectas.length < 2) return [];
         const out: { pos: [number, number]; ang: number; i: number }[] = [];
-        for (let i = 0; i < linea.length - 1; i++) {
-            const a = linea[i], b = linea[i + 1];
+        for (let i = 0; i < rectas.length - 1; i++) {
+            const a = rectas[i], b = rectas[i + 1];
             try {
                 const pa = map.latLngToLayerPoint(a as any), pb = map.latLngToLayerPoint(b as any);
                 if (Math.hypot(pb.x - pa.x, pb.y - pa.y) < 26) continue;  // tramo muy corto en pantalla
@@ -137,7 +173,7 @@ export function CapaRecorrido({ puntos, estacionados = [], avance, indice, sigui
         return out;
         // zoom entra a propósito: al cambiar la escala cambia el ángulo en pantalla.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [linea, map, zoom]);
+    }, [rectas, map, zoom]);
 
     // Encuadre inicial: una sola vez por recorrido, no en cada cuadro de la reproducción.
     useEffect(() => {
@@ -179,7 +215,7 @@ export function CapaRecorrido({ puntos, estacionados = [], avance, indice, sigui
                 <Marker key={`f${f.i}`} position={f.pos} icon={iconoFlecha(f.ang, f.i < hasta)} interactive={false} />
             ))}
 
-            {vehiculo && <Marker position={vehiculo} icon={iconoVehiculo} interactive={false} zIndexOffset={600} />}
+            {vehiculo && <Marker position={vehiculo} icon={iconoAuto(grados)} interactive={false} zIndexOffset={600} />}
 
             {/* Los quietos van primero, debajo de las paradas: son contexto del recorrido,
                 no parte de el. Si un auto estaciono y despues siguio, la linea no lo toca. */}
@@ -522,6 +558,7 @@ export function useRecorrido() {
     const [puntos, setPuntos] = useState<Punto[]>([]);
     const [tramos, setTramos] = useState<Tramo[]>([]);
     const [estacionados, setEstacionados] = useState<Estadia[]>([]);
+    const [traza, setTraza] = useState<TramoTraza[]>([]);
     const [sinUbicacion, setSinUbicacion] = useState(0);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -568,6 +605,7 @@ export function useRecorrido() {
             setPuntos(ps);
             setTramos(d.tramos || []);
             setEstacionados(d.estacionados || []);
+            setTraza(d.traza || []);
             setSinUbicacion(d.sinUbicacion || 0);
             // Arranca desde el principio y se reproduce solo: al abrir un recorrido lo que
             // se quiere ver es cómo fue, no el último punto quieto.
@@ -576,16 +614,16 @@ export function useRecorrido() {
             if (!ps.length && !(d.estacionados || []).length) setError("Sin detecciones en ese período.");
         } catch (e: any) {
             setError(e.message || "Error de consulta");
-            setPuntos([]); setTramos([]); setEstacionados([]);
+            setPuntos([]); setTramos([]); setEstacionados([]); setTraza([]);
         } finally { setCargando(false); }
     }, [plate, horas]);
 
     const limpiar = useCallback(() => {
-        setPuntos([]); setTramos([]); setEstacionados([]); setAvance(0); setSinUbicacion(0); setError(null); setReproduciendo(false);
+        setPuntos([]); setTramos([]); setEstacionados([]); setTraza([]); setAvance(0); setSinUbicacion(0); setError(null); setReproduciendo(false);
     }, []);
 
     return {
-        plate, setPlate, horas, setHoras, puntos, tramos, estacionados, sinUbicacion, cargando, error,
+        plate, setPlate, horas, setHoras, puntos, tramos, estacionados, traza, sinUbicacion, cargando, error,
         indice, setIndice, avance, setAvance, reproduciendo, setReproduciendo,
         velocidad, setVelocidad, siguiendo, setSiguiendo, buscar, limpiar,
     };

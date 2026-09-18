@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
-import PlateActivity from "@/components/dashboard/PlateActivity";
+import { PulsoActividad } from "@/components/history/PulsoActividad";
 import { getAccessEvents } from "@/app/actions/history";
 import { getEnabledModules } from "@/app/actions/modules";
 import {
@@ -504,69 +504,90 @@ export default function HistoryPage() {
 
     return (
         <div className="p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
-            {/* Header */}
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                    <h1 className="text-2xl font-bold text-foreground flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-blue-500/10 border-blue-500/30 border">
-                            <History className="w-5 h-5 text-blue-400" />
+            {/*
+                Encabezado: una sola barra.
+                =========================
+
+                Antes eran tres bloques sueltos apilados —título, un mapa de actividad que
+                ocupaba un rectángulo grande para decir "0 contributions", y una fila de
+                botones de cuatro estilos distintos— que juntos se comían un tercio de la
+                pantalla antes de mostrar un solo registro.
+
+                Ahora es una sola superficie con dos zonas: qué es esta pantalla a la
+                izquierda, con qué se la opera a la derecha. Los controles van en un riel
+                único, separados por hairlines en vez de por aire, para que se lean como un
+                instrumento y no como botones que quedaron ahí.
+            */}
+            <div className="rounded-xl border border-border/50 bg-card/60 px-4 py-3">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+
+                    <div className="flex items-center gap-3 min-w-0">
+                        <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/30 shrink-0">
+                            <History className="w-[18px] h-[18px] text-blue-400" />
                         </div>
-                        Historial de Accesos
-                    </h1>
-                    <p className="text-sm text-muted-foreground mt-1 ml-12">
-                        Registro de autorizaciones y eventos en tiempo real
-                    </p>
-                    {/* Mapa de actividad: lecturas por dia de los ultimos 6 meses */}
-                    <div className="mt-4 ml-12">
-                        <PlateActivity dias={180} label="lecturas" />
-                    </div>
-                </div>
+                        <div className="min-w-0">
+                            <h1 className="text-[17px] font-bold text-foreground leading-tight whitespace-nowrap">Historial</h1>
+                            <p className="text-[11.5px] text-muted-foreground leading-tight whitespace-nowrap">
+                                Accesos y seguimiento en un solo registro
+                            </p>
+                        </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                    {/* Date filters */}
-                    <div className="flex items-center gap-2 bg-muted/60 border border-border/50 rounded-md px-3 py-2">
-                        <CalendarIcon className="w-4 h-4 text-muted-foreground" />
-                        <input
-                            type="date"
-                            value={startDate}
-                            onChange={(e) => setStartDate(e.target.value)}
-                            className="bg-transparent border-none text-xs text-muted-foreground focus:outline-none w-28"
-                        />
-                        <span className="text-muted-foreground text-xs">—</span>
-                        <input
-                            type="date"
-                            value={endDate}
-                            onChange={(e) => setEndDate(e.target.value)}
-                            className="bg-transparent border-none text-xs text-muted-foreground focus:outline-none w-28"
-                        />
+                        <span className="hidden xl:block w-px h-8 bg-border/60 mx-1" />
+                        <div className="hidden xl:block"><PulsoActividad dias={60} /></div>
                     </div>
 
-                    {/* Export button */}
-                    <button
-                        onClick={() => setIsExportDialogOpen(true)}
-                        className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-foreground rounded-md px-4 py-2 text-sm font-semibold transition-colors"
-                    >
-                        <Download className="w-4 h-4" />
-                        Exportar
-                    </button>
+                    {/* El riel de controles: un solo objeto, no cinco */}
+                    <div className="flex items-center rounded-lg border border-border/50 bg-muted/40 overflow-hidden shrink-0">
 
-                    {/* Export JSON */}
-                    <button onClick={exportJson} title="Exportar JSON (reimportable)" className="flex items-center gap-2 bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 rounded-md px-3 py-2 text-sm font-semibold transition-colors">
-                        <FileJson className="w-4 h-4" /> JSON
-                    </button>
+                        <div className="flex items-center gap-1.5 px-2.5 h-9">
+                            <CalendarIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
+                                aria-label="Desde"
+                                className="bg-transparent border-none text-[11.5px] text-muted-foreground focus:outline-none focus:text-foreground w-[96px]" />
+                            <span className="text-muted-foreground/40 text-[11px]">—</span>
+                            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
+                                aria-label="Hasta"
+                                className="bg-transparent border-none text-[11.5px] text-muted-foreground focus:outline-none focus:text-foreground w-[96px]" />
+                        </div>
 
-                    {/* Import */}
-                    <button onClick={() => setIsImportOpen(true)} title="Importar registros de otra instancia" className="flex items-center gap-2 bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/50 rounded-md px-3 py-2 text-sm font-semibold transition-colors">
-                        <Upload className="w-4 h-4" /> Importar
-                    </button>
+                        <span className="w-px h-9 bg-border/50" />
 
-                    {/* Status pulse */}
-                    <div className="flex items-center gap-2 bg-muted/40 rounded-md px-3 py-2 border border-border/30">
-                        <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                        <span className="text-xs text-muted-foreground" suppressHydrationWarning>{lastUpdate ? formatTime(lastUpdate) : "--:--:--"}</span>
-                        <button onClick={() => { setPage(0); loadData(0, true); }} className="text-muted-foreground hover:text-foreground transition-colors">
-                            <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
+                        {/* Exportar conserva su rótulo: es la acción que la gente viene a
+                            buscar. Las otras dos son de mantenimiento y van con ícono. */}
+                        <Pista titulo="Exportar" texto="Descarga los registros filtrados en planilla, para compartir o archivar.">
+                            <button onClick={() => setIsExportDialogOpen(true)}
+                                className="flex items-center gap-1.5 h-9 px-3 text-[12px] font-bold text-blue-300 hover:text-white hover:bg-blue-600/80 transition-colors">
+                                <Download className="w-3.5 h-3.5" /> Exportar
+                            </button>
+                        </Pista>
+
+                        <Pista titulo="Exportar en JSON" texto="El mismo registro en un archivo reimportable en otra instalación de OmniAccess.">
+                            <button onClick={exportJson}
+                                className="flex items-center justify-center w-9 h-9 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                                <FileJson className="w-4 h-4" />
+                            </button>
+                        </Pista>
+
+                        <Pista titulo="Importar" texto="Trae registros exportados desde otra instalación.">
+                            <button onClick={() => setIsImportOpen(true)}
+                                className="flex items-center justify-center w-9 h-9 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                                <Upload className="w-4 h-4" />
+                            </button>
+                        </Pista>
+
+                        <span className="w-px h-9 bg-border/50" />
+
+                        <Pista titulo="Última actualización"
+                            texto="El registro se refresca solo. El botón fuerza una consulta ahora, por si estás esperando un evento puntual.">
+                            <button onClick={() => { setPage(0); loadData(0, true); }}
+                                className="flex items-center gap-1.5 h-9 px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                                <span className="text-[11px] tabular-nums" suppressHydrationWarning>
+                                    {lastUpdate ? formatTime(lastUpdate) : "--:--:--"}
+                                </span>
+                                <RefreshCw className="w-3 h-3 ml-0.5" />
+                            </button>
+                        </Pista>
                     </div>
                 </div>
             </div>

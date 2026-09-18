@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { trazaPorCalles } from "@/lib/ruta-calles";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
         };
     });
 
+    // El camino por las calles entre cada par de lecturas. Si el callejero no contesta,
+    // el tramo vuelve como recta y marcado, y el recorrido se dibuja igual.
+    const traza = conCoords.length >= 2
+        ? await trazaPorCalles(conCoords as any).catch(() => [])
+        : [];
+
     return NextResponse.json({
         plate: patente,
         from: desde.toISOString(),
@@ -81,5 +88,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
         puntos: conCoords,
         estacionados,
         tramos,
+        traza,
     });
 }

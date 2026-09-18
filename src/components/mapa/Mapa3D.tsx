@@ -5,6 +5,7 @@ import * as maplibregl from "maplibre-gl";
 import type { Map as MLMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { Punto } from "@/components/mapa/Recorrido";
+import { polilinea, posicionEnTraza, recorrida as trazaRecorrida, type TramoTraza } from "@/lib/traza";
 
 type Camara = { deviceId: string; lat: number; lng: number; nombre?: string };
 
@@ -15,6 +16,22 @@ type Camara = { deviceId: string; lat: number; lng: number; nombre?: string };
  * distinguían del fondo. Que el marcador sea idéntico en las dos vistas también evita
  * tener que aprender dos lenguajes para leer el mismo mapa.
  */
+/** El mismo auto que en la vista plana, para que las dos se lean igual. */
+function elementoAuto() {
+    const el = document.createElement("div");
+    el.style.cssText = "width:34px;height:34px;position:relative;pointer-events:none";
+    el.innerHTML = `
+<span style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(251,191,36,.42) 0%,rgba(251,191,36,0) 70%);animation:omniPulsoAuto 1.6s ease-in-out infinite"></span>
+<div class="omni-auto-giro" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transition:transform .25s linear">
+  <svg width="26" height="26" viewBox="0 0 24 24" style="filter:drop-shadow(0 2px 4px rgba(0,0,0,.65))">
+    <circle cx="12" cy="12" r="11" fill="#0a0d12" stroke="#fbbf24" stroke-width="1.5"/>
+    <path d="M12 4.6 6.9 18.2a.5.5 0 0 0 .69.62L12 16.6l4.41 2.22a.5.5 0 0 0 .69-.62Z"
+          fill="#fbbf24" stroke="#fff7ed" stroke-width="1" stroke-linejoin="round"/>
+  </svg>
+</div>`;
+    return el;
+}
+
 function marcadorCamara(nombre: string) {
     const el = document.createElement("div");
     el.style.cssText = "display:flex;flex-direction:column;align-items:center;transform:translateY(-4px);pointer-events:none";
@@ -36,7 +53,7 @@ type Calle = { id: string; name?: string; points: [number, number][] };
  * perimetro y las camaras se sigue haciendo en la vista plana.
  */
 export default function Mapa3D({
-    center, zoom, perimeter, streets, cameras, puntos, indice,
+    center, zoom, perimeter, streets, cameras, puntos, traza = [], avance = 0, indice,
     pitch: pitchIni = 55, bearing: bearingIni = -20, onVista,
 }: {
     center: [number, number];
@@ -49,11 +66,23 @@ export default function Mapa3D({
     streets: Calle[];
     cameras: Camara[];
     puntos: Punto[];
+    traza?: TramoTraza[];
+    avance?: number;
     indice: number;
 }) {
     const cont = useRef<HTMLDivElement>(null);
+    // El marcador del auto vive fuera de React, asi que su animacion tambien: se inyecta
+    // una sola vez en el documento.
+    useEffect(() => {
+        if (document.getElementById("omni-auto-css")) return;
+        const st = document.createElement("style");
+        st.id = "omni-auto-css";
+        st.textContent = "@keyframes omniPulsoAuto{0%,100%{transform:scale(.75);opacity:.85}50%{transform:scale(1.25);opacity:.25}}";
+        document.head.appendChild(st);
+    }, []);
     const mapa = useRef<MLMap | null>(null);
     const marcadores = useRef<any[]>([]);
+    const auto = useRef<any>(null);
     // En un ref para que el efecto de montaje no dependa de la identidad del callback.
     const onVistaRef = useRef(onVista);
     onVistaRef.current = onVista;
@@ -203,41 +232,97 @@ export default function Mapa3D({
         marcadores.current = [];
     }, []);
 
-    // Recorrido del vehiculo
+    /**
+     * Recorrido del vehiculo.
+     *
+     * Ojo con el orden, que ya mordio una vez con el perimetro: en el primer render
+     * `puntos` esta vacio. Si con eso se crea la fuente igual, la linea queda con cero
+     * coordenadas, MapLibre rechaza la capa al agregarla, y a partir de ahi la fuente YA
+     * EXISTE — asi que cada corrida siguiente cortaba en "la fuente ya esta" y las capas
+     * no se agregaban nunca. El resultado es el peor posible: el panel muestra el
+     * recorrido con todos sus datos y sobre el mapa no se dibuja nada.
+     *
+     * Por eso: no se crea nada sin al menos dos puntos, y asegurar la fuente y asegurar
+     * las capas son dos pasos separados. Que la fuente exista no implica que las capas
+     * esten.
+     */
     useEffect(() => {
         const m = mapa.current;
         if (!m || !listo) return;
 
-        const hasta = Math.min(indice, puntos.length - 1);
-        const coords = puntos.map((p) => [p.lng, p.lat]);
-        const hechas = coords.slice(0, hasta + 1);
+        const ID_CAPAS = ["ruta-base", "ruta-hecha-halo", "ruta-hecha-linea", "vehiculo-halo", "vehiculo-punto"];
+        const ID_FUENTES = ["ruta", "ruta-hecha", "vehiculo"];
+
+        const limpiar = () => {
+            for (const id of ID_CAPAS) { try { if (m.getLayer(id)) m.removeLayer(id); } catch { } }
+            for (const id of ID_FUENTES) { try { if (m.getSource(id)) m.removeSource(id); } catch { } }
+        };
+
+        // Sin recorrido que dibujar, se saca lo que hubiera quedado del anterior.
+        if (puntos.length < 2) { limpiar(); try { auto.current?.remove(); } catch { } auto.current = null; return; }
+
+        // El camino real por las calles si está; la recta entre cámaras si no.
+        const hayTraza = traza.length > 0;
+        const enLngLat = (c: [number, number][]) => c.map(([la, ln]) => [ln, la]);
+        const coords = hayTraza
+            ? enLngLat(polilinea(traza))
+            : puntos.map((p) => [p.lng, p.lat]);
+        const hasta = Math.max(0, Math.min(indice, puntos.length - 1));
+        const hechas = hayTraza
+            ? enLngLat(trazaRecorrida(traza, avance))
+            : coords.slice(0, hasta + 1);
+        const sitio = hayTraza ? posicionEnTraza(traza, avance) : null;
 
         const poner = (id: string, data: any, capas: any[]) => {
-            const src = m.getSource(id) as any;
-            if (src) { src.setData(data); return; }
-            m.addSource(id, { type: "geojson", data });
-            capas.forEach((c) => { if (!m.getLayer(c.id)) m.addLayer(c); });
+            try {
+                const src = m.getSource(id) as any;
+                if (src) src.setData(data);
+                else m.addSource(id, { type: "geojson", data });
+                // Siempre, exista o no la fuente: una capa que fallo antes se agrega ahora.
+                for (const c of capas) { if (!m.getLayer(c.id)) m.addLayer(c); }
+            } catch { /* una capa que falla no puede llevarse las demas */ }
         };
 
         poner("ruta", { type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} }, [
             { id: "ruta-base", type: "line", source: "ruta", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#38bdf8", "line-width": 3, "line-opacity": 0.35, "line-dasharray": [1, 2] } },
         ]);
-        poner("ruta-hecha", { type: "Feature", geometry: { type: "LineString", coordinates: hechas.length ? hechas : coords.slice(0, 1) }, properties: {} }, [
+        // Una linea necesita dos puntos: con uno solo se repite, que dibuja un punto gordo.
+        const hechasOk = hechas.length >= 2 ? hechas : [coords[0], coords[0]];
+        poner("ruta-hecha", { type: "Feature", geometry: { type: "LineString", coordinates: hechasOk }, properties: {} }, [
             { id: "ruta-hecha-halo", type: "line", source: "ruta-hecha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#f59e0b", "line-width": 11, "line-opacity": 0.2, "line-blur": 3 } },
             { id: "ruta-hecha-linea", type: "line", source: "ruta-hecha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fbbf24", "line-width": 4 } },
         ]);
-        poner("vehiculo", {
-            type: "FeatureCollection",
-            features: hechas.length ? [{ type: "Feature", geometry: { type: "Point", coordinates: hechas[hechas.length - 1] }, properties: {} }] : [],
-        }, [
-            { id: "vehiculo-halo", type: "circle", source: "vehiculo", paint: { "circle-radius": 16, "circle-color": "#fbbf24", "circle-opacity": 0.22 } },
-            { id: "vehiculo-punto", type: "circle", source: "vehiculo", paint: { "circle-radius": 7, "circle-color": "#fbbf24", "circle-stroke-width": 3, "circle-stroke-color": "#fff7ed" } },
-        ]);
+        // El vehículo es un marcador de HTML y no una capa de círculos: así puede girar
+        // hacia donde va, que es información que un círculo no puede dar.
+        const donde = (sitio ? [sitio.pos[1], sitio.pos[0]] : hechas[hechas.length - 1] || coords[0]) as [number, number];
+        try {
+            if (!auto.current) {
+                auto.current = new maplibregl.Marker({ element: elementoAuto(), anchor: "center" })
+                    .setLngLat(donde).addTo(m);
+            } else {
+                auto.current.setLngLat(donde);
+            }
+            const giro = auto.current.getElement().querySelector(".omni-auto-giro") as HTMLElement | null;
+            if (giro && sitio) giro.style.transform = `rotate(${Math.round(sitio.grados)}deg)`;
+        } catch { }
 
-        if (hechas.length) {
-            m.easeTo({ center: hechas[hechas.length - 1] as [number, number], duration: 700 });
-        }
-    }, [listo, puntos, indice]);
+        // Al abrir un recorrido se encuadra entero, una sola vez. Despues se sigue al
+        // vehiculo, que es lo que hace util la reproduccion.
+        try {
+            if (hasta === 0) {
+                const lats = puntos.map((p) => p.lat), lngs = puntos.map((p) => p.lng);
+                m.fitBounds(
+                    [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+                    { padding: 140, maxZoom: 18, duration: 900 },
+                );
+            } else {
+                m.easeTo({ center: hechas[hechas.length - 1] as [number, number], duration: 700 });
+            }
+        } catch { }
+    }, [listo, puntos, traza, avance, indice]);
+
+    // El auto vive fuera de React: si no se saca a mano queda pegado al mapa.
+    useEffect(() => () => { try { auto.current?.remove(); } catch { } auto.current = null; }, []);
 
     // Centro del barrio cuando cambia la configuracion
     useEffect(() => {

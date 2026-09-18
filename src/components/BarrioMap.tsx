@@ -440,6 +440,13 @@ export default function BarrioMap() {
                 .omni-flujo{stroke-dasharray:14 16;animation:omniFlujo 1.15s linear infinite}
                 @keyframes omniFlujo{to{stroke-dashoffset:-30}}
                 .omni-vehiculo{filter:drop-shadow(0 0 10px rgba(251,191,36,.9))}
+                /* El halo late aparte del auto: la rotacion cambia en cada cuadro y no
+                   puede reiniciar la animacion del pulso. */
+                .omni-pulso{animation:omniPulsoAuto 1.6s ease-in-out infinite}
+                @keyframes omniPulsoAuto{
+                    0%,100%{transform:scale(.75);opacity:.85}
+                    50%{transform:scale(1.25);opacity:.25}
+                }
                 .omni-punto-actual{filter:drop-shadow(0 0 7px rgba(251,191,36,.85));animation:omniLatido 1.8s ease-in-out infinite}
                 @keyframes omniLatido{0%,100%{opacity:1}50%{opacity:.55}}
                 .omni-sin-barra::-webkit-scrollbar{display:none}
@@ -463,6 +470,8 @@ export default function BarrioMap() {
                         streets={data.streets as any}
                         cameras={data.cameras.map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
                         puntos={rec.puntos}
+                        traza={rec.traza}
+                        avance={rec.avance}
                         indice={rec.indice}
                     />
                 ) : (
@@ -587,7 +596,7 @@ export default function BarrioMap() {
                             onCerrarUna={(id) => setOcultas((o) => [...o, id])}
                         />
                     )}
-                    <CapaRecorrido puntos={rec.puntos} estacionados={rec.estacionados} avance={rec.avance} indice={rec.indice}
+                    <CapaRecorrido puntos={rec.puntos} estacionados={rec.estacionados} traza={rec.traza} avance={rec.avance} indice={rec.indice}
                         siguiendo={rec.siguiendo && rec.reproduciendo} onElegir={(i) => { rec.setReproduciendo(false); rec.setAvance(i); }} />
                 </MapContainer>
                 )}
