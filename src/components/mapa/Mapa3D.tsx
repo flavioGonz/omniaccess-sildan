@@ -8,6 +8,7 @@ import type { Punto } from "@/components/mapa/Recorrido";
 import { polilinea, posicionEnTraza, recorrida as trazaRecorrida, type TramoTraza } from "@/lib/traza";
 import { svgAuto, CSS_AUTO, TAM_AUTO } from "@/lib/auto-svg";
 import { burbujaVivo, montarVivo } from "@/lib/vivo";
+import { useVivo } from "@/components/vivo/PanelVivo";
 
 type Camara = { deviceId: string; lat: number; lng: number; nombre?: string };
 
@@ -84,6 +85,8 @@ export default function Mapa3D({
     const auto = useRef<any>(null);
     const encuadrado = useRef<string>("");
     const burbujas = useRef<{ marcador: any; cortar: () => void }[]>([]);
+    /* Fijar una cámara es lo mismo en 3D que en plano, así que sale del mismo lugar. */
+    const { fijar, soltar: soltarFija, esFija } = useVivo();
     // En un ref para que el efecto de montaje no dependa de la identidad del callback.
     const onVistaRef = useRef(onVista);
     onVistaRef.current = onVista;
@@ -349,9 +352,16 @@ export default function Mapa3D({
 
         for (const c of cameras) {
             if (ocultas.includes(c.deviceId)) continue;
+            // Fijada es MOVIDA, no duplicada: si siguiera colgando del mapa habría dos
+            // flujos de la misma cámara andando a la vez.
+            if (esFija(c.deviceId)) continue;
             if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) continue;
             try {
-                const el = burbujaVivo(nombre ? nombre(c.deviceId) : (c.nombre || "Cámara"));
+                const comoSeLlama = nombre ? nombre(c.deviceId) : (c.nombre || "Cámara");
+                const el = burbujaVivo(comoSeLlama, {
+                    fijada: esFija(c.deviceId),
+                    alFijar: () => (esFija(c.deviceId) ? soltarFija(c.deviceId) : fijar(c.deviceId, comoSeLlama)),
+                });
                 const video = el.querySelector("video") as HTMLVideoElement;
                 const cortar = video ? montarVivo(video, c.deviceId) : () => { };
                 const marcador = new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -34] })
@@ -360,7 +370,7 @@ export default function Mapa3D({
             } catch { }
         }
         return soltar;
-    }, [listo, vivo, cameras, ocultas, nombre]);
+    }, [listo, vivo, cameras, ocultas, nombre, esFija, fijar, soltarFija]);
 
     // Centro del barrio cuando cambia la configuracion
     useEffect(() => {

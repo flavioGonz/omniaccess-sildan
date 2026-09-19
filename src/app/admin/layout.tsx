@@ -47,6 +47,7 @@ import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
 import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
+import { VivoProvider } from "@/components/vivo/PanelVivo";
 
 interface SidebarItemProps {
     icon: React.ReactNode;
@@ -124,6 +125,18 @@ export default function AdminLayout({
     };
 
     return (
+        /*
+         * Las cámaras fijadas cuelgan del ARMAZÓN, no de la pantalla.
+         *
+         * El `layout` de Next no se desmonta al cambiar de ruta: el mismo elemento
+         * `<video>` sigue vivo, con su RTSP abierto, mientras abajo cambia la página. Eso
+         * es todo el punto — un puesto de guardia deja una cámara puesta y sigue
+         * trabajando en otra pantalla, y cortar el flujo al navegar cuesta unos segundos
+         * de negro al volver, que es justo cuando el momento que se quería ver ya pasó.
+         * Montar esto dentro de una pantalla, o en un portal que la pantalla crea, no
+         * alcanza: el portal muere con quien lo creó.
+         */
+        <VivoProvider>
         <div className="flex min-h-screen bg-background text-foreground font-sans">
             {/* Sidebar */}
             <aside
@@ -315,5 +328,6 @@ export default function AdminLayout({
                 }
             `}</style>
         </div>
+        </VivoProvider>
     );
 }

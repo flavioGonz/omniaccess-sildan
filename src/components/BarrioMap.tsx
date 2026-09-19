@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { IconBar } from "@/components/ui/icon-bar";
 import { CSS_AUTO } from "@/lib/auto-svg";
 import { montarVivo } from "@/lib/vivo";
+import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { sileo as toast } from "sileo";
 import { getBarrioMap, saveBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
 import { io } from "socket.io-client";
@@ -93,8 +94,18 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
     const map = useMap();
     const [, redibujar] = useReducer((n: number) => n + 1, 0);
     useMapEvents({ move: redibujar, zoom: redibujar, resize: redibujar });
+    const { esFija } = useVivo();
 
-    const utiles = camaras.filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng));
+    /*
+     * Una cámara fijada NO sigue colgando del mapa.
+     *
+     * Fijar es mover, no duplicar: si la burbuja se quedara además de la ventana flotante
+     * habría dos flujos RTSP de la misma cámara andando a la vez — el doble de ancho de
+     * banda y el doble de carga en go2rtc, por ver dos veces lo mismo. Y en pantalla serían
+     * dos imágenes iguales, una tapando a la otra, sin manera de saber cuál es cuál.
+     */
+    const utiles = camaras.filter((c) =>
+        Number.isFinite(c.lat) && Number.isFinite(c.lng) && !esFija(c.deviceId));
     if (!utiles.length) return null;
 
     return createPortal(
@@ -127,11 +138,18 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
                             <div className="px-2 py-1 bg-black/85 flex items-center gap-1.5">
                                 <Radio size={10} className="text-red-400 shrink-0 animate-pulse" />
                                 <span className="text-[11px] font-bold text-white truncate">{nombre(c.deviceId)}</span>
-                                <button onClick={() => onCerrarUna(c.deviceId)}
-                                    title="Ocultar esta cámara"
-                                    className="ml-auto w-5 h-5 rounded text-white/45 hover:text-white hover:bg-white/10 flex items-center justify-center shrink-0 transition-colors">
-                                    <X size={11} />
-                                </button>
+                                {/* Fijar: la saca del mapa y la deja en pantalla, abierta,
+                                    aunque se cambie de página. Es la diferencia entre mirar
+                                    dónde pasa algo y dejar una cámara puesta mientras se
+                                    trabaja en otra cosa. */}
+                                <span className="ml-auto flex items-center gap-0.5 shrink-0">
+                                    <BotonFijar deviceId={c.deviceId} nombre={nombre(c.deviceId)} />
+                                    <button onClick={() => onCerrarUna(c.deviceId)}
+                                        title="Ocultar esta cámara"
+                                        className="w-5 h-5 rounded text-white/45 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors">
+                                        <X size={11} />
+                                    </button>
+                                </span>
                             </div>
                         </div>
                         {/* Pico que la ata al marcador de abajo. Si hubo que correr la
