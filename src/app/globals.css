@@ -1768,3 +1768,20 @@ video::-webkit-media-controls { display: none !important; }
   width: calc(var(--visor-alto) * 16 / 9);
   height: var(--visor-alto);
 }
+
+/* El barrido del esqueleto. Va en CSS y no en Tailwind porque es una
+   animacion con gradiente, y escrita en clases queda ilegible. */
+.esqueleto-brillo::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--foreground) 9%, transparent) 50%,
+    transparent 100%);
+  animation: esqueletoBrillo 1.5s ease-in-out infinite;
+}
+@keyframes esqueletoBrillo {
+  100% { transform: translateX(100%); }
+}

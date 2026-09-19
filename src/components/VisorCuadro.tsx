@@ -6,12 +6,14 @@ import { motion } from "framer-motion";
 import {
     X, ChevronLeft, ChevronRight, Camera, ZoomIn, ZoomOut, Maximize2,
     Scan, Car, Home, Phone, ParkingSquare, ShieldAlert, Star, Search as Lupa,
-    Layers, UserPlus, Radio, LogIn, LogOut,
+    Layers, UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
 import { ChapaMercosur } from "@/components/tracking/ChapaMercosur";
 import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
+import { Skeleton } from "@/components/ui/skeleton";
+import { montarVivo } from "@/lib/vivo";
 import { leerRecuadro } from "@/lib/deteccion";
 import { getCarLogo } from "@/lib/car-logos";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
@@ -91,6 +93,13 @@ export type FichaMatricula = {
 
 const ESCALA_MAX = 8;
 const ESCALA_DOBLE_CLIC = 3;
+
+/**
+ * La proporción de la ventana. Tiene que coincidir con `.visor-ventana` en globals.css —
+ * es el mismo número dicho de los dos lados, uno para dibujar el marco y otro para decidir
+ * si la foto lo cubre a lo ancho o a lo alto.
+ */
+const AR_VENTANA = 16 / 9;
 
 /** Que la imagen no se pueda arrastrar fuera de su propio marco. */
 function acotar(pos: { x: number; y: number }, escala: number, caja: DOMRect | null) {
@@ -232,7 +241,11 @@ export function VisorCuadro({
      * de seguridad — y se corrige con la medida real en cuanto la imagen carga. Arrancar
      * en un valor razonable evita el salto de un cuadro sin proporcion a uno con ella.
      */
-    const [proporcion, setProporcion] = useState(16 / 9);
+    const [proporcion, setProporcion] = useState(AR_VENTANA);
+    /** Qué se está mirando: el cuadro guardado o lo que la cámara ve ahora. */
+    const [modo, setModo] = useState<"foto" | "vivo">("foto");
+    const [vivoListo, setVivoListo] = useState(false);
+    const vivoRef = useRef<HTMLVideoElement | null>(null);
     const marco = useRef<HTMLDivElement | null>(null);
     /** La caja de la imagen: mas chica que la ventana cuando la foto no es 16:9. */
     const cajaImg = useRef<HTMLDivElement | null>(null);
@@ -244,8 +257,13 @@ export function VisorCuadro({
 
     const reiniciar = useCallback(() => { setEscala(1); setPos({ x: 0, y: 0 }); }, []);
 
+    /** La proporción real de la foto, de donde venga. */
+    const medir = useCallback((i: HTMLImageElement) => {
+        if (i.naturalWidth && i.naturalHeight) setProporcion(i.naturalWidth / i.naturalHeight);
+    }, []);
+
     // Cada foto se abre sin acercar: heredar el zoom de la anterior desorienta.
-    useEffect(() => { reiniciar(); setProporcion(16 / 9); }, [fila.snapshotUrl, reiniciar]);
+    useEffect(() => { reiniciar(); setProporcion(AR_VENTANA); setModo("foto"); }, [fila.snapshotUrl, reiniciar]);
 
     /**
      * Acerca manteniendo quieto el punto que está bajo el puntero.
@@ -279,6 +297,64 @@ export function VisorCuadro({
         setEscala(destino);
         setPos(acotar({ x: -cx * destino, y: -cy * destino }, destino, caja));
     }, [recuadro]);
+
+    /**
+     * El vivo de la cámara, dentro del mismo visor.
+     *
+     * Una captura contesta "qué pasó"; el vivo contesta "qué está pasando", que es la
+     * pregunta siguiente y hasta ahora obligaba a irse a otra pantalla — perdiendo de paso
+     * la ficha y la chapa que se estaban mirando. Van las dos en la misma ventana y se
+     * alterna con un botón.
+     *
+     * El flujo se monta sólo cuando se lo pide: abrir el visor de un evento de hace tres
+     * días no tiene por qué levantar un RTSP.
+     */
+    useEffect(() => {
+        if (modo !== "vivo") return;
+        const v = vivoRef.current;
+        if (!v || !fila.deviceId) return;
+        setVivoListo(false);
+        const alAndar = () => setVivoListo(true);
+        v.addEventListener("playing", alAndar);
+        const cortar = montarVivo(v, fila.deviceId);
+        return () => { v.removeEventListener("playing", alAndar); cortar(); };
+    }, [modo, fila.deviceId]);
+
+    /**
+     * Ir a mirar si el vehículo sigue ahí.
+     *
+     * El estado que muestra la cápsula sale de la última vez que la cámara lo vio, y entre
+     * que un auto se va y que el sistema se entera pasan minutos — irse no genera ninguna
+     * lectura. Para lo que se mira de pasada alcanza; para cuando alguien está por llamar
+     * al dueño o por anotar una novedad, no. Esto pide un cuadro AHORA y pregunta.
+     *
+     * Las tres respuestas son tres, no dos: sigue, se fue, y **no se pudo mirar**. La
+     * tercera se dice como lo que es, porque confundirla con "se fue" haría que el sistema
+     * diera por retirado a un vehículo que está ahí.
+     */
+    const [verificando, setVerificando] = useState(false);
+    const [veredicto, setVeredicto] = useState<{ tono: "bien" | "mal" | "aviso"; texto: string } | null>(null);
+
+    const verificar = useCallback(async () => {
+        setVerificando(true);
+        setVeredicto(null);
+        try {
+            const r = await fetch("/api/tracking/stays/verify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ plate: fila.plate }),
+            });
+            const j = await r.json().catch(() => ({}));
+            if (j?.resultado === "sigue") setVeredicto({ tono: "bien", texto: j.mensaje });
+            else if (j?.resultado === "se_fue") setVeredicto({ tono: "mal", texto: j.mensaje });
+            else if (j?.resultado === "cerrada") setVeredicto({ tono: "aviso", texto: j.mensaje });
+            else setVeredicto({ tono: "aviso", texto: j?.mensaje || j?.error || "No se pudo mirar la cámara." });
+        } catch (e: any) {
+            setVeredicto({ tono: "aviso", texto: e?.message || "No se pudo consultar." });
+        } finally {
+            setVerificando(false);
+        }
+    }, [fila.plate]);
 
     const copiar = useCallback(() => {
         try { navigator.clipboard?.writeText(fila.plate); setCopiada(true); setTimeout(() => setCopiada(false), 1600); } catch { }
@@ -441,26 +517,71 @@ export function VisorCuadro({
                         ref={cajaImg}
                         className="relative"
                         style={{
-                            /* La caja toma la proporcion REAL de la foto y se acomoda dentro
-                               de una ventana que mide siempre lo mismo. Por eso las
-                               superposiciones pueden seguir midiendose en porcentaje: el
-                               100% de esta caja es exactamente la imagen, no la ventana. */
-                            height: "100%",
+                            /*
+                             * La caja toma la proporción REAL de la foto y CUBRE la ventana:
+                             * el lado que sobra se recorta contra el marco.
+                             *
+                             * Antes se encajaba (`contain`) y quedaban franjas negras arriba
+                             * y abajo, que es lo primero que se ve y lo primero que molesta.
+                             * Cubrir recorta unos píxeles de los bordes — casi siempre cielo
+                             * o vereda — a cambio de que la foto llene la ventana.
+                             *
+                             * La caja sigue siendo exactamente la imagen, no la ventana, y por
+                             * eso las superposiciones se pueden seguir midiendo en porcentaje:
+                             * el recuadro de la chapa no se despega aunque sobresalga.
+                             */
+                            height: proporcion >= AR_VENTANA ? "100%" : "auto",
+                            width: proporcion >= AR_VENTANA ? "auto" : "100%",
                             aspectRatio: String(proporcion),
-                            maxWidth: "100%",
                             transform: `translate3d(${pos.x}px, ${pos.y}px, 0) scale(${escala})`,
                             transformOrigin: "center",
                             transition: arrastre.current || pellizco.current != null ? "none" : "transform 160ms cubic-bezier(.22,1,.36,1)",
                         }}>
+                        {/*
+                          * `ref` Y `onLoad`, y no sólo `onLoad`.
+                          *
+                          * Acá estaba el defecto que corría las detecciones. Si la foto ya
+                          * estaba en la caché del navegador, el evento `load` ocurre ANTES de
+                          * que React alcance a enganchar el manejador: `onLoad` no se llama
+                          * nunca, la proporción queda en el 16:9 de arranque, y el recuadro
+                          * de la chapa — que se mide en porcentaje de la caja — apunta a otro
+                          * lado. Se notaba al cambiar el tamaño de la ventana justamente
+                          * porque ahí la foto sí venía de caché. El `ref` pregunta por
+                          * `complete`, que es un estado y no un evento, así que no se puede
+                          * perder.
+                          */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={fila.snapshotUrl || ""} alt={fila.plate}
-                            onLoad={(e) => {
-                                const i = e.currentTarget;
-                                if (i.naturalWidth && i.naturalHeight) setProporcion(i.naturalWidth / i.naturalHeight);
-                            }}
-                            className="block w-full h-full object-contain select-none"
+                        <img
+                            ref={(i) => { if (i?.complete && i.naturalWidth) medir(i); }}
+                            src={fila.snapshotUrl || ""} alt={fila.plate}
+                            onLoad={(e) => medir(e.currentTarget)}
+                            className={cn("block w-full h-full object-cover select-none",
+                                modo === "vivo" && "invisible")}
                             draggable={false} />
-                        {verContorno && <ContornoDeteccion bbox={fila.bbox} plate={fila.plate} escala={escala} />}
+                        {modo === "vivo" && (
+                            <>
+                                <video ref={vivoRef} muted autoPlay playsInline
+                                    className="absolute inset-0 w-full h-full object-cover bg-black" />
+                                {/* Mientras go2rtc levanta el flujo. Un rectángulo negro y
+                                    quieto no se distingue de una cámara caída; el esqueleto
+                                    dice que algo está viniendo. */}
+                                {!vivoListo && (
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#05070b]">
+                                        <Skeleton brillo superficie="oscura" className="absolute inset-0 rounded-none" />
+                                        <span className="relative flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-xl border border-white/15">
+                                            <Radio size={11} className="animate-pulse" style={{ color: "var(--visor-tono)" }} />
+                                            <span className="text-[11.5px] font-semibold text-white/80">Conectando con la cámara…</span>
+                                        </span>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {/* La retícula marca dónde estaba la chapa EN ESA FOTO. Sobre el vivo
+                            sería una marca sobre una escena que ya cambió, así que se apaga. */}
+                        {modo === "foto" && verContorno && (
+                            <ContornoDeteccion bbox={fila.bbox} plate={fila.plate} escala={escala} />
+                        )}
 
                         {/* La cápsula va DENTRO del transform para seguir al auto mientras
                             se acerca, pero con la escala invertida: si creciera con el zoom,
@@ -613,20 +734,49 @@ export function VisorCuadro({
                     {/* El hueco tiene que poder llenarse desde donde se ve. Mandar a buscar
                         el alta en otra pantalla es la forma más segura de que la matrícula
                         quede sin cargar. */}
-                    {!dueno && onRegistrar && (
-                        <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
+                    <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
+                        {!dueno && onRegistrar && (
                             <button type="button" onClick={() => onRegistrar(fila.plate)}
                                 className="visor-vidrio visor-vidrio-activo flex items-center gap-2 py-2 px-4 rounded-full text-[12px] font-semibold text-white">
                                 <UserPlus size={14} />
                                 Registrar esta matrícula
                             </button>
+                        )}
+                        {estacionado && !cerrada && fila.deviceId && (
+                            <button type="button" onClick={verificar} disabled={verificando}
+                                title="Toma un cuadro de la cámara ahora y busca esta matrícula en el encuadre"
+                                className="visor-vidrio flex items-center gap-2 py-2 px-4 rounded-full text-[12px] font-semibold text-white/90 hover:text-white disabled:opacity-60">
+                                {verificando ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                                {verificando ? "Mirando…" : "¿Sigue ahí?"}
+                            </button>
+                        )}
+                    </div>
+
+                    {veredicto && (
+                        <div className={cn("flex items-start gap-2 px-3 py-2 rounded-xl bg-black/55 backdrop-blur-xl border text-[12px] max-w-[380px]",
+                            veredicto.tono === "bien" ? "visor-bien" : veredicto.tono === "mal" ? "visor-mal" : "visor-aviso")}
+                            style={{ borderColor: "rgba(255,255,255,0.15)" }}>
+                            <Eye size={13} className="mt-0.5 shrink-0" />
+                            <span className="font-medium">{veredicto.texto}</span>
                         </div>
                     )}
                 </div>
 
                 {/* ── DERECHA · LOS CONTROLES, EN VERTICAL ─────────────────────────── */}
                 <div className="absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5">
-                    {recuadro && (
+                    {fila.deviceId && (
+                        <>
+                            <button type="button"
+                                onClick={() => setModo((m) => (m === "vivo" ? "foto" : "vivo"))}
+                                title={modo === "vivo" ? "Volver al cuadro guardado" : "Ver lo que la cámara ve ahora"}
+                                className={cn("visor-vidrio w-9 h-9 rounded-full flex items-center justify-center",
+                                    modo === "vivo" ? "visor-vidrio-activo text-white" : "text-white/85 hover:text-white")}>
+                                {modo === "vivo" ? <IconoFoto size={15} /> : <Video size={15} />}
+                            </button>
+                            <span className="w-4 h-px bg-white/15" />
+                        </>
+                    )}
+                    {modo === "foto" && recuadro && (
                         <>
                             <button type="button" onClick={irALaChapa} title="Acercar a la matrícula  ( P )"
                                 className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white flex items-center justify-center">
@@ -660,10 +810,23 @@ export function VisorCuadro({
                 {/* ── ABAJO · cuándo, y con qué se está mirando ────────────────────── */}
                 <div className="absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums">
                     <span className="flex items-center gap-2.5">
-                        <Camera size={11} className="text-white/35" />
-                        {fechaCorta(momento)}
-                        <span className="text-white/20">·</span>
-                        {horaSeg(momento)}
+                        {modo === "vivo" ? (
+                            <>
+                                <Radio size={11} className="animate-pulse" style={{ color: "var(--visor-tono)" }} />
+                                <span className="font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 60%, #fff)" }}>
+                                    En vivo
+                                </span>
+                                <span className="text-white/20">·</span>
+                                <span>el cuadro guardado es de {horaSeg(momento)}</span>
+                            </>
+                        ) : (
+                            <>
+                                <Camera size={11} className="text-white/35" />
+                                {fechaCorta(momento)}
+                                <span className="text-white/20">·</span>
+                                {horaSeg(momento)}
+                            </>
+                        )}
                     </span>
                     <span className="flex items-center gap-2.5">
                         {acercado && <span>arrastrar para mover</span>}
