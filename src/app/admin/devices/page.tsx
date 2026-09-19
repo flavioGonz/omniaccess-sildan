@@ -73,7 +73,7 @@ const toast = {
 };
 import { io } from "socket.io-client";
 import { Badge } from "@/components/ui/badge";
-import { DeviceFormDialog } from "@/components/DeviceFormDialog";
+import { CajonDispositivo } from "@/components/devices/CajonDispositivo";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { DeviceMemoryDialog } from "@/components/DeviceMemoryDialog";
 import { DevicePlateListDialog } from "@/components/DevicePlateListDialog";
@@ -508,11 +508,11 @@ export default function DevicesPage() {
                             <TooltipContent><p className="text-xs max-w-[200px]">Pone la hora del servidor en todas las cámaras y el NVR (funciona sin internet)</p></TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
-                    <DeviceFormDialog groups={groups} onSuccess={loadData}>
+                    <CajonDispositivo groups={groups} onSuccess={loadData}>
                         <Button className="bg-indigo-600 hover:bg-indigo-500 text-foreground font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs shrink-0 gap-1.5">
                             <Plus size={15} /> Nuevo
                         </Button>
-                    </DeviceFormDialog>
+                    </CajonDispositivo>
                 </div>
             </header>
 
@@ -1016,11 +1016,11 @@ export default function DevicesPage() {
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
-                                                    <DeviceFormDialog device={dev} groups={groups} onSuccess={loadData}>
+                                                    <CajonDispositivo device={dev} groups={groups} onSuccess={loadData}>
                                                         <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-accent hover:text-blue-400 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-2">
                                                             <Settings2 size={14} /> Editar Configuración
                                                         </div>
-                                                    </DeviceFormDialog>
+                                                    </CajonDispositivo>
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
@@ -1186,11 +1186,11 @@ export default function DevicesPage() {
                                                         <DropdownMenuItem onClick={() => setHealthHistory(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-indigo-400 focus:bg-foreground/10 focus:text-indigo-400">
                                                             <Activity size={14} /> Historial de salud
                                                         </DropdownMenuItem>
-                                                        <DeviceFormDialog device={dev} groups={groups} onSuccess={loadData}>
+                                                        <CajonDispositivo device={dev} groups={groups} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-accent hover:text-blue-400 gap-2">
                                                                 <Settings2 size={14} /> Editar / Mapeo de canales
                                                             </div>
-                                                        </DeviceFormDialog>
+                                                        </CajonDispositivo>
                                                         <DropdownMenuSeparator className="bg-foreground/10" />
                                                         <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se eliminará este NVR." onDelete={deleteDevice} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-red-500/10 hover:text-red-500 gap-2 text-red-400">
