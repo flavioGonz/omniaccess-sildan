@@ -21,7 +21,9 @@
  * Uso:  node scripts/calibracion.js [--horas 6] [--json]
  */
 
-require("dotenv").config();
+// `quiet` importa: sin eso dotenv imprime su cartel en stdout y le mete una linea de
+// adorno adelante al JSON, que deja de ser JSON.
+require("dotenv").config({ quiet: true });
 const fs = require("fs");
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
