@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { notificarEvento } from "@/lib/reglas-notificacion";
 import { mismaChapa } from "@/lib/matriculas";
+import { avisarPorSocket } from "@/lib/avisar";
 
 /**
  * Estadías: cuándo un vehículo estaciona y cuándo se va.
@@ -144,6 +145,15 @@ export async function confirmarEstadia(fila: {
         extra: { desde: fila.estDesde, minutos: Math.round(duracionMin(fila.estDesde, fila.estHasta)) },
     }).catch(() => { });
 
+    /* Para el plano, que dibuja los autos parados junto a la cámara que los ve. Va acá y
+       no en la ruta porque acá es donde una estadía SE CONSOLIDA, que es el único momento
+       en que aparece un auto nuevo en el mapa. */
+    avisarPorSocket("estadia_abierta", {
+        id: fila.id, plate: fila.plate,
+        deviceId: fila.deviceId, cameraName: fila.cameraName,
+        estDesde: fila.estDesde, snapshotUrl: fila.snapshotUrl,
+    });
+
     return true;
 }
 
@@ -176,6 +186,8 @@ export async function cerrarEstadia(fila: {
             minutos: Math.round(duracionMin(fila.estDesde, fila.estHasta)),
         },
     }).catch(() => { });
+
+    avisarPorSocket("estadia_cerrada", { id: fila.id, plate: fila.plate, deviceId: fila.deviceId });
 
     return true;
 }

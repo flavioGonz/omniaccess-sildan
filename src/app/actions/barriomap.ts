@@ -8,7 +8,18 @@ export interface BarrioMapData {
     zoom: number;
     perimeter: [number, number][];
     streets: { id: string; name?: string; points: [number, number][] }[];
-    cameras: { deviceId: string; lat: number; lng: number }[];
+    /**
+     * Las cámaras, con hacia dónde miran.
+     *
+     * `rumbo` en grados desde el norte y `angulo` cuánto abarca. Se agregaron para poder
+     * dibujar los autos estacionados donde de verdad pueden estar: una estadía sabe qué
+     * cámara ve el auto, no dónde está: si la cámara no dice hacia dónde mira, lo único
+     * honesto es poner el auto encima del equipo, que es falso.
+     *
+     * Con el rumbo, el recuadro de la chapa alcanza: de qué lado del cuadro cayó da el
+     * ángulo, y cuánto ocupa da la distancia. Aproximado, pero medido.
+     */
+    cameras: { deviceId: string; lat: number; lng: number; rumbo?: number; angulo?: number }[];
     /**
      * Lotes: el contorno de cada casa.
      *

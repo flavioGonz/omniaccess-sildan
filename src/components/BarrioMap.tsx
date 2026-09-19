@@ -11,6 +11,8 @@ const CajonUnidad = dynamic(
     () => import("@/components/units/CajonUnidad").then((m) => m.CajonUnidad), { ssr: false });
 import { motion } from "framer-motion";
 import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar, type Punto } from "@/components/mapa/Recorrido";
+import { CapaEstacionados, type AutoParado } from "@/components/mapa/CapaEstacionados";
+import { conoDeVision, correr } from "@/lib/escena";
 import { VisorCuadro } from "@/components/VisorCuadro";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -41,13 +43,30 @@ import { getUnits } from "@/app/actions/units";
 type Tool = "select" | "perimeter" | "street" | "camera" | "lote";
 type LL = [number, number];
 
-const camSvg = `
-<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)">
-  <span class="cam-glyph" style="width:30px;height:30px;border-radius:8px;background:#2563eb;border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 6px rgba(0,0,0,.4)">
-    <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
+/**
+ * La cámara en el plano: chica, y apuntando a donde mira.
+ *
+ * Se achicó de 30 a 22 px por una razón que no es estética. Ahora los autos parados se
+ * dibujan DENTRO del cono de cada cámara, así que el ícono dejó de ser lo que hay que
+ * mirar en esa parte del plano y pasó a ser el vértice de una escena. Un marcador grande
+ * en el vértice tapa justo lo que interesa, que es lo que la cámara ve.
+ *
+ * La muesca sale del rumbo. Sin rumbo no se dibuja: una punta apuntando al norte por
+ * defecto diría que la cámara mira al norte, y no lo sabemos.
+ */
+const camSvg = (rumbo?: number | null) => `
+<div style="position:relative;display:flex;align-items:center;justify-content:center;width:22px;height:22px">
+  ${rumbo != null ? `<span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(${Math.round(rumbo)}deg)">
+    <svg width="34" height="34" viewBox="0 0 34 34" fill="none"><path d="M17 0 L21 8 L13 8 Z" fill="#38bdf8" opacity=".95"/></svg>
+  </span>` : ``}
+  <span class="cam-glyph" style="position:relative;width:22px;height:22px;border-radius:7px;background:#2563eb;border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(0,0,0,.45)">
+    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
   </span>
 </div>`;
-const camIcon = L.divIcon({ className: "bg-transparent border-0", html: camSvg, iconSize: [30, 30], iconAnchor: [15, 22], popupAnchor: [0, -20] });
+const camIconDe = (rumbo?: number | null) => L.divIcon({
+    className: "bg-transparent border-0", html: camSvg(rumbo),
+    iconSize: [22, 22], iconAnchor: [11, 11], popupAnchor: [0, -14],
+});
 
 /** Manija de vértice: arrastrar mueve, clic derecho lo quita. */
 const verticeHtml = `<span style="display:block;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #f59e0b;box-shadow:0 1px 4px rgba(0,0,0,.6)"></span>`;
@@ -222,6 +241,7 @@ export default function BarrioMap() {
      * señalando.
      */
     const [hoverLote, setHoverLote] = useState<{ id: string; x: number; y: number } | null>(null);
+    const [autoParado, setAutoParado] = useState<AutoParado | null>(null);
     const [buscaUnidad, setBuscaUnidad] = useState("");
     const [pendingCam, setPendingCam] = useState<string>("");
     const [selected, setSelected] = useState<{ type: "street" | "camera" | "lote"; id: string } | null>(null);
@@ -230,7 +250,7 @@ export default function BarrioMap() {
     const mapRef = useRef<L.Map | null>(null);
     const [guards, setGuards] = useState<any[]>([]);
     // Usabilidad: capas que se pueden apagar y pantalla completa.
-    const [verCapa, setVerCapa] = useState({ camaras: true, calles: true, lotes: true, perimetro: true, guardias: true, rotulos: true });
+    const [verCapa, setVerCapa] = useState({ camaras: true, calles: true, lotes: true, perimetro: true, guardias: true, rotulos: true, estacionados: true });
     // Vivo de todas las cámaras a la vez. `ocultas` deja apagar una sin apagar el resto.
     const [vivoTodas, setVivoTodas] = useState(false);
     // Cómo quedó la vista 3D. En un ref y no en estado: cambia en cada paneo y solo
@@ -610,6 +630,7 @@ export default function BarrioMap() {
         { k: "lotes", label: "Lotes", icon: Pentagon },
         { k: "perimetro", label: "Perímetro", icon: Hexagon },
         { k: "guardias", label: "Guardias", icon: ShieldCheck },
+        { k: "estacionados", label: "Estacionados", icon: SquareParking },
         { k: "rotulos", label: "Nombres", icon: Type },
     ];
 
@@ -801,8 +822,49 @@ ${CSS_AUTO}
                         </Marker>
                     ))}
 
-                    {(verCapa.camaras ? data.cameras : []).map((c) => (
-                        <Marker key={c.deviceId} position={[c.lat, c.lng]} icon={camIcon}
+                    {/*
+                      * Girar la cámara: sólo en edición, arrastrando la manija.
+                      *
+                      * El rumbo existe para poder dibujar los autos parados donde de verdad
+                      * pueden estar. Sin él, una estadía sólo puede poner el auto encima del
+                      * equipo, que es falso: la fila guarda la posición de la CÁMARA.
+                      */}
+                    {editing && verCapa.camaras && data.cameras.map((c: any) => {
+                        if (selected?.type !== "camera" || selected.id !== c.deviceId) return null;
+                        const manija = correr(c.lat, c.lng, 30, c.rumbo ?? 0);
+                        return (
+                            <React.Fragment key={`girar-${c.deviceId}`}>
+                                <Polygon positions={conoDeVision(c, 34)}
+                                    pathOptions={{ color: "#38bdf8", weight: 1, fillColor: "#38bdf8", fillOpacity: 0.12 }} />
+                                <Polyline positions={[[c.lat, c.lng], manija]}
+                                    pathOptions={{ color: "#38bdf8", weight: 2, dashArray: "4 4" }} />
+                                <Marker position={manija} draggable
+                                    icon={L.divIcon({
+                                        className: "bg-transparent border-0",
+                                        html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#38bdf8;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.6);cursor:grab"></span>`,
+                                        iconSize: [14, 14], iconAnchor: [7, 7],
+                                    })}
+                                    eventHandlers={{
+                                        drag: (e: any) => {
+                                            const ll = e.target.getLatLng();
+                                            // Rumbo desde el norte. El coseno de la latitud corrige que
+                                            // un grado de longitud mide menos cuanto más lejos del ecuador.
+                                            const dy = ll.lat - c.lat;
+                                            const dx = (ll.lng - c.lng) * Math.cos((c.lat * Math.PI) / 180);
+                                            const rumbo = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
+                                            cambiar((d) => ({
+                                                ...d,
+                                                cameras: d.cameras.map((x: any) =>
+                                                    x.deviceId === c.deviceId ? { ...x, rumbo: Math.round(rumbo) } : x),
+                                            }));
+                                        },
+                                    }} />
+                            </React.Fragment>
+                        );
+                    })}
+
+                    {(verCapa.camaras ? data.cameras : []).map((c: any) => (
+                        <Marker key={c.deviceId} position={[c.lat, c.lng]} icon={camIconDe(c.rumbo)}
                             eventHandlers={{
                                 click: () => { if (editing && tool === "select") setSelected({ type: "camera", id: c.deviceId }); },
                                 contextmenu: (e) => openCtx(e, "camera", c.deviceId),
@@ -818,6 +880,17 @@ ${CSS_AUTO}
                             )}
                         </Marker>
                     ))}
+                    {/* Los autos parados, adentro de lo que mira cada cámara. Sólo fuera de
+                        edición: dibujando el plano, lo que importa es el plano. */}
+                    {!editing && (
+                        <CapaEstacionados
+                            camaras={data.cameras as any}
+                            socket={liveSocket}
+                            visible={verCapa.estacionados}
+                            alTocar={(a) => setAutoParado(a)}
+                        />
+                    )}
+
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
                     {vivoTodas && !editing && (
                         <BurbujasVivo
