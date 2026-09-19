@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import type { User } from "@prisma/client";
 import {
-    Bike, Bus, Car, Check, ChevronDown, FileText, Hash, Loader2, Palette,
-    Plus, Save, Truck, User as UserIcon,
+    Bike, Bus, Camera, Car, Check, ChevronDown, FileText, Hash, Loader2, Palette,
+    Plus, Save, Server, Truck, User as UserIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { Pista } from "@/components/ui/pista";
 import { createVehicle, updateVehicle } from "@/app/actions/vehicles";
+import { addDevicePlate } from "@/app/actions/devices";
+import { PasosEnvio, type Paso } from "@/components/equipos/PasosEnvio";
+import { ElegirEquipos, RotuloEquipos } from "@/components/equipos/ElegirEquipos";
 import { getCarLogo, VEHICLE_BRANDS } from "@/lib/car-logos";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
@@ -69,8 +72,10 @@ const hexDe = (nombre: string) => {
     return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(nombre || "") ? nombre : "#3F3F46";
 };
 
-export function CajonVehiculo({ users, vehicle, trigger, onSuccess }: {
+export function CajonVehiculo({ users, devices = [], vehicle, trigger, onSuccess }: {
     users: User[];
+    /** Los equipos del barrio. Sin esto, la sección de envío no aparece. */
+    devices?: any[];
     vehicle?: any;
     trigger?: React.ReactNode;
     onSuccess?: () => void;
@@ -79,6 +84,9 @@ export function CajonVehiculo({ users, vehicle, trigger, onSuccess }: {
     const [guardando, setGuardando] = useState(false);
     const [abreMarcas, setAbreMarcas] = useState(false);
     const [abreTitular, setAbreTitular] = useState(false);
+    const [lprElegidas, setLprElegidas] = useState<string[]>([]);
+    const [pasos, setPasos] = useState<Paso[] | null>(null);
+    const [terminado, setTerminado] = useState(false);
     const [f, setF] = useState({
         plate: "", brand: "", model: "", color: "", notes: "", userId: "", type: "SEDAN",
     });
@@ -97,38 +105,116 @@ export function CajonVehiculo({ users, vehicle, trigger, onSuccess }: {
             color: vehicle?.color || "", notes: vehicle?.notes || "",
             userId: vehicle?.userId || "", type: vehicle?.type || "SEDAN",
         });
+        /* Los equipos no se recuerdan: copiar una credencial a una cámara es un acto, no
+           una propiedad del vehículo. Que quedaran tildados invitaba a reenviar de más. */
+        setLprElegidas([]);
+        setPasos(null);
+        setTerminado(false);
         setGuardando(false);
     }, [abierto, vehicle]);
 
+    const camarasLpr = devices.filter((d) => d.deviceType === "LPR_CAMERA");
+
+    const tocar = (id: string, cambio: Partial<Paso>) =>
+        setPasos((p) => p?.map((x) => (x.id === id ? { ...x, ...cambio } : x)) || p);
+
+    const correr = async (lista: Paso[], soloFallados = false) => {
+        setTerminado(false);
+        let falló = false;
+        const aCorrer = soloFallados ? lista.filter((p) => p.estado === "falló") : lista;
+        setPasos(lista.map((p) => (aCorrer.some((q) => q.id === p.id)
+            ? { ...p, estado: "espera", error: undefined } : p)));
+
+        for (const paso of aCorrer) {
+            tocar(paso.id, { estado: "curso", error: undefined });
+            try {
+                await (paso as any).hacer();
+                tocar(paso.id, { estado: "listo" });
+            } catch (e: any) {
+                falló = true;
+                tocar(paso.id, { estado: "falló", error: e?.message || "No contestó." });
+                // Sin ficha guardada no hay nada que copiar a ninguna cámara.
+                if (paso.id === "ficha") {
+                    setPasos((p) => p?.map((x) => x.id === "ficha" ? x
+                        : { ...x, estado: "espera", detalle: "No se intentó: el vehículo no se guardó." }) || p);
+                    break;
+                }
+            }
+            await new Promise((r) => setTimeout(r, 350));
+        }
+        setTerminado(true);
+        return !falló;
+    };
+
     const guardar = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!f.plate.trim()) {
+        const chapa = f.plate.trim().toUpperCase();
+        if (!chapa) {
             toast.error({ title: "Falta la matrícula", description: "Es lo que leen las cámaras: sin eso el vehículo no es nadie." });
             return;
         }
-        setGuardando(true);
-        try {
-            const r = esEdicion ? await updateVehicle(vehicle.id, f) : await createVehicle(f);
-            /**
-             * Antes esto no se miraba. Las dos acciones devuelven `{ success }` y, cuando
-             * daba false —una matrícula repetida, por ejemplo—, el diálogo se cerraba igual
-             * con cara de haber guardado. El vehículo no quedaba en ningún lado y nadie se
-             * enteraba hasta buscarlo en la lista.
-             */
-            if (!r?.success) {
-                toast.error({
-                    title: "No se pudo guardar",
-                    description: (r as any)?.error || "El servidor lo rechazó. Fijate si esa matrícula ya está cargada.",
-                });
-                return;
+
+        const lista: Paso[] = [{
+            id: "ficha",
+            titulo: esEdicion ? "Guardar los cambios" : "Registrar el vehículo",
+            detalle: [chapa, [f.brand, f.model].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
+            estado: "espera",
+            hacer: async () => {
+                const r = esEdicion ? await updateVehicle(vehicle.id, f) : await createVehicle(f);
+                /**
+                 * Antes esto no se miraba. Las dos acciones devuelven `{ success }` y el
+                 * cierre del diálogo estaba AFUERA del `if`: con success:false —una
+                 * matrícula repetida, por ejemplo— se cerraba igual, sin un aviso y con
+                 * cara de haber guardado. El vehículo no quedaba en ningún lado y nadie se
+                 * enteraba hasta ir a buscarlo a la lista.
+                 */
+                if (!r?.success) throw new Error((r as any)?.error || "El servidor lo rechazó. Fijate si esa matrícula ya está cargada.");
+            },
+        } as any];
+
+        for (const id of lprElegidas) {
+            const eq = devices.find((d) => d.id === id);
+            lista.push({
+                id: `lpr:${id}`,
+                titulo: `Copiar ${chapa} a ${eq?.name || "la cámara"}`,
+                detalle: eq?.ip, estado: "espera",
+                hacer: async () => {
+                    const r = await addDevicePlate(id, chapa);
+                    if (!r?.success) throw new Error((r as any)?.error || "La cámara rechazó la matrícula.");
+                },
+            } as any);
+        }
+
+        /* Sin cámaras elegidas no hace falta el desfile de pasos para un solo acto: se
+           guarda, se avisa y se cierra, como siempre. La ceremonia se la gana el envío. */
+        if (lprElegidas.length === 0) {
+            setGuardando(true);
+            try {
+                const r = esEdicion ? await updateVehicle(vehicle.id, f) : await createVehicle(f);
+                if (!r?.success) {
+                    toast.error({
+                        title: "No se pudo guardar",
+                        description: (r as any)?.error || "El servidor lo rechazó. Fijate si esa matrícula ya está cargada.",
+                    });
+                    return;
+                }
+                toast.success({ title: esEdicion ? "Vehículo guardado" : "Vehículo registrado" });
+                setAbierto(false);
+                onSuccess?.();
+            } catch (err: any) {
+                toast.error({ title: "No se pudo guardar", description: err?.message });
+            } finally {
+                setGuardando(false);
             }
-            toast.success({ title: esEdicion ? "Vehículo guardado" : "Vehículo registrado" });
+            return;
+        }
+
+        setPasos(lista);
+        const salioTodo = await correr(lista);
+        onSuccess?.();
+        if (salioTodo) {
+            await new Promise((r) => setTimeout(r, 900));
             setAbierto(false);
-            onSuccess?.();
-        } catch (err: any) {
-            toast.error({ title: "No se pudo guardar", description: err?.message });
-        } finally {
-            setGuardando(false);
         }
     };
 
@@ -168,7 +254,7 @@ export function CajonVehiculo({ users, vehicle, trigger, onSuccess }: {
                         </div>
                     </div>
                 }
-                pie={
+                pie={pasos ? undefined : (
                     <>
                         <Button type="button" variant="ghost" onClick={() => setAbierto(false)}>Cancelar</Button>
                         <Button type="submit" form="ficha-vehiculo" disabled={guardando}>
@@ -176,8 +262,13 @@ export function CajonVehiculo({ users, vehicle, trigger, onSuccess }: {
                             {guardando ? "Guardando…" : esEdicion ? "Guardar cambios" : "Registrar"}
                         </Button>
                     </>
-                }>
+                )}>
 
+                {pasos ? (
+                    <PasosEnvio pasos={pasos} terminado={terminado}
+                        alReintentar={() => correr(pasos, true)}
+                        alCerrar={() => { setAbierto(false); onSuccess?.(); }} />
+                ) : (
                 <form id="ficha-vehiculo" onSubmit={guardar} noValidate>
                     <CajonSeccion titulo="Cuál es" icono={Hash}>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -321,6 +412,31 @@ export function CajonVehiculo({ users, vehicle, trigger, onSuccess }: {
                         </CajonCampo>
                     </CajonSeccion>
 
+                    {camarasLpr.length > 0 && (
+                        <CajonSeccion titulo="A qué cámaras se manda" icono={Server}
+                            ayuda="Cargar la matrícula acá la deja en el padrón. Copiarla a una cámara es lo que hace que esa cámara la reconozca y abra. Son dos cosas distintas.">
+                            <div>
+                                <RotuloEquipos icono={Camera}
+                                    titulo="Copiar a la cámara"
+                                    pista="Se escribe la matrícula en la memoria del equipo, una por una. Si alguna no contesta se dice cuál, y se puede reintentar sólo esa.">
+                                    Cámaras LPR
+                                </RotuloEquipos>
+                                <ElegirEquipos
+                                    equipos={camarasLpr} elegidos={lprElegidas} icono={Camera}
+                                    alAlternar={(id) => setLprElegidas((p) =>
+                                        p.includes(id) ? p.filter((x) => x !== id) : [...p, id])}
+                                    bloqueo={!f.plate.trim() ? "Escribí la matrícula arriba para poder mandarla." : undefined}
+                                    vacio="No hay cámaras LPR dadas de alta." />
+                                {lprElegidas.length > 0 && f.plate.trim() && (
+                                    <p className="text-[12px] text-muted-foreground mt-1.5">
+                                        Al guardar, <b className="text-foreground">{f.plate.trim().toUpperCase()}</b> se copia
+                                        a {lprElegidas.length} {lprElegidas.length === 1 ? "cámara" : "cámaras"}.
+                                    </p>
+                                )}
+                            </div>
+                        </CajonSeccion>
+                    )}
+
                     <CajonSeccion titulo="Algo más que anotar" icono={FileText}>
                         <CajonCampo etiqueta="Observaciones"
                             pista="Queda para adentro: lo ve el guardia y el administrador, nunca el titular. Sirve para lo que no entra en ningún campo — que el auto tiene un vidrio roto, que lo maneja el hijo, que el titular avisó que lo vende.">
@@ -329,6 +445,7 @@ export function CajonVehiculo({ users, vehicle, trigger, onSuccess }: {
                         </CajonCampo>
                     </CajonSeccion>
                 </form>
+                )}
             </CajonContenido>
         </Cajon>
     );

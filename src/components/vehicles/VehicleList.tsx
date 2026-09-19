@@ -10,6 +10,7 @@ import { Estado, Matricula, Momento } from "@/components/ui/celdas";
 import { TablaVehiculos, type VehiculoFila } from "./TablaVehiculos";
 import { CajonVehiculo } from "./CajonVehiculo";
 import { getVehicles, getVehicleHistory } from "@/app/actions/vehicles";
+import { getDevices } from "@/app/actions/devices";
 
 const PAGINA = 40;
 
@@ -43,6 +44,15 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
     const [actividad, setActividad] = useState("todos");
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    /**
+     * Los equipos, para poder mandarles la matrícula al guardar.
+     *
+     * Se piden una vez y aparte de los vehículos: no hacen falta para ver la lista, así
+     * que no tienen por qué demorarla. Si fallan, el cajón simplemente no ofrece el envío
+     * —queda igual de utilizable para lo que vino a hacer, que es cargar el vehículo.
+     */
+    const [equipos, setEquipos] = useState<any[]>([]);
+    useEffect(() => { getDevices().then((d: any) => setEquipos(d || [])).catch(() => { }); }, []);
     const [hayMas, setHayMas] = useState(initialVehicles.length < initialTotal);
     const [recargar, setRecargar] = useState(0);
 
@@ -104,6 +114,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
     const editar = useCallback((v: VehiculoFila) => (
         <CajonVehiculo
             users={users}
+            devices={equipos}
             vehicle={v as any}
             onSuccess={volverAPedir}
             trigger={
@@ -113,7 +124,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                 </button>
             }
         />
-    ), [users, volverAPedir]);
+    ), [users, equipos, volverAPedir]);
 
     const DIAS_CIRCULANDO = 2;
     const visibles = useMemo(() => {
@@ -151,7 +162,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                 { valor: "sin", rotulo: "Sin actividad" },
                             ],
                         }]}
-                        acciones={<CajonVehiculo users={users} onSuccess={volverAPedir} />}
+                        acciones={<CajonVehiculo users={users} devices={equipos} onSuccess={volverAPedir} />}
                     />
                 }
             />

@@ -17,7 +17,8 @@ import { createUser, updateUser } from "@/app/actions/users";
 import { addDevicePlate } from "@/app/actions/devices";
 import { syncUserToDevice } from "@/app/actions/deviceMemory";
 import { Pista } from "@/components/ui/pista";
-import { PasosEnvio, type Paso } from "@/components/users/PasosEnvio";
+import { PasosEnvio, type Paso } from "@/components/equipos/PasosEnvio";
+import { ElegirEquipos, RotuloEquipos } from "@/components/equipos/ElegirEquipos";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 
@@ -81,34 +82,6 @@ export interface CajonUsuarioProps {
     onSuccess: () => void;
     open: boolean;
     onOpenChange: (open: boolean) => void;
-}
-
-/** Una tarjeta de equipo que se prende y se apaga, con el resultado de su envío. */
-function Equipo({ equipo, elegido, alTocar, icono: Icono }: {
-    equipo: any; elegido: boolean; alTocar: () => void; icono: any;
-}) {
-    return (
-        <button
-            type="button"
-            onClick={alTocar}
-            className={cn(
-                "w-full text-left p-2.5 rounded-[10px] border flex items-center justify-between gap-3 transition-colors",
-                elegido ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]"
-                    : "border-border bg-card/40 hover:bg-accent",
-            )}>
-            <span className="flex items-center gap-2.5 min-w-0">
-                <span className={cn("w-7 h-7 rounded-md flex items-center justify-center shrink-0",
-                    elegido ? "text-[var(--accion)]" : "text-muted-foreground bg-muted")}>
-                    <Icono size={14} />
-                </span>
-                <span className="min-w-0">
-                    <span className="block text-[13px] font-semibold text-foreground truncate">{equipo.name}</span>
-                    <span className="block text-[11.5px] text-muted-foreground tabular-nums truncate">{equipo.ip}</span>
-                </span>
-            </span>
-            {elegido && <Check size={15} className="text-[var(--accion)] shrink-0" />}
-        </button>
-    );
 }
 
 export function CajonUsuario({
@@ -475,22 +448,12 @@ export function CajonUsuario({
                         <EquiposDeLosGrupos groups={groups} elegidos={gruposElegidos} />
 
                         <div>
-                            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
-                                <Camera size={13} /> Cámaras LPR
-                            </span>
-                            {!chapa.trim() ? (
-                                <p className="text-[12px] text-muted-foreground">Cargá una matrícula arriba para poder mandarla.</p>
-                            ) : camarasLpr.length ? (
-                                <div className="space-y-1.5">
-                                    {camarasLpr.map((d) => (
-                                        <Equipo key={d.id} equipo={d} icono={Camera}
-                                            elegido={lprElegidos.includes(d.id)}
-                                            alTocar={() => alternar(lprElegidos, setLprElegidos, d.id)} />
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-[12px] text-muted-foreground">No hay cámaras LPR dadas de alta.</p>
-                            )}
+                            <RotuloEquipos icono={Camera}>Cámaras LPR</RotuloEquipos>
+                            <ElegirEquipos
+                                equipos={camarasLpr} elegidos={lprElegidos} icono={Camera}
+                                alAlternar={(id) => alternar(lprElegidos, setLprElegidos, id)}
+                                bloqueo={!chapa.trim() ? "Cargá una matrícula arriba para poder mandarla." : undefined}
+                                vacio="No hay cámaras LPR dadas de alta." />
                             {lprElegidos.map((id) => <input key={id} type="hidden" name="syncDeviceId" value={id} />)}
                             {lprElegidos.length > 0 && chapa.trim() && (
                                 <p className="text-[12px] text-muted-foreground mt-1.5">
@@ -501,22 +464,12 @@ export function CajonUsuario({
                         </div>
 
                         <div>
-                            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
-                                <ScanFace size={13} /> Terminales de rostro
-                            </span>
-                            {!foto ? (
-                                <p className="text-[12px] text-muted-foreground">Subí una foto arriba para poder mandarla.</p>
-                            ) : terminalesFaciales.length ? (
-                                <div className="space-y-1.5">
-                                    {terminalesFaciales.map((d) => (
-                                        <Equipo key={d.id} equipo={d} icono={ScanFace}
-                                            elegido={facialesElegidos.includes(d.id)}
-                                            alTocar={() => alternar(facialesElegidos, setFacialesElegidos, d.id)} />
-                                    ))}
-                                </div>
-                            ) : (
-                                <p className="text-[12px] text-muted-foreground">No hay terminales de rostro dados de alta.</p>
-                            )}
+                            <RotuloEquipos icono={ScanFace}>Terminales de rostro</RotuloEquipos>
+                            <ElegirEquipos
+                                equipos={terminalesFaciales} elegidos={facialesElegidos} icono={ScanFace}
+                                alAlternar={(id) => alternar(facialesElegidos, setFacialesElegidos, id)}
+                                bloqueo={!foto ? "Subí una foto arriba para poder mandarla." : undefined}
+                                vacio="No hay terminales de rostro dados de alta." />
                             {facialesElegidos.map((id) => <input key={id} type="hidden" name="syncFaceDeviceId" value={id} />)}
                         </div>
 
