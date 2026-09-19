@@ -1580,6 +1580,9 @@ video::-webkit-media-controls { display: none !important; }
 .pleno-mal    { background: var(--mal);    color: #fff; }
 .pleno-info   { background: var(--info);   color: #fff; }
 .pleno-quieto { background: var(--quieto); color: #fff; }
+/* El neutro pleno no es un color: es la superficie apagada. Existe para que
+   <Chip pleno> no se rompa cuando el tono es neutro. */
+.pleno-neutro { background: var(--muted-foreground); color: var(--background); }
 
 /* Las dos sombras, por su nombre. El codigo nuevo pide `sombra-captura`
    o `sombra-flotante` — no un tamano — porque el tamano no dice para

@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, Columns3, Download, Inbox, Loader2, RefreshCw, Rows3 } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, Columns3, Download, Loader2, Rows3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Pista } from "@/components/ui/pista";
+import { ErrorEstado, Vacio } from "@/components/ui/estados";
 
 /**
  * La tabla de la aplicación.
@@ -436,20 +437,14 @@ export function Tabla<T>({
                             Primero que todo lo demás. Una tabla vacía por un servidor
                             caído se veía igual que un período sin datos, y son cosas
                             distintas: de una se espera, de la otra se reintenta. */}
+                        {/* ── ERROR ──────────────────────────────────────────────────
+                            Primero que todo lo demás. Una tabla vacía por un servidor
+                            caído se veía igual que un período sin datos, y son cosas
+                            distintas: de una se espera, de la otra se reintenta. */}
                         {error && (
                             <tr>
-                                <td colSpan={nCol} className="px-5 py-14">
-                                    <div className="flex flex-col items-center gap-2 text-center">
-                                        <AlertTriangle size={22} className="tono-aviso" />
-                                        <p className="text-[13px] font-semibold text-foreground">No se pudieron traer los datos</p>
-                                        <p className="text-[11.5px] text-muted-foreground max-w-sm">{error}</p>
-                                        {alReintentar && (
-                                            <button type="button" onClick={alReintentar}
-                                                className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[12px] font-semibold hover:bg-accent transition-colors">
-                                                <RefreshCw size={12} /> Reintentar
-                                            </button>
-                                        )}
-                                    </div>
+                                <td colSpan={nCol}>
+                                    <ErrorEstado mensaje={error} alReintentar={alReintentar || (() => { })} />
                                 </td>
                             </tr>
                         )}
@@ -470,12 +465,12 @@ export function Tabla<T>({
 
                         {vacia && (
                             <tr>
-                                <td colSpan={nCol} className="px-5 py-16">
-                                    <div className="flex flex-col items-center gap-2 text-center">
-                                        {(() => { const I = vacio?.icono || Inbox; return <I size={22} className="text-muted-foreground/50" />; })()}
-                                        <p className="text-[13px] font-semibold text-foreground/80">{vacio?.titulo || "Sin registros"}</p>
-                                        {vacio?.ayuda && <p className="text-[11.5px] text-muted-foreground max-w-sm">{vacio.ayuda}</p>}
-                                    </div>
+                                <td colSpan={nCol}>
+                                    <Vacio
+                                        icono={vacio?.icono}
+                                        titulo={vacio?.titulo || "Sin registros"}
+                                        ayuda={vacio?.ayuda}
+                                    />
                                 </td>
                             </tr>
                         )}
