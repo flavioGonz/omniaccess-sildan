@@ -214,6 +214,27 @@ export default function TrackingSection() {
 
     const r = serie?.resumen;
 
+    /**
+     * El pie de la tarjeta de GPU.
+     *
+     * Dice el promedio de potencia, y SOLO cuando el porcentaje no coincide con ella
+     * agrega la aclaracion. Ponerla siempre seria ruido; no ponerla nunca deja el 100%
+     * suelto para que alguien lo lea como una placa al limite.
+     *
+     * El criterio: uso alto con la placa a media maquina. Esos dos numeros juntos no
+     * pueden ser los dos verdad sobre el trabajo, y el que miente es el porcentaje.
+     */
+    const pieDeGpu = (() => {
+        const pot = metricas?.gpu?.potencia, max = metricas?.gpu?.potenciaMax;
+        const base = r?.gpuWattsProm != null && max
+            ? `promedio ${r.gpuWattsProm} de ${Math.round(max)} W`
+            : pot != null && max ? `${pot.toFixed(0)} de ${Math.round(max)} W` : "";
+        const uso = metricas?.gpu?.uso;
+        const espera = uso != null && uso >= 95 && pot != null && max != null && pot < max * 0.7;
+        if (!espera) return base;
+        return `${base} \u00b7 el driver marca ${uso}%, pero a media potencia: el lector deja un hilo esperando y eso cuenta como uso`;
+    })();
+
     return (
         <div className="space-y-5 animate-in fade-in duration-500">
             {/* ── Encabezado con las acciones a mano ── */}
@@ -277,6 +298,23 @@ export default function TrackingSection() {
                     </div>
                 </div>
 
+                {/*
+                  * La GPU se mide en vatios, no en porcentaje.
+                  *
+                  * `utilization.gpu` no dice cuanto calcula la placa: dice que fraccion del
+                  * tiempo hubo algun nucleo ocupado. El lector, entre pedido y pedido, deja
+                  * un hilo de CUDA girando en vacio a la espera, y el driver cuenta esa
+                  * vuelta como trabajo. Sale 100% clavado con la placa tibia.
+                  *
+                  * Medido sobre esta instalacion: uso 100%, potencia 37,5 de 70 W,
+                  * temperatura 57 grados, memoria al 2%, ocho muestras seguidas sin una
+                  * decima de variacion. Alguien vio ese 100% y salio a buscar un incendio
+                  * que no existia, y con razon: el numero decia eso.
+                  *
+                  * La potencia sale del sensor de la placa y no sube si no hay calculo. Es
+                  * el titular. El porcentaje queda como nota al pie, y solo se aclara
+                  * cuando los dos no coinciden, que es cuando engana.
+                  */}
                 {m.length < 2 ? (
                     <p className="text-xs text-muted-foreground py-6 text-center">
                         Todavía no hay historia. La pasarela guarda una muestra por minuto; en un rato esto se llena.
@@ -284,7 +322,11 @@ export default function TrackingSection() {
                 ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                         {[
-                            { ic: Zap, t: "GPU", col: "#10b981", k: "gpuUso", v: metricas?.gpu ? `${metricas.gpu.uso}%` : "—", pie: r?.gpuPico != null ? `pico ${r.gpuPico}% · promedio ${r.gpuProm}%` : "", max: 100 },
+                            {
+                                ic: Zap, t: "GPU", col: "#10b981", k: "gpuWatts",
+                                v: metricas?.gpu?.potencia != null ? `${metricas.gpu.potencia.toFixed(0)} W` : "—",
+                                pie: pieDeGpu, max: metricas?.gpu?.potenciaMax ?? undefined,
+                            },
                             { ic: Cpu, t: "CPU del lector", col: "#0ea5e9", k: "cpuCont", v: metricas?.contenedor ? `${metricas.contenedor.cpu.toFixed(0)}%` : "—", pie: "del total de la máquina", max: 100 },
                             { ic: MemoryStick, t: "Memoria del lector", col: "#8b5cf6", k: "memCont", v: metricas?.contenedor ? `${(metricas.contenedor.memUsada / 1e9).toFixed(1)} GB` : "—", pie: "residente", max: undefined },
                             { ic: Thermometer, t: "Temperatura", col: "#f59e0b", k: "gpuTemp", v: metricas?.gpu ? `${metricas.gpu.temperatura} °C` : "—", pie: metricas?.gpu ? `${metricas.gpu.potencia?.toFixed(0)} de ${metricas.gpu.potenciaMax?.toFixed(0)} W` : "", max: 90 },

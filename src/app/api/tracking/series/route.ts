@@ -26,7 +26,7 @@ function comprimir(filas: any[], puntos: number) {
         const suma = (k: string) => tramo.reduce((a, x) => a + (x[k] || 0), 0);
         salida.push({
             momento: tramo[Math.floor(tramo.length / 2)].momento,
-            gpuUso: prom("gpuUso"), gpuMem: prom("gpuMem"), gpuTemp: prom("gpuTemp"),
+            gpuUso: prom("gpuUso"), gpuMem: prom("gpuMem"), gpuTemp: prom("gpuTemp"), gpuWatts: prom("gpuWatts"),
             cpuCont: prom("cpuCont"), memCont: prom("memCont"),
             lecturas: suma("lecturas"), disparos: suma("disparos"), descartes: suma("descartes"),
             enGpu: tramo[tramo.length - 1].enGpu,
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
             where: { momento: { gte: desde } },
             orderBy: { momento: "asc" },
             select: {
-                momento: true, gpuUso: true, gpuMem: true, gpuTemp: true,
+                momento: true, gpuUso: true, gpuMem: true, gpuTemp: true, gpuWatts: true,
                 cpuCont: true, memCont: true, camaras: true,
                 disparos: true, lecturas: true, descartes: true, enGpu: true,
             },
@@ -102,7 +102,29 @@ export async function GET(req: NextRequest) {
     const descartes = crudas.reduce((a, x) => a + (x.descartes || 0), 0);
     const confs = avistamientos.map((a) => a.confidence).filter((x): x is number => x != null).sort((a, b) => a - b);
     const gpus = crudas.map((x) => x.gpuUso).filter((x): x is number => x != null);
+    const watts = crudas.map((x) => x.gpuWatts).filter((x): x is number => x != null);
     const ultima = crudas[crudas.length - 1];
+
+    /**
+     * ¿El 100% de la GPU es trabajo o es espera?
+     *
+     * `utilization.gpu` no mide cuánto calcula la placa: mide qué fracción del tiempo hubo
+     * al menos un núcleo ocupado. El lector, entre pedido y pedido, deja un hilo de CUDA
+     * dando vueltas esperando — spin-wait — y el driver cuenta esa vuelta como trabajo. El
+     * resultado es 100% clavado con la placa tibia.
+     *
+     * Medido acá, sobre una RTX 3050 con el lector en reposo: uso 100%, potencia 37,5 W de
+     * 70, temperatura 57 °C, memoria al 2%. Ocho muestras seguidas sin una décima de
+     * variación. Inferencia de verdad al 100% chupa cerca del límite y la potencia
+     * fluctúa con cada ráfaga.
+     *
+     * El número no es inútil, es ambiguo, y mostrarlo solo hizo que alguien viera "GPU
+     * 100%" y saliera a buscar un incendio que no existía. La potencia no es ambigua: sale
+     * del sensor de la placa y no sube si no hay cálculo. Así que la potencia es el
+     * titular y esto explica el porcentaje cuando los dos no coinciden.
+     */
+    const usoProm = gpus.length ? gpus.reduce((a, b) => a + b, 0) / gpus.length : null;
+    const wattsProm = watts.length ? watts.reduce((a, b) => a + b, 0) / watts.length : null;
 
     return NextResponse.json({
         horas,
@@ -120,7 +142,9 @@ export async function GET(req: NextRequest) {
             confianzaMediana: confs.length ? Math.round(confs[Math.floor(confs.length / 2)] * 100) : null,
             avistamientos: avistamientos.length,
             gpuPico: gpus.length ? Math.max(...gpus) : null,
-            gpuProm: gpus.length ? Math.round(gpus.reduce((a, b) => a + b, 0) / gpus.length) : null,
+            gpuProm: usoProm != null ? Math.round(usoProm) : null,
+            gpuWattsPico: watts.length ? Math.max(...watts) : null,
+            gpuWattsProm: wattsProm != null ? Math.round(wattsProm) : null,
             enGpu: ultima?.enGpu ?? null,
             conMuestras: crudas.length,
         },
