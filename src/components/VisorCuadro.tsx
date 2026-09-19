@@ -291,6 +291,47 @@ function Pildora({ icono: Ico, children, onClick, href, destacada, encendida, oc
     );
 }
 
+/**
+ * Un grupo del cajón de datos, con su título y su por qué.
+ *
+ * El título en el borde y una línea: alcanza para separar sin encerrar. Un panel con
+ * bordes dentro de otro panel con bordes es lo que hacía que esta parte se viera como un
+ * formulario y no como una ficha.
+ */
+function Grupo({ titulo, ayuda, children }: { titulo: string; ayuda?: string; children: React.ReactNode }) {
+    return (
+        <section>
+            <h4 className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/40 pb-1.5 mb-1 border-b border-white/10"
+                title={ayuda}>
+                {titulo}
+            </h4>
+            <div>{children}</div>
+        </section>
+    );
+}
+
+/**
+ * Un dato: el nombre a la izquierda, apagado; el valor a la derecha, alineado.
+ *
+ * A la derecha y no debajo porque casi todos son números y fechas, y una columna de
+ * valores alineados se recorre de un vistazo — que es exactamente lo que alguien hace
+ * cuando viene a revisar una lectura discutida.
+ */
+function Renglon({ k, v, tono, fuerte, ayuda }: {
+    k: string; v: React.ReactNode; tono?: string; fuerte?: boolean; ayuda?: string;
+}) {
+    return (
+        <div className="flex items-baseline justify-between gap-6 py-[5px] border-b border-white/[0.06] last:border-0"
+            title={ayuda}>
+            <span className="text-[11.5px] text-white/45 shrink-0">{k}</span>
+            <span className={cn("text-[12.5px] text-right tabular-nums truncate",
+                fuerte ? "font-bold tracking-[0.08em] text-white" : "text-white/90", tono)}>
+                {v}
+            </span>
+        </div>
+    );
+}
+
 /** Una medida de la lectura. Sin caja: viven sobre la imagen, con sombra de texto. */
 function Medida({ valor, rotulo, tono, ayuda }: { valor: string; rotulo: string; tono?: string; ayuda?: string }) {
     return (
@@ -1092,30 +1133,64 @@ export function VisorCuadro({
                                 )}
 
                                 {cajon === "datos" && (
-                                    /* Lo crudo, tal como quedó guardado. No es para el
-                                       operador de todos los días: es para cuando alguien
-                                       discute una lectura y hay que poder mostrar de dónde
-                                       salió el número. */
-                                    <dl className="grid grid-cols-2 gap-x-6 gap-y-2 py-1">
-                                        {[
-                                            ["Matrícula leída", fila.plate],
-                                            ["Cámara", fila.cameraName || fila.deviceId],
-                                            ["Momento", `${fechaCorta(momento)} · ${horaSeg(momento)}`],
-                                            ["Confianza", conf != null ? `${conf}%` : null],
-                                            ["Cuadros de la ráfaga", fila.reads != null ? String(fila.reads) : null],
-                                            ["Ancho de la chapa", recuadro ? `${(recuadro.w * 100).toFixed(1)}% del cuadro` : null],
-                                            ["Recuadro", fila.bbox || null],
-                                            ["Identificación", fila.tipoAcceso || null],
-                                            ["Sentido", fila.direccion === "EXIT" ? "Salida" : fila.direccion === "ENTRY" ? "Entrada" : null],
-                                            ["Resultado", fila.decision === "GRANT" ? "Permitido" : fila.decision === "DENY" ? "Denegado" : null],
-                                            ...Object.entries(meta).filter(([k]) => k !== "FaceImage").map(([k, v]) => [`${k} (equipo)`, v]),
-                                        ].filter(([, v]) => !!v).map(([k, v]) => (
-                                            <div key={String(k)} className="min-w-0">
-                                                <dt className="text-[10px] uppercase tracking-wider text-white/40">{k}</dt>
-                                                <dd className="text-[12.5px] text-white/90 break-words">{v}</dd>
-                                            </div>
-                                        ))}
-                                    </dl>
+                                    /*
+                                     * Lo crudo, tal como quedó guardado.
+                                     *
+                                     * No es para el operador de todos los días: es para cuando
+                                     * alguien discute una lectura y hay que poder mostrar de
+                                     * dónde salió el número. Por eso va agrupado por PROCEDENCIA
+                                     * y no por tema — lo que midió el lector, lo que pasó, y lo
+                                     * que dijo el equipo son tres cosas con distinto peso, y
+                                     * mezclarlas en una grilla las hace parecer iguales.
+                                     */
+                                    <div className="py-1 space-y-4">
+                                        <Grupo titulo="La lectura"
+                                            ayuda="Lo que midió el lector en este cuadro. Es lo que decide si hay que creerle a la matrícula.">
+                                            <Renglon k="Matrícula leída" v={fila.plate || "—"} fuerte />
+                                            <Renglon k="Confianza" v={conf != null ? `${conf}%` : "—"} tono={conf != null ? tonoConf : undefined} />
+                                            <Renglon k="Cuadros de la ráfaga" v={fila.reads != null ? String(fila.reads) : "—"} />
+                                            <Renglon k="Ancho de la chapa"
+                                                v={recuadro ? `${(recuadro.w * 100).toFixed(1)}% del cuadro` : "—"}
+                                                tono={!recuadro ? undefined : recuadro.w >= 0.05 ? "visor-bien" : recuadro.w >= 0.03 ? "visor-aviso" : "visor-mal"} />
+                                            {recuadro && (
+                                                <Renglon k="Dónde cayó en el cuadro"
+                                                    v={`x ${(recuadro.x * 100).toFixed(1)}% · y ${(recuadro.y * 100).toFixed(1)}%`}
+                                                    ayuda={fila.bbox || undefined} />
+                                            )}
+                                        </Grupo>
+
+                                        <Grupo titulo="El evento"
+                                            ayuda="Cuándo y dónde, y qué decidió el sistema.">
+                                            <Renglon k="Cámara" v={fila.cameraName || fila.deviceId || "—"} />
+                                            <Renglon k="Momento" v={`${fechaCorta(momento)} · ${horaSeg(momento)}`} />
+                                            {fila.tipoAcceso && (
+                                                <Renglon k="Identificación"
+                                                    v={fila.tipoAcceso === "PLATE" ? "Matrícula"
+                                                        : fila.tipoAcceso === "FACE" ? "Rostro"
+                                                            : fila.tipoAcceso === "TAG" ? "Tarjeta" : fila.tipoAcceso} />
+                                            )}
+                                            {fila.direccion && (
+                                                <Renglon k="Sentido" v={fila.direccion === "EXIT" ? "Salida" : "Entrada"} />
+                                            )}
+                                            {fila.decision && (
+                                                <Renglon k="Resultado"
+                                                    v={fila.decision === "GRANT" ? "Permitido" : "Denegado"}
+                                                    tono={fila.decision === "GRANT" ? "visor-bien" : "visor-mal"} />
+                                            )}
+                                            {estacionado && fila.estDesde && (
+                                                <Renglon k="Estadía desde" v={`${fechaCorta(fila.estDesde)} · ${horaSeg(fila.estDesde)}`} />
+                                            )}
+                                        </Grupo>
+
+                                        {Object.keys(meta).filter((k) => k !== "FaceImage").length > 0 && (
+                                            <Grupo titulo="Lo que dijo el equipo"
+                                                ayuda="Lo que el equipo escribió junto al evento. No está verificado contra el padrón: es lo que la cámara creyó ver.">
+                                                {Object.entries(meta)
+                                                    .filter(([k]) => k !== "FaceImage")
+                                                    .map(([k, v]) => <Renglon key={k} k={k} v={v} />)}
+                                            </Grupo>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         </motion.div>

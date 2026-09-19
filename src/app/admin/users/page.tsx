@@ -218,17 +218,24 @@ export default function UsersPage() {
 
     return (
         <TooltipProvider>
-            <div className="relative h-full flex flex-col pt-0 pb-4 px-6 overflow-hidden bg-muted">
-                {/* Compact Header Toolbar */}
-                <div className="flex items-center justify-between py-4 border-b border-border bg-muted/40 -mx-6 px-6 mb-4">
+            {/*
+              * El fondo de la pantalla, igual que en todas las demás.
+              *
+              * Acá era `bg-muted`, una superficie más clara que el resto de la aplicación, y
+              * eso se veía de dos maneras: la pantalla no pegaba con las vecinas, y el
+              * encabezado fijo de la tabla — que es opaco a la fuerza, porque las filas le
+              * pasan por debajo — quedaba como una banda oscura apoyada encima de la lista.
+              */}
+            <div className="relative h-full flex flex-col overflow-hidden bg-background">
+                <header className="px-8 py-6 border-b border-border bg-card/40 backdrop-blur-md flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-4">
-                        <div className="p-2 rounded-lg border border-border bg-muted">
-                            <Users size={18} className="tono-accion" />
-                        </div>
+                        <span className="w-11 h-11 rounded-lg bg-muted border border-border flex items-center justify-center text-muted-foreground">
+                            <Users size={20} />
+                        </span>
                         <div>
-                            <h1 className="text-2xl font-bold text-foreground">Gestión de Identidades</h1>
-                            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-widest mt-0.5">
-                                {users.length} Registros Totales
+                            <h1 className="text-2xl font-bold text-foreground">Usuarios y residentes</h1>
+                            <p className="text-sm text-muted-foreground mt-1">
+                                Quién es cada uno en el barrio, y con qué entra
                             </p>
                         </div>
                     </div>
@@ -262,7 +269,9 @@ export default function UsersPage() {
                             Nuevo
                         </Button>
                     </div>
-                </div>
+                </header>
+
+                <main className="flex-1 overflow-hidden px-8 py-6 flex flex-col">
 
                 {/* Los filtros se mudaron adentro del marco de la tabla: son SUS
                     controles, no una tira suelta que casualmente está encima. */}
@@ -297,6 +306,7 @@ export default function UsersPage() {
                         />
                     }
                 />
+                </main>
             </div>
 
             {/* Dialogs */}

@@ -155,6 +155,7 @@ export function Tabla<T>({
     filasFantasma = 8,
     pie,
     barra,
+    fondo,
     id,
     controles = true,
     nombreArchivo,
@@ -189,6 +190,8 @@ export function Tabla<T>({
      * que son.
      */
     barra?: React.ReactNode;
+    /** El color de la superficie donde vive la tabla. Por defecto, el fondo de la página. */
+    fondo?: string;
     /** Identifica la tabla para recordar densidad y columnas. Sin esto no se recuerda nada. */
     id?: string;
     /** Los controles propios: densidad, columnas y exportar. */
@@ -331,7 +334,20 @@ export function Tabla<T>({
          * tabla no dice eso: la tabla ES la pantalla. Lo único que hace falta separar es el
          * encabezado de los datos, y para eso alcanza una línea.
          */
-        <div className={cn("flex flex-col min-w-0", className)}>
+        <div className={cn("flex flex-col min-w-0", className)}
+            /*
+             * De qué color es la superficie sobre la que está esta tabla.
+             *
+             * El encabezado queda fijo mientras las filas pasan por debajo, así que tiene
+             * que ser opaco — y antes ese opaco estaba escrito fijo como `bg-background`.
+             * Alcanzó con que una pantalla usara otro fondo para que el encabezado se
+             * viera como una banda oscura pegada encima de la lista.
+             *
+             * Ahora sale de una variable con el fondo de la página por defecto. Una
+             * pantalla que viva sobre otra superficie pasa `fondo` y el encabezado la
+             * acompaña, en vez de que haya que acordarse de cambiar el componente.
+             */
+            style={{ ["--fondo-tabla" as any]: fondo || "var(--background)" }}>
             {(barra || controles) && (
                 <div className="shrink-0 flex items-stretch gap-2 pb-3">
                     <div className="flex-1 min-w-0">{barra}</div>
@@ -432,7 +448,7 @@ export function Tabla<T>({
                                         onClick={() => alternarOrden(c)}
                                         style={{ width: c.ancho }}
                                         className={cn(
-                                            "group/th bg-background px-4 py-2.5 font-normal border-b border-border select-none",
+                                            "group/th px-4 py-2.5 font-normal border-b border-border select-none bg-[var(--fondo-tabla)]",
                                             alineado[c.alinear || "izq"],
                                         )}>
                                         {c.ayuda

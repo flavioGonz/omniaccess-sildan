@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 const Mapa3D = dynamic(() => import("@/components/mapa/Mapa3D"), { ssr: false });
 import { motion } from "framer-motion";
@@ -196,6 +197,16 @@ export default function BarrioMap() {
      * Lo que faltaba no era guardar solo: era AVISAR.
      */
     const [sinGuardar, setSinGuardar] = useState(false);
+    const router = useRouter();
+    /**
+     * El lote bajo el puntero.
+     *
+     * Se guarda con la posición del mouse porque la ficha se dibuja al lado del cursor y
+     * no en una esquina fija: en un mapa la pregunta es siempre "¿de quién es ESTA casa?",
+     * y una ficha lejos del polígono obliga a mirar dos lugares y recordar cuál se estaba
+     * señalando.
+     */
+    const [hoverLote, setHoverLote] = useState<{ id: string; x: number; y: number } | null>(null);
     const [buscaUnidad, setBuscaUnidad] = useState("");
     const [pendingCam, setPendingCam] = useState<string>("");
     const [selected, setSelected] = useState<{ type: "street" | "camera" | "lote"; id: string } | null>(null);
@@ -418,6 +429,11 @@ export default function BarrioMap() {
         setAsignando(null); setBuscaUnidad("");
     };
     const plazaDe = (id?: string | null) => plazas.find((p: any) => p.id === id);
+    /** Las matrículas de quienes viven en ese lote, para poder saltar a su historial. */
+    const chapasDelLote = (lo?: any): string[] => {
+        const uni = unidadDe(lo?.unitId);
+        return (uni?.users || []).flatMap((r: any) => (r.vehicles || []).map((v: any) => v.plate)).filter(Boolean);
+    };
 
     const asignarUnidad = (loteId: string, unitId: string | null) => {
         cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, unitId } : l) }));
@@ -622,19 +638,33 @@ ${CSS_AUTO}
                     {/* Casas / lotes: polígono, nombre y vértices arrastrables al editar */}
                     {(verCapa.lotes ? lotes : []).map((lo) => {
                         const sel = selected?.type === "lote" && selected.id === lo.id;
+                        const señalado = hoverLote?.id === lo.id;
                         const uni = unidadDe(lo.unitId);
                         return (
                             <React.Fragment key={lo.id}>
                                 <Polygon positions={lo.points}
                                     pathOptions={{
+                                        /* Señalado y seleccionado son dos cosas distintas y se
+                                           ven distinto: señalar es pasar por encima, seleccionar
+                                           es haber elegido. El hover sólo sube el relleno. */
                                         color: sel ? "#f59e0b" : lo.unitId ? "#38bdf8" : "#94a3b8",
-                                        weight: sel ? 3 : 2,
+                                        weight: sel ? 3 : señalado ? 3 : 2,
                                         fillColor: sel ? "#f59e0b" : lo.unitId ? "#38bdf8" : "#94a3b8",
-                                        fillOpacity: sel ? 0.28 : 0.14,
+                                        fillOpacity: sel ? 0.28 : señalado ? 0.26 : 0.14,
                                     }}
                                     eventHandlers={{
                                         click: () => setSelected({ type: "lote", id: lo.id }),
                                         contextmenu: (e) => openCtx(e, "lote", lo.id),
+                                        mouseover: (e: any) => {
+                                            const oe = e.originalEvent;
+                                            setHoverLote({ id: lo.id, x: oe?.clientX ?? 0, y: oe?.clientY ?? 0 });
+                                        },
+                                        mousemove: (e: any) => {
+                                            const oe = e.originalEvent;
+                                            setHoverLote((h) => h?.id === lo.id
+                                                ? { id: lo.id, x: oe?.clientX ?? h.x, y: oe?.clientY ?? h.y } : h);
+                                        },
+                                        mouseout: () => setHoverLote((h) => h?.id === lo.id ? null : h),
                                     }}>
                                     <LTooltip direction="center" permanent className="cam-name-tip">
                                         {lo.label}{uni ? ` · ${uni.name}` : ""}
@@ -937,6 +967,95 @@ ${CSS_AUTO}
                     </div>
                 )}
 
+                {/*
+                  * La ficha del lote, al lado del puntero.
+                  *
+                  * Aparece al señalar y se va sola. No lleva ningún botón a propósito: si
+                  * tuviera, habría que poder llegar hasta ella con el mouse, y entonces
+                  * dejaría de poder desaparecer al salir del polígono — que es lo que la
+                  * hace liviana. Para actuar están el clic y el menú del botón derecho.
+                  *
+                  * Muestra lo que hay y dice qué falta, en vez de esconder los campos
+                  * vacíos: un lote sin unidad asignada no es un lote sin datos, es un lote
+                  * al que le falta el dato más importante.
+                  */}
+                <AnimatePresence>
+                    {hoverLote && (() => {
+                        const lo = lotes.find((l) => l.id === hoverLote.id);
+                        if (!lo) return null;
+                        const uni = unidadDe(lo.unitId);
+                        const pl = plazaDe(lo.parkingSlotId);
+                        const gente: any[] = uni?.users || [];
+                        const chapas = gente.flatMap((r: any) => (r.vehicles || []).map((v: any) => v.plate)).filter(Boolean);
+                        /* Que no se salga de la pantalla: pegada al borde queda cortada
+                           justo cuando el lote está en la orilla del mapa. */
+                        const ANCHO = 260, ALTO = 190;
+                        const x = Math.min(hoverLote.x + 16, (typeof window !== "undefined" ? window.innerWidth : 1200) - ANCHO - 12);
+                        const y = Math.min(hoverLote.y + 16, (typeof window !== "undefined" ? window.innerHeight : 800) - ALTO - 12);
+                        return (
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.94, y: 6 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.96, y: 4 }}
+                                transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.6 }}
+                                style={{ left: x, top: y, width: ANCHO }}
+                                className="fixed z-[580] pointer-events-none rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
+
+                                <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
+                                    <Pentagon size={13} className="text-amber-400 shrink-0" />
+                                    <span className="text-[12.5px] font-bold text-white truncate">{lo.label}</span>
+                                </div>
+
+                                <div className="px-3 py-2.5 space-y-2">
+                                    <div>
+                                        <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">Unidad</p>
+                                        <p className={cn("text-[12px] truncate", uni ? "text-white/90 font-semibold" : "text-white/35 italic")}>
+                                            {uni ? uni.name : "sin asignar"}
+                                        </p>
+                                    </div>
+
+                                    <div>
+                                        <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">Residentes</p>
+                                        {gente.length ? (
+                                            <p className="text-[12px] text-white/85 truncate">
+                                                {gente.slice(0, 2).map((r: any) => r.name).join(", ")}
+                                                {gente.length > 2 && <span className="text-white/40"> y {gente.length - 2} más</span>}
+                                            </p>
+                                        ) : (
+                                            <p className="text-[12px] text-white/35 italic">nadie cargado</p>
+                                        )}
+                                    </div>
+
+                                    {chapas.length > 0 && (
+                                        <div className="flex flex-wrap gap-1">
+                                            {chapas.slice(0, 4).map((c: string, i: number) => (
+                                                <span key={i} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 text-[10.5px] font-bold tabular-nums tracking-[0.1em] text-white/90">
+                                                    {c}
+                                                </span>
+                                            ))}
+                                            {chapas.length > 4 && <span className="text-[10px] text-white/40 self-center">+{chapas.length - 4}</span>}
+                                        </div>
+                                    )}
+
+                                    <div className="flex items-center gap-1.5 pt-0.5 border-t border-white/[0.07]">
+                                        <SquareParking size={12} className="text-white/40 shrink-0" />
+                                        {pl ? (
+                                            <>
+                                                <span className="text-[11.5px] text-white/85">{pl.label}</span>
+                                                <span className="text-[10px]" style={{ color: pl.isOccupied ? "var(--quieto)" : "var(--muted-foreground)" }}>
+                                                    · {pl.isOccupied ? "ocupada" : "libre"}
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <span className="text-[11.5px] text-white/35 italic">sin plaza</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </motion.div>
+                        );
+                    })()}
+                </AnimatePresence>
+
                 {/* Lo que todavía no está en la base. Va arriba y al centro, sobre el mapa:
                     el punto del botón se puede no mirar, una franja no. */}
                 {editing && sinGuardar && (
@@ -1049,12 +1168,58 @@ ${CSS_AUTO}
                 {/* Context menu */}
                 {ctx && (
                     <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[160px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
-                        {ctx.type === "lote" ? (<>
-                            <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando({ id: ctx.id, que: "unidad" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Home size={13} /> Asignar unidad</button>
-                            <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando({ id: ctx.id, que: "plaza" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><SquareParking size={13} /> Asignar plaza</button>
-                            <button onClick={() => { renameLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar</button>
-                            <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar casa</button>
-                        </>) : ctx.type === "camera" ? (<>
+                        {ctx.type === "lote" ? (() => {
+                            /*
+                             * El menú cambia según se esté editando o mirando.
+                             *
+                             * Antes ofrecía siempre lo mismo — asignar, renombrar, borrar —
+                             * incluso fuera del modo edición, donde esos cambios quedaban en
+                             * el aire: no hay botón de Guardar fuera de edición, así que
+                             * tocarlos dejaba el mapa sucio sin manera de guardarlo.
+                             *
+                             * Mirando, lo que se quiere es ir a los datos de esa casa. Por eso
+                             * las opciones son de lectura, y la última ofrece entrar a editar.
+                             */
+                            const lo = lotes.find((l) => l.id === ctx.id);
+                            const uni = unidadDe(lo?.unitId);
+                            if (!editing) return (<>
+                                <div className="px-3 py-1.5 text-[11px] font-bold text-foreground truncate border-b border-border mb-1">
+                                    {lo?.label}
+                                </div>
+                                <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setCtx(null); }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                    <Pentagon size={13} /> Seleccionar
+                                </button>
+                                {uni && (
+                                    <button onClick={() => { router.push(`/admin/units?buscar=${encodeURIComponent(uni.name)}`); }}
+                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                        <Home size={13} /> Ver la unidad {uni.name}
+                                    </button>
+                                )}
+                                {chapasDelLote(lo).length > 0 && (
+                                    <button onClick={() => { router.push(`/admin/history?search=${encodeURIComponent(chapasDelLote(lo)[0])}`); }}
+                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                        <RouteIco size={13} /> Pasadas de {chapasDelLote(lo)[0]}
+                                    </button>
+                                )}
+                                {lo?.parkingSlotId && (
+                                    <button onClick={() => { router.push("/admin/plazas"); }}
+                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                        <SquareParking size={13} /> Ver la plaza
+                                    </button>
+                                )}
+                                <button onClick={() => { setEditing(true); setSelected({ type: "lote", id: ctx.id }); setCtx(null); }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 border-t border-border mt-1">
+                                    <Pencil size={13} /> Editar el mapa
+                                </button>
+                            </>);
+                            return (<>
+                                <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando({ id: ctx.id, que: "unidad" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Home size={13} /> Asignar unidad</button>
+                                <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando({ id: ctx.id, que: "plaza" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><SquareParking size={13} /> Asignar plaza</button>
+                                <button onClick={() => { renameLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar</button>
+                                <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-[var(--mal-texto)]"><Trash2 size={13} /> Borrar casa</button>
+                            </>);
+                        })() : ctx.type === "camera" ? (<>
                             <button onClick={() => { const dev = devById[ctx.id]; if (dev && mapRef.current) { const cam = data.cameras.find((c) => c.deviceId === ctx.id); if (cam) mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Radio size={13} className="text-red-400" /> Centrar / ver</button>
                             <button onClick={() => { removeCamera(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Quitar del mapa</button>
                         </>) : (<>
