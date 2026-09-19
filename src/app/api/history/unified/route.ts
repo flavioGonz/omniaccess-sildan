@@ -65,9 +65,24 @@ export async function GET(req: NextRequest) {
     if (hasta && !isNaN(+hasta)) rango.lte = hasta;
     const porFecha = Object.keys(rango).length ? { timestamp: rango } : {};
 
-    // Se pide de más a cada tabla (skip + take) porque cuál aporta cada fila del
-    // resultado mezclado no se sabe hasta mezclarlas.
-    const cuantas = skip + take;
+    /**
+     * Cuántas se le piden a cada tabla.
+     *
+     * De más, porque cuál aporta cada fila del resultado mezclado no se sabe hasta
+     * mezclarlas: si se pidieran `take` a cada una y todas las de la página salieran de
+     * una sola, faltarían filas.
+     *
+     * Y UNA MÁS, que es lo que estaba mal. `hay` se contesta comparando el largo de la
+     * lista mezclada contra `skip + take`, pero la lista estaba recortada justo en ese
+     * número: con una sola fuente aportando —que es exactamente el caso de este barrio,
+     * 108 lecturas interiores y ningún acceso todavía— el largo nunca podía SUPERARLO, y
+     * `hay` daba false para siempre. La tabla se plantaba en 60 registros y no había
+     * botón ni scroll que trajera el resto, porque desde el servidor no había resto.
+     *
+     * Pedir una de más es la forma barata de contestar "¿queda algo?" sin contar las dos
+     * tablas enteras con los mismos filtros.
+     */
+    const cuantas = skip + take + 1;
 
     const pedirAccesos = quiere("ACCESO");
     const pedirTrack = quiere("PASO") || quiere("ESTACIONADO");
@@ -185,8 +200,9 @@ export async function GET(req: NextRequest) {
         }
     }
 
-    // `hay` dice si conviene pedir otra página. Un total exacto exigiría contar las dos
-    // tablas con los mismos filtros y no cambia nada de lo que se puede hacer.
+    // `hay` dice si conviene pedir otra página: sobró al menos una de las que se pidieron
+    // de más. Un total exacto exigiría contar las dos tablas con los mismos filtros y no
+    // cambia nada de lo que se puede hacer con el resultado.
     return NextResponse.json({
         filas: pagina,
         hay: filas.length > skip + take,

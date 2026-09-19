@@ -476,8 +476,12 @@ export default function HistoryPage() {
                                 el filtro de una tabla, y un guardia que viene a buscar una
                                 matrícula tiene que poder escribirla sin abrir nada primero. */}
                             <div className="shrink-0">
+                                {/* Chico: en la barra de una tabla es UN control al lado de
+                                    chips de 28 y botones de 32. A su alto original de 64 con
+                                    96 de marco, el buscador dejaba de ser un control y pasaba
+                                    a ser el renglon entero. */}
                                 <Seek value={searchTerm} onChange={setSearchTerm}
-                                    placeholder="Matrícula, nombre o cámara" startOpen width={296} />
+                                    placeholder="Matrícula, nombre o cámara" startOpen width={260} alto={34} />
                             </div>
 
                             <span className="w-px h-6 bg-border shrink-0 mx-0.5" />

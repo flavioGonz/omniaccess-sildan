@@ -1092,7 +1092,7 @@ video::-webkit-media-controls { display: none !important; }
      proportion the bar has — 0.28 of the height against the
      bar's 0.32 — on a control that is the whole component
      rather than one item in a row of them. */
-  font-size: 18px;
+  font-size: var(--sek-tipo, 18px);
   letter-spacing: -0.005em;
   color: var(--ink);
   outline: none;

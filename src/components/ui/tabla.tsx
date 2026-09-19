@@ -388,18 +388,30 @@ export function Tabla<T>({
                         <tr>
                             {visibles.map((c) => {
                                 const activo = orden?.clave === c.clave;
+                                /* ── EL ENCABEZADO ─────────────────────────────────
+                                   Sin versalitas, sin espaciado extra entre letras y sin
+                                   ícono. Estaba en MAYÚSCULAS con `tracking` y un ícono por
+                                   columna, y eso hace dos cosas malas a la vez: un renglón
+                                   de mayúsculas espaciadas ocupa bastante más ancho que el
+                                   mismo texto normal, y pesa visualmente MÁS que los datos
+                                   que rotula. Un encabezado de tabla es una etiqueta, no un
+                                   título: tiene que poder leerse una vez y después
+                                   desaparecer.
+
+                                   Los íconos no agregaban nada que el nombre de la columna
+                                   no dijera ya, y ocho íconos en fila compiten con las ocho
+                                   miniaturas que hay justo abajo. */
                                 const rotulo = (
                                     <span className={cn(
-                                        "inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-semibold transition-colors",
+                                        "inline-flex items-center gap-1 text-[12.5px] font-medium transition-colors",
                                         activo ? "text-foreground" : "text-muted-foreground",
                                         c.ordenable && c.valor && "cursor-pointer hover:text-foreground",
                                         c.ayuda && "cursor-help",
                                     )}>
-                                        {c.icono && <c.icono size={12} className="opacity-70" />}
                                         {c.titulo}
                                         {c.ordenable && c.valor && (activo
-                                            ? (orden!.desc ? <ArrowDown size={11} /> : <ArrowUp size={11} />)
-                                            : <ArrowUp size={11} className="opacity-0 group-hover/th:opacity-30" />)}
+                                            ? (orden!.desc ? <ArrowDown size={12} /> : <ArrowUp size={12} />)
+                                            : <ArrowUp size={12} className="opacity-0 group-hover/th:opacity-30" />)}
                                     </span>
                                 );
                                 return (
@@ -407,7 +419,7 @@ export function Tabla<T>({
                                         onClick={() => alternarOrden(c)}
                                         style={{ width: c.ancho }}
                                         className={cn(
-                                            "group/th bg-card px-5 py-3 font-normal border-b border-border select-none",
+                                            "group/th bg-card px-5 py-2 font-normal border-b border-border select-none",
                                             alineado[c.alinear || "izq"],
                                         )}>
                                         {c.ayuda

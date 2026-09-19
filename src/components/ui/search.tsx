@@ -60,6 +60,32 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
    same number by definition, and two places holding it is two
    places to get it wrong. */
 const SHUT = 64;
+
+/* ── ADDED FOR OMNIACCESS ────────────────────────────────────
+   El original vive solo en una tarjeta, donde 64 de alto y 96
+   de marco son la obra entera. Acá es UN control en la barra
+   de una tabla, al lado de chips de 28 y botones de 32, y un
+   objeto de 96 en esa fila obliga a la fila entera a medir 96
+   — el buscador deja de ser un control y pasa a ser el renglón.
+
+   Todas las medidas del componente están derivadas de SHUT por
+   construcción, así que alcanza con escalarlas juntas: la lupa
+   es 0.4375 del alto, el inset la centra, el corner es la
+   mitad, y el texto guarda la misma proporción que tenía. Un
+   solo número, como en el original — sólo que ahora se puede
+   elegir. */
+const proporciones = (alto: number) => {
+  const lente = Math.round(alto * (LENS_BASE / SHUT));
+  return {
+    shut: alto,
+    lente,
+    inset: (alto - lente) / 2,
+    corner: alto / 2,
+    /* 18 sobre 64. Por debajo de 13 el texto de un campo deja
+       de leerse cómodo, así que ahí se planta. */
+    tipo: Math.max(13, Math.round(18 * (alto / SHUT))),
+  };
+};
 /* the lens, and its inset. See the note above — this number
    is doing two jobs and they agree by construction.
 
@@ -77,8 +103,7 @@ const SHUT = 64;
    the same 0.111. `stroke-width: 2` therefore matches the
    bench at any LENS, and resizing the icon does not disturb
    it. */
-const LENS = 28;
-const INSET = (SHUT - LENS) / 2;
+const LENS_BASE = 28;
 
 /* the field's corner. 32 is half of its 64px height, which is
    the circle it is when shut and the pill it is when open. */
@@ -249,7 +274,12 @@ export function Seek({
      number invented for one screen. */
   width,
   /* the field's own corner, 0..32 */
-  corner = CORNER,
+  corner,
+  /* ── ADDED FOR OMNIACCESS ────────────────────────────────
+     El alto del objeto. 64 es el del original; en la barra de
+     una tabla va 34, que es la altura de los controles que
+     tiene al lado. Ver `proporciones`. */
+  alto = SHUT,
   /* ── ADDED FOR OMNIACCESS ────────────────────────────────
      The original is a showpiece: it owns its value and there
      is nothing downstream of it. Here it filters a table, so
@@ -267,6 +297,7 @@ export function Seek({
   spring?: number;
   width?: number;
   corner?: number;
+  alto?: number;
   value?: string;
   onChange?: (v: string) => void;
   placeholder?: string;
@@ -334,11 +365,13 @@ export function Seek({
      What the spring is for here is the tiny overshoot at the
      end — enough that the object arrives rather than stops,
      and not enough to notice as a bounce. */
-  const target = open ? Math.max(SHUT, span) : SHUT;
+  const M = proporciones(alto);
+  const radio = corner ?? M.corner;
+  const target = open ? Math.max(M.shut, span) : M.shut;
   const w = useSpring(target, clamp(spring, 0, 100), still);
 
   /* how far through the transformation, 0 shut and 1 open */
-  const p = clamp((w - SHUT) / Math.max(1, Math.max(SHUT, span) - SHUT), 0, 1);
+  const p = clamp((w - M.shut) / Math.max(1, Math.max(M.shut, span) - M.shut), 0, 1);
 
   /* ── the magnet ──────────────────────────────────────────
      Measured from the FRAME, which never moves, and not from
@@ -435,7 +468,7 @@ export function Seek({
       data-busy={busy}
       data-flat={still || undefined}
       style={{
-        "--sek-r": `${clamp(corner, 0, CORNER)}px`,
+        "--sek-r": `${clamp(radio, 0, M.corner)}px`,
         "--w": `${w.toFixed(2)}px`,
         "--p": p.toFixed(3),
         /* the placeholder and the caret arrive in the last
@@ -443,9 +476,10 @@ export function Seek({
         "--say": clamp((p - 0.55) / 0.45, 0, 1).toFixed(3),
         "--lx": `${lean.x.toFixed(2)}px`,
         "--ly": `${lean.y.toFixed(2)}px`,
-        "--inset": `${INSET}px`,
-        "--lens": `${LENS}px`,
-        "--shut": `${SHUT}px`,
+        "--inset": `${M.inset}px`,
+        "--lens": `${M.lente}px`,
+        "--shut": `${M.shut}px`,
+        "--sek-tipo": `${M.tipo}px`,
         /* ── THE FRAME FOLLOWS THE FIELD ──────────────────
            It was a fixed 440x116, sized for the widest the
            knob goes. The wall scales a component down by its
@@ -459,8 +493,12 @@ export function Seek({
            does the rest. It still never moves during an
            interaction: this changes with a knob, not with the
            open/shut state, which is what the magnet needs. */
-        "--frame": `${Math.max(SHUT, span) + 26}px`,
-        "--frameh": `${SHUT + 40}px`,
+        "--frame": `${Math.max(M.shut, span) + 26}px`,
+        /* El marco era SHUT + 40: cuarenta píxeles de aire para
+           que el imán tenga de dónde tirar. A 64 son 96 y está
+           bien; a 34 serían 74, o sea más aire que objeto. El
+           aire también se escala. */
+        "--frameh": `${Math.round(M.shut * 1.5)}px`,
       } as React.CSSProperties}
     >
       <div className="sek-skin">

@@ -434,7 +434,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
                         })}
                     />
                 ) : null}
-                masFilas={{ hay, cargando, traer: () => setPagina((p) => p + 1), modo: "boton" }}
+                masFilas={{ hay, cargando, traer: () => setPagina((p) => p + 1), modo: "scroll" }}
                 alto="calc(100vh - 300px)"
                 pie={
                     <span className="flex items-center gap-1.5">
