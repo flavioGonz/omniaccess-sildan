@@ -34,8 +34,9 @@ export default async function VehiclesPage() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-hidden p-8 flex flex-col">
-        <div className="bg-card/40 border border-border rounded-lg flex-1 flex flex-col overflow-hidden shadow-lg">
+      <main className="flex-1 overflow-hidden px-8 py-6 flex flex-col">
+        {/* Sin tarjeta alrededor de la tabla: la tabla es la pantalla. */}
+        <div className="flex-1 flex flex-col min-h-0">
           <VehicleList initialVehicles={vehicles as any} initialTotal={total} users={users as any} />
         </div>
       </main>

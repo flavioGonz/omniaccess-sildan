@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Vehicle, User } from "@prisma/client";
 import { History, Pencil, X } from "lucide-react";
-import { Seek } from "@/components/ui/search";
+import { Filtros } from "@/components/ui/filtros";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Cargando, Vacio } from "@/components/ui/estados";
 import { Estado, Matricula, Momento } from "@/components/ui/celdas";
@@ -32,6 +32,15 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
     const [vehiculos, setVehiculos] = useState<VehiculoFila[]>(initialVehicles as any);
     const [total, setTotal] = useState(initialTotal);
     const [busqueda, setBusqueda] = useState("");
+    /**
+     * El filtro por actividad es del lado del navegador, a propósito.
+     *
+     * "Circulando" y "sin actividad" se derivan de `lastSeen`, que ya viene en la fila. Ir
+     * al servidor por algo que se puede decidir mirando lo que ya se tiene sería una vuelta
+     * de red por nada — y encima obligaría a escribir el mismo corte dos veces, una en el
+     * SQL y otra en la columna, que es como empiezan a decir cosas distintas.
+     */
+    const [actividad, setActividad] = useState("todos");
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [hayMas, setHayMas] = useState(initialVehicles.length < initialTotal);
@@ -106,10 +115,19 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
         />
     ), [users, volverAPedir]);
 
+    const DIAS_CIRCULANDO = 2;
+    const visibles = useMemo(() => {
+        if (actividad === "todos") return vehiculos;
+        return vehiculos.filter((v) => {
+            const dias = v.lastSeen ? (Date.now() - new Date(v.lastSeen).getTime()) / 86_400_000 : Infinity;
+            return actividad === "circulando" ? dias <= DIAS_CIRCULANDO : dias > DIAS_CIRCULANDO;
+        });
+    }, [vehiculos, actividad]);
+
     return (
         <div className="flex-1 min-h-0 flex flex-col">
             <TablaVehiculos
-                vehiculos={vehiculos}
+                vehiculos={visibles}
                 cargando={cargando}
                 error={error}
                 alReintentar={volverAPedir}
@@ -121,12 +139,20 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                 alRecargar={volverAPedir}
                 editar={editar}
                 barra={
-                    <div className="flex items-center justify-between gap-3 w-full">
-                        <Seek value={busqueda} onChange={setBusqueda}
-                            placeholder="Matrícula, propietario, marca o modelo"
-                            startOpen width={320} alto={34} />
-                        <VehicleDialog users={users} onSuccess={volverAPedir} />
-                    </div>
+                    <Filtros
+                        busqueda={busqueda} alBuscar={setBusqueda}
+                        placeholder="Matrícula, propietario, marca o modelo"
+                        grupos={[{
+                            clave: "actividad", titulo: "Hace cuánto se lo vio",
+                            valor: actividad, alElegir: setActividad,
+                            opciones: [
+                                { valor: "todos", rotulo: "Todos" },
+                                { valor: "circulando", rotulo: "Circulando" },
+                                { valor: "sin", rotulo: "Sin actividad" },
+                            ],
+                        }]}
+                        acciones={<VehicleDialog users={users} onSuccess={volverAPedir} />}
+                    />
                 }
             />
 

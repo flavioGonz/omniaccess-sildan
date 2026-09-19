@@ -26,7 +26,7 @@ import { getUnits, deleteUnit, createUnit, updateUnit, getUnitsWithDetails, bulk
 import { getUsers } from "@/app/actions/users";
 import { cn } from "@/lib/utils";
 import { TablaUnidades } from "@/components/units/TablaUnidades";
-import { Seek } from "@/components/ui/search";
+import { Filtros } from "@/components/ui/filtros";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import Image from "next/image";
 import {
@@ -469,53 +469,33 @@ export default function UnitsPage() {
                         <p className="text-sm text-muted-foreground mt-1">Catastro y Gestión de Propiedades</p>
                     </div>
 
-                    <div className="h-10 w-px bg-foreground/10 mx-2 hidden md:block" />
-
-                    {/* El buscador de la aplicación, uno solo y del mismo estilo. */}
-                    <div className="hidden md:block">
-                        <Seek value={searchTerm} onChange={setSearchTerm}
-                            placeholder="Propiedad, lote o contacto" startOpen width={280} alto={34} />
-                    </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center bg-card border border-border p-1 rounded-xl gap-1">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setActiveCategory("all")}
-                            className={cn("h-8 text-[9px] font-bold uppercase tracking-widest rounded-lg", activeCategory === "all" ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:text-muted-foreground")}
-                        >
-                            Ver Todo
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setActiveCategory("units")}
-                            className={cn("h-8 text-[9px] font-bold uppercase tracking-widest rounded-lg", activeCategory === "units" ? "accion" : "text-muted-foreground hover:text-foreground")}
-                        >
-                            Lotes y Pisos
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setActiveCategory("complexes")}
-                            className={cn("h-8 text-[9px] font-bold uppercase tracking-widest rounded-lg", activeCategory === "complexes" ? "accion" : "text-muted-foreground hover:text-foreground")}
-                        >
-                            Barrios/Edificios
-                        </Button>
-                    </div>
-
-                    <Button onClick={() => handleCreateNew()} size="sm" className="accion h-10 px-6 rounded-md font-bold text-[10px] uppercase tracking-widest">
-                        <Plus className="mr-2" size={16} /> Nueva Propiedad
-                    </Button>
-                </div>
+                <Button onClick={() => handleCreateNew()} size="sm" className="accion h-9 px-5 rounded-md font-semibold text-[12px] gap-1.5">
+                    <Plus size={16} /> Nueva propiedad
+                </Button>
             </header>
 
             {/* Central Table Content */}
             <main className="flex-1 overflow-hidden p-8 flex flex-col gap-6">
-                <div className="bg-card/40 border border-border rounded-lg flex-1 flex flex-col overflow-hidden shadow-lg">
+                {/* Sin tarjeta alrededor de la tabla: la tabla es la pantalla. */}
+                <div className="flex-1 flex flex-col min-h-0">
                     <TablaUnidades
+                        barra={
+                            <Filtros
+                                busqueda={searchTerm} alBuscar={setSearchTerm}
+                                placeholder="Propiedad, lote o contacto"
+                                grupos={[{
+                                    clave: "categoria", titulo: "Qué clase de propiedad",
+                                    valor: activeCategory, alElegir: (v) => setActiveCategory(v as any),
+                                    opciones: [
+                                        { valor: "all", rotulo: "Todo" },
+                                        { valor: "units", rotulo: "Lotes y pisos" },
+                                        { valor: "complexes", rotulo: "Barrios y edificios" },
+                                    ],
+                                }]}
+                            />
+                        }
                         unidades={aMostrar}
                         indicePadres={indicePadres}
                         cargando={loading}

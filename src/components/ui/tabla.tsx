@@ -319,15 +319,27 @@ export function Tabla<T>({
     const vacia = !cargando && !error && ordenadas.length === 0;
 
     return (
-        <div className={cn("rounded-xl border border-border bg-card overflow-hidden flex flex-col", className)}>
+        /*
+         * Sin caja.
+         *
+         * La tabla estaba metida en una tarjeta — borde, fondo propio, esquinas y sombra —
+         * y encima cada pantalla la envolvía en OTRA tarjeta igual. Dos marcos concéntricos
+         * alrededor de una lista, y entre los dos unos veinte píxeles de aire que no
+         * separaban nada.
+         *
+         * Un borde sirve para decir "esto es una cosa y aquello es otra". Alrededor de la
+         * tabla no dice eso: la tabla ES la pantalla. Lo único que hace falta separar es el
+         * encabezado de los datos, y para eso alcanza una línea.
+         */
+        <div className={cn("flex flex-col min-w-0", className)}>
             {(barra || controles) && (
-                <div className="shrink-0 border-b border-border flex items-stretch">
+                <div className="shrink-0 flex items-stretch gap-2 pb-3">
                     <div className="flex-1 min-w-0">{barra}</div>
                     {controles && (
                         /* Los controles de la tabla misma, separados de los filtros por una
                            línea: los filtros dicen QUÉ se mira, éstos CÓMO se mira. Son dos
                            preguntas distintas y mezclarlas hace que cueste encontrar las dos. */
-                        <div className="shrink-0 flex items-center gap-0.5 px-1.5 border-l border-border">
+                        <div className="shrink-0 flex items-center gap-0.5 self-center">
                             <div className="relative">
                                 <button type="button" onClick={() => setMenu((m) => m === "densidad" ? "" : "densidad")}
                                     title="Cuánto aire lleva cada fila"
@@ -420,7 +432,7 @@ export function Tabla<T>({
                                         onClick={() => alternarOrden(c)}
                                         style={{ width: c.ancho }}
                                         className={cn(
-                                            "group/th bg-card px-5 py-2 font-normal border-b border-border select-none",
+                                            "group/th bg-background px-4 py-2.5 font-normal border-b border-border select-none",
                                             alineado[c.alinear || "izq"],
                                         )}>
                                         {c.ayuda
@@ -537,7 +549,7 @@ export function Tabla<T>({
             </div>
 
             {(pie || rango) && (
-                <div className="shrink-0 flex items-center gap-3 px-4 py-2 border-t border-border bg-card text-[11px] text-muted-foreground">
+                <div className="shrink-0 flex items-center gap-3 px-1 pt-2.5 mt-1 border-t border-border text-[11px] text-muted-foreground">
                     {pie}
                     {rango && (
                         <span className="ml-auto flex items-center gap-2">

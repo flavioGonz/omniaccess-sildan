@@ -5,7 +5,7 @@ import { createAccessGroup, deleteAccessGroup, getAccessGroups } from "@/app/act
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Seek } from "@/components/ui/search";
+import { Filtros } from "@/components/ui/filtros";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Momento } from "@/components/ui/celdas";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -174,8 +174,10 @@ export default function GroupsPage() {
                 </div>
             </header>
 
-            <main className="flex-1 overflow-hidden p-8 flex flex-col">
-                <div className="bg-card/40 border border-border rounded-lg flex-1 flex flex-col overflow-hidden shadow-lg">
+            <main className="flex-1 overflow-hidden px-8 py-6 flex flex-col">
+                {/* Sin tarjeta alrededor de la tabla: la tabla es la pantalla. El aire lo
+                    pone el margen, no un borde. */}
+                <div className="flex-1 flex flex-col min-h-0">
                     <Tabla<Grupo>
                         id="grupos"
                         nombreArchivo="grupos"
@@ -196,9 +198,10 @@ export default function GroupsPage() {
                         alto="100%"
                         pie={<span className="tabular-nums">{visibles.length} grupos</span>}
                         barra={
-                            <div className="flex items-center justify-between gap-3 w-full">
-                                <Seek value={busqueda} onChange={setBusqueda}
-                                    placeholder="Nombre del grupo" startOpen width={280} alto={34} />
+                            <Filtros
+                                busqueda={busqueda} alBuscar={setBusqueda}
+                                placeholder="Nombre del grupo"
+                                acciones={
                                 <Dialog open={abierto} onOpenChange={setAbierto}>
                                     <DialogTrigger asChild>
                                         <Button size="sm" className="accion h-8 px-4 rounded-md font-semibold text-[12px] gap-1.5">
@@ -229,7 +232,8 @@ export default function GroupsPage() {
                                         </form>
                                     </DialogContent>
                                 </Dialog>
-                            </div>
+                                }
+                            />
                         }
                     />
                 </div>

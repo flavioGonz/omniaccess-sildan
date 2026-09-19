@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Credential, User, Unit } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Seek } from "@/components/ui/search";
+import { Filtros } from "@/components/ui/filtros";
 import { Plus, Trash2 } from "lucide-react";
 import { assignTag, createTag, purgeTags, unassignTag } from "@/app/actions/tags";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -35,6 +35,8 @@ export function TagList({ initialTags, users }: TagListProps) {
     const [creando, setCreando] = useState(false);
     const [nuevo, setNuevo] = useState("");
     const [errorAlta, setErrorAlta] = useState<string | null>(null);
+
+    const asignados = useMemo(() => initialTags.filter((t) => t.userId).length, [initialTags]);
 
     /**
      * Refrescar los datos, no recargar la página.
@@ -92,23 +94,22 @@ export function TagList({ initialTags, users }: TagListProps) {
                 alDesasignar={desasignar}
                 alRecargar={recargar}
                 barra={
-                    <div className="flex items-center justify-between gap-3 w-full">
-                        <div className="flex items-center gap-2">
-                            <Seek value={busqueda} onChange={setBusqueda}
-                                placeholder="Número de tag o nombre" startOpen width={260} alto={34} />
-                            <Select value={filtro} onValueChange={(v: any) => setFiltro(v)}>
-                                <SelectTrigger className="h-[34px] w-[150px] text-[12px]">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="todos">Todos</SelectItem>
-                                    <SelectItem value="asignados">Asignados</SelectItem>
-                                    <SelectItem value="disponibles">Disponibles</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="flex items-center gap-2">
+                    <Filtros
+                        busqueda={busqueda} alBuscar={setBusqueda}
+                        placeholder="Número de tag o nombre"
+                        /* Era un <Select> de tres opciones: dos clics y las otras dos
+                           escondidas. Una lista desplegable se justifica con muchas. */
+                        grupos={[{
+                            clave: "estado", titulo: "Si está en uso",
+                            valor: filtro, alElegir: (v) => setFiltro(v as any),
+                            opciones: [
+                                { valor: "todos", rotulo: "Todos", cuenta: initialTags.length },
+                                { valor: "asignados", rotulo: "Asignados", cuenta: asignados },
+                                { valor: "disponibles", rotulo: "En el cajón", cuenta: initialTags.length - asignados },
+                            ],
+                        }]}
+                        acciones={
+                        <>
                             {/*
                              * Purgar estaba detrás de un `confirm()` del navegador: dos
                              * botones iguales y un texto que nadie lee. Borra TODOS los tags
@@ -158,8 +159,9 @@ export function TagList({ initialTags, users }: TagListProps) {
                                     </div>
                                 </DialogContent>
                             </Dialog>
-                        </div>
-                    </div>
+                        </>
+                        }
+                    />
                 }
             />
 

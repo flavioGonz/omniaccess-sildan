@@ -27,7 +27,7 @@ import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { TablaUnificada } from "@/components/history/TablaUnificada";
-import { Seek } from "@/components/ui/search";
+import { Filtros } from "@/components/ui/filtros";
 import { io } from "socket.io-client";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -483,92 +483,82 @@ export default function HistoryPage() {
             <TablaUnificada
                 barra={
                     <div>
-                        <div className="flex items-center gap-2 px-2.5 py-2 overflow-x-auto omni-sin-barra">
-                            {/* El buscador, uno solo y del mismo estilo en toda la aplicación.
-                                Arranca abierto: acá no es una pieza suelta en una tarjeta sino
-                                el filtro de una tabla, y un guardia que viene a buscar una
-                                matrícula tiene que poder escribirla sin abrir nada primero. */}
-                            <div className="shrink-0">
-                                {/* Chico: en la barra de una tabla es UN control al lado de
-                                    chips de 28 y botones de 32. A su alto original de 64 con
-                                    96 de marco, el buscador dejaba de ser un control y pasaba
-                                    a ser el renglon entero. */}
-                                <Seek value={searchTerm} onChange={setSearchTerm}
-                                    placeholder="Matrícula, nombre o cámara" startOpen width={260} alto={34} />
-                            </div>
-
-                            <span className="w-px h-6 bg-border shrink-0 mx-0.5" />
-
-                            <GrupoFiltro rotulo="Clase de registro"
-                                ayuda="Entradas y salidas las decide una cámara LPR y abren la barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre. Sin nada elegido se ven todos juntos.">
-                                {[
-                                    { v: "", l: "Todo" },
-                                    { v: "ACCESO", l: "Accesos" },
-                                    { v: "PASO", l: "Avistamientos" },
-                                    { v: "ESTACIONADO", l: "Estacionados" },
-                                ].map((t) => (
-                                    <Opcion key={t.l}
-                                        activo={t.v === "" ? tipos.length === 0 : tipos.includes(t.v)}
-                                        onClick={() => {
-                                            if (t.v === "") { setTipos([]); return; }
-                                            setTipos((p) => p.includes(t.v) ? p.filter((x) => x !== t.v) : [...p, t.v]);
-                                        }}>
-                                        {t.l}
-                                    </Opcion>
-                                ))}
-                            </GrupoFiltro>
-
-                            <GrupoFiltro rotulo="Identificación" oculto={soloSeguimiento}
-                                ayuda="Con qué se identificó: la matrícula (LPR), el rostro, o una tarjeta o llavero (RFID).">
-                                {activeMode === null && <Opcion activo={filterType === "ALL"} onClick={() => setFilterType("ALL")}>Todos</Opcion>}
-                                {(activeMode === null || activeMode === "LPR") && <Opcion activo={filterType === "PLATE"} onClick={() => setFilterType("PLATE")}>LPR</Opcion>}
-                                {(activeMode === null || activeMode === "FACE") && <Opcion activo={filterType === "FACE"} onClick={() => setFilterType("FACE")}>Rostros</Opcion>}
-                                {activeMode !== "QUEUE" && <Opcion activo={filterType === "TAG"} onClick={() => setFilterType("TAG")}>RFID</Opcion>}
-                            </GrupoFiltro>
-
-                            <GrupoFiltro rotulo="Resultado" oculto={soloSeguimiento}
-                                ayuda="Si el sistema abrió o no. Los denegados son los que conviene revisar: matrícula desconocida, permiso vencido u horario fuera de rango.">
-                                <Opcion activo={filterDecision === "ALL"} onClick={() => setFilterDecision("ALL")}>Todos</Opcion>
-                                <Opcion activo={filterDecision === "GRANT"} tono="bien" onClick={() => setFilterDecision("GRANT")}>Permitidos</Opcion>
-                                <Opcion activo={filterDecision === "DENY"} tono="mal" onClick={() => setFilterDecision("DENY")}>Denegados</Opcion>
-                            </GrupoFiltro>
-
-                            <GrupoFiltro rotulo="Sentido" oculto={soloSeguimiento}
-                                ayuda="Entradas o salidas. Sirve para responder quién está adentro, o para mirar solo el movimiento de una punta.">
-                                <Opcion activo={filterDirection === "ALL"} onClick={() => setFilterDirection("ALL")}>Todos</Opcion>
-                                <Opcion activo={filterDirection === "ENTRY"} onClick={() => setFilterDirection("ENTRY")}>Entrada</Opcion>
-                                <Opcion activo={filterDirection === "EXIT"} tono="salida" onClick={() => setFilterDirection("EXIT")}>Salida</Opcion>
-                            </GrupoFiltro>
-
+                        <Filtros
+                            busqueda={searchTerm} alBuscar={setSearchTerm}
+                            placeholder="Matrícula, nombre o cámara"
+                            grupos={[
+                                {
+                                    clave: "clase", multiple: true,
+                                    titulo: "Entradas y salidas las decide una cámara LPR y abren la barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre.",
+                                    valor: tipos,
+                                    alElegir: (v) => {
+                                        if (!v) { setTipos([]); return; }
+                                        setTipos((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v]);
+                                    },
+                                    opciones: [
+                                        { valor: "", rotulo: "Todo" },
+                                        { valor: "ACCESO", rotulo: "Accesos" },
+                                        { valor: "PASO", rotulo: "Avistamientos" },
+                                        { valor: "ESTACIONADO", rotulo: "Estacionados" },
+                                    ],
+                                },
+                                {
+                                    clave: "identificacion", oculto: soloSeguimiento,
+                                    titulo: "Con qué se identificó: la matrícula (LPR), el rostro, o una tarjeta o llavero (RFID).",
+                                    valor: filterType, alElegir: (v) => setFilterType(v as any),
+                                    opciones: [
+                                        ...(activeMode === null ? [{ valor: "ALL", rotulo: "Todos" }] : []),
+                                        ...((activeMode === null || activeMode === "LPR") ? [{ valor: "PLATE", rotulo: "LPR" }] : []),
+                                        ...((activeMode === null || activeMode === "FACE") ? [{ valor: "FACE", rotulo: "Rostros" }] : []),
+                                        ...(activeMode !== "QUEUE" ? [{ valor: "TAG", rotulo: "RFID" }] : []),
+                                    ],
+                                },
+                                {
+                                    clave: "resultado", oculto: soloSeguimiento,
+                                    titulo: "Si el sistema abrió o no. Los denegados son los que conviene revisar: matrícula desconocida, permiso vencido u horario fuera de rango.",
+                                    valor: filterDecision, alElegir: (v) => setFilterDecision(v as any),
+                                    opciones: [
+                                        { valor: "ALL", rotulo: "Todos" },
+                                        { valor: "GRANT", rotulo: "Permitidos", tono: "bien" },
+                                        { valor: "DENY", rotulo: "Denegados", tono: "mal" },
+                                    ],
+                                },
+                                {
+                                    clave: "sentido", oculto: soloSeguimiento,
+                                    titulo: "Entradas o salidas. Sirve para responder quién está adentro, o para mirar sólo el movimiento de una punta.",
+                                    valor: filterDirection, alElegir: (v) => setFilterDirection(v as any),
+                                    opciones: [
+                                        { valor: "ALL", rotulo: "Todos" },
+                                        { valor: "ENTRY", rotulo: "Entradas" },
+                                        { valor: "EXIT", rotulo: "Salidas" },
+                                    ],
+                                },
+                            ]}
+                            acciones={
+                                <button onClick={() => setFilterMerodeo(v => !v)}
+                                    title="Matrículas que aparecen muchas veces en poco tiempo sin llegar a entrar"
+                                    className={cn("shrink-0 flex items-center gap-1.5 h-[34px] px-3 rounded-lg text-[12px] font-semibold transition-colors",
+                                        filterMerodeo ? "pleno-mal" : "bg-muted/60 text-muted-foreground hover:text-foreground")}>
+                                    <ShieldAlert size={13} /> Merodeo{chapasMerodeo.size > 0 ? ` (${chapasMerodeo.size})` : ""}
+                                </button>
+                            }>
                             {/* Color y tipo aparecen sólo si hay de dónde elegir: un selector
                                 con una sola opción es un control que no decide nada. */}
-                            {!soloSeguimiento && (vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
-                                <>
-                                    <span className="w-px h-6 bg-border shrink-0 mx-0.5" />
-                                    {vehFacets.colors.length > 0 && (
-                                        <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
-                                            className="h-8 shrink-0 bg-muted/60 border border-border/50 rounded-lg px-2 text-[11.5px] font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
-                                            <option value="ALL">Color: todos</option>
-                                            {vehFacets.colors.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
-                                        </select>
-                                    )}
-                                    {vehFacets.types.length > 0 && (
-                                        <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
-                                            className="h-8 shrink-0 bg-muted/60 border border-border/50 rounded-lg px-2 text-[11.5px] font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
-                                            <option value="ALL">Tipo: todos</option>
-                                            {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
-                                        </select>
-                                    )}
-                                </>
+                            {!soloSeguimiento && vehFacets.colors.length > 0 && (
+                                <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
+                                    className="h-[34px] shrink-0 bg-muted/60 border-0 rounded-lg px-2.5 text-[12px] font-semibold text-foreground outline-none">
+                                    <option value="ALL">Color: todos</option>
+                                    {vehFacets.colors.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
+                                </select>
                             )}
-
-                            <button onClick={() => setFilterMerodeo(v => !v)}
-                                title="Matrículas que aparecen muchas veces en poco tiempo sin llegar a entrar"
-                                className={cn("ml-auto shrink-0 flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold border transition-colors",
-                                    filterMerodeo ? "pleno-mal border-transparent" : "bg-muted/60 text-muted-foreground border-border/50 hover:text-foreground")}>
-                                <ShieldAlert size={13} /> Merodeo{chapasMerodeo.size > 0 ? ` (${chapasMerodeo.size})` : ""}
-                            </button>
-                        </div>
+                            {!soloSeguimiento && vehFacets.types.length > 0 && (
+                                <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
+                                    className="h-[34px] shrink-0 bg-muted/60 border-0 rounded-lg px-2.5 text-[12px] font-semibold text-foreground outline-none">
+                                    <option value="ALL">Tipo: todos</option>
+                                    {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                            )}
+                        </Filtros>
 
                         {/* Qué se está filtrando. Aparece sólo cuando hay algo puesto, así
                             que no reserva alto: un renglón vacío permanente es lo que hacía
@@ -576,8 +566,8 @@ export default function HistoryPage() {
                         <AnimatePresence initial={false}>
                             {filtrosPuestos.length > 0 && (
                                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.18 }} className="overflow-hidden border-t border-border/60">
-                                    <div className="flex items-center gap-1.5 flex-wrap px-2.5 py-1.5">
+                                    transition={{ duration: 0.18 }} className="overflow-hidden">
+                                    <div className="flex items-center gap-1.5 flex-wrap pt-2">
                                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mr-0.5">Filtrando</span>
                                         <AnimatePresence initial={false}>
                                             {filtrosPuestos.map((f) => (

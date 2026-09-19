@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { getBitacoraEntries } from "@/app/actions/bitacora";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Seek } from "@/components/ui/search";
+import { Filtros } from "@/components/ui/filtros";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Estado, Miniatura, Momento, Nada } from "@/components/ui/celdas";
 import { getImagePath } from "@/lib/image-path";
@@ -64,6 +64,8 @@ export default function BitacoraPage() {
     const [error, setError] = useState<string | null>(null);
     const [busqueda, setBusqueda] = useState("");
     const [dia, setDia] = useState("");
+    /** Los tipos agrupados por lo que hay que hacer con ellos, no por su nombre interno. */
+    const [clase, setClase] = useState("todo");
     const [aLaVista, setALaVista] = useState(PAGINA);
     const [elegida, setElegida] = useState<any | null>(null);
 
@@ -80,7 +82,7 @@ export default function BitacoraPage() {
     }, []);
 
     useEffect(() => { cargar(); }, [cargar]);
-    useEffect(() => { setALaVista(PAGINA); }, [busqueda, dia]);
+    useEffect(() => { setALaVista(PAGINA); }, [busqueda, dia, clase]);
 
     const filtradas = useMemo(() => {
         const q = busqueda.trim().toLowerCase();
@@ -88,9 +90,14 @@ export default function BitacoraPage() {
             const coincide = !q || [e.plate, e.name, e.destination, e.notes, e.guardName]
                 .some((v) => (v || "").toLowerCase().includes(q));
             const mismoDia = !dia || paraInput(e.timestamp).slice(0, 10) === dia;
-            return coincide && mismoDia;
+            const t = (e.type || "").toUpperCase();
+            const esClase = clase === "todo"
+                || (clase === "alertas" && (t === "PANIC" || t === "MERODEO" || t === "NOVEDAD"))
+                || (clase === "rondines" && (t === "RONDIN" || t === "PATROL"))
+                || (clase === "visitas" && t === "VISITA");
+            return coincide && mismoDia && esClase;
         });
-    }, [entradas, busqueda, dia]);
+    }, [entradas, busqueda, dia, clase]);
 
     const visibles = useMemo(() => filtradas.slice(0, aLaVista), [filtradas, aLaVista]);
 
@@ -179,8 +186,10 @@ export default function BitacoraPage() {
                 </div>
             </header>
 
-            <main className="flex-1 overflow-hidden p-8 flex flex-col">
-                <div className="bg-card/40 border border-border rounded-lg flex-1 flex flex-col overflow-hidden shadow-lg">
+            <main className="flex-1 overflow-hidden px-8 py-6 flex flex-col">
+                {/* Sin tarjeta alrededor de la tabla: la tabla es la pantalla. El aire lo
+                    pone el margen, no un borde. */}
+                <div className="flex-1 flex flex-col min-h-0">
                     <Tabla<any>
                         id="bitacora"
                         nombreArchivo="bitacora"
@@ -193,8 +202,8 @@ export default function BitacoraPage() {
                         alClickFila={setElegida}
                         vacio={{
                             icono: FileText,
-                            titulo: busqueda || dia ? "Ningún registro coincide" : "La bitácora está vacía",
-                            ayuda: busqueda || dia
+                            titulo: busqueda || dia || clase !== "todo" ? "Ningún registro coincide" : "La bitácora está vacía",
+                            ayuda: busqueda || dia || clase !== "todo"
                                 ? "Probá con otra palabra o sacá el filtro de fecha."
                                 : "Acá aparecen las novedades, los rondines y las visitas que carga la guardia desde su dispositivo.",
                         }}
@@ -208,22 +217,34 @@ export default function BitacoraPage() {
                         alto="100%"
                         pie={<span className="tabular-nums">{visibles.length} de {filtradas.length} registros</span>}
                         barra={
-                            <div className="flex items-center gap-2 w-full">
-                                <Seek value={busqueda} onChange={setBusqueda}
-                                    placeholder="Matrícula, guardia, novedad" startOpen width={280} alto={34} />
+                            <Filtros
+                                busqueda={busqueda} alBuscar={setBusqueda}
+                                placeholder="Matrícula, guardia, novedad"
+                                grupos={[{
+                                    clave: "clase", titulo: "Qué clase de registro",
+                                    valor: clase, alElegir: setClase,
+                                    opciones: [
+                                        { valor: "todo", rotulo: "Todo" },
+                                        { valor: "alertas", rotulo: "Alertas" },
+                                        { valor: "rondines", rotulo: "Rondines" },
+                                        { valor: "visitas", rotulo: "Visitas" },
+                                    ],
+                                }]}
+                                acciones={
+                                    <button type="button" onClick={cargar} title="Volver a pedir"
+                                        className="w-8 h-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                                        <RefreshCw size={15} className={cn(cargando && "animate-spin")} />
+                                    </button>
+                                }>
                                 <input type="date" value={dia} onChange={(e) => setDia(e.target.value)}
-                                    className="h-[34px] px-3 rounded-md bg-background border border-border text-[12px] text-foreground" />
+                                    className="h-[34px] px-3 rounded-lg bg-muted/60 border-0 text-[12px] text-foreground" />
                                 {dia && (
                                     <button type="button" onClick={() => setDia("")}
                                         className="text-[12px] text-muted-foreground hover:text-foreground">
                                         todo
                                     </button>
                                 )}
-                                <button type="button" onClick={cargar} title="Volver a pedir"
-                                    className="ml-auto w-8 h-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                                    <RefreshCw size={15} className={cn(cargando && "animate-spin")} />
-                                </button>
-                            </div>
+                            </Filtros>
                         }
                     />
                 </div>

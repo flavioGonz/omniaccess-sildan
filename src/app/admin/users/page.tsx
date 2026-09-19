@@ -62,7 +62,7 @@ import { ImportUsersDialog } from "@/components/ImportUsersDialog";
 import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
 import { cn } from "@/lib/utils";
 import { TablaUsuarios, ROLES } from "@/components/users/TablaUsuarios";
-import { Seek } from "@/components/ui/search";
+import { Filtros } from "@/components/ui/filtros";
 
 // Mock User with relations until prisma generate is ready
 interface UserWithRelations {
@@ -278,32 +278,23 @@ export default function UsersPage() {
                     alAbrir={(u) => { setSelectedUser(u as any); setIsFormOpen(true); }}
                     alBorrar={(u) => setUserToDelete(u as any)}
                     barra={
-                        <div className="flex items-center gap-2 px-2.5 py-2 overflow-x-auto omni-sin-barra">
-                            <div className="shrink-0">
-                                <Seek value={searchQuery} onChange={setSearchQuery}
-                                    placeholder="Nombre, DNI, unidad o contacto" startOpen width={280} alto={34} />
-                            </div>
-                            <span className="w-px h-6 bg-border shrink-0 mx-0.5" />
-                            {/* Un rol por vez: son excluyentes, así que es una elección y no
-                                una lista de interruptores. Por eso van en píldora. */}
-                            <div className="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 border border-border/50 shrink-0">
-                                <button type="button" onClick={() => setFilterRole(null)}
-                                    className={cn("h-7 px-2.5 rounded-md text-[11.5px] font-semibold whitespace-nowrap transition-colors",
-                                        filterRole === null ? "accion" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
-                                    Todos
-                                </button>
-                                {Object.entries(ROLES).map(([clave, info]) => {
-                                    const Ico = info.icono;
-                                    return (
-                                        <button key={clave} type="button" onClick={() => setFilterRole(clave)}
-                                            className={cn("h-7 px-2.5 rounded-md text-[11.5px] font-semibold whitespace-nowrap transition-colors inline-flex items-center gap-1.5",
-                                                filterRole === clave ? "accion" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
-                                            <Ico size={12} />{info.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
+                        <Filtros
+                            busqueda={searchQuery} alBuscar={setSearchQuery}
+                            placeholder="Nombre, DNI, unidad o contacto"
+                            /* Un rol por vez: son excluyentes, así que es una elección y no
+                               una lista de interruptores. */
+                            grupos={[{
+                                clave: "rol", titulo: "Qué es cada uno en el barrio",
+                                valor: filterRole ?? "todos",
+                                alElegir: (v) => setFilterRole(v === "todos" ? null : v),
+                                opciones: [
+                                    { valor: "todos", rotulo: "Todos" },
+                                    ...Object.entries(ROLES).map(([clave, info]) => ({
+                                        valor: clave, rotulo: info.label,
+                                    })),
+                                ],
+                            }]}
+                        />
                     }
                 />
             </div>
