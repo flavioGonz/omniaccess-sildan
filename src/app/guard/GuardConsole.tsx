@@ -69,7 +69,7 @@ import { getAccessEvents, getPlateAnalysis } from "@/app/actions/history";
 import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
 import { getQuickCreateData, getGuardsList, verifyGuardCredential } from "@/app/actions/users";
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
-import { UserFormDialog } from "@/components/UserFormDialog";
+import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
@@ -3818,7 +3818,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
                 {
                     quickCreateData && (
-                        <UserFormDialog
+                        <CajonUsuario
                             open={showQuickCreate}
                             onOpenChange={setShowQuickCreate}
                             units={quickCreateData.units}

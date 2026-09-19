@@ -55,7 +55,7 @@ import {
     Truck,
     ShieldAlert
 } from "lucide-react";
-import { UserFormDialog } from "@/components/UserFormDialog";
+import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { ExportUsersButton } from "@/components/ExportUsersButton";
 import { ImportUsersDialog } from "@/components/ImportUsersDialog";
@@ -310,7 +310,7 @@ export default function UsersPage() {
             </div>
 
             {/* Dialogs */}
-            <UserFormDialog
+            <CajonUsuario
                 open={isFormOpen}
                 onOpenChange={(open) => {
                     setIsFormOpen(open);

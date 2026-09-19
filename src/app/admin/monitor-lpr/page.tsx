@@ -28,7 +28,7 @@ import { getWatchMap } from "@/app/actions/watchlist";
 import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
-import { UserFormDialog } from "@/components/UserFormDialog";
+import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 import { fechaCorta, hora } from "@/lib/fechas";
 
@@ -1538,7 +1538,7 @@ export default function MonitorLPR() {
                     />
                 )}
 
-                <UserFormDialog open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
+                <CajonUsuario open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
         </TooltipProvider>
     );
 }

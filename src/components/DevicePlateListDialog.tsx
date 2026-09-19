@@ -8,7 +8,7 @@ import { getUnitsWithDetails } from "@/app/actions/units";
 import { getAccessGroups } from "@/app/actions/groups";
 import { getParkingSlots } from "@/app/actions/plazas";
 import { getDevices } from "@/app/actions/devices";
-import { UserFormDialog } from "./UserFormDialog";
+import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { LprImportPreviewDialog } from "./LprImportPreviewDialog";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
@@ -774,7 +774,7 @@ export function DevicePlateListDialog({ device, open, onOpenChange }: DevicePlat
             )}
 
             {showUserForm && userFormData && (
-                <UserFormDialog
+                <CajonUsuario
                     open={showUserForm}
                     onOpenChange={setShowUserForm}
                     units={userFormData.units}
