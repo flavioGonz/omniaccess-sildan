@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Cargando, Vacio } from "@/components/ui/estados";
 import { Estado, Matricula, Momento } from "@/components/ui/celdas";
 import { TablaVehiculos, type VehiculoFila } from "./TablaVehiculos";
-import { VehicleDialog } from "./VehicleDialog";
+import { CajonVehiculo } from "./CajonVehiculo";
 import { getVehicles, getVehicleHistory } from "@/app/actions/vehicles";
 
 const PAGINA = 40;
@@ -102,7 +102,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
     const volverAPedir = useCallback(() => setRecargar((n) => n + 1), []);
 
     const editar = useCallback((v: VehiculoFila) => (
-        <VehicleDialog
+        <CajonVehiculo
             users={users}
             vehicle={v as any}
             onSuccess={volverAPedir}
@@ -151,7 +151,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                 { valor: "sin", rotulo: "Sin actividad" },
                             ],
                         }]}
-                        acciones={<VehicleDialog users={users} onSuccess={volverAPedir} />}
+                        acciones={<CajonVehiculo users={users} onSuccess={volverAPedir} />}
                     />
                 }
             />
