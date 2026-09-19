@@ -273,6 +273,33 @@ export default function BarrioMap() {
     // Flujo en vivo (columnas + autitos) — hooks siempre antes del early-return
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
     const flow = useFlow(data?.streets || [], camsNamed, liveSocket);
+
+    /**
+     * Las últimas pasadas que ofrece el buscador con el campo vacío.
+     *
+     * No sale de ninguna consulta nueva: son las mismas lecturas que ya alimentan las
+     * columnas de entradas y salidas, fusionadas y ordenadas por hora.
+     *
+     * Va ACÁ, antes del `return` de "Cargando mapa…", y no junto al resto de los cálculos
+     * de abajo. Ahí estaba, y rompía la pantalla con un React #310: mientras `data` era
+     * null el componente salía temprano con N ganchos, y al llegar los datos renderizaba
+     * N+1. Un gancho después de un `return` condicional no es un gancho, es una bomba de
+     * tiempo que explota justo cuando la pantalla empieza a funcionar.
+     */
+    const ultimasPasadas = useMemo(() => {
+        const todas = [...flow.entries, ...flow.exits];
+        return todas
+            .filter((e: any) => e.plateDetected)
+            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .slice(0, 10)
+            .map((e: any) => ({
+                id: e.id,
+                plate: String(e.plateDetected).toUpperCase(),
+                camara: e.device?.name || null,
+                cuando: e.timestamp,
+                sentido: e.direction as any,
+            }));
+    }, [flow.entries, flow.exits]);
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
 
@@ -390,28 +417,6 @@ export default function BarrioMap() {
             .map((st) => ({ tipo: "calle" as const, id: st.id, nombre: st.name || "Calle", lat: st.points[Math.floor(st.points.length / 2)][0], lng: st.points[Math.floor(st.points.length / 2)][1] }));
         return [...cams, ...calles].slice(0, 6);
     })();
-
-    /**
-     * Las últimas pasadas que ofrece el buscador con el campo vacío.
-     *
-     * No sale de ninguna consulta nueva: son las mismas lecturas que ya alimentan las
-     * columnas de entradas y salidas, fusionadas y ordenadas por hora. El dato estaba a un
-     * `useMemo` de distancia de ser útil en otro lado.
-     */
-    const ultimasPasadas = useMemo(() => {
-        const todas = [...flow.entries, ...flow.exits];
-        return todas
-            .filter((e: any) => e.plateDetected)
-            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-            .slice(0, 10)
-            .map((e: any) => ({
-                id: e.id,
-                plate: String(e.plateDetected).toUpperCase(),
-                camara: e.device?.name || null,
-                cuando: e.timestamp,
-                sentido: e.direction as any,
-            }));
-    }, [flow.entries, flow.exits]);
 
     const irALugar = (l: Lugar) => {
         setVista3D(false);
