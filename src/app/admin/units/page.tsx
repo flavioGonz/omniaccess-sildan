@@ -25,6 +25,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { getUnits, deleteUnit, createUnit, updateUnit, getUnitsWithDetails, bulkCreateSubUnits, getAvailableUsers, assignUserToUnit, unassignUserFromUnit } from "@/app/actions/units";
 import { getUsers } from "@/app/actions/users";
 import { cn } from "@/lib/utils";
+import { TablaUnidades } from "@/components/units/TablaUnidades";
+import { Seek } from "@/components/ui/search";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import Image from "next/image";
 import {
@@ -53,9 +55,16 @@ interface ExtendedUnit extends Unit {
     children?: ExtendedUnit[];
 }
 
+/** Cuántas unidades entran de una tanda. */
+const PAGINA = 50;
+
 export default function UnitsPage() {
     const [units, setUnits] = useState<ExtendedUnit[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    /* Cuántas filas se muestran. Antes se renderizaba el catastro completo de una, con el
+       avatar, los chips y el menú de cada fila. */
+    const [aLaVista, setALaVista] = useState(PAGINA);
     const [selectedUnit, setSelectedUnit] = useState<ExtendedUnit | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
     const [activeCategory, setActiveCategory] = useState<'all' | 'units' | 'complexes'>('units');
@@ -94,6 +103,7 @@ export default function UnitsPage() {
         try {
             const data = await getUnitsWithDetails();
             setUnits(data as ExtendedUnit[]);
+            setError(null);
             if (data.length > 0) {
                 if (selectedUnit) {
                     const updated = data.find(u => u.id === selectedUnit.id);
@@ -102,6 +112,12 @@ export default function UnitsPage() {
                     setSelectedUnit(data[0] as ExtendedUnit);
                 }
             }
+        } catch (e: any) {
+            /* No había `catch` en absoluto: si la consulta fallaba, la pantalla quedaba con
+               el catastro vacío y sin decir nada. Un barrio sin unidades cargadas y un
+               servidor caído se veían igual. */
+            console.error("[unidades] no se pudo traer el catastro:", e);
+            setError(e?.message || "No hubo respuesta del servidor.");
         } finally {
             setLoading(false);
         }
@@ -193,6 +209,19 @@ export default function UnitsPage() {
         }
     };
 
+    /**
+     * De qué complejo depende cada unidad, resuelto UNA vez.
+     *
+     * La columna hacía `units.find(u => u.id === unit.parentId)` por fila: recorrer el
+     * catastro entero, por cada fila, en cada render. Con cien unidades son diez mil
+     * comparaciones; con mil, un millón, y escribir en el buscador traba la pantalla.
+     */
+    const indicePadres = useMemo(() => {
+        const m = new Map<string, string>();
+        for (const u of units) m.set(u.id, u.name);
+        return m;
+    }, [units]);
+
     const filteredUnits = units.filter(u => {
         const matchesSearch =
             u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -210,6 +239,12 @@ export default function UnitsPage() {
         }
         return true;
     });
+
+    const aMostrar = filteredUnits.slice(0, aLaVista);
+    const hayMas = aLaVista < filteredUnits.length;
+
+    // Cambiar de búsqueda o de categoría vuelve a la primera tanda.
+    useEffect(() => { setALaVista(PAGINA); }, [searchTerm, activeCategory]);
 
     const displayedResidents = useMemo(() => {
         if (!selectedUnit) return [];
@@ -436,15 +471,10 @@ export default function UnitsPage() {
 
                     <div className="h-10 w-px bg-foreground/10 mx-2 hidden md:block" />
 
-                    <div className="relative group w-80 hidden md:block">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-blue-500 transition-colors" size={14} />
-                        <input
-                            type="text"
-                            placeholder="Buscar propiedad, lote o contacto..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full h-10 pl-11 pr-4 bg-foreground/[0.04] border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-blue-500/50 focus:bg-foreground/[0.04] transition-all"
-                        />
+                    {/* El buscador de la aplicación, uno solo y del mismo estilo. */}
+                    <div className="hidden md:block">
+                        <Seek value={searchTerm} onChange={setSearchTerm}
+                            placeholder="Propiedad, lote o contacto" startOpen width={280} alto={34} />
                     </div>
                 </div>
 
@@ -462,7 +492,7 @@ export default function UnitsPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => setActiveCategory("units")}
-                            className={cn("h-8 text-[9px] font-bold uppercase tracking-widest rounded-lg", activeCategory === "units" ? "bg-blue-600 text-foreground" : "text-muted-foreground")}
+                            className={cn("h-8 text-[9px] font-bold uppercase tracking-widest rounded-lg", activeCategory === "units" ? "accion" : "text-muted-foreground hover:text-foreground")}
                         >
                             Lotes y Pisos
                         </Button>
@@ -470,13 +500,13 @@ export default function UnitsPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => setActiveCategory("complexes")}
-                            className={cn("h-8 text-[9px] font-bold uppercase tracking-widest rounded-lg", activeCategory === "complexes" ? "bg-blue-600 text-foreground" : "text-muted-foreground")}
+                            className={cn("h-8 text-[9px] font-bold uppercase tracking-widest rounded-lg", activeCategory === "complexes" ? "accion" : "text-muted-foreground hover:text-foreground")}
                         >
                             Barrios/Edificios
                         </Button>
                     </div>
 
-                    <Button onClick={() => handleCreateNew()} size="sm" className="h-10 px-6 rounded-xl bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-600/20 font-bold text-[10px] uppercase tracking-widest">
+                    <Button onClick={() => handleCreateNew()} size="sm" className="accion h-10 px-6 rounded-md font-bold text-[10px] uppercase tracking-widest">
                         <Plus className="mr-2" size={16} /> Nueva Propiedad
                     </Button>
                 </div>
@@ -485,110 +515,19 @@ export default function UnitsPage() {
             {/* Central Table Content */}
             <main className="flex-1 overflow-hidden p-8 flex flex-col gap-6">
                 <div className="bg-card/40 border border-border rounded-lg flex-1 flex flex-col overflow-hidden shadow-lg">
-                    <div className="flex-1 overflow-auto custom-scrollbar">
-                        <Table>
-                            <TableHeader className="bg-card border-b border-border sticky top-0 z-10 backdrop-blur-sm">
-                                <TableRow className="hover:bg-transparent border-none">
-                                    <TableHead className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground py-6 pl-8">Unidad / Identificador</TableHead>
-                                    <TableHead className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground">Ubicación / Complejo</TableHead>
-                                    <TableHead className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground">Estado</TableHead>
-                                    <TableHead className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground">Residentes / Matrículas</TableHead>
-                                    <TableHead className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground">Contacto Admin</TableHead>
-                                    <TableHead className="w-[100px] text-[11px] uppercase tracking-wide font-semibold text-muted-foreground text-right pr-8">Acciones</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {filteredUnits.map((unit) => (
-                                    <TableRow
-                                        key={unit.id}
-                                        className={cn(
-                                            "border-b border-border hover:bg-accent transition-colors group cursor-pointer",
-                                            selectedUnit?.id === unit.id && "bg-blue-500/5"
-                                        )}
-                                        onClick={() => setSelectedUnit(unit)}
-                                    >
-                                        <TableCell className="py-3 pl-6">
-                                            <div className="flex items-center gap-3">
-                                                <div className={cn(
-                                                    "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border border-border",
-                                                    (unit.lot || unit.houseNumber) ? "bg-blue-500/10 text-blue-500" : "bg-muted text-muted-foreground"
-                                                )}>
-                                                    {(unit.lot || unit.houseNumber) ? <Home size={15} /> : (unit.type === 'BARRIO' ? <MapPin size={15} /> : <Building2 size={15} />)}
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <div className="flex items-center gap-2">
-                                                        <p className="font-semibold text-foreground text-sm truncate">{unit.name}</p>
-                                                        {unit.parentId && <Badge variant="outline" className="border-blue-500/40 text-blue-500 text-[9px] h-4 px-1.5">Sub</Badge>}
-                                                    </div>
-                                                    <p className="text-[11px] text-muted-foreground truncate">
-                                                        {unit.lot ? `Lote ${unit.lot}` : ""}{unit.houseNumber ? ` · N° ${unit.houseNumber}` : ""}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            {unit.parentId ? (
-                                                <span className="text-xs text-muted-foreground">{units.find(u => u.id === unit.parentId)?.name}</span>
-                                            ) : (
-                                                <span className="text-xs font-medium text-blue-500">Principal / {unit.type}</span>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <Badge className={cn(
-                                                    "border-none text-[10px] px-2 py-0.5 font-semibold",
-                                                    unit.users.length > 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground"
-                                                )}>
-                                                    {unit.users.length > 0 ? 'Ocupado' : 'Vacante'}
-                                                </Badge>
-                                                <span className="text-[11px] text-muted-foreground">{unit.users.length} pers.</span>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell>
-                                            {unit.users.length > 0 ? (
-                                                <div className="flex flex-col gap-0.5">
-                                                    {unit.users.slice(0, 2).map((user) => (
-                                                        <div key={user.id} className="flex items-center gap-2">
-                                                            <span className="text-xs text-foreground truncate max-w-[130px]">{user.name}</span>
-                                                            {user.vehicles?.map((v, vidx) => (
-                                                                <span key={vidx} className="text-[10px] font-mono text-blue-500 bg-blue-500/10 px-1 rounded">{v.plate}</span>
-                                                            ))}
-                                                        </div>
-                                                    ))}
-                                                    {unit.users.length > 2 && <span className="text-[11px] text-muted-foreground">y {unit.users.length - 2} más…</span>}
-                                                </div>
-                                            ) : (
-                                                <span className="text-xs text-muted-foreground italic">{unit.contactName || "Sin residentes"}</span>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                                {unit.adminPhone && <Phone size={12} />}{unit.adminPhone || "S/D"}
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-right pr-6">
-                                            <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <Button onClick={(e) => { e.stopPropagation(); handleEdit(unit); }} variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"><Pencil size={14} /></Button>
-                                                <div onClick={(e) => e.stopPropagation()}>
-                                                    <DeleteConfirmDialog id={unit.id} title={unit.name} onDelete={deleteUnit} onSuccess={loadUnits}>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-red-500/60 hover:text-red-500 hover:bg-red-500/10"><Trash2 size={14} /></Button>
-                                                    </DeleteConfirmDialog>
-                                                </div>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                                {filteredUnits.length === 0 && (
-                                    <TableRow>
-                                        <TableCell colSpan={6} className="py-16 text-center text-muted-foreground">
-                                            <Building2 size={32} className="mx-auto mb-3 opacity-30" />
-                                            <p className="text-sm">No se encontraron unidades</p>
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
+                    <TablaUnidades
+                        unidades={aMostrar}
+                        indicePadres={indicePadres}
+                        cargando={loading}
+                        error={error}
+                        alReintentar={() => { setError(null); loadUnits(); }}
+                        hayMas={hayMas}
+                        traerMas={() => setALaVista((n) => n + PAGINA)}
+                        seleccionada={selectedUnit?.id}
+                        alElegir={(u) => setSelectedUnit(u as any)}
+                        alEditar={(u) => handleEdit(u as any)}
+                        alRecargar={loadUnits}
+                    />
 
                     {/* Bottom Detail Summary (Conditionally shown if something selected) */}
                     {selectedUnit && (
