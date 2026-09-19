@@ -30,7 +30,20 @@ import { cn } from "@/lib/utils";
  * que esto se lea como un cajón sobre la pantalla y no como otra pantalla.
  */
 
+/**
+ * Los anchos.
+ *
+ * Ninguno llega al borde: la franja que queda a la izquierda es lo que hace que esto se
+ * lea como un cajón sobre la pantalla y no como otra pantalla.
+ *
+ * `angosto` es el que corresponde a un formulario de una columna, que es casi siempre. La
+ * tentación es agrandar el panel cuando el formulario tiene muchos campos, y es al revés:
+ * un cajón ancho con una sola columna deja una banda de aire muerto a la derecha, y con
+ * dos columnas obliga a barrer la vista en zigzag para leer lo que es una sola lista de
+ * preguntas.
+ */
 const ANCHOS = {
+    angosto: "sm:max-w-md",
     chico: "sm:max-w-md",
     medio: "sm:max-w-2xl",
     ancho: "sm:max-w-5xl",
@@ -71,13 +84,13 @@ function CajonContenido({
     return (
         <DialogPrimitive.Portal>
             <DialogPrimitive.Overlay
-                className="fixed inset-0 z-[3000] bg-black/55 backdrop-blur-[2px]
+                className="fixed inset-0 z-[var(--capa-panel)] bg-black/55 backdrop-blur-[2px]
                     data-[state=open]:animate-in data-[state=closed]:animate-out
                     data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
             <DialogPrimitive.Content
                 data-slot="cajon-content"
                 className={cn(
-                    "fixed inset-y-0 right-0 z-[3001] w-full flex flex-col bg-background border-l border-border",
+                    "fixed inset-y-0 right-0 z-[calc(var(--capa-panel)+1)] w-full flex flex-col bg-background border-l border-border",
                     "shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.45)]",
                     "data-[state=open]:animate-in data-[state=closed]:animate-out",
                     "data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",

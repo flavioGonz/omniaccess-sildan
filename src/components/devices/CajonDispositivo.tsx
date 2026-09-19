@@ -358,7 +358,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
             <CajonDisparador asChild>{children}</CajonDisparador>
 
             <CajonContenido
-                ancho="ancho"
+                ancho="angosto"
                 /* El título dice en qué paso se está. Al sacar la barra, el encabezado es
                    lo único que ubica: si dijera siempre "Nuevo equipo", pasar de hoja no
                    se distinguiría de que la pantalla se quedó. */
@@ -407,7 +407,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                     {clave === "que" && (
                         <CajonSeccion titulo="Qué vas a agregar"
                             ayuda="Lo primero, porque de esto depende todo lo demás: cuántos pasos hay, qué datos hacen falta y a qué circuito entra el equipo.">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 gap-2">
                                 {TIPOS_DE_EQUIPO.map((t) => {
                                     const puesto = f.deviceType === t.valor;
                                     return (
@@ -534,7 +534,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                     {clave === "conexion" && (
                         <CajonSeccion titulo="Cómo se llega al equipo" icono={Wifi}
                             ayuda="La IP y las credenciales van juntas porque la detección las necesita a las tres. Antes estaban en pasos separados y había que ir y volver para ver lo que la detección completaba.">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 gap-4">
                                 <CajonCampo etiqueta="Dirección IP"
                                     pista="La del equipo en la red del barrio. Tiene que ser alcanzable desde el servidor: si está en otra red o detrás de un router, hay que mapearle el puerto.">
                                     <Input value={f.ip} placeholder="172.26.20.21" className="tabular-nums"
@@ -551,7 +551,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                                 <CajonCampo etiqueta="Contraseña">
                                     <PasswordInput value={f.password} onChange={(e) => set("password", e.target.value)} />
                                 </CajonCampo>
-                                <CajonCampo etiqueta="Cómo se autentica" className="sm:col-span-2"
+                                <CajonCampo etiqueta="Cómo se autentica" 
                                     pista="Hikvision y Dahua usan Digest. Si con uno no conecta, probá el otro: la detección de abajo lo dice en el acto.">
                                     <Select value={f.authType} onValueChange={(v) => set("authType", v)}>
                                         <SelectTrigger><SelectValue /></SelectTrigger>
@@ -722,7 +722,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                             </CajonSeccion>
 
                             <CajonSeccion titulo="Cuánto trabaja" icono={Cpu}>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4">
                                     <CajonCampo etiqueta="Sensibilidad de escena"
                                         pista="Cuánto tiene que cambiar la imagen para que se mande un cuadro al lector. Más bajo, más cuadros y más GPU. Se termina de afinar en el calibrador, sobre un cuadro real.">
                                         <Input value={f.trackScene} placeholder="0.08" className="tabular-nums"
@@ -761,7 +761,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                                     <span className="text-[12.5px]">Tocá «Leer canales» para preguntarle al grabador qué tiene conectado.</span>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+                                <div className="grid grid-cols-1 gap-2.5">
                                     {nvrCanales.map((ch: any) => {
                                         const asignada = nvrCamaras.find((c: any) => nvrMapa[c.ip] === ch.channel);
                                         const hayCamaraConEsaIp = ch.ip ? nvrCamaras.find((c: any) => c.ip === ch.ip) : null;

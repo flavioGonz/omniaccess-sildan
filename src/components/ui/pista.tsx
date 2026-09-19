@@ -114,7 +114,7 @@ export function Pista({
                         visibility: sitio ? "visible" : "hidden",
                     }}
                     className={cn(
-                        "fixed z-[9000] pointer-events-none rounded-xl border border-border/60",
+                        "fixed z-[var(--capa-pista)] pointer-events-none rounded-xl border border-border/60",
                         "bg-popover/95 backdrop-blur-xl shadow-2xl px-3 py-2 text-left normal-case tracking-normal",
                     )}>
                     {titulo && <span className="block text-[11px] font-bold text-foreground leading-tight">{titulo}</span>}

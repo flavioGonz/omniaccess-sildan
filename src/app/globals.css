@@ -164,6 +164,25 @@
 
   /* Por su nombre, para el codigo que quiera decir "accion" y no
      "primary" — que en shadcn significa otra cosa. */
+  /* ─────────── Las capas ───────────
+   *
+   * Existe porque se repartieron a ojo: en el proyecto hay z-index de 100, 200, 250, 300,
+   * 400, 500, 1000, 2000, 3000 y 3300, cada uno elegido para ganarle al de al lado. Así
+   * funciona hasta que dos crecen en paralelo y uno tapa al otro.
+   *
+   * El caso que lo pidió: el cajón quedó en 3001 para ganarle a todo, y los desplegables
+   * de Radix vienen en z-50. Al abrir un Select adentro de un cajón, el menú se desplegaba
+   * DEBAJO del panel — o sea, no se veía, y parecía que el control estaba roto.
+   *
+   * El orden no es de importancia, es de dependencia: cada capa está por encima de
+   * aquello que la abrió. Un menú lo abre un panel, así que va sobre cualquier panel; una
+   * pista la puede abrir un menú, así que va sobre todo.
+   */
+  --capa-flotante: 500;    /* barras y menús sobre un mapa o una tabla */
+  --capa-panel: 3000;      /* lo que tapa la pantalla: diálogos, cajones */
+  --capa-menu: 4000;       /* lo que un panel abre: select, popover, dropdown */
+  --capa-pista: 9000;      /* el globo de ayuda: sobre todo, siempre */
+
   --accion: oklch(0.57 0.20 256);
   --accion-sobre: oklch(0.62 0.20 256);
   --accion-foco: oklch(0.65 0.19 256);
