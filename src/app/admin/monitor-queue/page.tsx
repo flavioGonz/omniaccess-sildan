@@ -421,7 +421,7 @@ function InteractiveTimeline({ events, hourly, deviceName, outages, onEventClick
                             {[0, 0.5, 1].map((g, i) => (
                                 <g key={i}>
                                     <line x1={PAD_L} y1={PAD_T + g * plotH} x2={W - PAD_R} y2={PAD_T + g * plotH} stroke="var(--border)" strokeWidth="1" strokeDasharray={g === 1 ? "0" : "4 6"} opacity={g === 1 ? 0.8 : 0.4} />
-                                    <text x={PAD_L - 6} y={PAD_T + g * plotH + 3} textAnchor="end" fontSize="10" fontFamily="monospace" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxV * (1 - g))}</text>
+                                    <text x={PAD_L - 6} y={PAD_T + g * plotH + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-sans)" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxV * (1 - g))}</text>
                                 </g>
                             ))}
                             {/* outage bands */}
@@ -448,7 +448,7 @@ function InteractiveTimeline({ events, hourly, deviceName, outages, onEventClick
                             ))}
                             {/* x ticks */}
                             {ticks.map((t, i) => (
-                                <text key={i} x={t.x} y={H - 8} textAnchor="middle" fontSize="10" fontFamily="monospace" style={{ fill: "var(--muted-foreground)" }}>{t.label}</text>
+                                <text key={i} x={t.x} y={H - 8} textAnchor="middle" fontSize="10" fontFamily="var(--font-sans)" style={{ fill: "var(--muted-foreground)" }}>{t.label}</text>
                             ))}
                         </svg>
 

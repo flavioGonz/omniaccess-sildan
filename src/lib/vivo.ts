@@ -58,7 +58,7 @@ export function burbujaVivo(nombre: string) {
   <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(0,0,0,.85)">
     <span style="width:6px;height:6px;border-radius:50%;background:#f87171;flex:none;
           animation:omniPulsoAuto 1.8s ease-in-out infinite"></span>
-    <span style="font:700 11px/1.4 ui-sans-serif,system-ui;color:#fff;white-space:nowrap;
+    <span style="font:700 11px/1.4 var(--font-sans);color:#fff;white-space:nowrap;
           overflow:hidden;text-overflow:ellipsis">${nombre}</span>
   </div>
 </div>

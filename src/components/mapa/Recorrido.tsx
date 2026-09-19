@@ -62,7 +62,7 @@ function iconoParada(n: number, estado: "pasado" | "actual" | "futuro", color: s
     return iconoCacheado(`parada:${n}:${estado}:${color}:${esFin}`, () => ({
         className: "bg-transparent border-0",
         html: `<span style="display:flex;align-items:center;justify-content:center;width:${tam}px;height:${tam}px;border-radius:50%;
-            background:${fondo};border:2px solid ${borde};color:${texto};font:700 ${estado === "actual" ? 12 : 10}px/1 ui-sans-serif,system-ui;
+            background:${fondo};border:2px solid ${borde};color:${texto};font:700 ${estado === "actual" ? 12 : 10}px/1 var(--font-sans);
             box-shadow:0 2px 10px rgba(0,0,0,.55)${estado === "actual" ? ",0 0 0 7px rgba(251,191,36,.18)" : ""}">${esFin ? "◼" : n}</span>`,
         iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2],
     }));
@@ -79,7 +79,7 @@ function iconoEstacionado(minutos: number) {
         className: "bg-transparent border-0",
         html: `<span style="display:flex;align-items:center;justify-content:center;width:${tam}px;height:${tam}px;border-radius:9px;
             background:rgba(100,116,139,.92);border:2px dashed rgba(226,232,240,.75);color:#f1f5f9;
-            font:800 ${tam >= 30 ? 13 : 11}px/1 ui-sans-serif,system-ui;box-shadow:0 2px 10px rgba(0,0,0,.55)">P</span>`,
+            font:800 ${tam >= 30 ? 13 : 11}px/1 var(--font-sans);box-shadow:0 2px 10px rgba(0,0,0,.55)">P</span>`,
         iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2],
     }));
 }
@@ -97,7 +97,7 @@ function iconoFlecha(angulo: number, encendida: boolean) {
     return iconoCacheado(`flecha:${a}:${encendida}`, () => ({
         className: "bg-transparent border-0",
         html: `<span style="display:block;transform:rotate(${a}deg);color:${encendida ? "#fbbf24" : "rgba(56,189,248,.5)"};
-            font:700 13px/1 ui-sans-serif,system-ui;text-shadow:0 1px 4px rgba(0,0,0,.8)">➤</span>`,
+            font:700 13px/1 var(--font-sans);text-shadow:0 1px 4px rgba(0,0,0,.8)">➤</span>`,
         iconSize: [13, 13], iconAnchor: [6.5, 6.5],
     }));
 }

@@ -1377,3 +1377,102 @@ video::-webkit-media-controls { display: none !important; }
 .omni-fila-nueva > td {
   animation: omni-fila-nueva 2.2s cubic-bezier(.22, 1, .36, 1) 1;
 }
+
+
+/* ══════════════════════════════════════════════════════════
+   LOS TONOS  ·  qué significa cada color, una sola vez
+
+   El problema no era que hubiera muchos colores: era que el
+   mismo significado se escribía distinto en cada pantalla.
+   "Permitido" fue emerald-400, emerald-500, emerald-600 y
+   #34d399 según el archivo; "denegado" fue red-400, red-600,
+   rose-400 y rose-500. Ninguna de esas diferencias quiso decir
+   nada — son el registro de en qué orden se escribieron las
+   pantallas.
+
+   Acá hay CINCO tonos, y cada uno tiene un significado. Se
+   eligen por lo que la cosa ES, no por cómo se quiere que se
+   vea:
+
+     bien    salió como tenía que salir. Permitido, en línea,
+             lectura segura, dentro del plazo.
+     aviso   mirar. No está mal todavía, pero podría estarlo:
+             confianza media, permiso por vencer, demora.
+     mal     salió mal o hay que actuar. Denegado, caído,
+             lectura pobre, alerta.
+     info    es un dato, no un juicio. Lo neutro que igual
+             tiene que destacarse del texto común.
+     quieto  algo que está detenido y no es ni bueno ni malo:
+             un vehículo estacionado, una estadía, una pausa.
+
+   Cada uno viene en tres piezas: el color pleno (para un
+   fondo sólido con texto claro encima), el texto (legible
+   sobre el fondo de la aplicación) y el suave (un fondo que
+   no compite con el texto). El tema oscuro los redefine: un
+   verde que se lee sobre blanco se apaga sobre negro, y al
+   revés.
+
+   Si un color nuevo hace falta, primero hay que poder decir
+   qué significa. Si no se puede, sobra.
+   ══════════════════════════════════════════════════════════ */
+
+:root {
+  --bien:        oklch(0.596 0.145 163);
+  --bien-texto:  oklch(0.508 0.130 163);
+  --bien-suave:  oklch(0.596 0.145 163 / 0.12);
+
+  --aviso:       oklch(0.706 0.150 70);
+  --aviso-texto: oklch(0.556 0.130 62);
+  --aviso-suave: oklch(0.706 0.150 70 / 0.14);
+
+  --mal:         oklch(0.597 0.216 17);
+  --mal-texto:   oklch(0.540 0.200 17);
+  --mal-suave:   oklch(0.597 0.216 17 / 0.12);
+
+  --info:        oklch(0.623 0.162 249);
+  --info-texto:  oklch(0.543 0.155 249);
+  --info-suave:  oklch(0.623 0.162 249 / 0.12);
+
+  --quieto:      oklch(0.606 0.180 296);
+  --quieto-texto: oklch(0.530 0.170 296);
+  --quieto-suave: oklch(0.606 0.180 296 / 0.12);
+}
+
+.dark {
+  --bien-texto:   oklch(0.792 0.145 163);
+  --bien-suave:   oklch(0.596 0.145 163 / 0.16);
+
+  --aviso-texto:  oklch(0.828 0.130 82);
+  --aviso-suave:  oklch(0.706 0.150 70 / 0.16);
+
+  --mal-texto:    oklch(0.760 0.150 17);
+  --mal-suave:    oklch(0.597 0.216 17 / 0.16);
+
+  --info-texto:   oklch(0.780 0.120 249);
+  --info-suave:   oklch(0.623 0.162 249 / 0.16);
+
+  --quieto-texto: oklch(0.790 0.130 296);
+  --quieto-suave: oklch(0.606 0.180 296 / 0.18);
+}
+
+/* Las clases, para no tener que escribir var() en cada lugar. */
+.tono-bien   { color: var(--bien-texto); }
+.tono-aviso  { color: var(--aviso-texto); }
+.tono-mal    { color: var(--mal-texto); }
+.tono-info   { color: var(--info-texto); }
+.tono-quieto { color: var(--quieto-texto); }
+
+.chip-bien   { color: var(--bien-texto);   background: var(--bien-suave);   border-color: color-mix(in oklab, var(--bien) 34%, transparent); }
+.chip-aviso  { color: var(--aviso-texto);  background: var(--aviso-suave);  border-color: color-mix(in oklab, var(--aviso) 34%, transparent); }
+.chip-mal    { color: var(--mal-texto);    background: var(--mal-suave);    border-color: color-mix(in oklab, var(--mal) 34%, transparent); }
+.chip-info   { color: var(--info-texto);   background: var(--info-suave);   border-color: color-mix(in oklab, var(--info) 34%, transparent); }
+.chip-quieto { color: var(--quieto-texto); background: var(--quieto-suave); border-color: color-mix(in oklab, var(--quieto) 34%, transparent); }
+.chip-neutro { color: var(--muted-foreground); background: var(--muted); border-color: var(--border); }
+
+/* Plenos: fondo sólido, texto claro. Para lo que tiene que
+   ganarle a todo lo demás de la pantalla. */
+.pleno-bien   { background: var(--bien);   color: #fff; }
+.pleno-aviso  { background: var(--aviso);  color: #16120a; }
+.pleno-mal    { background: var(--mal);    color: #fff; }
+.pleno-info   { background: var(--info);   color: #fff; }
+.pleno-quieto { background: var(--quieto); color: #fff; }

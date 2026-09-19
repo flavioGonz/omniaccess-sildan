@@ -154,7 +154,7 @@ export function HourlyChart({ data }: { data: HourlyBucket[] }) {
                         <g key={i}>
                             <line x1={padL} y1={g.y} x2={W - padR} y2={g.y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
                             {i > 0 && (
-                                <text x={padL - 4} y={g.y + 3} textAnchor="end" fill="rgba(255,255,255,0.2)" fontSize="7" fontFamily="monospace">
+                                <text x={padL - 4} y={g.y + 3} textAnchor="end" fill="rgba(255,255,255,0.2)" fontSize="7" fontFamily="var(--font-sans)">
                                     {g.label}
                                 </text>
                             )}
@@ -165,7 +165,7 @@ export function HourlyChart({ data }: { data: HourlyBucket[] }) {
                     {data.filter((_, i) => i % 2 === 0 || i === data.length - 1).map((d, i) => {
                         const x = padL + (data.indexOf(d) / Math.max(data.length - 1, 1)) * chartW;
                         return (
-                            <text key={d.hour} x={x} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="7" fontFamily="monospace">
+                            <text key={d.hour} x={x} y={H - 4} textAnchor="middle" fill="rgba(255,255,255,0.2)" fontSize="7" fontFamily="var(--font-sans)">
                                 {d.hour.toString().padStart(2, "0")}
                             </text>
                         );

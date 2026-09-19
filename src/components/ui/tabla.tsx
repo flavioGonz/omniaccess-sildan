@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp, Inbox, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Check, Columns3, Download, Inbox, Loader2, RefreshCw, Rows3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Pista } from "@/components/ui/pista";
 
@@ -81,6 +81,61 @@ const alineado: Record<Alineacion, string> = {
     der: "text-right",
 };
 
+/** Cuánto aire lleva una fila. Se guarda por tabla: cada una se mira distinto. */
+const DENSIDADES = {
+    holgada: { celda: "px-5 py-3", fila: 3, rotulo: "Holgada" },
+    normal: { celda: "px-4 py-2.5", fila: 2, rotulo: "Normal" },
+    apretada: { celda: "px-3 py-1.5", fila: 1, rotulo: "Apretada" },
+} as const;
+type Densidad = keyof typeof DENSIDADES;
+
+/**
+ * Lo que el operador ajusta de la tabla, guardado por tabla.
+ *
+ * Va en el navegador y no en el servidor a propósito: cuánto aire tiene una fila y qué
+ * columnas se miran es la preferencia de quien está sentado ahí, no una configuración del
+ * barrio. El puesto de la entrada y el del fondo miran cosas distintas, y hacer que uno le
+ * cambie la vista al otro sería un error, no una función.
+ */
+function usarAjustes(id: string | undefined, claves: string[]) {
+    const [densidad, setDensidad] = useState<Densidad>("normal");
+    const [ocultas, setOcultas] = useState<string[]>([]);
+    const [listo, setListo] = useState(false);
+
+    useEffect(() => {
+        if (!id) { setListo(true); return; }
+        try {
+            const g = JSON.parse(localStorage.getItem(`omni.tabla.${id}`) || "{}");
+            if (g.densidad && g.densidad in DENSIDADES) setDensidad(g.densidad);
+            if (Array.isArray(g.ocultas)) setOcultas(g.ocultas.filter((c: string) => claves.includes(c)));
+        } catch { }
+        setListo(true);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id]);
+
+    useEffect(() => {
+        if (!id || !listo) return;
+        try { localStorage.setItem(`omni.tabla.${id}`, JSON.stringify({ densidad, ocultas })); } catch { }
+    }, [id, listo, densidad, ocultas]);
+
+    return { densidad, setDensidad, ocultas, setOcultas };
+}
+
+/** Descarga lo que se está viendo, con las columnas que se están viendo. */
+function bajarCsv<T>(nombre: string, filas: T[], columnas: ColumnaTabla<T>[]) {
+    const esc = (v: string) => /[";\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+    const lineas = [columnas.map((c) => esc(String(c.titulo ?? c.clave))).join(";")];
+    for (const f of filas) lineas.push(columnas.map((c) => esc(texto(c, f))).join(";"));
+    // El punto y coma y el BOM son para que Excel en español lo abra en columnas y no
+    // en una sola con todo adentro, que es como termina el 90% de los CSV.
+    const blob = new Blob(["\ufeff" + lineas.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${nombre}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "")}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
 export function Tabla<T>({
     filas,
     clave,
@@ -99,6 +154,9 @@ export function Tabla<T>({
     filasFantasma = 8,
     pie,
     barra,
+    id,
+    controles = true,
+    nombreArchivo,
     className,
 }: {
     filas: T[];
@@ -130,6 +188,12 @@ export function Tabla<T>({
      * que son.
      */
     barra?: React.ReactNode;
+    /** Identifica la tabla para recordar densidad y columnas. Sin esto no se recuerda nada. */
+    id?: string;
+    /** Los controles propios: densidad, columnas y exportar. */
+    controles?: boolean;
+    /** Cómo se llama el archivo al exportar. */
+    nombreArchivo?: string;
     className?: string;
 }) {
     const [orden, setOrden] = useState<{ clave: string; desc: boolean } | null>(null);
@@ -139,7 +203,15 @@ export function Tabla<T>({
     const caja = useRef<HTMLDivElement | null>(null);
     const centinela = useRef<HTMLTableRowElement | null>(null);
 
-    const columnasDato = useMemo(() => columnas.filter((c) => !c.auxiliar), [columnas]);
+    const { densidad, setDensidad, ocultas, setOcultas } = usarAjustes(id, columnas.map((c) => c.clave));
+    const [menu, setMenu] = useState<"" | "columnas" | "densidad">("");
+
+    // Las columnas que de verdad se dibujan. Todo lo demás —el orden, la selección, el
+    // CSV— trabaja sobre esta lista, no sobre la original: si no, exportar traería
+    // columnas que el operador decidió no mirar.
+    const visibles = useMemo(() => columnas.filter((c) => !ocultas.includes(c.clave)), [columnas, ocultas]);
+    const columnasDato = useMemo(() => visibles.filter((c) => !c.auxiliar), [visibles]);
+    const dens = DENSIDADES[densidad];
 
     /**
      * El orden se aplica sobre lo que ya está cargado, no sobre la consulta.
@@ -242,17 +314,79 @@ export function Tabla<T>({
         return () => obs.disconnect();
     }, [masFilas?.hay, masFilas?.cargando, masFilas?.traer, masFilas?.modo]);
 
-    const nCol = columnas.length;
+    const nCol = visibles.length;
     const vacia = !cargando && !error && ordenadas.length === 0;
 
     return (
         <div className={cn("rounded-xl border border-border bg-card overflow-hidden flex flex-col", className)}>
-            {barra && <div className="shrink-0 border-b border-border">{barra}</div>}
+            {(barra || controles) && (
+                <div className="shrink-0 border-b border-border flex items-stretch">
+                    <div className="flex-1 min-w-0">{barra}</div>
+                    {controles && (
+                        /* Los controles de la tabla misma, separados de los filtros por una
+                           línea: los filtros dicen QUÉ se mira, éstos CÓMO se mira. Son dos
+                           preguntas distintas y mezclarlas hace que cueste encontrar las dos. */
+                        <div className="shrink-0 flex items-center gap-0.5 px-1.5 border-l border-border">
+                            <div className="relative">
+                                <button type="button" onClick={() => setMenu((m) => m === "densidad" ? "" : "densidad")}
+                                    title="Cuánto aire lleva cada fila"
+                                    className={cn("w-8 h-8 rounded-lg flex items-center justify-center transition-colors",
+                                        menu === "densidad" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                                    <Rows3 size={14} />
+                                </button>
+                                {menu === "densidad" && (
+                                    <Menu alCerrar={() => setMenu("")}>
+                                        {(Object.keys(DENSIDADES) as Densidad[]).map((d) => (
+                                            <ItemMenu key={d} activo={densidad === d} onClick={() => { setDensidad(d); setMenu(""); }}>
+                                                {DENSIDADES[d].rotulo}
+                                            </ItemMenu>
+                                        ))}
+                                    </Menu>
+                                )}
+                            </div>
+
+                            <div className="relative">
+                                <button type="button" onClick={() => setMenu((m) => m === "columnas" ? "" : "columnas")}
+                                    title="Qué columnas se ven"
+                                    className={cn("w-8 h-8 rounded-lg flex items-center justify-center transition-colors relative",
+                                        menu === "columnas" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                                    <Columns3 size={14} />
+                                    {ocultas.length > 0 && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[var(--info)]" />}
+                                </button>
+                                {menu === "columnas" && (
+                                    <Menu alCerrar={() => setMenu("")}>
+                                        {columnas.map((c) => {
+                                            const on = !ocultas.includes(c.clave);
+                                            // Quedarse sin ninguna columna deja una tabla que
+                                            // no es una tabla, así que la última no se apaga.
+                                            const ultima = on && visibles.length <= 1;
+                                            return (
+                                                <ItemMenu key={c.clave} activo={on} off={ultima}
+                                                    onClick={() => setOcultas((o) => on ? [...o, c.clave] : o.filter((k) => k !== c.clave))}>
+                                                    {c.titulo}
+                                                </ItemMenu>
+                                            );
+                                        })}
+                                    </Menu>
+                                )}
+                            </div>
+
+                            <button type="button"
+                                onClick={() => bajarCsv(nombreArchivo || id || "tabla", ordenadas, columnasDato)}
+                                disabled={!ordenadas.length}
+                                title="Bajar lo que se está viendo, con las columnas que se están viendo"
+                                className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
+                                <Download size={14} />
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
             <div ref={caja} className="relative overflow-auto custom-scrollbar" style={{ maxHeight: alto }} tabIndex={-1}>
                 <table className="w-full caption-bottom text-sm text-foreground border-separate border-spacing-0">
                     <thead className="sticky top-0 z-20">
                         <tr>
-                            {columnas.map((c) => {
+                            {visibles.map((c) => {
                                 const activo = orden?.clave === c.clave;
                                 const rotulo = (
                                     <span className={cn(
@@ -313,8 +447,8 @@ export function Tabla<T>({
                         {!error && cargando && ordenadas.length === 0 &&
                             Array.from({ length: filasFantasma }).map((_, i) => (
                                 <tr key={`f${i}`} className="border-b border-border/60">
-                                    {columnas.map((c) => (
-                                        <td key={c.clave} className="px-5 py-3.5">
+                                    {visibles.map((c) => (
+                                        <td key={c.clave} className={cn(dens.celda)}>
                                             <span className="block h-3.5 rounded bg-muted animate-pulse"
                                                 style={{ width: `${45 + ((i * 17 + c.clave.length * 7) % 45)}%`, animationDelay: `${i * 60}ms` }} />
                                         </td>
@@ -347,7 +481,7 @@ export function Tabla<T>({
                                             filaActiva?.(fila) ? "bg-accent" : "hover:bg-accent/50",
                                             filaDestacada?.(fila) && "omni-fila-nueva",
                                         )}>
-                                        {columnas.map((c) => {
+                                        {visibles.map((c) => {
                                             const iDato = c.auxiliar ? -1 : columnasDato.indexOf(c);
                                             const sel = iDato >= 0 && marcada(i, iDato);
                                             return (
@@ -355,7 +489,7 @@ export function Tabla<T>({
                                                     data-marcada={sel || undefined}
                                                     onClick={(e) => iDato >= 0 && tocarCelda(e, i, iDato)}
                                                     className={cn(
-                                                        "px-5 py-3 align-middle",
+                                                        dens.celda, "align-middle",
                                                         alineado[c.alinear || "izq"],
                                                         sel && "bg-amber-500/25 dark:bg-amber-500/20",
                                                         c.className,
@@ -412,5 +546,43 @@ export function Tabla<T>({
                 </div>
             )}
         </div>
+    );
+}
+
+/**
+ * Un menú chico colgado de su botón.
+ *
+ * Se cierra al hacer clic afuera y con Escape. Sin lo primero queda abierto tapando la
+ * tabla hasta que alguien se acuerda de apretar el botón otra vez; sin lo segundo, en un
+ * teclado no hay forma de cerrarlo.
+ */
+function Menu({ children, alCerrar }: { children: React.ReactNode; alCerrar: () => void }) {
+    const caja = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        const afuera = (e: MouseEvent) => { if (!caja.current?.contains(e.target as Node)) alCerrar(); };
+        const tecla = (e: KeyboardEvent) => { if (e.key === "Escape") alCerrar(); };
+        // En el siguiente tick: si no, el mismo clic que abrió el menú lo cierra.
+        const t = setTimeout(() => document.addEventListener("mousedown", afuera), 0);
+        window.addEventListener("keydown", tecla);
+        return () => { clearTimeout(t); document.removeEventListener("mousedown", afuera); window.removeEventListener("keydown", tecla); };
+    }, [alCerrar]);
+    return (
+        <div ref={caja}
+            className="absolute right-0 top-full mt-1 z-50 min-w-[168px] p-1 rounded-xl border border-border bg-popover shadow-xl">
+            {children}
+        </div>
+    );
+}
+
+function ItemMenu({ children, activo, off, onClick }: {
+    children: React.ReactNode; activo?: boolean; off?: boolean; onClick: () => void;
+}) {
+    return (
+        <button type="button" onClick={onClick} disabled={off}
+            className={cn("w-full flex items-center gap-2 h-8 px-2 rounded-lg text-[12px] font-medium text-left transition-colors",
+                off ? "opacity-40 cursor-default" : "hover:bg-accent")}>
+            <span className={cn("w-3.5 shrink-0", activo ? "text-[var(--info-texto)]" : "opacity-0")}><Check size={13} /></span>
+            <span className="truncate">{children}</span>
+        </button>
     );
 }

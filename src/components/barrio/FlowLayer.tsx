@@ -45,7 +45,7 @@ interface Anim {
 
 const carIconHtml = (plate: string, bearing: number, color: string) => `
 <div style="display:flex;flex-direction:column;align-items:center;pointer-events:none">
-  <span style="margin-bottom:2px;padding:1px 5px;border-radius:5px;background:${color};color:#fff;font-size:9px;font-weight:800;font-family:monospace;letter-spacing:.5px;box-shadow:0 2px 6px rgba(0,0,0,.5)">${plate}</span>
+  <span style="margin-bottom:2px;padding:1px 5px;border-radius:5px;background:${color};color:#fff;font-size:9px;font-weight:800;font-family:var(--font-sans);letter-spacing:.5px;box-shadow:0 2px 6px rgba(0,0,0,.5)">${plate}</span>
   <span style="width:26px;height:26px;border-radius:50%;background:${color};border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,.5);transform:rotate(${bearing}deg)">
     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M12 2l4 7H8l4-7zM8 10h8v10a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V10z"/></svg>
   </span>

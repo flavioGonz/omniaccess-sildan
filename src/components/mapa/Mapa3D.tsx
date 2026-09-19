@@ -31,7 +31,7 @@ function marcadorCamara(nombre: string) {
     el.style.cssText = "display:flex;flex-direction:column;align-items:center;transform:translateY(-4px);pointer-events:none";
     el.innerHTML = `
         <span style="margin-bottom:3px;padding:1px 6px;border-radius:6px;background:rgba(17,17,17,.85);color:#fff;
-            font:700 10px/1.5 ui-sans-serif,system-ui;white-space:nowrap">${nombre}</span>
+            font:700 10px/1.5 var(--font-sans);white-space:nowrap">${nombre}</span>
         <span style="width:30px;height:30px;border-radius:8px;background:#2563eb;border:2px solid #fff;display:flex;
             align-items:center;justify-content:center;box-shadow:0 3px 6px rgba(0,0,0,.4)">
             <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff"

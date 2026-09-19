@@ -15,7 +15,7 @@ function aforoStatus(a: number, limit: number) { const r = limit > 0 ? a / limit
 function makeIcon(isQueue: boolean, label: string, color: string, pulse: boolean) {
     const ring = pulse ? `<span style="position:absolute;inset:-7px;border-radius:9999px;background:${color}55;animation:ping 1.2s cubic-bezier(0,0,.2,1) infinite;"></span>` : "";
     const inner = isQueue
-        ? `<span style="font-size:13px;font-weight:900;color:#fff;font-family:system-ui">${label}</span>`
+        ? `<span style="font-size:13px;font-weight:900;color:#fff;font-family:var(--font-sans)">${label}</span>`
         : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>`;
     const html = `<div style="position:relative;display:flex;flex-direction:column;align-items:center">${ring}
       <div style="width:34px;height:34px;border-radius:9999px;background:${color};border:2px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center">${inner}</div></div>`;

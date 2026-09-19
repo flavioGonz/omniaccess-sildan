@@ -26,7 +26,7 @@ function Chart({ raw, stable }: { raw: Pt[]; stable: Pt[] }) {
             {[0, 0.25, 0.5, 0.75, 1].map((g, i) => (
                 <g key={i}>
                     <line x1={PAD_L} y1={PAD_T + g * plotH} x2={W - PAD_R} y2={PAD_T + g * plotH} stroke="var(--border)" strokeWidth="1" strokeDasharray={g === 1 ? "0" : "4 6"} opacity={g === 1 ? 0.8 : 0.35} />
-                    <text x={PAD_L - 6} y={PAD_T + g * plotH + 3.5} textAnchor="end" fontSize="11" fontFamily="monospace" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxV * (1 - g))}</text>
+                    <text x={PAD_L - 6} y={PAD_T + g * plotH + 3.5} textAnchor="end" fontSize="11" fontFamily="var(--font-sans)" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxV * (1 - g))}</text>
                 </g>
             ))}
             <path d={path(raw)} fill="none" stroke="#f59e0b" strokeWidth="1.6" strokeOpacity="0.55" />

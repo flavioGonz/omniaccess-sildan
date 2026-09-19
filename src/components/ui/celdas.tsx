@@ -44,13 +44,22 @@ export function Identidad({ foto, nombre, sub, insignia, tam = 32 }: {
     );
 }
 
+/**
+ * Los tonos salen de la paleta de la aplicación, no de colores escritos acá.
+ *
+ * Estaban escritos como `bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 …`, que
+ * es el mismo significado repetido en cuatro valores y con su excepción para el tema
+ * oscuro al lado. Multiplicado por cinco tonos y por cada pantalla que los copió, es como
+ * "permitido" terminó siendo emerald-400 en un archivo, emerald-600 en otro y #34d399 en
+ * un tercero. Ahora el significado tiene un nombre y el color vive en `globals.css`.
+ */
 const TONOS = {
-    neutro: "bg-muted text-muted-foreground border-border",
-    bien: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/30",
-    aviso: "bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30",
-    mal: "bg-rose-500/15 text-rose-600 dark:text-rose-300 border-rose-500/30",
-    info: "bg-sky-500/15 text-sky-600 dark:text-sky-300 border-sky-500/30",
-    quieto: "bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/30",
+    neutro: "chip-neutro",
+    bien: "chip-bien",
+    aviso: "chip-aviso",
+    mal: "chip-mal",
+    info: "chip-info",
+    quieto: "chip-quieto",
 } as const;
 
 export type Tono = keyof typeof TONOS;

@@ -205,7 +205,7 @@ function HourlyChart({ buckets = [], unit = "hour", range, onRange, outages = []
                 {[0, 0.25, 0.5, 0.75, 1].map((g, i) => (
                     <g key={i}>
                         <line x1={PAD_L} y1={PAD_T + g * (H - PAD_T - PAD_B)} x2={W - 10} y2={PAD_T + g * (H - PAD_T - PAD_B)} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-                        <text x={PAD_L - 6} y={PAD_T + g * (H - PAD_T - PAD_B) + 3} fill="rgba(255,255,255,0.25)" fontSize="9" textAnchor="end" fontFamily="monospace">{Math.round(maxVal * (1 - g))}</text>
+                        <text x={PAD_L - 6} y={PAD_T + g * (H - PAD_T - PAD_B) + 3} fill="rgba(255,255,255,0.25)" fontSize="9" textAnchor="end" fontFamily="var(--font-sans)">{Math.round(maxVal * (1 - g))}</text>
                     </g>
                 ))}
 
@@ -261,7 +261,7 @@ function HourlyChart({ buckets = [], unit = "hour", range, onRange, outages = []
 
                 {/* hour axis labels (every 3h) */}
                 {hours.filter((h: any, i: number) => i % Math.max(1, Math.ceil(N / 8)) === 0).map((h: any) => (
-                    <text key={h.hour} x={x(h.hour)} y={H - 8} fill={h.hour === currentHour ? "#c084fc" : "rgba(255,255,255,0.25)"} fontSize="9" textAnchor="middle" fontFamily="monospace" fontWeight={h.hour === currentHour ? "bold" : "normal"}>{h.label}</text>
+                    <text key={h.hour} x={x(h.hour)} y={H - 8} fill={h.hour === currentHour ? "#c084fc" : "rgba(255,255,255,0.25)"} fontSize="9" textAnchor="middle" fontFamily="var(--font-sans)" fontWeight={h.hour === currentHour ? "bold" : "normal"}>{h.label}</text>
                 ))}
             </svg>
         </div>
@@ -460,7 +460,7 @@ function FlowSection({ flow, range, onRange, className }: { flow: any; range: st
                 {[0, 0.5, 1].map((g, i) => (
                     <g key={i}>
                         <line x1={PAD_L} y1={PAD_T + g * plotH} x2={W - PAD_R} y2={PAD_T + g * plotH} stroke="var(--border)" strokeWidth="1" strokeDasharray={g === 1 ? "0" : "4 6"} opacity={g === 1 ? 0.8 : 0.4} />
-                        <text x={PAD_L - 6} y={PAD_T + g * plotH + 3} textAnchor="end" fontSize="10" fontFamily="monospace" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxV * (1 - g))}</text>
+                        <text x={PAD_L - 6} y={PAD_T + g * plotH + 3} textAnchor="end" fontSize="10" fontFamily="var(--font-sans)" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxV * (1 - g))}</text>
                     </g>
                 ))}
                 {hours.map((h: any, i: number) => {
@@ -476,7 +476,7 @@ function FlowSection({ flow, range, onRange, className }: { flow: any; range: st
                                 <title>{`${String(h.hour).padStart(2,"0")}:00 — Salidas: ${h.salidas}`}</title>
                             </rect>
                             {i % Math.max(1, Math.ceil(N / 8)) === 0 && (
-                                <text x={gx + gw / 2} y={H - 8} textAnchor="middle" fontSize="10" fontFamily="monospace" style={{ fill: h.hour === nowH ? "var(--foreground)" : "var(--muted-foreground)" }}>{h.label}</text>
+                                <text x={gx + gw / 2} y={H - 8} textAnchor="middle" fontSize="10" fontFamily="var(--font-sans)" style={{ fill: h.hour === nowH ? "var(--foreground)" : "var(--muted-foreground)" }}>{h.label}</text>
                             )}
                         </g>
                     );

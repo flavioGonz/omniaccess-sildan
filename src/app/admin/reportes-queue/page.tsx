@@ -102,7 +102,7 @@ function BarChart({ data, labelKey, valueKeys, colors, labels: seriesLabels, hei
                     return (
                         <g key={i}>
                             <line x1={PAD_L} y1={y} x2={W - PAD_R} y2={y} stroke="var(--border)" strokeWidth="1" strokeDasharray={g === 1 ? "0" : "4 6"} opacity={g === 1 ? 0.9 : 0.4} />
-                            <text x={PAD_L - 8} y={y + 3.5} textAnchor="end" fontSize="11" fontFamily="monospace" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxVal * (1 - g))}</text>
+                            <text x={PAD_L - 8} y={y + 3.5} textAnchor="end" fontSize="11" fontFamily="var(--font-sans)" style={{ fill: "var(--muted-foreground)" }}>{Math.round(maxVal * (1 - g))}</text>
                         </g>
                     );
                 })}
@@ -145,7 +145,7 @@ function BarChart({ data, labelKey, valueKeys, colors, labels: seriesLabels, hei
                             </text>
                         )}
                         {(i % labelEvery === 0 || n <= 12) && (
-                            <text x={xOf(i)} y={H - PAD_B + 18} textAnchor="middle" fontSize="11" fontFamily="monospace"
+                            <text x={xOf(i)} y={H - PAD_B + 18} textAnchor="middle" fontSize="11" fontFamily="var(--font-sans)"
                                 style={{ fill: hovered === i ? "var(--foreground)" : "var(--muted-foreground)", fontWeight: hovered === i ? 700 : 400 }}>
                                 {String(item[labelKey]).slice(0, 7)}
                             </text>

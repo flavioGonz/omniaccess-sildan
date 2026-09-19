@@ -416,6 +416,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
                 clave={(f) => f.id}
                 columnas={columnas}
                 barra={barra}
+                id="historial"
+                nombreArchivo="historial"
                 cargando={cargando}
                 error={error}
                 alReintentar={() => { setError(null); setRecargar((n) => n + 1); }}
