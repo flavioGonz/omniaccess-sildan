@@ -140,6 +140,47 @@ const RESPALDO_MUDO_MAX_MS = Number(process.env.TRACKING_FALLBACK_MAX_QUIET_MS |
  */
 const RESPALDO_FPS = Number(process.env.TRACKING_FALLBACK_FPS || 2);
 
+/**
+ * Vigia del motor: cuando el lector esta vivo pero no lee.
+ *
+ * El 19 de setiembre el contenedor quedo en un estado en el que contestaba /api/health en
+ * dos milisegundos, aceptaba cada pedido con 200 y no devolvia una sola matricula. Nadie
+ * se entero durante casi tres horas: el panel decia "en marcha", el lector respondia, y lo
+ * unico raro era la GPU al 100%, que ademas era mentira.
+ *
+ * Esa es la firma, y es muy especifica:
+ *
+ *     uso 100%   potencia 37,5 de 70 W   57 grados   cero lecturas
+ *
+ * Con trabajo de verdad esos dos numeros van juntos: si la placa calcula, consume. Uso
+ * alto con la placa a media maquina significa que hay un hilo de CUDA girando en vacio, no
+ * que haya cola de trabajo. Y si ademas no salio ninguna lectura, no es que este ocupada:
+ * esta trabada.
+ *
+ * Un reinicio programado de madrugada no alcanza para esto --lo de hoy empezo a las 16:24
+ * y habria dejado el barrio ciego hasta la noche-- y encima lo esconderia: cada mañana
+ * amaneceria sano y nadie sabria cuantas veces se cayo. Asi que el vigia actua cuando
+ * pasa, y el reinicio nocturno queda como red, no como cura.
+ */
+const MOTOR_VIGIA = (process.env.TRACKING_ENGINE_WATCH || "true") !== "false";
+/** Minutos seguidos con la firma antes de dar el motor por trabado. */
+const MOTOR_MINUTOS = Number(process.env.TRACKING_ENGINE_STALL_MIN || 8);
+const MOTOR_USO_MIN = Number(process.env.TRACKING_ENGINE_STALL_USE || 95);
+/** Fraccion del limite de potencia por debajo de la cual el uso alto es espera, no trabajo. */
+const MOTOR_POTENCIA_FRAC = Number(process.env.TRACKING_ENGINE_STALL_POWER || 0.7);
+/**
+ * Tope de reinicios por dia.
+ *
+ * Si reiniciar no lo arregla, el problema es otro y seguir reiniciando solo agrega un
+ * corte cada ocho minutos encima de lo que ya esta mal.
+ */
+const MOTOR_REINICIOS_DIA = Number(process.env.TRACKING_ENGINE_MAX_RESTARTS || 4);
+/** Hora local del reinicio de red. Vacio lo desactiva. */
+const MOTOR_HORA_NOCTURNA = process.env.TRACKING_ENGINE_NIGHTLY ?? "4";
+const MOTOR_CONTENEDOR = process.env.TRACKING_ENGINE_CONTAINER || "omni-lpr";
+
+const motor = { sospecha: 0, reinicios: [], nocturnaHecha: null, potenciaMax: null };
+
 // Modelos del lector. El detector por defecto del contenedor es el de 384 px, el mas
 // chico de los seis: achica cualquier imagen a eso antes de buscar nada, y por eso un
 // cuadro panoramico no devolvia ninguna matricula. Medido sobre el mismo cuadro:
@@ -1109,11 +1150,83 @@ function ejecutar(cmd, args) {
  * GPU este al 10% ahora no dice si estuvo al 90% hace media hora, ni si el lector viene
  * leyendo o hace rato que no ve un auto. Con la serie se puede mirar el dia.
  */
+/**
+ * Reinicia el contenedor del lector y lo deja dicho.
+ *
+ * Despues de levantarlo se limpia la memoria de cuadros de todas las camaras: los cuadros
+ * guardados son de antes del corte y resolverlos contra un lector recien arrancado solo
+ * gasta la primera inferencia, que ademas es la lenta --hoy la primera rafaga tardo 4752
+ * ms y las siguientes 614.
+ */
+async function reiniciarMotor(motivo) {
+    const hoy = new Date().toDateString();
+    motor.reinicios = motor.reinicios.filter((r) => r.dia === hoy);
+    if (motor.reinicios.length >= MOTOR_REINICIOS_DIA) {
+        log(`motor: ${motivo}, pero ya van ${motor.reinicios.length} reinicios hoy; no se reinicia mas. `
+            + `Si reiniciar no lo arregla, el problema es otro y cortar cada rato solo lo empeora.`);
+        return false;
+    }
+    log(`motor: ${motivo}. Reiniciando ${MOTOR_CONTENEDOR}.`);
+    await ejecutar("docker", ["restart", MOTOR_CONTENEDOR]);
+    motor.reinicios.push({ dia: hoy, cuando: new Date().toISOString(), motivo });
+    motor.sospecha = 0;
+    for (const [, est] of camarasVivas) { est.memoria = []; est.secas = 0; }
+    log(`motor: ${MOTOR_CONTENEDOR} reiniciado (${motor.reinicios.length} de ${MOTOR_REINICIOS_DIA} hoy)`);
+    return true;
+}
+
+/**
+ * ¿El lector esta trabado?
+ *
+ * Se corre una vez por minuto, con los numeros de esa muestra. La sospecha se acumula y se
+ * borra entera al primer minuto sano: no se reinicia por un pico, se reinicia por una
+ * racha.
+ */
+async function vigilarMotor({ gpuUso, gpuWatts, lecturas, disparos }) {
+    if (!MOTOR_VIGIA) return;
+
+    // Red de seguridad: un reinicio a la hora sin transito, una vez por dia.
+    const ahora = new Date();
+    const hoy = ahora.toDateString();
+    if (MOTOR_HORA_NOCTURNA !== "" && ahora.getHours() === Number(MOTOR_HORA_NOCTURNA)
+        && ahora.getMinutes() < 2 && motor.nocturnaHecha !== hoy) {
+        motor.nocturnaHecha = hoy;
+        await reiniciarMotor("reinicio de red de cada noche");
+        return;
+    }
+
+    const max = motor.potenciaMax;
+    // Sin limite de potencia no se puede distinguir espera de trabajo, y sin esa distincion
+    // el uso alto solo, que tambien lo da una calle con movimiento, reiniciaria de gusto.
+    if (max == null || gpuUso == null || gpuWatts == null) return;
+
+    const espera = gpuUso >= MOTOR_USO_MIN && gpuWatts < max * MOTOR_POTENCIA_FRAC;
+    // Se exige que ADEMAS haya habido disparos: sin un solo disparo en el minuto no hay
+    // prueba de que el lector no lea, solo de que no paso nadie.
+    const trabado = espera && lecturas === 0 && disparos > 0;
+
+    if (!trabado) {
+        if (motor.sospecha) log(`motor: vuelve a leer, se borra la sospecha (iban ${motor.sospecha} min)`);
+        motor.sospecha = 0;
+        return;
+    }
+
+    motor.sospecha++;
+    if (motor.sospecha === 1) {
+        log(`motor: uso ${gpuUso}% con ${gpuWatts} de ${Math.round(max)} W y ninguna lectura en ${disparos} disparos. `
+            + `Si sigue asi ${MOTOR_MINUTOS} min se reinicia el lector.`);
+    }
+    if (motor.sospecha >= MOTOR_MINUTOS) {
+        await reiniciarMotor(`${motor.sospecha} min con el lector vivo pero sin leer `
+            + `(uso ${gpuUso}%, ${gpuWatts} de ${Math.round(max)} W)`);
+    }
+}
+
 async function muestrear() {
     try {
         const [stats, gpu, proveedor] = await Promise.all([
             ejecutar("docker", ["stats", "omni-lpr", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}"]),
-            ejecutar("nvidia-smi", ["--query-gpu=utilization.gpu,memory.used,temperature.gpu,power.draw", "--format=csv,noheader,nounits"]),
+            ejecutar("nvidia-smi", ["--query-gpu=utilization.gpu,memory.used,temperature.gpu,power.draw,power.limit", "--format=csv,noheader,nounits"]),
             ejecutar("bash", ["-lc", "docker logs omni-lpr 2>&1 | grep -i ExecutionProvider | tail -1"]),
         ]);
 
@@ -1129,7 +1242,8 @@ async function muestrear() {
         let gpuUso = null, gpuMem = null, gpuTemp = null, gpuWatts = null;
         if (gpu) {
             const p = gpu.split(",").map((x) => parseFloat(x.trim()));
-            [gpuUso, gpuMem, gpuTemp, gpuWatts] = p.map((x) => (isNaN(x) ? null : Math.round(x)));
+            [gpuUso, gpuMem, gpuTemp, gpuWatts] = p.slice(0, 4).map((x) => (isNaN(x) ? null : Math.round(x)));
+            if (!isNaN(p[4])) motor.potenciaMax = p[4];
         }
 
         // Si el lector cae a CPU no lo dice en ninguna metrica: hay que preguntarselo al log.
@@ -1154,6 +1268,8 @@ async function muestrear() {
             log(`presupuesto: ${contadores.frenados} disparos salteados este minuto por falta de cuota `
                 + `(${PRESUPUESTO_POR_MIN} inferencias por camara y por minuto)`);
         }
+        await vigilarMotor({ gpuUso, gpuWatts, lecturas: contadores.lecturas, disparos: contadores.disparos });
+
         contadores.disparos = 0; contadores.lecturas = 0; contadores.descartes = 0; contadores.frenados = 0;
 
         // Limpieza barata: una vez por hora, y solo lo que ya no se muestra.
@@ -1231,7 +1347,9 @@ function resumenAvisos() {
     log(`config · detector=${DETECTOR} ocr=${OCR} baldosa=${BALDOSA_PX}px inferencias<=${INFERENCIAS_MAX} `
         + `enVuelo=${MAX_EN_VUELO} minConf=${MIN_CONF} coincidencias>=${COINCIDENCIAS_MIN} `
         + `confAlta=${CONF_ALTA} releerDesde=${RELEER_MIN} chapasPorBaldosa=${CHAPAS_POR_BALDOSA} `
-        + `presupuesto=${PRESUPUESTO_POR_MIN}/min/camara respaldo=${RESPALDO_FPS}c/s`);
+        + `presupuesto=${PRESUPUESTO_POR_MIN}/min/camara respaldo=${RESPALDO_FPS}c/s `
+        + `vigia=${MOTOR_VIGIA ? `${MOTOR_MINUTOS}min` : "no"} `
+        + `reinicioNocturno=${MOTOR_HORA_NOCTURNA === "" ? "no" : `${MOTOR_HORA_NOCTURNA}h`}`);
     await sincronizar();
     setInterval(sincronizar, 60000);   // toma cambios de configuracion sin reiniciar
     setInterval(resumenAvisos, 120000);
