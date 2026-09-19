@@ -391,11 +391,21 @@ export default function BarrioMap() {
     const commitPerimeter = () => { if (draftPerimeter.length >= 3) cambiar((d) => ({ ...d, perimeter: draftPerimeter })); setDraftPerimeter([]); setTool("select"); };
     const commitStreet = () => { if (draftStreet.length >= 2) cambiar((d) => ({ ...d, streets: [...d.streets, { id: `s_${Date.now()}`, points: draftStreet }] })); setDraftStreet([]); setTool("select"); };
     const lotes = data.lots || [];
+    /** Un lote nuevo con nombre automático: «Lote 4». Se renombra desde su panel. */
+    const nuevoLote = (d: BarrioMapData, puntos: LL[]) => ({
+        id: `l_${Date.now()}`,
+        label: `Lote ${(d.lots || []).length + 1}`,
+        unitId: null as string | null,
+        parkingSlotId: null as string | null,
+        points: puntos,
+    });
     const commitLote = () => {
-        console.log("[mapa] cerrar lote · puntos:", draftLote.length, "· lotes antes:", lotes.length);
         if (draftLote.length >= 3) {
-            const nombre = window.prompt("Nombre de la casa o lote:", `Lote ${lotes.length + 1}`);
-            cambiar((d) => ({ ...d, lots: [...(d.lots || []), { id: `l_${Date.now()}`, label: (nombre || `Lote ${lotes.length + 1}`).trim(), unitId: null, parkingSlotId: null, points: draftLote }] }));
+            /* Se nombra solo. Pedir el nombre con un `prompt()` del navegador interrumpía
+               el dibujo con un cartel del sistema, y encima no hacía falta: el nombre se
+               cambia después desde el panel del lote, que ya existe, y casi siempre el que
+               importa es el de la unidad que se le asigna. */
+            cambiar((d) => ({ ...d, lots: [...(d.lots || []), nuevoLote(d, draftLote)] }));
         }
         setDraftLote([]); setTool("select");
         /*
@@ -478,9 +488,34 @@ export default function BarrioMap() {
         // lo que informó la vista 3D. Antes se caía al valor viejo y "Guardar" en 3D
         // parecía no hacer nada.
         const v3 = vista3D ? vista3DRef.current : null;
-        console.log("[mapa] guardar · lotes:", (data.lots || []).length, "· calles:", data.streets.length, "· cámaras:", data.cameras.length);
+
+        /*
+         * Guardar cierra lo que esté a medio dibujar. Acá estaba el defecto de verdad.
+         *
+         * Marcar las esquinas ya dibuja el polígono en el mapa — punteado, pero dibujado —
+         * y a esa altura el operador ve su lote y aprieta «Guardar». Es lo razonable: el
+         * lote está ahí. Pero el contorno todavía vivía en un borrador aparte, y sólo
+         * pasaba a ser un lote al apretar «Cerrar»; «Guardar» guardaba el mapa SIN él, y
+         * encima dejaba el punteado en pantalla, así que parecía que había quedado.
+         *
+         * Exigir ese clic extra no protegía de nada: un contorno de tres o más esquinas es
+         * un lote que alguien dibujó a propósito. «Cerrar» sigue estando para quien quiera
+         * encadenar varios sin salir de la herramienta; lo que ya no hace falta es
+         * acordarse de él.
+         */
+        let conBorradores = data;
+        if (draftLote.length >= 3) {
+            conBorradores = { ...conBorradores, lots: [...(conBorradores.lots || []), nuevoLote(conBorradores, draftLote)] };
+        }
+        if (draftPerimeter.length >= 3) {
+            conBorradores = { ...conBorradores, perimeter: draftPerimeter };
+        }
+        if (draftStreet.length >= 2) {
+            conBorradores = { ...conBorradores, streets: [...conBorradores.streets, { id: `s_${Date.now()}`, points: draftStreet }] };
+        }
+
         const payload: BarrioMapData = {
-            ...data,
+            ...conBorradores,
             center: v3 ? v3.center : m ? [m.getCenter().lat, m.getCenter().lng] : data.center,
             zoom: v3 ? v3.zoom : m ? m.getZoom() : data.zoom,
             base,
@@ -507,6 +542,10 @@ export default function BarrioMap() {
                     : (vista3D ? "Abre en vista 3D, con este giro e inclinación" : `Vista, zoom y capa ${base}`);
                 toast.success({ title: "Mapa guardado", description: detalle });
                 setData(payload); setSinGuardar(false); setEditing(false); setTool("select");
+                /* Sin esto, el punteado del borrador seguía dibujado sobre el mapa después
+                   de guardar: un contorno que ya es un lote y además se ve como si no lo
+                   fuera. Era la mitad de por qué esto engañaba. */
+                setDraftLote([]); setDraftPerimeter([]); setDraftStreet([]);
             } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" });
         }
         catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); } finally { setSaving(false); }

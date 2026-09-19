@@ -291,46 +291,7 @@ function Pildora({ icono: Ico, children, onClick, href, destacada, encendida, oc
     );
 }
 
-/**
- * Un grupo del cajón de datos, con su título y su por qué.
- *
- * El título en el borde y una línea: alcanza para separar sin encerrar. Un panel con
- * bordes dentro de otro panel con bordes es lo que hacía que esta parte se viera como un
- * formulario y no como una ficha.
- */
-function Grupo({ titulo, ayuda, children }: { titulo: string; ayuda?: string; children: React.ReactNode }) {
-    return (
-        <section>
-            <h4 className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/40 pb-1.5 mb-1 border-b border-white/10"
-                title={ayuda}>
-                {titulo}
-            </h4>
-            <div>{children}</div>
-        </section>
-    );
-}
 
-/**
- * Un dato: el nombre a la izquierda, apagado; el valor a la derecha, alineado.
- *
- * A la derecha y no debajo porque casi todos son números y fechas, y una columna de
- * valores alineados se recorre de un vistazo — que es exactamente lo que alguien hace
- * cuando viene a revisar una lectura discutida.
- */
-function Renglon({ k, v, tono, fuerte, ayuda }: {
-    k: string; v: React.ReactNode; tono?: string; fuerte?: boolean; ayuda?: string;
-}) {
-    return (
-        <div className="flex items-baseline justify-between gap-6 py-[5px] border-b border-white/[0.06] last:border-0"
-            title={ayuda}>
-            <span className="text-[11.5px] text-white/45 shrink-0">{k}</span>
-            <span className={cn("text-[12.5px] text-right tabular-nums truncate",
-                fuerte ? "font-bold tracking-[0.08em] text-white" : "text-white/90", tono)}>
-                {v}
-            </span>
-        </div>
-    );
-}
 
 /** Una medida de la lectura. Sin caja: viven sobre la imagen, con sombra de texto. */
 function Medida({ valor, rotulo, tono, ayuda }: { valor: string; rotulo: string; tono?: string; ayuda?: string }) {
@@ -385,15 +346,25 @@ export function VisorCuadro({
     const [pos, setPos] = useState({ x: 0, y: 0 });
     const [verContorno, setVerContorno] = useState(true);
     /**
-     * El cajón de datos.
+     * El cajón de los pasos anteriores.
      *
-     * El modal viejo de acceso tenía tres solapas — perfil, historial y datos — arriba del
-     * todo. Acá el perfil YA es la ficha de la izquierda, así que repetirlo en una solapa
-     * sería mostrarlo dos veces; quedan las otras dos, y no arriba sino en un cajón que
-     * sube desde abajo sobre la imagen. Unas solapas en el borde superior parten la ventana
-     * en dos y rompen lo único que esta ventana tiene de distinto: que es la foto.
+     * El modal viejo de acceso tenía tres solapas arriba: perfil, historial y datos. Las
+     * tres se fueron, cada una por su motivo.
+     *
+     * El **perfil** ya es la ficha de la izquierda: ponerlo también en una solapa era
+     * mostrarlo dos veces.
+     *
+     * Los **datos de la lectura** llegué a hacerlos y los saqué. Eran una lista de
+     * dieciséis renglones que tapaba media ventana para decir, sobre todo, lo que ya está
+     * escrito debajo de la chapa: «90% confianza · 2 cuadros · 3,3% del cuadro». Un panel
+     * grande que repite tres números chicos no agrega nada; ocupa. Lo único que no estaba
+     * arriba —el recuadro en crudo, el identificador del equipo— es material de depuración,
+     * y para eso está la base.
+     *
+     * Queda el **historial**, que es lo único que el visor no puede mostrar de otra forma, y
+     * baja desde abajo en vez de partir la ventana con solapas en el borde superior.
      */
-    const [cajon, setCajon] = useState<"" | "historial" | "datos">("");
+    const [cajon, setCajon] = useState<"" | "historial">("");
     const [copiada, setCopiada] = useState(false);
     /**
      * La proporcion de la foto. Arranca en 16:9 — que es lo que entrega cualquier camara
@@ -1007,10 +978,10 @@ export function VisorCuadro({
                                 {enListaNegra ? "Quitar de la lista" : "Lista negra"}
                             </Pildora>
                         )}
-                        {(historial || fila.bbox || fila.confidence != null) && (
-                            <Pildora icono={PanelBottom} onClick={() => setCajon((c) => c ? "" : (historial ? "historial" : "datos"))}
-                                encendida={!!cajon} title="Ver los pasos anteriores y los datos crudos">
-                                {cajon ? "Cerrar" : "Ver más"}
+                        {historial && (
+                            <Pildora icono={PanelBottom} onClick={() => setCajon((c) => c ? "" : "historial")}
+                                encendida={!!cajon} title="Las veces anteriores que se vio esta matrícula">
+                                {cajon ? "Cerrar" : `Pasos anteriores${historial.length ? ` (${historial.length})` : ""}`}
                             </Pildora>
                         )}
                     </div>
@@ -1079,18 +1050,9 @@ export function VisorCuadro({
                             className="absolute inset-x-0 bottom-0 z-40 visor-panel rounded-t-2xl max-h-[58%] flex flex-col">
 
                             <div className="shrink-0 flex items-center gap-1 px-3 pt-2.5 pb-2">
-                                {historial && (
-                                    <button type="button" onClick={() => setCajon("historial")}
-                                        className={cn("h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors",
-                                            cajon === "historial" ? "bg-white/15 text-white" : "text-white/60 hover:text-white")}>
-                                        Pasos anteriores{historial.length ? ` (${historial.length})` : ""}
-                                    </button>
-                                )}
-                                <button type="button" onClick={() => setCajon("datos")}
-                                    className={cn("h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors",
-                                        cajon === "datos" ? "bg-white/15 text-white" : "text-white/60 hover:text-white")}>
-                                    Datos de la lectura
-                                </button>
+                                <span className="px-2 text-[12px] font-semibold text-white/80">
+                                    Pasos anteriores{historial?.length ? ` · ${historial.length}` : ""}
+                                </span>
                                 <button type="button" onClick={() => setCajon("")} title="Cerrar"
                                     className="ml-auto w-8 h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors">
                                     <X size={15} />
@@ -1132,66 +1094,6 @@ export function VisorCuadro({
                                     )
                                 )}
 
-                                {cajon === "datos" && (
-                                    /*
-                                     * Lo crudo, tal como quedó guardado.
-                                     *
-                                     * No es para el operador de todos los días: es para cuando
-                                     * alguien discute una lectura y hay que poder mostrar de
-                                     * dónde salió el número. Por eso va agrupado por PROCEDENCIA
-                                     * y no por tema — lo que midió el lector, lo que pasó, y lo
-                                     * que dijo el equipo son tres cosas con distinto peso, y
-                                     * mezclarlas en una grilla las hace parecer iguales.
-                                     */
-                                    <div className="py-1 space-y-4">
-                                        <Grupo titulo="La lectura"
-                                            ayuda="Lo que midió el lector en este cuadro. Es lo que decide si hay que creerle a la matrícula.">
-                                            <Renglon k="Matrícula leída" v={fila.plate || "—"} fuerte />
-                                            <Renglon k="Confianza" v={conf != null ? `${conf}%` : "—"} tono={conf != null ? tonoConf : undefined} />
-                                            <Renglon k="Cuadros de la ráfaga" v={fila.reads != null ? String(fila.reads) : "—"} />
-                                            <Renglon k="Ancho de la chapa"
-                                                v={recuadro ? `${(recuadro.w * 100).toFixed(1)}% del cuadro` : "—"}
-                                                tono={!recuadro ? undefined : recuadro.w >= 0.05 ? "visor-bien" : recuadro.w >= 0.03 ? "visor-aviso" : "visor-mal"} />
-                                            {recuadro && (
-                                                <Renglon k="Dónde cayó en el cuadro"
-                                                    v={`x ${(recuadro.x * 100).toFixed(1)}% · y ${(recuadro.y * 100).toFixed(1)}%`}
-                                                    ayuda={fila.bbox || undefined} />
-                                            )}
-                                        </Grupo>
-
-                                        <Grupo titulo="El evento"
-                                            ayuda="Cuándo y dónde, y qué decidió el sistema.">
-                                            <Renglon k="Cámara" v={fila.cameraName || fila.deviceId || "—"} />
-                                            <Renglon k="Momento" v={`${fechaCorta(momento)} · ${horaSeg(momento)}`} />
-                                            {fila.tipoAcceso && (
-                                                <Renglon k="Identificación"
-                                                    v={fila.tipoAcceso === "PLATE" ? "Matrícula"
-                                                        : fila.tipoAcceso === "FACE" ? "Rostro"
-                                                            : fila.tipoAcceso === "TAG" ? "Tarjeta" : fila.tipoAcceso} />
-                                            )}
-                                            {fila.direccion && (
-                                                <Renglon k="Sentido" v={fila.direccion === "EXIT" ? "Salida" : "Entrada"} />
-                                            )}
-                                            {fila.decision && (
-                                                <Renglon k="Resultado"
-                                                    v={fila.decision === "GRANT" ? "Permitido" : "Denegado"}
-                                                    tono={fila.decision === "GRANT" ? "visor-bien" : "visor-mal"} />
-                                            )}
-                                            {estacionado && fila.estDesde && (
-                                                <Renglon k="Estadía desde" v={`${fechaCorta(fila.estDesde)} · ${horaSeg(fila.estDesde)}`} />
-                                            )}
-                                        </Grupo>
-
-                                        {Object.keys(meta).filter((k) => k !== "FaceImage").length > 0 && (
-                                            <Grupo titulo="Lo que dijo el equipo"
-                                                ayuda="Lo que el equipo escribió junto al evento. No está verificado contra el padrón: es lo que la cámara creyó ver.">
-                                                {Object.entries(meta)
-                                                    .filter(([k]) => k !== "FaceImage")
-                                                    .map(([k, v]) => <Renglon key={k} k={k} v={v} />)}
-                                            </Grupo>
-                                        )}
-                                    </div>
-                                )}
                             </div>
                         </motion.div>
                     )}
