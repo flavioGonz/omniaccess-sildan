@@ -15,7 +15,7 @@ import {
     MousePointer2, Hexagon, Spline, Video, Trash2, Save, Pencil, X, Check,
     Loader2, MapPin, Undo2, Map as MapIco, Radio, Pencil as PencilIcon,
     Plus, Minus, Crosshair, Maximize2, Minimize2, Eye, EyeOff, ShieldCheck, Route as RouteIco,
-    Layers3, ChevronDown, Pentagon, Home, Search, SquareParking, AlertTriangle,
+    Layers3, ChevronDown, Pentagon, Home, Search, SquareParking, AlertTriangle, Type,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -215,7 +215,7 @@ export default function BarrioMap() {
     const mapRef = useRef<L.Map | null>(null);
     const [guards, setGuards] = useState<any[]>([]);
     // Usabilidad: capas que se pueden apagar y pantalla completa.
-    const [verCapa, setVerCapa] = useState({ camaras: true, calles: true, lotes: true, perimetro: true, guardias: true });
+    const [verCapa, setVerCapa] = useState({ camaras: true, calles: true, lotes: true, perimetro: true, guardias: true, rotulos: true });
     // Vivo de todas las cámaras a la vez. `ocultas` deja apagar una sin apagar el resto.
     const [vivoTodas, setVivoTodas] = useState(false);
     // Cómo quedó la vista 3D. En un ref y no en estado: cambia en cada paneo y solo
@@ -595,6 +595,7 @@ export default function BarrioMap() {
         { k: "lotes", label: "Casas", icon: Pentagon },
         { k: "perimetro", label: "Perímetro", icon: Hexagon },
         { k: "guardias", label: "Guardias", icon: ShieldCheck },
+        { k: "rotulos", label: "Nombres", icon: Type },
     ];
 
     const tools: { id: Tool; icon: any; label: string }[] = [
@@ -728,9 +729,14 @@ ${CSS_AUTO}
                                         },
                                         mouseout: () => setHoverLote((h) => h?.id === lo.id ? null : h),
                                     }}>
-                                    <LTooltip direction="center" permanent className="cam-name-tip">
-                                        {lo.label}{uni ? ` · ${uni.name}` : ""}
-                                    </LTooltip>
+                                    {/* El nombre clavado encima tapa la foto cuando hay muchos
+                                        lotes. Apagando "Nombres" el contorno queda y el nombre
+                                        vuelve al pasar el mouse, que ya lo cuenta todo. */}
+                                    {verCapa.rotulos && (
+                                        <LTooltip direction="center" permanent className="cam-name-tip">
+                                            {lo.label}{uni ? ` · ${uni.name}` : ""}
+                                        </LTooltip>
+                                    )}
                                 </Polygon>
                                 {editing && sel && lo.points.map((pt, i) => (
                                     <Marker key={i} position={pt} draggable
@@ -786,7 +792,7 @@ ${CSS_AUTO}
                                 click: () => { if (editing && tool === "select") setSelected({ type: "camera", id: c.deviceId }); },
                                 contextmenu: (e) => openCtx(e, "camera", c.deviceId),
                             }}>
-                            <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>
+                            <LTooltip permanent={verCapa.rotulos} direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>
                             {!editing && (
                                 <Popup className="cam-live-popup" maxWidth={280} minWidth={260}>
                                     <div className="rounded-lg overflow-hidden">
