@@ -11,6 +11,7 @@ import { native, isNativeApp, onNativeEvent, type NativeSensorData } from "@/lib
 import { getBarrioMap } from "@/app/actions/barriomap";
 import { createBitacoraEntry } from "@/app/actions/bitacora";
 import { getSetting, updateSetting } from "@/app/actions/settings";
+import { hora } from "@/lib/fechas";
 
 type LatLng = { lat: number; lng: number } | null;
 type Checkpoint = { id: string; label: string; key: string; intervalMin: number };
@@ -368,7 +369,7 @@ export default function GuardNativeLayer({ socket, guardName, myLocation, isAler
                                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${cp.done ? "bg-emerald-500/15 text-emerald-600" : cp.overdue ? "bg-red-500/15 text-red-600" : "bg-black/5 text-black/30"}`}>{cp.done ? <Check size={15} /> : <Clock size={15} />}</div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-black text-black truncate">{cp.label}</p>
-                                                <p className="text-[10px] font-bold text-black/40">{cp.lastTs ? "Últ: " + new Date(cp.lastTs).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' }) : "Sin fichar"} · cada {cp.intervalMin}m</p>
+                                                <p className="text-[10px] font-bold text-black/40">{cp.lastTs ? "Últ: " + hora(new Date(cp.lastTs)) : "Sin fichar"} · cada {cp.intervalMin}m</p>
                                             </div>
                                             {editing && <button onClick={() => removeCheckpoint(cp.id)} className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center"><Trash2 size={14} /></button>}
                                         </div>
@@ -397,7 +398,7 @@ export default function GuardNativeLayer({ socket, guardName, myLocation, isAler
                                         <div key={i} className="flex items-center gap-3 p-2 rounded-lg bg-slate-50 border border-black/5">
                                             <Check size={14} className="text-emerald-600" />
                                             <span className="flex-1 text-xs font-black truncate">{s.value}</span>
-                                            <span className="text-[10px] font-bold text-black/40">{new Date(s.ts).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' })}</span>
+                                            <span className="text-[10px] font-bold text-black/40">{hora(new Date(s.ts))}</span>
                                         </div>
                                     ))}
                             </div>

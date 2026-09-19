@@ -20,6 +20,7 @@ import {
     getCameraOutages,
 } from "@/app/actions/queue";
 import { toast } from "sonner";
+import { fecha, fechaHora } from "@/lib/fechas";
 
 /* ── Types ─────────────────────────────────── */
 interface HourlyData { hour: number; avg: number; max: number; count: number; }
@@ -413,7 +414,7 @@ async function exportPDF(title: string, subtitle: string, columns: { key: string
     doc.setTextColor(215, 215, 222);
     doc.text(rb?.tagline || "Reporte de aforo · Control de Filas", M + 25, 22);
     doc.setFontSize(7.5);
-    doc.text(new Date().toLocaleString("es-UY"), W - M, 14, { align: "right" });
+    doc.text(fecha(new Date()), W - M, 14, { align: "right" });
     if (rb?.contact) { doc.setFontSize(7); doc.setTextColor(215, 215, 222); doc.text(String(rb.contact), W - M, 19, { align: "right" }); }
 
     // ── Title block ──
@@ -590,9 +591,9 @@ function OutagesPanel({ outages, devices }: { outages: any[]; devices: { id: str
                             {outages.map((o) => (
                                 <tr key={o.id} className="border-t border-border text-foreground/70">
                                     <td className="py-1.5 px-2">{dn(o.deviceId)}</td>
-                                    <td className="py-1.5 px-2 font-mono text-foreground/70">{new Date(o.startedAt).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+                                    <td className="py-1.5 px-2 font-mono text-foreground/70">{fechaHora(new Date(o.startedAt))}</td>
                                     <td className="py-1.5 px-2 font-mono text-foreground/70">
-                                        {o.endedAt ? new Date(o.endedAt).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : <span className="text-rose-400">en curso</span>}
+                                        {o.endedAt ? fechaHora(new Date(o.endedAt)) : <span className="text-rose-400">en curso</span>}
                                     </td>
                                     <td className="py-1.5 px-2 text-right font-mono">{fmtDur(o.durationSec)}</td>
                                     <td className="py-1.5 px-2 text-right font-mono text-muted-foreground">{o.lastValue ?? "—"}</td>
@@ -690,7 +691,7 @@ export default function ReportesQueuePage() {
                 { key: "count", label: "Lecturas" },
             ];
             const rows = intervalRows.filter((r: any) => r.count > 0);
-            const dateLabel = new Date(selectedDate + "T12:00:00").toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+            const dateLabel = fecha(new Date(selectedDate + "T12:00:00"));
             if (format === "xlsx") await exportXLSX(`Afluencia (${ivLabel})`, cols, rows, `afluencia-${gran}min-${selectedDate}.xlsx`);
             else await exportPDF(`Afluencia por intervalo (${ivLabel})`, `${dateLabel} - ${deviceLabel}`, cols, rows, `afluencia-${gran}min-${selectedDate}.pdf`);
         } else if (activeTab === "dia") {

@@ -12,6 +12,7 @@ import {
 import fs from "fs/promises";
 import path from "path";
 import axios from "axios";
+import { fechaHora } from "@/lib/fechas";
 
 // ... existing code ...
 
@@ -691,7 +692,7 @@ export async function getWahaHistory() {
             user: log.fromNumber,
             command: log.messageBody,
             response: log.responseDetails || log.status,
-            time: log.timestamp.toLocaleString('es-UY', { timeZone: 'America/Montevideo', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+            time: fechaHora(log.timestamp)
         }));
     } catch (error) {
         console.error("Failed to fetch WAHA history", error);

@@ -785,7 +785,7 @@ function FeedCard({ event, verification, currentTime, onClick }: FeedCardProps) 
         ? (verification.similarity * 100).toFixed(0)
         : cameraSimilarity;
 
-    const timeStr = new Date(event.timestamp).toLocaleTimeString('es-ES', {
+    const timeStr = new Date(event.timestamp).toLocaleString('es-ES', {
         hour: '2-digit', minute: '2-digit', hour12: false
     });
 

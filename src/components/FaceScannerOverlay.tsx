@@ -12,6 +12,7 @@ import { createBitacoraEntry } from "@/app/actions/bitacora";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { hora } from "@/lib/fechas";
 
 interface FaceScannerOverlayProps {
     onClose: () => void;
@@ -256,7 +257,7 @@ export default function FaceScannerOverlay({ onClose, guardName, location, recen
                                         </div>
                                         <div className="min-w-0">
                                             <p className="text-[9px] font-bold uppercase tracking-tight truncate">{entry.name || entry.bitacora?.name || "Desconocido"}</p>
-                                            <p className="text-[7px] font-bold uppercase text-muted-foreground tracking-widest">{new Date(entry.timestamp || entry.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                                            <p className="text-[7px] font-bold uppercase text-muted-foreground tracking-widest">{hora(new Date(entry.timestamp || entry.createdAt))}</p>
                                         </div>
                                     </div>
                                 ))}

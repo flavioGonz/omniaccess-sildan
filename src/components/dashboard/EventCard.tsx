@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 import { EventDetailsDialog } from "./EventDetailsDialog";
 import { VehicleMetaChips } from "@/components/VehicleMeta";
+import { hora } from "@/lib/fechas";
 
 type FullAccessEvent = AccessEvent & {
     user: (User & { unit: Unit | null, cara?: string | null }) | null;
@@ -151,7 +152,7 @@ export function EventCard({ event }: EventCardProps) {
                     <div className="flex justify-between items-center text-[8px] font-bold text-muted-foreground uppercase tracking-widest pt-0">
                         <div className="flex items-center gap-1.5">
                             <div className="w-1 h-1 rounded-full bg-muted" />
-                            {new Date(event.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                            {hora(new Date(event.timestamp))}
                         </div>
                         <span className="truncate max-w-[80px]">{event.device?.name || "Root"}</span>
                     </div>

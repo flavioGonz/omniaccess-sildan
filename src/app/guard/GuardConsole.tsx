@@ -78,6 +78,7 @@ import { io } from "socket.io-client";
 import { useInView } from "react-intersection-observer";
 import { saveGuardBranding, uploadBrandingFile } from "@/app/actions/settings";
 import axios from "axios";
+import { fecha, fechaCorta, fechaHora, hora } from "@/lib/fechas";
 import { getSocketUrl } from "@/lib/socket-config";
 
 import dynamic from 'next/dynamic';
@@ -2352,7 +2353,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                         </div>
                                                         <div className="text-right shrink-0">
                                                             <div className={cn("px-3 py-1 rounded-lg text-[10px] font-bold inline-block mb-1", isStillActive ? "bg-red-600 text-white animate-pulse" : "bg-emerald-50 text-emerald-600")}>{duration}</div>
-                                                            <p className="text-[10px] font-bold text-black/40">{new Date(alert.timestamp || alert.createdAt).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' })}</p>
+                                                            <p className="text-[10px] font-bold text-black/40">{hora(new Date(alert.timestamp || alert.createdAt))}</p>
                                                         </div>
                                                         <ChevronRight size={16} className="text-black/10 group-hover:text-black/30 shrink-0" />
                                                     </motion.button>
@@ -2436,8 +2437,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                             </div>
                                                         </div>
                                                         <div className="text-right shrink-0">
-                                                            <p className="text-xs font-bold text-black">{new Date(event.timestamp).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit' })}</p>
-                                                            <p className="text-[10px] font-bold text-black/40">{new Date(event.timestamp).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' })}</p>
+                                                            <p className="text-xs font-bold text-black">{fecha(new Date(event.timestamp))}</p>
+                                                            <p className="text-[10px] font-bold text-black/40">{hora(new Date(event.timestamp))}</p>
                                                         </div>
                                                         <ChevronRight size={16} className="text-black/10 group-hover:text-black/30 shrink-0" />
                                                     </motion.button>
@@ -2511,7 +2512,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                                     )}
                                                                 </div>
                                                                 <p className="text-xs font-bold text-black/40 uppercase tracking-widest">
-                                                                    {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {new Date(entry.timestamp).toLocaleDateString()}
+                                                                    {hora(new Date(entry.timestamp))} · {fecha(new Date(entry.timestamp))}
                                                                 </p>
                                                             </div>
                                                         </div>
@@ -2587,7 +2588,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     <div>
                                         <h3 className="text-xl font-bold uppercase tracking-tighter text-black">Detalle de Registro</h3>
                                         <p className="text-[10px] font-bold uppercase tracking-widest text-black/30 mt-1">
-                                            {selectedEntry.timestamp ? new Date(selectedEntry.timestamp).toLocaleString('es-UY') : '---'}
+                                            {selectedEntry.timestamp ? fecha(new Date(selectedEntry.timestamp)) : '---'}
                                         </p>
                                     </div>
                                     <motion.button whileTap={{ scale: 0.9 }} onClick={() => setSelectedEntry(null)} className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center"><X size={20} /></motion.button>
@@ -2818,10 +2819,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                     {/* CLOCK - absolute right */}
                     <div className="absolute right-4 md:right-6 hidden lg:flex flex-col items-end">
                         <p className={cn("text-xl font-bold tabular-nums tracking-tighter leading-none mb-1", isAlertMode ? "text-white" : "text-[#B20D30]")}>
-                            {currentTime ? currentTime.toLocaleTimeString('es-UY', { hour12: false, hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                            {currentTime ? hora(currentTime) : '--:--'}
                         </p>
                         <p className={cn("text-[8px] font-bold uppercase tracking-widest leading-none", isAlertMode ? "text-white/60" : "text-black/40")}>
-                            {currentTime ? currentTime.toLocaleDateString('es-UY', { weekday: 'short', day: 'numeric', month: 'short' }) : '--- -- ---'}
+                            {currentTime ? fechaCorta(currentTime) : '--- -- ---'}
                         </p>
                     </div>
                 </footer>
@@ -3970,7 +3971,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                         <div className="space-y-3">
                                             <div className="flex items-center gap-3">
                                                 <Badge className="bg-blue-100 text-blue-600 hover:bg-blue-100 border-none px-4 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest">
-                                                    Visitó: {new Date(record.timestamp).toLocaleDateString()}
+                                                    Visitó: {fecha(new Date(record.timestamp))}
                                                 </Badge>
                                                 {record.plate && (
                                                     <Badge className="bg-slate-900 text-white hover:bg-slate-900 border-none px-4 py-1 rounded-full text-[10px] font-bold tracking-widest">
@@ -4083,7 +4084,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                     <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Última visita</p>
-                                    <p className="text-sm font-bold text-slate-900 leading-tight">{plateAnalysis.lastVisit ? new Date(plateAnalysis.lastVisit).toLocaleString('es-UY', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : "Sin registros previos"}</p>
+                                    <p className="text-sm font-bold text-slate-900 leading-tight">{plateAnalysis.lastVisit ? fechaHora(new Date(plateAnalysis.lastVisit)) : "Sin registros previos"}</p>
                                 </div>
                                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between">
                                     <div>
@@ -4108,7 +4109,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                 </div>
                                                 <div className="leading-tight min-w-0">
                                                     <p className="text-xs font-bold text-slate-900 uppercase tracking-tight truncate">{ev.direction === 'ENTRY' ? 'Ingreso' : 'Salida'}</p>
-                                                    <p className="text-[10px] font-bold text-slate-400">{new Date(ev.timestamp).toLocaleString('es-UY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
+                                                    <p className="text-[10px] font-bold text-slate-400">{fechaHora(new Date(ev.timestamp))}</p>
                                                 </div>
                                             </div>
                                             <div className={cn("px-3 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider shrink-0", ev.decision === 'GRANT' ? "bg-emerald-500 text-white" : "bg-red-500 text-white")}>

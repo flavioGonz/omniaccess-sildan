@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Search, AlertTriangle, ChevronDown, Camera, Clock, Film, Info, X, History, Car, User, Bike, SlidersHorizontal, RotateCw, Lightbulb, CalendarDays, ImagePlus, Trash2, Video, ScanLine, LogIn, LogOut, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
+import { fecha, fechaHora, fechaHoraSeg } from "@/lib/fechas";
 
 const imgProxy = (u?: string) => u ? `/api/acuseek/image?u=${encodeURIComponent(u)}` : "";
 const RANGES = [{ k: "today", l: "Hoy", days: 0 }, { k: "3d", l: "3 días", days: 3 }, { k: "7d", l: "7 días", days: 7 }, { k: "30d", l: "30 días", days: 30 }];
@@ -549,7 +550,7 @@ export default function AcuSeekPage() {
                                 </div>
                                 <div className="px-2 py-1.5 text-[11px]">
                                     <div className="font-bold truncate">{m.deviceName || "—"}</div>
-                                    <div className="flex items-center gap-1 text-muted-foreground"><Clock size={10} /> {m.time ? new Date(m.time).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}</div>
+                                    <div className="flex items-center gap-1 text-muted-foreground"><Clock size={10} /> {m.time ? fechaHora(new Date(m.time)) : "—"}</div>
                                     <div className="flex flex-wrap gap-1 mt-1">
                                         {m.brand && m.brand !== "Unknown" && <span className="text-[9px] px-1 py-0.5 rounded bg-muted/40 text-muted-foreground">{m.brand}</span>}
                                         {m.color && <span className="text-[9px] px-1 py-0.5 rounded bg-muted/40 text-muted-foreground">{m.color}</span>}
@@ -583,7 +584,7 @@ export default function AcuSeekPage() {
                                         <span className="font-bold truncate">{m.deviceName || `Canal ${m.channel}`}</span>
                                         <span className="text-[9px] text-muted-foreground flex items-center gap-0.5 capitalize shrink-0"><TargetIcon t={m.targetType} /></span>
                                     </div>
-                                    <div className="flex items-center gap-1 text-muted-foreground mt-0.5 text-[11px]"><Clock size={10} /> {m.time ? new Date(m.time).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}</div>
+                                    <div className="flex items-center gap-1 text-muted-foreground mt-0.5 text-[11px]"><Clock size={10} /> {m.time ? fechaHoraSeg(new Date(m.time)) : "—"}</div>
                                     {m.attrs && (
                                         <div className="flex flex-wrap gap-1 mt-1">
                                             {Object.entries(m.attrs).slice(0, 4).map(([k, v]) => <Tip key={k} label={ATTR_ES[k] || k}><span className="text-[9px] px-1 py-0.5 rounded bg-muted/40 text-muted-foreground">{v}</span></Tip>)}
@@ -623,7 +624,7 @@ export default function AcuSeekPage() {
                             <div className="absolute bottom-2 left-2 text-xs text-white/90 bg-black/60 rounded-md px-2 py-1 flex items-center gap-2">
                                 <span className="font-bold">{lightbox.deviceName || `Canal ${lightbox.channel}`}</span>
                                 {lightbox.score != null && <span className={scoreColor(lightbox.score)}>{lightbox.score}%</span>}
-                                <span>{lightbox.time ? new Date(lightbox.time).toLocaleString("es-UY") : ""}</span>
+                                <span>{lightbox.time ? fecha(new Date(lightbox.time)) : ""}</span>
                                 {lightbox.attrs && Object.entries(lightbox.attrs).map(([k, v]) => <span key={k} className="opacity-80">· {ATTR_ES[k] || k}: {v}</span>)}
                             </div>
                         </motion.div>

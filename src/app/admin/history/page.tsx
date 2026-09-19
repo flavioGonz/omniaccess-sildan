@@ -33,6 +33,7 @@ import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getImagePath } from "@/lib/image-path";
+import { horaSeg } from "@/lib/fechas";
 
 const formatDuration = (ms: number) => {
     const minutes = Math.floor(ms / 60000);
@@ -46,7 +47,7 @@ const formatDuration = (ms: number) => {
 };
 
 function formatTime(date: Date): string {
-    return new Date(date).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return horaSeg(new Date(date));
 }
 
 const MotionTableRow = motion(TableRow);

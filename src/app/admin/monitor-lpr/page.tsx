@@ -29,6 +29,7 @@ import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
+import { fechaCorta, hora } from "@/lib/fechas";
 
 interface FullAccessEvent extends AccessEvent {
     user: {
@@ -77,7 +78,7 @@ function TimeAgo({ timestamp }: { timestamp: string | Date }) {
     if (s < 60) txt = `Hace ${s}s`;
     else if (s < 3600) txt = `Hace ${Math.floor(s / 60)}m`;
     else if (s < 86400) txt = `Hace ${Math.floor(s / 3600)}h`;
-    else txt = new Date(timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short" });
+    else txt = fechaCorta(new Date(timestamp));
     return <span suppressHydrationWarning>{txt}</span>;
 }
 
@@ -284,7 +285,7 @@ function TiraInteriores({ avistamientos, fichas, onAbrir }: { avistamientos: any
                                 )}
                             </div>
                             <div className="text-[8.5px] text-muted-foreground/70 truncate">
-                                {seg < 60 ? `hace ${seg}s` : seg < 3600 ? `hace ${Math.round(seg / 60)} min` : t.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
+                                {seg < 60 ? `hace ${seg}s` : seg < 3600 ? `hace ${Math.round(seg / 60)} min` : hora(t)}
                             </div>
                         </button>
                     );

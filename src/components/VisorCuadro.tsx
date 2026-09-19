@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Cronometro } from "@/components/tracking/Cronometro";
 import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
 import { leerRecuadro } from "@/lib/deteccion";
+import { fechaCorta, hora } from "@/lib/fechas";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -414,7 +415,7 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
                             </div>
                             <div className="text-[11px] text-white/55 tabular-nums flex items-center gap-1.5 leading-tight">
                                 <Clock size={10} className="text-white/35 shrink-0" />
-                                {momento.toLocaleDateString("es-UY", { day: "2-digit", month: "short" })} · {momento.toLocaleTimeString("es-UY", { hour12: false })}
+                                {fechaCorta(momento)} · {hora(momento)}
                             </div>
                         </div>
 

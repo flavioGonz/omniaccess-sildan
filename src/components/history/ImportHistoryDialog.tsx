@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from "@/components/ui/button";
 import { Upload, FileJson, Loader2, CheckCircle2, AlertTriangle, Database } from "lucide-react";
 import { sileo as toast } from "sileo";
+import { fecha, fechaHora } from "@/lib/fechas";
 
 interface Props {
     open: boolean;
@@ -72,13 +73,13 @@ export function ImportHistoryDialog({ open, onOpenChange, onDone }: Props) {
                         {parsed && (
                             <div className="rounded-lg border border-border overflow-hidden">
                                 <div className="px-3 py-2 bg-muted/40 text-xs font-semibold flex items-center justify-between">
-                                    <span>{parsed.length.toLocaleString()} eventos detectados</span>
+                                    <span>{fecha(parsed.length)} eventos detectados</span>
                                     <span className="text-muted-foreground">Vista previa</span>
                                 </div>
                                 <div className="max-h-40 overflow-y-auto divide-y divide-border/50 text-[11px]">
                                     {preview.map((e, i) => (
                                         <div key={i} className="px-3 py-1.5 flex items-center gap-2">
-                                            <span className="font-mono text-muted-foreground">{e.timestamp ? new Date(e.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?"}</span>
+                                            <span className="font-mono text-muted-foreground">{e.timestamp ? fechaHora(new Date(e.timestamp)) : "?"}</span>
                                             <span className="font-mono font-bold">{e.plateDetected || e.plateNumber || "s/l"}</span>
                                             <span className={e.decision === "GRANT" ? "text-emerald-400" : "text-red-400"}>{e.decision === "GRANT" ? "OK" : "DENY"}</span>
                                             <span className="ml-auto text-muted-foreground truncate max-w-[140px]">{e.deviceName || e.location || ""}</span>
@@ -91,8 +92,8 @@ export function ImportHistoryDialog({ open, onOpenChange, onDone }: Props) {
                 ) : (
                     <div className="flex flex-col items-center gap-3 py-6">
                         <CheckCircle2 size={40} className="text-emerald-400" />
-                        <p className="text-sm font-bold">{result.inserted.toLocaleString()} registros importados</p>
-                        <p className="text-xs text-muted-foreground">{result.skipped.toLocaleString()} duplicados omitidos</p>
+                        <p className="text-sm font-bold">{fecha(result.inserted)} registros importados</p>
+                        <p className="text-xs text-muted-foreground">{fecha(result.skipped)} duplicados omitidos</p>
                     </div>
                 )}
 

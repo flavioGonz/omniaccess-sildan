@@ -6,6 +6,7 @@ import { User, ShieldAlert, Clock, ChevronRight, CheckCircle2, XCircle } from "l
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { getImagePath } from "@/lib/image-path";
+import { hora } from "@/lib/fechas";
 
 export default function SecurityFeed({ events, onEventClick }: { events: any[], onEventClick?: (event: any) => void }) {
     return (
@@ -67,7 +68,7 @@ export default function SecurityFeed({ events, onEventClick }: { events: any[], 
                                             {event.user?.name || "DESCONOCIDO"}
                                         </h4>
                                         <span className="text-[10px] font-mono text-muted-foreground">
-                                            {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            {hora(new Date(event.timestamp))}
                                         </span>
                                     </div>
 

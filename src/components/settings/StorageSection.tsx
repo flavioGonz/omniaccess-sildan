@@ -14,6 +14,7 @@ import {
     getSetting, updateSetting, getStorageCapacity,
 } from "@/app/actions/settings";
 import { getEnabledModules } from "@/app/actions/modules";
+import { fecha } from "@/lib/fechas";
 
 type ModKey = "lpr" | "face" | "queue";
 
@@ -298,7 +299,7 @@ export default function StorageSection() {
                                     </div>
 
                                     <div className="pt-3 border-t border-border flex justify-between items-center text-[11px] text-muted-foreground font-mono">
-                                        <span>{st.loading ? "..." : st.count.toLocaleString() + " archivos"}</span>
+                                        <span>{st.loading ? "..." : fecha(st.count) + " archivos"}</span>
                                         <span className={cn(!st.loading && "text-foreground font-semibold")}>{st.loading ? "..." : fmt(st.size)}</span>
                                     </div>
                                 </div>

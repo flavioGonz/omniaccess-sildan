@@ -7,6 +7,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { Readable } from 'stream';
 import { HikvisionDriver } from '@/lib/drivers/HikvisionDriver';
 import { DeviceBrand, DeviceType } from '@prisma/client';
+import { fecha, fechaHora, hora } from "@/lib/fechas";
 
 // Helper to convert stream to buffer
 async function streamToBuffer(stream: Readable): Promise<Buffer> {
@@ -401,7 +402,7 @@ export async function POST(req: Request) {
                     } else {
                         let resp = `📋 *${title} de ${plate}*\n\n`;
                         events.forEach((evt, i) => {
-                            const t = new Date(evt.timestamp).toLocaleString('es-UY', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', hour12: false, timeZone: 'America/Montevideo' });
+                            const t = fechaHora(new Date(evt.timestamp));
                             const dev = evt.device?.name || "Cámara";
                             const icon = evt.decision === 'GRANT' ? '✅' : '🚫';
                             resp += `${i + 1}. ${t} - ${dev} ${icon}\n`;
@@ -525,7 +526,7 @@ export async function POST(req: Request) {
                 // Build Summary
                 let caption = `📋 *Últimos 10 eventos de ${cleanPlate}*\n\n`;
                 events.forEach((evt, i) => {
-                    const t = new Date(evt.timestamp).toLocaleString('es-UY', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', hour12: false, timeZone: 'America/Montevideo' });
+                    const t = fechaHora(new Date(evt.timestamp));
                     const dev = evt.device?.name || "Cámara";
                     const icon = evt.decision === 'GRANT' ? '✅' : '🚫';
                     const dir = evt.direction === 'ENTRY' ? 'Entrada' : (evt.direction === 'EXIT' ? 'Salida' : 'Acceso');
@@ -551,7 +552,7 @@ export async function POST(req: Request) {
                             if (response.Body) {
                                 const buffer = await streamToBuffer(response.Body as Readable);
                                 imageBase64 = `data:image/jpeg;base64,${buffer.toString('base64')}`;
-                                caption += `\n📸 *Foto del evento más reciente (${new Date(eventWithImage.timestamp).toLocaleTimeString('es-UY', { timeZone: 'America/Montevideo' })})*`;
+                                caption += `\n📸 *Foto del evento más reciente (${hora(new Date(eventWithImage.timestamp))})*`;
                             }
                         } catch (e) {
                             console.error("S3 Error for plate query", e);
@@ -608,7 +609,7 @@ export async function POST(req: Request) {
                 const title = /entrada/i.test(lowerMsg) ? 'Entradas' : (/salida/i.test(lowerMsg) ? 'Salidas' : 'Accesos');
                 caption = `📋 *Últimas ${events.length} ${title}*\n\n`;
                 events.forEach((evt, i) => {
-                    const t = new Date(evt.timestamp).toLocaleString('es-UY', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Montevideo' });
+                    const t = hora(new Date(evt.timestamp));
                     const icon = evt.decision === 'GRANT' ? '✅' : '🚫';
                     let identity = "Desconocido";
                     if (evt.accessType === 'FACE' && evt.user?.name) identity = `👤 ${evt.user.name}`;
@@ -623,7 +624,7 @@ export async function POST(req: Request) {
             }
 
             // Detail Logic
-            const time = new Date(lastEvent.timestamp).toLocaleString('es-UY', { timeZone: 'America/Montevideo' });
+            const time = fecha(new Date(lastEvent.timestamp));
             const plate = lastEvent.plateNumber || lastEvent.plateDetected || "No detectada";
             const userName = lastEvent.user?.name || "Visitante / Desconocido";
             const deviceName = lastEvent.device?.name || "Cámara Sin Nombre";

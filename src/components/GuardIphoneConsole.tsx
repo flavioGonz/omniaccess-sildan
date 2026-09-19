@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
+import { fecha, fechaHora, hora } from "@/lib/fechas";
 
 const LiveGuardMap = dynamic(() => import("@/components/LiveGuardMap"), { ssr: false });
 const OCRScanner = dynamic(() => import("@/components/OCRScannerTF"), { ssr: false });
@@ -1011,7 +1012,7 @@ export default function GuardIphoneConsole({
                                                     </div>
                                                     <p className="text-xs font-bold text-slate-800 truncate uppercase">{entry.name || "Reservado"}</p>
                                                     <p className="text-[9px] font-bold text-slate-400">
-                                                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {new Date(entry.timestamp).toLocaleDateString()}
+                                                        {hora(new Date(entry.timestamp))} · {fecha(new Date(entry.timestamp))}
                                                     </p>
                                                 </div>
                                             </div>
@@ -1097,8 +1098,8 @@ export default function GuardIphoneConsole({
                                                 <p className="text-[9px] font-bold text-slate-400">Cámara: {event.deviceName}</p>
                                             </div>
                                             <div className="text-right shrink-0">
-                                                <p className="text-[10px] font-bold text-slate-900">{new Date(event.timestamp).toLocaleDateString('es-UY', { day: '2-digit', month: '2-digit' })}</p>
-                                                <p className="text-[9px] font-bold text-slate-400">{new Date(event.timestamp).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' })}</p>
+                                                <p className="text-[10px] font-bold text-slate-900">{fecha(new Date(event.timestamp))}</p>
+                                                <p className="text-[9px] font-bold text-slate-400">{hora(new Date(event.timestamp))}</p>
                                             </div>
                                             <ChevronRight size={14} className="text-slate-200 shrink-0" />
                                         </button>
@@ -1170,7 +1171,7 @@ export default function GuardIphoneConsole({
                                                 </div>
                                                 <div className="text-right shrink-0">
                                                     <div className={cn("px-2 py-0.5 rounded-md text-[8px] font-bold inline-block mb-0.5", isStillActive ? "bg-red-600 text-white animate-pulse" : "bg-emerald-50 text-emerald-600")}>{duration}</div>
-                                                    <p className="text-[9px] font-bold text-slate-400">{new Date(alert.timestamp || alert.createdAt).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' })}</p>
+                                                    <p className="text-[9px] font-bold text-slate-400">{hora(new Date(alert.timestamp || alert.createdAt))}</p>
                                                 </div>
                                                 <ChevronRight size={14} className="text-slate-200 shrink-0" />
                                             </button>
@@ -1361,7 +1362,7 @@ export default function GuardIphoneConsole({
                                                     </p>
                                                     <div className="flex items-center justify-between">
                                                         <p className="text-[8px] font-bold text-white/60 uppercase">
-                                                            {new Date(event.timestamp).toLocaleTimeString('es-UY', { hour: '2-digit', minute: '2-digit' })}
+                                                            {hora(new Date(event.timestamp))}
                                                         </p>
                                                         <p className="text-[8px] font-bold text-white/40 uppercase truncate max-w-[50%]">
                                                             {event.device?.name || "Cámara"}
@@ -1663,7 +1664,7 @@ export default function GuardIphoneConsole({
                                             </span>
                                         )}
                                         <span className="text-[9px] font-bold uppercase px-2 py-0.5 rounded-md bg-slate-100 text-slate-400">
-                                            {new Date(selectedEntry.timestamp || selectedEntry.createdAt).toLocaleString('es-UY')}
+                                            {fecha(new Date(selectedEntry.timestamp || selectedEntry.createdAt))}
                                         </span>
                                     </div>
                                 </div>
@@ -2208,7 +2209,7 @@ export default function GuardIphoneConsole({
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
                                     <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1">Última Visita</p>
-                                    <p className="text-xs font-bold text-slate-900">{plateReport.lastVisit ? new Date(plateReport.lastVisit).toLocaleString('es-UY', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : "Nunca"}</p>
+                                    <p className="text-xs font-bold text-slate-900">{plateReport.lastVisit ? fechaHora(new Date(plateReport.lastVisit)) : "Nunca"}</p>
                                 </div>
                                 <div className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
                                     <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Semanal</p>
@@ -2227,7 +2228,7 @@ export default function GuardIphoneConsole({
                                                 </div>
                                                 <div className="leading-tight">
                                                     <p className="text-[10px] font-bold text-slate-900 uppercase">{ev.direction === 'ENTRY' ? 'Entrada' : 'Salida'}</p>
-                                                    <p className="text-[9px] font-bold text-slate-400">{new Date(ev.timestamp).toLocaleString('es-UY')}</p>
+                                                    <p className="text-[9px] font-bold text-slate-400">{fecha(new Date(ev.timestamp))}</p>
                                                 </div>
                                             </div>
                                             <div className={cn("px-2 py-1 rounded-md text-[8px] font-bold uppercase", ev.decision === 'GRANT' ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600")}>
@@ -2344,7 +2345,7 @@ export default function GuardIphoneConsole({
                                         className="w-full p-6 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between text-left active:scale-[0.98] transition-all group hover:bg-white hover:border-blue-200"
                                     >
                                         <div className="space-y-2">
-                                            <p className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.2em]">Última visita: {new Date(record.timestamp).toLocaleDateString()}</p>
+                                            <p className="text-[10px] font-bold text-blue-500 uppercase tracking-[0.2em]">Última visita: {fecha(new Date(record.timestamp))}</p>
                                             <p className="text-lg font-bold text-slate-900 uppercase">{record.name || "Sin nombre"}</p>
                                             <div className="flex gap-4">
                                                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">

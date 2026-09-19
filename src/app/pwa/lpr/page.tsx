@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { getDevices } from "@/app/actions/devices";
 import { getAccessEvents } from "@/app/actions/history";
 import io from "socket.io-client";
+import { fecha, horaSeg } from "@/lib/fechas";
 
 function urlB64ToUint8(base64: string) {
     const padding = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -54,7 +55,7 @@ function LiveVideo({ deviceId, className }: { deviceId: string; className?: stri
 }
 
 function evImg(p?: string | null) { return p ? (String(p).startsWith("/") ? p : `/api/files/lpr-prod/${p}`) : null; }
-function tfmt(t: any) { return new Date(t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+function tfmt(t: any) { return horaSeg(new Date(t)); }
 
 export default function LprPwa() {
     const [devices, setDevices] = useState<any[]>([]);
@@ -260,7 +261,7 @@ export default function LprPwa() {
                                 <div className="w-12 h-12 rounded-lg overflow-hidden bg-black shrink-0 flex items-center justify-center">{img ? <img src={img} alt="" className="w-full h-full object-cover" /> : <Car size={16} className="text-white/40" />}</div>
                                 <div className="min-w-0 flex-1">
                                     <div className="font-bold tracking-wider text-white truncate">{e.plateDetected || "—"}</div>
-                                    <div className="text-[11px] text-white/50">{new Date(e.timestamp).toLocaleString("es-UY")}{e.device?.name ? ` · ${e.device.name}` : ""}</div>
+                                    <div className="text-[11px] text-white/50">{fecha(new Date(e.timestamp))}{e.device?.name ? ` · ${e.device.name}` : ""}</div>
                                 </div>
                                 <span className={cn("text-[10px] font-bold px-2 py-1 rounded-full", grant ? "bg-emerald-500/15 text-emerald-400" : "bg-rose-500/15 text-rose-400")}>{grant ? "OK" : "DENY"}</span>
                             </div>

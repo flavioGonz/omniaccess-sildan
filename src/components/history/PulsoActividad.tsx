@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { actividadPorDia } from "@/app/actions/alertas";
 import { Pista } from "@/components/ui/pista";
+import { fecha, fechaCorta } from "@/lib/fechas";
 
 /**
  * El pulso del registro: cuántas lecturas hubo cada día, en una tira.
@@ -62,7 +63,7 @@ export function PulsoActividad({ dias = 60 }: { dias?: number }) {
                             initial={{ scaleY: 0 }}
                             animate={{ scaleY: 1 }}
                             transition={{ duration: 0.3, delay: Math.min(i, 40) * 0.006, ease: [0.22, 1, 0.36, 1] }}
-                            title={`${new Date(b.date + "T12:00:00").toLocaleDateString("es-UY", { day: "2-digit", month: "short" })} · ${b.count}`}
+                            title={`${fechaCorta(new Date(b.date + "T12:00:00"))} · ${b.count}`}
                             className={b.count ? "bg-sky-400/75 rounded-[1px]" : "bg-white/[0.07] rounded-[1px]"}
                             style={{
                                 width: 2,
@@ -73,7 +74,7 @@ export function PulsoActividad({ dias = 60 }: { dias?: number }) {
                     ))}
                 </div>
                 <span className="text-[11px] text-muted-foreground whitespace-nowrap tabular-nums">
-                    <span className="font-bold text-foreground">{total.toLocaleString("es-UY")}</span> en {dias} días
+                    <span className="font-bold text-foreground">{fecha(total)}</span> en {dias} días
                 </span>
             </div>
         </Pista>

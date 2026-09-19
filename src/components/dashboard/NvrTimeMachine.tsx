@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DurationPicker } from "@/components/ui/duration-picker";
+import { fecha, fechaCorta, hora, horaSeg } from "@/lib/fechas";
 
 type Tab = "grabacion" | "vivo" | "evidencia";
 
@@ -241,8 +242,8 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
     const startWallMs = committedMs - PRE_SEC * 1000;
     const displayMs = (dragging || tab !== "grabacion") ? playheadMs : startWallMs + videoCur * 1000;
     const clock = new Date(displayMs);
-    const hh = clock.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-    const dd = clock.toLocaleDateString("es-UY", { weekday: "short", day: "2-digit", month: "short" });
+    const hh = horaSeg(clock);
+    const dd = fechaCorta(clock);
 
     const ticks = useMemo(() => {
         const n = 6;
@@ -338,7 +339,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                                     const t = topMs - (i / nMinor) * winMs;
                                     items.push(
                                         <div key={i} className="absolute left-0 right-0 pointer-events-none" style={{ top: `${y}%`, transform: "translateY(-50%)" }}>
-                                            {major && <span className="absolute right-[calc(50%+12px)] top-1/2 -translate-y-1/2 text-[8px] text-white/40 font-mono tabular-nums">{new Date(t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}</span>}
+                                            {major && <span className="absolute right-[calc(50%+12px)] top-1/2 -translate-y-1/2 text-[8px] text-white/40 font-mono tabular-nums">{hora(new Date(t))}</span>}
                                             <span className={cn("absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 h-px", major ? "w-4 bg-white/40" : "w-2 bg-white/15")} />
                                         </div>
                                     );
@@ -356,7 +357,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                                         <div className="relative -translate-y-1/2">
                                             <div className="h-[2px] bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.9)] rounded-full" />
                                             <div className="absolute left-0 -top-4 px-1.5 py-0.5 rounded-md bg-red-500 text-white text-[9px] font-mono font-bold tabular-nums shadow-lg">
-                                                {new Date(phMs).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                                                {horaSeg(new Date(phMs))}
                                             </div>
                                         </div>
                                     </div>
@@ -368,7 +369,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                                 const deny = m.ev.decision === "DENY";
                                 return (
                                     <button key={m.ev.id}
-                                        title={`${new Date(m.t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })} · ${m.ev.plateDetected || "s/l"}${m.extra ? ` (+${m.extra})` : ""}`}
+                                        title={`${horaSeg(new Date(m.t))} · ${m.ev.plateDetected || "s/l"}${m.extra ? ` (+${m.extra})` : ""}`}
                                         onClick={(e) => { e.stopPropagation(); commit(m.t); }}
                                         onPointerDown={(e) => e.stopPropagation()}
                                         className="absolute z-10 group cursor-pointer" style={{ top: `${m.y}%`, left: "calc(100% + 8px)", transform: "translateY(-50%)" }}>
@@ -396,7 +397,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                                 className={cn("p-1.5 rounded-lg transition-all", openPanel === "ventana" ? "bg-white text-black shadow" : glassBtn + " text-white/70")}>
                                 <Hourglass size={13} />
                             </button>
-                            <span className="text-[9px] text-white/40 font-mono ml-1">{new Date(displayMs).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })}</span>
+                            <span className="text-[9px] text-white/40 font-mono ml-1">{fecha(new Date(displayMs))}</span>
                         </div>
 
                         {/* Popover: calendario (hacia arriba) */}

@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { fecha } from "@/lib/fechas";
 
 // ─── Channel CRUD ──────────────────────────────────
 export async function getNotificationChannels() {
@@ -113,7 +114,7 @@ export async function fireAlertNotification(alertName: string, deviceName: strin
         `📍 Dispositivo: ${deviceName}\n` +
         `📺 Canal: ${channel}\n` +
         `👥 Personas: <b>${count}</b> (umbral: ${threshold})\n` +
-        `🕐 ${new Date().toLocaleString("es-UY", { timeZone: "America/Montevideo" })}`;
+        `🕐 ${fecha(new Date())}`;
 
     const results = [];
     for (const ch of channels) {

@@ -1,3 +1,4 @@
+import { hora } from "@/lib/fechas";
 // Shared utility functions for Guard consoles
 "use client";
 
@@ -43,7 +44,7 @@ export function normalizePlate(plate: string): string {
  */
 export function formatEntryTime(timestamp: string | Date): string {
     const d = new Date(timestamp);
-    return d.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" });
+    return hora(d);
 }
 
 /**

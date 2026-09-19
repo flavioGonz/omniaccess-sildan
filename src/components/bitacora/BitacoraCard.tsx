@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { fecha, hora } from "@/lib/fechas";
 
 interface BitacoraCardProps {
     entry: any;
@@ -25,12 +26,12 @@ export default function BitacoraCard({ entry }: BitacoraCardProps) {
 
     const formatTime = (date: Date | string) => {
         const d = new Date(date);
-        return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+        return hora(d);
     };
 
     const formatDate = (date: Date | string) => {
         const d = new Date(date);
-        return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        return fecha(d);
     };
 
     return (

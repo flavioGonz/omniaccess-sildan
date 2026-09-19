@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Users, Clock, Maximize, Loader2, List, Check } from "lucide-react";
 import { getQueueWaitEstimate, getQueueAlerts, getQueueDevices } from "@/app/actions/queue";
 import { getAppBranding } from "@/app/actions/settings";
+import { hora } from "@/lib/fechas";
 
 type Status = "ok" | "warn" | "full";
 
@@ -94,7 +95,7 @@ export default function KioskoPage() {
                     </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-xl font-mono font-bold tabular-nums opacity-90">{now.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}</div>
+                    <div className="text-xl font-mono font-bold tabular-nums opacity-90">{hora(now)}</div>
                     {devices.length > 1 && (
                         <div className="relative">
                             <button onClick={() => setPickerOpen((o) => !o)} className="p-2 rounded-lg bg-white/15 hover:bg-white/25 transition" title="Elegir fila"><List size={18} /></button>

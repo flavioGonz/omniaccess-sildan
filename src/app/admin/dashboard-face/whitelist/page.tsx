@@ -16,6 +16,7 @@ import { getImagePath } from "@/lib/image-path";
 import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { fecha, hora } from "@/lib/fechas";
 
 export default function WhitelistPage() {
     const [whitelist, setWhitelist] = useState<any[]>([]);
@@ -232,7 +233,7 @@ function WhitelistCard({ user, onRemove, idx }: { user: any, onRemove: () => voi
                             <div className="min-w-0">
                                 <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">Creación del Perfil</p>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                                    {new Date(user.createdAt).toLocaleDateString()}
+                                    {fecha(new Date(user.createdAt))}
                                 </p>
                             </div>
                         </div>
@@ -337,8 +338,8 @@ function WhitelistEventTable({ events }: { events: any[] }) {
                                 </td>
                                 <td className="px-8 py-6">
                                     <div className="space-y-1">
-                                        <p className="text-xs font-bold uppercase text-foreground/70">{new Date(event.timestamp).toLocaleTimeString()}</p>
-                                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{new Date(event.timestamp).toLocaleDateString()}</p>
+                                        <p className="text-xs font-bold uppercase text-foreground/70">{hora(new Date(event.timestamp))}</p>
+                                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{fecha(new Date(event.timestamp))}</p>
                                     </div>
                                 </td>
                                 <td className="px-8 py-6">

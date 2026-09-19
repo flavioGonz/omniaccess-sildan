@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { AddBlacklistModal } from "@/components/dashboard/AddBlacklistModal";
 import { UserPlus, CloudSync, RefreshCw } from "lucide-react";
 import { syncAllBlacklistAction } from "@/app/actions/face-sync";
+import { fecha, hora } from "@/lib/fechas";
 
 export default function BlacklistPage() {
     const [blacklist, setBlacklist] = useState<any[]>([]);
@@ -290,7 +291,7 @@ function BlacklistCard({ user, onRemove, idx, onViewHistory }: { user: any, onRe
                             <div className="min-w-0">
                                 <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">Fecha de Inclusión</p>
                                 <p className="text-[10px] font-bold text-muted-foreground uppercase">
-                                    {new Date(user.createdAt).toLocaleDateString()} at {new Date(user.createdAt).toLocaleTimeString()}
+                                    {fecha(new Date(user.createdAt))} at {hora(new Date(user.createdAt))}
                                 </p>
                             </div>
                         </div>
@@ -400,9 +401,9 @@ function BlacklistEventTable({ events }: { events: any[] }) {
                                     <div className="space-y-1">
                                         <div className="flex items-center gap-2 text-muted-foreground">
                                             <Clock size={12} className="text-muted-foreground" />
-                                            <p className="text-xs font-bold uppercase text-foreground/70">{new Date(event.timestamp).toLocaleTimeString()}</p>
+                                            <p className="text-xs font-bold uppercase text-foreground/70">{hora(new Date(event.timestamp))}</p>
                                         </div>
-                                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{new Date(event.timestamp).toLocaleDateString()}</p>
+                                        <p className="text-[10px] font-bold text-muted-foreground uppercase">{fecha(new Date(event.timestamp))}</p>
                                     </div>
                                 </td>
                                 <td className="px-8 py-6">

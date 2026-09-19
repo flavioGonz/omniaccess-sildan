@@ -15,6 +15,7 @@ import { Calendar as CalendarIcon, Download, Loader2, FileSpreadsheet } from "lu
 import { getAccessEvents } from "@/app/actions/history";
 import { getReportBranding } from "@/app/actions/settings";
 import ExcelJS from "exceljs";
+import { fecha, hora } from "@/lib/fechas";
 
 interface ExportHistoryDialogProps {
     open: boolean;
@@ -65,7 +66,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
 
             // 1. Add Filter Summary at the top
             worksheet.addRow([`REPORTE DE HISTORIAL - ${repCompany}`]).font = { bold: true, size: 14 };
-            worksheet.addRow([`Generado el: ${new Date().toLocaleString()}`]);
+            worksheet.addRow([`Generado el: ${fecha(new Date())}`]);
             worksheet.addRow([`Periodo: ${startDate} a ${endDate}`]);
 
             const filterTerms = [];
@@ -135,8 +136,8 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
                 const timestamp = new Date(e.timestamp);
                 const row = worksheet.addRow({
                     id: e.id,
-                    date: timestamp.toLocaleDateString(),
-                    time: timestamp.toLocaleTimeString(),
+                    date: fecha(timestamp),
+                    time: hora(timestamp),
                     plate: e.plateDetected || "-------",
                     type: e.accessType === "PLATE" ? "LPR" : e.accessType === "FACE" ? "Facial" : "TAG",
                     user: e.user?.name || "Externo / Desconocido",

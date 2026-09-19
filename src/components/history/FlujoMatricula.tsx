@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { LogIn, LogOut, Camera, ParkingCircle, Loader2, ShieldCheck, ShieldX, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { horaSeg } from "@/lib/fechas";
 
 export type PasoFlujo = {
     id: string;
@@ -19,7 +20,7 @@ export type PasoFlujo = {
     desdeAnterior: number | null;
 };
 
-const hora = (t: string) => new Date(t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const hora = (t: string) => horaSeg(new Date(t));
 
 const lapso = (seg: number) => {
     if (seg < 60) return `${Math.round(seg)} s`;

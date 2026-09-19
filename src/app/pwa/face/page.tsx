@@ -9,6 +9,7 @@ import { getDevices } from "@/app/actions/devices";
 import { getAccessEvents } from "@/app/actions/history";
 import { registerFace } from "@/app/actions/users";
 import io from "socket.io-client";
+import { horaSeg } from "@/lib/fechas";
 
 function urlB64ToUint8(base64: string) {
     const padding = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -25,7 +26,7 @@ function parseMeta(details?: string | null): Record<string, string> {
     return meta;
 }
 function faceOf(e: any) { const m = parseMeta(e.details); return { img: getImg(m.FaceImage) || getImg(e.user?.cara) || getImg(e.snapshotPath), name: e.user?.name || m.Rostro || null, sim: m.Similitud ? parseInt(m.Similitud) : null }; }
-function tfmt(t: any) { return new Date(t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+function tfmt(t: any) { return horaSeg(new Date(t)); }
 
 function SnapImg({ deviceId, className }: { deviceId: string; className?: string }) {
     const [src, setSrc] = useState(`/api/snapshot/${deviceId}?t=${Date.now()}`);

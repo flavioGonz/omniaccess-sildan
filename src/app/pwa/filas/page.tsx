@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { getQueueDevices, getLatestQueueCounts, getQueueAlerts } from "@/app/actions/queue";
 import io from "socket.io-client";
+import { fechaHoraSeg, hora, horaSeg } from "@/lib/fechas";
 
 const OCC = ["Aforo", "Occupancy", "Ocupación", "Ocupacion"];
 type Dev = { id: string; name: string; ip: string };
@@ -128,7 +129,7 @@ function EventsFeed({ events, onlyAlerts }: { events: any[]; onlyAlerts: boolean
                                 {isAlert && e.health && <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 font-bold uppercase">salud</span>}
                             </div>
                             <div className="text-[11px] text-white/50 flex items-center gap-2 mt-0.5">
-                                <span className="font-mono">{t.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                                <span className="font-mono">{horaSeg(t)}</span>
                                 {e.deviceName && <span className="truncate">· {e.deviceName}</span>}
                             </div>
                         </div>
@@ -300,7 +301,7 @@ export default function FilasPWA() {
     const focusDevice = (id: string | null) => { setFocusId(id); setMenu(null); if (id && feedRefs.current[id]) feedRefs.current[id]!.scrollIntoView({ behavior: "smooth", block: "start" }); };
 
     const totalAforo = Object.values(aforo).reduce((a, b) => a + b, 0);
-    const tStr = now.toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(",", "");
+    const tStr = fechaHoraSeg(now).replace(",", "");
     const shown = focusId ? devices.filter((d) => d.id === focusId) : devices;
     const siteName = (focusId ? devices.find((d) => d.id === focusId)?.name : null) || devices[0]?.name || "Control de Filas";
 
@@ -381,7 +382,7 @@ export default function FilasPWA() {
                                 <SnapshotImg deviceId={d.id} className="absolute inset-0 w-full h-full" />
                                 <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold tabular-nums" style={{ color: statusColor(aforo[d.id] ?? 0, limit) }}>{aforo[d.id] ?? 0}</span>
                             </div>
-                            <div className="text-center text-[11px] text-white/45 font-mono mt-1">{now.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}</div>
+                            <div className="text-center text-[11px] text-white/45 font-mono mt-1">{hora(now)}</div>
                         </button>
                     ))}
                 </div>

@@ -22,6 +22,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Trash2, Plus, Users, Search, Cpu, ShieldCheck, Loader2 } from "lucide-react";
 import { DeleteButton } from "@/components/ui/delete-button";
+import { fecha } from "@/lib/fechas";
 
 type AccessGroupWithCounts = {
     id: string;
@@ -181,7 +182,7 @@ export default function GroupsPage() {
                                         </span>
                                     </TableCell>
                                     <TableCell className="text-xs text-muted-foreground">
-                                        {new Date(g.createdAt).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}
+                                        {fecha(new Date(g.createdAt))}
                                     </TableCell>
                                     <TableCell className="text-right pr-4">
                                         <div className="flex justify-end">

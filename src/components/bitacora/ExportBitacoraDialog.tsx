@@ -16,6 +16,7 @@ import { getBitacoraForReport, getBitacoraGuards } from "@/app/actions/bitacora"
 import ExcelJS from "exceljs";
 import { toast } from "sonner";
 import { useEffect } from "react";
+import { fecha, hora } from "@/lib/fechas";
 
 interface ExportBitacoraDialogProps {
     open: boolean;
@@ -56,7 +57,7 @@ export function ExportBitacoraDialog({ open, onOpenChange, searchQuery }: Export
 
             // 1. Header & Summary
             worksheet.addRow(["REPORTE DE BITÁCORA - OMNIACCESS"]).font = { bold: true, size: 14 };
-            worksheet.addRow([`Generado el: ${new Date().toLocaleString()}`]);
+            worksheet.addRow([`Generado el: ${fecha(new Date())}`]);
             worksheet.addRow([`Periodo: ${startDate} a ${endDate}`]);
             if (searchQuery) worksheet.addRow([`Filtro de búsqueda: "${searchQuery}"`]);
             worksheet.addRow([`Total de Registros: ${entries.length}`]);
@@ -89,8 +90,8 @@ export function ExportBitacoraDialog({ open, onOpenChange, searchQuery }: Export
             entries.forEach((e: any) => {
                 const ts = new Date(e.timestamp);
                 worksheet.addRow({
-                    date: ts.toLocaleDateString(),
-                    time: ts.toLocaleTimeString(),
+                    date: fecha(ts),
+                    time: hora(ts),
                     type: e.type === "ENTRY" ? "INGRESO" : "SALIDA",
                     plate: e.plate || "---",
                     name: e.name || "---",

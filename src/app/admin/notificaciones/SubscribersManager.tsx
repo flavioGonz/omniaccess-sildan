@@ -5,6 +5,7 @@ import { Smartphone, RefreshCw, Trash2, Pencil, Check, X, Send, Globe, BellOff }
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getPushSubscribers, deletePushSubscriber, togglePushSubscriber, renamePushSubscriber } from "@/app/actions/pwa-subs";
+import { fecha } from "@/lib/fechas";
 
 type S = { id: string; host: string; browser: string; os: string; label: string; createdAt: string | null; enabled: boolean };
 
@@ -32,7 +33,7 @@ export default function SubscribersManager() {
         } catch { toast.error("Error de conexión"); } finally { setBusy(null); }
     };
 
-    const fmt = (d: string | null) => d ? new Date(d).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "—";
+    const fmt = (d: string | null) => d ? fecha(new Date(d)) : "—";
 
     return (
         <div className="rounded-2xl border border-border bg-card overflow-hidden">

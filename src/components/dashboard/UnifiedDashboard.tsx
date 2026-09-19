@@ -76,6 +76,7 @@ function TimeAgo({ timestamp }: { timestamp: string | Date }) {
 }
 
 import { getSocketUrl } from "@/lib/socket-config";
+import { fecha, horaSeg } from "@/lib/fechas";
 
 interface DashboardProps {
     variant?: "acceso" | "lpr" | "mixto";
@@ -356,7 +357,7 @@ interface DashboardProps {
                                 </div>
                             </div>
                             <span className="text-[10px] font-mono text-muted-foreground font-bold">
-                                {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                {horaSeg(new Date(event.timestamp))}
                             </span>
                         </div>
                     </div>
@@ -791,7 +792,7 @@ export default function UnifiedDashboard({ variant = "acceso" }: DashboardProps)
                                             <div className="px-2 py-0.5 rounded bg-black/50 backdrop-blur-md border border-border shadow-lg flex items-center gap-1">
                                                 <div className="w-1 h-1 rounded-full bg-indigo-500 animate-pulse" />
                                                 <p className="text-[8px] font-mono font-bold text-foreground/70">
-                                                    {new Date(event.timestamp).toLocaleDateString([], { day: '2-digit', month: '2-digit' })} • {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                    {fecha(new Date(event.timestamp))} • {horaSeg(new Date(event.timestamp))}
                                                 </p>
                                             </div>
                                         </div>

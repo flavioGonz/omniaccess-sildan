@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fecha } from "@/lib/fechas";
 
 export async function POST(req: NextRequest) {
     const data = await req.json();
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
     @media print { body { margin: 20px; } }
 </style></head><body>
 <h1>Reporte de Control de Filas</h1>
-<p style="color:#888">Período: ${dateRange.from} — ${dateRange.to} | Generado: ${new Date().toLocaleString("es-UY")}</p>
+<p style="color:#888">Período: ${dateRange.from} — ${dateRange.to} | Generado: ${fecha(new Date())}</p>
 
 <div class="summary">
     <div class="stat"><div class="stat-value">${summary.totalEvents}</div><div class="stat-label">Eventos</div></div>

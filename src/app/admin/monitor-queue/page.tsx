@@ -13,6 +13,7 @@ import {
 } from "@/app/actions/queue";
 import { toast } from "sonner";
 import { io } from "socket.io-client";
+import { hora, horaSeg } from "@/lib/fechas";
 
 interface DeviceView {
     deviceId: string; deviceName: string; deviceIp: string; location: string | null;
@@ -462,7 +463,7 @@ function InteractiveTimeline({ events, hourly, deviceName, outages, onEventClick
                                     )}
                                     <div className="px-2.5 py-1.5 text-center">
                                         <div className="text-[11px] font-bold text-foreground">Aforo {tip.peopleCount}</div>
-                                        <div className="text-[9px] text-muted-foreground font-mono">{new Date(tip.ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+                                        <div className="text-[9px] text-muted-foreground font-mono">{horaSeg(new Date(tip.ms))}</div>
                                     </div>
                                 </div>
                             </div>
@@ -487,7 +488,7 @@ function InteractiveTimeline({ events, hourly, deviceName, outages, onEventClick
                                             <div className="text-[9px] uppercase tracking-widest text-white/60 font-bold">Aforo</div>
                                             <div className="text-4xl font-bold tabular-nums text-white leading-none drop-shadow">{pinned.peopleCount}</div>
                                         </div>
-                                        <div className="text-[10px] font-mono text-white/80 pb-1">{new Date(pinned.ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+                                        <div className="text-[10px] font-mono text-white/80 pb-1">{horaSeg(new Date(pinned.ms))}</div>
                                     </div>
                                 </div>
                                 <button onClick={() => onEventClick(pinned)} title="Ampliar" className="absolute top-2 right-2 p-1.5 rounded-md bg-black/55 hover:bg-black/80 text-white/90 transition"><Maximize2 size={13} /></button>
@@ -520,7 +521,7 @@ function InteractiveTimeline({ events, hourly, deviceName, outages, onEventClick
 // Event Preview Overlay
 function EventPreview({ event, onClose }: { event: TimelineEvent; onClose: () => void }) {
     const imgSrc = event.snapshotPath ? (event.snapshotPath.startsWith("/") ? event.snapshotPath : `/api/files/lpr-prod/${event.snapshotPath}`) : null;
-    const time = new Date(event.timestamp).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const time = horaSeg(new Date(event.timestamp));
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={onClose}>
             <div className="relative max-w-2xl w-full mx-4 rounded-xl overflow-hidden border border-border bg-card shadow-lg" onClick={e => e.stopPropagation()}>
@@ -647,7 +648,7 @@ export default function MonitorQueuePage() {
                     <div>
                         <h1 className="text-lg font-bold text-foreground tracking-tight">Monitor en Vivo</h1>
                         <p className="text-[11px] text-muted-foreground font-mono">
-                            {devices.length}{" cámara"}{devices.length !== 1 ? "s" : ""}{" · RTSP en vivo · "}{new Date().toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
+                            {devices.length}{" cámara"}{devices.length !== 1 ? "s" : ""}{" · RTSP en vivo · "}{hora(new Date())}
                         </p>
                     </div>
                 </div>

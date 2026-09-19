@@ -78,6 +78,7 @@ import { getUnits } from "@/app/actions/units";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
+import { hora } from "@/lib/fechas";
 import { DEVICE_MODELS, DRIVER_MODELS } from "@/lib/driver-models";
 
 const PLACEHOLDER_DEVICE_IMG = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="8" fill="%23262626"/><path d="M24 14a4 4 0 100 8 4 4 0 000-8zm-6 14c0-2 4-3.1 6-3.1S30 26 30 28v1H18v-1z" fill="%23525252"/><rect x="14" y="32" width="20" height="3" rx="1.5" fill="%23525252"/></svg>')}`;
@@ -477,7 +478,7 @@ export function DeviceMemoryDialog({ device, open, onOpenChange }: DeviceMemoryD
                                         <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse" />
                                         Iniciando túnel seguro hacia {device.brand}...
                                     </p>
-                                    <p className="text-muted-foreground">[{new Date().toLocaleTimeString()}] Analizando {analysis.total} registros hardware.</p>
+                                    <p className="text-muted-foreground">[{hora(new Date())}] Analizando {analysis.total} registros hardware.</p>
                                     {processedCount > 0 && (
                                         <p className="text-emerald-500/70 border-l border-emerald-500/30 pl-2">
                                             ✓ {currentImport?.Name || 'Objeto'} procesado ({processedCount}/{analysis.total})

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { fecha } from "@/lib/fechas";
 
 /**
  * GET /api/queue/report/send?period=daily|weekly[&deviceId=]
@@ -65,7 +66,7 @@ export async function GET(req: NextRequest) {
 
         const deviceName = events[0]?.device?.name || "Aforo";
         const label = period === "weekly" ? "Semanal (últimos 7 días)" : "Diario";
-        const dateStr = now.toLocaleDateString("es-UY", { day: "2-digit", month: "long", year: "numeric" });
+        const dateStr = fecha(now);
 
         const msg =
             `📊 <b>Reporte de Aforo — ${label}</b>\n` +

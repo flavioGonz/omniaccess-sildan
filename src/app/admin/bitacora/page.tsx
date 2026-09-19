@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getImagePath } from "@/lib/image-path";
 import { cn } from "@/lib/utils";
+import { fecha, hora } from "@/lib/fechas";
 
 const TYPE_META: Record<string, { label: string; cls: string }> = {
     MANUAL: { label: "Manual", cls: "border-blue-500/50 text-blue-500" },
@@ -58,8 +59,8 @@ export default function BitacoraPage() {
         return matchesSearch && matchesDate;
     });
 
-    const fmtTime = (d: any) => new Date(d).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
-    const fmtDate = (d: any) => new Date(d).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const fmtTime = (d: any) => hora(new Date(d));
+    const fmtDate = (d: any) => fecha(new Date(d));
 
     return (
         <div className="h-full flex flex-col bg-background text-foreground">

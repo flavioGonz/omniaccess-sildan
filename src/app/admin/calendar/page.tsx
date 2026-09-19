@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { hora } from "@/lib/fechas";
 
 // Helper to get days in month
 function getDaysInMonth(year: number, month: number) {
@@ -549,7 +550,7 @@ export default function CalendarPage() {
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex justify-between items-start gap-2">
                                                     <span className="text-xs font-bold text-foreground truncate">Aforo: {(evt as any).peopleCount}</span>
-                                                    <span className="text-[10px] font-mono text-muted-foreground shrink-0">{new Date(evt.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                                                    <span className="text-[10px] font-mono text-muted-foreground shrink-0">{hora(new Date(evt.timestamp))}</span>
                                                 </div>
                                                 <p className="text-[10px] text-muted-foreground mt-0.5 truncate uppercase flex items-center gap-1">
                                                     <HardDrive size={10} className="shrink-0" /> {evt.device?.name || "Cámara de conteo"}
@@ -593,7 +594,7 @@ export default function CalendarPage() {
                                                     </span>
                                                 </div>
                                                 <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                                                    {new Date(evt.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                    {hora(new Date(evt.timestamp))}
                                                 </span>
                                             </div>
                                             <p className="text-[10px] text-muted-foreground mt-0.5 truncate uppercase flex items-center gap-1">

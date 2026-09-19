@@ -73,6 +73,7 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
+import { fecha, hora } from "@/lib/fechas";
 
 const TYPE_META: Record<string, { l: string; c: string; icon: any }> = {
     LPR_CAMERA: { l: "LPR", c: "#3b82f6", icon: Camera },
@@ -479,7 +480,7 @@ export default function AuditPage() {
                                                     <span className={cn("w-1.5 h-1.5 rounded-full", isOnline ? "bg-emerald-400 animate-pulse" : "bg-rose-500")} /> {isOnline ? "En linea" : "Sin link"}
                                                 </span>
                                             </td>
-                                            <td className="px-3 py-2"><span className="text-[10px] font-mono text-muted-foreground">{dev.lastOnlinePull ? new Date(dev.lastOnlinePull).toLocaleString() : "-"}</span></td>
+                                            <td className="px-3 py-2"><span className="text-[10px] font-mono text-muted-foreground">{dev.lastOnlinePull ? fecha(new Date(dev.lastOnlinePull)) : "-"}</span></td>
                                             <td className="px-3 py-2">
                                                 <div className="flex items-center justify-end gap-1.5">
                                                     <Tooltip><TooltipTrigger asChild>
@@ -661,11 +662,11 @@ export default function AuditPage() {
                                                                 <div className="flex flex-col gap-1">
                                                                     <div className="flex items-center gap-2 justify-center">
                                                                         <Calendar size={12} className="text-muted-foreground" />
-                                                                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">{new Date(log.timestamp).toLocaleDateString()}</span>
+                                                                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tighter">{fecha(new Date(log.timestamp))}</span>
                                                                     </div>
                                                                     <div className="flex items-center gap-2 justify-center">
                                                                         <Clock size={12} className="text-blue-500/40" />
-                                                                        <span className="text-sm font-mono font-bold text-foreground">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                                                                        <span className="text-sm font-mono font-bold text-foreground">{hora(new Date(log.timestamp))}</span>
                                                                     </div>
                                                                 </div>
                                                             </TableCell>

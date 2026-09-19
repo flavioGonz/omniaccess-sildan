@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { getQueueEvents, getQueueStatsToday, getQueueHourlyBreakdown, getQueueDevices, getCameraOutages, getQueueFlowHourly, getQueueAforoSeries, getQueueFlowSeries } from "@/app/actions/queue";
 import Image from "next/image";
+import { fecha, fechaCorta, horaSeg } from "@/lib/fechas";
 
 // ─── Brand Config (logos) ────────────────────────────
 const BRAND_CONFIG: Record<string, { label: string; color: string; logoUrl: string }> = {
@@ -280,8 +281,8 @@ function getSeverity(count: number) {
 function EventRow({ event, onExpand }: { event: CrowdEvent; onExpand: () => void }) {
     const sev = getSeverity(event.peopleCount);
     const time = new Date(event.timestamp);
-    const timeStr = time.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const dateStr = time.toLocaleDateString("es-UY", { day: "2-digit", month: "short" });
+    const timeStr = horaSeg(time);
+    const dateStr = fechaCorta(time);
     const brand = BRAND_CONFIG[event.device.brand] || null;
     const imgSrc = snapUrl(event.snapshotPath);
 
@@ -399,7 +400,7 @@ function EventDetail({ event, onClose }: { event: CrowdEvent; onClose: () => voi
                 <div className="p-6">
                     <div className="grid grid-cols-3 gap-4">
                         {[
-                            { label: "Fecha / Hora", value: time.toLocaleString("es-UY"), icon: Calendar },
+                            { label: "Fecha / Hora", value: fecha(time), icon: Calendar },
                             { label: "Dispositivo", value: event.device.name, icon: MonitorSmartphone },
                             { label: "Dirección IP", value: event.device.ip, icon: Wifi },
                             { label: "Regla VCA", value: event.channelName || `Regla ${event.channelId}`, icon: Cpu },
@@ -569,7 +570,7 @@ export default function FlujoFilasPage() {
                     </div>
                     <div>
                         <h1 className="text-lg font-bold text-foreground tracking-tight">Flujo de Filas</h1>
-                        <p className="text-[11px] text-muted-foreground font-mono">{total.toLocaleString()} eventos registrados</p>
+                        <p className="text-[11px] text-muted-foreground font-mono">{fecha(total)} eventos registrados</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-1.5">

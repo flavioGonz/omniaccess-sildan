@@ -12,6 +12,7 @@ import { deleteVehicle, getVehicles, getVehicleHistory } from "@/app/actions/veh
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { getCarLogo } from "@/lib/car-logos";
+import { fecha, hora } from "@/lib/fechas";
 
 function timeAgo(d: string | Date | null): string {
     if (!d) return "";
@@ -23,7 +24,7 @@ function timeAgo(d: string | Date | null): string {
     if (h < 24) return `hace ${h} h`;
     const days = Math.floor(h / 24);
     if (days < 30) return `hace ${days} d`;
-    return new Date(d).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "2-digit" });
+    return fecha(new Date(d));
 }
 
 interface VehicleListProps {
@@ -232,7 +233,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                         {(vehicle as any).lastSeen ? (
                                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                                                 <Clock size={13} className="text-blue-400/70 shrink-0" />
-                                                <span title={new Date((vehicle as any).lastSeen).toLocaleString("es-UY")}>{timeAgo((vehicle as any).lastSeen)}</span>
+                                                <span title={fecha(new Date((vehicle as any).lastSeen))}>{timeAgo((vehicle as any).lastSeen)}</span>
                                             </div>
                                         ) : (
                                             <span className="text-xs text-muted-foreground/50">Sin detecciones</span>
@@ -386,7 +387,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                                 </div>
                                                 <div className="text-right shrink-0">
                                                     <p className="text-xs font-bold text-foreground leading-none mb-1.5">
-                                                        {new Date(event.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                                                        {hora(new Date(event.timestamp))}
                                                     </p>
                                                     <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em] whitespace-nowrap">
                                                         {new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short' }).format(new Date(event.timestamp))}

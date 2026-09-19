@@ -15,6 +15,7 @@ import { useTiempoReal, useDestello } from "@/lib/tiempo-real";
 import { VisorCuadro } from "@/components/VisorCuadro";
 import { FlujoMatricula, type PasoFlujo } from "@/components/history/FlujoMatricula";
 import { parseVehicleMeta } from "@/lib/vehicle-details";
+import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 
 export type FilaHistorial = {
     id: string;
@@ -272,11 +273,11 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
                 f.tipo === "ESTACIONADO" && f.estDesde ? (
                     <div className="leading-tight">
                         <div className="text-[13px] font-semibold tabular-nums text-foreground">
-                            {new Date(f.momento).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                            {horaSeg(new Date(f.momento))}
                         </div>
                         <div className="text-[10.5px] text-muted-foreground tabular-nums">
-                            desde {new Date(f.estDesde).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}
-                            {" · "}{new Date(f.momento).toLocaleDateString("es-UY", { day: "2-digit", month: "short" })}
+                            desde {hora(new Date(f.estDesde))}
+                            {" · "}{fechaCorta(new Date(f.momento))}
                         </div>
                     </div>
                 ) : <Momento t={f.momento} />

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
+import { fecha } from "@/lib/fechas";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -23,7 +24,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: `Canal desconocido: ${canal || "(vacío)"}` }, { status: 400 });
     }
 
-    const cuando = new Date().toLocaleString("es-UY");
+    const cuando = fecha(new Date());
     const trabajo = await enqueueDispatch({
         type: "ALERT",
         channel: canal,

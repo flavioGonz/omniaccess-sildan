@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { hora } from "@/lib/fechas";
 
 interface OnvifProfile {
     name: string;
@@ -273,7 +274,7 @@ export function OnvifDiscoveryPanel({ deviceId, deviceName, deviceIp, compact = 
                                         <div className="flex items-center gap-3">
                                             <span className="text-sm font-bold text-foreground/70 tabular-nums">{c.peopleCount}</span>
                                             <span className="text-[10px] text-muted-foreground">
-                                                {new Date(c.timestamp).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
+                                                {hora(new Date(c.timestamp))}
                                             </span>
                                         </div>
                                     </div>

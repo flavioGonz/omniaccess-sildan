@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { polilinea, posicionEnTraza, recorrida as trazaRecorrida, type TramoTraza } from "@/lib/traza";
 import { svgAuto, TAM_AUTO } from "@/lib/auto-svg";
 import { iconoCacheado } from "@/lib/iconos-leaflet";
+import { fechaHora, hora } from "@/lib/fechas";
 
 /**
  * El vidrio del panel. Con los tokens del proyecto, no con colores fijos: escrito con
@@ -31,8 +32,9 @@ export type Lugar = { tipo: "camara" | "calle"; id: string; nombre: string; lat:
 /** Un vehiculo quieto: la pasarela lo siguio viendo en el mismo lugar del cuadro. */
 export type Estadia = Punto & { estDesde: string | null; estHasta: string | null; reads: number | null };
 
-const hora = (t: string) => new Date(t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" });
-const fechaHora = (t: string) => new Date(t).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+/* Los envoltorios locales se fueron: `hora` y `fechaHora` de @/lib/fechas ya aceptan
+   una cadena, un numero o un Date, y ademas fijan la zona del barrio -- que era
+   justamente lo que estos dos no hacian. */
 const duracionCorta = (seg: number) => seg < 60 ? `${Math.round(seg)} s` : seg < 3600 ? `${Math.round(seg / 60)} min` : `${Math.floor(seg / 3600)} h ${Math.round((seg % 3600) / 60)} min`;
 
 /** El autito del flujo. El dibujo vive en `@/lib/auto-svg`, compartido con la vista 3D. */
@@ -342,7 +344,7 @@ export function PanelRecorrido({
                                             <p className="text-[9.5px] text-muted-foreground truncate">{u.camara || "—"}</p>
                                         </div>
                                         <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
-                                            {new Date(u.cuando).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}
+                                            {hora(new Date(u.cuando))}
                                         </span>
                                     </button>
                                 ))}

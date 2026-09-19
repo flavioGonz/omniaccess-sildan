@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getDispatchJobs, getDispatchStats, retryDispatchJob, enqueueReportDispatch, getDispatchSeries } from "@/app/actions/queue";
+import { fechaHora } from "@/lib/fechas";
 
 type Job = {
     id: string; type: string; channel: string; status: string;
@@ -103,7 +104,7 @@ export default function DispatchQueuePanel() {
         finally { setDispatching(false); }
     };
 
-    const fmt = (d: string | Date) => new Date(d).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const fmt = (d: string | Date) => fechaHora(new Date(d));
 
     return (
         <div className="rounded-2xl border border-border bg-card overflow-hidden">

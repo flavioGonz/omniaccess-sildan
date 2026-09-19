@@ -5,6 +5,7 @@ import { Database, Folder, FileText, RefreshCw, Home, Search, ExternalLink, Imag
 import { cn } from "@/lib/utils";
 import { listBuckets, listBucketObjects, getBucketStats, getSetting } from "@/app/actions/settings";
 import { getEnabledModules } from "@/app/actions/modules";
+import { fechaHora } from "@/lib/fechas";
 
 const fmtSize = (n: number) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
 const baseName = (key: string) => { const parts = key.replace(/\/$/, "").split("/"); return parts[parts.length - 1]; };
@@ -169,7 +170,7 @@ export default function StorageBrowser() {
                                     </div>
                                     <div className="min-w-0 flex-1">
                                         <div className="text-sm text-foreground truncate">{baseName(o.key)}</div>
-                                        <div className="text-[10px] text-muted-foreground font-mono">{fmtSize(o.size)}{o.lastModified ? " · " + new Date(o.lastModified).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}</div>
+                                        <div className="text-[10px] text-muted-foreground font-mono">{fmtSize(o.size)}{o.lastModified ? " · " + fechaHora(new Date(o.lastModified)) : ""}</div>
                                     </div>
                                     <a href={href} target="_blank" rel="noreferrer" className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition opacity-0 group-hover:opacity-100" title="Ver / descargar"><ExternalLink size={14} /></a>
                                 </div>

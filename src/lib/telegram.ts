@@ -4,6 +4,7 @@
  */
 
 import https from "https";
+import { fecha } from "@/lib/fechas";
 
 // Bot configuration — can be overridden via env vars
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8923590022:AAEas5wccmXq8zhE4tT1BZkehOgAcpmgPDc";
@@ -207,7 +208,7 @@ export async function sendQueueAlertToTelegram(
         `\u{1F4F7} <b>Dispositivo:</b> ${deviceName}`,
         `\u{1F465} <b>Personas:</b> ${peopleCount} / ${threshold}`,
         `\u{26A0}\u{FE0F} <b>Estado:</b> ${severity}`,
-        `\u{1F552} <b>Hora:</b> ${new Date().toLocaleString("es-UY", { timeZone: "America/Montevideo" })}`,
+        `\u{1F552} <b>Hora:</b> ${fecha(new Date())}`,
     ].join("\n");
 
     return sendTelegramPhoto("", caption, deviceIp, username, password);

@@ -2,6 +2,7 @@
 
 import { Car, ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fecha, fechaCorta, horaSeg } from "@/lib/fechas";
 
 /**
  * Las celdas que se repiten en casi todas las tablas.
@@ -94,16 +95,16 @@ export function Momento({ t, soloFecha }: { t: string | Date | null | undefined;
     if (isNaN(d.getTime())) return <span className="text-muted-foreground/50">—</span>;
     if (soloFecha) {
         return <span className="text-[12px] text-muted-foreground tabular-nums">
-            {d.toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}
+            {fecha(d)}
         </span>;
     }
     return (
         <div className="leading-tight">
             <div className="text-[13px] font-semibold tabular-nums text-foreground">
-                {d.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
+                {horaSeg(d)}
             </div>
             <div className="text-[10.5px] text-muted-foreground tabular-nums">
-                {d.toLocaleDateString("es-UY", { day: "2-digit", month: "short" })}
+                {fechaCorta(d)}
             </div>
         </div>
     );

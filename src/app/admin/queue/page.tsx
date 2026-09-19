@@ -22,6 +22,7 @@ import {
     getQueueDevices,
 } from "@/app/actions/queue";
 import { toast } from "sonner";
+import { fecha } from "@/lib/fechas";
 
 // ─── Types ─────────────────────────────────────────
 interface Alert {
@@ -486,7 +487,7 @@ export default function QueueControlPage() {
                                     </div>
                                     {alert.lastFiredAt && (
                                         <div className="mt-2 text-[9px] text-muted-foreground font-mono">
-                                            Última activación: {new Date(alert.lastFiredAt).toLocaleString("es-UY")}
+                                            Última activación: {fecha(new Date(alert.lastFiredAt))}
                                         </div>
                                     )}
                                 </div>

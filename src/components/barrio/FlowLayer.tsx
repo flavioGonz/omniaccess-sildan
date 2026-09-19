@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { iconoCacheado } from "@/lib/iconos-leaflet";
 import { buildStreetGraph, attachPoint, route, walkInward, pathLengthM, pointAlong, type Graph, type LL } from "@/lib/street-graph";
 import { getAccessEvents } from "@/app/actions/history";
+import { hora } from "@/lib/fechas";
 
 /**
  * El vidrio de las columnas de flujo.
@@ -96,7 +97,7 @@ function FeedCard({ ev, accent, onClick }: { ev: FlowEvent; accent: "emerald" | 
                 <p className="text-[9px] text-muted-foreground truncate">{ev.device?.name || ""}</p>
             </div>
             <div className="text-right shrink-0">
-                <p className="text-[10px] text-muted-foreground tabular-nums">{t.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}</p>
+                <p className="text-[10px] text-muted-foreground tabular-nums">{hora(t)}</p>
                 <p className={cn("text-[8px] font-bold", ok ? "text-emerald-400" : "text-red-400")}>{ok ? "OK" : "DENY"}</p>
             </div>
         </button>

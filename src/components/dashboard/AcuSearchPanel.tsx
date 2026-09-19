@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Car, User, Film, Search, Clock, Camera, X, ArrowLeft, Info, SlidersHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fecha, fechaHoraSeg } from "@/lib/fechas";
 
 export interface AcuMatch { id: number; channel: number; time: string; score?: number; imagePath?: string; targetImagePath?: string; rect?: { x: number; y: number; width: number; height: number }; deviceId?: string; deviceName?: string; attrs?: Record<string, string>; }
 const imgProxy = (u?: string) => u ? `/api/acuseek/image?u=${encodeURIComponent(u)}` : "";
@@ -133,7 +134,7 @@ export function AcuSearchPanel({ image, previewUrl, engine, onEngineChange, cent
                                 </button>
                                 <div className="px-2 py-1.5 text-[11px]">
                                     <div className="font-bold truncate">{m.deviceName || `Canal ${m.channel}`}</div>
-                                    <div className="flex items-center gap-1 text-muted-foreground"><Clock size={10} /> {m.time ? new Date(m.time).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}</div>
+                                    <div className="flex items-center gap-1 text-muted-foreground"><Clock size={10} /> {m.time ? fechaHoraSeg(new Date(m.time)) : "—"}</div>
                                     {m.attrs && <div className="flex flex-wrap gap-1 mt-1">{Object.entries(m.attrs).slice(0, 3).map(([k, v]) => <span key={k} className="text-[9px] px-1 py-0.5 rounded bg-muted/40 text-muted-foreground" title={ATTR_ES[k] || k}>{v}</span>)}</div>}
                                 </div>
                             </motion.div>
@@ -151,7 +152,7 @@ export function AcuSearchPanel({ image, previewUrl, engine, onEngineChange, cent
                             {onOpenRecording && <button onClick={() => { onOpenRecording(lightbox); setLightbox(null); }} className="h-8 px-3 rounded-lg bg-blue-600 text-white text-xs font-bold flex items-center gap-1.5"><Film size={13} /> Grabación</button>}
                             <button onClick={() => setLightbox(null)} className="h-8 w-8 rounded-lg bg-white/10 text-white flex items-center justify-center"><X size={14} /></button>
                         </div>
-                        <div className="absolute bottom-2 left-2 text-xs text-white/90 bg-black/60 rounded-md px-2 py-1 flex items-center gap-2"><span className="font-bold">{lightbox.deviceName || `Canal ${lightbox.channel}`}</span>{lightbox.score != null && <span className={scoreColor(lightbox.score)}>{lightbox.score}%</span>}<span>{lightbox.time ? new Date(lightbox.time).toLocaleString("es-UY") : ""}</span></div>
+                        <div className="absolute bottom-2 left-2 text-xs text-white/90 bg-black/60 rounded-md px-2 py-1 flex items-center gap-2"><span className="font-bold">{lightbox.deviceName || `Canal ${lightbox.channel}`}</span>{lightbox.score != null && <span className={scoreColor(lightbox.score)}>{lightbox.score}%</span>}<span>{lightbox.time ? fecha(new Date(lightbox.time)) : ""}</span></div>
                     </div>
                 </div>
             )}

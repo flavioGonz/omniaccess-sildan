@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { getQueueNotifications, getDispatchHistory } from "@/app/actions/queue";
 import { toast } from "sonner";
 import io from "socket.io-client";
+import { fecha, fechaHora, hora } from "@/lib/fechas";
 
 const BRAND_CONFIG: Record<string, { label: string; color: string; logoUrl?: string }> = {
     BOSCH: { label: "Bosch", color: "#E20015", logoUrl: "/bosch.png" },
@@ -55,7 +56,7 @@ function DispatchDetail({ d, onClose }: { d: any; onClose: () => void }) {
                         <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${chC}1a`, color: chC }}><Bell size={16} /></div>
                         <div className="min-w-0">
                             <div className="text-sm font-bold text-foreground truncate">{d.ruleName}</div>
-                            <div className="text-[11px] text-muted-foreground">{t.toLocaleString("es-UY")}</div>
+                            <div className="text-[11px] text-muted-foreground">{fecha(t)}</div>
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-accent"><X size={16} /></button>
@@ -135,7 +136,7 @@ function NotifDetail({ n, onClose }: { n: Notif; onClose: () => void }) {
                 <div className="p-6">
                     <div className="grid grid-cols-3 gap-4">
                         {[
-                            { label: "Fecha / Hora", value: time.toLocaleString("es-UY"), icon: Calendar },
+                            { label: "Fecha / Hora", value: fecha(time), icon: Calendar },
                             { label: "Alerta", value: n.alertName, icon: Bell },
                             { label: "Canal / Regla", value: n.channelName || "General", icon: Cpu },
                             { label: "Dispositivo", value: n.device?.name || "—", icon: MonitorSmartphone },
@@ -197,7 +198,7 @@ function showThresholdToast(data: { alertName: string; deviceName: string; chann
                 </div>
                 <div className="flex items-center justify-between">
                     <span className="text-[10px] text-muted-foreground">{data.deviceName} · {data.channelName}</span>
-                    <span className="text-[10px] text-muted-foreground font-mono">{new Date().toLocaleTimeString("es-UY")}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">{hora(new Date())}</span>
                 </div>
             </div>
         </div>
@@ -333,7 +334,7 @@ export default function DespachosPage() {
                                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono uppercase shrink-0">{d.recipientChannel}</span>
                                     </div>
                                     <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-2.5 gap-y-0.5 mt-0.5">
-                                        <span>{t.toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                                        <span>{fechaHora(t)}</span>
                                         {d.deviceName && <span className="truncate">· {d.deviceName}</span>}
                                         {d.recipient && <span className="inline-flex items-center gap-1 text-foreground/70 truncate max-w-[160px]">· <Send size={10} /> {d.recipient}</span>}
                                         {d.count != null && <span>· aforo {d.count}/{d.threshold ?? "—"}</span>}

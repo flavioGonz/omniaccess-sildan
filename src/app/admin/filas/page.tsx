@@ -25,6 +25,7 @@ import { getSetting, updateSetting } from "@/app/actions/settings";
 import { toast } from "sonner";
 import io from "socket.io-client";
 import { OnvifDiscoveryPanel } from "@/components/OnvifDiscoveryPanel";
+import { hora } from "@/lib/fechas";
 
 interface Alert {
     id: string;
@@ -325,7 +326,7 @@ function showQueueAlertToast(data: { alertName: string; deviceName: string; chan
                     </div>
                     <div className="flex items-center justify-between">
                         <span className="text-[10px] text-muted-foreground">{data.deviceName}</span>
-                        <span className="text-[10px] text-muted-foreground font-mono">{new Date().toLocaleTimeString("es-UY")}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">{hora(new Date())}</span>
                     </div>
                 </div>
                 <div className="h-1 bg-foreground/10"><div className="h-full bg-red-500/60 animate-[shrink_8s_linear_forwards]" /></div>

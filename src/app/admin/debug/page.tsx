@@ -8,6 +8,7 @@ import { getMapDevices } from "@/app/actions/maps";
 import { getEnabledModules } from "@/app/actions/modules";
 import { cn } from "@/lib/utils";
 import { io } from "socket.io-client";
+import { hora } from "@/lib/fechas";
 
 type WebhookLog = {
     id: string;
@@ -379,7 +380,7 @@ export default function WebhookDebugPage() {
                                         >
                                             <td className="p-3">
                                                 <span className="text-xs font-mono text-muted-foreground whitespace-nowrap">
-                                                    {log.timestamp.toLocaleTimeString('es-AR')}
+                                                    {hora(log.timestamp)}
                                                 </span>
                                             </td>
                                             <td className="p-3">
@@ -461,7 +462,7 @@ export default function WebhookDebugPage() {
                                                 log.source === 'hikvision' ? "bg-purple-500" : "bg-blue-500"
                                             )} />
                                             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                                                {log.source} • {log.timestamp.toLocaleTimeString()}
+                                                {log.source} • {hora(log.timestamp)}
                                             </span>
                                         </div>
                                         <button

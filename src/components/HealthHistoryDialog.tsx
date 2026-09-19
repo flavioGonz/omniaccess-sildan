@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { X, Activity, MemoryStick, Timer, AlertTriangle, CheckCircle2, Loader2, Wifi } from "lucide-react";
+import { fecha, hora } from "@/lib/fechas";
 
 type Sample = { ts: string; reachable: boolean; latencyMs: number | null; memPct: number | null; driftSec: number | null; disksOk: boolean | null; viewers: number | null };
 type Alert = { id: string; type: string; severity: string; message: string; openedAt: string; resolvedAt: string | null; active: boolean };
@@ -133,7 +134,7 @@ export function HealthHistoryDialog({ device, onClose }: { device: any; onClose:
                                                 <div className="mt-0.5">{a.active ? <AlertTriangle size={13} className="text-red-400" /> : <CheckCircle2 size={13} className="text-emerald-400/70" />}</div>
                                                 <div className="flex-1">
                                                     <p className={`font-semibold ${a.active ? "text-red-300" : "text-muted-foreground"}`}>{a.message}</p>
-                                                    <p className="text-[9px] text-muted-foreground">{new Date(a.openedAt).toLocaleString("es-UY")} {a.resolvedAt ? `· resuelta ${new Date(a.resolvedAt).toLocaleTimeString("es-UY")}` : "· ACTIVA"}</p>
+                                                    <p className="text-[9px] text-muted-foreground">{fecha(new Date(a.openedAt))} {a.resolvedAt ? `· resuelta ${hora(new Date(a.resolvedAt))}` : "· ACTIVA"}</p>
                                                 </div>
                                             </div>
                                         ))}

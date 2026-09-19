@@ -5,6 +5,7 @@ import { AkuvoxDriver } from "@/lib/drivers/AkuvoxDriver";
 
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { uploadToS3 } from "@/lib/s3";
+import { fecha } from "@/lib/fechas";
 
 export async function getDeviceFaces(deviceId: string) {
     const device = await prisma.device.findUnique({ where: { id: deviceId } });
@@ -161,7 +162,7 @@ export async function syncIdentityAction(deviceId: string, item: any, unitId?: s
     const device = await prisma.device.findUnique({ where: { id: deviceId } });
     if (!device) throw new Error("Device not found");
 
-    const importDate = new Date().toLocaleString();
+    const importDate = fecha(new Date());
     const comment = `Importado de [${device.name}] el ${importDate}`;
 
     // Find existing user or create one

@@ -18,6 +18,7 @@ import { sileo as toast } from "sileo";
 import { RefreshCcw, Scan, Loader2, Trash2, UserPlus, Database } from "lucide-react";
 import { registerFace, toggleBlacklist } from "@/app/actions/users";
 import { syncFaceToAllDevicesAction } from "@/app/actions/face-sync";
+import { hora } from "@/lib/fechas";
 
 interface FaceMatchModalProps {
     event: any;
@@ -592,7 +593,7 @@ export function FaceMatchModal({ event, verification, isOpen, onClose }: FaceMat
                                                                 {h.device?.name || "Terminal"}
                                                             </p>
                                                             <p className="text-[7px] font-bold text-muted-foreground mt-1 uppercase tracking-tighter">
-                                                                {new Date(h.timestamp).toLocaleTimeString()} • {h.decision === 'GRANT' ? 'PASO' : 'DENEGADO'}
+                                                                {hora(new Date(h.timestamp))} • {h.decision === 'GRANT' ? 'PASO' : 'DENEGADO'}
                                                             </p>
                                                         </div>
                                                     </div>

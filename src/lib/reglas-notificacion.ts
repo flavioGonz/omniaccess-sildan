@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
+import { fecha, hora } from "@/lib/fechas";
 
 /**
  * Motor de reglas de notificación, compartido por los tres modos.
@@ -57,8 +58,8 @@ function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date
         "{plate}": ev.plate || "—",
         "{persona}": ev.personName || "—",
         "{quien}": quien,
-        "{time}": ahora.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" }),
-        "{date}": ahora.toLocaleDateString("es-UY"),
+        "{time}": hora(ahora),
+        "{date}": fecha(ahora),
         "{count}": String(ev.extra?.count ?? ""),
         "{threshold}": String(ev.extra?.threshold ?? ""),
         "{wait}": String(ev.extra?.wait ?? ""),

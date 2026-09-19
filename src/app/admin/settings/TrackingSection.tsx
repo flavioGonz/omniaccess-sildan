@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { fechaCorta, fechaHora } from "@/lib/fechas";
 
 type Camara = { id: string; name: string; rtsp: string; rtspVisible?: string; activa?: boolean; enMapa?: boolean; lat?: number | null; lng?: number | null };
 
@@ -91,14 +92,14 @@ function Barras({ datos }: { datos: { hora: string; lecturas: number }[] }) {
                                 style={{ height: `${Math.max(d.lecturas ? 6 : 2, h)}%` }}
                             />
                             <div className="pointer-events-none absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 whitespace-nowrap rounded bg-popover border border-border px-2 py-1 text-[10px] text-popover-foreground shadow">
-                                {new Date(d.hora).toLocaleString("es-UY", { day: "2-digit", month: "short", hour: "2-digit" })} · {d.lecturas}
+                                {fechaHora(new Date(d.hora))} · {d.lecturas}
                             </div>
                         </div>
                     );
                 })}
             </div>
             <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5">
-                <span>{datos[0] ? new Date(datos[0].hora).toLocaleString("es-UY", { day: "2-digit", month: "short", hour: "2-digit" }) : ""}</span>
+                <span>{datos[0] ? fechaHora(new Date(datos[0].hora)) : ""}</span>
                 <span>ahora</span>
             </div>
         </div>
@@ -111,7 +112,7 @@ function haceCuanto(iso: string | null) {
     if (s < 60) return `hace ${s} s`;
     if (s < 3600) return `hace ${Math.round(s / 60)} min`;
     if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
-    return new Date(iso).toLocaleDateString("es-UY", { day: "2-digit", month: "short" });
+    return fechaCorta(new Date(iso));
 }
 
 /* ─────────────────────────── panel ─────────────────────────── */

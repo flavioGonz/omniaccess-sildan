@@ -78,6 +78,7 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { DeviceMemoryDialog } from "@/components/DeviceMemoryDialog";
 import { DevicePlateListDialog } from "@/components/DevicePlateListDialog";
 import { AkuvoxActionUrlDialog } from "@/components/AkuvoxActionUrlDialog";
+import { hora, horaSeg } from "@/lib/fechas";
 import { DRIVER_MODELS, DEVICE_MODELS } from "@/lib/driver-models";
 import { CameraCalibrator } from "@/components/CameraCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
@@ -193,7 +194,7 @@ function fmtClock(iso?: string): string {
     if (!iso) return "—";
     const t = Date.parse(iso);
     if (isNaN(t)) return "—";
-    return new Date(t).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return horaSeg(new Date(t));
 }
 
 export default function DevicesPage() {
@@ -766,7 +767,7 @@ export default function DevicesPage() {
                                                     </TooltipTrigger>
                                                     <TooltipContent>
                                                         <p className="font-semibold text-xs">PULL</p>
-                                                        <p className="text-[10px] text-muted-foreground">{dev.lastOnlinePull ? new Date(dev.lastOnlinePull).toLocaleTimeString() : 'Nunca'}</p>
+                                                        <p className="text-[10px] text-muted-foreground">{dev.lastOnlinePull ? hora(new Date(dev.lastOnlinePull)) : 'Nunca'}</p>
                                                     </TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
@@ -785,7 +786,7 @@ export default function DevicesPage() {
                                                     </TooltipTrigger>
                                                     <TooltipContent>
                                                         <p className="font-semibold text-xs">PUSH</p>
-                                                        <p className="text-[10px] text-muted-foreground">{dev.lastOnlinePush ? new Date(dev.lastOnlinePush).toLocaleTimeString() : 'Nunca'}</p>
+                                                        <p className="text-[10px] text-muted-foreground">{dev.lastOnlinePush ? hora(new Date(dev.lastOnlinePush)) : 'Nunca'}</p>
                                                     </TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
@@ -859,8 +860,8 @@ export default function DevicesPage() {
                                             const lastSeenMsg = probed
                                                 ? (h.reachable ? `Sondeo OK · ${h.latencyMs ?? '?'} ms` : 'Sin respuesta ISAPI')
                                                 : lastPull > lastPush
-                                                    ? `Sincro: ${new Date(lastPull).toLocaleTimeString()}`
-                                                    : lastPush > 0 ? `Evento: ${new Date(lastPush).toLocaleTimeString()}` : 'Sin datos';
+                                                    ? `Sincro: ${hora(new Date(lastPull))}`
+                                                    : lastPush > 0 ? `Evento: ${hora(new Date(lastPush))}` : 'Sin datos';
 
                                             return (
                                                 <TooltipProvider>

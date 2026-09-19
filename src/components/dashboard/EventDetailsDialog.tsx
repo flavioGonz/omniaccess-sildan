@@ -18,6 +18,7 @@ import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { AcuSearchPanel, AcuMatch } from "@/components/dashboard/AcuSearchPanel";
 import { getWatchlist, addWatch, deleteWatch } from "@/app/actions/watchlist";
 import { sileo as toast } from "sileo";
+import { fecha, hora, horaSeg } from "@/lib/fechas";
 
 interface EventDetailsDialogProps {
     event: any;
@@ -175,8 +176,8 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     const profileImage = userImage || faceImage || getImg(event.snapshotPath);
 
     const dateObj = new Date(event.timestamp);
-    const timeStr = dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const dateStr = dateObj.toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" });
+    const timeStr = horaSeg(dateObj);
+    const dateStr = fecha(dateObj);
     const eventMs = dateObj.getTime();
 
     const isVerified = !!event.user;
@@ -422,11 +423,11 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                                 const hd = new Date(h.timestamp);
                                                 return (
                                                     <motion.button key={h.id} whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setViewAlt(h.__cur ? null : h); setCrop(null); }}
-                                                        className={cn("relative shrink-0 w-[92px] rounded-lg overflow-hidden border-2 bg-black", sel ? "border-emerald-400 shadow-[0_0_0_2px_rgba(52,211,153,.25)]" : "border-border/40 hover:border-fuchsia-400/60")} title={hd.toLocaleString("es-UY")}>
+                                                        className={cn("relative shrink-0 w-[92px] rounded-lg overflow-hidden border-2 bg-black", sel ? "border-emerald-400 shadow-[0_0_0_2px_rgba(52,211,153,.25)]" : "border-border/40 hover:border-fuchsia-400/60")} title={fecha(hd)}>
                                                         <img src={`${src}${src.includes("?") ? "&" : "?"}w=200`} alt="" loading="lazy" className="w-full aspect-video object-cover" />
                                                         <span className={cn("absolute top-0.5 left-0.5 text-[8px] font-black px-1 rounded", h.direction === "EXIT" ? "bg-orange-500 text-white" : "bg-blue-500 text-white")}>{h.direction === "EXIT" ? "S" : "E"}</span>
                                                         {h.__cur && <span className="absolute top-0.5 right-0.5 text-[8px] font-black px-1 rounded bg-emerald-500 text-white">Evento</span>}
-                                                        <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[8.5px] font-mono px-1 py-0.5 leading-tight">{hd.toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })} {hd.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                                                        <span className="absolute bottom-0 inset-x-0 bg-black/70 text-white text-[8.5px] font-mono px-1 py-0.5 leading-tight">{fecha(hd)} {hora(hd)}</span>
                                                     </motion.button>
                                                 );
                                             })}
@@ -539,7 +540,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                                                     className={cn("flex-1 rounded-sm", d.count === 0 ? "bg-muted-foreground/25" : i === stats.daily.length - 1 ? "bg-emerald-400" : "bg-violet-400/80")} style={{ minWidth: 4 }} />
                                                             ))}
                                                         </div>
-                                                        <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5"><span>hace {stats.days} d</span>{stats.firstSeen && <span>1ª vez: {new Date(stats.firstSeen).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "2-digit" })}</span>}<span>hoy</span></div>
+                                                        <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5"><span>hace {stats.days} d</span>{stats.firstSeen && <span>1ª vez: {fecha(new Date(stats.firstSeen))}</span>}<span>hoy</span></div>
                                                     </div>
 
                                                     {/* Cámaras top */}
@@ -566,7 +567,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                         ) : (
                                             <div className="text-xs text-muted-foreground space-y-2">
                                                 {isFace && cleanSim && <div className="grid grid-cols-2 gap-2"><div className="bg-muted/40 p-2 rounded-lg border border-border/30"><p className="text-[9px] uppercase font-bold">Similitud</p><p className={cn("text-sm font-bold", simNum >= 80 ? "text-emerald-400" : simNum >= 60 ? "text-amber-400" : "text-red-400")}>{cleanSim}</p></div><div className="bg-muted/40 p-2 rounded-lg border border-border/30"><p className="text-[9px] uppercase font-bold">Modo</p><p className="text-sm font-semibold text-foreground">{detectedMode}</p></div></div>}
-                                                {sessionEvents.length > 0 && <div><p className="text-[9px] font-bold uppercase tracking-wide mb-1">Secuencia de eventos</p>{sessionEvents.slice(0, 8).map((se: any) => <div key={se.id} className="flex items-center gap-2 py-1 border-t border-border/30"><span className="font-mono">{new Date(se.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span><span className="truncate">{se.device?.name || "—"}</span><span className={cn("ml-auto font-bold", se.decision === "GRANT" ? "text-emerald-400" : "text-red-400")}>{se.decision === "GRANT" ? "OK" : "DENY"}</span></div>)}</div>}
+                                                {sessionEvents.length > 0 && <div><p className="text-[9px] font-bold uppercase tracking-wide mb-1">Secuencia de eventos</p>{sessionEvents.slice(0, 8).map((se: any) => <div key={se.id} className="flex items-center gap-2 py-1 border-t border-border/30"><span className="font-mono">{horaSeg(new Date(se.timestamp))}</span><span className="truncate">{se.device?.name || "—"}</span><span className={cn("ml-auto font-bold", se.decision === "GRANT" ? "text-emerald-400" : "text-red-400")}>{se.decision === "GRANT" ? "OK" : "DENY"}</span></div>)}</div>}
                                                 {!isFace && sessionEvents.length === 0 && <p>Sin matrícula leída: no hay perfil de comportamiento.</p>}
                                             </div>
                                         )
@@ -583,7 +584,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                                             const hd = new Date(h.timestamp);
                                                             return (
                                                                 <div key={h.id} className="grid grid-cols-[1fr_1.4fr_auto_auto] gap-2 px-3 py-1.5 border-t border-border/20 hover:bg-muted/30 items-center">
-                                                                    <div className="font-mono text-muted-foreground">{hd.toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" })} {hd.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                                                                    <div className="font-mono text-muted-foreground">{fecha(hd)} {hora(hd)}</div>
                                                                     <div className="truncate font-medium">{h.device?.name || h.location || "—"}</div>
                                                                     <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-bold uppercase", h.direction === "ENTRY" ? "bg-blue-500/15 text-blue-400" : "bg-orange-500/15 text-orange-400")}>{h.direction === "ENTRY" ? "Ent" : "Sal"}</span>
                                                                     <div className={cn("text-right font-bold", h.decision === "GRANT" ? "text-emerald-400" : "text-red-400")}>{h.decision === "GRANT" ? "OK" : "DENY"}</div>

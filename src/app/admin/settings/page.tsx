@@ -78,6 +78,7 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
+import { fecha } from "@/lib/fechas";
 import {
     Table,
     TableBody,
@@ -1414,7 +1415,7 @@ function StorageSection() {
 
                             {/* Stats Mini */}
                             <div className="pt-3 border-t border-border flex justify-between items-center text-[10px] text-muted-foreground font-mono">
-                                <span>{stats.lpr.loading ? "..." : stats.lpr.count.toLocaleString()} archivos</span>
+                                <span>{stats.lpr.loading ? "..." : fecha(stats.lpr.count)} archivos</span>
                                 <span>{stats.lpr.loading ? "..." : formatSize(stats.lpr.size)}</span>
                             </div>
                         </div>
@@ -1439,7 +1440,7 @@ function StorageSection() {
 
                             {/* Stats Mini */}
                             <div className="pt-3 border-t border-border flex justify-between items-center text-[10px] text-muted-foreground font-mono">
-                                <span>{stats.face.loading ? "..." : stats.face.count.toLocaleString()} archivos</span>
+                                <span>{stats.face.loading ? "..." : fecha(stats.face.count)} archivos</span>
                                 <span>{stats.face.loading ? "..." : formatSize(stats.face.size)}</span>
                             </div>
                         </div>
