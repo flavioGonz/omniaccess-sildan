@@ -351,7 +351,7 @@ export function Tabla<T>({
                                     className={cn("w-8 h-8 rounded-lg flex items-center justify-center transition-colors relative",
                                         menu === "columnas" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
                                     <Columns3 size={14} />
-                                    {ocultas.length > 0 && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[var(--info)]" />}
+                                    {ocultas.length > 0 && <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-[var(--accion)]" />}
                                 </button>
                                 {menu === "columnas" && (
                                     <Menu alCerrar={() => setMenu("")}>
@@ -440,7 +440,7 @@ export function Tabla<T>({
                             <tr>
                                 <td colSpan={nCol} className="px-5 py-14">
                                     <div className="flex flex-col items-center gap-2 text-center">
-                                        <AlertTriangle size={22} className="text-amber-400" />
+                                        <AlertTriangle size={22} className="tono-aviso" />
                                         <p className="text-[13px] font-semibold text-foreground">No se pudieron traer los datos</p>
                                         <p className="text-[11.5px] text-muted-foreground max-w-sm">{error}</p>
                                         {alReintentar && (
@@ -503,7 +503,7 @@ export function Tabla<T>({
                                                     className={cn(
                                                         dens.celda, "align-middle",
                                                         alineado[c.alinear || "izq"],
-                                                        sel && "bg-amber-500/25 dark:bg-amber-500/20",
+                                                        sel && "bg-[var(--aviso-suave)]",
                                                         c.className,
                                                     )}>
                                                     {c.celda ? c.celda(fila) : texto(c, fila)}
@@ -593,7 +593,7 @@ function ItemMenu({ children, activo, off, onClick }: {
         <button type="button" onClick={onClick} disabled={off}
             className={cn("w-full flex items-center gap-2 h-8 px-2 rounded-lg text-[12px] font-medium text-left transition-colors",
                 off ? "opacity-40 cursor-default" : "hover:bg-accent")}>
-            <span className={cn("w-3.5 shrink-0", activo ? "text-[var(--info-texto)]" : "opacity-0")}><Check size={13} /></span>
+            <span className={cn("w-3.5 shrink-0", activo ? "tono-accion" : "opacity-0")}><Check size={13} /></span>
             <span className="truncate">{children}</span>
         </button>
     );

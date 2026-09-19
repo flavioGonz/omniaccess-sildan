@@ -86,15 +86,27 @@ function GrupoFiltro({ rotulo, ayuda, children, oculto }: { rotulo: string; ayud
     );
 }
 
-/** Un botón de un grupo. */
-function Opcion({ activo, onClick, tono = "azul", children }: {
-    activo: boolean; onClick: () => void; tono?: "azul" | "bien" | "mal" | "salida"; children: React.ReactNode;
+/**
+ * Un botón de un grupo de filtros.
+ *
+ * El tono encendido NO es decoración: adelanta lo que se va a ver. "Permitidos" prendido en
+ * verde y "Denegados" en rojo dicen qué trae el filtro antes de apretarlo, que es
+ * exactamente para lo que existen los cinco tonos del sistema. Lo que no puede pasar es
+ * que un botón que no dice nada sobre el estado — "Todo", "Entrada" — se pinte de un color
+ * cualquiera: ese va con el único azul de acción.
+ *
+ * Los cuatro colores estaban escritos como `bg-blue-600`, `bg-emerald-600`, `bg-rose-600` y
+ * `bg-orange-600`. Los mismos significados aparecían en otras pantallas como emerald-500,
+ * red-500 y violet-600, y ninguna de esas diferencias quería decir nada.
+ */
+function Opcion({ activo, onClick, tono = "accion", children }: {
+    activo: boolean; onClick: () => void; tono?: "accion" | "bien" | "mal" | "salida"; children: React.ReactNode;
 }) {
     const encendido = {
-        azul: "bg-blue-600 text-white",
-        bien: "bg-emerald-600 text-white",
-        mal: "bg-rose-600 text-white",
-        salida: "bg-orange-600 text-white",
+        accion: "accion",
+        bien: "pleno-bien",
+        mal: "pleno-mal",
+        salida: "pleno-aviso",
     }[tono];
     return (
         <button onClick={onClick}
@@ -111,9 +123,9 @@ function ChipFiltro({ children, onQuitar }: { children: React.ReactNode; onQuita
         <motion.span
             initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
             transition={{ duration: 0.15 }}
-            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/25 text-[11px] font-semibold text-blue-600 dark:text-blue-300">
+            className="chip-info inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full border text-[11px] font-semibold">
             {children}
-            <button onClick={onQuitar} className="w-4 h-4 rounded-full hover:bg-blue-500/25 flex items-center justify-center opacity-70 hover:opacity-100">
+            <button onClick={onQuitar} className="w-4 h-4 rounded-full hover:bg-[var(--info-suave)] flex items-center justify-center opacity-70 hover:opacity-100">
                 <X size={10} />
             </button>
         </motion.span>
@@ -552,7 +564,7 @@ export default function HistoryPage() {
                             <button onClick={() => setFilterMerodeo(v => !v)}
                                 title="Matrículas que aparecen muchas veces en poco tiempo sin llegar a entrar"
                                 className={cn("ml-auto shrink-0 flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold border transition-colors",
-                                    filterMerodeo ? "bg-rose-600 text-white border-rose-500" : "bg-muted/60 text-muted-foreground border-border/50 hover:text-foreground")}>
+                                    filterMerodeo ? "pleno-mal border-transparent" : "bg-muted/60 text-muted-foreground border-border/50 hover:text-foreground")}>
                                 <ShieldAlert size={13} /> Merodeo{chapasMerodeo.size > 0 ? ` (${chapasMerodeo.size})` : ""}
                             </button>
                         </div>

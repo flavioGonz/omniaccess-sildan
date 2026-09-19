@@ -57,25 +57,119 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
+  /* ── LA GRAMATICA DE RADIOS ────────────────────────────────────────
+     Cuatro valores, y cada uno tiene un trabajo:
+
+       6px   control   boton, campo, chip cuadrado, celda de menu
+       10px  panel     tarjeta, tabla, panel, dialogo
+       14px  ventana   lo que flota: menu, ventana de video, visor
+       full  eleccion  chip de filtro, pildora, buscador, indicador
+
+     Antes convivian quince. `rounded-lg`, `rounded-xl` y `rounded-2xl`
+     se usaban sobre EL MISMO tipo de caja segun el archivo, mas 55
+     valores a medida — [1.5rem], [1.8rem], [1.2rem], [26px], [28px],
+     [40px]. Nada de eso fue una decision: es el registro de en que
+     orden se escribieron las pantallas.
+
+     La gramatica se impone desde la ESCALA, no editando 2.579 lugares.
+     Cada clase que ya existe aterriza en uno de los cuatro valores, asi
+     que no hay que tocar un solo archivo y no hay forma de romper nada:
+     `rounded-2xl` sigue compilando, solo que ahora mide lo que tiene
+     que medir. Las clases sobrantes quedan como sinonimos — el dia que
+     alguien escriba `rounded-3xl` va a obtener `ventana`, que es la
+     respuesta correcta a lo que queria pedir. */
+  --radius-sm: 6px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 14px;
+  --radius-3xl: 14px;
+  --radius-4xl: 14px;
+
+  /* ── LAS DOS SOMBRAS ───────────────────────────────────────────────
+     Habia 541 sombras de la escala, mas 125 a medida y 120 de color.
+     `shadow-lg` sola aparecia 339 veces: en tarjetas, en chips, en
+     filas de tabla y en iconos de ocho pixeles que no flotan sobre
+     nada. Cuando todo lleva sombra, la sombra deja de significar "esto
+     esta por encima" y pasa a ser textura — y el dia que algo flota de
+     verdad, no se nota.
+
+     El sistema tiene DOS, y cada una tiene trabajo declarado:
+
+       captura    debajo de una FOTO que descansa sobre una superficie
+       flotante   lo que de verdad flota: un menu, una ventana de video
+
+     La jerarquia del resto sale de otro lado, en este orden: cambio de
+     superficie (background -> card -> muted), y si no alcanza, una
+     linea de un pixel. Superficie antes que linea, linea antes que
+     sombra.
+
+     Igual que con los radios, se impone desde la escala. Los tamanos
+     chicos se apagan, y los grandes son la sombra flotante — o sea que
+     lo que hoy dice `shadow-2xl` sigue flotando, y lo que dice
+     `shadow-sm` deja de fingir que flota. */
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow-md: 0 0 #0000;
+  /* Un susurro. No es una sombra: es lo que queda de las 339 que no
+     tenian por que estar, sin que las pocas que apoyaban una
+     separacion real desaparezcan de golpe. */
+  --shadow: 0 1px 2px rgba(0, 0, 0, var(--sombra-alfa-susurro));
+  --shadow-lg: 0 1px 2px rgba(0, 0, 0, var(--sombra-alfa-susurro));
+  --shadow-xl: var(--sombra-flotante);
+  --shadow-2xl: var(--sombra-flotante);
 }
 
 :root {
-  --radius: 0.5rem;
+  /* `rounded` a secas = panel. Es el valor del que colgaba toda la
+     escala vieja; ahora la escala es explicita y esto queda como el
+     radio por defecto de una caja. */
+  --radius: 10px;
+
+  /* Las dos sombras del sistema. Ver la nota en @theme.
+     En claro alcanza menos opacidad: una sombra calibrada para negro
+     se ve como una mancha sobre blanco. */
+  --sombra-alfa-susurro: 0.05;
+  --sombra-flotante: 0 12px 34px -10px rgba(0, 0, 0, 0.28);
+  --sombra-captura: 0 3px 22px rgba(0, 0, 0, 0.22);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  /* ── EL UNICO COLOR DE ACCION ──────────────────────────────────────
+     Y aca esta la causa de fondo de las dieciseis maneras de pintar un
+     boton.
+
+     Esto valia oklch(0.205 0 0) en claro y oklch(0.922 0 0) en oscuro
+     — el valor por defecto de shadcn, que define "primary" como el
+     inverso del texto. O sea que <Button> se dibujaba NEGRO en tema
+     claro y BLANCO en tema oscuro. En una consola de seguridad que se
+     usa casi siempre en oscuro, el boton canonico de la aplicacion era
+     un bloque blanco que no se parecia en nada a una accion.
+
+     Por eso ciento siete archivos escribieron su propio boton azul, o
+     violeta, o verde. No fue desprolijidad: la pieza compartida se veia
+     mal, asi que nadie la uso. `ui/button.tsx` importa `bg-primary` y
+     no lo usa nadie mas.
+
+     Arreglar el token arregla la pieza, y arreglar la pieza es lo unico
+     que hace posible que los 656 botones a mano se puedan migrar a
+     algo. Un componente compartido que se ve mal es peor que no
+     tenerlo: hace creer que el problema esta resuelto. */
+  --primary: oklch(0.57 0.20 256);
   --primary-foreground: oklch(0.985 0 0);
+
+  /* Por su nombre, para el codigo que quiera decir "accion" y no
+     "primary" — que en shadcn significa otra cosa. */
+  --accion: oklch(0.57 0.20 256);
+  --accion-sobre: oklch(0.62 0.20 256);
+  --accion-foco: oklch(0.65 0.19 256);
+  /* Sobre foto, mapa o video el azul normal desaparece: el fondo no es
+     nuestra superficie, es una imagen. */
+  --accion-en-oscuro: oklch(0.72 0.16 250);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -85,7 +179,7 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --ring: oklch(0.65 0.19 256);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -102,14 +196,24 @@
 }
 
 .dark {
+  /* Sobre fondo oscuro una sombra tiene que ser mas profunda para
+     leerse: el contraste contra el fondo es menor. */
+  --sombra-alfa-susurro: 0.22;
+  --sombra-flotante: 0 12px 34px -10px rgba(0, 0, 0, 0.55);
+  --sombra-captura: 0 3px 22px rgba(0, 0, 0, 0.45);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
+  /* En oscuro el azul sube un escalon: el mismo tono que se lee sobre
+     blanco queda apagado contra un fondo casi negro. */
+  --primary: oklch(0.62 0.20 256);
+  --primary-foreground: oklch(0.985 0 0);
+  --accion: oklch(0.62 0.20 256);
+  --accion-sobre: oklch(0.68 0.19 256);
+  --accion-foco: oklch(0.70 0.18 256);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -119,7 +223,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.70 0.18 256);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -1476,3 +1580,15 @@ video::-webkit-media-controls { display: none !important; }
 .pleno-mal    { background: var(--mal);    color: #fff; }
 .pleno-info   { background: var(--info);   color: #fff; }
 .pleno-quieto { background: var(--quieto); color: #fff; }
+
+/* Las dos sombras, por su nombre. El codigo nuevo pide `sombra-captura`
+   o `sombra-flotante` — no un tamano — porque el tamano no dice para
+   que es y el nombre si. */
+.sombra-captura { box-shadow: var(--sombra-captura); }
+.sombra-flotante { box-shadow: var(--sombra-flotante); }
+
+/* El unico "apretame" del sistema, por su nombre. */
+.accion { background: var(--accion); color: #fff; }
+.accion:hover { background: var(--accion-sobre); }
+.tono-accion { color: var(--accion); }
+.tono-accion-oscuro { color: var(--accion-en-oscuro); }
