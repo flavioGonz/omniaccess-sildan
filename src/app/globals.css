@@ -1595,3 +1595,158 @@ video::-webkit-media-controls { display: none !important; }
 .accion:hover { background: var(--accion-sobre); }
 .tono-accion { color: var(--accion); }
 .tono-accion-oscuro { color: var(--accion-en-oscuro); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EL VISOR DEL CUADRO — superficie sobre video
+   ══════════════════════════════════════════════════════════════════════════
+
+   Todo lo de abajo vive SOBRE una imagen de camara, y por eso es oscuro en
+   los dos temas. No es una excepcion al tema claro: es que ahi el fondo no
+   lo pone la aplicacion, lo pone la camara, y a las tres de la tarde en
+   Calle 22 ese fondo es asfalto gris con sol. Un panel claro sobre eso no se
+   lee, y uno oscuro si — en los dos temas, porque la foto es la misma.
+
+   Lo unico que cambia de color es el TONO, y no lo elige el diseno: lo pone
+   el estado del vehiculo en --visor-tono. Verde si la chapa esta en el
+   padron, rojo si no, ambar si esta en la lista. Son los mismos tres tonos
+   que usa el resto de la aplicacion, no un juego aparte.
+*/
+
+:root {
+  /* Una ventana inmersiva es otra escala de objeto que una tarjeta: el radio
+     de la gramatica (14px) sobre 1400px de ancho se ve como una esquina viva.
+     Este radio existe solo para eso y no se usa en ningun otro lado. */
+  --radio-ventana: 28px;
+  --visor-tono: var(--bien);
+}
+
+/* El lavado ambiental: el tono del estado difuminado sobre la imagen, del
+   lado donde van los datos, fundido sin borde. Reemplaza al panel con marco
+   — un marco separa dos cosas, y aca los datos y la foto son una sola. */
+.visor-ambiente {
+  background:
+    radial-gradient(ellipse 65% 75% at 18% 45%,
+      color-mix(in oklab, var(--visor-tono) 34%, transparent) 0%,
+      color-mix(in oklab, var(--visor-tono) 16%, transparent) 45%,
+      transparent 85%),
+    radial-gradient(circle at 71% 22%,
+      color-mix(in oklab, var(--visor-tono) 12%, transparent) 0%,
+      transparent 42%),
+    linear-gradient(90deg,
+      rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.68) 32%,
+      rgba(0, 0, 0, 0.34) 55%, transparent 80%);
+  transition: background 700ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* El resplandor detras de la ficha. Levanta el tono sin agregar un borde. */
+.visor-orbe {
+  background: color-mix(in oklab, var(--visor-tono) 24%, transparent);
+  filter: blur(90px);
+  animation: visorOrbe 3.2s ease-in-out infinite alternate;
+}
+@keyframes visorOrbe {
+  from { opacity: 0.55; }
+  to   { opacity: 0.9; }
+}
+
+/* Vidrio: lo que se aprieta. Capsulas y botones flotando sobre la imagen. */
+.visor-vidrio {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  transition: background 240ms cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 240ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.visor-vidrio:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.17);
+  border-color: rgba(255, 255, 255, 0.36);
+}
+.visor-vidrio:active:not(:disabled) { transform: scale(0.97); }
+
+/* Vidrio encendido: el mismo boton, pero prendido, con el tono del estado. */
+.visor-vidrio-activo {
+  background: color-mix(in oklab, var(--visor-tono) 26%, transparent);
+  border-color: color-mix(in oklab, var(--visor-tono) 50%, transparent);
+  box-shadow: 0 8px 28px color-mix(in oklab, var(--visor-tono) 26%, transparent),
+              inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+
+/* Panel: lo que se lee. Mas opaco que el vidrio, porque debajo hay una foto
+   y el texto tiene que ganarle. */
+.visor-panel {
+  background: rgba(14, 19, 28, 0.55);
+  backdrop-filter: blur(32px) saturate(180%);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.65), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+}
+
+/* Texto directamente sobre la imagen, sin caja. La sombra hace el trabajo
+   que haria un fondo, sin tapar el cuadro. */
+.visor-sombra-texto {
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.95), 0 1px 4px rgba(0, 0, 0, 0.85);
+}
+
+/* ── La chapa, dibujada ───────────────────────────────────────────────────
+   No es una imagen: se dibuja, asi que sirve para cualquier matricula y se
+   ve igual en las dos escalas. Los colores de la chapa son literales a
+   proposito — son los de la chapa fisica, no los del tema: una matricula
+   uruguaya es blanca con letras negras en relieve y banda azul Mercosur, y
+   eso no cambia porque el operador prenda el tema claro. Es la unica parte
+   del sistema donde un color describe un objeto del mundo y no un estado. */
+.chapa-mercosur {
+  background: linear-gradient(180deg, #ffffff 0%, #f1f3f7 45%, #e1e4ea 100%);
+  box-shadow:
+    0 10px 30px -5px rgba(0, 0, 0, 0.8),
+    0 2px 6px rgba(0, 0, 0, 0.5),
+    inset 0 1px 2px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.3);
+  border: 1.5px solid #20242c;
+}
+.chapa-banda { background: #0038a8; border-bottom: 1px solid #002776; }
+.chapa-cuerpo { background: linear-gradient(180deg, #ffffff 0%, #f0f2f5 55%, #dce0e6 100%); }
+/* El relieve del troquelado: una luz arriba a la izquierda y una sombra
+   abajo a la derecha. Es lo que hace que se lea como chapa y no como texto. */
+.chapa-texto {
+  color: #0d1117;
+  text-shadow:
+    1px 1px 0 rgba(255, 255, 255, 0.7),
+    -1px -1px 1px rgba(0, 0, 0, 0.85),
+    0 2px 3px rgba(0, 0, 0, 0.4);
+  letter-spacing: 0.14em;
+}
+/* El reflejo que barre la chapa. Dura poco y tarda en volver: una chapa que
+   brilla sin parar deja de parecer metal y empieza a parecer un banner. */
+.chapa-brillo { animation: chapaBrillo 5s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+@keyframes chapaBrillo {
+  0%        { transform: translateX(-130%) rotate(25deg); }
+  35%, 100% { transform: translateX(260%) rotate(25deg); }
+}
+
+/* La guia que baja del rotulo hasta el auto del que habla. */
+.visor-guia {
+  background: linear-gradient(180deg,
+    color-mix(in oklab, var(--visor-tono) 90%, transparent) 0%,
+    color-mix(in oklab, var(--visor-tono) 25%, transparent) 75%,
+    transparent 100%);
+}
+
+/* El latido de la capsula de actividad: muy chico, o marea. */
+.visor-latido { animation: visorLatido 2.6s ease-in-out infinite; }
+@keyframes visorLatido {
+  0%, 100% { opacity: 0.88; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.015); }
+}
+
+/* Los tonos DENTRO del visor.
+   No se pueden usar .tono-bien / .tono-aviso / .tono-mal aca: esas clases
+   cambian de valor con el tema, y en tema claro --bien-texto es un verde
+   oscuro pensado para leerse sobre blanco. Sobre una foto de calle de noche
+   no se ve. El visor es oscuro siempre, asi que sus tonos se aclaran contra
+   blanco y no dependen del tema. */
+.visor-bien  { color: color-mix(in oklab, var(--bien)  52%, #fff); }
+.visor-aviso { color: color-mix(in oklab, var(--aviso) 52%, #fff); }
+.visor-mal   { color: color-mix(in oklab, var(--mal)   52%, #fff); }

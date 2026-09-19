@@ -1,16 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import {
-    X, ChevronLeft, ChevronRight, Camera, Clock, ZoomIn, ZoomOut, Maximize2,
-    Scan, Car, Home, Phone, ParkingSquare, ShieldAlert, Star, Search as Lupa, Layers, UserPlus,
+    X, ChevronLeft, ChevronRight, Camera, ZoomIn, ZoomOut, Maximize2,
+    Scan, Car, Home, Phone, ParkingSquare, ShieldAlert, Star, Search as Lupa,
+    Layers, UserPlus, Radio,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Cronometro } from "@/components/tracking/Cronometro";
+import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
+import { ChapaMercosur } from "@/components/tracking/ChapaMercosur";
 import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
 import { leerRecuadro } from "@/lib/deteccion";
-import { fechaCorta, hora } from "@/lib/fechas";
+import { getCarLogo } from "@/lib/car-logos";
+import { fechaCorta, horaSeg } from "@/lib/fechas";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -43,43 +47,44 @@ export type FichaMatricula = {
 /**
  * Visor del cuadro de un avistamiento.
  *
- * Una ventana que abraza la imagen, no una foto pegada al borde de la pantalla con los
- * datos desparramados en las esquinas. Los rótulos van SOBRE la imagen, sobre una sombra
- * degradada que los hace legibles sin tapar nada, y la ventana mide lo que mide la foto.
+ * Una ventana inmersiva: la foto ocupa todo y los datos flotan sobre ella, fundidos con un
+ * lavado del color del estado en vez de encerrados en paneles con marco. La versión
+ * anterior funcionaba pero se veía como tres cajas negras apoyadas sobre una foto, y un
+ * marco separa dos cosas — acá los datos y la imagen son lo mismo: son el evento.
  *
- * La foto sola contesta poco. "Esta chapa, a esta hora, en esta cámara" es el dato crudo;
- * lo que se necesita saber es de quién es el auto, de qué lote es, si tiene cochera, si
- * está en la lista, y si estaba pasando o estacionado.
+ * **El color lo pone el estado, no el diseño.** Un solo dato, `--visor-tono`, baja por CSS
+ * a todo lo que está encendido: el lavado ambiental, el resplandor, la retícula sobre la
+ * chapa, el anillo del cronómetro, el tilde de la placa. Cambiar de un vehículo conocido a
+ * uno en lista negra cambia una variable y se tiñe la ventana entera.
+ *
+ * Y ese tono no es el del ejemplo del que salió este diseño. Ahí había dos estados,
+ * "autorizado" en verde y "no reconocido" en rojo. **Una matrícula desconocida no es una
+ * alarma**: en un barrio pasan todo el día repartos, visitas, remises y obreros, y pintar
+ * de rojo cada uno enseña al operador a ignorar el rojo, que es exactamente lo que no se
+ * quiere el día que el rojo importe. Lo desconocido va en gris — que es lo que se sabe:
+ * nada. El rojo queda para la lista negra, el ámbar para el pedido de captura.
  *
  * Tres zonas, y cada una contesta una pregunta distinta:
  *
- *   IZQUIERDA   la ficha. Quién es, de dónde, y qué tan buena fue la lectura. Es lo que se
- *               lee, así que va donde empieza la vista y en una columna, no en una fila:
- *               una ficha es una lista de campos, y una lista se lee hacia abajo.
+ *   IZQUIERDA   la ficha, empezando por la chapa dibujada como chapa. El operador está
+ *               comparando lo que dice el sistema contra lo que ve en la foto, y en la
+ *               foto hay una matrícula: mismo formato y misma separación hacen esa
+ *               comparación directa.
  *
- *   SOBRE EL    el estado y el tiempo, anclados al recuadro de la chapa. Antes estaban en
- *   VEHÍCULO    una barra arriba, lejos del auto del que hablaban; con tres vehículos en
- *               cuadro, "estacionado 13 min" no decía cuál. Ahora el rótulo sale del auto
- *               que le corresponde, y acompaña el zoom sin agrandarse con él.
+ *   SOBRE EL    el estado y el tiempo, anclados al recuadro de la chapa con una guía fina.
+ *   VEHÍCULO    Con tres vehículos en cuadro, un rótulo flotando no dice de cuál habla.
  *
- *   DERECHA     los controles, en vertical. Son lo único que no es dato, así que van del
- *               otro lado y en otra orientación: no se confunden con la ficha ni le comen
- *               el ancho, que es justo lo que hace falta para los campos largos.
+ *   DERECHA     los controles, en vertical y en cápsula de vidrio. Son lo único que no es
+ *               dato, así que van del otro lado y en otra orientación.
+ *
+ * La superficie es oscura en los dos temas, y no es una excepción: acá el fondo no lo pone
+ * la aplicación, lo pone la cámara.
  *
  * Se puede acercar. Una matrícula chica en un cuadro de calle es justo lo que hay que
  * mirar de cerca para saber si el lector acertó, y sin acercar no se distingue una B de
  * una 8. El zoom va al puntero — no al centro — porque lo que interesa casi nunca está en
- * el medio, y con la rueda, el doble clic o el pellizco.
- *
- * Y se puede ver QUÉ marcó el detector: el recuadro de la chapa. Con el contorno
- * encendido, mirar la foto contesta también por qué una lectura salió mal — chapa
- * cortada, chapa demasiado chica, chapa del auto de al lado.
- *
- * Una sola tipografía, la de la aplicación. La matrícula estaba en monoespaciada, que es
- * la convención para una chapa, pero la variable apuntaba a una fuente que este proyecto
- * no carga: el navegador caía en su monoespaciada por defecto y el resultado era una
- * placa escrita en otra letra que todo lo que la rodea. Para que se lea como chapa
- * alcanza con el espaciado entre letras y el ancho fijo de dígitos.
+ * el medio, y con la rueda, el doble clic o el pellizco. Al acercar, TODO lo demás se
+ * apaga: el lavado, la ficha, los rótulos. Quien acerca vino a ver píxeles.
  */
 
 const ESCALA_MAX = 8;
@@ -97,56 +102,86 @@ function acotar(pos: { x: number; y: number }, escala: number, caja: DOMRect | n
 }
 
 const ICONO_VIGILANCIA: Record<string, any> = { negra: ShieldAlert, busca: Lupa, vip: Star };
-const TONO_VIGILANCIA: Record<string, string> = {
-    negra: "bg-rose-500/20 border-rose-400/50 text-rose-200",
-    busca: "bg-amber-500/20 border-amber-400/50 text-amber-200",
-    vip: "bg-violet-500/20 border-violet-400/50 text-violet-200",
-};
 
 /**
- * Un renglón de la ficha.
+ * De qué color se tiñe la ventana.
  *
- * Se dibuja SIEMPRE, tenga valor o no. Es al revés de lo que uno haría — un campo vacío
- * parece ruido — pero acá el hueco dice algo: muestra qué se podría saber de este
- * vehículo y no se sabe. Una ficha que esconde los campos que le faltan se ve completa
- * cuando está vacía, y nadie va a cargar lo que no sabe que falta. Además el panel deja
- * de cambiar de alto entre un auto registrado y uno que no, que es lo que hacía saltar
- * los controles de lugar.
+ * El orden importa: la lista manda sobre el padrón. Un vehículo puede estar perfectamente
+ * registrado Y estar en la lista negra — de hecho es el caso que más importa —, y ahí lo
+ * que hay que ver es la lista, no el registro.
  */
-function Dato({ icono: Icono, etiqueta, valor }: { icono: any; etiqueta: string; valor?: string | null }) {
-    return (
-        <div className="flex items-start gap-2">
-            <Icono size={12} className={cn("mt-[3px] shrink-0", valor ? "text-white/35" : "text-white/15")} />
-            <div className="min-w-0 flex-1">
-                <div className="text-[8.5px] uppercase tracking-wider text-white/35 leading-none">{etiqueta}</div>
-                <div className={cn("text-[12px] truncate leading-tight mt-0.5",
-                    valor ? "font-semibold text-white/90" : "text-white/25")}>
-                    {valor || "sin definir"}
-                </div>
-            </div>
-        </div>
-    );
+function tonoDelEstado(ficha?: FichaMatricula | null) {
+    const cat = ficha?.vigilancia?.categoria;
+    if (cat === "negra") return "var(--mal)";
+    if (cat === "busca") return "var(--aviso)";
+    if (cat === "vip") return "var(--quieto)";
+    if (ficha?.dueno || ficha?.marca) return "var(--bien)";
+    // Desconocida: no se sabe nada, y eso no es una alarma.
+    return "var(--muted-foreground)";
 }
 
 /**
- * Una medida de la calidad de la lectura: el número grande, el rótulo chico debajo.
- * Sin caja propia — viven dentro de la ficha, y una caja dentro de otra caja es un borde
- * que no separa nada.
+ * Una etiqueta de la ficha.
+ *
+ * Cuando no hay valor NO desaparece: queda como etiqueta fantasma, con el borde punteado y
+ * el texto apagado. Es al revés de lo que uno haría — un campo vacío parece ruido — pero el
+ * hueco dice algo: muestra qué se podría saber de este vehículo y no se sabe. Una ficha que
+ * esconde los campos que le faltan se ve completa cuando está vacía, y nadie va a cargar lo
+ * que no sabe que falta.
  */
-function Medida({ valor, rotulo, tono, ayuda }: { valor: string; rotulo: string; tono: string; ayuda?: string }) {
+function Etiqueta({ icono: Icono, valor, falta, sufijo, verificado }: {
+    icono: any; valor?: string | null; falta: string; sufijo?: string | null; verificado?: boolean;
+}) {
+    if (!valor) {
+        return (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-dashed border-white/15 text-white/30">
+                <Icono size={13} />
+                <span className="text-[11px] font-medium">{falta}</span>
+            </span>
+        );
+    }
     return (
-        <div className="text-center leading-none flex-1" title={ayuda}>
-            <div className={cn("text-[13px] font-extrabold tabular-nums", tono)}>{valor}</div>
-            <div className="text-[8px] uppercase tracking-wider text-white/40 mt-1">{rotulo}</div>
-        </div>
+        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/15">
+            <Icono size={13} className="text-white/55" />
+            <span className="text-[12px] font-medium text-white/95">{valor}</span>
+            {sufijo && (
+                <span className="text-[11px] tabular-nums" style={{ color: "color-mix(in oklab, var(--visor-tono) 65%, #fff)" }}>
+                    {sufijo}
+                </span>
+            )}
+            {verificado && (
+                <span className="w-3.5 h-3.5 rounded-full flex items-center justify-center"
+                    style={{ background: "color-mix(in oklab, var(--visor-tono) 30%, transparent)" }}>
+                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5"
+                        style={{ color: "color-mix(in oklab, var(--visor-tono) 75%, #fff)" }}>
+                        <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                </span>
+            )}
+        </span>
     );
 }
 
-export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar }: {
+/** Una medida de la lectura. Sin caja: viven sobre la imagen, con sombra de texto. */
+function Medida({ valor, rotulo, tono, ayuda }: { valor: string; rotulo: string; tono?: string; ayuda?: string }) {
+    return (
+        <span className="inline-flex items-baseline gap-1" title={ayuda}>
+            <span className={cn("text-[11px] font-bold tabular-nums", tono || "text-white/85")}>{valor}</span>
+            <span className="text-[10px] text-white/45">{rotulo}</span>
+        </span>
+    );
+}
+
+export function VisorCuadro({
+    fila, ficha, onRegistrar, limiteMin,
+    hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar,
+}: {
     fila: CuadroAvistamiento;
     ficha?: FichaMatricula | null;
     /** Dar de alta esta matrícula. Sin esto, los campos vacíos solo informan. */
     onRegistrar?: (plate: string) => void;
+    /** Contra qué minutos se mide el anillo de la estadía. Sin esto el anillo barre el minuto. */
+    limiteMin?: number | null;
     hayAnterior?: boolean;
     haySiguiente?: boolean;
     onAnterior?: () => void;
@@ -156,6 +191,7 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
     const [escala, setEscala] = useState(1);
     const [pos, setPos] = useState({ x: 0, y: 0 });
     const [verContorno, setVerContorno] = useState(true);
+    const [copiada, setCopiada] = useState(false);
     const marco = useRef<HTMLDivElement | null>(null);
     const arrastre = useRef<{ x: number; y: number; px: number; py: number; movio: boolean } | null>(null);
     const pellizco = useRef<number | null>(null);
@@ -201,6 +237,10 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
         setPos(acotar({ x: -cx * destino, y: -cy * destino }, destino, caja));
     }, [recuadro]);
 
+    const copiar = useCallback(() => {
+        try { navigator.clipboard?.writeText(fila.plate); setCopiada(true); setTimeout(() => setCopiada(false), 1600); } catch { }
+    }, [fila.plate]);
+
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
             if (e.key === "Escape") { if (acercado) { reiniciar(); return; } onCerrar(); }
@@ -230,30 +270,27 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
     }, [escala, zoomEn]);
 
     /**
-     * Dónde va el rótulo del estado y el tiempo.
+     * Dónde va la cápsula del estado y el tiempo.
      *
-     * Sobre el VEHÍCULO, no sobre la matrícula. Pegado a la chapa tapaba justo lo que se
-     * vino a mirar, y además quedaba a la altura de la parrilla, que no es donde uno
-     * espera el nombre de una cosa: un rótulo se pone arriba del objeto que nombra.
+     * Sobre el VEHÍCULO, no sobre la matrícula. Pegada a la chapa tapaba justo lo que se
+     * vino a mirar, y además quedaba a la altura de la parrilla, que no es donde uno espera
+     * el nombre de una cosa: un rótulo se pone arriba del objeto que nombra.
      *
-     * La distancia se mide en ALTURAS DE LA CHAPA LEÍDA, no en fracciones fijas del
-     * cuadro — el mismo criterio que usa la banda de la línea de pasada. Una matrícula
-     * mide 13 cm, así que siete alturas son unos 90 cm por encima de ella: más o menos el
-     * techo de un auto. Y como la chapa se ve más chica cuanto más lejos está, el rótulo
-     * se aleja menos en los autos del fondo y más en los de adelante, solo. Nada de esto
-     * necesita calibración ni supone que la chapa mire de frente: es un desplazamiento,
-     * no una medición, y si cae diez centímetros arriba o abajo no afirma nada falso.
-     *
-     * Una guía fina baja del rótulo hasta el recuadro. Con tres autos en cuadro, un
-     * rótulo flotando no dice de cuál habla.
+     * La distancia se mide en ALTURAS DE LA CHAPA LEÍDA, no en fracciones fijas del cuadro.
+     * Una matrícula mide 13 cm, así que siete alturas son unos 90 cm por encima de ella:
+     * más o menos el techo de un auto. Y como la chapa se ve más chica cuanto más lejos
+     * está, la cápsula se aleja menos en los autos del fondo y más en los de adelante,
+     * sola. Nada de esto necesita calibración ni supone que la chapa mire de frente: es un
+     * desplazamiento, no una medición, y si cae diez centímetros arriba o abajo no afirma
+     * nada falso.
      */
     const ALTURAS_SOBRE_EL_AUTO = 7;
     const rotulo = (() => {
         if (!recuadro) return null;
         const cx = (recuadro.x + recuadro.w / 2) * 100;
         const arriba = (recuadro.y - ALTURAS_SOBRE_EL_AUTO * recuadro.h) * 100;
-        // Si no entra arriba, el marco lo recortaría justo donde dice el tiempo.
-        const abajo = arriba < 4;
+        // Si no entra arriba, el marco la recortaría justo donde dice el tiempo.
+        const abajo = arriba < 6;
         const y = abajo
             ? (recuadro.y + recuadro.h) * 100 + ALTURAS_SOBRE_EL_AUTO * recuadro.h * 100
             : arriba;
@@ -263,25 +300,28 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
 
     const conf = typeof fila.confidence === "number" ? Math.round(fila.confidence * 100) : null;
     const momento = new Date(fila.timestamp);
-    const tonoConf = conf == null ? "" : conf >= 85 ? "text-emerald-300" : conf >= 65 ? "text-amber-300" : "text-rose-300";
+    const tonoConf = conf == null ? "text-white/30" : conf >= 85 ? "visor-bien" : conf >= 65 ? "visor-aviso" : "visor-mal";
 
     const estacionado = fila.estado === "ESTACIONADO";
     const cerrada = !!fila.estCerrada;
     const dueno = ficha?.dueno;
     const vig = ficha?.vigilancia;
     const IconoVig = vig?.categoria ? (ICONO_VIGILANCIA[vig.categoria] || ShieldAlert) : null;
-    const vehiculo = [ficha?.marca, ficha?.modelo].filter(Boolean).join(" ") || null;
+    const conocida = !!(ficha?.dueno || ficha?.marca);
+    const logo = getCarLogo(ficha?.marca);
+    const tono = tonoDelEstado(ficha);
 
     return (
         <div onClick={onCerrar}
-            className="fixed inset-0 z-[3400] bg-black/85 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-150">
+            className="fixed inset-0 z-[3400] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150">
 
             <motion.div
                 initial={{ opacity: 0, scale: 0.97, y: 8 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 transition={{ type: "spring", stiffness: 380, damping: 30, mass: 0.7 }}
                 onClick={(e) => e.stopPropagation()}
-                className="relative inline-block rounded-2xl overflow-hidden border border-white/[0.14] shadow-2xl shadow-black/80 bg-[#0a0d12] max-w-[min(1400px,96vw)]">
+                style={{ ["--visor-tono" as any]: tono, borderRadius: "var(--radio-ventana)" }}
+                className="relative inline-block overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#090d14] max-w-[min(1500px,97vw)]">
 
                 <div
                     ref={marco}
@@ -322,7 +362,7 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
                     }}
                     onTouchEnd={() => { pellizco.current = null; }}
                 >
-                    {/* La imagen y su contorno se mueven JUNTOS: el contorno va dentro del
+                    {/* La imagen, su retícula y la cápsula se mueven JUNTAS: van dentro del
                         mismo transform, si no el recuadro se despega de la chapa al acercar. */}
                     <div className="relative"
                         style={{
@@ -332,186 +372,218 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
                         }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={fila.snapshotUrl || ""} alt={fila.plate}
-                            className="block max-h-[74vh] max-w-full w-auto select-none"
+                            className="block max-h-[76vh] max-w-full w-auto select-none"
                             draggable={false} />
-                        {verContorno && <ContornoDeteccion bbox={fila.bbox} />}
+                        {verContorno && <ContornoDeteccion bbox={fila.bbox} plate={fila.plate} escala={escala} />}
 
-                        {/* El estado y el tiempo, sobre el vehículo. Van DENTRO del
-                            mismo transform para seguir al auto mientras se acerca, pero
-                            con la escala invertida: si creciera con el zoom, a 8x taparía
-                            media foto. */}
+                        {/* La cápsula va DENTRO del transform para seguir al auto mientras
+                            se acerca, pero con la escala invertida: si creciera con el zoom,
+                            a 8x taparía media foto. */}
                         {rotulo && (
                             <>
-                                <div className="absolute z-[19] pointer-events-none"
+                                <div className="visor-guia absolute z-[19] pointer-events-none"
                                     style={{
                                         left: `${rotulo.cx}%`,
                                         top: `${rotulo.guiaDesde}%`,
                                         height: `${rotulo.guiaAlto}%`,
                                         width: `${1 / escala}px`,
                                         marginLeft: `${-0.5 / escala}px`,
-                                        background: rotulo.abajo
-                                            ? "linear-gradient(to bottom, rgba(167,243,208,0.15), rgba(167,243,208,0.7))"
-                                            : "linear-gradient(to bottom, rgba(167,243,208,0.7), rgba(167,243,208,0.15))",
+                                        transform: rotulo.abajo ? "scaleY(-1)" : undefined,
                                     }} />
-                                <div className="absolute z-20 pointer-events-none"
+                                <div className="absolute z-20"
                                     style={{
                                         left: `${rotulo.cx}%`,
                                         top: `${rotulo.y}%`,
                                         transform: `translate(-50%, ${rotulo.abajo ? "0" : "-100%"}) scale(${1 / escala})`,
                                         transformOrigin: rotulo.abajo ? "top center" : "bottom center",
                                     }}>
-                                    <div className="flex items-center gap-1.5">
-                                        <div className={cn(
-                                            "inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md border backdrop-blur-sm text-[10.5px] font-extrabold uppercase tracking-wider leading-none shadow-lg shadow-black/60",
-                                            estacionado
-                                                ? (cerrada ? "bg-black/75 border-white/25 text-white/75" : "bg-violet-600/85 border-violet-300/50 text-white")
-                                                : "bg-sky-600/85 border-sky-300/50 text-white",
-                                        )}>
-                                            {estacionado ? <ParkingSquare size={12} /> : <Car size={12} />}
-                                            {estacionado ? (cerrada ? "Se fue" : "Estacionado") : "Pasó"}
-                                        </div>
-                                        {estacionado && fila.estDesde && (
-                                            <Cronometro
-                                                desde={fila.estDesde}
-                                                hasta={cerrada ? fila.estHasta : null}
-                                                etiqueta={cerrada ? "estuvo" : "hace"}
-                                                tamano="chico"
-                                                className="shadow-lg shadow-black/60 bg-black/70"
-                                            />
-                                        )}
-                                    </div>
+                                    <ActividadEnVivo
+                                        desde={estacionado ? fila.estDesde : null}
+                                        hasta={estacionado && cerrada ? fila.estHasta : null}
+                                        limiteMin={estacionado && !cerrada ? limiteMin : null}
+                                        texto={estacionado ? undefined : horaSeg(momento)}
+                                        icono={estacionado ? ParkingSquare : Car}
+                                        etiqueta={estacionado ? (cerrada ? "Se fue" : "Estacionado") : "Pasó"}
+                                        sub={vig?.etiqueta || (conocida ? "En el padrón" : "Sin registrar")}
+                                    />
                                 </div>
                             </>
                         )}
                     </div>
+
+                    {/* El lavado ambiental del estado, fundido sobre la imagen. Se apaga al
+                        acercar: quien acerca vino a ver píxeles, no un degradado encima. */}
+                    <div className={cn("visor-ambiente absolute inset-0 z-[5] pointer-events-none transition-opacity duration-300",
+                        acercado && "opacity-0")} />
+                    <div className={cn("absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/45 transition-opacity duration-300",
+                        acercado && "opacity-0")} />
+                    <div className={cn("visor-orbe absolute left-[-6%] top-[24%] w-[460px] h-[460px] rounded-full z-[4] pointer-events-none transition-opacity duration-300",
+                        acercado && "!opacity-0")} />
                 </div>
 
-                {/* Sombras laterales: hacen legibles los paneles sin taparle nada a la
-                    imagen, y solo del lado donde hay algo escrito. */}
-                <div className="absolute inset-y-0 left-0 w-72 bg-gradient-to-r from-black/80 via-black/25 to-transparent pointer-events-none" />
-                <div className="absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-black/70 to-transparent pointer-events-none" />
+                {/* ── ARRIBA · de dónde salió esta lectura ─────────────────────────── */}
+                <div className="absolute top-0 inset-x-0 z-30 flex items-start justify-between p-4 md:p-5 pointer-events-none">
+                    <div className="flex items-center gap-2 pointer-events-auto">
+                        <span className="px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-xl border border-white/15 flex items-center gap-2">
+                            <Radio size={11} style={{ color: "var(--visor-tono)" }} />
+                            <span className="text-[11px] font-semibold tracking-wide text-white/90 max-w-[240px] truncate">
+                                {fila.cameraName || fila.deviceId || "Cámara desconocida"}
+                            </span>
+                        </span>
+                        {vig && (
+                            <span className="px-3 py-1.5 rounded-full backdrop-blur-xl border flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider"
+                                style={{
+                                    background: "color-mix(in oklab, var(--visor-tono) 22%, transparent)",
+                                    borderColor: "color-mix(in oklab, var(--visor-tono) 50%, transparent)",
+                                    color: "color-mix(in oklab, var(--visor-tono) 65%, #fff)",
+                                }}>
+                                {IconoVig && <IconoVig size={12} />}
+                                {vig.etiqueta || vig.categoria}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="flex items-center gap-1.5 pointer-events-auto">
+                        {(hayAnterior || haySiguiente) && (
+                            <span className="visor-panel rounded-full p-1 flex items-center gap-0.5">
+                                <button type="button" onClick={onAnterior} disabled={!hayAnterior} title="Anterior  ( ← )"
+                                    className="w-8 h-8 rounded-full text-white/75 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:hover:bg-transparent flex items-center justify-center transition-colors">
+                                    <ChevronLeft size={17} />
+                                </button>
+                                <button type="button" onClick={onSiguiente} disabled={!haySiguiente} title="Siguiente  ( → )"
+                                    className="w-8 h-8 rounded-full text-white/75 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:hover:bg-transparent flex items-center justify-center transition-colors">
+                                    <ChevronRight size={17} />
+                                </button>
+                            </span>
+                        )}
+                        <button type="button" onClick={onCerrar} title="Cerrar  ( Esc )"
+                            className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white flex items-center justify-center">
+                            <X size={16} />
+                        </button>
+                    </div>
+                </div>
 
                 {/* ── IZQUIERDA · LA FICHA ─────────────────────────────────────────── */}
                 <div className={cn(
-                    "absolute left-3 top-3 bottom-3 w-[248px] flex flex-col gap-2 transition-opacity duration-200",
+                    "absolute left-5 md:left-8 top-1/2 -translate-y-1/2 z-20 max-w-[min(420px,42vw)] flex flex-col gap-3.5 transition-opacity duration-200",
                     acercado && "opacity-0 pointer-events-none",
                 )}>
-                    <div className="rounded-xl bg-black/75 backdrop-blur-md border border-white/15 shadow-lg shadow-black/60 overflow-hidden">
+                    <ChapaMercosur plate={fila.plate} conocida={conocida} onCopiar={copiar} />
 
-                        {/* La matrícula: es lo que se vino a ver, así que es lo más grande
-                            de la pantalla después de la foto. */}
-                        <button
-                            type="button"
-                            onClick={() => { try { navigator.clipboard?.writeText(fila.plate); } catch { } }}
-                            title="Copiar la matrícula"
-                            className="w-full px-3 py-2.5 bg-white text-black text-[30px] font-extrabold tabular-nums tracking-[0.14em] leading-none text-center hover:bg-white/90 transition-colors">
-                            {fila.plate}
-                        </button>
-
-                        <div className="px-3 py-2 space-y-0.5 border-b border-white/10">
-                            <div className="text-[12px] font-semibold text-white/95 truncate flex items-center gap-1.5 leading-tight">
-                                <Camera size={11} className="text-white/45 shrink-0" />
-                                {fila.cameraName || fila.deviceId || "cámara desconocida"}
-                            </div>
-                            <div className="text-[11px] text-white/55 tabular-nums flex items-center gap-1.5 leading-tight">
-                                <Clock size={10} className="text-white/35 shrink-0" />
-                                {fechaCorta(momento)} · {hora(momento)}
-                            </div>
-                        </div>
-
-                        {/* Qué tan buena fue la lectura. Va acá y no en un rincón porque es
-                            lo que dice si hay que creerle a la matrícula de arriba. */}
-                        <div className="flex items-start px-2 py-2 border-b border-white/10">
-                            <Medida valor={conf != null ? `${conf}%` : "—"} rotulo="confianza" tono={conf != null ? tonoConf : "text-white/30"} />
-                            <Medida valor={fila.reads != null ? String(fila.reads) : "—"} rotulo="cuadros" tono={fila.reads != null ? "text-white" : "text-white/30"} />
-                            <Medida
-                                valor={recuadro ? `${(recuadro.w * 100).toFixed(1)}%` : "—"}
-                                rotulo="del cuadro"
-                                tono={!recuadro ? "text-white/30" : recuadro.w >= 0.05 ? "text-emerald-300" : recuadro.w >= 0.03 ? "text-amber-300" : "text-rose-300"}
-                                ayuda="Ancho de la matrícula respecto del cuadro. Por debajo de 3% el lector empieza a fallar." />
-                        </div>
-
-                        {vig && (
-                            <div className={cn("flex items-center gap-1.5 px-3 py-2 border-b text-[11px] font-extrabold uppercase tracking-wider", TONO_VIGILANCIA[vig.categoria || "negra"])}>
-                                {IconoVig && <IconoVig size={12} />}
-                                {vig.etiqueta || vig.categoria}
-                            </div>
+                    {/* Qué tan buena fue la lectura. Va pegado a la chapa y no en un rincón
+                        porque es lo que dice si hay que creerle a la chapa de arriba. */}
+                    <div className="flex items-center gap-3 visor-sombra-texto -mt-1">
+                        <Medida valor={conf != null ? `${conf}%` : "—"} rotulo="confianza" tono={tonoConf}
+                            ayuda="Qué tan seguro estaba el lector de esta lectura." />
+                        <span className="text-white/20">·</span>
+                        <Medida valor={fila.reads != null ? String(fila.reads) : "—"} rotulo="cuadros"
+                            ayuda="En cuántos cuadros seguidos de la ráfaga se leyó lo mismo. Una chapa vista en cinco vale mucho más que una vista en uno." />
+                        <span className="text-white/20">·</span>
+                        <Medida
+                            valor={recuadro ? `${(recuadro.w * 100).toFixed(1)}%` : "—"}
+                            rotulo="del cuadro"
+                            tono={!recuadro ? "text-white/30" : recuadro.w >= 0.05 ? "visor-bien" : recuadro.w >= 0.03 ? "visor-aviso" : "visor-mal"}
+                            ayuda="Ancho de la matrícula respecto del cuadro. Por debajo de 3% el lector empieza a fallar." />
+                        {copiada && (
+                            <span className="text-[10px] font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 70%, #fff)" }}>
+                                copiada
+                            </span>
                         )}
                     </div>
 
-                    {/* Lo que se sabe — y lo que falta saber, que ocupa el mismo lugar. */}
-                    <div className="rounded-xl bg-black/75 backdrop-blur-md border border-white/15 shadow-lg shadow-black/60 p-3 space-y-2.5 overflow-y-auto">
-                        <div className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-white/40">Vehículo y titular</div>
-                        <Dato icono={Home} etiqueta="Residente" valor={dueno?.nombre} />
-                        <Dato icono={Layers} etiqueta="Unidad / lote" valor={[dueno?.unidad, dueno?.apartamento].filter(Boolean).join(" · ") || null} />
-                        <Dato icono={ParkingSquare} etiqueta="Cochera" valor={dueno?.cochera} />
-                        <Dato icono={Phone} etiqueta="Teléfono" valor={dueno?.telefono} />
-                        <Dato icono={Car} etiqueta="Vehículo" valor={[vehiculo, ficha?.color].filter(Boolean).join(" · ") || null} />
+                    {/* La marca. */}
+                    <div className="flex items-center gap-3.5 visor-sombra-texto">
+                        <span className="relative w-11 h-11 rounded-xl bg-gradient-to-b from-white/20 via-white/10 to-white/5 border border-white/25 backdrop-blur-md flex items-center justify-center shrink-0">
+                            {logo
+                                ? <Image src={logo} alt={ficha?.marca || ""} fill sizes="44px" className="object-contain p-2.5" />
+                                : <Car size={20} className="text-white/70" />}
+                        </span>
+                        <div className="min-w-0">
+                            <h2 className="text-2xl md:text-3xl font-bold tracking-[0.06em] uppercase text-white/95 truncate leading-none">
+                                {ficha?.marca || "Sin marca"}
+                            </h2>
+                            <p className="text-[12.5px] text-white/70 truncate mt-1.5">
+                                {[ficha?.modelo, ficha?.color].filter(Boolean).join(" · ") || "Modelo y color sin cargar"}
+                                <span className="text-white/25 mx-1.5">•</span>
+                                <span className="font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 70%, #fff)" }}>
+                                    {conocida ? "En el padrón" : "No figura en el padrón"}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
 
-                        {!dueno && onRegistrar && (
-                            /* El hueco tiene que poder llenarse desde donde se ve. Mandar a
-                               buscar el alta en otra pantalla es la forma más segura de que
-                               la matrícula quede sin cargar. */
+                    {/* Quién y de dónde. Lo que falta también se muestra, en fantasma. */}
+                    <div className="flex flex-wrap items-center gap-2 visor-sombra-texto">
+                        <Etiqueta icono={Home} valor={dueno?.nombre} falta="Sin residente" verificado={!!dueno?.nombre} />
+                        <Etiqueta icono={Layers}
+                            valor={[dueno?.unidad, dueno?.apartamento].filter(Boolean).join(" · ") || null}
+                            falta="Sin unidad"
+                            sufijo={dueno?.cochera ? `Cochera ${dueno.cochera}` : null} />
+                        <Etiqueta icono={Phone} valor={dueno?.telefono} falta="Sin teléfono" />
+                        {!dueno?.cochera && <Etiqueta icono={ParkingSquare} valor={null} falta="Sin cochera" />}
+                    </div>
+
+                    {/* El hueco tiene que poder llenarse desde donde se ve. Mandar a buscar
+                        el alta en otra pantalla es la forma más segura de que la matrícula
+                        quede sin cargar. */}
+                    {!dueno && onRegistrar && (
+                        <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
                             <button type="button" onClick={() => onRegistrar(fila.plate)}
-                                className="w-full mt-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border border-amber-400/40 bg-amber-500/15 text-amber-100 text-[11px] font-bold hover:bg-amber-500/25 transition-colors">
-                                <UserPlus size={12} /> Registrar esta matrícula
+                                className="visor-vidrio visor-vidrio-activo flex items-center gap-2 py-2 px-4 rounded-full text-[12px] font-semibold text-white">
+                                <UserPlus size={14} />
+                                Registrar esta matrícula
                             </button>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* ── DERECHA · LOS CONTROLES, EN VERTICAL ─────────────────────────── */}
-                <div className="absolute right-3 top-3 flex flex-col items-center gap-1 rounded-xl bg-black/75 backdrop-blur-md border border-white/15 p-1 shadow-lg shadow-black/60">
+                <div className="absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5">
                     {recuadro && (
                         <>
-                            <button onClick={irALaChapa} title="Acercar a la matrícula  ( P )"
-                                className="w-9 h-9 rounded-lg text-white/75 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors">
+                            <button type="button" onClick={irALaChapa} title="Acercar a la matrícula  ( P )"
+                                className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white flex items-center justify-center">
                                 <Lupa size={15} />
                             </button>
-                            <button onClick={() => setVerContorno((v) => !v)} title="Marcar lo que detectó el lector  ( C )"
-                                className={cn("w-9 h-9 rounded-lg flex items-center justify-center transition-colors",
-                                    verContorno ? "bg-emerald-500/25 text-emerald-200 border border-emerald-400/40" : "text-white/75 hover:text-white hover:bg-white/10")}>
+                            <button type="button" onClick={() => setVerContorno((v) => !v)} title="Marcar lo que detectó el lector  ( C )"
+                                className={cn("visor-vidrio w-9 h-9 rounded-full flex items-center justify-center",
+                                    verContorno ? "visor-vidrio-activo text-white" : "text-white/85 hover:text-white")}>
                                 <Scan size={15} />
                             </button>
-                            <div className="h-px w-6 bg-white/15 my-0.5" />
+                            <span className="w-4 h-px bg-white/15" />
                         </>
                     )}
-                    <button onClick={() => zoomEn(escala * 1.6)} disabled={escala >= ESCALA_MAX} title="Acercar  ( + )"
-                        className="w-9 h-9 rounded-lg text-white/75 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:hover:bg-transparent flex items-center justify-center transition-colors">
+                    <button type="button" onClick={() => zoomEn(escala * 1.6)} disabled={escala >= ESCALA_MAX} title="Acercar  ( + )"
+                        className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white disabled:opacity-25 flex items-center justify-center">
                         <ZoomIn size={15} />
                     </button>
-                    <span className="text-[10.5px] font-bold tabular-nums text-white/60 select-none py-0.5">
+                    <span className="text-[10.5px] font-bold tabular-nums text-white/65 select-none">
                         {escala.toFixed(1)}×
                     </span>
-                    <button onClick={() => zoomEn(escala / 1.6)} disabled={!acercado} title="Alejar  ( − )"
-                        className="w-9 h-9 rounded-lg text-white/75 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:hover:bg-transparent flex items-center justify-center transition-colors">
+                    <button type="button" onClick={() => zoomEn(escala / 1.6)} disabled={!acercado} title="Alejar  ( − )"
+                        className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white disabled:opacity-25 flex items-center justify-center">
                         <ZoomOut size={15} />
                     </button>
-                    <button onClick={reiniciar} disabled={!acercado} title="Volver al tamaño original  ( 0 )"
-                        className="w-9 h-9 rounded-lg text-white/75 hover:text-white hover:bg-white/10 disabled:opacity-25 disabled:hover:bg-transparent flex items-center justify-center transition-colors">
+                    <button type="button" onClick={reiniciar} disabled={!acercado} title="Volver al tamaño original  ( 0 )"
+                        className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white disabled:opacity-25 flex items-center justify-center">
                         <Maximize2 size={14} />
-                    </button>
-                    <div className="h-px w-6 bg-white/15 my-0.5" />
-                    <button onClick={onCerrar} title="Cerrar  ( Esc )"
-                        className="w-9 h-9 rounded-lg text-white/75 hover:text-white hover:bg-rose-500/30 flex items-center justify-center transition-colors">
-                        <X size={16} />
                     </button>
                 </div>
 
-                {/* Moverse entre avistamientos. Abajo y al centro: a los costados
-                    chocaban con la ficha y con el riel de controles. */}
-                {(hayAnterior || haySiguiente) && !acercado && (
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-full bg-black/75 backdrop-blur-md border border-white/15 p-1 shadow-lg shadow-black/60">
-                        <button onClick={onAnterior} disabled={!hayAnterior} title="Anterior  ( ← )"
-                            className="w-8 h-8 rounded-full text-white/75 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:hover:bg-transparent flex items-center justify-center transition-colors">
-                            <ChevronLeft size={17} />
-                        </button>
-                        <button onClick={onSiguiente} disabled={!haySiguiente} title="Siguiente  ( → )"
-                            className="w-8 h-8 rounded-full text-white/75 hover:text-white hover:bg-white/10 disabled:opacity-20 disabled:hover:bg-transparent flex items-center justify-center transition-colors">
-                            <ChevronRight size={17} />
-                        </button>
-                    </div>
-                )}
+                {/* ── ABAJO · cuándo, y con qué se está mirando ────────────────────── */}
+                <div className="absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums">
+                    <span className="flex items-center gap-2.5">
+                        <Camera size={11} className="text-white/35" />
+                        {fechaCorta(momento)}
+                        <span className="text-white/20">·</span>
+                        {horaSeg(momento)}
+                    </span>
+                    <span className="flex items-center gap-2.5">
+                        {acercado && <span>arrastrar para mover</span>}
+                        {acercado && <span className="text-white/20">·</span>}
+                        <span>Esc para {acercado ? "alejar" : "cerrar"}</span>
+                    </span>
+                </div>
             </motion.div>
         </div>
     );

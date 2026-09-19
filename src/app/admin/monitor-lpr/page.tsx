@@ -972,7 +972,11 @@ export default function MonitorLPR() {
     const [interiores, setInteriores] = useState<any[]>([]);
     const [avistPorCam, setAvistPorCam] = useState<Record<string, any>>({});
     const [avistUltimos, setAvistUltimos] = useState<any[]>([]);
-    const [estadias, setEstadias] = useState<{ estacionados: any[]; partidos: any[] }>({ estacionados: [], partidos: [] });
+    // `venceMin` viene del servidor y no se calcula aca: es el mismo umbral con el que el
+    // barrendero decide que una estadia se consolido. Hardcodearlo del lado del navegador
+    // hubiera dejado dos numeros distintos diciendo lo mismo, y el dia que se cambie la
+    // configuracion el anillo del cronometro estaria midiendo contra un limite que ya no rige.
+    const [estadias, setEstadias] = useState<{ estacionados: any[]; partidos: any[]; venceMin: number | null }>({ estacionados: [], partidos: [], venceMin: null });
     const [fichasTrack, setFichasTrack] = useState<Record<string, any>>({});
     // El visor puede abrirse desde la tira (por indice) o desde el panel de estadias
     // (una fila que no esta en la tira). Guardar la fila suelta cubre las dos.
@@ -1024,7 +1028,7 @@ export default function MonitorLPR() {
             try { const r = await fetch("/api/tracking/recent", { cache: "no-store" }); const j = await r.json(); if (vivo) {
                     setAvistPorCam(j?.porCamara || {});
                     setAvistUltimos(j?.ultimos || []);
-                    setEstadias({ estacionados: j?.estadias?.estacionados || [], partidos: j?.estadias?.partidos || [] });
+                    setEstadias({ estacionados: j?.estadias?.estacionados || [], partidos: j?.estadias?.partidos || [], venceMin: j?.estadias?.venceMin ?? null });
                     setFichasTrack(j?.fichas || {});
                 } } catch { }
         };
@@ -1457,6 +1461,7 @@ export default function MonitorLPR() {
                     <VisorCuadro
                         fila={cuadroSuelto}
                         ficha={fichasTrack[cuadroSuelto.plate]}
+                        limiteMin={estadias.venceMin}
                         onRegistrar={(p) => { setCuadroSuelto(null); openRegister(p); }}
                         onCerrar={() => setCuadroSuelto(null)}
                     />
@@ -1465,6 +1470,7 @@ export default function MonitorLPR() {
                     <VisorCuadro
                         fila={avistUltimos[cuadroAbierto]}
                         ficha={fichasTrack[avistUltimos[cuadroAbierto].plate]}
+                        limiteMin={estadias.venceMin}
                         onRegistrar={(p) => { setCuadroAbierto(null); openRegister(p); }}
                         hayAnterior={cuadroAbierto > 0}
                         haySiguiente={cuadroAbierto < avistUltimos.length - 1}
