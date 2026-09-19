@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
     X, ChevronLeft, ChevronRight, Camera, ZoomIn, ZoomOut, Maximize2,
     Scan, Car, Home, Phone, ParkingSquare, ShieldAlert, Star, Search as Lupa,
     Layers, UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, Loader2,
+    PlayCircle, Download, Archive, ShieldBan, PanelBottom, ScanFace,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
+import { leerDuracion } from "@/components/tracking/Cronometro";
 import { ChapaMercosur } from "@/components/tracking/ChapaMercosur";
 import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,7 +35,53 @@ export type CuadroAvistamiento = {
     estDesde?: string | Date | null;
     estHasta?: string | Date | null;
     estCerrada?: boolean | null;
+
+    /* ── Lo que trae un evento de acceso y no trae una lectura de seguimiento ──
+     *
+     * Están en el MISMO tipo a propósito. Un paso por la barrera y una lectura de una
+     * cámara de calle son el mismo hecho contado con distinto detalle: "a esta hora, esta
+     * chapa, en esta cámara". Tener dos tipos obliga a tener dos visores, y ahí empiezan a
+     * separarse — que es exactamente lo que había: dos ventanas que mostraban lo mismo y
+     * se veían como dos productos distintos.
+     *
+     * Lo que no se comparte es el SIGNIFICADO, y eso se resuelve al dibujar: un acceso
+     * decidió si la barrera abría y por eso lleva permitido o denegado; una lectura
+     * interior no decide nada. Los campos que no vienen simplemente no se dibujan.
+     */
+
+    /** ENTRY | EXIT. */
+    direccion?: string | null;
+    /** PLATE | FACE | TAG. Con qué se identificó. */
+    tipoAcceso?: string | null;
+    /** Cuánto estuvo adentro, si esto es una salida y se pudo calcular. */
+    permanenciaMs?: number | null;
+    /** El rostro capturado, cuando el acceso fue por cara. */
+    rostroUrl?: string | null;
+    /** Qué tanto coincidió el rostro, de 0 a 100. */
+    similitud?: number | null;
+    /**
+     * El renglón crudo `Marca: X, Color: Y, Tipo: Z` que escriben los equipos Hikvision.
+     *
+     * Se parsea acá y no en cada pantalla: hoy lo parsean tres, cada una con su función, y
+     * las tres cortan por coma y por el primer dos puntos — o sea, el mismo código escrito
+     * tres veces esperando a que alguien lo cambie en una sola.
+     */
+    detalles?: string | null;
 };
+
+/** Lo que los equipos dejan escrito en `details`, desarmado. */
+export function leerDetalles(detalles?: string | null): Record<string, string> {
+    if (!detalles) return {};
+    const d: Record<string, string> = {};
+    for (const parte of String(detalles).split(",")) {
+        const i = parte.indexOf(":");
+        if (i <= 0) continue;
+        const k = parte.slice(0, i).trim();
+        const v = parte.slice(i + 1).trim();
+        if (k && v) d[k] = v;
+    }
+    return d;
+}
 
 /** Lo que se sabe del vehículo, tal como lo devuelve /api/tracking/recent. */
 export type FichaMatricula = {
@@ -206,6 +254,43 @@ function Etiqueta({ icono: Icono, valor, falta, sufijo, verificado }: {
     );
 }
 
+/**
+ * Una acción del visor. Píldora de vidrio, todas iguales.
+ *
+ * `destacada` es para la única que conviene que salte — casi siempre registrar la
+ * matrícula, porque es la que llena un hueco. Dos botones destacados en la misma fila no
+ * destacan ninguno.
+ */
+function Pildora({ icono: Ico, children, onClick, href, destacada, encendida, ocupada, title }: {
+    icono: React.ComponentType<{ size?: number; className?: string }>;
+    children: React.ReactNode;
+    onClick?: () => void;
+    href?: string | null;
+    destacada?: boolean;
+    encendida?: boolean;
+    ocupada?: boolean;
+    title?: string;
+}) {
+    const clase = cn(
+        "visor-vidrio flex items-center gap-2 py-2 px-4 rounded-full text-[12px] font-semibold whitespace-nowrap disabled:opacity-60",
+        (destacada || encendida) ? "visor-vidrio-activo text-white" : "text-white/90 hover:text-white",
+    );
+    const dentro = (
+        <>
+            {ocupada ? <Loader2 size={14} className="animate-spin" /> : <Ico size={14} />}
+            {children}
+        </>
+    );
+    if (href) {
+        return <a href={href} download title={title} className={clase}>{dentro}</a>;
+    }
+    return (
+        <button type="button" onClick={onClick} disabled={ocupada} title={title} className={clase}>
+            {dentro}
+        </button>
+    );
+}
+
 /** Una medida de la lectura. Sin caja: viven sobre la imagen, con sombra de texto. */
 function Medida({ valor, rotulo, tono, ayuda }: { valor: string; rotulo: string; tono?: string; ayuda?: string }) {
     return (
@@ -218,6 +303,8 @@ function Medida({ valor, rotulo, tono, ayuda }: { valor: string; rotulo: string;
 
 export function VisorCuadro({
     fila, ficha, onRegistrar, limiteMin,
+    historial, cargandoHistorial,
+    onGrabacion, hrefClip, onExportar, onListaNegra, enListaNegra, ocupadoLista,
     hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar,
 }: {
     fila: CuadroAvistamiento;
@@ -226,6 +313,27 @@ export function VisorCuadro({
     onRegistrar?: (plate: string) => void;
     /** Contra qué minutos se mide el anillo de la estadía. Sin esto el anillo barre el minuto. */
     limiteMin?: number | null;
+
+    /**
+     * Los pasos anteriores de esta chapa.
+     *
+     * Viene de afuera y no se pide acá: quien lo pide sabe si está mirando accesos, o
+     * lecturas de calle, o las dos cosas. El visor sólo lo dibuja — y mientras no venga, la
+     * solapa del historial no aparece, que es más honesto que una lista vacía.
+     */
+    historial?: { id?: string; momento: string | Date; camara?: string | null; direccion?: string | null; decision?: string | null }[];
+    cargandoHistorial?: boolean;
+
+    /* Las acciones. Cada una se dibuja SÓLO si le pasan el manejador: un botón que no hace
+       nada es peor que no tenerlo, porque el operador lo aprieta igual y aprende que la
+       pantalla a veces no responde. */
+    onGrabacion?: () => void;
+    hrefClip?: string | null;
+    onExportar?: () => void;
+    onListaNegra?: () => void;
+    enListaNegra?: boolean;
+    ocupadoLista?: boolean;
+
     hayAnterior?: boolean;
     haySiguiente?: boolean;
     onAnterior?: () => void;
@@ -235,6 +343,16 @@ export function VisorCuadro({
     const [escala, setEscala] = useState(1);
     const [pos, setPos] = useState({ x: 0, y: 0 });
     const [verContorno, setVerContorno] = useState(true);
+    /**
+     * El cajón de datos.
+     *
+     * El modal viejo de acceso tenía tres solapas — perfil, historial y datos — arriba del
+     * todo. Acá el perfil YA es la ficha de la izquierda, así que repetirlo en una solapa
+     * sería mostrarlo dos veces; quedan las otras dos, y no arriba sino en un cajón que
+     * sube desde abajo sobre la imagen. Unas solapas en el borde superior parten la ventana
+     * en dos y rompen lo único que esta ventana tiene de distinto: que es la foto.
+     */
+    const [cajon, setCajon] = useState<"" | "historial" | "datos">("");
     const [copiada, setCopiada] = useState(false);
     /**
      * La proporcion de la foto. Arranca en 16:9 — que es lo que entrega cualquier camara
@@ -427,9 +545,30 @@ export function VisorCuadro({
     const vig = ficha?.vigilancia;
     const IconoVig = vig?.categoria ? (ICONO_VIGILANCIA[vig.categoria] || ShieldAlert) : null;
     const conocida = !!(ficha?.dueno || ficha?.marca);
-    const logo = getCarLogo(ficha?.marca);
+
+    /**
+     * Marca, modelo y color: primero lo del padrón, después lo que vio la cámara.
+     *
+     * El padrón es lo que alguien cargó a mano y verificó; el renglón `Marca: X` lo escribe
+     * el equipo Hikvision con lo que reconoció en ese cuadro. Cuando los dos existen gana
+     * el padrón — y se marca de dónde salió cada dato, porque "Peugeot gris" cargado por
+     * el administrador y "Peugeot gris" adivinado por una cámara no valen lo mismo.
+     */
+    const meta = useMemo(() => leerDetalles(fila.detalles), [fila.detalles]);
+    const marca = ficha?.marca || meta.Marca || null;
+    const modelo = ficha?.modelo || meta.Modelo || null;
+    const color = ficha?.color || meta.Color || null;
+    const tipoVeh = ficha?.tipo || meta.Tipo || null;
+    const deLaCamara = !ficha?.marca && !!meta.Marca;
+
+    const logo = getCarLogo(marca);
     const tono = tonoDelEstado(fila, ficha);
     const momentoEst = momentoDeLaEstadia(fila, limiteMin);
+
+    /** Un acceso es un hecho distinto de una lectura: decidió si la barrera abría. */
+    const esAcceso = !!fila.decision;
+    const salida = fila.direccion === "EXIT";
+    const rostro = fila.rostroUrl || meta.FaceImage || null;
 
     /**
      * La cápsula del estado y el tiempo.
@@ -452,10 +591,19 @@ export function VisorCuadro({
                 desde={estacionado ? fila.estDesde : null}
                 hasta={estacionado && cerrada ? fila.estHasta : null}
                 limiteMin={estacionado && !cerrada ? limiteMin : null}
-                texto={estacionado ? undefined : horaSeg(momento)}
-                icono={momentoEst.icono}
-                etiqueta={momentoEst.etiqueta}
-                sub={vig?.etiqueta || (fila.decision === "DENY" ? "Acceso denegado" : conocida ? "En el padrón" : "Sin registrar")}
+                /*
+                 * Un acceso no tiene duración: tiene hora. Salvo cuando es una SALIDA y se
+                 * pudo calcular cuánto estuvo adentro — ahí el número que importa no es la
+                 * hora de salida sino la permanencia, que es la pregunta que alguien se
+                 * hace mirando una salida: "¿cuánto estuvo?".
+                 */
+                texto={estacionado ? undefined
+                    : (salida && fila.permanenciaMs ? leerDuracion(fila.permanenciaMs) : horaSeg(momento))}
+                icono={esAcceso ? (salida ? LogOut : LogIn) : momentoEst.icono}
+                etiqueta={esAcceso ? (salida ? "Salió" : "Entró") : momentoEst.etiqueta}
+                sub={vig?.etiqueta
+                    || (fila.decision === "DENY" ? "No abrió" : fila.decision === "GRANT" ? "Abrió" : "")
+                    || (conocida ? "En el padrón" : "Sin registrar")}
             />
         </motion.div>
     );
@@ -708,23 +856,63 @@ export function VisorCuadro({
                         )}
                     </div>
 
+                    {/*
+                      * El rostro, cuando el acceso fue por cara.
+                      *
+                      * Va al lado de la chapa y no en su lugar: un mismo evento puede tener
+                      * las dos cosas — el auto entró y la cámara de la garita le leyó la
+                      * cara al conductor —, y elegir una de las dos escondería la otra.
+                      *
+                      * El porcentaje es lo que el equipo dijo que se parecía. Se muestra
+                      * con su tono porque una coincidencia del 62% y una del 97% llevan a
+                      * decisiones distintas, y el número solo no lo grita.
+                      */}
+                    {rostro && (
+                        <div className="flex items-center gap-3 visor-sombra-texto">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={rostro} alt="" width={56} height={56}
+                                className="w-14 h-14 rounded-xl object-cover border border-white/25 bg-black shrink-0" />
+                            <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white/90">
+                                    <ScanFace size={13} className="text-white/55" />
+                                    Reconocimiento facial
+                                </div>
+                                {fila.similitud != null && (
+                                    <div className="text-[12px] mt-0.5">
+                                        <span className={cn("font-bold tabular-nums",
+                                            fila.similitud >= 85 ? "visor-bien" : fila.similitud >= 65 ? "visor-aviso" : "visor-mal")}>
+                                            {Math.round(fila.similitud)}%
+                                        </span>
+                                        <span className="text-white/50"> de coincidencia</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* La marca. */}
                     <div className="flex items-center gap-3.5 visor-sombra-texto">
                         <span className="relative w-11 h-11 rounded-xl bg-gradient-to-b from-white/20 via-white/10 to-white/5 border border-white/25 backdrop-blur-md flex items-center justify-center shrink-0">
                             {logo
-                                ? <Image src={logo} alt={ficha?.marca || ""} fill sizes="44px" className="object-contain p-2.5" />
+                                ? <Image src={logo} alt={marca || ""} fill sizes="44px" className="object-contain p-2.5" />
                                 : <Car size={20} className="text-white/70" />}
                         </span>
                         <div className="min-w-0">
                             <h2 className="text-2xl md:text-3xl font-bold tracking-[0.06em] uppercase text-white/95 truncate leading-none">
-                                {ficha?.marca || "Sin marca"}
+                                {marca || "Sin marca"}
                             </h2>
                             <p className="text-[12.5px] text-white/70 truncate mt-1.5">
-                                {[ficha?.modelo, ficha?.color].filter(Boolean).join(" · ") || "Modelo y color sin cargar"}
+                                {[modelo, color, tipoVeh].filter(Boolean).join(" · ") || "Modelo y color sin cargar"}
                                 <span className="text-white/25 mx-1.5">•</span>
                                 <span className="font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 70%, #fff)" }}>
                                     {conocida ? "En el padrón" : "No figura en el padrón"}
                                 </span>
+                                {/* De dónde salió el dato. "Peugeot gris" cargado por el
+                                    administrador y "Peugeot gris" adivinado por una cámara
+                                    no valen lo mismo, y quien mira tiene que poder saberlo. */}
+                                {deLaCamara && (
+                                    <span className="text-white/45 italic ml-1.5">· lo reconoció la cámara</span>
+                                )}
                             </p>
                         </div>
                     </div>
@@ -743,21 +931,46 @@ export function VisorCuadro({
                     {/* El hueco tiene que poder llenarse desde donde se ve. Mandar a buscar
                         el alta en otra pantalla es la forma más segura de que la matrícula
                         quede sin cargar. */}
-                    <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
                         {!dueno && onRegistrar && (
-                            <button type="button" onClick={() => onRegistrar(fila.plate)}
-                                className="visor-vidrio visor-vidrio-activo flex items-center gap-2 py-2 px-4 rounded-full text-[12px] font-semibold text-white">
-                                <UserPlus size={14} />
+                            <Pildora icono={UserPlus} destacada onClick={() => onRegistrar(fila.plate)}>
                                 Registrar esta matrícula
-                            </button>
+                            </Pildora>
                         )}
                         {estacionado && !cerrada && fila.deviceId && (
-                            <button type="button" onClick={verificar} disabled={verificando}
-                                title="Toma un cuadro de la cámara ahora y busca esta matrícula en el encuadre"
-                                className="visor-vidrio flex items-center gap-2 py-2 px-4 rounded-full text-[12px] font-semibold text-white/90 hover:text-white disabled:opacity-60">
-                                {verificando ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                            <Pildora icono={Eye} onClick={verificar} ocupada={verificando}
+                                title="Toma un cuadro de la cámara ahora y busca esta matrícula en el encuadre">
                                 {verificando ? "Mirando…" : "¿Sigue ahí?"}
-                            </button>
+                            </Pildora>
+                        )}
+                        {onGrabacion && (
+                            <Pildora icono={PlayCircle} onClick={onGrabacion}
+                                title="Ver la grabación del NVR en este instante">
+                                Grabación
+                            </Pildora>
+                        )}
+                        {hrefClip && (
+                            <Pildora icono={Download} href={hrefClip} title="Bajar un clip de treinta segundos">
+                                Clip
+                            </Pildora>
+                        )}
+                        {onExportar && (
+                            <Pildora icono={Archive} onClick={onExportar}
+                                title="Un ZIP con la foto, el clip y los datos del evento">
+                                Exportar
+                            </Pildora>
+                        )}
+                        {onListaNegra && (
+                            <Pildora icono={ShieldBan} onClick={onListaNegra} encendida={enListaNegra} ocupada={ocupadoLista}
+                                title={enListaNegra ? "Sacar esta matrícula de la lista negra" : "Marcar esta matrícula y alertar cuando aparezca"}>
+                                {enListaNegra ? "Quitar de la lista" : "Lista negra"}
+                            </Pildora>
+                        )}
+                        {(historial || fila.bbox || fila.confidence != null) && (
+                            <Pildora icono={PanelBottom} onClick={() => setCajon((c) => c ? "" : (historial ? "historial" : "datos"))}
+                                encendida={!!cajon} title="Ver los pasos anteriores y los datos crudos">
+                                {cajon ? "Cerrar" : "Ver más"}
+                            </Pildora>
                         )}
                     </div>
 
@@ -815,6 +1028,99 @@ export function VisorCuadro({
                         <Maximize2 size={14} />
                     </button>
                 </div>
+
+                {/* ── EL CAJÓN · los pasos anteriores y los datos crudos ───────────── */}
+                <AnimatePresence>
+                    {cajon && (
+                        <motion.div
+                            initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+                            transition={{ type: "spring", stiffness: 380, damping: 36 }}
+                            className="absolute inset-x-0 bottom-0 z-40 visor-panel rounded-t-2xl max-h-[58%] flex flex-col">
+
+                            <div className="shrink-0 flex items-center gap-1 px-3 pt-2.5 pb-2">
+                                {historial && (
+                                    <button type="button" onClick={() => setCajon("historial")}
+                                        className={cn("h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors",
+                                            cajon === "historial" ? "bg-white/15 text-white" : "text-white/60 hover:text-white")}>
+                                        Pasos anteriores{historial.length ? ` (${historial.length})` : ""}
+                                    </button>
+                                )}
+                                <button type="button" onClick={() => setCajon("datos")}
+                                    className={cn("h-8 px-3 rounded-lg text-[12px] font-semibold transition-colors",
+                                        cajon === "datos" ? "bg-white/15 text-white" : "text-white/60 hover:text-white")}>
+                                    Datos de la lectura
+                                </button>
+                                <button type="button" onClick={() => setCajon("")} title="Cerrar"
+                                    className="ml-auto w-8 h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors">
+                                    <X size={15} />
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto px-3 pb-3">
+                                {cajon === "historial" && (
+                                    cargandoHistorial ? (
+                                        <div className="py-8 text-center text-[12px] text-white/50">Buscando pasos anteriores…</div>
+                                    ) : !historial?.length ? (
+                                        <div className="py-8 text-center text-[12px] text-white/50">
+                                            Es la primera vez que se ve esta matrícula.
+                                        </div>
+                                    ) : (
+                                        <ul className="divide-y divide-white/10">
+                                            {historial.slice(0, 40).map((h, i) => (
+                                                <li key={h.id || i} className="flex items-center justify-between gap-4 py-2">
+                                                    <span className="flex items-center gap-2 min-w-0">
+                                                        {h.direccion === "EXIT"
+                                                            ? <LogOut size={13} className="text-white/45 shrink-0" />
+                                                            : <LogIn size={13} className="text-white/45 shrink-0" />}
+                                                        <span className="text-[12.5px] text-white/85 truncate">
+                                                            {h.camara || "Cámara sin nombre"}
+                                                        </span>
+                                                        {h.decision && (
+                                                            <span className={cn("text-[10px] font-bold uppercase tracking-wider",
+                                                                h.decision === "GRANT" ? "visor-bien" : "visor-mal")}>
+                                                                {h.decision === "GRANT" ? "abrió" : "no abrió"}
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                    <span className="text-[11.5px] text-white/55 tabular-nums shrink-0">
+                                                        {fechaCorta(h.momento)} · {horaSeg(h.momento)}
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )
+                                )}
+
+                                {cajon === "datos" && (
+                                    /* Lo crudo, tal como quedó guardado. No es para el
+                                       operador de todos los días: es para cuando alguien
+                                       discute una lectura y hay que poder mostrar de dónde
+                                       salió el número. */
+                                    <dl className="grid grid-cols-2 gap-x-6 gap-y-2 py-1">
+                                        {[
+                                            ["Matrícula leída", fila.plate],
+                                            ["Cámara", fila.cameraName || fila.deviceId],
+                                            ["Momento", `${fechaCorta(momento)} · ${horaSeg(momento)}`],
+                                            ["Confianza", conf != null ? `${conf}%` : null],
+                                            ["Cuadros de la ráfaga", fila.reads != null ? String(fila.reads) : null],
+                                            ["Ancho de la chapa", recuadro ? `${(recuadro.w * 100).toFixed(1)}% del cuadro` : null],
+                                            ["Recuadro", fila.bbox || null],
+                                            ["Identificación", fila.tipoAcceso || null],
+                                            ["Sentido", fila.direccion === "EXIT" ? "Salida" : fila.direccion === "ENTRY" ? "Entrada" : null],
+                                            ["Resultado", fila.decision === "GRANT" ? "Permitido" : fila.decision === "DENY" ? "Denegado" : null],
+                                            ...Object.entries(meta).filter(([k]) => k !== "FaceImage").map(([k, v]) => [`${k} (equipo)`, v]),
+                                        ].filter(([, v]) => !!v).map(([k, v]) => (
+                                            <div key={String(k)} className="min-w-0">
+                                                <dt className="text-[10px] uppercase tracking-wider text-white/40">{k}</dt>
+                                                <dd className="text-[12.5px] text-white/90 break-words">{v}</dd>
+                                            </div>
+                                        ))}
+                                    </dl>
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 {/* ── ABAJO · cuándo, y con qué se está mirando ────────────────────── */}
                 <div className="absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums">

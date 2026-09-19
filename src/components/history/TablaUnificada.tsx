@@ -139,6 +139,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
      * por falta de datos, que estaban en la fila, sino por el recorte.
      */
     const [viendo, setViendo] = useState<FilaHistorial | null>(null);
+
     const clave = useRef("");
     const [recargar, setRecargar] = useState(0);
     const { marcar, es: esNueva } = useDestello();
@@ -275,6 +276,57 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
         }
         return v;
     }, [filas, merodeo, color, tipoVeh]);
+
+    /**
+     * La ficha del vehículo, armada con lo que la fila ya trae.
+     *
+     * El historial no consulta el padrón — no lo necesita para su tabla —, pero de un
+     * evento de acceso sí sabe a quién se le abrió y qué reconoció el equipo. Con eso
+     * alcanza para que el visor muestre la ficha en vez de cuatro etiquetas fantasma.
+     */
+    const fichaDeLaFila = useCallback((f: FilaHistorial) => {
+        const m = parseVehicleMeta(f.detalles || "");
+        const u = f.raw?.user;
+        if (!f.persona && !u && !m?.hasAny) return null;
+        return {
+            marca: m?.brand || null,
+            modelo: m?.model || null,
+            color: m?.color || null,
+            tipo: m?.typeLabel || m?.type || null,
+            dueno: (f.persona || u) ? {
+                id: u?.id,
+                nombre: f.persona || u?.name || null,
+                telefono: u?.phone || null,
+                unidad: u?.unit?.name || null,
+                apartamento: u?.apartment || null,
+                cochera: u?.parkingSlot?.code || null,
+            } : null,
+        };
+    }, []);
+
+    /**
+     * Los pasos anteriores de esa chapa — sacados de la tabla que ya está cargada.
+     *
+     * No se pide nada al servidor: las filas están acá, ordenadas por hora, y filtrarlas
+     * por matrícula cuesta una pasada. Pedir un historial por red para mostrar lo que ya se
+     * tiene en memoria es la clase de llamada que después nadie entiende por qué existe.
+     * Lo que sí es cierto — y conviene tener presente — es que sólo alcanza hasta donde
+     * llegó el scroll: es el historial *cargado*, no el completo.
+     */
+    const historialDe = useCallback((f: FilaHistorial) => {
+        if (!f.plate) return undefined;
+        return visibles
+            .filter((o) => o.plate === f.plate && o.id !== f.id)
+            .slice(0, 40)
+            .map((o) => ({
+                id: o.id,
+                momento: o.momento,
+                camara: o.camara,
+                direccion: o.sentido,
+                decision: o.decision,
+            }));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visibles]);
 
     const columnas = useMemo<ColumnaTabla<FilaHistorial>[]>(() => [
         {
@@ -479,7 +531,16 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
                         estDesde: viendo.estDesde,
                         estHasta: viendo.estHasta,
                         estCerrada: viendo.estCerrada,
+                        /* Lo que trae un evento de acceso y una lectura de calle no. El
+                           visor es uno solo: dibuja lo que le llega y omite lo que no. */
+                        direccion: viendo.sentido,
+                        tipoAcceso: viendo.raw?.accessType || null,
+                        detalles: viendo.detalles,
+                        permanenciaMs: viendo.permanencia != null ? viendo.permanencia * 1000 : null,
+                        rostroUrl: viendo.raw?.user?.cara || null,
                     }}
+                    ficha={fichaDeLaFila(viendo)}
+                    historial={historialDe(viendo)}
                     onCerrar={() => setViendo(null)}
                 />
             )}
