@@ -1093,6 +1093,9 @@ function procesarAviso(est, xml) {
     // sin esto, "no llego ningun aviso" y "llegaron y los descarte" se parecen
     // demasiado, y son problemas distintos.
     est.recuento[tipo] = (est.recuento[tipo] || 0) + 1;
+    // Aparte del recuento que se vacia al reportarlo: esto dice si el flujo esta vivo,
+    // y hay que poder preguntarselo mucho despues del ultimo reporte.
+    est.ultimoBloque = Date.now();
     if (!/linedetection|fielddetection|regionEntrance|regionExiting/i.test(tipo)) return;
     // "duration" y "VMD" son el latido y el movimiento crudo: justo lo que este modo vino a evitar.
     const estado = (/<eventState>([^<]+)<\/eventState>/i.exec(xml) || [])[1] || "active";
@@ -1104,6 +1107,7 @@ function procesarAviso(est, xml) {
         log(`${est.cam.name}: la camara volvio a avisar, se deja el respaldo por escena`);
         est.modoEfectivo = est.cam.disparo;
         est.secas = 0;
+        est.reenganches = 0;
         rearmar(est);
     }
     disparar(est, `camara:${tipo}`);
@@ -1128,7 +1132,43 @@ function vigilarDisparo() {
     for (const [, est] of camarasVivas) {
         if (!porAviso(est.cam.disparo) || !porAviso(est.modoEfectivo)) continue;
         if (Date.now() - est.ultimoAviso < RESPALDO_MS) continue;
-        log(`${est.cam.name}: la camara no avisa hace ${Math.round(RESPALDO_MS / 60000)} min; se pasa al disparo por escena. Revisar la zona y el objetivo de la regla en el calibrador.`);
+
+        const min = Math.round(RESPALDO_MS / 60000);
+        // El flujo puede estar vivo entregando basura. Lo sabemos porque procesarAviso
+        // marca CADA bloque que llega, sirva o no.
+        const flujoVivo = est.ultimoBloque && Date.now() - est.ultimoBloque < RESPALDO_MS;
+
+        /**
+         * Antes de rendirse, reenganchar una vez.
+         *
+         * El 19 de setiembre Calle 21 estuvo horas con el flujo abierto entregando VMD y
+         * sin una sola analitica: la conexion viva, la regla bien dibujada, y aun asi
+         * nada. La pasarela lo leyo como "la regla esta mal" y se fue al respaldo por
+         * escena, donde se quedo. Reabrir el alertStream lo resolvio en el acto.
+         *
+         * "Llega movimiento pero no llega analitica" y "no llega nada" NO son el mismo
+         * problema, y el recuento ya los distinguia desde hace rato --solo que nadie lo
+         * usaba para decidir. El primero se parece a una conexion que se canso; el
+         * segundo, a una camara apagada. En los dos casos reconectar es barato, y mirar
+         * todo a ciegas no lo es.
+         *
+         * Un solo reenganche por ciclo: si despues de reabrir sigue sin analitica, ahi si
+         * el problema es la regla y el respaldo es lo unico que queda.
+         */
+        if ((est.reenganches || 0) < 1) {
+            est.reenganches = (est.reenganches || 0) + 1;
+            est.ultimoAviso = Date.now();
+            log(`${est.cam.name}: ${min} min sin un aviso util`
+                + (flujoVivo ? " (pero el flujo sigue entregando otros: parece una conexion cansada)" : " ni de ningun otro tipo")
+                + ". Se reengancha el flujo de eventos antes de dar la regla por mal puesta.");
+            try { est.escucha && est.escucha.destroy(); } catch { }
+            est.escucha = null;
+            escucharCamara(est);
+            continue;
+        }
+
+        log(`${est.cam.name}: la camara no avisa hace ${min} min y reenganchar no lo arreglo; `
+            + `se pasa al disparo por escena. Revisar la zona y el objetivo de la regla en el calibrador.`);
         est.modoEfectivo = "escena";
         est.ultimoAviso = Date.now();
         rearmar(est);
@@ -1315,7 +1355,7 @@ async function sincronizar() {
         }
         if (camarasVivas.has(cam.name)) { camarasVivas.get(cam.name).cam = cam; continue; }
 
-        const est = { cam, huella, modoEfectivo: cam.disparo, ultimoAviso: Date.now(), memoria: [], recuento: {}, rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false, gasto: null, secas: 0, avisoFreno: 0 };
+        const est = { cam, huella, modoEfectivo: cam.disparo, ultimoAviso: Date.now(), memoria: [], recuento: {}, rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false, gasto: null, secas: 0, avisoFreno: 0, ultimoBloque: 0, reenganches: 0 };
         camarasVivas.set(cam.name, est);
         engancharCamara(est);
         if (porAviso(cam.disparo)) escucharCamara(est);
