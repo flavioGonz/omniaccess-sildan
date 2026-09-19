@@ -4,20 +4,20 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
-    AlertCircle, Camera, Car, Check, CheckCircle2, CreditCard, DoorOpen,
-    KeyRound, Loader2, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
+    Camera, Car, Check, CreditCard, DoorOpen,
+    KeyRound, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
     Shield, Upload, User as UserIcon, HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
-import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { createUser, updateUser } from "@/app/actions/users";
 import { addDevicePlate } from "@/app/actions/devices";
 import { syncUserToDevice } from "@/app/actions/deviceMemory";
 import { Pista } from "@/components/ui/pista";
+import { PasosEnvio, type Paso } from "@/components/users/PasosEnvio";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 
@@ -71,8 +71,6 @@ type UsuarioConRelaciones = User & {
     parkingSlotId?: string | null;
 };
 
-type Estado = "pendiente" | "enviando" | "listo" | "falló";
-
 export interface CajonUsuarioProps {
     user?: UsuarioConRelaciones;
     initialData?: { name?: string; dni?: string; plate?: string; cara?: string };
@@ -86,8 +84,8 @@ export interface CajonUsuarioProps {
 }
 
 /** Una tarjeta de equipo que se prende y se apaga, con el resultado de su envío. */
-function Equipo({ equipo, elegido, estado, alTocar, icono: Icono }: {
-    equipo: any; elegido: boolean; estado?: Estado; alTocar: () => void; icono: any;
+function Equipo({ equipo, elegido, alTocar, icono: Icono }: {
+    equipo: any; elegido: boolean; alTocar: () => void; icono: any;
 }) {
     return (
         <button
@@ -101,19 +99,14 @@ function Equipo({ equipo, elegido, estado, alTocar, icono: Icono }: {
             <span className="flex items-center gap-2.5 min-w-0">
                 <span className={cn("w-7 h-7 rounded-md flex items-center justify-center shrink-0",
                     elegido ? "text-[var(--accion)]" : "text-muted-foreground bg-muted")}>
-                    {estado === "enviando" ? <Loader2 size={14} className="animate-spin" />
-                        : estado === "falló" ? <AlertCircle size={14} className="text-[var(--mal)]" />
-                            : estado === "listo" ? <CheckCircle2 size={14} className="text-[var(--bien)]" />
-                                : <Icono size={14} />}
+                    <Icono size={14} />
                 </span>
                 <span className="min-w-0">
                     <span className="block text-[13px] font-semibold text-foreground truncate">{equipo.name}</span>
                     <span className="block text-[11.5px] text-muted-foreground tabular-nums truncate">{equipo.ip}</span>
                 </span>
             </span>
-            {estado === "listo" ? <span className="chip-bien text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0">Enviado</span>
-                : estado === "falló" ? <span className="chip-mal text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0">Falló</span>
-                    : elegido ? <Check size={15} className="text-[var(--accion)] shrink-0" /> : null}
+            {elegido && <Check size={15} className="text-[var(--accion)] shrink-0" />}
         </button>
     );
 }
@@ -122,8 +115,6 @@ export function CajonUsuario({
     user, initialData, units, groups, devices, parkingSlots = [], onSuccess, open, onOpenChange,
 }: CajonUsuarioProps) {
     const esAlta = !user;
-
-    const [guardando, setGuardando] = useState(false);
     const [foto, setFoto] = useState<string | null>(null);
     const [archivoFoto, setArchivoFoto] = useState<File | null>(null);
     const [chapa, setChapa] = useState("");
@@ -131,9 +122,12 @@ export function CajonUsuario({
     const [gruposElegidos, setGruposElegidos] = useState<string[]>([]);
     const [lprElegidos, setLprElegidos] = useState<string[]>([]);
     const [facialesElegidos, setFacialesElegidos] = useState<string[]>([]);
-    const [estados, setEstados] = useState<Record<string, Estado>>({});
     const [unidadId, setUnidadId] = useState("none");
-    const [progreso, setProgreso] = useState<{ total: number; hecho: number; nombre: string } | null>(null);
+    /* El envío toma la pantalla en vez de ser un renglón debajo del formulario. Null
+       mientras se edita; una lista de pasos desde que se aprieta Registrar. */
+    const [pasos, setPasos] = useState<Paso[] | null>(null);
+    const [terminado, setTerminado] = useState(false);
+    const [idGuardado, setIdGuardado] = useState<string | undefined>(undefined);
     const archivoRef = useRef<HTMLInputElement>(null);
 
     const unidad = units.find((u) => u.id === unidadId);
@@ -157,30 +151,53 @@ export function CajonUsuario({
            reenviar sin querer con cada guardado. */
         setLprElegidos([]);
         setFacialesElegidos([]);
-        setEstados({});
-        setProgreso(null);
-        setGuardando(false);
+        setPasos(null);
+        setTerminado(false);
+        setIdGuardado(undefined);
     }, [open, user, initialData]);
 
     const alternar = (lista: string[], poner: (v: string[]) => void, id: string) =>
         poner(lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id]);
 
-    /** Manda una credencial a cada equipo, de a uno, mostrando en cuál va. */
-    const enviarA = async (ids: string[], etiqueta: string, enviar: (id: string) => Promise<boolean>) => {
-        setProgreso({ total: ids.length, hecho: 0, nombre: "" });
-        setEstados((p) => ({ ...p, ...Object.fromEntries(ids.map((id) => [id, "pendiente" as Estado])) }));
-        for (let i = 0; i < ids.length; i++) {
-            const id = ids[i];
-            const equipo = devices.find((d) => d.id === id);
-            setProgreso({ total: ids.length, hecho: i, nombre: equipo?.name || etiqueta });
-            setEstados((p) => ({ ...p, [id]: "enviando" }));
-            let salio = false;
-            try { salio = await enviar(id); } catch { salio = false; }
-            setEstados((p) => ({ ...p, [id]: salio ? "listo" : "falló" }));
-            // Una pausa corta: los equipos son lentos y encimarles pedidos los tira.
-            await new Promise((r) => setTimeout(r, 400));
+    const tocar = (id: string, cambio: Partial<Paso>) =>
+        setPasos((p) => p?.map((x) => (x.id === id ? { ...x, ...cambio } : x)) || p);
+
+    /**
+     * Corre la lista de pasos de arriba abajo.
+     *
+     * De a uno y no todos a la vez: los equipos son lentos y encimarles pedidos los tira.
+     * Y `soloFallados` existe para el reintento — volver a mandar lo que ya entró no sólo
+     * es al pedo, es una escritura más en la memoria de un equipo que no la necesita.
+     */
+    const correr = async (lista: Paso[], soloFallados = false) => {
+        setTerminado(false);
+        let falló = false;
+        const aCorrer = soloFallados ? lista.filter((p) => p.estado === "falló") : lista;
+        setPasos(lista.map((p) => (aCorrer.some((q) => q.id === p.id)
+            ? { ...p, estado: "espera", error: undefined } : p)));
+
+        let id = idGuardado;
+        for (const paso of aCorrer) {
+            tocar(paso.id, { estado: "curso", error: undefined });
+            try {
+                const r = await (paso as any).hacer(id);
+                if (typeof r === "string") { id = r; setIdGuardado(r); }
+                tocar(paso.id, { estado: "listo" });
+            } catch (e: any) {
+                falló = true;
+                tocar(paso.id, { estado: "falló", error: e?.message || "No contestó." });
+                // Si no se pudo guardar la ficha, lo de abajo no tiene sentido: no hay a
+                // quién ponerle la credencial. Se marca y se corta.
+                if (paso.id === "ficha") {
+                    setPasos((p) => p?.map((x) => x.id === "ficha" ? x
+                        : { ...x, estado: "espera", detalle: "No se intentó: la ficha no se guardó." }) || p);
+                    break;
+                }
+            }
+            await new Promise((r) => setTimeout(r, 350));
         }
-        setProgreso({ total: ids.length, hecho: ids.length, nombre: "" });
+        setTerminado(true);
+        return !falló;
     };
 
     const guardar = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -196,43 +213,60 @@ export function CajonUsuario({
             return;
         }
         datos.set("unitId", unidadId);
-        setGuardando(true);
+        const chapaLimpia = String(datos.get("plate") || "").toUpperCase().trim();
 
-        try {
-            let id = user?.id;
-            if (user) await updateUser(user.id, datos);
-            else id = (await createUser(datos)).id;
+        const lista: Paso[] = [{
+            id: "ficha",
+            titulo: esAlta ? "Crear la ficha" : "Guardar los cambios",
+            detalle: nombre,
+            estado: "espera",
+            hacer: async () => {
+                if (user) { await updateUser(user.id, datos); return user.id; }
+                return (await createUser(datos)).id;
+            },
+        } as any];
 
-            if (archivoFoto && id) {
+        if (archivoFoto) lista.push({
+            id: "foto", titulo: "Subir la foto", detalle: archivoFoto.name, estado: "espera",
+            hacer: async (id: string) => {
                 const img = new FormData();
                 img.append("faceImage", archivoFoto);
                 const r = await fetch(`/api/users/${id}/face`, { method: "POST", body: img });
-                if (!r.ok) {
-                    /* Que la foto no suba no invalida lo demás, pero callarlo sí: la persona
-                       quedaría guardada sin rostro y nadie se enteraría hasta que un
-                       terminal no la reconozca. */
-                    toast.warning({ title: "Se guardó la persona, pero no la foto", description: await r.text() });
-                }
-            }
+                if (!r.ok) throw new Error((await r.text()).slice(0, 120) || "El servidor no la aceptó.");
+            },
+        } as any);
 
-            const chapaLimpia = String(datos.get("plate") || "").toUpperCase().trim();
-            if (chapaLimpia && lprElegidos.length) {
-                await enviarA(lprElegidos, "Cámara", async (dev) =>
-                    !!(await addDevicePlate(dev, chapaLimpia))?.success);
-            }
-            if (foto && facialesElegidos.length && id) {
-                await enviarA(facialesElegidos, "Terminal", async (dev) =>
-                    !!(await syncUserToDevice(dev, id!)));
-            }
-            if (progreso) await new Promise((r) => setTimeout(r, 700));
+        if (chapaLimpia) for (const id of lprElegidos) {
+            const eq = devices.find((d) => d.id === id);
+            lista.push({
+                id: `lpr:${id}`, titulo: `Copiar ${chapaLimpia} a ${eq?.name || "la cámara"}`,
+                detalle: eq?.ip, estado: "espera",
+                hacer: async () => {
+                    const r = await addDevicePlate(id, chapaLimpia);
+                    if (!r?.success) throw new Error((r as any)?.error || "La cámara rechazó la matrícula.");
+                },
+            } as any);
+        }
 
-            toast.success({ title: esAlta ? "Persona registrada" : "Ficha guardada" });
+        if (foto) for (const id of facialesElegidos) {
+            const eq = devices.find((d) => d.id === id);
+            lista.push({
+                id: `face:${id}`, titulo: `Enviar el rostro a ${eq?.name || "el terminal"}`,
+                detalle: eq?.ip, estado: "espera",
+                hacer: async (uid: string) => {
+                    if (!(await syncUserToDevice(id, uid))) throw new Error("El terminal no aceptó el rostro.");
+                },
+            } as any);
+        }
+        setPasos(lista);
+        const hechos = await correr(lista);
+        onSuccess();
+        /* Si salió todo, quedarse mirando una lista de tildes verdes no le sirve a nadie.
+           Si algo falló, el cajón se queda: cerrarlo igual era el error de antes --la
+           persona guardada, la cámara sin la matrícula, y nadie enterado. */
+        if (hechos) {
+            await new Promise((r) => setTimeout(r, 900));
             onOpenChange(false);
-            onSuccess();
-        } catch (err: any) {
-            toast.error({ title: "No se pudo guardar", description: err?.message });
-        } finally {
-            setGuardando(false);
         }
     };
 
@@ -243,16 +277,27 @@ export function CajonUsuario({
                 titulo={esAlta ? "Nueva persona" : user?.name || "Ficha de la persona"}
                 descripcion="Quién es, dónde vive, con qué entra y a qué equipos se manda."
                 onInteractOutside={(e) => e.preventDefault()}
-                pie={
+                /* Durante el envío no hay pie: los botones que corresponden --reintentar o
+                   cerrar-- salen abajo de los pasos, y sólo cuando terminó. Dejar un
+                   "Cancelar" mientras se escribe en la memoria de una cámara invita a
+                   cortar por la mitad algo que ya está a mitad de camino. */
+                pie={pasos ? undefined : (
                     <>
                         <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-                        <Button type="submit" form="ficha-persona" disabled={guardando}>
-                            {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                            {guardando ? "Guardando…" : esAlta ? "Registrar" : "Guardar cambios"}
+                        <Button type="submit" form="ficha-persona">
+                            <Save size={15} />{esAlta ? "Registrar" : "Guardar cambios"}
                         </Button>
                     </>
-                }>
+                )}>
 
+                {pasos ? (
+                    <PasosEnvio
+                        pasos={pasos}
+                        terminado={terminado}
+                        alReintentar={() => correr(pasos, true)}
+                        alCerrar={() => { onOpenChange(false); onSuccess(); }}
+                    />
+                ) : (
                 <form id="ficha-persona" onSubmit={guardar} noValidate>
                     {initialData?.cara && !archivoFoto && (
                         <input type="hidden" name="cara" value={initialData.cara} />
@@ -298,9 +343,9 @@ export function CajonUsuario({
                                     <Input name="name" defaultValue={user?.name || initialData?.name}
                                         placeholder="Cómo figura en la lista" autoFocus />
                                 </CajonCampo>
-                                <CajonCampo etiqueta="Documento" ayuda="Opcional."
+                                <CajonCampo etiqueta="Documento"
                                     pista="Sólo sirve para distinguir a dos personas que se llaman igual. No abre ninguna puerta ni se le manda a ningún equipo.">
-                                    <Input name="dni" defaultValue={user?.dni || initialData?.dni} placeholder="Sin puntos" />
+                                    <Input name="dni" defaultValue={user?.dni || initialData?.dni} placeholder="Opcional, sin puntos" />
                                 </CajonCampo>
                                 <CajonCampo etiqueta="Teléfono"
                                     pista="Por acá salen los avisos de WhatsApp: que llegó una visita, que quedó un vehículo estacionado. Sin código de país no sale nada.">
@@ -362,7 +407,7 @@ export function CajonUsuario({
                     <CajonSeccion titulo="Con qué entra" icono={KeyRound}
                         ayuda="Cada credencial abre por un camino distinto. Se pueden cargar todas o ninguna.">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            <CajonCampo etiqueta="Matrícula" ayuda="Es lo que leen las cámaras."
+                            <CajonCampo etiqueta="Matrícula"
                                 pista="Se escribe sin espacios ni guiones, como la lee la cámara. Cargarla acá no alcanza para que abra la barrera: hay que mandarla además a los equipos, abajo.">
                                 <Input name="plate" value={chapa} placeholder="ABC1234"
                                     onChange={(e) => setChapa(e.target.value.toUpperCase())}
@@ -377,18 +422,18 @@ export function CajonUsuario({
                                     </SelectContent>
                                 </Select>
                             </CajonCampo>
-                            <CajonCampo etiqueta="Tarjetas o llaveros" ayuda="Varios, separados por coma."
+                            <CajonCampo etiqueta="Tarjetas o llaveros"
                                 pista="El número grabado en la tarjeta o el llavero RFID. Una persona puede tener varios: el del auto, el de la bicicleta, el de la casa."
                                 pistaTitulo="Tarjetas y llaveros RFID">
                                 <Input name="accessTags"
                                     defaultValue={user?.accessTags?.join(", ")
                                         || user?.credentials?.find((c) => c.type === "TAG")?.value || ""}
-                                    placeholder="E20030040506, TAG-9921" className="tabular-nums" />
+                                    placeholder="Varios, separados por coma" className="tabular-nums" />
                             </CajonCampo>
-                            <CajonCampo etiqueta="Código PIN" ayuda="Para el teclado de la entrada."
+                            <CajonCampo etiqueta="Código PIN"
                                 pista="Queda oculto al escribirlo, pero se guarda tal cual: cualquiera con acceso al panel puede verlo. No sirve como contraseña de nada más.">
                                 <PasswordInput name="pin" value={pin} onChange={(e) => setPin(e.target.value)}
-                                    placeholder="1234" className="tabular-nums" />
+                                    placeholder="Para el teclado de la entrada" className="tabular-nums" />
                             </CajonCampo>
                         </div>
 
@@ -438,7 +483,7 @@ export function CajonUsuario({
                             ) : camarasLpr.length ? (
                                 <div className="space-y-1.5">
                                     {camarasLpr.map((d) => (
-                                        <Equipo key={d.id} equipo={d} icono={Camera} estado={estados[d.id]}
+                                        <Equipo key={d.id} equipo={d} icono={Camera}
                                             elegido={lprElegidos.includes(d.id)}
                                             alTocar={() => alternar(lprElegidos, setLprElegidos, d.id)} />
                                     ))}
@@ -464,7 +509,7 @@ export function CajonUsuario({
                             ) : terminalesFaciales.length ? (
                                 <div className="space-y-1.5">
                                     {terminalesFaciales.map((d) => (
-                                        <Equipo key={d.id} equipo={d} icono={ScanFace} estado={estados[d.id]}
+                                        <Equipo key={d.id} equipo={d} icono={ScanFace}
                                             elegido={facialesElegidos.includes(d.id)}
                                             alTocar={() => alternar(facialesElegidos, setFacialesElegidos, d.id)} />
                                     ))}
@@ -475,21 +520,9 @@ export function CajonUsuario({
                             {facialesElegidos.map((id) => <input key={id} type="hidden" name="syncFaceDeviceId" value={id} />)}
                         </div>
 
-                        {progreso && (
-                            <div className="rounded-[10px] border border-border bg-card/60 p-3 space-y-2">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[12.5px] font-semibold text-foreground">
-                                        {progreso.hecho === progreso.total ? "Envío terminado" : `Enviando a ${progreso.nombre}`}
-                                    </span>
-                                    <span className="text-[12px] text-muted-foreground tabular-nums">
-                                        {progreso.hecho} de {progreso.total}
-                                    </span>
-                                </div>
-                                <Progress value={(progreso.hecho / progreso.total) * 100} />
-                            </div>
-                        )}
                     </CajonSeccion>
                 </form>
+                )}
             </CajonContenido>
         </Cajon>
     );
