@@ -6,7 +6,7 @@ import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
     AlertCircle, Camera, Car, Check, CheckCircle2, CreditCard, DoorOpen,
     KeyRound, Loader2, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
-    Shield, Upload, User as UserIcon,
+    Shield, Upload, User as UserIcon, HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { createUser, updateUser } from "@/app/actions/users";
 import { addDevicePlate } from "@/app/actions/devices";
 import { syncUserToDevice } from "@/app/actions/deviceMemory";
+import { Pista } from "@/components/ui/pista";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 
@@ -238,7 +239,7 @@ export function CajonUsuario({
     return (
         <Cajon open={open} onOpenChange={onOpenChange}>
             <CajonContenido
-                ancho="ancho"
+                ancho="medio"
                 titulo={esAlta ? "Nueva persona" : user?.name || "Ficha de la persona"}
                 descripcion="Quién es, dónde vive, con qué entra y a qué equipos se manda."
                 onInteractOutside={(e) => e.preventDefault()}
@@ -258,11 +259,11 @@ export function CajonUsuario({
                     )}
 
                     {/* ── Quién es ── */}
-                    <CajonSeccion titulo="Quién es">
+                    <CajonSeccion titulo="Quién es" icono={UserIcon}>
                         <div className="flex flex-col sm:flex-row gap-5">
                             {/* La foto al lado de los datos y no ocupando media ventana: es UN
                                 dato de la persona, del mismo rango que el teléfono. */}
-                            <div className="shrink-0 w-full sm:w-[150px]">
+                            <div className="shrink-0 w-full sm:w-[124px]">
                                 <div className="relative aspect-[3/4] w-full rounded-[10px] border border-border bg-muted overflow-hidden">
                                     {foto ? (
                                         <Image src={foto} alt="" fill unoptimized className="object-cover" />
@@ -291,18 +292,22 @@ export function CajonUsuario({
                                     }} />
                             </div>
 
-                            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                                <CajonCampo etiqueta="Nombre y apellido" className="sm:col-span-2">
+                            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <CajonCampo etiqueta="Nombre y apellido" className="sm:col-span-2"
+                                    pista="Es el nombre con el que va a aparecer en el historial, en la bitácora y en el aviso que le llega al guardia cuando entra. Conviene el nombre por el que lo conocen en la entrada, no el del documento.">
                                     <Input name="name" defaultValue={user?.name || initialData?.name}
                                         placeholder="Cómo figura en la lista" autoFocus />
                                 </CajonCampo>
-                                <CajonCampo etiqueta="Documento" ayuda="Opcional.">
+                                <CajonCampo etiqueta="Documento" ayuda="Opcional."
+                                    pista="Sólo sirve para distinguir a dos personas que se llaman igual. No abre ninguna puerta ni se le manda a ningún equipo.">
                                     <Input name="dni" defaultValue={user?.dni || initialData?.dni} placeholder="Sin puntos" />
                                 </CajonCampo>
-                                <CajonCampo etiqueta="Teléfono">
+                                <CajonCampo etiqueta="Teléfono"
+                                    pista="Por acá salen los avisos de WhatsApp: que llegó una visita, que quedó un vehículo estacionado. Sin código de país no sale nada.">
                                     <Input name="phone" type="tel" defaultValue={user?.phone || ""} placeholder="Con código de país" />
                                 </CajonCampo>
-                                <CajonCampo etiqueta="Qué es para el barrio" className="sm:col-span-2">
+                                <CajonCampo etiqueta="Qué es para el barrio" className="sm:col-span-2"
+                                    pista="Decide qué ve y qué puede hacer, y cómo lo trata el historial. Una visita temporal caduca sola; un residente no. Administrador y Personal además entran al panel.">
                                     <Select name="role" defaultValue={user?.role || "RESIDENT"}>
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
@@ -315,9 +320,10 @@ export function CajonUsuario({
                     </CajonSeccion>
 
                     {/* ── Dónde vive ── */}
-                    <CajonSeccion titulo="Dónde vive">
+                    <CajonSeccion titulo="Dónde vive" icono={DoorOpen}>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            <CajonCampo etiqueta="Lote o unidad">
+                            <CajonCampo etiqueta="Lote o unidad"
+                                    pista="El lote que tiene dibujado en el plano del barrio. Es lo que hace que, al leerse su matrícula, el sistema sepa a qué casa avisar.">
                                 <Select name="unitId" value={unidadId} onValueChange={setUnidadId}>
                                     <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
                                     <SelectContent className="max-h-[260px]">
@@ -326,7 +332,8 @@ export function CajonUsuario({
                                     </SelectContent>
                                 </Select>
                             </CajonCampo>
-                            <CajonCampo etiqueta="Cochera">
+                            <CajonCampo etiqueta="Cochera"
+                                    pista="Las que están ocupadas por otra persona aparecen apagadas: una cochera es de uno solo, y dejar elegir una tomada crea un conflicto que después nadie sabe de dónde salió.">
                                 <Select name="parkingSlotId" defaultValue={user?.parkingSlotId || "none"}>
                                     <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
                                     <SelectContent className="max-h-[260px]">
@@ -352,15 +359,17 @@ export function CajonUsuario({
                     </CajonSeccion>
 
                     {/* ── Con qué entra ── */}
-                    <CajonSeccion titulo="Con qué entra"
+                    <CajonSeccion titulo="Con qué entra" icono={KeyRound}
                         ayuda="Cada credencial abre por un camino distinto. Se pueden cargar todas o ninguna.">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            <CajonCampo etiqueta="Matrícula" ayuda="Es lo que leen las cámaras.">
+                            <CajonCampo etiqueta="Matrícula" ayuda="Es lo que leen las cámaras."
+                                pista="Se escribe sin espacios ni guiones, como la lee la cámara. Cargarla acá no alcanza para que abra la barrera: hay que mandarla además a los equipos, abajo.">
                                 <Input name="plate" value={chapa} placeholder="ABC1234"
                                     onChange={(e) => setChapa(e.target.value.toUpperCase())}
                                     className="font-bold tracking-[0.12em] tabular-nums uppercase" />
                             </CajonCampo>
-                            <CajonCampo etiqueta="Qué vehículo es">
+                            <CajonCampo etiqueta="Qué vehículo es"
+                                pista="No cambia si abre o no. Sirve para reconocerlo en el historial cuando la foto no se ve bien, y para los informes por tipo de vehículo.">
                                 <Select name="vehicleType" defaultValue={user?.vehicles?.[0]?.type || "SEDAN"}>
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
@@ -368,20 +377,29 @@ export function CajonUsuario({
                                     </SelectContent>
                                 </Select>
                             </CajonCampo>
-                            <CajonCampo etiqueta="Tarjetas o llaveros" ayuda="Varios, separados por coma.">
+                            <CajonCampo etiqueta="Tarjetas o llaveros" ayuda="Varios, separados por coma."
+                                pista="El número grabado en la tarjeta o el llavero RFID. Una persona puede tener varios: el del auto, el de la bicicleta, el de la casa."
+                                pistaTitulo="Tarjetas y llaveros RFID">
                                 <Input name="accessTags"
                                     defaultValue={user?.accessTags?.join(", ")
                                         || user?.credentials?.find((c) => c.type === "TAG")?.value || ""}
                                     placeholder="E20030040506, TAG-9921" className="tabular-nums" />
                             </CajonCampo>
-                            <CajonCampo etiqueta="Código PIN" ayuda="Para el teclado de la entrada.">
+                            <CajonCampo etiqueta="Código PIN" ayuda="Para el teclado de la entrada."
+                                pista="Queda oculto al escribirlo, pero se guarda tal cual: cualquiera con acceso al panel puede verlo. No sirve como contraseña de nada más.">
                                 <PasswordInput name="pin" value={pin} onChange={(e) => setPin(e.target.value)}
                                     placeholder="1234" className="tabular-nums" />
                             </CajonCampo>
                         </div>
 
                         <div>
-                            <span className="block text-[12px] font-medium text-foreground/85 mb-1.5">Grupos de acceso</span>
+                            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
+                                Grupos de acceso
+                                <Pista titulo="Grupos de acceso" ancho={280}
+                                    texto="El grupo dice POR DÓNDE y CUÁNDO puede pasar: qué equipos y en qué horarios. Sin ningún grupo, la persona queda cargada pero no abre nada.">
+                                    <HelpCircle size={12.5} className="text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
+                                </Pista>
+                            </span>
                             <div className="flex flex-wrap gap-1.5">
                                 {groups.map((g) => {
                                     const puesto = gruposElegidos.includes(g.id);
@@ -406,7 +424,7 @@ export function CajonUsuario({
                     </CajonSeccion>
 
                     {/* ── A qué equipos se manda ── */}
-                    <CajonSeccion titulo="A qué equipos se manda"
+                    <CajonSeccion titulo="A qué equipos se manda" icono={Server}
                         ayuda="Los grupos dan el permiso; esto copia la credencial a la memoria del equipo. Son cosas distintas: sin la copia, el equipo tiene el permiso pero no sabe a quién reconocer.">
 
                         <EquiposDeLosGrupos groups={groups} elegidos={gruposElegidos} />

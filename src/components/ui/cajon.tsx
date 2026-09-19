@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { HelpCircle, X } from "lucide-react";
+import { Pista } from "@/components/ui/pista";
 import { cn } from "@/lib/utils";
 
 /**
@@ -121,35 +122,75 @@ function CajonContenido({
     );
 }
 
-/** Un bloque del cajón: su título, su porqué, y sus campos. */
-function CajonSeccion({ titulo, ayuda, children, className }: {
+/**
+ * Un bloque del cajón: su título, su porqué, y sus campos.
+ *
+ * El ícono no es adorno. En un panel largo, lo que se hace al volver no es leer los
+ * títulos: es barrerlos buscando el que se estaba mirando, y una silueta se reconoce de
+ * un vistazo mucho antes que un renglón de mayúsculas espaciadas. Va apagado —el ícono
+ * ubica, el título dice— y del tamaño del texto, no más grande.
+ *
+ * El aire entre secciones es de 32px y no de 20: con menos, dos bloques distintos se leen
+ * como uno solo largo y hay que apoyarse en la línea divisoria para separarlos. La línea
+ * ayuda; el aire es lo que hace el trabajo.
+ */
+function CajonSeccion({ titulo, ayuda, icono: Icono, children, className }: {
     titulo: string;
     /** Para qué sirve esto. Una línea, y sólo cuando no es obvio. */
     ayuda?: string;
+    icono?: React.ComponentType<{ size?: number; className?: string }>;
     children: React.ReactNode;
     className?: string;
 }) {
     return (
-        <section className={cn("px-6 py-5 border-b border-border last:border-0", className)}>
-            <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{titulo}</h3>
-            {ayuda && <p className="text-[12px] text-muted-foreground/80 mt-1 max-w-prose">{ayuda}</p>}
-            <div className="mt-3.5 space-y-3.5">{children}</div>
+        <section className={cn("px-6 py-8 border-b border-border last:border-0", className)}>
+            <h3 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                {Icono && <Icono size={13} className="text-muted-foreground/70" />}
+                {titulo}
+            </h3>
+            {ayuda && <p className="text-[12px] text-muted-foreground/80 mt-1.5 max-w-prose">{ayuda}</p>}
+            <div className="mt-4 space-y-4">{children}</div>
         </section>
     );
 }
 
-/** Un campo con su etiqueta arriba y su ayuda abajo. */
-function CajonCampo({ etiqueta, ayuda, children, className }: {
+/**
+ * Un campo con su etiqueta arriba y, si hace falta, dos clases distintas de ayuda.
+ *
+ * `ayuda` va SIEMPRE visible, debajo del campo, y es para lo que hay que saber antes de
+ * escribir: el formato, que es opcional, de dónde sale el dato.
+ *
+ * `pista` se esconde detrás de un signo de pregunta y es para lo que explica POR QUÉ
+ * existe el campo y qué pasa con lo que se escriba. Eso no puede ir siempre a la vista: un
+ * formulario con una frase abajo de cada casilla se vuelve un texto con casillas
+ * intercaladas, y entonces no se lee ninguna. Pero tampoco puede faltar — quien carga a
+ * alguien por primera vez necesita saber qué está prometiendo cada campo.
+ *
+ * El signo de pregunta sólo aparece cuando hay algo que contar. Un ícono de ayuda que no
+ * ayuda enseña a ignorar los íconos de ayuda.
+ */
+function CajonCampo({ etiqueta, ayuda, pista, pistaTitulo, children, className }: {
     etiqueta: string;
     ayuda?: string;
+    /** Lo que se cuenta al pasar el mouse por el signo de pregunta. */
+    pista?: React.ReactNode;
+    pistaTitulo?: string;
     children: React.ReactNode;
     className?: string;
 }) {
     return (
         <label className={cn("block", className)}>
-            <span className="block text-[12px] font-medium text-foreground/85 mb-1.5">{etiqueta}</span>
+            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
+                {etiqueta}
+                {pista && (
+                    <Pista titulo={pistaTitulo || etiqueta} texto={pista} lado="arriba" ancho={270}>
+                        <HelpCircle size={12.5}
+                            className="text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
+                    </Pista>
+                )}
+            </span>
             {children}
-            {ayuda && <span className="block text-[11.5px] text-muted-foreground mt-1">{ayuda}</span>}
+            {ayuda && <span className="block text-[11.5px] text-muted-foreground mt-1.5">{ayuda}</span>}
         </label>
     );
 }
