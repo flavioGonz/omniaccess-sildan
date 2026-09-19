@@ -148,7 +148,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
     const img = ev ? (getImagePath(ev.snapshotPath || ev.imagePath) || "") : "";
     const plate = ev?.plateDetected as string | undefined;
     const ok = ev?.decision === "GRANT";
-    const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
+    const anomalous = noLeyo(plate);
     const inner = (
         <div className={cn("relative rounded-lg overflow-hidden border vid-surface aspect-video transition-all duration-300", lit ? ring : "border-neutral-800")}>
             <SmartThumb src={(() => { const b = img || snap; return rk > 0 ? `${b}${b.includes("?") ? "&" : "?"}rk=${rk}` : b; })()} w={384} className="absolute inset-0 w-full h-full" />
@@ -421,59 +421,178 @@ function PlateCommandBar() {
     );
 }
 
-function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string) => void }) {
+/**
+ * Lo que una cámara LPR escribe cuando NO pudo leer.
+ *
+ * No es una lista de gustos: son los valores centinela que mandan los equipos del barrio.
+ * Estaban escritos a mano adentro de dos componentes distintos, así que agregar un modelo
+ * nuevo obligaba a acordarse de los dos lugares.
+ */
+const SIN_LECTURA = ["NO_LEIDA", "UNKNOWN", "S/P", "S/L", ""];
+const noLeyo = (p?: string | null) => !p || SIN_LECTURA.includes(String(p).toUpperCase().trim());
+
+/**
+ * Una captura, venga de donde venga.
+ *
+ * El destaque central mostraba SOLO accesos, y desde que las cámaras interiores leen con
+ * Omni-LPR eso dejó de ser "la última captura": era la última captura *de la barrera*.
+ * En una noche tranquila la barrera no se mueve y las interiores leen quince autos, y el
+ * recuadro grande se quedaba con una foto de hace horas mientras abajo pasaban lecturas
+ * nuevas.
+ *
+ * Las dos clases se normalizan a la misma forma y gana la más reciente. Lo que NO se
+ * unifica es lo que significan: un acceso decidió si la barrera abría y por eso lleva
+ * PERMITIDO o DENEGADO; una lectura interior no decide nada, y ponerle un cartel de
+ * permitido sería inventarle una autoridad que no tiene.
+ */
+type Captura = {
+    id: string;
+    fuente: "ACCESO" | "TRACK";
+    foto: string;
+    plate?: string | null;
+    camara?: string | null;
+    momento: string;
+    decision?: string | null;
+    sentido?: string | null;
+    confianza?: number | null;
+    lecturas?: number | null;
+    estado?: string | null;
+    detalles?: string | null;
+    raw?: any;
+};
+
+const capturaDeAcceso = (ev: any): Captura | null => ev?.id ? ({
+    id: ev.id, fuente: "ACCESO",
+    foto: getImagePath(ev.snapshotPath || ev.imagePath) || "",
+    plate: ev.plateDetected, camara: ev.device?.name, momento: ev.timestamp,
+    decision: ev.decision, sentido: ev.direction, detalles: ev.details, raw: ev,
+}) : null;
+
+const capturaDeSeguimiento = (a: any): Captura | null => a?.id ? ({
+    id: a.id, fuente: "TRACK",
+    foto: a.snapshotUrl || "",
+    plate: a.plate, camara: a.cameraName, momento: a.timestamp,
+    confianza: a.confidence, lecturas: a.reads, estado: a.estado, raw: a,
+}) : null;
+
+/** La más reciente de las dos. Si falta una, la otra; si faltan las dos, nada. */
+const masReciente = (a: Captura | null, b: Captura | null): Captura | null => {
+    if (!a) return b;
+    if (!b) return a;
+    return new Date(a.momento).getTime() >= new Date(b.momento).getTime() ? a : b;
+};
+
+function CenterShot({ cap, onRegister }: { cap: Captura | null; onRegister?: (plate?: string) => void }) {
     const router = useRouter();
     const [flash, setFlash] = useState(false);
     const last = useRef<string | undefined>(undefined);
     useEffect(() => {
-        if (ev?.id && ev.id !== last.current) {
-            const first = last.current === undefined; last.current = ev.id;
+        if (cap?.id && cap.id !== last.current) {
+            const first = last.current === undefined; last.current = cap.id;
             if (!first) { setFlash(true); playShutter(); const t = setTimeout(() => setFlash(false), 900); return () => clearTimeout(t); }
         }
-    }, [ev?.id]);
-    if (!ev) {
-        return (<div className="p-4"><div className="relative w-full aspect-video rounded-xl overflow-hidden vid-surface border border-border flex items-center justify-center"><div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1 rounded-lg bg-black/65 backdrop-blur-sm border border-blue-500/30 shadow-lg"><Camera size={13} className="text-blue-400" /><span className="text-[11px] font-bold text-blue-300 uppercase tracking-wider">Ultima captura</span></div><Camera size={36} className="text-muted-foreground/40" /></div></div>);
+    }, [cap?.id]);
+
+    const rotulo = (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1 rounded-lg bg-black/65 backdrop-blur-sm border border-blue-500/30 shadow-lg">
+            <Camera size={13} className="text-blue-400" />
+            <span className="text-[11px] font-bold text-blue-300 uppercase tracking-wider">Última captura</span>
+        </div>
+    );
+
+    if (!cap) {
+        return (
+            <div className="p-4">
+                <div className="relative w-full aspect-video rounded-xl overflow-hidden vid-surface border border-border flex items-center justify-center">
+                    {rotulo}
+                    <Camera size={36} className="text-muted-foreground/40" />
+                </div>
+            </div>
+        );
     }
-    const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
-    const plate = ev.plateDetected as string | undefined;
-    const ok = ev.decision === "GRANT";
-    const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
-    const marca = (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
-    const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
-    const dir = ev.direction;
-    const tipo = tipoDeteccion(ev, (ev as any).watch);
-    const ring = dir === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
+
+    const esAcceso = cap.fuente === "ACCESO";
+    const plate = cap.plate || undefined;
+    const ok = cap.decision === "GRANT";
+    const sinLeer = noLeyo(plate);
+    const marca = (String(cap.detalles || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
+    const crop = getImagePath((String(cap.detalles || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
+    const dir = cap.sentido;
+    const tipo = esAcceso ? tipoDeteccion(cap.raw, cap.raw?.watch) : null;
+    const quieto = cap.estado === "ESTACIONADO";
+    const conf = cap.confianza != null ? Math.round(cap.confianza * 100) : null;
+
+    const ring = esAcceso
+        ? (dir === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]")
+        : "border-violet-400 shadow-[0_0_24px_rgba(167,139,250,0.7)]";
+
     return (
         <div className="p-4">
             <div className={cn("relative w-full aspect-video rounded-xl overflow-hidden vid-surface border transition-all duration-300", flash ? ring : "border-border")}>
-                <SmartThumb src={img} w={960} className="absolute inset-0 w-full h-full" />
+                <SmartThumb src={cap.foto} w={960} className="absolute inset-0 w-full h-full" />
                 {flash && <div className="iris-shot" />}
+
                 <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
-                    <Badge className={cn("text-xs shadow-lg", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
-                    {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-lg backdrop-blur", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                    {esAcceso ? (
+                        <Badge className={cn("text-xs shadow-lg", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>
+                            {dir === "EXIT" ? "SALIDA" : "ENTRADA"}
+                        </Badge>
+                    ) : (
+                        <Badge className={cn("text-xs shadow-lg", quieto ? "bg-slate-500" : "bg-violet-500")}>
+                            {quieto ? "ESTACIONADO" : "AVISTAMIENTO"}
+                        </Badge>
+                    )}
+                    {tipo && (
+                        <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-lg backdrop-blur", tipo.badge)}>
+                            {tipo.label}{tipo.key === "residente" && cap.raw?.user?.unit?.name ? ` · ${cap.raw.user.unit.name}` : ""}
+                        </span>
+                    )}
                 </div>
-                <div className="absolute top-3 right-3 z-10"><Badge className={cn("text-xs shadow-lg", ok ? "bg-emerald-600" : "bg-red-600")}>{ok ? "PERMITIDO" : "DENEGADO"}</Badge></div>
+
+                {/* Un acceso decidió; una lectura interior no. Por eso una lleva el
+                    veredicto y la otra, qué tan segura fue la lectura. */}
+                <div className="absolute top-3 right-3 z-10">
+                    {esAcceso ? (
+                        <Badge className={cn("text-xs shadow-lg", ok ? "bg-emerald-600" : "bg-red-600")}>{ok ? "PERMITIDO" : "DENEGADO"}</Badge>
+                    ) : conf != null ? (
+                        <Badge className={cn("text-xs shadow-lg",
+                            conf >= 85 ? "bg-emerald-600" : conf >= 65 ? "bg-amber-600" : "bg-red-600")}>
+                            {conf}%{cap.lecturas != null ? ` · ${cap.lecturas} cuadros` : ""}
+                        </Badge>
+                    ) : null}
+                </div>
+
                 {crop && (
                     <div className="absolute top-14 right-3 z-20 w-40 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
                         <div className="px-1.5 py-0.5 bg-black/70 text-[8px] font-bold text-white/90 uppercase tracking-wide">Patente</div>
                         <ThumbImg src={crop} className="w-full h-auto object-contain bg-black" />
                     </div>
                 )}
+
                 <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-3 pt-14 flex flex-col items-center">
-                    {anomalous ? (
-                        <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 rounded-lg border border-yellow-500/50"><AlertTriangle size={18} className="text-yellow-300" /><span className="text-lg font-bold text-yellow-300">SIN LECTURA</span></div>
+                    {sinLeer ? (
+                        <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 rounded-lg border border-yellow-500/50">
+                            <AlertTriangle size={18} className="text-yellow-300" />
+                            <span className="text-lg font-bold text-yellow-300">SIN LECTURA</span>
+                        </div>
                     ) : (
-                        <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-3xl font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
+                        <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm">
+                            <span className="text-3xl font-bold tabular-nums tracking-[0.2em] text-white drop-shadow">{plate}</span>
+                        </div>
                     )}
                     <div className="mt-1.5 text-[11px] text-white/80 flex items-center gap-2">
                         {marca && <span className="font-semibold">{marca}</span>}
-                        <span>{ev.device?.name || "Dispositivo"}</span>
-                        <span className="text-white/50">&middot; <TimeAgo timestamp={ev.timestamp} /></span>
+                        <span>{cap.camara || "Dispositivo"}</span>
+                        <span className="text-white/50">&middot; <TimeAgo timestamp={cap.momento} /></span>
                     </div>
-                    {plate && !anomalous && (
+                    {plate && !sinLeer && (
                         <div className="mt-2 flex gap-2">
-                            <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(plate)}`); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
-                            {!ok && <button onClick={(e) => { e.stopPropagation(); onRegister?.(plate); }} className="px-3 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide transition-colors">Registrar</button>}
+                            <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(plate)}`); }}
+                                className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
+                            {esAcceso && !ok && (
+                                <button onClick={(e) => { e.stopPropagation(); onRegister?.(plate); }}
+                                    className="px-3 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide transition-colors">Registrar</button>
+                            )}
                         </div>
                     )}
                 </div>
@@ -1077,6 +1196,17 @@ export default function MonitorLPR() {
         for (const e of events) { const id = (e as any).device?.id; if (id && !m[id]) m[id] = e; }
         return m;
     }, [events]);
+    /**
+     * La última captura del barrio, mire por donde mire.
+     *
+     * Las dos fuentes ya estaban en pantalla por separado; lo que faltaba era compararlas
+     * por hora y quedarse con la más nueva.
+     */
+    const ultimaCaptura = useMemo(
+        () => masReciente(capturaDeAcceso(filteredEvents[0]), capturaDeSeguimiento(avistUltimos[0])),
+        [filteredEvents, avistUltimos],
+    );
+
     const hasStream = (id: any) => !!id && streams.includes(`lpr_${id}`);
     const pickCam = (evts: any[], dir: string) => {
         for (const e of evts) { if (hasStream(e?.device?.id)) return e.device.id; }
@@ -1250,7 +1380,7 @@ export default function MonitorLPR() {
                     {/* CENTER: fixed spotlight + independently scrolling recent list */}
                     <div className="flex flex-col overflow-hidden">
                         <div className="shrink-0">
-                            <CenterShot ev={filteredEvents[0]} onRegister={openRegister} />
+                            <CenterShot cap={ultimaCaptura} onRegister={openRegister} />
                         </div>
                         {interiores.length > 0 && (
                             <div className="shrink-0 border-t border-neutral-800 px-4 py-2">

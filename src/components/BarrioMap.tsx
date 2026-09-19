@@ -670,10 +670,10 @@ ${CSS_AUTO}
                     al lado, porque tres píldoras separadas no se leen como una barra de
                     herramientas sino como tres cosas alineadas por casualidad. */}
                 <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                    className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] max-w-[calc(100%-1.5rem)]">
+                    className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] max-w-[calc(100%-1.5rem)] flex flex-col items-start">
                     <IconBar
                         superficie="oscura"
-                        className="shadow-2xl shadow-black/50 max-w-full overflow-x-auto omni-sin-barra"
+                        className="shadow-2xl shadow-black/50 max-w-full"
                         corner={26}
                         glyph={15}
                         items={editing ? tools.map((t) => ({ key: t.id, label: t.label, Icon: t.icon })) : []}
@@ -703,60 +703,18 @@ ${CSS_AUTO}
                             }] : []),
                         ]}
                         antes={
-                            <div className="relative shrink-0">
-                                <button type="button" data-abierto={menuCapas || undefined}
-                                    onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
-                                    className="gnav-ancho">
-                                    <Layers3 size={14} />
-                                    {vista3D ? "Vista 3D" : base}
-                                    <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
-                                </button>
-                                <AnimatePresence>
-                                    {menuCapas && (
-                                        <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                                            transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
-                                            className="absolute top-11 left-0 w-[188px] p-1.5 rounded-2xl bg-[#0a0d12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/60 z-10">
-                                            <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mapa de fondo</p>
-                                            <div className="grid grid-cols-2 gap-0.5">
-                                                {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
-                                                    <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
-                                                        className="relative h-7 rounded-lg text-[11px] font-semibold text-white/55 hover:text-white transition-colors">
-                                                        {base === nb && !vista3D && (
-                                                            <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                                className="absolute inset-0 rounded-lg bg-white/[0.14]" />
-                                                        )}
-                                                        <span className={cn("relative", base === nb && !vista3D && "text-white")}>{nb}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                            <button onClick={() => setVista3D((v) => !v)}
-                                                className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-white/55 hover:text-white transition-colors">
-                                                {vista3D && ayuda3D && (
-                                                    <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                        className="absolute inset-0 rounded-lg bg-sky-400/25" />
-                                                )}
-                                                <span className={cn("relative", vista3D && "text-sky-200")}>Vista 3D · girar e inclinar</span>
-                                            </button>
-                                            {!vista3D && (<>
-                                                <span className="block h-px bg-white/[0.08] mx-1 my-1.5" />
-                                                <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mostrar</p>
-                                                {capas.map(({ k, label, icon: Ic }) => {
-                                                    const on = verCapa[k];
-                                                    return (
-                                                        <button key={k} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
-                                                            className={cn("w-full flex items-center gap-2 h-7 px-2 rounded-lg text-[11px] font-semibold transition-colors",
-                                                                on ? "text-white hover:bg-white/[0.08]" : "text-white/35 hover:text-white/70")}>
-                                                            <Ic size={12} />
-                                                            <span className="flex-1 text-left">{label}</span>
-                                                            {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
-                                                        </button>
-                                                    );
-                                                })}
-                                            </>)}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
+                            /* Sólo el botón. El desplegable vive AFUERA de la barra: un
+                               menú absoluto no puede salir de un contenedor que recorta, y
+                               la barra recorta para poder desplazarse en pantallas
+                               angostas. Dos requisitos que no conviven adentro del mismo
+                               elemento, así que se separan. */
+                            <button type="button" data-abierto={menuCapas || undefined}
+                                onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
+                                className="gnav-ancho">
+                                <Layers3 size={14} />
+                                {vista3D ? "Vista 3D" : base}
+                                <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
+                            </button>
                         }
                         despues={
                             /* La acción principal, siempre en la misma punta de la barra. */
@@ -781,6 +739,53 @@ ${CSS_AUTO}
                             )
                         }
                     />
+
+                    {/* El menú de capas, colgado de la barra y por fuera de ella. */}
+                    <AnimatePresence>
+                        {menuCapas && (
+                            <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                                transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
+                                className="mt-2 w-[188px] p-1.5 rounded-2xl bg-card/95 backdrop-blur-2xl border border-border shadow-2xl shadow-black/40 origin-top">
+                                <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mapa de fondo</p>
+                                <div className="grid grid-cols-2 gap-0.5">
+                                    {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
+                                        <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
+                                            className="relative h-7 rounded-lg text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                                            {base === nb && !vista3D && (
+                                                <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                                    className="absolute inset-0 rounded-lg bg-foreground/[0.12]" />
+                                            )}
+                                            <span className={cn("relative", base === nb && !vista3D && "text-foreground")}>{nb}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                <button onClick={() => setVista3D((v) => !v)}
+                                    className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-muted-foreground hover:text-foreground transition-colors">
+                                    {vista3D && ayuda3D && (
+                                        <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                            className="absolute inset-0 rounded-lg bg-sky-400/25" />
+                                    )}
+                                    <span className={cn("relative", vista3D && "text-sky-600 dark:text-sky-200")}>Vista 3D · girar e inclinar</span>
+                                </button>
+                                {!vista3D && (<>
+                                    <span className="block h-px bg-border mx-1 my-1.5" />
+                                    <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mostrar</p>
+                                    {capas.map(({ k, label, icon: Ic }) => {
+                                        const on = verCapa[k];
+                                        return (
+                                            <button key={k} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
+                                                className={cn("w-full flex items-center gap-2 h-7 px-2 rounded-lg text-[11px] font-semibold transition-colors",
+                                                    on ? "text-foreground hover:bg-accent" : "text-muted-foreground/60 hover:text-foreground")}>
+                                                <Ic size={12} />
+                                                <span className="flex-1 text-left">{label}</span>
+                                                {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
+                                            </button>
+                                        );
+                                    })}
+                                </>)}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </motion.div>
 
                 {/* Contextual editing panel */}

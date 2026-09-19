@@ -98,6 +98,7 @@ export function Tabla<T>({
     seleccionCeldas = true,
     filasFantasma = 8,
     pie,
+    barra,
     className,
 }: {
     filas: T[];
@@ -120,6 +121,15 @@ export function Tabla<T>({
     seleccionCeldas?: boolean;
     filasFantasma?: number;
     pie?: React.ReactNode;
+    /**
+     * La barra de herramientas de esta tabla: buscador, filtros, lo que sea.
+     *
+     * Va ADENTRO del marco y no encima como una tarjeta aparte. Una tarjeta suelta flotando
+     * arriba de la tabla se lee como otra cosa que casualmente está cerca; pegada al borde
+     * de arriba, con su línea abajo, se lee como los controles de esta tabla — que es lo
+     * que son.
+     */
+    barra?: React.ReactNode;
     className?: string;
 }) {
     const [orden, setOrden] = useState<{ clave: string; desc: boolean } | null>(null);
@@ -237,6 +247,7 @@ export function Tabla<T>({
 
     return (
         <div className={cn("rounded-xl border border-border bg-card overflow-hidden flex flex-col", className)}>
+            {barra && <div className="shrink-0 border-b border-border">{barra}</div>}
             <div ref={caja} className="relative overflow-auto custom-scrollbar" style={{ maxHeight: alto }} tabIndex={-1}>
                 <table className="w-full caption-bottom text-sm text-foreground border-separate border-spacing-0">
                     <thead className="sticky top-0 z-20">

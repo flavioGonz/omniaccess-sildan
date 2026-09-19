@@ -66,75 +66,59 @@ function fmtDur(ms: number): string {
  * porque una lectura interior no decide nada.
  */
 /**
- * Un grupo de filtros con su rótulo arriba y la explicación al pasar el mouse.
+ * Un grupo de filtros.
  *
- * La barra tenía cuatro segmentados pegados sin nada que dijera qué filtraba cada uno:
- * había que apretar para averiguarlo. El rótulo cuesta una línea y lo resuelve.
+ * Tenía su rótulo en una línea aparte arriba —CLASE DE REGISTRO, IDENTIFICACIÓN,
+ * RESULTADO, SENTIDO— y cuatro grupos así apilaban dos renglones cada uno, con aire entre
+ * medio, dentro de una tarjeta con su propio relleno. El resultado era un bloque más alto
+ * que seis filas de la tabla para decir qué se está mirando, arriba de la tabla que hay
+ * que mirar.
+ *
+ * Ahora es un renglón. El rótulo no se pierde: vive en la explicación que aparece al pasar
+ * el mouse por el grupo, que además es donde ya estaba lo que de verdad hacía falta saber.
  */
 function GrupoFiltro({ rotulo, ayuda, children, oculto }: { rotulo: string; ayuda: string; children: React.ReactNode; oculto?: boolean }) {
     if (oculto) return null;
     return (
-        <div className="flex flex-col gap-1">
-            <Pista titulo={rotulo} texto={ayuda} lado="arriba" className="self-start">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 cursor-help hover:text-muted-foreground transition-colors">{rotulo}</span>
-            </Pista>
-            <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">{children}</div>
-        </div>
+        <Pista titulo={rotulo} texto={ayuda} lado="abajo">
+            <span className="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 border border-border/50">{children}</span>
+        </Pista>
     );
 }
 
-/** Lo que está filtrando ahora mismo, y cómo sacarlo de encima. */
+/** Un botón de un grupo. */
+function Opcion({ activo, onClick, tono = "azul", children }: {
+    activo: boolean; onClick: () => void; tono?: "azul" | "bien" | "mal" | "salida"; children: React.ReactNode;
+}) {
+    const encendido = {
+        azul: "bg-blue-600 text-white",
+        bien: "bg-emerald-600 text-white",
+        mal: "bg-rose-600 text-white",
+        salida: "bg-orange-600 text-white",
+    }[tono];
+    return (
+        <button onClick={onClick}
+            className={cn("h-7 px-2.5 rounded-md text-[11.5px] font-semibold whitespace-nowrap transition-colors",
+                activo ? encendido : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
+            {children}
+        </button>
+    );
+}
+
+/** Lo que está filtrando ahora, y cómo sacarlo de encima. */
 function ChipFiltro({ children, onQuitar }: { children: React.ReactNode; onQuitar: () => void }) {
     return (
         <motion.span
             initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
             transition={{ duration: 0.15 }}
-            className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/25 text-[11px] font-semibold text-blue-300">
+            className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/25 text-[11px] font-semibold text-blue-600 dark:text-blue-300">
             {children}
-            <button onClick={onQuitar} className="w-4 h-4 rounded-full hover:bg-blue-500/25 flex items-center justify-center text-blue-300/70 hover:text-blue-200">
+            <button onClick={onQuitar} className="w-4 h-4 rounded-full hover:bg-blue-500/25 flex items-center justify-center opacity-70 hover:opacity-100">
                 <X size={10} />
             </button>
         </motion.span>
     );
 }
-
-/** Fila gris con latido, para que la tabla no salte de vacía a llena de golpe. */
-function FilaFantasma({ celdas }: { celdas: number }) {
-    const anchos = [70, 55, 40, 60, 45, 30, 35, 25, 20];
-    return (
-        <tr className="border-b border-border/20">
-            {Array.from({ length: celdas }).map((_, i) => (
-                <td key={i} className="px-5 py-4">
-                    <div className="h-3 rounded bg-muted/60 animate-pulse" style={{ width: `${anchos[i % anchos.length]}%` }} />
-                </td>
-            ))}
-        </tr>
-    );
-}
-
-/**
- * Cuanto estuvo quieto el vehiculo, en texto corto.
- *
- * Una lectura ESTACIONADO no es una pasada: es el mismo auto visto en el mismo lugar del
- * cuadro durante un rato. Se muestra aparte para que la tabla no parezca decir que dio
- * cuarenta vueltas cuando en realidad no se movio.
- */
-function duracionQuieto(f: any) {
-    if (!f?.estDesde) return null;
-    const a = new Date(f.estDesde).getTime();
-    const b = new Date(f.estHasta || f.timestamp).getTime();
-    const seg = Math.max(0, (b - a) / 1000);
-    if (seg < 60) return "< 1 min";
-    if (seg < 3600) return `${Math.round(seg / 60)} min`;
-    return `${Math.floor(seg / 3600)} h ${Math.round((seg % 3600) / 60)} min`;
-}
-
-/*
- * Acá vivía `TablaSeguimiento`: 148 líneas de una tabla completa —cinco columnas, su
- * paginado, su estado vacío— que **nunca se renderizó**. Quedó de cuando el seguimiento
- * tenía su propia vista, antes de unificar el historial en una sola tabla, y siguió
- * compilándose y manteniéndose sin que nadie la viera. Se borró.
- */
 
 export default function HistoryPage() {
     const [events, setEvents] = useState<FullAccessEvent[]>([]);
@@ -334,6 +318,13 @@ export default function HistoryPage() {
     const denyCount = resumen.deny;
     const vehFacets = useMemo(() => ({ colors: resumen.colores, types: resumen.tipos }), [resumen]);
 
+    /**
+     * Cuando se eligió mirar sólo avistamientos o estacionados, los filtros de acceso no
+     * aplican: una lectura interior no decide nada, así que no hay permitido ni denegado
+     * ni sentido. La condición estaba escrita cuatro veces igual.
+     */
+    const soloSeguimiento = tipos.length > 0 && !tipos.includes("ACCESO");
+
     /** Los filtros activos, en palabras, cada uno con su forma de sacarlo. */
     const filtrosPuestos = useMemo(() => {
         const l: { id: string; texto: string; quitar: () => void }[] = [];
@@ -346,7 +337,7 @@ export default function HistoryPage() {
             const nombre: Record<string, string> = { ACCESO: "accesos", PASO: "avistamientos", ESTACIONADO: "estacionados" };
             l.push({ id: "cl_" + t, texto: nombre[t] || t, quitar: () => setTipos((p) => p.filter((x) => x !== t)) });
         }
-        if (!(tipos.length > 0 && !tipos.includes("ACCESO"))) {
+        if (!soloSeguimiento) {
             const ident: Record<string, string> = { PLATE: "matrícula", FACE: "rostro", TAG: "RFID" };
             if (filterType !== "ALL" && ident[filterType]) l.push({ id: "t", texto: ident[filterType], quitar: () => setFilterType("ALL") });
             if (filterDecision !== "ALL") l.push({ id: "dec", texto: filterDecision === "GRANT" ? "permitidos" : "denegados", quitar: () => setFilterDecision("ALL") });
@@ -356,7 +347,7 @@ export default function HistoryPage() {
             if (filterMerodeo) l.push({ id: "mer", texto: "merodeo", quitar: () => setFilterMerodeo(false) });
         }
         return l;
-    }, [searchTerm, startDate, endDate, tipos, filterType, filterDecision, filterDirection, filterColor, filterVehType, filterMerodeo]);
+    }, [searchTerm, startDate, endDate, tipos, soloSeguimiento, filterType, filterDecision, filterDirection, filterColor, filterVehType, filterMerodeo]);
 
     const limpiarFiltros = useCallback(() => {
         setSearchTerm(""); setStartDate(""); setEndDate("");
@@ -461,126 +452,131 @@ export default function HistoryPage() {
                 </div>
             </div>
 
-            {/* Search + Filters */}
-            <div className="bg-card/60 border border-border/50 rounded-lg p-5">
-                <div className="flex items-center gap-4 flex-wrap">
-                    {/* Search */}
-                    {/* El buscador, uno solo y del mismo estilo en toda la aplicación.
-                        Arranca abierto: acá no es una pieza suelta en una tarjeta sino el
-                        filtro de una tabla, y un guardia que viene a buscar una matrícula
-                        tiene que poder escribirla sin tener que abrir nada primero. */}
-                    <Seek
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        placeholder="Matrícula, nombre o cámara"
-                        startOpen
-                        width={340}
-                    />
+            {/*
+                LOS CONTROLES DE LA TABLA
+                =========================
 
-                    <GrupoFiltro rotulo="Clase de registro"
-                        ayuda="Entradas y salidas las decide una cámara LPR y abren la barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre. Sin nada elegido se ven todos juntos.">
-                        {[
-                            { v: "", l: "Todo" },
-                            { v: "ACCESO", l: "Accesos" },
-                            { v: "PASO", l: "Avistamientos" },
-                            { v: "ESTACIONADO", l: "Estacionados" },
-                        ].map((t) => {
-                            const activo = t.v === "" ? tipos.length === 0 : tipos.includes(t.v);
-                            return (
-                                <button key={t.l}
-                                    onClick={() => {
-                                        if (t.v === "") { setTipos([]); return; }
-                                        setTipos((p) => p.includes(t.v) ? p.filter((x) => x !== t.v) : [...p, t.v]);
-                                    }}
-                                    className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all",
-                                        activo ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                    {t.l}
-                                </button>
-                            );
-                        })}
-                    </GrupoFiltro>
+                Estaban en una tarjeta aparte de 170 píxeles de alto, con más de la mitad
+                vacía, flotando entre el encabezado y la tabla. Y adentro había tres piezas
+                que se calculaban y no se dibujaban nunca: la lista de filtros puestos, su
+                botón de quitar y el de limpiar todo. Tres controles diseñados, escritos,
+                mantenidos — e invisibles.
 
-                    {/* Type filter tabs */}
-                    <GrupoFiltro rotulo="Identificación" oculto={tipos.length > 0 && !tipos.includes("ACCESO")}
-                        ayuda="Con qué se identificó: la matrícula (LPR), el rostro, o una tarjeta o llavero (RFID).">
-                        {activeMode === null && (
-                            <button onClick={() => setFilterType("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                Todos
-                            </button>
-                        )}
-                        {(activeMode === null || activeMode === "LPR") && (
-                            <button onClick={() => setFilterType("PLATE")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "PLATE" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                LPR
-                            </button>
-                        )}
-                        {(activeMode === null || activeMode === "FACE") && (
-                            <button onClick={() => setFilterType("FACE")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "FACE" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                Rostros
-                            </button>
-                        )}
-                        {activeMode !== "QUEUE" && (
-                            <button onClick={() => setFilterType("TAG")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "TAG" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                RFID
-                            </button>
-                        )}
-                    </GrupoFiltro>
-
-                    {/* Decision filter */}
-                    <GrupoFiltro rotulo="Resultado" oculto={tipos.length > 0 && !tipos.includes("ACCESO")}
-                        ayuda="Si el sistema abrió o no. Los denegados son los que conviene revisar: matrícula desconocida, permiso vencido u horario fuera de rango.">
-                        <button onClick={() => setFilterDecision("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Todos
-                        </button>
-                        <button onClick={() => setFilterDecision("GRANT")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "GRANT" ? "bg-emerald-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Permitidos
-                        </button>
-                        <button onClick={() => setFilterDecision("DENY")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "DENY" ? "bg-red-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Denegados
-                        </button>
-                    </GrupoFiltro>
-
-                    {/* Direction filter */}
-                    <GrupoFiltro rotulo="Sentido" oculto={tipos.length > 0 && !tipos.includes("ACCESO")}
-                        ayuda="Entradas o salidas. Sirve para responder quién está adentro, o para mirar solo el movimiento de una punta.">
-                        <button onClick={() => setFilterDirection("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Todos
-                        </button>
-                        <button onClick={() => setFilterDirection("ENTRY")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "ENTRY" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Entrada
-                        </button>
-                        <button onClick={() => setFilterDirection("EXIT")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "EXIT" ? "bg-orange-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Salida
-                        </button>
-                    </GrupoFiltro>
-
-                    {/* Vehicle color / type filters (client-side, sobre details) */}
-                    {!(tipos.length > 0 && !tipos.includes("ACCESO")) && (vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
-                        <div className="flex items-center gap-1.5">
-                            <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
-                                className="h-9 bg-muted/40 border border-border/30 rounded-md px-2 text-xs font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
-                                <option value="ALL">Color: todos</option>
-                                {vehFacets.colors.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
-                            </select>
-                            <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
-                                className="h-9 bg-muted/40 border border-border/30 rounded-md px-2 text-xs font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
-                                <option value="ALL">Tipo: todos</option>
-                                {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                            {(filterColor !== "ALL" || filterVehType !== "ALL") && (
-                                <button onClick={() => { setFilterColor("ALL"); setFilterVehType("ALL"); }} title="Limpiar filtros de vehículo" className="h-9 w-9 rounded-md bg-muted/40 border border-border/30 text-muted-foreground hover:text-foreground flex items-center justify-center"><X size={14} /></button>
-                            )}
-                        </div>
-                    )}
-
-                    {/* Lo que está filtrando ahora, para no tener que deducirlo de la barra */}
-                    {/* Merodeo filter */}
-                    <button onClick={() => setFilterMerodeo(v => !v)} className={cn("flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold border transition-all", filterMerodeo ? "bg-red-600 text-foreground border-red-500" : "bg-muted/40 text-muted-foreground border-border/30 hover:text-foreground")}>
-                        <ShieldAlert size={14} /> Merodeo{chapasMerodeo.size > 0 ? ` (${chapasMerodeo.size})` : ""}
-                    </button>
-                </div>
-            </div>
-
+                Ahora es un renglón, pegado al borde de arriba de la tabla, adentro de su
+                mismo marco: son SUS controles, no una tarjeta que casualmente está cerca.
+                Y debajo, sólo cuando hay algo puesto, la línea que dice qué se está
+                filtrando — que es la que contesta "¿por qué no aparece lo que busco?".
+            */}
             <TablaUnificada
+                barra={
+                    <div>
+                        <div className="flex items-center gap-2 px-2.5 py-2 overflow-x-auto omni-sin-barra">
+                            {/* El buscador, uno solo y del mismo estilo en toda la aplicación.
+                                Arranca abierto: acá no es una pieza suelta en una tarjeta sino
+                                el filtro de una tabla, y un guardia que viene a buscar una
+                                matrícula tiene que poder escribirla sin abrir nada primero. */}
+                            <div className="shrink-0">
+                                <Seek value={searchTerm} onChange={setSearchTerm}
+                                    placeholder="Matrícula, nombre o cámara" startOpen width={296} />
+                            </div>
+
+                            <span className="w-px h-6 bg-border shrink-0 mx-0.5" />
+
+                            <GrupoFiltro rotulo="Clase de registro"
+                                ayuda="Entradas y salidas las decide una cámara LPR y abren la barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre. Sin nada elegido se ven todos juntos.">
+                                {[
+                                    { v: "", l: "Todo" },
+                                    { v: "ACCESO", l: "Accesos" },
+                                    { v: "PASO", l: "Avistamientos" },
+                                    { v: "ESTACIONADO", l: "Estacionados" },
+                                ].map((t) => (
+                                    <Opcion key={t.l}
+                                        activo={t.v === "" ? tipos.length === 0 : tipos.includes(t.v)}
+                                        onClick={() => {
+                                            if (t.v === "") { setTipos([]); return; }
+                                            setTipos((p) => p.includes(t.v) ? p.filter((x) => x !== t.v) : [...p, t.v]);
+                                        }}>
+                                        {t.l}
+                                    </Opcion>
+                                ))}
+                            </GrupoFiltro>
+
+                            <GrupoFiltro rotulo="Identificación" oculto={soloSeguimiento}
+                                ayuda="Con qué se identificó: la matrícula (LPR), el rostro, o una tarjeta o llavero (RFID).">
+                                {activeMode === null && <Opcion activo={filterType === "ALL"} onClick={() => setFilterType("ALL")}>Todos</Opcion>}
+                                {(activeMode === null || activeMode === "LPR") && <Opcion activo={filterType === "PLATE"} onClick={() => setFilterType("PLATE")}>LPR</Opcion>}
+                                {(activeMode === null || activeMode === "FACE") && <Opcion activo={filterType === "FACE"} onClick={() => setFilterType("FACE")}>Rostros</Opcion>}
+                                {activeMode !== "QUEUE" && <Opcion activo={filterType === "TAG"} onClick={() => setFilterType("TAG")}>RFID</Opcion>}
+                            </GrupoFiltro>
+
+                            <GrupoFiltro rotulo="Resultado" oculto={soloSeguimiento}
+                                ayuda="Si el sistema abrió o no. Los denegados son los que conviene revisar: matrícula desconocida, permiso vencido u horario fuera de rango.">
+                                <Opcion activo={filterDecision === "ALL"} onClick={() => setFilterDecision("ALL")}>Todos</Opcion>
+                                <Opcion activo={filterDecision === "GRANT"} tono="bien" onClick={() => setFilterDecision("GRANT")}>Permitidos</Opcion>
+                                <Opcion activo={filterDecision === "DENY"} tono="mal" onClick={() => setFilterDecision("DENY")}>Denegados</Opcion>
+                            </GrupoFiltro>
+
+                            <GrupoFiltro rotulo="Sentido" oculto={soloSeguimiento}
+                                ayuda="Entradas o salidas. Sirve para responder quién está adentro, o para mirar solo el movimiento de una punta.">
+                                <Opcion activo={filterDirection === "ALL"} onClick={() => setFilterDirection("ALL")}>Todos</Opcion>
+                                <Opcion activo={filterDirection === "ENTRY"} onClick={() => setFilterDirection("ENTRY")}>Entrada</Opcion>
+                                <Opcion activo={filterDirection === "EXIT"} tono="salida" onClick={() => setFilterDirection("EXIT")}>Salida</Opcion>
+                            </GrupoFiltro>
+
+                            {/* Color y tipo aparecen sólo si hay de dónde elegir: un selector
+                                con una sola opción es un control que no decide nada. */}
+                            {!soloSeguimiento && (vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
+                                <>
+                                    <span className="w-px h-6 bg-border shrink-0 mx-0.5" />
+                                    {vehFacets.colors.length > 0 && (
+                                        <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
+                                            className="h-8 shrink-0 bg-muted/60 border border-border/50 rounded-lg px-2 text-[11.5px] font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
+                                            <option value="ALL">Color: todos</option>
+                                            {vehFacets.colors.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
+                                        </select>
+                                    )}
+                                    {vehFacets.types.length > 0 && (
+                                        <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
+                                            className="h-8 shrink-0 bg-muted/60 border border-border/50 rounded-lg px-2 text-[11.5px] font-semibold text-foreground outline-none focus:ring-1 focus:ring-blue-500/30">
+                                            <option value="ALL">Tipo: todos</option>
+                                            {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                    )}
+                                </>
+                            )}
+
+                            <button onClick={() => setFilterMerodeo(v => !v)}
+                                title="Matrículas que aparecen muchas veces en poco tiempo sin llegar a entrar"
+                                className={cn("ml-auto shrink-0 flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11.5px] font-semibold border transition-colors",
+                                    filterMerodeo ? "bg-rose-600 text-white border-rose-500" : "bg-muted/60 text-muted-foreground border-border/50 hover:text-foreground")}>
+                                <ShieldAlert size={13} /> Merodeo{chapasMerodeo.size > 0 ? ` (${chapasMerodeo.size})` : ""}
+                            </button>
+                        </div>
+
+                        {/* Qué se está filtrando. Aparece sólo cuando hay algo puesto, así
+                            que no reserva alto: un renglón vacío permanente es lo que hacía
+                            que el bloque anterior pareciera roto. */}
+                        <AnimatePresence initial={false}>
+                            {filtrosPuestos.length > 0 && (
+                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.18 }} className="overflow-hidden border-t border-border/60">
+                                    <div className="flex items-center gap-1.5 flex-wrap px-2.5 py-1.5">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mr-0.5">Filtrando</span>
+                                        <AnimatePresence initial={false}>
+                                            {filtrosPuestos.map((f) => (
+                                                <ChipFiltro key={f.id} onQuitar={f.quitar}>{f.texto}</ChipFiltro>
+                                            ))}
+                                        </AnimatePresence>
+                                        <button onClick={limpiarFiltros}
+                                            className="ml-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground underline underline-offset-2 decoration-dotted">
+                                            limpiar todo
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
+                }
                 buscar={searchTerm}
                 desde={startDate}
                 hasta={endDate}

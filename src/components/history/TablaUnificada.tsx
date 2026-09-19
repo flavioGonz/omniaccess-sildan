@@ -97,13 +97,15 @@ function desdeEvento(ev: any): FilaHistorial | null {
     };
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, tipoVeh, onMerodeo, onResumen }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, tipoVeh, barra, onMerodeo, onResumen }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /** Matrículas marcadas por merodeo; si viene vacío no se filtra. */
     merodeo?: Set<string>;
     /** Color y tipo de vehículo, sacados de los detalles de cada registro. */
     color?: string;
     tipoVeh?: string;
+    /** Los controles de esta tabla, dentro de su mismo marco. */
+    barra?: React.ReactNode;
     onMerodeo?: (chapas: Set<string>) => void;
     /**
      * Lo que se puede decir de lo que está cargado: cuántos permitidos, cuántos denegados,
@@ -413,6 +415,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
                 filas={visibles}
                 clave={(f) => f.id}
                 columnas={columnas}
+                barra={barra}
                 cargando={cargando}
                 error={error}
                 alReintentar={() => { setError(null); setRecargar((n) => n + 1); }}
