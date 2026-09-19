@@ -5,6 +5,9 @@ import {
     estadoDeEstadia, ESTADOS_DE_ESTADIA, VISTO,
 } from "@/lib/estadias";
 import { mismaChapa, pareceMatricula } from "@/lib/matriculas";
+import {
+    leerCaja, areaTipica, pareceChapa, area as areaDe, type Caja,
+} from "@/lib/recuadros";
 
 export const dynamic = "force-dynamic";
 
@@ -33,14 +36,40 @@ const TOLERANCIA_QUIETO = Number(process.env.TRACKING_PARKED_TOLERANCE || 0.03);
  */
 const CORTE_ESTADIA_MIN = Number(process.env.TRACKING_PARKED_GAP_MIN || 90);
 
-type Caja = { x: number; y: number; w: number; h: number };
+/**
+ * Cuánto mide una chapa en el cuadro de ESA cámara.
+ *
+ * No hay número fijo posible: una chapa ocupa lo que la distancia y el lente digan, y eso
+ * cambia de cámara en cámara y de instalación en instalación. Así que la referencia se
+ * saca de la propia cámara — la mediana del área de sus últimas lecturas — y lo único
+ * configurable es cuánto se tolera desviarse.
+ *
+ * Se guarda en memoria unos minutos porque cambia muy despacio: mientras nadie mueva la
+ * cámara, la chapa de un auto en la misma calle mide lo mismo hoy que mañana. Sin el
+ * caché sería una consulta extra por cada lectura.
+ *
+ * La mediana y no el promedio: un recuadro enorme que se coló ya aceptado corre el
+ * promedio lo suficiente como para dejar entrar al siguiente, y al siguiente.
+ */
+const REFERENCIA_MS = Number(process.env.TRACKING_BOX_CACHE_MS || 5 * 60 * 1000);
+const referencias = new Map<string, { area: number | null; hasta: number }>();
 
-const leerCaja = (v: any): Caja | null => {
-    try {
-        const c = typeof v === "string" ? JSON.parse(v) : v;
-        return c && [c.x, c.y, c.w, c.h].every((n: any) => Number.isFinite(Number(n))) ? c : null;
-    } catch { return null; }
-};
+async function referenciaDeCamara(deviceId: string | null): Promise<number | null> {
+    const clave = deviceId || "(sin camara)";
+    const guardada = referencias.get(clave);
+    if (guardada && guardada.hasta > Date.now()) return guardada.area;
+
+    const filas = await prisma.plateSighting.findMany({
+        where: { deviceId, source: "TRACK", bbox: { not: null } },
+        orderBy: { timestamp: "desc" },
+        take: 120,
+        select: { bbox: true },
+    });
+    const cajas = filas.map((f) => leerCaja(f.bbox)).filter((c): c is Caja => !!c);
+    const area = areaTipica(cajas);
+    referencias.set(clave, { area, hasta: Date.now() + REFERENCIA_MS });
+    return area;
+}
 
 /**
  * ¿Es el mismo vehículo, en el mismo lugar del cuadro?
@@ -114,6 +143,39 @@ export async function POST(req: NextRequest) {
     const cuando = body.timestamp ? new Date(body.timestamp) : new Date();
     const lecturas = body.reads != null ? Number(body.reads) : null;
     const caja = leerCaja(body.bbox);
+
+    /**
+     * ¿Ese recuadro puede ser una matrícula?
+     *
+     * `pareceMatricula` ya filtró por la forma del TEXTO, y no alcanza: el barrio recibe
+     * chapas de cualquier país, así que exigir un molde tiraría lecturas reales, y el
+     * ruido que queda tiene forma de chapa. `PRGI790L` la tiene. Lo que no tiene es
+     * tamaño de chapa: entró con el recuadro cuatro veces más ancho que cualquiera y
+     * saliéndose por el borde izquierdo.
+     *
+     * Y no se puede filtrar por confianza, que es lo primero que uno probaría: medido
+     * sobre el historial de un día, `1QQ3UP1` vino con 0.962 —la más alta de todas— y
+     * `SQT3730`, un auto real leído en diez cuadros, con 0.550. El OCR está más seguro de
+     * la basura que de las chapas de verdad.
+     *
+     * Así que se mira la geometría, que no depende del país ni del OCR.
+     */
+    if (caja) {
+        const referencia = await referenciaDeCamara(body.deviceId || null);
+        const veredicto = pareceChapa(caja, referencia);
+        if (!veredicto.ok) {
+            return NextResponse.json({
+                ok: true,
+                ignorado: veredicto.motivo,
+                plate: patente,
+                caja,
+                // Va el area de referencia para que, si el filtro se come algo que no
+                // debia, se pueda ver contra que se lo comparo en vez de adivinar.
+                areaLeida: Number(areaDe(caja).toFixed(6)),
+                areaTipica: referencia != null ? Number(referencia.toFixed(6)) : null,
+            }, { status: 202 });
+        }
+    }
 
     // ── ¿Sigue ahí el mismo auto quieto?
     const desdeEstadia = new Date(cuando.getTime() - CORTE_ESTADIA_MIN * 60 * 1000);
