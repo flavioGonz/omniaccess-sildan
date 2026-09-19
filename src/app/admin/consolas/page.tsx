@@ -30,6 +30,8 @@ import { io } from "socket.io-client";
 import dynamic from "next/dynamic";
 import { getBitacoraPage } from "@/app/actions/bitacora";
 import BitacoraCard from "@/components/bitacora/BitacoraCard";
+import { ErrorEstado, Vacio } from "@/components/ui/estados";
+import { Skeleton } from "@/components/ui/skeleton";
 import BitacoraTable from "@/components/bitacora/BitacoraTable";
 import ManualRegisterForm from "@/components/bitacora/ManualRegisterForm";
 import GuardManagement from "@/components/bitacora/GuardManagement";
@@ -52,6 +54,8 @@ const notify = (title: string, message: string, type: "success" | "error" | "inf
     else sileo.info({ title, description: message });
 };
 
+const PAGINA = 50;
+
 const TABS = [
     { value: "historial", label: "Historial", icon: History },
     { value: "manual", label: "Registro Manual", icon: PlusCircle },
@@ -73,22 +77,35 @@ export default function ConsolasAdminPage() {
     const [viewMode, setViewMode] = useState<"grid" | "table">("table");
     const [entries, setEntries] = useState<any[]>([]);
     const [loadingEntries, setLoadingEntries] = useState(true);
+    const [errorEntries, setErrorEntries] = useState<string | null>(null);
+    const [hayMas, setHayMas] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
-    const loadEntries = async () => {
+    /**
+     * La bitácora, de a tandas y con su error.
+     *
+     * Pedía siempre `getBitacoraPage(0, 50, ...)` — la página CERO, con el tope escrito
+     * fijo — así que la consola mostraba los últimos cincuenta registros y nada más: no
+     * había forma de llegar al sexto de la noche anterior. Y el `catch` escribía en la
+     * consola del navegador y seguía, con lo cual una consulta caída y una guardia sin
+     * novedades se veían igual, las dos con el cartel "Sin registros en la bitácora".
+     */
+    const loadEntries = async (desde = 0) => {
         setLoadingEntries(true);
         try {
-            const data = await getBitacoraPage(0, 50, searchQuery);
-            setEntries(data);
-        } catch (error) {
-            console.error("Error loading bitacora:", error);
+            const data = await getBitacoraPage(desde, PAGINA, searchQuery);
+            setEntries((prev) => (desde === 0 ? data : [...prev, ...data]));
+            setHayMas(Array.isArray(data) && data.length === PAGINA);
+            setErrorEntries(null);
+        } catch (e: any) {
+            setErrorEntries(e?.message || "No se pudo leer la bitácora.");
         } finally {
             setLoadingEntries(false);
         }
     };
 
-    useEffect(() => { loadEntries(); }, [searchQuery]);
+    useEffect(() => { loadEntries(0); }, [searchQuery]);
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
@@ -219,40 +236,54 @@ export default function ConsolasAdminPage() {
                                 <button onClick={() => setViewMode("table")} className={cn("h-7 w-7 rounded-md flex items-center justify-center transition-all", viewMode === "table" ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:text-foreground")}><List size={15} /></button>
                                 <button onClick={() => setViewMode("grid")} className={cn("h-7 w-7 rounded-md flex items-center justify-center transition-all", viewMode === "grid" ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:text-foreground")}><Grid size={15} /></button>
                             </div>
-                            <Button onClick={loadEntries} variant="outline" className="h-9 px-3 rounded-lg text-xs gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
+                            <Button onClick={() => loadEntries(0)} variant="outline" className="h-9 px-3 rounded-lg text-xs gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
                                 <RefreshCcw size={14} className={loadingEntries ? "animate-spin" : ""} /> <span className="hidden sm:inline">Refrescar</span>
                             </Button>
-                            <Button onClick={() => setIsExportDialogOpen(true)} className="h-9 px-4 rounded-lg text-xs font-bold gap-1.5 bg-red-600 hover:bg-red-500 text-white">
+                            <Button onClick={() => setIsExportDialogOpen(true)} className="accion h-9 px-4 rounded-lg text-xs font-bold gap-1.5">
                                 <FileSpreadsheet size={14} /> Exportar
                             </Button>
                         </div>
                     </div>
 
-                    {loadingEntries ? (
-                        viewMode === "grid" ? (
+                    {/* La vista de tarjetas se conserva: para mirar de un vistazo quién
+                        entró, la foto grande gana. La tabla es para buscar y exportar. */}
+                    {viewMode === "grid" ? (
+                        loadingEntries && !entries.length ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (<div key={i} className="h-56 bg-card/60 rounded-lg animate-pulse" />))}
+                                {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                                    <Skeleton key={i} brillo className="h-56 rounded-lg" />
+                                ))}
                             </div>
+                        ) : errorEntries ? (
+                            <ErrorEstado mensaje={errorEntries} alReintentar={() => loadEntries(0)} />
+                        ) : !entries.length ? (
+                            <Vacio icono={History} titulo="Sin registros en la bitácora"
+                                ayuda="Acá aparece lo que la guardia carga desde la consola: entradas, salidas y visitas." />
                         ) : (
-                            <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
-                                {[1, 2, 3, 4, 5, 6].map((i) => (<div key={i} className="h-14 border-b border-border/40 bg-card/30 animate-pulse" />))}
-                            </div>
+                            <>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                    {entries.map((entry) => (<BitacoraCard key={entry.id} entry={entry} />))}
+                                </div>
+                                {hayMas && (
+                                    <div className="flex justify-center mt-4">
+                                        <Button variant="outline" size="sm" disabled={loadingEntries}
+                                            onClick={() => loadEntries(entries.length)}>
+                                            {loadingEntries ? "Trayendo…" : "Ver más"}
+                                        </Button>
+                                    </div>
+                                )}
+                            </>
                         )
-                    ) : entries.length === 0 ? (
-                        <div className="border border-border/60 rounded-lg bg-background/50 flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
-                            <div className="p-5 bg-card/50 rounded-lg border border-dashed border-border">
-                                <History size={32} className="opacity-40" />
-                            </div>
-                            <p className="text-sm font-semibold">Sin registros en la bitácora</p>
-                            <p className="text-xs">Los eventos de guardia aparecerán aquí.</p>
-                        </div>
-                    ) : viewMode === "grid" ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {entries.map((entry) => (<BitacoraCard key={entry.id} entry={entry} />))}
-                        </div>
                     ) : (
-                        <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50 overflow-x-auto">
-                            <BitacoraTable entries={entries} />
+                        <div className="border border-border rounded-lg overflow-hidden bg-card/40 h-[calc(100vh-320px)] flex flex-col">
+                            <BitacoraTable
+                                entries={entries}
+                                cargando={loadingEntries}
+                                error={errorEntries}
+                                alReintentar={() => loadEntries(0)}
+                                hayMas={hayMas}
+                                traerMas={() => loadEntries(entries.length)}
+                            />
                         </div>
                     )}
                 </TabsContent>
