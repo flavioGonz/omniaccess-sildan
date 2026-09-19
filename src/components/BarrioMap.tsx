@@ -14,7 +14,7 @@ import {
     MousePointer2, Hexagon, Spline, Video, Trash2, Save, Pencil, X, Check,
     Loader2, MapPin, Undo2, Map as MapIco, Radio, Pencil as PencilIcon,
     Plus, Minus, Crosshair, Maximize2, Minimize2, Eye, EyeOff, ShieldCheck, Route as RouteIco,
-    Layers3, ChevronDown, Pentagon, Home, Search,
+    Layers3, ChevronDown, Pentagon, Home, Search, SquareParking, AlertTriangle,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -25,6 +25,7 @@ import { montarVivo } from "@/lib/vivo";
 import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { sileo as toast } from "sileo";
 import { getBarrioMap, saveBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
+import { getParkingSlots } from "@/app/actions/plazas";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
@@ -178,8 +179,23 @@ export default function BarrioMap() {
     const [draftPerimeter, setDraftPerimeter] = useState<LL[]>([]);
     const [draftStreet, setDraftStreet] = useState<LL[]>([]);
     const [draftLote, setDraftLote] = useState<LL[]>([]);
-    const [asignando, setAsignando] = useState<string | null>(null);   // id del lote
+    const [asignando, setAsignando] = useState<{ id: string; que: "unidad" | "plaza" } | null>(null);
     const [unidades, setUnidades] = useState<any[]>([]);
+    const [plazas, setPlazas] = useState<any[]>([]);
+    /**
+     * Si hay dibujo sin guardar.
+     *
+     * Acá estaba el problema que hacía perder lotes. Cerrar un contorno lo agregaba al
+     * estado local y lo dibujaba en el mapa — o sea: en pantalla ya estaba, y el botón
+     * decía "Cerrar", que suena a terminado. Pero el mapa entero se guarda de una sola vez
+     * en un ajuste, y eso pasa recién al apretar "Guardar". El operador dibujaba, veía su
+     * lote, y se iba. Nada le decía que faltaba un paso.
+     *
+     * No se autoguarda: el mapa es un todo — perímetro, calles, cámaras, lotes y vista —
+     * y guardar solo porque se cerró un polígono subiría también lo que quedó a medias.
+     * Lo que faltaba no era guardar solo: era AVISAR.
+     */
+    const [sinGuardar, setSinGuardar] = useState(false);
     const [buscaUnidad, setBuscaUnidad] = useState("");
     const [pendingCam, setPendingCam] = useState<string>("");
     const [selected, setSelected] = useState<{ type: "street" | "camera" | "lote"; id: string } | null>(null);
@@ -215,7 +231,22 @@ export default function BarrioMap() {
         getBarrioMap().then(setData).catch(() => setData(null));
         getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA" || x.deviceType === "LPR_INTERIOR"))).catch(() => {});
         getUnits().then((u: any) => setUnidades(u || [])).catch(() => { });
+        getParkingSlots().then((p: any) => setPlazas(p || [])).catch(() => { });
     }, []);
+    /**
+     * Avisar antes de cerrar la pestaña con dibujo sin guardar.
+     *
+     * El navegador sólo deja mostrar su propio cartel — no se puede escribir el texto —,
+     * pero alcanza: lo que hacía falta era que alguien PREGUNTE. Un lote dibujado y no
+     * guardado se perdía sin una sola señal.
+     */
+    useEffect(() => {
+        if (!sinGuardar) return;
+        const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+        window.addEventListener("beforeunload", avisar);
+        return () => window.removeEventListener("beforeunload", avisar);
+    }, [sinGuardar]);
+
     useEffect(() => {
         const close = () => { setCtx(null); setMenuCapas(false); };
         window.addEventListener("click", close);
@@ -330,42 +361,80 @@ export default function BarrioMap() {
         else if (tool === "lote") setDraftLote((p) => [...p, ll]);
         else if (tool === "camera") {
             if (!pendingCam) { toast.error({ title: "Elegí una cámara primero" }); return; }
-            setData((d) => d ? { ...d, cameras: [...d.cameras.filter((c) => c.deviceId !== pendingCam), { deviceId: pendingCam, lat: ll[0], lng: ll[1] }] } : d);
+            cambiar((d) => ({ ...d, cameras: [...d.cameras.filter((c) => c.deviceId !== pendingCam), { deviceId: pendingCam, lat: ll[0], lng: ll[1] }] }));
             setPendingCam(""); setTool("select");
         }
     };
-    const commitPerimeter = () => { if (draftPerimeter.length >= 3) setData((d) => d ? { ...d, perimeter: draftPerimeter } : d); setDraftPerimeter([]); setTool("select"); };
-    const commitStreet = () => { if (draftStreet.length >= 2) setData((d) => d ? { ...d, streets: [...d.streets, { id: `s_${Date.now()}`, points: draftStreet }] } : d); setDraftStreet([]); setTool("select"); };
+    /**
+     * Cambiar el mapa es marcarlo como sucio, siempre.
+     *
+     * Va por acá y no en cada lugar: había once puntos que tocaban `data`, y alcanzaba con
+     * olvidarse de uno para que el aviso mintiera — y un aviso que a veces no aparece es
+     * peor que ninguno, porque enseña a confiar en él.
+     */
+    const cambiar = (fn: (d: BarrioMapData) => BarrioMapData) => {
+        setSinGuardar(true);
+        setData((d) => d ? fn(d) : d);
+    };
+
+    const commitPerimeter = () => { if (draftPerimeter.length >= 3) cambiar((d) => ({ ...d, perimeter: draftPerimeter })); setDraftPerimeter([]); setTool("select"); };
+    const commitStreet = () => { if (draftStreet.length >= 2) cambiar((d) => ({ ...d, streets: [...d.streets, { id: `s_${Date.now()}`, points: draftStreet }] })); setDraftStreet([]); setTool("select"); };
     const lotes = data.lots || [];
     const commitLote = () => {
         if (draftLote.length >= 3) {
             const nombre = window.prompt("Nombre de la casa o lote:", `Lote ${lotes.length + 1}`);
-            setData((d) => d ? { ...d, lots: [...(d.lots || []), { id: `l_${Date.now()}`, label: (nombre || `Lote ${lotes.length + 1}`).trim(), unitId: null, points: draftLote }] } : d);
+            cambiar((d) => ({ ...d, lots: [...(d.lots || []), { id: `l_${Date.now()}`, label: (nombre || `Lote ${lotes.length + 1}`).trim(), unitId: null, parkingSlotId: null, points: draftLote }] }));
         }
         setDraftLote([]); setTool("select");
+        /*
+         * Decirlo en el momento, no al final.
+         *
+         * "Cerrar" cierra el contorno; el lote todavía vive sólo en la pantalla. El
+         * operador acaba de ver aparecer su polígono y da por hecho que quedó — es lo
+         * razonable. Este aviso es el que faltaba, y va acá y no en una ayuda general
+         * porque el único instante en que sirve es este.
+         */
+        toast.info({
+            title: "Lote dibujado",
+            description: "Todavía no está guardado: tocá «Guardar» para que quede en el mapa del barrio.",
+        });
     };
-    const removeLote = (id: string) => setData((d) => d ? { ...d, lots: (d.lots || []).filter((l) => l.id !== id) } : d);
+    const removeLote = (id: string) => cambiar((d) => ({ ...d, lots: (d.lots || []).filter((l) => l.id !== id) }));
     const renameLote = (id: string) => {
         const actual = lotes.find((l) => l.id === id);
         const n = window.prompt("Nombre de la casa o lote:", actual?.label || "");
-        if (n != null) setData((d) => d ? { ...d, lots: (d.lots || []).map((l) => l.id === id ? { ...l, label: n.trim() } : l) } : d);
+        if (n != null) cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === id ? { ...l, label: n.trim() } : l) }));
     };
+    /**
+     * La plaza de estacionamiento del lote.
+     *
+     * Es otra cosa que la unidad y por eso va aparte: una casa puede tener su cochera del
+     * otro lado del barrio, y una plaza puede estar asignada a alguien sin que nadie haya
+     * dibujado todavía su lote. Atarlas en un solo campo obligaría a inventar una de las
+     * dos cada vez que falta la otra.
+     */
+    const asignarPlaza = (loteId: string, parkingSlotId: string | null) => {
+        cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, parkingSlotId } : l) }));
+        setAsignando(null); setBuscaUnidad("");
+    };
+    const plazaDe = (id?: string | null) => plazas.find((p: any) => p.id === id);
+
     const asignarUnidad = (loteId: string, unitId: string | null) => {
-        setData((d) => d ? { ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, unitId } : l) } : d);
+        cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, unitId } : l) }));
         setAsignando(null); setBuscaUnidad("");
     };
     const moverVertice = (loteId: string, idx: number, ll: LL) => {
-        setData((d) => d ? { ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, points: l.points.map((p, i) => i === idx ? ll : p) } : l) } : d);
+        cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, points: l.points.map((p, i) => i === idx ? ll : p) } : l) }));
     };
     const quitarVertice = (loteId: string, idx: number) => {
-        setData((d) => d ? { ...d, lots: (d.lots || []).map((l) => l.id === loteId && l.points.length > 3 ? { ...l, points: l.points.filter((_, i) => i !== idx) } : l) } : d);
+        cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId && l.points.length > 3 ? { ...l, points: l.points.filter((_, i) => i !== idx) } : l) }));
     };
     /** Unidad asignada a un lote, para el cartel y el panel. */
     const unidadDe = (unitId?: string | null) => unidades.find((u: any) => u.id === unitId);
 
-    const removeCamera = (id: string) => setData((d) => d ? { ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) } : d);
-    const removeStreet = (id: string) => setData((d) => d ? { ...d, streets: d.streets.filter((s) => s.id !== id) } : d);
-    const renameStreet = (id: string) => { const n = window.prompt("Nombre de la calle:"); if (n != null) setData((d) => d ? { ...d, streets: d.streets.map((s) => s.id === id ? { ...s, name: n } : s) } : d); };
+    const removeCamera = (id: string) => cambiar((d) => ({ ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) }));
+    const removeStreet = (id: string) => cambiar((d) => ({ ...d, streets: d.streets.filter((s) => s.id !== id) }));
+    const renameStreet = (id: string) => { const n = window.prompt("Nombre de la calle:"); if (n != null) cambiar((d) => ({ ...d, streets: d.streets.map((s) => s.id === id ? { ...s, name: n } : s) })); };
 
     const deleteSelected = () => {
         if (!selected) return;
@@ -400,7 +469,7 @@ export default function BarrioMap() {
             tresD: vista3D,
             ...(v3 ? { pitch: v3.pitch, bearing: v3.bearing } : {}),
         } as BarrioMapData;
-        try { const r = await saveBarrioMap(payload); if (r.ok) { toast.success({ title: "Mapa guardado", description: vista3D ? "Abre en vista 3D, con este giro e inclinación" : `Vista, zoom y capa ${base} recordados` }); setData(payload); setEditing(false); setTool("select"); } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" }); }
+        try { const r = await saveBarrioMap(payload); if (r.ok) { toast.success({ title: "Mapa guardado", description: vista3D ? "Abre en vista 3D, con este giro e inclinación" : `Vista, zoom y capa ${base} recordados` }); setData(payload); setSinGuardar(false); setEditing(false); setTool("select"); } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" }); }
         catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); } finally { setSaving(false); }
     };
 
@@ -747,10 +816,20 @@ ${CSS_AUTO}
                                     <button type="button" data-principal="guardar" className="gnav-ancho"
                                         onClick={save} disabled={saving}
                                         title="Guarda el dibujo, la vista y la capa elegida">
-                                        {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
+                                        {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                                        Guardar
+                                        {sinGuardar && !saving && (
+                                            /* El punto no es adorno: es la única señal de que lo
+                                               que se ve en el mapa todavía no está en la base. */
+                                            <span className="ml-1 w-1.5 h-1.5 rounded-full bg-[var(--aviso)] animate-pulse" />
+                                        )}
                                     </button>
                                     <button type="button" className="gnav-item" title="Salir sin guardar"
-                                        onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftStreet([]); setDraftLote([]); setSelected(null); setAsignando(null); getBarrioMap().then(setData); }}>
+                                        onClick={() => {
+                                            if (sinGuardar && !window.confirm("Hay dibujo sin guardar. ¿Salir y perder los cambios?")) return;
+                                            setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftStreet([]); setDraftLote([]);
+                                            setSelected(null); setAsignando(null); setSinGuardar(false); getBarrioMap().then(setData);
+                                        }}>
                                         <X size={15} />
                                     </button>
                                 </>
@@ -838,67 +917,129 @@ ${CSS_AUTO}
                             return (<>
                                 <p className="font-bold flex items-center gap-1.5"><Pentagon size={13} className="text-amber-400" /> {lo?.label}</p>
                                 <p className="text-muted-foreground">{uni ? `Unidad: ${uni.name}` : "Sin unidad asignada."}</p>
+                                <p className="text-muted-foreground">
+                                    {plazaDe(lo?.parkingSlotId)
+                                        ? `Plaza: ${plazaDe(lo?.parkingSlotId)?.label}`
+                                        : "Sin plaza de estacionamiento."}
+                                </p>
                                 <p className="text-muted-foreground">Arrastrá los puntos blancos para ajustar el contorno; clic derecho sobre uno lo quita.</p>
                                 <div className="flex gap-2">
-                                    <button onClick={() => setAsignando(lo!.id)} className="flex-1 py-1.5 rounded-md bg-sky-600 text-white font-bold flex items-center justify-center gap-1"><Home size={13} /> {uni ? "Cambiar unidad" : "Asignar unidad"}</button>
+                                    <button onClick={() => setAsignando({ id: lo!.id, que: "unidad" })} className="flex-1 py-1.5 rounded-md accion font-bold flex items-center justify-center gap-1"><Home size={13} /> {uni ? "Cambiar unidad" : "Asignar unidad"}</button>
                                     <button onClick={() => renameLote(lo!.id)} className="px-2 py-1.5 rounded-md bg-accent"><PencilIcon size={13} /></button>
                                 </div>
+                                <button onClick={() => setAsignando({ id: lo!.id, que: "plaza" })}
+                                    className="w-full py-1.5 rounded-md bg-accent font-bold flex items-center justify-center gap-1">
+                                    <SquareParking size={13} /> {plazaDe(lo?.parkingSlotId) ? "Cambiar plaza" : "Asignar plaza"}
+                                </button>
                             </>);
                         })()}
                         {tool === "select" && selected?.type !== "lote" && (<p className="text-muted-foreground flex items-center gap-1.5"><MapPin size={13} /> {selected ? `Seleccionado: ${selected.type === "camera" ? (devById[selected.id]?.name || "cámara") : "calle"}` : "Tocá una casa, calle o cámara (o clic derecho para menú)."}</p>)}
                     </div>
                 )}
 
-                {/* Asignar una unidad al lote, igual que en plazas de parking */}
+                {/* Lo que todavía no está en la base. Va arriba y al centro, sobre el mapa:
+                    el punto del botón se puede no mirar, una franja no. */}
+                {editing && sinGuardar && (
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[560] pointer-events-none">
+                        <span className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-[#0a0d12]/92 backdrop-blur-xl border text-[12px] font-semibold text-white shadow-lg"
+                            style={{ borderColor: "color-mix(in oklab, var(--aviso) 45%, transparent)" }}>
+                            <AlertTriangle size={13} style={{ color: "var(--aviso)" }} />
+                            Cambios sin guardar
+                        </span>
+                    </div>
+                )}
+
+                {/* Asignar una unidad o una plaza al lote */}
                 <AnimatePresence>
                     {asignando && (() => {
-                        const lo = lotes.find((l) => l.id === asignando);
+                        const lo = lotes.find((l) => l.id === asignando.id);
                         const q = buscaUnidad.trim().toLowerCase();
                         const usadas: Record<string, string> = {};
-                        for (const l of lotes) if (l.unitId && l.id !== asignando) usadas[l.unitId] = l.label;
+                        for (const l of lotes) if (l.unitId && l.id !== asignando.id) usadas[l.unitId] = l.label;
                         const lista = unidades
                             .filter((u: any) => !q || `${u.name} ${u.number || ""} ${u.lot || ""} ${u.houseNumber || ""}`.toLowerCase().includes(q))
+                            .slice(0, 60);
+                        const plazaUsada: Record<string, string> = {};
+                        for (const l of lotes) if (l.parkingSlotId && l.id !== asignando.id) plazaUsada[l.parkingSlotId] = l.label;
+                        const listaPlazas = plazas
+                            .filter((pl: any) => !q || String(pl.label || "").toLowerCase().includes(q))
                             .slice(0, 60);
                         return (
                             <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}
                                 transition={{ type: "spring", stiffness: 420, damping: 34 }}
                                 className="absolute bottom-4 left-4 z-[560] w-72 rounded-2xl bg-[#0a0d12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/60 overflow-hidden">
                                 <div className="flex items-center gap-2 px-3 h-11 border-b border-white/[0.07]">
-                                    <Home size={14} className="text-sky-400 shrink-0" />
-                                    <span className="text-[12px] font-bold text-white truncate flex-1">{lo?.label}</span>
+                                    {asignando.que === "plaza"
+                                        ? <SquareParking size={14} className="text-white/60 shrink-0" />
+                                        : <Home size={14} className="text-white/60 shrink-0" />}
+                                    <span className="text-[12px] font-bold text-white truncate flex-1">
+                                        {lo?.label} · {asignando.que === "plaza" ? "plaza" : "unidad"}
+                                    </span>
                                     <button onClick={() => { setAsignando(null); setBuscaUnidad(""); }} className="text-white/40 hover:text-white"><X size={13} /></button>
                                 </div>
                                 <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
                                     <Search size={13} className="text-white/35 shrink-0" />
                                     <input autoFocus value={buscaUnidad} onChange={(e) => setBuscaUnidad(e.target.value)}
-                                        placeholder="Buscar unidad…"
+                                        placeholder={asignando.que === "plaza" ? "Buscar plaza…" : "Buscar unidad…"}
                                         className="flex-1 bg-transparent text-[12px] text-white placeholder:text-white/30 focus:outline-none" />
                                 </div>
                                 <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                                    {lo?.unitId && (
-                                        <button onClick={() => asignarUnidad(lo.id, null)}
-                                            className="w-full text-left px-3 py-2 text-[11.5px] text-red-300 hover:bg-white/[0.08]">
-                                            Quitar la unidad asignada
-                                        </button>
-                                    )}
-                                    {lista.length === 0 ? (
-                                        <p className="px-3 py-4 text-[11px] text-white/40">No hay unidades con ese nombre.</p>
-                                    ) : lista.map((u: any) => {
-                                        const ocupada = usadas[u.id];
-                                        return (
-                                            <button key={u.id} onClick={() => asignarUnidad(asignando!, u.id)}
-                                                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.08] transition-colors">
-                                                <span className="flex-1 min-w-0">
-                                                    <span className="block text-[12px] text-white/90 truncate">{u.name}</span>
-                                                    {(u.lot || u.houseNumber || u.address) && (
-                                                        <span className="block text-[10px] text-white/35 truncate">{[u.lot, u.houseNumber, u.address].filter(Boolean).join(" · ")}</span>
-                                                    )}
-                                                </span>
-                                                {ocupada && <span className="text-[9px] text-amber-300/80 shrink-0">ya en {ocupada}</span>}
-                                                {lo?.unitId === u.id && <Check size={13} className="text-emerald-400 shrink-0" />}
+                                    {asignando.que === "plaza" ? (<>
+                                        {lo?.parkingSlotId && (
+                                            <button onClick={() => asignarPlaza(lo.id, null)}
+                                                className="w-full text-left px-3 py-2 text-[11.5px] text-[var(--mal-texto)] hover:bg-white/[0.08]">
+                                                Quitar la plaza asignada
                                             </button>
-                                        );
-                                    })}
+                                        )}
+                                        {listaPlazas.length === 0 ? (
+                                            <p className="px-3 py-4 text-[11px] text-white/40">
+                                                {plazas.length ? "No hay plazas con ese nombre." : "Todavía no hay plazas dibujadas en el plano de estacionamiento."}
+                                            </p>
+                                        ) : listaPlazas.map((pl: any) => {
+                                            /* Una plaza tomada por OTRO lote se muestra igual, con su aviso: a
+                                               veces hay que corregir justamente eso, y esconderla obligaría a
+                                               ir a buscar cuál era. */
+                                            const enOtro = plazaUsada[pl.id];
+                                            return (
+                                                <button key={pl.id} onClick={() => asignarPlaza(asignando.id, pl.id)}
+                                                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.08] transition-colors">
+                                                    <span className="flex-1 min-w-0">
+                                                        <span className="block text-[12px] text-white/90 truncate">{pl.label}</span>
+                                                        <span className="block text-[10px] text-white/35 truncate">
+                                                            {pl.isOccupied ? "ocupada ahora" : "libre"}
+                                                        </span>
+                                                    </span>
+                                                    {enOtro && <span className="text-[9px] text-amber-300/80 shrink-0">ya en {enOtro}</span>}
+                                                    {lo?.parkingSlotId === pl.id && <Check size={13} className="text-emerald-400 shrink-0" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </>) : (<>
+                                        {lo?.unitId && (
+                                            <button onClick={() => asignarUnidad(lo.id, null)}
+                                                className="w-full text-left px-3 py-2 text-[11.5px] text-[var(--mal-texto)] hover:bg-white/[0.08]">
+                                                Quitar la unidad asignada
+                                            </button>
+                                        )}
+                                        {lista.length === 0 ? (
+                                            <p className="px-3 py-4 text-[11px] text-white/40">No hay unidades con ese nombre.</p>
+                                        ) : lista.map((u: any) => {
+                                            const ocupada = usadas[u.id];
+                                            return (
+                                                <button key={u.id} onClick={() => asignarUnidad(asignando.id, u.id)}
+                                                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.08] transition-colors">
+                                                    <span className="flex-1 min-w-0">
+                                                        <span className="block text-[12px] text-white/90 truncate">{u.name}</span>
+                                                        {(u.lot || u.houseNumber || u.address) && (
+                                                            <span className="block text-[10px] text-white/35 truncate">{[u.lot, u.houseNumber, u.address].filter(Boolean).join(" · ")}</span>
+                                                        )}
+                                                    </span>
+                                                    {ocupada && <span className="text-[9px] text-amber-300/80 shrink-0">ya en {ocupada}</span>}
+                                                    {lo?.unitId === u.id && <Check size={13} className="text-emerald-400 shrink-0" />}
+                                                </button>
+                                            );
+                                        })}
+                                    </>)}
                                 </div>
                             </motion.div>
                         );
@@ -909,7 +1050,8 @@ ${CSS_AUTO}
                 {ctx && (
                     <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[160px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
                         {ctx.type === "lote" ? (<>
-                            <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Home size={13} className="text-sky-400" /> Asignar unidad</button>
+                            <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando({ id: ctx.id, que: "unidad" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Home size={13} /> Asignar unidad</button>
+                            <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando({ id: ctx.id, que: "plaza" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><SquareParking size={13} /> Asignar plaza</button>
                             <button onClick={() => { renameLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar</button>
                             <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar casa</button>
                         </>) : ctx.type === "camera" ? (<>

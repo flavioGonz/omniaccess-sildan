@@ -9,8 +9,21 @@ export interface BarrioMapData {
     perimeter: [number, number][];
     streets: { id: string; name?: string; points: [number, number][] }[];
     cameras: { deviceId: string; lat: number; lng: number }[];
-    /** Lotes: el contorno de cada casa, opcionalmente atado a una unidad. */
-    lots?: { id: string; label: string; unitId?: string | null; points: [number, number][] }[];
+    /**
+     * Lotes: el contorno de cada casa.
+     *
+     * `unitId` lo ata a una unidad del padrón y `parkingSlotId` a una plaza del
+     * estacionamiento. Son dos cosas distintas y por eso son dos campos: una casa puede
+     * tener cochera en otro lado del barrio, y una plaza puede estar asignada sin que
+     * nadie haya dibujado todavía el lote.
+     */
+    lots?: {
+        id: string;
+        label: string;
+        unitId?: string | null;
+        parkingSlotId?: string | null;
+        points: [number, number][];
+    }[];
     /** Capa de fondo con la que abre el mapa: Híbrido, Táctico, Satélite o Calles. */
     base?: string;
     /**
@@ -67,7 +80,13 @@ export async function saveBarrioMap(data: BarrioMapData): Promise<{ ok: boolean;
             update: { value: JSON.stringify(data) },
             create: { key: "BARRIO_MAP", value: JSON.stringify(data) },
         });
+        /*
+         * El mapa se mira desde dos lados y antes sólo se refrescaba uno. La consola de
+         * guardia usa el mismo dibujo que /admin/mapa, así que guardar desde el editor
+         * dejaba la consola con el plano viejo hasta que alguien recargara a mano.
+         */
         revalidatePath("/admin/consolas");
+        revalidatePath("/admin/mapa");
         return { ok: true };
     } catch (e: any) {
         console.error("[saveBarrioMap] fallo:", e);
