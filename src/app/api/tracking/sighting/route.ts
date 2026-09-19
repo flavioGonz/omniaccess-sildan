@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { confirmarEstadia, cerrarEstadia, estadiasAbiertas } from "@/lib/estadias";
-import { mismaChapa } from "@/lib/matriculas";
+import { mismaChapa, pareceMatricula } from "@/lib/matriculas";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +79,17 @@ export async function POST(req: NextRequest) {
     try { body = await req.json(); } catch { }
 
     const patente = String(body.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (patente.length < 4) return NextResponse.json({ error: "Matrícula inválida" }, { status: 400 });
+
+    /**
+     * Antes acá alcanzaba con cuatro caracteres, y por esa puerta entraron `1111` y
+     * `CWA111` como si fueran vehículos: abrían estadía y aparecían en el panel de
+     * estacionados junto a los autos de verdad. El lector devuelve texto aunque no haya
+     * chapa — un cartel, el número de una casa — y ese texto no se parece a una matrícula
+     * en lo más básico: tener letras y números a la vez.
+     */
+    if (!pareceMatricula(patente)) {
+        return NextResponse.json({ ok: true, ignorado: "no parece matrícula", plate: patente }, { status: 202 });
+    }
 
     const confianza = body.confidence != null ? Number(body.confidence) : null;
     const minimo = Number(process.env.TRACKING_MIN_CONFIDENCE || 0.6);

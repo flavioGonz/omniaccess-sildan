@@ -5,12 +5,14 @@ import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice } from "@/app/actions/history";
 import { getDevices, getAvailableStreams } from "@/app/actions/devices";
-import { Car, CheckCircle2, XCircle, Clock, TrendingUp, TrendingDown, Zap, Shield, ShieldAlert, Volume2, VolumeX, AlertTriangle, Filter, RefreshCw, Camera, LogIn, LogOut, Truck, Bus, Bike, Activity, Search, SquareParking, X, MapPin, Home, Loader2, UserPlus, PlayCircle, Route, ChevronDown } from "lucide-react";
+import { Car, CheckCircle2, XCircle, Clock, TrendingUp, TrendingDown, Zap, Shield, ShieldAlert, Volume2, VolumeX, AlertTriangle, Filter, RefreshCw, Camera, LogIn, LogOut, Truck, Bus, Bike, Activity, Search, SquareParking, X, MapPin, Home, Loader2, UserPlus, PlayCircle, Route, ChevronDown, ParkingSquare, CarFront, LogOutIcon, Scan } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { VisorCuadro } from "@/components/VisorCuadro";
+import { Cronometro, leerDuracion } from "@/components/tracking/Cronometro";
+import { ContornoDeteccion } from "@/components/tracking/ContornoDeteccion";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
 import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
 import Image from "next/image";
@@ -188,6 +190,14 @@ function TrackTile({ dev, av }: { dev: any; av?: any }) {
                 <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-violet-500"></span></span>
                 <span className="text-[9px] font-bold text-white/90 truncate max-w-[130px]">{dev.name}</span>
             </div>
+            {/* El cronometro va sobre el vivo, arriba a la derecha: mientras el auto
+                siga ahi, el numero corre. Es el dato que no se puede sacar mirando la
+                imagen, y el unico que cambia solo. */}
+            {av?.estado === "ESTACIONADO" && av?.estDesde && !av?.estCerrada && (
+                <div className="absolute top-1.5 right-1.5 z-20 pointer-events-none">
+                    <Cronometro desde={av.estDesde} tamano="chico" />
+                </div>
+            )}
             {av?.plate && (
                 <div className="absolute inset-x-1.5 bottom-1.5 z-20 pointer-events-none flex flex-col items-center gap-0.5">
                     <div className="px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-white backdrop-blur-sm border shadow-lg bg-violet-600/80 border-violet-300/40">
@@ -210,7 +220,7 @@ function TrackTile({ dev, av }: { dev: any; av?: any }) {
  * es lo mismo para las interiores. Queda visible aunque la sección esté plegada: plegar
  * es para recuperar lugar, no para dejar de ver lo que pasó.
  */
-function TiraInteriores({ avistamientos, onAbrir }: { avistamientos: any[]; onAbrir: (i: number) => void }) {
+function TiraInteriores({ avistamientos, fichas, onAbrir }: { avistamientos: any[]; fichas?: Record<string, any>; onAbrir: (i: number) => void }) {
     if (!avistamientos.length) {
         return (
             <p className="text-[10px] text-foreground/35 py-1.5">
@@ -220,39 +230,144 @@ function TiraInteriores({ avistamientos, onAbrir }: { avistamientos: any[]; onAb
     }
     return (
         <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Capturas recientes</div>
-            <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
-                {avistamientos.slice(0, 14).map((a, i) => {
+            <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Capturas recientes</span>
+                <span className="ml-auto text-[9px] text-muted-foreground/60 tabular-nums">{avistamientos.length}</span>
+            </div>
+            {/* Grilla con scroll VERTICAL. Antes era una fila que se corría de costado y
+                mostraba catorce: el resto quedaba escondido detrás de un gesto que nadie
+                hace, y una captura que no se ve es una captura que no existe. Hacia abajo
+                entran muchas más de un vistazo, y el scroll es el que ya se usa en toda
+                la pantalla. */}
+            <div className="grid grid-cols-3 gap-1.5 max-h-[42vh] overflow-y-auto custom-scrollbar pr-1">
+                {avistamientos.map((a, i) => {
                     const t = new Date(a.timestamp);
                     const seg = Math.round((Date.now() - t.getTime()) / 1000);
                     const conf = typeof a.confidence === "number" ? Math.round(a.confidence * 100) : null;
+                    const quieto = a.estado === "ESTACIONADO";
+                    const ficha = fichas?.[a.plate];
+                    const vig = ficha?.vigilancia;
                     return (
                         <button key={a.id || i} type="button" onClick={() => onAbrir(i)}
-                            className="shrink-0 w-[104px] text-left group">
-                            <div className="relative rounded-lg overflow-hidden border border-neutral-800 group-hover:border-violet-400/60 transition-colors aspect-video bg-black">
+                            className="text-left group">
+                            <div className={cn(
+                                "relative rounded-lg overflow-hidden border transition-colors aspect-video bg-black",
+                                vig ? "border-rose-400/60"
+                                    : quieto ? "border-violet-500/50 group-hover:border-violet-300"
+                                        : "border-neutral-800 group-hover:border-violet-400/60",
+                            )}>
                                 {a.snapshotUrl ? (
                                     /* eslint-disable-next-line @next/next/no-img-element */
                                     <img src={a.snapshotUrl} alt={a.plate} className="absolute inset-0 w-full h-full object-cover" />
                                 ) : (
                                     <div className="absolute inset-0 flex items-center justify-center text-foreground/25"><Car size={16} /></div>
                                 )}
+                                {/* Sobre la miniatura solo lo que se distingue a este tamaño:
+                                    la chapa, y si estaba quieto. Lo demás va debajo. */}
+                                {quieto && (
+                                    <span className="absolute top-1 left-1 px-1 rounded bg-violet-600/90 text-[8px] font-black uppercase tracking-wider text-white flex items-center gap-0.5">
+                                        <ParkingSquare size={8} />{a.estCerrada ? "se fue" : "quieto"}
+                                    </span>
+                                )}
+                                {ficha?.dueno && (
+                                    <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-500/90 flex items-center justify-center" title={ficha.dueno.nombre || ""}>
+                                        <Home size={8} className="text-white" />
+                                    </span>
+                                )}
                                 <div className="absolute inset-x-0 bottom-0 flex justify-center pb-0.5">
-                                    <span className="px-1.5 rounded bg-violet-600/85 font-mono text-[10px] font-bold tracking-wider text-white">{a.plate}</span>
+                                    <span className="px-1.5 rounded bg-black/75 font-mono text-[10px] font-bold tracking-wider text-white">{a.plate}</span>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-1 mt-1 text-[9px] text-muted-foreground">
+                            <div className="flex items-center gap-1 mt-0.5 text-[8.5px] text-muted-foreground">
                                 <span className="truncate flex-1">{a.cameraName || "—"}</span>
                                 {conf != null && (
                                     <span className={cn("font-semibold", conf >= 85 ? "text-emerald-400" : conf >= 65 ? "text-amber-400" : "text-red-400")}>{conf}%</span>
                                 )}
                             </div>
-                            <div className="text-[9px] text-muted-foreground/70">
+                            <div className="text-[8.5px] text-muted-foreground/70 truncate">
                                 {seg < 60 ? `hace ${seg}s` : seg < 3600 ? `hace ${Math.round(seg / 60)} min` : t.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
                             </div>
                         </button>
                     );
                 })}
             </div>
+        </div>
+    );
+}
+
+/**
+ * Los estacionamientos, en vivo.
+ *
+ * Una cámara de calle ve tres clases de vehículo a la vez: el que pasa, el que está
+ * estacionado y el que justo se está yendo. El monitor mostraba las tres como lecturas
+ * iguales, y de una lista de lecturas nadie deduce que un auto lleva cuarenta minutos
+ * parado frente a la 22 — hay que reconstruirlo comparando horas a mano.
+ *
+ * Acá están las dos caras de una estadía, ya resueltas: los que están ahora y los que se
+ * acaban de ir. Del primero interesa cuánto lleva, y por eso el reloj corre. Del segundo
+ * interesa cuánto estuvo, y por eso el reloj está quieto.
+ */
+function PanelEstadias({ estacionados, partidos, fichas, onVer }: {
+    estacionados: any[]; partidos: any[]; fichas?: Record<string, any>;
+    onVer: (fila: any) => void;
+}) {
+    const [solapa, setSolapa] = useState<"aqui" | "fueron">("aqui");
+    const filas = solapa === "aqui" ? estacionados : partidos;
+    if (!estacionados.length && !partidos.length) return null;
+
+    return (
+        <div className="rounded-lg border border-violet-500/25 bg-violet-500/[0.06] overflow-hidden">
+            <div className="flex items-center gap-1 px-2 py-1.5 border-b border-violet-500/20">
+                <ParkingSquare size={12} className="text-violet-300 shrink-0" />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-violet-200">Estadías</span>
+                <div className="ml-auto flex items-center rounded-md border border-violet-500/30 overflow-hidden">
+                    <button type="button" onClick={() => setSolapa("aqui")}
+                        className={cn("px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider transition-colors",
+                            solapa === "aqui" ? "bg-violet-500/35 text-white" : "text-violet-200/60 hover:text-violet-100")}>
+                        Están · {estacionados.length}
+                    </button>
+                    <button type="button" onClick={() => setSolapa("fueron")}
+                        className={cn("px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-wider transition-colors border-l border-violet-500/30",
+                            solapa === "fueron" ? "bg-violet-500/35 text-white" : "text-violet-200/60 hover:text-violet-100")}>
+                        Se fueron · {partidos.length}
+                    </button>
+                </div>
+            </div>
+            {filas.length === 0 ? (
+                <p className="px-2 py-2 text-[10px] text-foreground/40">
+                    {solapa === "aqui" ? "Ningún vehículo estacionado en el encuadre de las cámaras." : "Nadie se fue en la última hora."}
+                </p>
+            ) : (
+                <div className="max-h-[26vh] overflow-y-auto custom-scrollbar divide-y divide-violet-500/10">
+                    {filas.map((f) => {
+                        const ficha = fichas?.[f.plate];
+                        return (
+                            <button key={f.id} type="button" onClick={() => onVer(f)}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-violet-500/10 transition-colors text-left">
+                                <div className="relative w-14 h-9 rounded overflow-hidden bg-black shrink-0 border border-violet-500/25">
+                                    {f.snapshotUrl
+                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                        ? <img src={f.snapshotUrl} alt={f.plate} className="w-full h-full object-cover" />
+                                        : <div className="w-full h-full flex items-center justify-center text-foreground/25"><Car size={12} /></div>}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="font-mono text-[12px] font-bold tracking-wider text-white truncate">{f.plate}</div>
+                                    <div className="text-[9px] text-muted-foreground truncate">
+                                        {f.cameraName || "—"}
+                                        {ficha?.dueno?.nombre ? ` · ${ficha.dueno.nombre}` : ""}
+                                        {ficha?.dueno?.unidad ? ` · ${ficha.dueno.unidad}` : ""}
+                                    </div>
+                                </div>
+                                <Cronometro
+                                    desde={f.estDesde}
+                                    hasta={solapa === "fueron" ? f.estHasta : null}
+                                    tamano="chico"
+                                />
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 }
@@ -738,6 +853,11 @@ export default function MonitorLPR() {
     const [interiores, setInteriores] = useState<any[]>([]);
     const [avistPorCam, setAvistPorCam] = useState<Record<string, any>>({});
     const [avistUltimos, setAvistUltimos] = useState<any[]>([]);
+    const [estadias, setEstadias] = useState<{ estacionados: any[]; partidos: any[] }>({ estacionados: [], partidos: [] });
+    const [fichasTrack, setFichasTrack] = useState<Record<string, any>>({});
+    // El visor puede abrirse desde la tira (por indice) o desde el panel de estadias
+    // (una fila que no esta en la tira). Guardar la fila suelta cubre las dos.
+    const [cuadroSuelto, setCuadroSuelto] = useState<any | null>(null);
     const [cuadroAbierto, setCuadroAbierto] = useState<number | null>(null);
     const [verInteriores, setVerInteriores] = useState(true);
     const router = useRouter();
@@ -782,7 +902,12 @@ export default function MonitorLPR() {
     useEffect(() => {
         let vivo = true;
         const traer = async () => {
-            try { const r = await fetch("/api/tracking/recent", { cache: "no-store" }); const j = await r.json(); if (vivo) { setAvistPorCam(j?.porCamara || {}); setAvistUltimos(j?.ultimos || []); } } catch { }
+            try { const r = await fetch("/api/tracking/recent", { cache: "no-store" }); const j = await r.json(); if (vivo) {
+                    setAvistPorCam(j?.porCamara || {});
+                    setAvistUltimos(j?.ultimos || []);
+                    setEstadias({ estacionados: j?.estadias?.estacionados || [], partidos: j?.estadias?.partidos || [] });
+                    setFichasTrack(j?.fichas || {});
+                } } catch { }
         };
         traer();
         const iv = setInterval(traer, 10000);
@@ -1144,7 +1269,15 @@ export default function MonitorLPR() {
                                     </div>
                                 )}
 
-                                <TiraInteriores avistamientos={avistUltimos} onAbrir={setCuadroAbierto} />
+                                <div className="mb-2">
+                                    <PanelEstadias
+                                        estacionados={estadias.estacionados}
+                                        partidos={estadias.partidos}
+                                        fichas={fichasTrack}
+                                        onVer={(f) => { setCuadroSuelto(f); setCuadroAbierto(null); }}
+                                    />
+                                </div>
+                                <TiraInteriores avistamientos={avistUltimos} fichas={fichasTrack} onAbrir={(i) => { setCuadroSuelto(null); setCuadroAbierto(i); }} />
                             </div>
                         )}
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -1190,9 +1323,17 @@ export default function MonitorLPR() {
                 </div>
             </div>
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
+                {cuadroSuelto && (
+                    <VisorCuadro
+                        fila={cuadroSuelto}
+                        ficha={fichasTrack[cuadroSuelto.plate]}
+                        onCerrar={() => setCuadroSuelto(null)}
+                    />
+                )}
                 {cuadroAbierto !== null && avistUltimos[cuadroAbierto] && (
                     <VisorCuadro
                         fila={avistUltimos[cuadroAbierto]}
+                        ficha={fichasTrack[avistUltimos[cuadroAbierto].plate]}
                         hayAnterior={cuadroAbierto > 0}
                         haySiguiente={cuadroAbierto < avistUltimos.length - 1}
                         onAnterior={() => setCuadroAbierto((v) => (v === null ? v : Math.max(0, v - 1)))}

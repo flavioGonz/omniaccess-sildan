@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { notificarEvento } from "@/lib/reglas-notificacion";
+import { mismaChapa } from "@/lib/matriculas";
 
 /**
  * Estadías: cuándo un vehículo estaciona y cuándo se va.
@@ -96,10 +97,22 @@ export async function cerrarEstadia(fila: {
     return true;
 }
 
-/** Las estadías abiertas de esa matrícula en esa cámara. */
-export function estadiasAbiertas(plate: string, deviceId: string | null) {
-    return prisma.plateSighting.findMany({
-        where: { plate, deviceId, source: "TRACK", estado: "ESTACIONADO", estCerrada: false },
+/**
+ * Las estadías abiertas de esa matrícula en esa cámara.
+ *
+ * Se buscan por PARECIDO y no por texto exacto, por el mismo motivo por el que se
+ * enganchan así las lecturas: una estadía abierta bajo `AAU90` es la del auto que ahora
+ * se lee `AAU9032`, y con igualdad exacta quedaba abierta para siempre — el auto se iba,
+ * la fila no se cerraba, y el panel seguía mostrándolo estacionado.
+ *
+ * El filtro por cámara ya acota mucho el universo, así que traer las abiertas de ese
+ * equipo y compararlas en memoria cuesta lo mismo y no deja huérfanas.
+ */
+export async function estadiasAbiertas(plate: string, deviceId: string | null) {
+    const abiertas = await prisma.plateSighting.findMany({
+        where: { deviceId, source: "TRACK", estado: "ESTACIONADO", estCerrada: false },
         orderBy: { timestamp: "desc" },
+        take: 60,
     });
+    return abiertas.filter((f) => mismaChapa(f.plate, plate));
 }

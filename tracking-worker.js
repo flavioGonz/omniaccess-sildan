@@ -372,7 +372,7 @@ async function leerMatriculas(jpeg) {
     const crudas = [];
     for (const it of items) {
         const texto = (it?.ocr?.text || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-        if (texto.length < 4) continue;
+        if (!pareceMatricula(texto)) continue;
         const conf = Math.min(promedio(it?.ocr?.confidence) || 0, it?.detection?.confidence ?? 1);
         crudas.push({ plate: texto, confidence: conf, chars: it?.ocr?.confidence, caja: it?.detection?.bounding_box || null });
     }
@@ -437,11 +437,36 @@ async function leerMatriculas(jpeg) {
  * diferencia. Dos autos distintos no se parecen en seis o siete posiciones.
  */
 function mismaChapa(a, b) {
-    if (a.length !== b.length) return false;
-    const tolera = a.length >= 6 ? 2 : 1;
-    let d = 0;
-    for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) { d++; if (d > tolera) return false; }
-    return true;
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (a.length === b.length) {
+        const tolera = a.length >= 6 ? 2 : 1;
+        let d = 0;
+        for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) { d++; if (d > tolera) return false; }
+        return true;
+    }
+    // Chapa cortada. El baldoseado parte la chapa cuando cae en el borde de una baldosa,
+    // y la lectura vuelve con un pedazo: AAU90 donde dice AAU9032. Cambia el largo, asi
+    // que la comparacion por parecido no lo agarra nunca, y el mismo auto estacionado
+    // llego a abrir dos estadias el mismo segundo en Calle 22 por este motivo.
+    const corta = a.length < b.length ? a : b;
+    const larga = a.length < b.length ? b : a;
+    if (corta.length < 5 || larga.length - corta.length > 3) return false;
+    return larga.startsWith(corta) || larga.endsWith(corta);
+}
+
+/**
+ * Tiene forma de matricula, o es un invento del lector?
+ *
+ * El OCR devuelve texto aunque no haya chapa: un cartel, el numero de una casa. Entraron
+ * asi 1111 y CWA111 como si fueran vehiculos. No se exige el molde uruguayo exacto (hay
+ * chapas viejas, de moto y extranjeras); se exige lo minimo que toda chapa cumple y el
+ * ruido no: largo razonable, y letras Y numeros a la vez.
+ * Esto tambien lo controla la API; aca ahorra el viaje.
+ */
+function pareceMatricula(p) {
+    if (!p || p.length < 6 || p.length > 8) return false;
+    return /[A-Z]/.test(p) && /[0-9]/.test(p);
 }
 
 /** Parte las lecturas de la rafaga en un grupo por vehiculo. */
@@ -468,7 +493,7 @@ async function releer(recorte, modelo) {
         const d = await invocar("recognize_plate", { image_base64: recorte.toString("base64"), ocr_model: modelo }, 15000);
         const bruto = d?.[0]?.plate ?? d?.[0]?.ocr?.text ?? "";
         const texto = String(bruto).toUpperCase().replace(/[^A-Z0-9]/g, "");
-        return texto.length >= 4 ? texto : null;
+        return pareceMatricula(texto) ? texto : null;
     } catch { return null; }
 }
 
