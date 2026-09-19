@@ -1750,3 +1750,21 @@ video::-webkit-media-controls { display: none !important; }
 .visor-bien  { color: color-mix(in oklab, var(--bien)  52%, #fff); }
 .visor-aviso { color: color-mix(in oklab, var(--aviso) 52%, #fff); }
 .visor-mal   { color: color-mix(in oklab, var(--mal)   52%, #fff); }
+
+/* El tamano de la ventana del visor.
+   FIJO, y no el de cada foto. Antes la ventana se ajustaba a la imagen, asi
+   que cada captura abria una ventana de distinto tamano: se pasaba de un
+   evento al siguiente con las flechas y la ventana saltaba, y con ella
+   saltaban la ficha, los controles y el boton de cerrar -- que es justo lo
+   que uno esta por apretar. Ahora la ventana mide siempre lo mismo y la foto
+   se acomoda adentro; si su proporcion no es 16:9 quedan dos franjas negras,
+   que es infinitamente menos molesto que una ventana que se mueve sola.
+
+   El alto manda y el ancho se deriva, asi la proporcion nunca se rompe y la
+   ventana nunca se sale de la pantalla. */
+.visor-ventana {
+  --visor-ancho-max: min(1400px, 94vw);
+  --visor-alto: min(80vh, calc(var(--visor-ancho-max) * 9 / 16));
+  width: calc(var(--visor-alto) * 16 / 9);
+  height: var(--visor-alto);
+}

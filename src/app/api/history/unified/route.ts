@@ -35,6 +35,9 @@ type Fila = {
     lecturas: number | null;
     foto: string | null;
     estDesde: string | null;
+    /** Dónde cayó la chapa dentro del cuadro. Sin esto el visor no puede dibujar la retícula. */
+    bbox: string | null;
+    estCerrada: boolean;
     estHasta: string | null;
     detalles: string | null;
     /** Solo en las salidas: cuánto estuvo adentro desde su propia entrada. */
@@ -146,6 +149,8 @@ export async function GET(req: NextRequest) {
             lecturas: null,
             foto: a.snapshotPath || a.imagePath || null,
             estDesde: null,
+            bbox: null,
+            estCerrada: false,
             estHasta: null,
             detalles: a.details || null,
             permanencia: null,
@@ -165,6 +170,8 @@ export async function GET(req: NextRequest) {
             lecturas: s.reads ?? null,
             foto: s.snapshotUrl || null,
             estDesde: s.estDesde ? s.estDesde.toISOString() : null,
+            bbox: s.bbox || null,
+            estCerrada: !!s.estCerrada,
             estHasta: s.estHasta ? s.estHasta.toISOString() : null,
             detalles: null,
             permanencia: null,

@@ -31,6 +31,8 @@ export type FilaHistorial = {
     lecturas: number | null;
     foto: string | null;
     estDesde: string | null;
+    bbox: string | null;
+    estCerrada: boolean;
     estHasta: string | null;
     detalles: string | null;
     permanencia: number | null;
@@ -93,7 +95,8 @@ function desdeEvento(ev: any): FilaHistorial | null {
         confianza: null,
         lecturas: null,
         foto: ev.snapshotPath || ev.imagePath || null,
-        estDesde: null, estHasta: null, detalles: ev.details || null, permanencia: null,
+        estDesde: null, estHasta: null, bbox: null, estCerrada: false,
+        detalles: ev.details || null, permanencia: null,
         raw: ev,
     };
 }
@@ -125,7 +128,17 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
     const [error, setError] = useState<string | null>(null);
     const [pagina, setPagina] = useState(0);
     const [abierta, setAbierta] = useState<string | null>(null);
-    const [viendo, setViendo] = useState<{ foto: string; plate: string; camara: string | null; momento: string; confianza: number | null } | null>(null);
+    /*
+     * La fila ENTERA, no un recorte.
+     *
+     * Acá se armaba a mano un objeto con cinco campos — foto, chapa, cámara, momento y
+     * confianza — y con eso se abría el visor. El visor sabe dibujar bastante más que eso:
+     * la retícula sobre la matrícula, el cronómetro de la estadía, si el vehículo se fue.
+     * Todo eso depende de `bbox`, `estado`, `estDesde` y `estCerrada`, que este recorte
+     * dejaba afuera, así que desde el historial el visor se abría siempre a medias — y no
+     * por falta de datos, que estaban en la fila, sino por el recorte.
+     */
+    const [viendo, setViendo] = useState<FilaHistorial | null>(null);
     const clave = useRef("");
     const [recargar, setRecargar] = useState(0);
     const { marcar, es: esNueva } = useDestello();
@@ -292,7 +305,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
             ayuda: "La foto del momento: hacé clic para verla grande y acercarla, que es como se juzga una matrícula chica.",
             celda: (f) => (
                 <Miniatura src={f.foto} alt={f.plate || ""}
-                    alAbrir={f.foto ? () => setViendo({ foto: f.foto!, plate: f.plate || "—", camara: f.camara, momento: f.momento, confianza: f.confianza }) : undefined} />
+                    alAbrir={f.foto ? () => setViendo(f) : undefined} />
             ),
         },
         {
@@ -430,8 +443,10 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
                     <FlujoMatricula
                         plate={f.plate}
                         at={f.momento}
+                        /* Un paso del flujo no es la fila: tiene su propia cámara y su
+                           propio momento. Se hereda de la fila lo que el paso no trae. */
                         onVerFoto={(p: PasoFlujo) => p.foto && setViendo({
-                            foto: p.foto, plate: f.plate!, camara: p.camara, momento: p.momento, confianza: p.confianza,
+                            ...f, foto: p.foto, camara: p.camara, momento: p.momento, confianza: p.confianza,
                         })}
                     />
                 ) : null}
@@ -451,11 +466,19 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
             {viendo && (
                 <VisorCuadro
                     fila={{
-                        plate: viendo.plate,
+                        plate: viendo.plate || "",
                         cameraName: viendo.camara,
+                        deviceId: viendo.deviceId,
                         timestamp: viendo.momento,
                         confidence: viendo.confianza,
+                        reads: viendo.lecturas,
                         snapshotUrl: viendo.foto,
+                        bbox: viendo.bbox,
+                        decision: viendo.decision,
+                        estado: viendo.tipo === "ESTACIONADO" ? "ESTACIONADO" : "PASO",
+                        estDesde: viendo.estDesde,
+                        estHasta: viendo.estHasta,
+                        estCerrada: viendo.estCerrada,
                     }}
                     onCerrar={() => setViendo(null)}
                 />

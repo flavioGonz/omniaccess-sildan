@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import {
     X, ChevronLeft, ChevronRight, Camera, ZoomIn, ZoomOut, Maximize2,
     Scan, Car, Home, Phone, ParkingSquare, ShieldAlert, Star, Search as Lupa,
-    Layers, UserPlus, Radio,
+    Layers, UserPlus, Radio, LogIn, LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
@@ -25,6 +25,8 @@ export type CuadroAvistamiento = {
     reads?: number | null;
     snapshotUrl?: string | null;
     bbox?: string | null;
+    /** GRANT | DENY | UNKNOWN. Lo que decidió el control de acceso, si hubo uno. */
+    decision?: string | null;
     estado?: string | null;
     estDesde?: string | Date | null;
     estHasta?: string | Date | null;
@@ -110,14 +112,47 @@ const ICONO_VIGILANCIA: Record<string, any> = { negra: ShieldAlert, busca: Lupa,
  * registrado Y estar en la lista negra — de hecho es el caso que más importa —, y ahí lo
  * que hay que ver es la lista, no el registro.
  */
-function tonoDelEstado(ficha?: FichaMatricula | null) {
+function tonoDelEstado(fila: CuadroAvistamiento, ficha?: FichaMatricula | null) {
     const cat = ficha?.vigilancia?.categoria;
     if (cat === "negra") return "var(--mal)";
+    // Denegado: el sistema miró y dijo que no. Eso sí es rojo — es un hecho, no una
+    // ausencia de datos.
+    if (fila.decision === "DENY") return "var(--mal)";
     if (cat === "busca") return "var(--aviso)";
     if (cat === "vip") return "var(--quieto)";
     if (ficha?.dueno || ficha?.marca) return "var(--bien)";
     // Desconocida: no se sabe nada, y eso no es una alarma.
     return "var(--muted-foreground)";
+}
+
+/**
+ * En qué momento de su historia está este vehículo.
+ *
+ * Cuatro, y cada uno se dice distinto porque son cosas distintas:
+ *
+ *   pasó          cruzó el encuadre y siguió. No tiene duración: tiene hora.
+ *   llegó         acaba de estacionar y la estadía todavía no se consolidó. Un auto
+ *                 detenido dos minutos puede ser alguien que baja a abrir un portón, así
+ *                 que hasta que cruza el umbral del servidor es "llegó", no "estacionado".
+ *   estacionado   lleva ahí lo suficiente como para que sea una estadía de verdad.
+ *   se fue        la estadía se cerró. El reloj queda quieto en cuánto estuvo.
+ *
+ * El umbral que separa "llegó" de "estacionado" es `limiteMin`, y viene del servidor: es
+ * el mismo con el que el barrendero decide que una estadía se consolidó. Sin él no se
+ * puede afirmar la diferencia, así que no se afirma: queda en "estacionado".
+ */
+function momentoDeLaEstadia(fila: CuadroAvistamiento, limiteMin?: number | null) {
+    if (fila.estado !== "ESTACIONADO") {
+        return { clave: "paso" as const, etiqueta: "Pasó", icono: Car };
+    }
+    if (fila.estCerrada) {
+        return { clave: "fue" as const, etiqueta: "Se fue", icono: LogOut };
+    }
+    const desde = fila.estDesde ? new Date(fila.estDesde).getTime() : null;
+    const recien = desde != null && limiteMin != null && (Date.now() - desde) < limiteMin * 60000;
+    return recien
+        ? { clave: "llego" as const, etiqueta: "Llegó", icono: LogIn }
+        : { clave: "quieto" as const, etiqueta: "Estacionado", icono: ParkingSquare };
 }
 
 /**
@@ -192,7 +227,15 @@ export function VisorCuadro({
     const [pos, setPos] = useState({ x: 0, y: 0 });
     const [verContorno, setVerContorno] = useState(true);
     const [copiada, setCopiada] = useState(false);
+    /**
+     * La proporcion de la foto. Arranca en 16:9 — que es lo que entrega cualquier camara
+     * de seguridad — y se corrige con la medida real en cuanto la imagen carga. Arrancar
+     * en un valor razonable evita el salto de un cuadro sin proporcion a uno con ella.
+     */
+    const [proporcion, setProporcion] = useState(16 / 9);
     const marco = useRef<HTMLDivElement | null>(null);
+    /** La caja de la imagen: mas chica que la ventana cuando la foto no es 16:9. */
+    const cajaImg = useRef<HTMLDivElement | null>(null);
     const arrastre = useRef<{ x: number; y: number; px: number; py: number; movio: boolean } | null>(null);
     const pellizco = useRef<number | null>(null);
 
@@ -202,14 +245,14 @@ export function VisorCuadro({
     const reiniciar = useCallback(() => { setEscala(1); setPos({ x: 0, y: 0 }); }, []);
 
     // Cada foto se abre sin acercar: heredar el zoom de la anterior desorienta.
-    useEffect(() => { reiniciar(); }, [fila.snapshotUrl, reiniciar]);
+    useEffect(() => { reiniciar(); setProporcion(16 / 9); }, [fila.snapshotUrl, reiniciar]);
 
     /**
      * Acerca manteniendo quieto el punto que está bajo el puntero.
      * Escalar sobre el centro hace que lo que se quería mirar se escape del marco.
      */
     const zoomEn = useCallback((nueva: number, clienteX?: number, clienteY?: number) => {
-        const caja = marco.current?.getBoundingClientRect() || null;
+        const caja = cajaImg.current?.getBoundingClientRect() || null;
         const destino = Math.max(1, Math.min(ESCALA_MAX, nueva));
         setPos((p) => {
             if (destino <= 1) return { x: 0, y: 0 };
@@ -227,7 +270,7 @@ export function VisorCuadro({
      * diez veces, y a mano son tres gestos: acercar, encontrarla y centrarla.
      */
     const irALaChapa = useCallback(() => {
-        const caja = marco.current?.getBoundingClientRect();
+        const caja = cajaImg.current?.getBoundingClientRect();
         if (!recuadro || !caja) return;
         // Que la chapa ocupe alrededor de un tercio del ancho del marco.
         const destino = Math.max(1, Math.min(ESCALA_MAX, 0.34 / recuadro.w));
@@ -309,7 +352,37 @@ export function VisorCuadro({
     const IconoVig = vig?.categoria ? (ICONO_VIGILANCIA[vig.categoria] || ShieldAlert) : null;
     const conocida = !!(ficha?.dueno || ficha?.marca);
     const logo = getCarLogo(ficha?.marca);
-    const tono = tonoDelEstado(ficha);
+    const tono = tonoDelEstado(fila, ficha);
+    const momentoEst = momentoDeLaEstadia(fila, limiteMin);
+
+    /**
+     * La cápsula del estado y el tiempo.
+     *
+     * Se arma una sola vez y se dibuja en uno de dos lugares, según haya o no recuadro:
+     * anclada al vehículo cuando se sabe dónde está, y arriba al centro cuando no.
+     *
+     * Ese segundo caso era, hasta acá, ningún caso: la cápsula sólo existía si había
+     * `bbox`, así que en todos los avistamientos viejos y en todo lo que llega desde el
+     * historial —que no traía el recuadro— el visor abría sin estado y sin cronómetro. Y
+     * el estado no depende del recuadro: que no se sepa DÓNDE está el auto no quiere decir
+     * que no se sepa que estacionó hace cuarenta minutos.
+     */
+    const capsula = (
+        <motion.div
+            initial={{ opacity: 0, y: 6, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: "spring", stiffness: 420, damping: 26, delay: 0.12 }}>
+            <ActividadEnVivo
+                desde={estacionado ? fila.estDesde : null}
+                hasta={estacionado && cerrada ? fila.estHasta : null}
+                limiteMin={estacionado && !cerrada ? limiteMin : null}
+                texto={estacionado ? undefined : horaSeg(momento)}
+                icono={momentoEst.icono}
+                etiqueta={momentoEst.etiqueta}
+                sub={vig?.etiqueta || (fila.decision === "DENY" ? "Acceso denegado" : conocida ? "En el padrón" : "Sin registrar")}
+            />
+        </motion.div>
+    );
 
     return (
         <div onClick={onCerrar}
@@ -321,11 +394,11 @@ export function VisorCuadro({
                 transition={{ type: "spring", stiffness: 380, damping: 30, mass: 0.7 }}
                 onClick={(e) => e.stopPropagation()}
                 style={{ ["--visor-tono" as any]: tono, borderRadius: "var(--radio-ventana)" }}
-                className="relative inline-block overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#090d14] max-w-[min(1500px,97vw)]">
+                className="visor-ventana relative overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#05070b]">
 
                 <div
                     ref={marco}
-                    className={cn("relative overflow-hidden", acercado ? (arrastre.current ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in")}
+                    className={cn("absolute inset-0 overflow-hidden flex items-center justify-center", acercado ? (arrastre.current ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in")}
                     onDoubleClick={(e) => zoomEn(acercado ? 1 : ESCALA_DOBLE_CLIC, e.clientX, e.clientY)}
                     onPointerDown={(e) => {
                         if (!acercado) return;
@@ -337,7 +410,7 @@ export function VisorCuadro({
                         if (!a) return;
                         const dx = e.clientX - a.x, dy = e.clientY - a.y;
                         if (Math.abs(dx) > 3 || Math.abs(dy) > 3) a.movio = true;
-                        setPos(acotar({ x: a.px + dx, y: a.py + dy }, escala, marco.current?.getBoundingClientRect() || null));
+                        setPos(acotar({ x: a.px + dx, y: a.py + dy }, escala, cajaImg.current?.getBoundingClientRect() || null));
                     }}
                     onPointerUp={() => { arrastre.current = null; }}
                     onPointerCancel={() => { arrastre.current = null; }}
@@ -364,15 +437,28 @@ export function VisorCuadro({
                 >
                     {/* La imagen, su retícula y la cápsula se mueven JUNTAS: van dentro del
                         mismo transform, si no el recuadro se despega de la chapa al acercar. */}
-                    <div className="relative"
+                    <div
+                        ref={cajaImg}
+                        className="relative"
                         style={{
+                            /* La caja toma la proporcion REAL de la foto y se acomoda dentro
+                               de una ventana que mide siempre lo mismo. Por eso las
+                               superposiciones pueden seguir midiendose en porcentaje: el
+                               100% de esta caja es exactamente la imagen, no la ventana. */
+                            height: "100%",
+                            aspectRatio: String(proporcion),
+                            maxWidth: "100%",
                             transform: `translate3d(${pos.x}px, ${pos.y}px, 0) scale(${escala})`,
                             transformOrigin: "center",
                             transition: arrastre.current || pellizco.current != null ? "none" : "transform 160ms cubic-bezier(.22,1,.36,1)",
                         }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={fila.snapshotUrl || ""} alt={fila.plate}
-                            className="block max-h-[76vh] max-w-full w-auto select-none"
+                            onLoad={(e) => {
+                                const i = e.currentTarget;
+                                if (i.naturalWidth && i.naturalHeight) setProporcion(i.naturalWidth / i.naturalHeight);
+                            }}
+                            className="block w-full h-full object-contain select-none"
                             draggable={false} />
                         {verContorno && <ContornoDeteccion bbox={fila.bbox} plate={fila.plate} escala={escala} />}
 
@@ -397,15 +483,7 @@ export function VisorCuadro({
                                         transform: `translate(-50%, ${rotulo.abajo ? "0" : "-100%"}) scale(${1 / escala})`,
                                         transformOrigin: rotulo.abajo ? "top center" : "bottom center",
                                     }}>
-                                    <ActividadEnVivo
-                                        desde={estacionado ? fila.estDesde : null}
-                                        hasta={estacionado && cerrada ? fila.estHasta : null}
-                                        limiteMin={estacionado && !cerrada ? limiteMin : null}
-                                        texto={estacionado ? undefined : horaSeg(momento)}
-                                        icono={estacionado ? ParkingSquare : Car}
-                                        etiqueta={estacionado ? (cerrada ? "Se fue" : "Estacionado") : "Pasó"}
-                                        sub={vig?.etiqueta || (conocida ? "En el padrón" : "Sin registrar")}
-                                    />
+                                    {capsula}
                                 </div>
                             </>
                         )}
@@ -420,6 +498,15 @@ export function VisorCuadro({
                     <div className={cn("visor-orbe absolute left-[-6%] top-[24%] w-[460px] h-[460px] rounded-full z-[4] pointer-events-none transition-opacity duration-300",
                         acercado && "!opacity-0")} />
                 </div>
+
+                {/* Sin recuadro no hay a qué anclarla, pero el estado sigue siendo un
+                    dato: va arriba al centro, donde no tapa la ficha ni los controles. */}
+                {!rotulo && (
+                    <div className={cn("absolute top-16 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-200",
+                        acercado && "opacity-0 pointer-events-none")}>
+                        {capsula}
+                    </div>
+                )}
 
                 {/* ── ARRIBA · de dónde salió esta lectura ─────────────────────────── */}
                 <div className="absolute top-0 inset-x-0 z-30 flex items-start justify-between p-4 md:p-5 pointer-events-none">
