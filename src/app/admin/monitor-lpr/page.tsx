@@ -1326,6 +1326,7 @@ export default function MonitorLPR() {
                     <VisorCuadro
                         fila={cuadroSuelto}
                         ficha={fichasTrack[cuadroSuelto.plate]}
+                        onRegistrar={(p) => { setCuadroSuelto(null); openRegister(p); }}
                         onCerrar={() => setCuadroSuelto(null)}
                     />
                 )}
@@ -1333,6 +1334,7 @@ export default function MonitorLPR() {
                     <VisorCuadro
                         fila={avistUltimos[cuadroAbierto]}
                         ficha={fichasTrack[avistUltimos[cuadroAbierto].plate]}
+                        onRegistrar={(p) => { setCuadroAbierto(null); openRegister(p); }}
                         hayAnterior={cuadroAbierto > 0}
                         haySiguiente={cuadroAbierto < avistUltimos.length - 1}
                         onAnterior={() => setCuadroAbierto((v) => (v === null ? v : Math.max(0, v - 1)))}
