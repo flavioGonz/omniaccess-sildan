@@ -461,8 +461,17 @@ export function VisorCuadro({
     );
 
     return (
-        <div onClick={onCerrar}
-            className="fixed inset-0 z-[3400] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150">
+        /*
+         * El fondo NO cierra.
+         *
+         * Cerraba con un clic afuera, que es la costumbre — y acá está mal por una razón
+         * concreta: en esta ventana se arrastra. Se acerca a una chapa, se corre la imagen
+         * para encontrarla, y si el puntero sale del marco mientras se arrastra, el clic
+         * cae en el fondo y la ventana desaparece con todo el trabajo de encuadre adentro.
+         * El costo de equivocarse en un sentido (cerrar sin querer) es mucho mayor que en
+         * el otro (tener que apuntarle a la cruz).
+         */
+        <div className="fixed inset-0 z-[3400] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-150">
 
             <motion.div
                 initial={{ opacity: 0, scale: 0.97, y: 8 }}

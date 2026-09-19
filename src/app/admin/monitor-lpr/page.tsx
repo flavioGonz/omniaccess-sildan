@@ -17,6 +17,7 @@ import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
+import { Estado } from "@/components/ui/celdas";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { getImagePath } from "@/lib/image-path";
 import { getSocketUrl } from "@/lib/socket-config";
@@ -213,87 +214,6 @@ function TrackTile({ dev, av }: { dev: any; av?: any }) {
     );
 }
 
-/**
- * Las últimas lecturas de las cámaras interiores, en fila.
- *
- * Las columnas de entrada y salida muestran sus capturas recientes debajo del vivo; esto
- * es lo mismo para las interiores. Queda visible aunque la sección esté plegada: plegar
- * es para recuperar lugar, no para dejar de ver lo que pasó.
- */
-function TiraInteriores({ avistamientos, fichas, onAbrir }: { avistamientos: any[]; fichas?: Record<string, any>; onAbrir: (i: number) => void }) {
-    if (!avistamientos.length) {
-        return (
-            <p className="text-[10px] text-foreground/35 py-1.5">
-                Sin lecturas recientes. Las interiores solo registran cuando pasa un vehículo.
-            </p>
-        );
-    }
-    return (
-        <div>
-            <div className="flex items-center gap-1.5 mb-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Capturas recientes</span>
-                <span className="ml-auto text-[9px] text-muted-foreground/60 tabular-nums">{avistamientos.length}</span>
-            </div>
-            {/* Grilla con scroll VERTICAL. Antes era una fila que se corría de costado y
-                mostraba catorce: el resto quedaba escondido detrás de un gesto que nadie
-                hace, y una captura que no se ve es una captura que no existe. Hacia abajo
-                entran muchas más de un vistazo, y el scroll es el que ya se usa en toda
-                la pantalla. */}
-            <div className="grid grid-cols-3 gap-1.5 max-h-[42vh] overflow-y-auto custom-scrollbar pr-1">
-                {avistamientos.map((a, i) => {
-                    const t = new Date(a.timestamp);
-                    const seg = Math.round((Date.now() - t.getTime()) / 1000);
-                    const conf = typeof a.confidence === "number" ? Math.round(a.confidence * 100) : null;
-                    const quieto = a.estado === "ESTACIONADO";
-                    const ficha = fichas?.[a.plate];
-                    const vig = ficha?.vigilancia;
-                    return (
-                        <button key={a.id || i} type="button" onClick={() => onAbrir(i)}
-                            className="text-left group">
-                            <div className={cn(
-                                "relative rounded-lg overflow-hidden border transition-colors aspect-video bg-black",
-                                vig ? "border-rose-400/60"
-                                    : quieto ? "border-violet-500/50 group-hover:border-violet-300"
-                                        : "border-neutral-800 group-hover:border-violet-400/60",
-                            )}>
-                                {a.snapshotUrl ? (
-                                    /* eslint-disable-next-line @next/next/no-img-element */
-                                    <img src={a.snapshotUrl} alt={a.plate} className="absolute inset-0 w-full h-full object-cover" />
-                                ) : (
-                                    <div className="absolute inset-0 flex items-center justify-center text-foreground/25"><Car size={16} /></div>
-                                )}
-                                {/* Sobre la miniatura solo lo que se distingue a este tamaño:
-                                    la chapa, y si estaba quieto. Lo demás va debajo. */}
-                                {quieto && (
-                                    <span className="absolute top-1 left-1 px-1 rounded bg-violet-600/90 text-[8px] font-black uppercase tracking-wider text-white flex items-center gap-0.5">
-                                        <ParkingSquare size={8} />{a.estCerrada ? "se fue" : "quieto"}
-                                    </span>
-                                )}
-                                {ficha?.dueno && (
-                                    <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-emerald-500/90 flex items-center justify-center" title={ficha.dueno.nombre || ""}>
-                                        <Home size={8} className="text-white" />
-                                    </span>
-                                )}
-                                <div className="absolute inset-x-0 bottom-0 flex justify-center pb-0.5">
-                                    <span className="px-1.5 rounded bg-black/75 font-mono text-[10px] font-bold tracking-wider text-white">{a.plate}</span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-1 mt-0.5 text-[8.5px] text-muted-foreground">
-                                <span className="truncate flex-1">{a.cameraName || "—"}</span>
-                                {conf != null && (
-                                    <span className={cn("font-semibold", conf >= 85 ? "text-emerald-400" : conf >= 65 ? "text-amber-400" : "text-red-400")}>{conf}%</span>
-                                )}
-                            </div>
-                            <div className="text-[8.5px] text-muted-foreground/70 truncate">
-                                {seg < 60 ? `hace ${seg}s` : seg < 3600 ? `hace ${Math.round(seg / 60)} min` : hora(t)}
-                            </div>
-                        </button>
-                    );
-                })}
-            </div>
-        </div>
-    );
-}
 
 /**
  * Los estacionamientos, en vivo.
@@ -482,6 +402,29 @@ const masReciente = (a: Captura | null, b: Captura | null): Captura | null => {
     if (!b) return a;
     return new Date(a.momento).getTime() >= new Date(b.momento).getTime() ? a : b;
 };
+
+/**
+ * De una captura a lo que el visor sabe dibujar.
+ *
+ * Existe para que el visor no tenga que saber de dónde vino cada cosa. Los campos de
+ * estadía sólo existen en las lecturas de seguimiento; en un acceso vienen vacíos, y el
+ * visor ya sabe qué hacer con eso.
+ */
+const filaDelVisor = (c: Captura): any => ({
+    plate: c.plate || "",
+    cameraName: c.camara,
+    deviceId: c.raw?.device?.id || c.raw?.deviceId || null,
+    timestamp: c.momento,
+    confidence: c.confianza ?? null,
+    reads: c.lecturas ?? null,
+    snapshotUrl: c.foto,
+    bbox: c.raw?.bbox ?? null,
+    decision: c.decision ?? null,
+    estado: c.estado ?? null,
+    estDesde: c.raw?.estDesde ?? null,
+    estHasta: c.raw?.estHasta ?? null,
+    estCerrada: c.raw?.estCerrada ?? false,
+});
 
 function CenterShot({ cap, onRegister }: { cap: Captura | null; onRegister?: (plate?: string) => void }) {
     const router = useRouter();
@@ -717,6 +660,86 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
         {showPark && <ParkingLocationDialog plate={event.plateDetected || ""} onClose={() => setShowPark(false)} />}
         {showVid && nvrCh != null && <NvrTimeMachine open={showVid} onClose={() => setShowVid(false)} deviceId={(event as any).device?.id} channel={nvrCh} eventTimeMs={new Date(event.timestamp).getTime()} deviceName={(event as any).device?.name} evidenceUrl={fullImageUrl || undefined} plate={event.plateDetected} />}
       </>
+    );
+});
+
+/**
+ * Una lectura de seguimiento, con la misma forma que una de acceso.
+ *
+ * La columna del medio mostraba dos cosas separadas: arriba una sección titulada
+ * "Interiores · seguimiento" con su grilla de miniaturas, y abajo otra titulada "Capturas
+ * recientes" que sólo listaba accesos. Dos títulos, dos formas y dos lugares para mirar lo
+ * mismo — qué se leyó recién —, y con el agravante de que la lista de abajo se llamaba
+ * "recientes" pero se perdía justamente las lecturas más frecuentes, que en este barrio son
+ * las de las cámaras de calle.
+ *
+ * Ahora es una sola lista ordenada por hora, sin importar de dónde salga cada lectura. Lo
+ * que NO se unifica es lo que significan: un acceso decidió si la barrera abría y por eso
+ * lleva PERMITIDO o DENEGADO; una lectura interior no decide nada, y ponerle un cartel de
+ * permitido sería inventarle una autoridad que no tiene. Por eso esta tarjeta muestra
+ * dónde estaba el vehículo y qué tan buena fue la lectura, que es lo que sí sabe.
+ */
+const TarjetaSeguimiento = memo(function TarjetaSeguimiento({ cap, ficha, onAbrir }: {
+    cap: Captura;
+    ficha?: any;
+    onAbrir: () => void;
+}) {
+    const router = useRouter();
+    const quieto = cap.estado === "ESTACIONADO";
+    const cerrada = !!cap.raw?.estCerrada;
+    const conf = cap.confianza != null ? Math.round(cap.confianza * 100) : null;
+    const dueno = ficha?.dueno;
+    const sinLeer = noLeyo(cap.plate || undefined);
+
+    return (
+        <div onClick={onAbrir}
+            className="relative p-3 cursor-pointer transition-colors group border-b border-border last:border-0 hover:bg-accent">
+            {/* La cinta del costado dice la fuente de un vistazo, sin ocupar una palabra. */}
+            <span className="absolute left-0 top-0 bottom-0 w-1"
+                style={{ background: `color-mix(in oklab, ${quieto ? "var(--quieto)" : "var(--info)"} 70%, transparent)` }} />
+            <div className="flex items-center gap-3">
+                <div className="w-16 h-14 rounded-lg border border-border shrink-0 bg-black overflow-hidden">
+                    {cap.foto
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        ? <img src={cap.foto} alt={cap.plate || ""} className="w-full h-full object-cover" />
+                        : <span className="w-full h-full flex items-center justify-center"><Route size={20} className="text-muted-foreground" /></span>}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                        {sinLeer
+                            ? <span className="inline-flex items-center gap-1 text-[11.5px] font-bold tono-aviso"><AlertTriangle size={12} /> SIN LECTURA</span>
+                            : <span className="text-[13px] font-bold tabular-nums tracking-[0.1em] text-foreground">{cap.plate}</span>}
+                        <Estado tono={quieto ? (cerrada ? "neutro" : "quieto") : "info"}>
+                            {quieto ? (cerrada ? "Se fue" : "Estacionado") : "Pasó"}
+                        </Estado>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1 text-[10.5px]">
+                        {dueno?.nombre
+                            ? <span className="text-muted-foreground truncate">{dueno.nombre}{dueno.unidad ? ` · ${dueno.unidad}` : ""}</span>
+                            : <span className="text-muted-foreground/60 italic">sin registrar</span>}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
+                        <TimeAgo timestamp={cap.momento} />
+                        {cap.camara && <span>· {cap.camara}</span>}
+                        {conf != null && <span>· {conf}%</span>}
+                        {cap.lecturas != null && <span>· {cap.lecturas} cuadros</span>}
+                    </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0 self-center">
+                    {!sinLeer && cap.plate && (
+                        <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(cap.plate!)}`); }}
+                            title="Investigar esta matrícula"
+                            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                            <Search size={16} />
+                        </button>
+                    )}
+                    <button onClick={(e) => { e.stopPropagation(); onAbrir(); }} title="Ver el cuadro"
+                        className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                        <Camera size={16} />
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 });
 
@@ -1212,6 +1235,26 @@ export default function MonitorLPR() {
         [filteredEvents, avistUltimos],
     );
 
+    /**
+     * Las últimas detecciones, vengan de donde vengan.
+     *
+     * Un acceso por la barrera y una lectura de una cámara de calle son dos hechos del
+     * mismo tipo — "a esta hora, esta chapa, en este lugar" —, y el operador los mira con
+     * la misma pregunta. Tenerlos en dos listas con dos títulos obligaba a mirar dos veces
+     * y a comparar horas a ojo entre una lista y la otra.
+     *
+     * Se saca la primera, que ya está grande arriba en el recuadro destacado: repetirla
+     * abajo gasta la fila más visible de la lista en algo que ya se está viendo.
+     */
+    const detecciones = useMemo<Captura[]>(() => {
+        const todo = [
+            ...filteredEvents.map(capturaDeAcceso),
+            ...avistUltimos.map(capturaDeSeguimiento),
+        ].filter(Boolean) as Captura[];
+        todo.sort((a, b) => new Date(b.momento).getTime() - new Date(a.momento).getTime());
+        return todo.filter((c) => c.id !== ultimaCaptura?.id).slice(0, 40);
+    }, [filteredEvents, avistUltimos, ultimaCaptura?.id]);
+
     const hasStream = (id: any) => !!id && streams.includes(`lpr_${id}`);
     const pickCam = (evts: any[], dir: string) => {
         for (const e of evts) { if (hasStream(e?.device?.id)) return e.device.id; }
@@ -1411,16 +1454,28 @@ export default function MonitorLPR() {
                                         onVer={(f) => { setCuadroSuelto(f); setCuadroAbierto(null); }}
                                     />
                                 </div>
-                                <TiraInteriores avistamientos={avistUltimos} fichas={fichasTrack} onAbrir={(i) => { setCuadroSuelto(null); setCuadroAbierto(i); }} />
                             </div>
                         )}
+                        {/* Una sola lista, sin título: la columna del medio ES las últimas
+                            detecciones. Venga de la barrera o de una cámara de calle, acá
+                            entra por hora — que es el único orden en el que alguien mira
+                            "qué pasó recién". */}
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            <div className="px-4 pt-2 pb-2">
-                                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
-                            </div>
-                            {eventsLoading && filteredEvents.length === 0
+                            {eventsLoading && !detecciones.length
                                 ? Array.from({ length: 6 }).map((_, i) => <VehicleCardSkeleton key={i} />)
-                                : filteredEvents.slice(1, 15).map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)}
+                                : !detecciones.length ? (
+                                    <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+                                        <Car size={24} className="mb-2 opacity-30" />
+                                        <span className="text-xs">Sin detecciones recientes</span>
+                                    </div>
+                                ) : detecciones.map((c, i) => c.fuente === "ACCESO" ? (
+                                    <VehicleCard key={c.id} event={c.raw} onRegister={openRegister}
+                                        platesWithParking={platesPark} watchMap={watchMap} />
+                                ) : (
+                                    <TarjetaSeguimiento key={c.id} cap={c}
+                                        ficha={c.plate ? fichasTrack[c.plate] : undefined}
+                                        onAbrir={() => { setCuadroSuelto(null); setCuadroAbierto(i); }} />
+                                ))}
                         </div>
                     </div>
 
@@ -1466,16 +1521,19 @@ export default function MonitorLPR() {
                         onCerrar={() => setCuadroSuelto(null)}
                     />
                 )}
-                {cuadroAbierto !== null && avistUltimos[cuadroAbierto] && (
+                {/* Las flechas recorren la lista entera, no sólo las lecturas de
+                    seguimiento: si la columna mezcla las dos fuentes, moverse dentro de
+                    ella tiene que hacer lo mismo. */}
+                {cuadroAbierto !== null && detecciones[cuadroAbierto] && (
                     <VisorCuadro
-                        fila={avistUltimos[cuadroAbierto]}
-                        ficha={fichasTrack[avistUltimos[cuadroAbierto].plate]}
+                        fila={filaDelVisor(detecciones[cuadroAbierto])}
+                        ficha={fichasTrack[detecciones[cuadroAbierto].plate || ""]}
                         limiteMin={estadias.venceMin}
                         onRegistrar={(p) => { setCuadroAbierto(null); openRegister(p); }}
                         hayAnterior={cuadroAbierto > 0}
-                        haySiguiente={cuadroAbierto < avistUltimos.length - 1}
+                        haySiguiente={cuadroAbierto < detecciones.length - 1}
                         onAnterior={() => setCuadroAbierto((v) => (v === null ? v : Math.max(0, v - 1)))}
-                        onSiguiente={() => setCuadroAbierto((v) => (v === null ? v : Math.min(avistUltimos.length - 1, v + 1)))}
+                        onSiguiente={() => setCuadroAbierto((v) => (v === null ? v : Math.min(detecciones.length - 1, v + 1)))}
                         onCerrar={() => setCuadroAbierto(null)}
                     />
                 )}
