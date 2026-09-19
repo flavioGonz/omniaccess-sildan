@@ -52,11 +52,19 @@ const pendienteHtml = (cuantos: number) => `
   <span style="color:#94a3b8;font-size:9px">sin ubicar</span>
 </div>`;
 
-export function CapaEstacionados({ camaras, socket, alTocar, visible = true }: {
+export type SeñalSinRumbo = {
+    deviceId: string; camara: string | null; autos: AutoParado[]; x: number; y: number;
+} | null;
+
+export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar, visible = true }: {
     camaras: { deviceId: string; lat: number; lng: number; rumbo?: number; angulo?: number }[];
     /** El socket que ya tiene el mapa abierto. Null mientras no conectó. */
     socket: any;
     alTocar?: (auto: AutoParado) => void;
+    /** El puntero sobre una cámara sin rumbo. El padre dibuja la tarjeta. */
+    alSeñalar?: (s: SeñalSinRumbo) => void;
+    /** Llevar a girar esa cámara. */
+    alGirar?: (deviceId: string) => void;
     visible?: boolean;
 }) {
     const [autos, setAutos] = useState<AutoParado[]>([]);
@@ -142,6 +150,16 @@ export function CapaEstacionados({ camaras, socket, alTocar, visible = true }: {
                     }} />
             ))}
 
+            {/*
+              * El aviso NO va en un tooltip de Leaflet.
+              *
+              * El de Leaflet es una caja negra sin estilo que se estira con el texto: con
+              * tres renglones de explicación ocupaba media pantalla y tapaba justo el plano
+              * que uno vino a mirar. Y sobre todo, no se puede tocar — así que lo único que
+              * podía hacer era DECIR los pasos para girar la cámara en vez de ofrecerlos.
+              *
+              * Acá sale al padre, que dibuja una tarjeta propia con la acción adentro.
+              */}
             {sinRumbo.map(({ cam, autos: suyos }) => (
                 <Marker key={`sinrumbo-${cam.deviceId}`} position={[cam.lat, cam.lng]}
                     icon={L.divIcon({
@@ -149,16 +167,18 @@ export function CapaEstacionados({ camaras, socket, alTocar, visible = true }: {
                         html: pendienteHtml(suyos.length),
                         iconSize: [70, 26], iconAnchor: [35, -6],
                     })}
-                    eventHandlers={{ click: () => alTocar?.(suyos[0]) }}>
-                    <LTooltip direction="bottom" offset={[0, 10]} className="cam-name-tip">
-                        <b>{suyos.length} {suyos.length === 1 ? "auto parado" : "autos parados"}</b> que ve {suyos[0]?.camara}
-                        <br />{suyos.map((a) => a.plate).join(" · ")}
-                        <br /><span style={{ opacity: 0.7 }}>
-                            No se pueden ubicar en el plano hasta decir hacia dónde mira esta cámara:
-                            entrá a editar el mapa, seleccionala y girá la manija.
-                        </span>
-                    </LTooltip>
-                </Marker>
+                    eventHandlers={{
+                        mouseover: (e: any) => alSeñalar?.({
+                            deviceId: cam.deviceId, camara: suyos[0]?.camara || null, autos: suyos,
+                            x: e.originalEvent?.clientX ?? 0, y: e.originalEvent?.clientY ?? 0,
+                        }),
+                        mousemove: (e: any) => alSeñalar?.({
+                            deviceId: cam.deviceId, camara: suyos[0]?.camara || null, autos: suyos,
+                            x: e.originalEvent?.clientX ?? 0, y: e.originalEvent?.clientY ?? 0,
+                        }),
+                        mouseout: () => alSeñalar?.(null),
+                        click: () => alGirar?.(cam.deviceId),
+                    }} />
             ))}
 
             {conRumbo.flatMap(({ cam, autos: suyos }) =>

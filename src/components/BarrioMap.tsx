@@ -11,7 +11,7 @@ const CajonUnidad = dynamic(
     () => import("@/components/units/CajonUnidad").then((m) => m.CajonUnidad), { ssr: false });
 import { motion } from "framer-motion";
 import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar, type Punto } from "@/components/mapa/Recorrido";
-import { CapaEstacionados, type AutoParado } from "@/components/mapa/CapaEstacionados";
+import { CapaEstacionados, type AutoParado, type SeñalSinRumbo } from "@/components/mapa/CapaEstacionados";
 import { conoDeVision, correr } from "@/lib/escena";
 import { VisorCuadro } from "@/components/VisorCuadro";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
@@ -21,7 +21,7 @@ import {
     MousePointer2, Hexagon, Spline, Video, Trash2, Save, Pencil, X, Check,
     Loader2, MapPin, Undo2, Map as MapIco, Radio, Pencil as PencilIcon,
     Plus, Minus, Crosshair, Maximize2, Minimize2, Eye, EyeOff, ShieldCheck, Route as RouteIco,
-    Layers3, ChevronDown, Pentagon, Home, Search, SquareParking, AlertTriangle, Type,
+    Layers3, ChevronDown, Pentagon, Home, Search, SquareParking, AlertTriangle, Type, Compass,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -242,6 +242,9 @@ export default function BarrioMap() {
      */
     const [hoverLote, setHoverLote] = useState<{ id: string; x: number; y: number } | null>(null);
     const [autoParado, setAutoParado] = useState<AutoParado | null>(null);
+    /* Las cámaras que ven autos parados pero todavía no dicen hacia dónde miran. La tarjeta
+       se dibuja acá y no en un tooltip de Leaflet porque tiene un botón adentro. */
+    const [sinRumbo, setSinRumbo] = useState<SeñalSinRumbo>(null);
     const [buscaUnidad, setBuscaUnidad] = useState("");
     const [pendingCam, setPendingCam] = useState<string>("");
     const [selected, setSelected] = useState<{ type: "street" | "camera" | "lote"; id: string } | null>(null);
@@ -864,10 +867,28 @@ ${CSS_AUTO}
                     })}
 
                     {(verCapa.camaras ? data.cameras : []).map((c: any) => (
+                        /*
+                         * Se arrastra sólo si está SELECCIONADA y en edición.
+                         *
+                         * Draggable siempre sería peor que no serlo: en un plano con siete
+                         * cámaras, cualquier intento de mover el mapa agarrando cerca de una
+                         * la corre de lugar, y el error no se nota hasta que alguien mira el
+                         * recorrido y no entiende por qué da la vuelta. Seleccionar primero
+                         * es un paso más y es el que convierte moverla en algo deliberado.
+                         */
                         <Marker key={c.deviceId} position={[c.lat, c.lng]} icon={camIconDe(c.rumbo)}
+                            draggable={editing && selected?.type === "camera" && selected.id === c.deviceId}
                             eventHandlers={{
                                 click: () => { if (editing && tool === "select") setSelected({ type: "camera", id: c.deviceId }); },
                                 contextmenu: (e) => openCtx(e, "camera", c.deviceId),
+                                dragend: (e: any) => {
+                                    const ll = e.target.getLatLng();
+                                    cambiar((d) => ({
+                                        ...d,
+                                        cameras: d.cameras.map((x: any) => x.deviceId === c.deviceId
+                                            ? { ...x, lat: ll.lat, lng: ll.lng } : x),
+                                    }));
+                                },
                             }}>
                             <LTooltip permanent={verCapa.rotulos} direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>
                             {!editing && (
@@ -888,6 +909,20 @@ ${CSS_AUTO}
                             socket={liveSocket}
                             visible={verCapa.estacionados}
                             alTocar={(a) => setAutoParado(a)}
+                            alSeñalar={setSinRumbo}
+                            alGirar={(deviceId) => {
+                                /* Hacerlo, no explicarlo: entra a edición, selecciona la
+                                   cámara y la centra, que son los tres pasos que el aviso
+                                   anterior pedía hacer a mano. */
+                                const cam: any = data.cameras.find((c: any) => c.deviceId === deviceId);
+                                setSinRumbo(null);
+                                setEditing(true);
+                                setTool("select");
+                                setSelected({ type: "camera", id: deviceId });
+                                if (cam && mapRef.current) {
+                                    mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 19));
+                                }
+                            }}
                         />
                     )}
 
@@ -1136,6 +1171,68 @@ ${CSS_AUTO}
                   * al que le falta el dato más importante.
                   */}
                 <AnimatePresence>
+                    {/* Autos parados que no se pueden ubicar todavía. */}
+                    <AnimatePresence>
+                        {sinRumbo && (() => {
+                            const ANCHO = 250;
+                            const x = Math.min(sinRumbo.x + 16, (typeof window !== "undefined" ? window.innerWidth : 1200) - ANCHO - 12);
+                            const y = Math.min(sinRumbo.y + 16, (typeof window !== "undefined" ? window.innerHeight : 800) - 210);
+                            return (
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.94, y: 6 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.96, y: 4 }}
+                                    transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.6 }}
+                                    style={{ left: x, top: y, width: ANCHO }}
+                                    onMouseEnter={() => setSinRumbo(sinRumbo)}
+                                    onMouseLeave={() => setSinRumbo(null)}
+                                    className="fixed z-[580] rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
+
+                                    <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
+                                        <SquareParking size={13} className="text-sky-400 shrink-0" />
+                                        <span className="text-[12.5px] font-bold text-white truncate">
+                                            {sinRumbo.autos.length} {sinRumbo.autos.length === 1 ? "auto parado" : "autos parados"}
+                                        </span>
+                                        <span className="text-[10.5px] text-white/40 truncate ml-auto">{sinRumbo.camara}</span>
+                                    </div>
+
+                                    <div className="px-3 py-2.5 space-y-2.5">
+                                        <div className="flex flex-wrap gap-1">
+                                            {sinRumbo.autos.slice(0, 6).map((a) => (
+                                                <span key={a.id} className="px-1.5 py-0.5 rounded bg-white/[0.07] border border-white/10 text-[10.5px] font-bold tracking-[0.06em] text-white/90">
+                                                    {a.plate}
+                                                </span>
+                                            ))}
+                                            {sinRumbo.autos.length > 6 && (
+                                                <span className="px-1.5 py-0.5 text-[10.5px] text-white/40">+{sinRumbo.autos.length - 6}</span>
+                                            )}
+                                        </div>
+
+                                        <p className="text-[11px] text-white/50 leading-snug">
+                                            No se pueden dibujar en el plano hasta saber hacia dónde mira esta cámara.
+                                        </p>
+
+                                        <button type="button"
+                                            onClick={() => {
+                                                const id = sinRumbo.deviceId;
+                                                const cam: any = data.cameras.find((c: any) => c.deviceId === id);
+                                                setSinRumbo(null);
+                                                setEditing(true);
+                                                setTool("select");
+                                                setSelected({ type: "camera", id });
+                                                if (cam && mapRef.current) {
+                                                    mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 19));
+                                                }
+                                            }}
+                                            className="w-full h-8 rounded-lg bg-sky-500 hover:bg-sky-400 transition-colors text-white text-[11.5px] font-bold flex items-center justify-center gap-1.5">
+                                            <Compass size={13} /> Girar la cámara
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            );
+                        })()}
+                    </AnimatePresence>
+
                     {hoverLote && (() => {
                         const lo = lotes.find((l) => l.id === hoverLote.id);
                         if (!lo) return null;
@@ -1400,10 +1497,46 @@ ${CSS_AUTO}
                                 <button onClick={() => { renameLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar</button>
                                 <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-[var(--mal-texto)]"><Trash2 size={13} /> Borrar casa</button>
                             </>);
-                        })() : ctx.type === "camera" ? (<>
-                            <button onClick={() => { const dev = devById[ctx.id]; if (dev && mapRef.current) { const cam = data.cameras.find((c) => c.deviceId === ctx.id); if (cam) mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Radio size={13} className="text-red-400" /> Centrar / ver</button>
-                            <button onClick={() => { removeCamera(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Quitar del mapa</button>
-                        </>) : (<>
+                        })() : ctx.type === "camera" ? (() => {
+                            /*
+                             * El menú de la cámara cambia según se esté mirando o editando,
+                             * por el mismo motivo que el de los lotes: fuera de edición no hay
+                             * botón de Guardar, así que ofrecer "mover" ahí deja el cambio en
+                             * el aire. Las acciones que tocan el plano entran a edición solas
+                             * en vez de estar apagadas sin decir por qué.
+                             */
+                            const cam: any = data.cameras.find((c: any) => c.deviceId === ctx.id);
+                            const centrar = () => {
+                                if (cam && mapRef.current) mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 19));
+                            };
+                            return (<>
+                                <div className="px-3 py-1.5 text-[11px] font-bold text-foreground truncate border-b border-border mb-1">
+                                    {devById[ctx.id]?.name || "Cámara"}
+                                </div>
+                                <button onClick={() => { centrar(); setCtx(null); }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                    <Crosshair size={13} /> Centrar acá
+                                </button>
+                                <button onClick={() => { setEditing(true); setTool("select"); setSelected({ type: "camera", id: ctx.id }); centrar(); setCtx(null); }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                    <MousePointer2 size={13} /> Mover de lugar
+                                </button>
+                                <button onClick={() => { setEditing(true); setTool("select"); setSelected({ type: "camera", id: ctx.id }); centrar(); setCtx(null); }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                    <Compass size={13} /> {cam?.rumbo != null ? "Cambiar a dónde mira" : "Decir a dónde mira"}
+                                </button>
+                                <button onClick={() => { router.push(`/admin/devices?buscar=${encodeURIComponent(devById[ctx.id]?.name || "")}`); }}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                    <Video size={13} /> Ver la ficha del equipo
+                                </button>
+                                {editing && (
+                                    <button onClick={() => { removeCamera(ctx.id); setCtx(null); }}
+                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-[var(--mal-texto)] border-t border-border mt-1">
+                                        <Trash2 size={13} /> Sacarla del plano
+                                    </button>
+                                )}
+                            </>);
+                        })() : (<>
                             <button onClick={() => { renameStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar calle</button>
                             <button onClick={() => { removeStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar calle</button>
                         </>)}
