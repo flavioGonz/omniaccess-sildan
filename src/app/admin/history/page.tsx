@@ -129,154 +129,12 @@ function duracionQuieto(f: any) {
     return `${Math.floor(seg / 3600)} h ${Math.round((seg % 3600) / 60)} min`;
 }
 
-function TablaSeguimiento({ buscar, desde, hasta }: { buscar: string; desde: string; hasta: string }) {
-    const [filas, setFilas] = useState<any[]>([]);
-    const [total, setTotal] = useState(0);
-    const [cargando, setCargando] = useState(false);
-    const [pagina, setPagina] = useState(0);
-    const [viendo, setViendo] = useState<number | null>(null);
-    const POR_PAGINA = 50;
-
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta]);
-
-    useEffect(() => {
-        let vivo = true;
-        setCargando(true);
-        const p = new URLSearchParams({ take: String(POR_PAGINA), skip: String(pagina * POR_PAGINA) });
-        if (buscar) p.set("search", buscar);
-        if (desde) p.set("from", desde);
-        if (hasta) p.set("to", hasta);
-        fetch(`/api/tracking/history?${p.toString()}`, { cache: "no-store" })
-            .then(r => r.json())
-            .then(j => { if (!vivo) return; setFilas(pagina === 0 ? (j.filas || []) : ((f: any[]) => [...f, ...(j.filas || [])]) as any); setTotal(j.total || 0); })
-            .catch(() => { })
-            .finally(() => { if (vivo) setCargando(false); });
-        return () => { vivo = false; };
-    }, [buscar, desde, hasta, pagina]);
-
-    return (
-        <div className="bg-card/60 border border-border/50 rounded-lg overflow-hidden">
-            <div className="px-5 py-3 border-b border-border/50 flex items-center gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-violet-300">Seguimiento interior</span>
-                <span className="text-[11px] text-muted-foreground">
-                    lecturas de las camaras comunes procesadas por Omni-LPR · no abren barrera
-                </span>
-            </div>
-            <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                    <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
-                        <tr className="border-b border-border/50">
-                            <Columna icono={Clock} titulo="Momento de la lectura"
-                                ayuda="Cuándo pasó el vehículo por esa cámara. No es cuándo se guardó: es el momento del cuadro. Si el vehículo estaba quieto, la fila abarca toda la estadía en vez de repetirse.">Momento</Columna>
-                            <Columna icono={Car} titulo="Matrícula leída"
-                                ayuda="Lo que el lector sacó del cuadro, después de comparar varias tomas del mismo paso.">Matrícula</Columna>
-                            <Columna icono={Camera} titulo="Cámara que la vio"
-                                ayuda="Una cámara interior. No abre barrera: solo deja constancia de por dónde pasó el vehículo.">Cámara</Columna>
-                            <Columna icono={Activity} titulo="Qué tan segura es la lectura"
-                                ayuda="Verde arriba de 85%, ámbar entre 65 y 85, rojo debajo. Una lectura baja no es necesariamente errada, pero conviene mirar el cuadro.">Confianza</Columna>
-                            <Columna icono={Camera} alinear="right" titulo="El cuadro guardado"
-                                ayuda="La foto del momento. Hacé clic en la fila para verla grande, con los datos encima.">Cuadro</Columna>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filas.length === 0 && cargando ? (
-                            <>{Array.from({ length: 6 }).map((_, i) => <FilaFantasma key={i} celdas={5} />)}</>
-                        ) : filas.length === 0 ? (
-                            <tr>
-                                <td colSpan={5} className="py-16 text-center">
-                                    <div className="flex flex-col items-center gap-2">
-                                        <Route className="w-8 h-8 text-muted-foreground/50" />
-                                        <p className="text-sm text-muted-foreground">Sin avistamientos en este período</p>
-                                        <p className="text-xs text-muted-foreground/70 max-w-sm mx-auto">
-                                            Las cámaras interiores registran cada vehículo que pasa. Si está vacío, o no pasó
-                                            ninguno, o todavía no hay cámaras interiores dadas de alta.
-                                        </p>
-                                    </div>
-                                </td>
-                            </tr>
-                        ) : filas.map((f, i) => {
-                            const conf = typeof f.confidence === "number" ? Math.round(f.confidence * 100) : null;
-                            const quieto = f.estado === "ESTACIONADO";
-                            const estadia = quieto ? duracionQuieto(f) : null;
-                            return (
-                                <motion.tr key={f.id}
-                                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                                    transition={{ duration: 0.18, delay: Math.min(i, 14) * 0.015 }}
-                                    onClick={() => f.snapshotUrl && setViendo(i)}
-                                    className={cn("border-b border-border/30 hover:bg-muted/30 transition-colors", f.snapshotUrl && "cursor-pointer")}>
-                                    <td className="px-5 py-3">
-                                        <p className="text-sm font-medium text-foreground">{new Date(f.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
-                                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                                            {quieto && f.estDesde
-                                                ? <>desde {new Date(f.estDesde).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {new Date(f.timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short" })}</>
-                                                : new Date(f.timestamp).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}
-                                        </p>
-                                    </td>
-                                    <td className="px-5 py-3">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className={cn(
-                                                "px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-foreground border",
-                                                quieto ? "bg-slate-500/15 border-slate-400/30" : "bg-violet-500/15 border-violet-500/30",
-                                            )}>{f.plate}</span>
-                                            {quieto && (
-                                                <Pista titulo="Vehículo quieto"
-                                                    texto="El lector lo siguió viendo en el mismo lugar del cuadro. Se guarda una sola fila por estadía, no se dibuja en el recorrido del mapa y no cuenta para la efectividad.">
-                                                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-500/20 border border-slate-400/25 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
-                                                        <ParkingCircle className="w-3 h-3" />
-                                                        Estacionado{estadia ? ` · ${estadia}` : ""}
-                                                    </span>
-                                                </Pista>
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="px-5 py-3 text-sm text-foreground">{f.cameraName || f.deviceId || "-"}</td>
-                                    <td className="px-5 py-3">
-                                        {conf == null ? <span className="text-muted-foreground text-xs">-</span> : (
-                                            <span className={cn("text-xs font-semibold", conf >= 85 ? "text-emerald-400" : conf >= 65 ? "text-amber-400" : "text-red-400")}>{conf}%</span>
-                                        )}
-                                    </td>
-                                    <td className="px-5 py-3 text-right">
-                                        {f.snapshotUrl ? (
-                                            /* eslint-disable-next-line @next/next/no-img-element */
-                                            <img src={f.snapshotUrl} alt={f.plate}
-                                                className="h-12 w-20 object-cover rounded border border-border/50 ml-auto hover:border-violet-400/60 transition-colors" />
-                                        ) : <span className="text-muted-foreground text-xs">-</span>}
-                                    </td>
-                                </motion.tr>
-                            );
-                        })}
-                    </tbody>
-                </table>
-            </div>
-            {viendo !== null && filas[viendo] && (
-                <VisorCuadro
-                    fila={filas[viendo]}
-                    hayAnterior={viendo > 0}
-                    haySiguiente={viendo < filas.length - 1}
-                    onAnterior={() => setViendo((v) => (v === null ? v : Math.max(0, v - 1)))}
-                    onSiguiente={() => setViendo((v) => (v === null ? v : Math.min(filas.length - 1, v + 1)))}
-                    onCerrar={() => setViendo(null)}
-                />
-            )}
-
-            <div className="flex items-center justify-between px-5 py-3 border-t border-border/50">
-                <p className="text-xs text-muted-foreground">
-                    Mostrando <span className="text-foreground font-semibold">{filas.length}</span> de <span className="text-foreground font-semibold">{total.toLocaleString()}</span> avistamientos
-                </p>
-                <div className="flex items-center gap-3">
-                    {cargando && <span className="flex items-center gap-2 text-violet-400 text-xs font-semibold"><Loader2 size={14} className="animate-spin" /> Cargando...</span>}
-                    {filas.length < total && !cargando && (
-                        <button onClick={() => setPagina(p => p + 1)} className="px-3 py-1.5 rounded text-xs font-semibold bg-muted/60 border border-border/50 text-foreground hover:bg-muted">
-                            Cargar mas
-                        </button>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
-
-
+/*
+ * Acá vivía `TablaSeguimiento`: 148 líneas de una tabla completa —cinco columnas, su
+ * paginado, su estado vacío— que **nunca se renderizó**. Quedó de cuando el seguimiento
+ * tenía su propia vista, antes de unificar el historial en una sola tabla, y siguió
+ * compilándose y manteniéndose sin que nadie la viera. Se borró.
+ */
 
 export default function HistoryPage() {
     const [events, setEvents] = useState<FullAccessEvent[]>([]);
@@ -461,9 +319,20 @@ export default function HistoryPage() {
     };
 
     // Compute stats
-    const grantCount = events.filter(e => e.decision === "GRANT").length;
-    const denyCount = events.filter(e => e.decision === "DENY").length;
-    const vehFacets = useMemo(() => collectVehicleFacets(events), [events]);
+    /**
+     * Los contadores y los selectores de color y tipo salen de LO QUE HAY EN LA TABLA.
+     *
+     * Antes salían de `events`, que es la consulta vieja: los selectores ofrecían colores
+     * que no estaban en pantalla y los contadores hablaban de otro conjunto de registros
+     * que el que se estaba mirando. Dos datos correctos sobre cosas distintas, presentados
+     * como si fueran del mismo.
+     */
+    const [resumen, setResumen] = useState<{ grant: number; deny: number; colores: string[]; tipos: string[] }>(
+        { grant: 0, deny: 0, colores: [], tipos: [] },
+    );
+    const grantCount = resumen.grant;
+    const denyCount = resumen.deny;
+    const vehFacets = useMemo(() => ({ colors: resumen.colores, types: resumen.tipos }), [resumen]);
 
     /** Los filtros activos, en palabras, cada uno con su forma de sacarlo. */
     const filtrosPuestos = useMemo(() => {
@@ -494,14 +363,13 @@ export default function HistoryPage() {
         setFilterType("ALL"); setFilterDecision("ALL"); setFilterDirection("ALL");
         setFilterColor("ALL"); setFilterVehType("ALL"); setFilterMerodeo(false); setTipos([]);
     }, []);
-    const displayEvents = (filterMerodeo ? events.filter(e => merodeoSet.has(cleanPlate(e.plateDetected))) : events)
-        .filter(e => {
-            if (filterColor === "ALL" && filterVehType === "ALL") return true;
-            const m = parseVehicleMeta(e.details);
-            if (filterColor !== "ALL" && m.color !== filterColor) return false;
-            if (filterVehType !== "ALL" && m.typeLabel !== filterVehType) return false;
-            return true;
-        });
+    /*
+     * Acá se calculaba `displayEvents`, que filtraba por color y tipo de vehículo y
+     * **no lo leía nadie**: el arreglo que filtraba dejó de alimentar la tabla cuando se
+     * unificó el historial. El resultado eran dos selectores en pantalla, con su chip de
+     * "quitar filtro" y todo, que no filtraban nada. Ahora los dos viajan a la tabla, que
+     * es la que tiene las filas, y filtran de verdad.
+     */
 
     return (
         <div className="p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
@@ -718,7 +586,10 @@ export default function HistoryPage() {
                 hasta={endDate}
                 tipos={tipos}
                 merodeo={filterMerodeo ? chapasMerodeo : undefined}
+                color={filterColor}
+                tipoVeh={filterVehType}
                 onMerodeo={setChapasMerodeo}
+                onResumen={setResumen}
             />
 
             <ExportHistoryDialog

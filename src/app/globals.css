@@ -1366,3 +1366,14 @@ video::-webkit-media-controls { display: none !important; }
 .gnav-ancho[data-principal="guardar"] { background: #059669;}
 .gnav-ancho[data-principal="guardar"]:hover { background: #10b981;}
 .gnav-ancho[data-principal]:disabled { opacity: 0.55; cursor: default;}
+
+/* La fila que acaba de llegar por el socket.
+   Un barrido corto de izquierda a derecha, una sola vez: dice "esto es nuevo" sin quedarse
+   parpadeando, que a los diez minutos de tener la pantalla abierta sería insoportable. */
+@keyframes omni-fila-nueva {
+  0%   { background-color: color-mix(in oklab, var(--primary) 22%, transparent); }
+  100% { background-color: transparent; }
+}
+.omni-fila-nueva > td {
+  animation: omni-fila-nueva 2.2s cubic-bezier(.22, 1, .36, 1) 1;
+}
