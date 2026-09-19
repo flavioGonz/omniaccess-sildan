@@ -75,7 +75,7 @@ export const rasgoDe = (f: { tipo: string; sentido: string | null }) =>
 function FilaFantasma() {
     return (
         <tr className="border-b border-border/30">
-            {Array.from({ length: 7 }).map((_, i) => (
+            {Array.from({ length: 8 }).map((_, i) => (
                 <td key={i} className="px-5 py-3">
                     <div className="h-3 rounded bg-muted/40 animate-pulse" style={{ width: `${45 + (i * 13) % 45}%` }} />
                 </td>
@@ -157,6 +157,13 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, onMerodeo
                         <tr className="border-b border-border/50">
                             <Columna icono={Clock} titulo="Cuándo"
                                 ayuda="El momento del evento, no el de su registro. En una estadía es el intervalo completo: desde que el vehículo se detuvo hasta la última vez que se lo vio ahí.">Momento</Columna>
+                            {/* El cuadro va segundo, pegado al momento.
+                                Estaba último, al final de una fila ancha, y la foto es lo
+                                primero que alguien mira para saber si una lectura es la
+                                que busca: tenerla que ir a buscar cruzando la tabla es
+                                trabajo puesto en el lugar equivocado. */}
+                            <Columna icono={Camera} titulo="El cuadro guardado"
+                                ayuda="La foto del momento: hacé clic para verla grande y acercarla, que es como se juzga una matrícula chica.">Cuadro</Columna>
                             <Columna icono={Activity} titulo="Qué clase de registro es"
                                 ayuda="Entrada y salida las decide una cámara LPR y abren barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre.">Tipo</Columna>
                             <Columna icono={Car} titulo="Matrícula o persona"
@@ -167,8 +174,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, onMerodeo
                                 ayuda="En un acceso, si se permitió o se denegó. En un avistamiento, qué tan segura fue la lectura: verde arriba de 85%, ámbar entre 65 y 85, rojo debajo.">Resultado</Columna>
                             <Columna icono={ShieldAlert} titulo="Señales y permanencia"
                                 ayuda="Permanencia es cuánto estuvo adentro el vehículo, y sale solo en las salidas. Merodeo marca una matrícula que aparece muchas veces en poco tiempo sin llegar a entrar.">Señales</Columna>
-                            <Columna icono={Camera} alinear="right" titulo="El cuadro y la ficha"
-                                ayuda="La foto del momento: hacé clic para verla grande y acercarla, que es como se juzga una matrícula chica. En los accesos, el botón de puntos abre la ficha completa.">Cuadro</Columna>
+                            <Columna icono={MoreHorizontal} alinear="right" titulo="La ficha completa"
+                                ayuda="En los accesos, abre el detalle: fotos, datos del vehículo, permisos y por qué se decidió lo que se decidió.">Ficha</Columna>
                         </tr>
                     </thead>
                     <tbody>
@@ -178,7 +185,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, onMerodeo
 
                         {vacio && (
                             <tr>
-                                <td colSpan={7} className="py-16 text-center">
+                                <td colSpan={8} className="py-16 text-center">
                                     <div className="flex flex-col items-center gap-2">
                                         <Inbox className="w-8 h-8 text-muted-foreground/50" />
                                         <p className="text-sm text-muted-foreground">Nada en este período</p>
@@ -218,6 +225,24 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, onMerodeo
                                                     ? <>desde {new Date(f.estDesde).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {new Date(f.momento).toLocaleDateString("es-UY", { day: "2-digit", month: "short" })}</>
                                                     : new Date(f.momento).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}
                                             </p>
+                                        </td>
+
+                                        <td className="px-5 py-3">
+                                            <div className="w-20 shrink-0">
+                                                {f.foto ? (
+                                                    /* eslint-disable-next-line @next/next/no-img-element */
+                                                    <img src={f.foto} alt={f.plate || ""}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setViendo({ foto: f.foto!, plate: f.plate || "—", camara: f.camara, momento: f.momento, confianza: f.confianza });
+                                                        }}
+                                                        className="h-12 w-20 object-cover rounded border border-border/50 hover:border-violet-400/60 transition-colors cursor-zoom-in" />
+                                                ) : (
+                                                    <div className="h-12 w-20 rounded border border-dashed border-border/40 flex items-center justify-center">
+                                                        <Camera className="w-3.5 h-3.5 text-muted-foreground/30" />
+                                                    </div>
+                                                )}
+                                            </div>
                                         </td>
 
                                         <td className="px-5 py-3">
@@ -301,31 +326,22 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, onMerodeo
                                         </td>
 
                                         <td className="px-5 py-3 text-right">
-                                            {f.raw && (
+                                            {f.raw ? (
                                                 <EventDetailsDialog event={f.raw}>
                                                     <button onClick={(e) => e.stopPropagation()}
                                                         title="Ficha completa del acceso"
-                                                        className="inline-flex mr-1.5 w-7 h-7 rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent items-center justify-center align-middle transition-colors">
+                                                        className="inline-flex w-7 h-7 rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-accent items-center justify-center transition-colors">
                                                         <MoreHorizontal className="w-3.5 h-3.5" />
                                                     </button>
                                                 </EventDetailsDialog>
-                                            )}
-                                            {f.foto ? (
-                                                /* eslint-disable-next-line @next/next/no-img-element */
-                                                <img src={f.foto} alt={f.plate || ""}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setViendo({ foto: f.foto!, plate: f.plate || "—", camara: f.camara, momento: f.momento, confianza: f.confianza });
-                                                    }}
-                                                    className="h-12 w-20 object-cover rounded border border-border/50 ml-auto hover:border-violet-400/60 transition-colors" />
-                                            ) : !f.raw ? <span className="text-muted-foreground text-xs">—</span> : null}
+                                            ) : <span className="text-muted-foreground/40 text-xs">—</span>}
                                         </td>
                                     </motion.tr>
 
                                     <AnimatePresence initial={false}>
                                         {abierto && f.plate && (
                                             <tr key={f.id + "_flujo"}>
-                                                <td colSpan={7} className="p-0">
+                                                <td colSpan={8} className="p-0">
                                                     <motion.div
                                                         initial={{ height: 0, opacity: 0 }}
                                                         animate={{ height: "auto", opacity: 1 }}

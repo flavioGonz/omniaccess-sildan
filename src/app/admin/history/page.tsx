@@ -27,6 +27,7 @@ import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { TablaUnificada } from "@/components/history/TablaUnificada";
+import { Seek } from "@/components/ui/search";
 import { io } from "socket.io-client";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -596,16 +597,17 @@ export default function HistoryPage() {
             <div className="bg-card/60 border border-border/50 rounded-lg p-5">
                 <div className="flex items-center gap-4 flex-wrap">
                     {/* Search */}
-                    <div className="relative flex-1 min-w-[250px]">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-muted/60 border border-border/50 rounded-md py-2 pl-10 pr-4 text-sm text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500/50 placeholder:text-muted-foreground"
-                            placeholder="Buscar por patente, nombre, terminal..."
-                        />
-                    </div>
+                    {/* El buscador, uno solo y del mismo estilo en toda la aplicación.
+                        Arranca abierto: acá no es una pieza suelta en una tarjeta sino el
+                        filtro de una tabla, y un guardia que viene a buscar una matrícula
+                        tiene que poder escribirla sin tener que abrir nada primero. */}
+                    <Seek
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        placeholder="Matrícula, nombre o cámara"
+                        startOpen
+                        width={340}
+                    />
 
                     <GrupoFiltro rotulo="Clase de registro"
                         ayuda="Entradas y salidas las decide una cámara LPR y abren la barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre. Sin nada elegido se ven todos juntos.">
