@@ -30,6 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import Link from "next/link";
+import { hora } from "@/lib/fechas";
 
 interface FullAccessEvent extends AccessEvent {
     user: {
@@ -785,9 +786,7 @@ function FeedCard({ event, verification, currentTime, onClick }: FeedCardProps) 
         ? (verification.similarity * 100).toFixed(0)
         : cameraSimilarity;
 
-    const timeStr = new Date(event.timestamp).toLocaleString('es-ES', {
-        hour: '2-digit', minute: '2-digit', hour12: false
-    });
+    const timeStr = hora(event.timestamp);
 
     const personaName = event.details?.match(/Persona: ([^,]+)/)?.[1];
 

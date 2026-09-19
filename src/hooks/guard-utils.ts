@@ -1,4 +1,4 @@
-import { hora } from "@/lib/fechas";
+import { fechaHoraSeg, hora } from "@/lib/fechas";
 // Shared utility functions for Guard consoles
 "use client";
 
@@ -51,12 +51,5 @@ export function formatEntryTime(timestamp: string | Date): string {
  * Format a full date+time for detailed views
  */
 export function formatEntryDateTime(timestamp: string | Date): string {
-    const d = new Date(timestamp);
-    return d.toLocaleString("es-UY", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+    return fechaHoraSeg(timestamp);
 }

@@ -78,7 +78,7 @@ import { io } from "socket.io-client";
 import { useInView } from "react-intersection-observer";
 import { saveGuardBranding, uploadBrandingFile } from "@/app/actions/settings";
 import axios from "axios";
-import { fecha, fechaCorta, fechaHora, hora } from "@/lib/fechas";
+import { fecha, fechaCorta, fechaHora, fechaHoraSeg, hora } from "@/lib/fechas";
 import { getSocketUrl } from "@/lib/socket-config";
 
 import dynamic from 'next/dynamic';
@@ -3423,14 +3423,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                                 <div className="border-l border-white/20 pl-6">
                                                                     <div className="text-[9px] font-bold text-white/50 uppercase tracking-wider mb-1">Timestamp</div>
                                                                     <div className="text-sm font-mono font-bold text-white">
-                                                                        {new Date(viewerData.timestamp).toLocaleString('es-AR', {
-                                                                            day: '2-digit',
-                                                                            month: '2-digit',
-                                                                            year: 'numeric',
-                                                                            hour: '2-digit',
-                                                                            minute: '2-digit',
-                                                                            second: '2-digit'
-                                                                        })}
+                                                                        {fechaHoraSeg(viewerData.timestamp)}
                                                                     </div>
                                                                 </div>
                                                             )}

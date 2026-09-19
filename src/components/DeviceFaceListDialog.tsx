@@ -34,6 +34,7 @@ import { getDeviceFaces, exportAllToDevice } from "@/app/actions/deviceMemory";
 import { getUsers } from "@/app/actions/users";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { FaceImportPreviewDialog } from "./FaceImportPreviewDialog"; // Created in previous step
 
 interface DeviceFaceListDialogProps {
@@ -74,11 +75,14 @@ export function DeviceFaceListDialog({ device, open, onOpenChange }: DeviceFaceL
         }
     };
 
-    const handleSyncClick = () => {
-        if (confirm("⚠️ IMPORTANTE:\n\nAl sincronizar, se VOLCARÁ la base de datos de la App al equipo. Los usuarios existentes en el equipo serán actualizados. ¿Deseas continuar?")) {
-            handleSyncToCamera();
-        }
-    };
+    /**
+     * Volcar el padrón sobre el equipo. No borra nada de la aplicación, pero PISA lo que
+     * el equipo tenga cargado — y si alguien dio de alta un rostro directamente en la
+     * cámara, ese alta se pierde. El aviso estaba bien escrito; lo que estaba mal era el
+     * lugar donde estaba escrito: un `confirm()` con un salto de línea y un emoji.
+     */
+    const [confirmandoVolcado, setConfirmandoVolcado] = useState(false);
+    const handleSyncClick = () => setConfirmandoVolcado(true);
 
     const handleSyncToCamera = async () => {
         setIsSyncingToCamera(true);
@@ -345,6 +349,17 @@ export function DeviceFaceListDialog({ device, open, onOpenChange }: DeviceFaceL
                     setShowImportPreview(false);
                     loadData();
                 }}
+            />
+
+            <ConfirmarAccion
+                open={confirmandoVolcado}
+                onOpenChange={setConfirmandoVolcado}
+                id="__volcado__"
+                title="Volcar el padrón al equipo"
+                description="Se manda al equipo lo que tiene la aplicación. Los rostros que estén cargados allá se actualizan con los de acá, y uno dado de alta directamente en la cámara se pierde."
+                etiquetaAccion="Volcar al equipo"
+                onDelete={async () => { await handleSyncToCamera(); }}
+                onSuccess={() => { }}
             />
         </>
     );

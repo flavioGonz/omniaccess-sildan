@@ -392,6 +392,7 @@ export default function BarrioMap() {
     const commitStreet = () => { if (draftStreet.length >= 2) cambiar((d) => ({ ...d, streets: [...d.streets, { id: `s_${Date.now()}`, points: draftStreet }] })); setDraftStreet([]); setTool("select"); };
     const lotes = data.lots || [];
     const commitLote = () => {
+        console.log("[mapa] cerrar lote · puntos:", draftLote.length, "· lotes antes:", lotes.length);
         if (draftLote.length >= 3) {
             const nombre = window.prompt("Nombre de la casa o lote:", `Lote ${lotes.length + 1}`);
             cambiar((d) => ({ ...d, lots: [...(d.lots || []), { id: `l_${Date.now()}`, label: (nombre || `Lote ${lotes.length + 1}`).trim(), unitId: null, parkingSlotId: null, points: draftLote }] }));
@@ -477,6 +478,7 @@ export default function BarrioMap() {
         // lo que informó la vista 3D. Antes se caía al valor viejo y "Guardar" en 3D
         // parecía no hacer nada.
         const v3 = vista3D ? vista3DRef.current : null;
+        console.log("[mapa] guardar · lotes:", (data.lots || []).length, "· calles:", data.streets.length, "· cámaras:", data.cameras.length);
         const payload: BarrioMapData = {
             ...data,
             center: v3 ? v3.center : m ? [m.getCenter().lat, m.getCenter().lng] : data.center,
@@ -485,7 +487,28 @@ export default function BarrioMap() {
             tresD: vista3D,
             ...(v3 ? { pitch: v3.pitch, bearing: v3.bearing } : {}),
         } as BarrioMapData;
-        try { const r = await saveBarrioMap(payload); if (r.ok) { toast.success({ title: "Mapa guardado", description: vista3D ? "Abre en vista 3D, con este giro e inclinación" : `Vista, zoom y capa ${base} recordados` }); setData(payload); setSinGuardar(false); setEditing(false); setTool("select"); } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" }); }
+        try {
+            const r = await saveBarrioMap(payload);
+            if (r.ok) {
+                /*
+                 * El aviso dice QUÉ quedó guardado, no que la escritura no falló.
+                 *
+                 * "Mapa guardado" a secas confirma lo segundo, que es mucho menos de lo que
+                 * el operador entiende. Si el dibujo no llegó al servidor, ese cartel
+                 * mentía sin querer y el problema se descubría dos días después, al abrir
+                 * el mapa. La cuenta viene del servidor, de lo que realmente se serializó.
+                 */
+                const g = r.guardado;
+                const detalle = g
+                    ? [g.lotes && `${g.lotes} lote${g.lotes === 1 ? "" : "s"}`,
+                       g.calles && `${g.calles} calle${g.calles === 1 ? "" : "s"}`,
+                       g.camaras && `${g.camaras} cámara${g.camaras === 1 ? "" : "s"}`,
+                       g.perimetro && "perímetro"].filter(Boolean).join(" · ") || "sin dibujo todavía"
+                    : (vista3D ? "Abre en vista 3D, con este giro e inclinación" : `Vista, zoom y capa ${base}`);
+                toast.success({ title: "Mapa guardado", description: detalle });
+                setData(payload); setSinGuardar(false); setEditing(false); setTool("select");
+            } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" });
+        }
         catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); } finally { setSaving(false); }
     };
 

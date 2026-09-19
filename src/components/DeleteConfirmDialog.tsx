@@ -36,7 +36,15 @@ import { AlertTriangle, Trash2 } from "lucide-react";
 
 type Resultado = void | { success?: boolean; error?: string | null } | null | undefined;
 
-interface DeleteConfirmDialogProps {
+/*
+ * Se llama ConfirmarAccion y no DeleteConfirmDialog porque no todas las acciones que hay
+ * que confirmar son borrados: cambiar la base de datos, volcar el padrón sobre un equipo o
+ * resetear un plano no borran un registro y son igual de difíciles de deshacer. El nombre
+ * viejo queda exportado al final del archivo para no tener que tocar los veinte lugares que
+ * ya lo usan — cambiarlos todos de golpe sería churn sin ninguna ganancia.
+ */
+
+interface ConfirmarAccionProps {
     id: string;
     /** Qué se va a borrar, con su nombre. Es lo que el operador lee para confirmar. */
     title: string;
@@ -44,6 +52,16 @@ interface DeleteConfirmDialogProps {
     description?: string;
     onDelete: (id: string) => Promise<Resultado>;
     onSuccess: () => void;
+    /**
+     * El disparador. Es OPCIONAL: sin él, el diálogo es puramente controlado.
+     *
+     * Hay dos maneras legítimas de pedir una confirmación. Una es envolver el botón que la
+     * dispara — cómoda cuando el botón existe y está ahí. La otra es abrirla desde un
+     * manejador que ya está corriendo, que es el caso de todo lo que antes usaba
+     * `confirm()`: ahí no hay un botón que envolver, hay una función a mitad de camino.
+     * Soportar las dos evita que aparezca un quinto mecanismo de confirmación para el
+     * segundo caso.
+     */
     /**
      * Si viene, hay que ESCRIBIR esta palabra para que el botón se habilite.
      *
@@ -60,10 +78,10 @@ interface DeleteConfirmDialogProps {
     onOpenChange?: (open: boolean) => void;
 }
 
-export function DeleteConfirmDialog({
+export function ConfirmarAccion({
     id, title, description, onDelete, onSuccess, children, escribir, etiquetaAccion,
     open: abiertoControlado, onOpenChange,
-}: DeleteConfirmDialogProps) {
+}: ConfirmarAccionProps) {
     const [abiertoPropio, setAbiertoPropio] = useState(false);
     const abierto = abiertoControlado !== undefined ? abiertoControlado : abiertoPropio;
     const setAbierto = onOpenChange !== undefined ? onOpenChange : setAbiertoPropio;
@@ -93,7 +111,7 @@ export function DeleteConfirmDialog({
 
     return (
         <Dialog open={abierto} onOpenChange={(o) => { if (!o) { setFallo(null); setEscrito(""); } setAbierto(o); }}>
-            <DialogTrigger asChild>{children}</DialogTrigger>
+            {children && <DialogTrigger asChild>{children}</DialogTrigger>}
             <DialogContent className="max-w-[420px] p-0 gap-0 overflow-hidden">
                 <div className="flex flex-col items-center text-center px-8 pt-9 pb-6 space-y-5">
                     <span className="w-14 h-14 rounded-2xl bg-[var(--mal-suave)] border border-border flex items-center justify-center text-[var(--mal-texto)]">
@@ -154,3 +172,6 @@ export function DeleteConfirmDialog({
         </Dialog>
     );
 }
+
+/** El nombre anterior. Sigue siendo el mismo componente. */
+export const DeleteConfirmDialog = ConfirmarAccion;

@@ -78,7 +78,8 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog";
-import { fecha } from "@/lib/fechas";
+import { fecha, fechaHoraSeg } from "@/lib/fechas";
+import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import {
     Table,
     TableBody,
@@ -650,18 +651,29 @@ function DatabaseSection() {
         }
     };
 
+    /**
+     * Cambiar la base de datos apuntando a otra: lo más grande que se puede hacer desde
+     * acá. La aplicación se reinicia y todo el barrio pasa a leer y escribir en otro lado
+     * — residentes, credenciales, historial. Si la base nueva está vacía, el sistema
+     * arranca como si el barrio no existiera. Un `confirm()` del navegador, con dos botones
+     * iguales, es poco freno para eso: ahora pide escribir la palabra.
+     */
+    const [cambiandoBase, setCambiandoBase] = useState(false);
+
     const handleApplyExternal = async () => {
         if (!externalStatus?.success) return;
+        setCambiandoBase(true);
+    };
 
-        if (confirm("¿Estás seguro de cambiar la base de datos? La aplicación se reiniciará.")) {
-            const res = await updateDatabaseUrl(newDbUrl);
-            if (res.success) {
-                toast.success({ title: "Configuración actualizada. Reiniciando..." });
-                setTimeout(() => window.location.reload(), 3000);
-            } else {
-                toast.error({ title: "Error al actualizar: " + res.message });
-            }
+    const aplicarCambioDeBase = async () => {
+        const res = await updateDatabaseUrl(newDbUrl);
+        if (res.success) {
+            toast.success({ title: "Configuración actualizada. Reiniciando…" });
+            setTimeout(() => window.location.reload(), 3000);
+            return;
         }
+        toast.error({ title: "Error al actualizar: " + res.message });
+        return { success: false, error: res.message };
     };
 
     const handleRunMigrations = async () => {
@@ -1130,7 +1142,18 @@ function DatabaseSection() {
                     </div>
                 </div>
             )}
-        </div>
+
+            <ConfirmarAccion
+                open={cambiandoBase}
+                onOpenChange={setCambiandoBase}
+                id="__base__"
+                title="Cambiar la base de datos"
+                description="La aplicación pasa a leer y escribir en otra base: residentes, credenciales, historial, todo. Se reinicia sola al aplicar. Si la base nueva está vacía, el sistema arranca como si el barrio no existiera."
+                escribir="CAMBIAR"
+                etiquetaAccion="Cambiar la base"
+                onDelete={aplicarCambioDeBase}
+                onSuccess={() => { }}
+            />        </div>
     );
 }
 
@@ -1584,8 +1607,14 @@ function ModeConfiguration({ title, description, settingKey, options }: {
         }
     };
 
+    /**
+     * Borrar todo el aprendizaje. No es el borrado de un registro: es el de la lista
+     * entera, que el lector fue juntando con el uso. Rehacerla no es volver a cargar unos
+     * datos, es esperar a que vuelvan a pasar los mismos autos.
+     */
+    const [limpiandoAprendidas, setLimpiandoAprendidas] = useState(false);
+
     const handleClearLearned = async () => {
-        if (!confirm("¿Estás seguro de que deseas borrar todas las matrículas aprendidas?")) return;
         try {
             const res = await clearLearnedPlates();
             if (res.success) {
@@ -1814,7 +1843,7 @@ function ModeConfiguration({ title, description, settingKey, options }: {
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    onClick={handleClearLearned}
+                                    onClick={() => setLimpiandoAprendidas(true)}
                                     className="h-8 text-red-400 hover:text-red-300 hover:bg-red-500/10"
                                 >
                                     <Trash2 size={14} className="mr-2" />
@@ -1882,14 +1911,7 @@ function ModeConfiguration({ title, description, settingKey, options }: {
                                                 <TableCell>
                                                     <div className="flex items-center gap-2 text-muted-foreground">
                                                         <Calendar size={12} className="text-muted-foreground" />
-                                                        <span className="text-xs">{new Date(item.timestamp).toLocaleString('es-UY', {
-                                                            day: '2-digit',
-                                                            month: '2-digit',
-                                                            year: 'numeric',
-                                                            hour: '2-digit',
-                                                            minute: '2-digit',
-                                                            second: '2-digit'
-                                                        })}</span>
+                                                        <span className="text-xs">{fechaHoraSeg(item.timestamp)}</span>
                                                     </div>
                                                 </TableCell>
                                                 <TableCell className="text-right">
@@ -1940,7 +1962,18 @@ function ModeConfiguration({ title, description, settingKey, options }: {
                     </div>
                 </div>
             )}
-        </>
+
+            <ConfirmarAccion
+                open={limpiandoAprendidas}
+                onOpenChange={setLimpiandoAprendidas}
+                id="__aprendidas__"
+                title="Borrar todo el aprendizaje"
+                description="Se borra la lista entera de matrículas aprendidas. No es un dato que se pueda volver a cargar: el lector la fue juntando con el uso, así que rehacerla es esperar a que vuelvan a pasar los mismos autos."
+                escribir="BORRAR"
+                etiquetaAccion="Borrar todo"
+                onDelete={handleClearLearned}
+                onSuccess={() => { }}
+            />        </>
     );
 }
 
@@ -2382,16 +2415,13 @@ function AdminsSection() {
         }
     };
 
+    /** El administrador a borrar, o nada. El diálogo es el mismo de toda la aplicación. */
+    const [adminABorrar, setAdminABorrar] = useState<any | null>(null);
+
     const handleDelete = async (id: string) => {
-        if (confirm("¿Estás seguro de eliminar este administrador?")) {
-            try {
-                await deleteAdminAction(id);
-                toast.success({ title: "Usuario eliminado" });
-                loadAdmins();
-            } catch (error) {
-                toast.error({ title: "Error al eliminar" });
-            }
-        }
+        await deleteAdminAction(id);
+        toast.success({ title: "Administrador eliminado" });
+        loadAdmins();
     };
 
     const openEdit = (admin: any) => {
@@ -2486,7 +2516,7 @@ function AdminsSection() {
                                                 <Pencil size={14} />
                                             </button>
                                             <button
-                                                onClick={() => handleDelete(admin.id)}
+                                                onClick={() => setAdminABorrar(admin)}
                                                 className="w-8 h-8 rounded-lg bg-red-500/10 hover:bg-red-600 text-red-500 hover:text-foreground flex items-center justify-center transition-all"
                                             >
                                                 <Trash2 size={14} />
@@ -2608,7 +2638,18 @@ function AdminsSection() {
                     </div>
                 </DialogContent>
             </Dialog>
-        </div>
+
+            {adminABorrar && (
+                <ConfirmarAccion
+                    open
+                    onOpenChange={(o) => { if (!o) setAdminABorrar(null); }}
+                    id={adminABorrar.id}
+                    title={adminABorrar.name || "Administrador"}
+                    description="Deja de poder entrar al panel. No se borran los eventos ni la bitácora que haya registrado: esos quedan con su nombre."
+                    onDelete={handleDelete}
+                    onSuccess={() => setAdminABorrar(null)}
+                />
+            )}        </div>
     );
 }
 

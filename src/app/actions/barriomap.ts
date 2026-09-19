@@ -73,8 +73,31 @@ export async function getBarrioMap(): Promise<BarrioMapData> {
     }
 }
 
-export async function saveBarrioMap(data: BarrioMapData): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Guardar el mapa, y decir QUÉ se guardó.
+ *
+ * Antes devolvía `{ ok: true }` y nada más, y la pantalla anunciaba "Mapa guardado". Eso
+ * confirma que la escritura no falló — que es otra cosa que confirmar que se guardó lo que
+ * el operador dibujó. Si el dibujo no llega hasta acá, la pantalla igual dice que salió
+ * bien, y el problema aparece recién la próxima vez que alguien abre el mapa.
+ *
+ * Ahora devuelve la cuenta de lo que efectivamente quedó escrito, leída del objeto que se
+ * serializó. La pantalla la muestra. Un "guardado · 0 lotes" cuando se acaba de dibujar uno
+ * es un error que se ve en el momento, no dos días después.
+ */
+export async function saveBarrioMap(data: BarrioMapData): Promise<{
+    ok: boolean;
+    error?: string;
+    guardado?: { lotes: number; calles: number; camaras: number; perimetro: number };
+}> {
     try {
+        const guardado = {
+            lotes: (data.lots || []).length,
+            calles: (data.streets || []).length,
+            camaras: (data.cameras || []).length,
+            perimetro: (data.perimeter || []).length,
+        };
+        console.log("[saveBarrioMap] llega:", JSON.stringify(guardado));
         await prisma.setting.upsert({
             where: { key: "BARRIO_MAP" },
             update: { value: JSON.stringify(data) },
@@ -87,7 +110,7 @@ export async function saveBarrioMap(data: BarrioMapData): Promise<{ ok: boolean;
          */
         revalidatePath("/admin/consolas");
         revalidatePath("/admin/mapa");
-        return { ok: true };
+        return { ok: true, guardado };
     } catch (e: any) {
         console.error("[saveBarrioMap] fallo:", e);
         return { ok: false, error: String(e?.message || e) };
