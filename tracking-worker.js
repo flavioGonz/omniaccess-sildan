@@ -95,6 +95,51 @@ const BALDOSA_SOLAPE = Number(process.env.TRACKING_TILE_OVERLAP || 0.18);
 // Techo de inferencias por rafaga, para que una calle con movimiento no acapare la GPU.
 const INFERENCIAS_MAX = Number(process.env.TRACKING_BURST_INFER || 24);
 
+/**
+ * Techo de inferencias por minuto y por camara. El presupuesto.
+ *
+ * INFERENCIAS_MAX acota cada rafaga, pero no cuantas rafagas por minuto, y ahi estaba el
+ * agujero: en respaldo por escena, con el mudo en cuatro segundos, una camara puede abrir
+ * quince rafagas por minuto y pedir trescientas sesenta inferencias. Multiplicado por las
+ * camaras, eso es la GPU al 100%.
+ *
+ * Y el detonante puede ser una linea de cruce mal dibujada. Eso estaba mal de raiz: una
+ * analitica mal puesta tiene que dar POCAS LECTURAS, no saturar el hardware. El costo de
+ * un error de calibracion lo tiene que pagar la calibracion, no la maquina.
+ *
+ * Con el presupuesto, lo peor que puede hacer una camara mal apuntada es gastar su propia
+ * cuota y quedarse sin turno hasta el minuto siguiente. El techo es por camara y no
+ * global a proposito: una camara desbocada no le puede comer el turno a las que andan
+ * bien.
+ */
+const PRESUPUESTO_POR_MIN = Number(process.env.TRACKING_INFER_PER_MIN || 90);
+
+/**
+ * El respaldo por escena se gana seguir.
+ *
+ * Cuando la camara deja de avisar se cae al disparo por escena, y hasta ahora se quedaba
+ * ahi para siempre y al mismo ritmo, sin que nadie midiera si servia de algo. Calle 21
+ * estuvo asi moliendo cuadros donde no habia ninguna chapa.
+ *
+ * Es el mismo principio del barrendero de estadias: la ausencia solo es evidencia si uno
+ * estaba mirando. Aca al reves — mirar solo vale la pena si algo se ve. Rafagas seguidas
+ * sin sacar una matricula son la prueba de que ese respaldo no esta rindiendo, y entonces
+ * se espacia. En cuanto saca una, recupera el ritmo de una vez: no se castiga a una calle
+ * tranquila por estar tranquila.
+ */
+const RESPALDO_PACIENCIA = Number(process.env.TRACKING_FALLBACK_PATIENCE || 4);
+const RESPALDO_MUDO_MAX_MS = Number(process.env.TRACKING_FALLBACK_MAX_QUIET_MS || 4 * 60 * 1000);
+
+/**
+ * Cuadros por segundo del respaldo.
+ *
+ * Antes salia de `cam.fps`, que es el ritmo pensado para el modo por aviso: ahi la rafaga
+ * dura un segundo y lo que se quiere son varios cuadros del auto pasando. El respaldo
+ * mira continuo, asi que heredar ese numero era pedir seis cuadros por segundo las
+ * veinticuatro horas. Tiene su propio ritmo, y es bajo.
+ */
+const RESPALDO_FPS = Number(process.env.TRACKING_FALLBACK_FPS || 2);
+
 // Modelos del lector. El detector por defecto del contenedor es el de 384 px, el mas
 // chico de los seis: achica cualquier imagen a eso antes de buscar nada, y por eso un
 // cuadro panoramico no devolvia ninguna matricula. Medido sobre el mismo cuadro:
@@ -116,7 +161,7 @@ const log = (...a) => console.log(new Date().toISOString(), "[track]", ...a);
 const porAviso = (m) => m === "camara" || m === "zona" || m === "linea";
 
 // Contadores del minuto en curso. Se vuelcan a la muestra y se ponen en cero.
-const contadores = { disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0 };
+const contadores = { disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0 };
 
 // Ancho de la banda de la linea de pasada, medido en alturas de la chapa leida.
 // Se mide asi y no en fracciones fijas porque la chapa se ve mas chica cuanto mas
@@ -602,6 +647,39 @@ async function barrerEstadias() {
     }
 }
 
+// ─────────────────────────── Presupuesto ───────────────────────────
+
+/**
+ * Lo que le queda a esta camara este minuto.
+ *
+ * Una ventana por minuto de reloj, no deslizante: mas barata y mas facil de explicar en
+ * el log. Lo que importa es que exista el techo, no que sea suave.
+ */
+function presupuesto(est) {
+    const minuto = Math.floor(Date.now() / 60000);
+    if (est.gasto?.minuto !== minuto) est.gasto = { minuto, inferencias: 0 };
+    return Math.max(0, PRESUPUESTO_POR_MIN - est.gasto.inferencias);
+}
+
+function gastar(est, inferencias) {
+    presupuesto(est);
+    est.gasto.inferencias += inferencias;
+}
+
+/**
+ * Cuanto silencio le toca al respaldo despues de una rafaga.
+ *
+ * Con el disparo por aviso es siempre el mismo: la camara avisa cuando hay algo, y si
+ * avisa dos veces seguidas es porque pasaron dos autos. Con el respaldo se duplica por
+ * cada rafaga seca, hasta el techo.
+ */
+function mudoQueCorresponde(est) {
+    if (porAviso(est.modoEfectivo)) return MUDO_MS;
+    const secas = Math.max(0, (est.secas || 0) - RESPALDO_PACIENCIA + 1);
+    if (secas <= 0) return MUDO_MS;
+    return Math.min(RESPALDO_MUDO_MAX_MS, MUDO_MS * 2 ** secas);
+}
+
 // ─────────────────────────── Rafagas ───────────────────────────
 
 /** Abre una rafaga: junta los cuadros de antes y de despues, los lee y consolida. */
@@ -609,6 +687,18 @@ function disparar(est, motivo) {
     const ahora = Date.now();
     if (est.rafaga) return;                 // ya hay una abierta
     if (ahora < est.mudoHasta) return;      // acabamos de resolver una
+
+    // El presupuesto se mira ANTES de juntar los cuadros: sin esto, una camara sin cuota
+    // igual baldosea y descarta, que es casi todo el gasto de una rafaga.
+    if (presupuesto(est) <= 0) {
+        contadores.frenados++;
+        if (!est.avisoFreno || ahora - est.avisoFreno > 60000) {
+            est.avisoFreno = ahora;
+            log(`${est.cam.name}: sin cuota este minuto (${PRESUPUESTO_POR_MIN} inferencias); `
+                + `se saltean disparos hasta el minuto que viene. Revisar la zona y la regla en el calibrador.`);
+        }
+        return;
+    }
 
     // Los cuadros de justo antes del aviso suelen ser los mejores: el vehiculo
     // todavia esta entrando en cuadro y la chapa no se fue de foco.
@@ -625,7 +715,7 @@ async function resolverRafaga(est) {
     est.temporizador = null;
     if (!r || !r.cuadros.length) return;
 
-    est.mudoHasta = Date.now() + MUDO_MS;
+    est.mudoHasta = Date.now() + mudoQueCorresponde(est);
     const cam = est.cam;
     const cuadros = r.cuadros.slice(0, RAFAGA_MAX_CUADROS);
 
@@ -642,11 +732,16 @@ async function resolverRafaga(est) {
         }
         // Si hay demasiado, se reparte parejo en el tiempo en vez de cortar por la mitad:
         // el final de la rafaga suele ser mejor que el principio.
+        // Dos techos: el de la rafaga y lo que le quede a la camara este minuto. Manda el
+        // menor. Ralear no es lo mismo que cortar: se reparte parejo en el tiempo porque
+        // el final de la rafaga suele ser mejor que el principio.
+        const techo = Math.max(1, Math.min(INFERENCIAS_MAX, presupuesto(est)));
         let cola = trabajo;
-        if (trabajo.length > INFERENCIAS_MAX) {
-            const paso = trabajo.length / INFERENCIAS_MAX;
-            cola = Array.from({ length: INFERENCIAS_MAX }, (_, k) => trabajo[Math.floor(k * paso)]);
+        if (trabajo.length > techo) {
+            const paso = trabajo.length / techo;
+            cola = Array.from({ length: techo }, (_, k) => trabajo[Math.floor(k * paso)]);
         }
+        gastar(est, cola.length);
 
         const tBaldosas = Date.now();
         const lecturas = [];
@@ -661,6 +756,14 @@ async function resolverRafaga(est) {
         }
         if (!lecturas.length) {
             contadores.descartes++;
+            // Una rafaga seca en respaldo es la prueba de que ese respaldo no esta
+            // rindiendo. La siguiente espera el doble.
+            est.secas = (est.secas || 0) + 1;
+            if (!porAviso(est.modoEfectivo) && est.secas === RESPALDO_PACIENCIA) {
+                log(`${cam.name}: ${est.secas} rafagas por escena sin una sola matricula; `
+                    + `se empieza a espaciar el respaldo hasta ${Math.round(RESPALDO_MUDO_MAX_MS / 60000)} min. `
+                    + `La camara no avisa y por escena no se lee: hay que revisar la regla y la zona en el calibrador.`);
+            }
             if (r.motivo !== "escena") log(`${cam.name}: rafaga sin matricula (${cuadros.length} cuadros, ${cola.length} baldosas)`);
             // Se guarda un cuadro del ultimo intento fallido, siempre el mismo archivo por
             // camara. Cuando alguien pregunta "por que no lee", esto contesta en un vistazo
@@ -671,6 +774,15 @@ async function resolverRafaga(est) {
                 if (medio) fs.writeFileSync(path.join(DIR_SHOTS, `ultimo-fallo-${cam.deviceId || cam.name}.jpg`), medio);
             } catch { }
             return;
+        }
+
+        // Salio algo: el respaldo recupera el ritmo de una vez. No se castiga a una calle
+        // tranquila por estar tranquila.
+        if (est.secas) {
+            if (!porAviso(est.modoEfectivo) && est.secas >= RESPALDO_PACIENCIA) {
+                log(`${cam.name}: el respaldo por escena volvio a leer; se recupera el ritmo`);
+            }
+            est.secas = 0;
         }
 
         const tLectura = Date.now();
@@ -763,7 +875,10 @@ function engancharCamara(est) {
     // En modo camara conviene un ritmo mas alto: el disparo ya es preciso, y lo que
     // se quiere es tener varios cuadros del auto pasando. En modo escena se muestrea
     // bajo y es ffmpeg el que decide cual vale.
-    const fps = cam.fps ?? (porCamara ? 6 : 2);
+    // El fps configurado es el del modo por aviso, donde la rafaga dura un segundo y se
+    // quieren varios cuadros del auto pasando. El respaldo mira continuo: heredar ese
+    // numero era pedir seis cuadros por segundo las veinticuatro horas.
+    const fps = porCamara ? (cam.fps ?? 6) : RESPALDO_FPS;
 
     const r = cam.roi;
     const recorte = r && r.w > 0 && r.h > 0 && (r.w < 1 || r.h < 1 || r.x > 0 || r.y > 0)
@@ -947,6 +1062,7 @@ function procesarAviso(est, xml) {
     if (!porAviso(est.modoEfectivo) && porAviso(est.cam.disparo)) {
         log(`${est.cam.name}: la camara volvio a avisar, se deja el respaldo por escena`);
         est.modoEfectivo = est.cam.disparo;
+        est.secas = 0;
         rearmar(est);
     }
     disparar(est, `camara:${tipo}`);
@@ -1032,7 +1148,13 @@ async function muestrear() {
                 enGpu,
             },
         });
-        contadores.disparos = 0; contadores.lecturas = 0; contadores.descartes = 0;
+        // Los frenados no van a la muestra (seria una columna nueva) pero si al log: es el
+        // dato que contesta "por que la GPU esta tranquila y aun asi no leo nada".
+        if (contadores.frenados) {
+            log(`presupuesto: ${contadores.frenados} disparos salteados este minuto por falta de cuota `
+                + `(${PRESUPUESTO_POR_MIN} inferencias por camara y por minuto)`);
+        }
+        contadores.disparos = 0; contadores.lecturas = 0; contadores.descartes = 0; contadores.frenados = 0;
 
         // Limpieza barata: una vez por hora, y solo lo que ya no se muestra.
         if (new Date().getMinutes() === 7) {
@@ -1077,7 +1199,7 @@ async function sincronizar() {
         }
         if (camarasVivas.has(cam.name)) { camarasVivas.get(cam.name).cam = cam; continue; }
 
-        const est = { cam, huella, modoEfectivo: cam.disparo, ultimoAviso: Date.now(), memoria: [], recuento: {}, rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false };
+        const est = { cam, huella, modoEfectivo: cam.disparo, ultimoAviso: Date.now(), memoria: [], recuento: {}, rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false, gasto: null, secas: 0, avisoFreno: 0 };
         camarasVivas.set(cam.name, est);
         engancharCamara(est);
         if (porAviso(cam.disparo)) escucharCamara(est);
@@ -1108,7 +1230,8 @@ function resumenAvisos() {
      */
     log(`config · detector=${DETECTOR} ocr=${OCR} baldosa=${BALDOSA_PX}px inferencias<=${INFERENCIAS_MAX} `
         + `enVuelo=${MAX_EN_VUELO} minConf=${MIN_CONF} coincidencias>=${COINCIDENCIAS_MIN} `
-        + `confAlta=${CONF_ALTA} releerDesde=${RELEER_MIN} chapasPorBaldosa=${CHAPAS_POR_BALDOSA}`);
+        + `confAlta=${CONF_ALTA} releerDesde=${RELEER_MIN} chapasPorBaldosa=${CHAPAS_POR_BALDOSA} `
+        + `presupuesto=${PRESUPUESTO_POR_MIN}/min/camara respaldo=${RESPALDO_FPS}c/s`);
     await sincronizar();
     setInterval(sincronizar, 60000);   // toma cambios de configuracion sin reiniciar
     setInterval(resumenAvisos, 120000);
