@@ -1,3 +1,12 @@
+// La configuracion sale de .env, igual que la del resto del sistema.
+//
+// Hasta ahora este proceso NO lo leia: su entorno era el del shell desde el que se lo
+// arranco a mano, capturado por pm2 y guardado ahi para siempre. Eso convertia cualquier
+// ajuste en .env en una ilusion -- se editaba el archivo, se reiniciaba, y no pasaba nada,
+// porque el valor efectivo estaba congelado en el volcado de pm2. Llego a haber dos
+// verdades distintas sobre el mismo parametro y ninguna forma de saber cual corria.
+require("dotenv").config();
+
 /**
  * Pasarela de camaras comunes -> Omni-LPR -> avistamientos.
  *
@@ -305,7 +314,26 @@ function compuerta(recuadro, cam) {
     return { pasa: true, motivo: "sin geometria" };
 }
 
+/**
+ * Cuantas llamadas al lector lleva la rafaga en curso, y cuanto costaron.
+ *
+ * Sin esto, "la rafaga tarda 3,5 s" no se puede atacar: no hay forma de saber si se va en
+ * partir el cuadro, en detectar o en la segunda lectura. Se estimo a ojo una vez y la
+ * conclusion fue equivocada.
+ */
+const medidor = { llamadas: 0, ms: 0 };
+
 async function invocar(herramienta, cuerpo, ms = 20000) {
+    const t0 = Date.now();
+    try {
+        return await invocarReal(herramienta, cuerpo, ms);
+    } finally {
+        medidor.llamadas++;
+        medidor.ms += Date.now() - t0;
+    }
+}
+
+async function invocarReal(herramienta, cuerpo, ms = 20000) {
     const r = await fetch(`${LPR_URL}/api/v1/tools/${herramienta}/invoke`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -581,6 +609,8 @@ async function resolverRafaga(est) {
         // Cada cuadro se parte en baldosas y cada baldosa es una inferencia. La lectura
         // recuerda de que CUADRO salio (no de que baldosa), que es lo que se guarda como
         // foto: al operador le sirve ver la escena, no el recorte.
+        const tArranque = Date.now();
+        medidor.llamadas = 0; medidor.ms = 0;
         const trabajo = [];
         for (let i = 0; i < cuadros.length; i++) {
             for (const trozo of await baldosas(cuadros[i])) trabajo.push({ ...trozo, cuadro: i });
@@ -593,6 +623,7 @@ async function resolverRafaga(est) {
             cola = Array.from({ length: INFERENCIAS_MAX }, (_, k) => trabajo[Math.floor(k * paso)]);
         }
 
+        const tBaldosas = Date.now();
         const lecturas = [];
         for (let i = 0; i < cola.length; i += MAX_EN_VUELO) {
             const tanda = cola.slice(i, i + MAX_EN_VUELO);
@@ -616,6 +647,11 @@ async function resolverRafaga(est) {
             } catch { }
             return;
         }
+
+        const tLectura = Date.now();
+        log(`${cam.name}: rafaga en ${tLectura - tArranque} ms `
+            + `(baldosear ${tBaldosas - tArranque} ms de ${cuadros.length} cuadros -> ${trabajo.length} baldosas, `
+            + `leer ${tLectura - tBaldosas} ms en ${medidor.llamadas} llamadas de ${medidor.ms} ms)`);
 
         // Cada vehiculo del cuadro se resuelve por separado.
         //
@@ -1038,6 +1074,16 @@ function resumenAvisos() {
 
 (async () => {
     log(`pasarela iniciada · Omni-LPR en ${LPR_URL}`);
+    /**
+     * La configuracion efectiva, en el arranque.
+     *
+     * No es adorno: este proceso corrio meses con valores que no eran los del .env, y no
+     * habia forma de saberlo sin abrir /proc. Un renglon en el log al arrancar convierte
+     * "cual valor esta corriendo" en una pregunta de diez segundos.
+     */
+    log(`config · detector=${DETECTOR} ocr=${OCR} baldosa=${BALDOSA_PX}px inferencias<=${INFERENCIAS_MAX} `
+        + `enVuelo=${MAX_EN_VUELO} minConf=${MIN_CONF} coincidencias>=${COINCIDENCIAS_MIN} `
+        + `confAlta=${CONF_ALTA} releerDesde=${RELEER_MIN} chapasPorBaldosa=${CHAPAS_POR_BALDOSA}`);
     await sincronizar();
     setInterval(sincronizar, 60000);   // toma cambios de configuracion sin reiniciar
     setInterval(resumenAvisos, 120000);
