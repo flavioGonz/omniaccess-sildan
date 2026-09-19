@@ -545,21 +545,6 @@ export default function GuardIphoneConsole({
         }
     };
 
-    const handleConfirmIdentity = async (guard: any) => {
-        const pinCheck = prompt(`Ingrese PIN de seguridad para ${guard.name}:`);
-        if (pinCheck && (await verifyGuardCredential(guard.name, pinCheck)).ok) {
-            setGuardName(guard.name);
-            const photoUrl = guard.cara ? (guard.cara.startsWith('/') ? guard.cara : `/api/files/${guard.cara}`) : null;
-            setGuardPhoto(photoUrl);
-            localStorage.setItem("bitacora_guard_name", guard.name);
-            if (photoUrl) localStorage.setItem("bitacora_guard_photo", photoUrl);
-            setShowIdentityOverlay(false);
-            toast.success({ title: `Bienvenido, ${guard.name}` });
-        } else if (pinCheck) {
-            toast.error({ title: "PIN Incorrecto" });
-        }
-    };
-
     const handleManualLogin = async (e: React.FormEvent) => {
         e.preventDefault();
 

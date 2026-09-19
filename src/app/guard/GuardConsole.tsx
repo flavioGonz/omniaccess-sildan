@@ -70,6 +70,7 @@ import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
 import { getQuickCreateData, getGuardsList, verifyGuardCredential } from "@/app/actions/users";
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
+import { PedirPin } from "@/components/guard/PedirPin";
 import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
@@ -245,6 +246,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
     // Guard List State
     const [showGuardList, setShowGuardList] = useState(false);
+    /* A quien se le esta pidiendo el PIN. Null = no se esta pidiendo a nadie.
+       Era un prompt() del navegador: el PIN quedaba escrito a la vista de
+       cualquiera parado al lado, que en una garita es siempre alguien. */
+    const [pidiendoPin, setPidiendoPin] = useState<any>(null);
     const [guardsList, setGuardsList] = useState<any[]>([]);
     const [isConnected, setIsConnected] = useState(false);
     const [resyncTick, setResyncTick] = useState(0);
@@ -905,20 +910,6 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         }
     };
 
-    const handleConfirmIdentity = async (guard: any) => {
-        const pinCheck = prompt(`Ingrese PIN de seguridad para ${guard.name}:`);
-        if (pinCheck && (await verifyGuardCredential(guard.name, pinCheck)).ok) {
-            setGuardName(guard.name);
-            setGuardPhoto(guard.cara);
-            localStorage.setItem("bitacora_guard_name", guard.name);
-            if (guard.cara) localStorage.setItem("bitacora_guard_photo", guard.cara);
-            setShowIdentityOverlay(false); setIdentificado(true);
-            setShowProfileMenu(false); // Ensure menu is closed
-            showNotification("BIENVENIDO", `Sesión iniciada como ${guard.name}.`, "success");
-        } else if (pinCheck) {
-            showNotification("PIN INCORRECTO", "El PIN ingresado no es válido.", "error");
-        }
-    };
 
     const handleLogout = () => {
         setGuardName("");
@@ -3538,6 +3529,27 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
                 {/* GUARD LIST MODAL */}
                 <AnimatePresence>
+                    {/* El PIN, enmascarado y verificado del lado del servidor. */}
+                    <PedirPin
+                        abierto={!!pidiendoPin}
+                        nombre={pidiendoPin?.name || ""}
+                        alCerrar={() => setPidiendoPin(null)}
+                        verificar={async (pin) => (await verifyGuardCredential(pidiendoPin.name, pin)).ok}
+                        alEntrar={() => {
+                            const g = pidiendoPin;
+                            localStorage.setItem("guard_name", g.name);
+                            setGuardName(g.name);
+                            setGuardPhoto(g.cara);
+                            if (g.cara) localStorage.setItem("guard_photo", g.cara);
+                            setPidiendoPin(null);
+                            setShowGuardList(false);
+                            toast.success({ title: `Sesión iniciada como ${g.name}` });
+                            // Recargar: hay estado de la sesión anterior repartido por toda
+                            // la consola y limpiarlo a mano es más frágil que empezar de cero.
+                            window.location.reload();
+                        }}
+                    />
+
                     {showGuardList && (
                         <motion.div
                             initial={{ opacity: 0 }}
@@ -3577,20 +3589,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                         {guardsList.map((guard) => (
                                             <button
                                                 key={guard.id}
-                                                onClick={async () => {
-                                                    const pinCheck = prompt(`Ingrese PIN de seguridad para ${guard.name}:`);
-                                                    if (pinCheck && (await verifyGuardCredential(guard.name, pinCheck)).ok) {
-                                                        localStorage.setItem("guard_name", guard.name);
-                                                        setGuardName(guard.name);
-                                                        setGuardPhoto(guard.cara); // Assuming 'cara' is the photo URL
-                                                        if (guard.cara) localStorage.setItem("guard_photo", guard.cara);
-                                                        setShowGuardList(false);
-                                                        toast.success({ title: `Sesión iniciada como ${guard.name}` });
-                                                        window.location.reload(); // Refresh to ensure full state reset
-                                                    } else if (pinCheck) {
-                                                        toast.error({ title: "PIN Incorrecto" });
-                                                    }
-                                                }}
+                                                onClick={() => setPidiendoPin(guard)}
                                                 className="bg-slate-50 hover:bg-slate-100 border-2 border-slate-100 hover:border-[#B20D30]/20 rounded-3xl p-6 flex flex-col items-center gap-4 transition-all group"
                                             >
                                                 <div className="relative w-24 h-24 rounded-full overflow-hidden bg-slate-200 shadow-inner">
