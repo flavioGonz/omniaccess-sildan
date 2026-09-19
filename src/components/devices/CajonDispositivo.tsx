@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
-    ArrowLeft, ArrowRight, BadgeCheck, BookOpen, Camera, Check, ChevronDown,
-    ChevronsUpDown, Cpu, ExternalLink, Loader2, MapPin, Network, Plus, Save, Video,
+    ArrowLeft, ArrowRight, BadgeCheck, BookOpen, Check, ChevronDown, ChevronsUpDown,
+    Cpu, ExternalLink, KeyRound, Loader2, MapPin, Network, Plus, Save, Tag, Video, Wifi,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
-import { BarraDePasos, PasoAnimado } from "@/components/devices/Pasos";
+import { PasoAnimado } from "@/components/devices/Pasos";
+import { CompatibilidadMarca, ElegirMarca } from "@/components/devices/Compatibilidad";
 import { TIPOS_DE_EQUIPO, tipoDeEquipo } from "@/components/devices/tipos";
 import { createDevice, updateDevice, probeDeviceInfo, getDevices } from "@/app/actions/devices";
 import { getNvrChannels, getNvrChannelMap, saveNvrChannelMap } from "@/app/actions/nvr";
@@ -47,19 +48,6 @@ import { sileo as toast } from "sileo";
  * busca "usuario" y "contraseña"; ese lenguaje no hacía al sistema más serio, hacía al
  * instalador más lento.
  */
-
-const MARCAS = [
-    { valor: "HIKVISION", rotulo: "Hikvision" },
-    { valor: "AKUVOX", rotulo: "Akuvox" },
-    { valor: "INTELBRAS", rotulo: "Intelbras" },
-    { valor: "DAHUA", rotulo: "Dahua" },
-    { valor: "ZKTECO", rotulo: "ZKTeco" },
-    { valor: "AVICAM", rotulo: "Avicam" },
-    { valor: "MILESIGHT", rotulo: "Milesight" },
-    { valor: "UNIFI", rotulo: "Ubiquiti UniFi" },
-    { valor: "UNIVIEW", rotulo: "Uniview" },
-    { valor: "BOSCH", rotulo: "Bosch" },
-];
 
 /** Cómo se prepara cada marca del lado del equipo, antes de que OmniAccess pueda usarlo. */
 const GUIAS: Record<string, { titulo: string; pasos: string[]; webhook: string; auth: string; doc?: string }> = {
@@ -132,6 +120,18 @@ const GUIAS: Record<string, { titulo: string; pasos: string[]; webhook: string; 
     },
 };
 
+/** Cómo se llama cada hoja. Reemplaza a la barra de pasos: dice dónde se está, sin
+ *  agregar una interfaz aparte que después hay que mirar. */
+const TITULOS: Record<string, string> = {
+    que: "¿Qué vas a agregar?",
+    marca: "¿De qué fabricante es?",
+    cual: "¿Cuál es exactamente?",
+    conexion: "¿Cómo se llega al equipo?",
+    lugar: "¿Dónde está y quién pasa?",
+    video: "El canal de video",
+    canales: "Los canales del grabador",
+};
+
 export function CajonDispositivo({ device, groups, onSuccess, children }: {
     device?: any;
     groups: any[];
@@ -161,6 +161,16 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         rtspUrl: device?.rtspUrl || "",
         trackScene: device?.trackScene != null ? String(device.trackScene) : "",
         trackEnabled: device?.trackEnabled === false ? "false" : "true",
+        /**
+         * El grupo de acceso.
+         *
+         * Esto es lo que FALTABA. `createDevice` lee `groupId` del formulario desde
+         * siempre, y el diálogo recibía la lista de grupos como prop y no la usaba en
+         * ninguna parte: ni un selector, ni un campo oculto. Todo equipo dado de alta
+         * quedaba sin ningún grupo, y el grupo es lo que decide quién puede pasar por ahí.
+         * Había que ir a Grupos de Acceso y agregarlo a mano, sin que nada lo dijera.
+         */
+        groupId: device?.accessGroups?.[0]?.id || "none",
     }), [device]);
 
     const [f, setF] = useState(enBlanco());
@@ -192,6 +202,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
     const pasos = useMemo(() => {
         const l: { clave: string; rotulo: string }[] = [];
         if (!esEdicion) l.push({ clave: "que", rotulo: "Qué es" });
+        l.push({ clave: "marca", rotulo: "Fabricante" });
         l.push({ clave: "cual", rotulo: "Cuál es" });
         l.push({ clave: "conexion", rotulo: "Cómo se llega" });
         l.push({ clave: "lugar", rotulo: "Dónde está" });
@@ -348,9 +359,26 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
 
             <CajonContenido
                 ancho="ancho"
-                titulo={esEdicion ? f.name || "Equipo" : "Nuevo equipo"}
-                descripcion={tipo ? tipo.rotulo : "Primero, qué clase de equipo es."}
-                encabezado={<BarraDePasos pasos={pasos} actual={paso} alIr={ir} />}
+                /* El título dice en qué paso se está. Al sacar la barra, el encabezado es
+                   lo único que ubica: si dijera siempre "Nuevo equipo", pasar de hoja no
+                   se distinguiría de que la pantalla se quedó. */
+                titulo={TITULOS[clave] || (esEdicion ? f.name || "Equipo" : "Nuevo equipo")}
+                descripcion={
+                    clave === "que" ? "Lo primero, porque de esto depende todo lo demás."
+                        : [tipo?.rotulo, esEdicion ? f.name : null].filter(Boolean).join(" · ")
+                        || "Cargá los datos y seguí."
+                }
+                /* Sin barra de pasos con números ni nombres: esto se lee como una hoja que
+                   pasa, y lo único que hace falta es saber cuánto queda. Una línea que
+                   avanza lo dice sin agregar una interfaz que después hay que mirar. */
+                encabezado={
+                    <div className="h-0.5 bg-border/60 overflow-hidden">
+                        <motion.div className="h-full bg-[var(--accion)]"
+                            initial={false}
+                            animate={{ width: `${((paso + 1) / pasos.length) * 100}%` }}
+                            transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }} />
+                    </div>
+                }
                 pie={
                     <>
                         {paso > 0 && (
@@ -405,6 +433,15 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </CajonSeccion>
                     )}
 
+                    {clave === "marca" && (
+                        <CajonSeccion titulo="De qué fabricante es" icono={Tag}
+                            ayuda="No todas las marcas están al mismo nivel. Cada una habla por su propio driver, y algunos todavía no están escritos: acá se dice cuál es cuál antes de cargar nada.">
+                            <ElegirMarca valor={f.brand} alElegir={(v) => set("brand", v)} />
+                            <CompatibilidadMarca marca={f.brand} tipo={f.deviceType}
+                                rotuloTipo={tipo?.rotulo || "equipo"} />
+                        </CajonSeccion>
+                    )}
+
                     {clave === "cual" && (
                         <>
                             <CajonSeccion titulo="Cuál es" icono={Cpu}>
@@ -413,15 +450,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                                     <Input value={f.name} placeholder="Portón principal, Calle 21…" autoFocus
                                         onChange={(e) => set("name", e.target.value)} />
                                 </CajonCampo>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <CajonCampo etiqueta="Marca">
-                                        <Select value={f.brand} onValueChange={(v) => set("brand", v)}>
-                                            <SelectTrigger><SelectValue /></SelectTrigger>
-                                            <SelectContent>
-                                                {MARCAS.map((m) => <SelectItem key={m.valor} value={m.valor}>{m.rotulo}</SelectItem>)}
-                                            </SelectContent>
-                                        </Select>
-                                    </CajonCampo>
+                                <div className="grid grid-cols-1 gap-4">
                                     <CajonCampo etiqueta="Modelo"
                                         pista="Decide qué controlador usa OmniAccess para hablarle. Si no está en la lista, se puede dejar vacío y probar igual: la detección de abajo suele completarlo.">
                                         <Popover open={abreModelos} onOpenChange={setAbreModelos}>
@@ -503,7 +532,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                     )}
 
                     {clave === "conexion" && (
-                        <CajonSeccion titulo="Cómo se llega al equipo" icono={Network}
+                        <CajonSeccion titulo="Cómo se llega al equipo" icono={Wifi}
                             ayuda="La IP y las credenciales van juntas porque la detección las necesita a las tres. Antes estaban en pasos separados y había que ir y volver para ver lo que la detección completaba.">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <CajonCampo etiqueta="Dirección IP"
@@ -573,12 +602,52 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                     )}
 
                     {clave === "lugar" && (
-                        <CajonSeccion titulo="Dónde está puesto" icono={MapPin}>
+                        <CajonSeccion titulo="Dónde está y quién pasa" icono={MapPin}>
                             <CajonCampo etiqueta="En qué lugar del barrio"
                                 pista="En palabras, como lo diría un guardia por radio. Para ubicarlo en el plano hay una pantalla aparte.">
                                 <Input value={f.location} placeholder="Portón de entrada, esquina de Calle 21…"
                                     onChange={(e) => set("location", e.target.value)} />
                             </CajonCampo>
+                            {/*
+                              * El grupo de acceso: lo que faltaba.
+                              *
+                              * `createDevice` lee `groupId` del formulario desde siempre, y el
+                              * diálogo recibía la lista de grupos como prop sin usarla nunca. Todo
+                              * equipo nuevo quedaba sin grupo —o sea, sin nadie autorizado a pasar—
+                              * y había que ir a Grupos de Acceso a arreglarlo, sin una sola señal.
+                              *
+                              * Sólo se elige AL DAR DE ALTA. `updateDevice` no toca los grupos, así
+                              * que un selector acá al editar dejaría cambiar algo que no se guarda,
+                              * que es peor que no ofrecerlo: al editar se muestra el que tiene y
+                              * dónde se cambia de verdad.
+                              */}
+                            {esEdicion ? (
+                                <CajonCampo etiqueta="Quiénes pueden pasar por acá"
+                                    ayuda="Los grupos de un equipo ya cargado se cambian en Grupos de Acceso.">
+                                    <div className="flex flex-wrap gap-1.5 min-h-9 items-center">
+                                        {device?.accessGroups?.length ? device.accessGroups.map((g: any) => (
+                                            <span key={g.id} className="px-2.5 py-1 rounded-full border border-border text-[12px] text-muted-foreground">
+                                                {g.name}
+                                            </span>
+                                        )) : (
+                                            <span className="text-[12.5px] text-[var(--aviso-texto)]">
+                                                Sin ningún grupo: hoy no deja pasar a nadie.
+                                            </span>
+                                        )}
+                                    </div>
+                                </CajonCampo>
+                            ) : (
+                                <CajonCampo etiqueta="Quiénes pueden pasar por acá"
+                                    pista="El grupo de acceso decide qué personas tienen permiso en este equipo y en qué horarios. Sin grupo, el equipo queda cargado pero no deja pasar a nadie.">
+                                    <Select value={f.groupId} onValueChange={(v) => set("groupId", v)}>
+                                        <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">Ninguno por ahora</SelectItem>
+                                            {groups.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </CajonCampo>
+                            )}
                             {tipo?.sentido && (
                                 <CajonCampo etiqueta="Por dónde pasa la gente acá"
                                     pista="Decide si lo que lea este equipo cuenta como una entrada o como una salida, y de ahí sale quién está adentro del barrio.">

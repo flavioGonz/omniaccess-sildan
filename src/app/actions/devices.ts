@@ -159,7 +159,10 @@ export async function deleteDevice(id: string) {
 
 export async function getDevices() {
     return await prisma.device.findMany({
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
+        // Los grupos vienen con el equipo porque son la respuesta a "quien puede pasar por
+        // aca", que es media pantalla de /admin/devices y no se podia contestar sin esto.
+        include: { accessGroups: { select: { id: true, name: true } } },
     });
 }
 
