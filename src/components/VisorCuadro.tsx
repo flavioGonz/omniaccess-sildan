@@ -228,9 +228,37 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
         return () => el.removeEventListener("wheel", rueda);
     }, [escala, zoomEn]);
 
-    // Si la chapa está en la franja de arriba, el rótulo no entra por encima: el marco
-    // recorta, y quedaría cortado justo donde dice el tiempo.
-    const rotuloAbajo = !!recuadro && recuadro.y < 0.16;
+    /**
+     * Dónde va el rótulo del estado y el tiempo.
+     *
+     * Sobre el VEHÍCULO, no sobre la matrícula. Pegado a la chapa tapaba justo lo que se
+     * vino a mirar, y además quedaba a la altura de la parrilla, que no es donde uno
+     * espera el nombre de una cosa: un rótulo se pone arriba del objeto que nombra.
+     *
+     * La distancia se mide en ALTURAS DE LA CHAPA LEÍDA, no en fracciones fijas del
+     * cuadro — el mismo criterio que usa la banda de la línea de pasada. Una matrícula
+     * mide 13 cm, así que siete alturas son unos 90 cm por encima de ella: más o menos el
+     * techo de un auto. Y como la chapa se ve más chica cuanto más lejos está, el rótulo
+     * se aleja menos en los autos del fondo y más en los de adelante, solo. Nada de esto
+     * necesita calibración ni supone que la chapa mire de frente: es un desplazamiento,
+     * no una medición, y si cae diez centímetros arriba o abajo no afirma nada falso.
+     *
+     * Una guía fina baja del rótulo hasta el recuadro. Con tres autos en cuadro, un
+     * rótulo flotando no dice de cuál habla.
+     */
+    const ALTURAS_SOBRE_EL_AUTO = 7;
+    const rotulo = (() => {
+        if (!recuadro) return null;
+        const cx = (recuadro.x + recuadro.w / 2) * 100;
+        const arriba = (recuadro.y - ALTURAS_SOBRE_EL_AUTO * recuadro.h) * 100;
+        // Si no entra arriba, el marco lo recortaría justo donde dice el tiempo.
+        const abajo = arriba < 4;
+        const y = abajo
+            ? (recuadro.y + recuadro.h) * 100 + ALTURAS_SOBRE_EL_AUTO * recuadro.h * 100
+            : arriba;
+        const ancla = abajo ? (recuadro.y + recuadro.h) * 100 : recuadro.y * 100;
+        return { cx, y, abajo, guiaDesde: Math.min(y, ancla), guiaAlto: Math.abs(y - ancla) };
+    })();
 
     const conf = typeof fila.confidence === "number" ? Math.round(fila.confidence * 100) : null;
     const momento = new Date(fila.timestamp);
@@ -307,40 +335,52 @@ export function VisorCuadro({ fila, ficha, onRegistrar, hayAnterior, haySiguient
                             draggable={false} />
                         {verContorno && <ContornoDeteccion bbox={fila.bbox} />}
 
-                        {/* El estado y el tiempo, colgados del recuadro de la chapa.
-                            Van DENTRO del mismo transform para seguir al auto mientras se
-                            acerca, pero con la escala invertida: si creciera con el zoom,
-                            a 8x taparía media foto. Y si la chapa está muy arriba, el
-                            rótulo baja, porque el marco recorta lo que se sale. */}
-                        {recuadro && (
-                            <div className="absolute z-20 pointer-events-none"
-                                style={{
-                                    left: `${(recuadro.x + recuadro.w / 2) * 100}%`,
-                                    top: `${(rotuloAbajo ? recuadro.y + recuadro.h : recuadro.y) * 100}%`,
-                                    transform: `translate(-50%, ${rotuloAbajo ? "10%" : "-110%"}) scale(${1 / escala})`,
-                                    transformOrigin: rotuloAbajo ? "top center" : "bottom center",
-                                }}>
-                                <div className="flex items-center gap-1.5">
-                                    <div className={cn(
-                                        "inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md border backdrop-blur-sm text-[10.5px] font-extrabold uppercase tracking-wider leading-none shadow-lg shadow-black/60",
-                                        estacionado
-                                            ? (cerrada ? "bg-black/75 border-white/25 text-white/75" : "bg-violet-600/85 border-violet-300/50 text-white")
-                                            : "bg-sky-600/85 border-sky-300/50 text-white",
-                                    )}>
-                                        {estacionado ? <ParkingSquare size={12} /> : <Car size={12} />}
-                                        {estacionado ? (cerrada ? "Se fue" : "Estacionado") : "Pasó"}
+                        {/* El estado y el tiempo, sobre el vehículo. Van DENTRO del
+                            mismo transform para seguir al auto mientras se acerca, pero
+                            con la escala invertida: si creciera con el zoom, a 8x taparía
+                            media foto. */}
+                        {rotulo && (
+                            <>
+                                <div className="absolute z-[19] pointer-events-none"
+                                    style={{
+                                        left: `${rotulo.cx}%`,
+                                        top: `${rotulo.guiaDesde}%`,
+                                        height: `${rotulo.guiaAlto}%`,
+                                        width: `${1 / escala}px`,
+                                        marginLeft: `${-0.5 / escala}px`,
+                                        background: rotulo.abajo
+                                            ? "linear-gradient(to bottom, rgba(167,243,208,0.15), rgba(167,243,208,0.7))"
+                                            : "linear-gradient(to bottom, rgba(167,243,208,0.7), rgba(167,243,208,0.15))",
+                                    }} />
+                                <div className="absolute z-20 pointer-events-none"
+                                    style={{
+                                        left: `${rotulo.cx}%`,
+                                        top: `${rotulo.y}%`,
+                                        transform: `translate(-50%, ${rotulo.abajo ? "0" : "-100%"}) scale(${1 / escala})`,
+                                        transformOrigin: rotulo.abajo ? "top center" : "bottom center",
+                                    }}>
+                                    <div className="flex items-center gap-1.5">
+                                        <div className={cn(
+                                            "inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md border backdrop-blur-sm text-[10.5px] font-extrabold uppercase tracking-wider leading-none shadow-lg shadow-black/60",
+                                            estacionado
+                                                ? (cerrada ? "bg-black/75 border-white/25 text-white/75" : "bg-violet-600/85 border-violet-300/50 text-white")
+                                                : "bg-sky-600/85 border-sky-300/50 text-white",
+                                        )}>
+                                            {estacionado ? <ParkingSquare size={12} /> : <Car size={12} />}
+                                            {estacionado ? (cerrada ? "Se fue" : "Estacionado") : "Pasó"}
+                                        </div>
+                                        {estacionado && fila.estDesde && (
+                                            <Cronometro
+                                                desde={fila.estDesde}
+                                                hasta={cerrada ? fila.estHasta : null}
+                                                etiqueta={cerrada ? "estuvo" : "hace"}
+                                                tamano="chico"
+                                                className="shadow-lg shadow-black/60 bg-black/70"
+                                            />
+                                        )}
                                     </div>
-                                    {estacionado && fila.estDesde && (
-                                        <Cronometro
-                                            desde={fila.estDesde}
-                                            hasta={cerrada ? fila.estHasta : null}
-                                            etiqueta={cerrada ? "estuvo" : "hace"}
-                                            tamano="chico"
-                                            className="shadow-lg shadow-black/60 bg-black/70"
-                                        />
-                                    )}
                                 </div>
-                            </div>
+                            </>
                         )}
                     </div>
                 </div>
