@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { confirmarEstadia, cerrarEstadia, estadiasAbiertas } from "@/lib/estadias";
+import {
+    confirmarEstadia, cerrarEstadia, estadiasAbiertas,
+    estadoDeEstadia, ESTADOS_DE_ESTADIA, VISTO,
+} from "@/lib/estadias";
 import { mismaChapa, pareceMatricula } from "@/lib/matriculas";
 
 export const dynamic = "force-dynamic";
@@ -148,7 +151,7 @@ export async function POST(req: NextRequest) {
      * exactamente el problema que se acaba de resolver en la pasarela.
      */
     const porLugar = (!porChapa && caja && body.enPuerta === false)
-        ? recientes.find((f) => f.estado === "ESTACIONADO" && estaQuieto(caja, leerCaja(f.bbox))) || null
+        ? recientes.find((f) => ESTADOS_DE_ESTADIA.includes(f.estado) && estaQuieto(caja, leerCaja(f.bbox))) || null
         : null;
 
     const previo = porChapa || porLugar;
@@ -173,14 +176,17 @@ export async function POST(req: NextRequest) {
      */
     if (previo && (quieto || fueraDePuerta)) {
         const mejorFoto = confianza != null && (previo.confidence ?? 0) < confianza;
+        const desdeCuando = quieto ? (previo.estDesde ?? previo.timestamp) : cuando;
         const actualizado = await prisma.plateSighting.update({
             where: { id: previo.id },
             data: {
-                estado: "ESTACIONADO",
+                // El estado sale de cuanto lleva ahi, no de que se lo haya vuelto a ver.
+                // Mientras no llegue al minimo es VISTO: se lo vio, nada mas.
+                estado: estadoDeEstadia(desdeCuando, cuando),
                 // Si esta lectura es mejor, manda su ortografía: la fila se queda con la
                 // versión más segura de la matrícula y no con la primera que entró.
                 ...(mejorFoto ? { plate: patente } : {}),
-                estDesde: quieto ? (previo.estDesde ?? previo.timestamp) : cuando,
+                estDesde: desdeCuando,
                 estHasta: cuando,
                 timestamp: cuando,
                 confidence: mejorFoto ? confianza : previo.confidence,
@@ -193,7 +199,7 @@ export async function POST(req: NextRequest) {
         });
         const recienAvisado = quieto ? await confirmarEstadia(actualizado as any) : false;
         return NextResponse.json({
-            ok: true, estado: "ESTACIONADO", id: actualizado.id, nuevo: recienAvisado,
+            ok: true, estado: actualizado.estado, id: actualizado.id, nuevo: recienAvisado,
             quieto, desde: actualizado.estDesde, hasta: actualizado.estHasta,
         });
     }
@@ -226,13 +232,15 @@ export async function POST(req: NextRequest) {
                 reads: lecturas,
                 snapshotUrl: body.snapshotUrl || null,
                 bbox: caja ? JSON.stringify(caja) : null,
-                estado: "ESTACIONADO",
+                // Una sola lectura no prueba ninguna permanencia: nace en VISTO y sube a
+                // ESTACIONADO recien cuando una segunda lectura la sostenga en el tiempo.
+                estado: VISTO,
                 estDesde: cuando,
                 estHasta: cuando,
             },
         });
         return NextResponse.json({
-            ok: true, estado: "ESTACIONADO", id: abierta.id, nuevo: false, quieto: false,
+            ok: true, estado: VISTO, id: abierta.id, nuevo: false, quieto: false,
             puerta: body.puerta || null,
         });
     }
@@ -249,7 +257,7 @@ export async function POST(req: NextRequest) {
     // Antirrebote. La pasarela ya consolida cada paso en una sola lectura; esto cubre dos
     // ráfagas encadenadas y las instalaciones viejas que mandan un aviso por cuadro.
     const ventanaSeg = Number(process.env.TRACKING_DEDUPE_SECONDS || 45);
-    if (previo && previo.estado !== "ESTACIONADO"
+    if (previo && !ESTADOS_DE_ESTADIA.includes(previo.estado)
         && cuando.getTime() - new Date(previo.timestamp).getTime() <= ventanaSeg * 1000) {
         const mejora = confianza != null && (previo.confidence ?? 0) < confianza;
         if (mejora) {

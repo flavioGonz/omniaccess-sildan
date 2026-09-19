@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 
 type Fila = {
     id: string;
-    tipo: "ACCESO" | "PASO" | "ESTACIONADO";
+    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO";
     momento: string;
     plate: string | null;
     persona: string | null;
@@ -88,7 +88,16 @@ export async function GET(req: NextRequest) {
     const cuantas = skip + take + 1;
 
     const pedirAccesos = quiere("ACCESO");
-    const pedirTrack = quiere("PASO") || quiere("ESTACIONADO");
+
+    /**
+     * Qué estados de seguimiento entran.
+     *
+     * Antes eran dos y se resolvia con un ternario: o estacionados, o pasadas. Con VISTO
+     * en el medio ese ternario mentia — pedir "vistos" traia pasadas — asi que la lista se
+     * arma y se consulta con un `in`, que es lo que la pregunta era desde el principio.
+     */
+    const estadosPedidos = ["PASO", "ESTACIONADO", "VISTO"].filter(quiere);
+    const pedirTrack = estadosPedidos.length > 0;
 
     const [accesos, avistamientos] = await Promise.all([
         pedirAccesos
@@ -116,9 +125,7 @@ export async function GET(req: NextRequest) {
                 where: {
                     source: "TRACK",
                     ...porFecha,
-                    ...(tipos.length && !(quiere("PASO") && quiere("ESTACIONADO"))
-                        ? { estado: quiere("ESTACIONADO") ? "ESTACIONADO" : "PASO" }
-                        : {}),
+                    ...(tipos.length ? { estado: { in: estadosPedidos } } : {}),
                     ...(buscar
                         ? {
                             OR: [
@@ -158,7 +165,7 @@ export async function GET(req: NextRequest) {
         })),
         ...avistamientos.map((s: any): Fila => ({
             id: `s_${s.id}`,
-            tipo: s.estado === "ESTACIONADO" ? "ESTACIONADO" : "PASO",
+            tipo: s.estado === "ESTACIONADO" ? "ESTACIONADO" : s.estado === "VISTO" ? "VISTO" : "PASO",
             momento: s.timestamp.toISOString(),
             plate: s.plate,
             persona: null,

@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { LogIn, LogOut, Camera, ParkingCircle, Loader2, ShieldCheck, ShieldX, Clock } from "lucide-react";
+import { LogIn, LogOut, Camera, ParkingCircle, Loader2, ShieldCheck, ShieldX, Clock, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { horaSeg } from "@/lib/fechas";
 
 export type PasoFlujo = {
     id: string;
-    tipo: "ACCESO" | "PASO" | "ESTACIONADO";
+    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO";
     momento: string;
     camara: string | null;
     decision: string | null;
@@ -36,6 +36,9 @@ function rasgo(p: PasoFlujo) {
     }
     if (p.tipo === "PASO") {
         return { Ico: Camera, color: "text-violet-300", fondo: "bg-violet-500/20 border-violet-400/35", rotulo: "Pasó" };
+    }
+    if (p.tipo === "VISTO") {
+        return { Ico: Eye, color: "text-muted-foreground", fondo: "bg-muted border-border", rotulo: "Visto" };
     }
     if (p.decision === "DENY") {
         return { Ico: ShieldX, color: "text-rose-300", fondo: "bg-rose-500/20 border-rose-400/35", rotulo: "Denegado" };
@@ -155,7 +158,7 @@ export function FlujoMatricula({ plate, at, onVerFoto }: {
                                         quieto {lapso((new Date(p.estHasta || p.momento).getTime() - new Date(p.estDesde).getTime()) / 1000)}
                                     </p>
                                 )}
-                                {p.confianza != null && p.tipo !== "ESTACIONADO" && (
+                                {p.confianza != null && p.tipo !== "ESTACIONADO" && p.tipo !== "VISTO" && (
                                     <p className="text-[9.5px] text-muted-foreground/80 mt-0.5 tabular-nums">
                                         {Math.round(p.confianza * 100)}% de confianza
                                     </p>

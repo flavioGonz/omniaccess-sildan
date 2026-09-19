@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
     cerrarEstadia, miradasSinVerlo,
-    ESTADIA_VENCE_MIN, ESTADIA_TECHO_MIN, MIRADAS_MIN,
+    ESTADIA_VENCE_MIN, ESTADIA_TECHO_MIN, MIRADAS_MIN, ESTADOS_DE_ESTADIA,
 } from "@/lib/estadias";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +47,9 @@ export async function POST(req: NextRequest) {
     const candidatas = await prisma.plateSighting.findMany({
         where: {
             source: "TRACK",
-            estado: "ESTACIONADO",
+            // Tambien las que quedaron en VISTO: son filas abiertas igual, y si nunca
+            // llegaron a ser un estacionamiento se cierran en silencio, sin avisar nada.
+            estado: { in: ESTADOS_DE_ESTADIA },
             estCerrada: false,
             estHasta: { lt: corte },
         },

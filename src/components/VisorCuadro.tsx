@@ -199,6 +199,12 @@ function tonoDelEstado(fila: CuadroAvistamiento, ficha?: FichaMatricula | null) 
  * puede afirmar la diferencia, así que no se afirma: queda en "estacionado".
  */
 function momentoDeLaEstadia(fila: CuadroAvistamiento, limiteMin?: number | null) {
+    // "Visto" no es "pasó". La cámara lo vio en un rincón del cuadro que no vigila y no
+    // volvió a verlo el tiempo suficiente: decir que pasó seria afirmar un recorrido que
+    // nadie observó.
+    if (fila.estado === "VISTO") {
+        return { clave: "visto" as const, etiqueta: "Visto", icono: Eye };
+    }
     if (fila.estado !== "ESTACIONADO") {
         return { clave: "paso" as const, etiqueta: "Pasó", icono: Car };
     }

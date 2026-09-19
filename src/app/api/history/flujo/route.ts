@@ -55,7 +55,7 @@ export async function GET(req: NextRequest) {
 
     type Paso = {
         id: string;
-        tipo: "ACCESO" | "PASO" | "ESTACIONADO";
+        tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO";
         momento: string;
         camara: string | null;
         decision: string | null;
@@ -83,7 +83,8 @@ export async function GET(req: NextRequest) {
         })),
         ...avistamientos.map((s: any) => ({
             id: `s_${s.id}`,
-            tipo: (s.estado === "ESTACIONADO" ? "ESTACIONADO" : "PASO") as "PASO" | "ESTACIONADO",
+            tipo: (s.estado === "ESTACIONADO" ? "ESTACIONADO"
+                : s.estado === "VISTO" ? "VISTO" : "PASO") as "PASO" | "ESTACIONADO" | "VISTO",
             momento: s.timestamp.toISOString(),
             camara: s.cameraName || s.deviceId || null,
             decision: null,

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Clock, Car, Camera, Activity, ChevronRight, Inbox,
     LogIn, LogOut, ParkingCircle, ShieldCheck, ShieldX,
-    ShieldAlert, MoreHorizontal, Wifi, WifiOff,
+    ShieldAlert, MoreHorizontal, Wifi, WifiOff, Eye,
 } from "lucide-react";
 import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { cn } from "@/lib/utils";
@@ -19,7 +19,7 @@ import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 
 export type FilaHistorial = {
     id: string;
-    tipo: "ACCESO" | "PASO" | "ESTACIONADO";
+    tipo: "ACCESO" | "PASO" | "ESTACIONADO" | "VISTO";
     momento: string;
     plate: string | null;
     persona: string | null;
@@ -71,7 +71,11 @@ export const RASGOS: Record<string, { Ico: any; rotulo: string; ayuda: string; c
     },
     ESTACIONADO: {
         Ico: ParkingCircle, rotulo: "Estacionado", chip: "bg-slate-500/20 text-slate-700 dark:text-slate-200 border-slate-400/30", punto: "bg-slate-400",
-        ayuda: "El vehículo se quedó quieto en el mismo lugar del cuadro. Es UNA fila por estadía, con su intervalo, no una fila por relectura.",
+        ayuda: "El vehículo se quedó quieto en el mismo lugar del cuadro más de un minuto. Es UNA fila por estadía, con su intervalo, no una fila por relectura.",
+    },
+    VISTO: {
+        Ico: Eye, rotulo: "Visto", chip: "bg-muted text-muted-foreground border-border", punto: "bg-muted-foreground/50",
+        ayuda: "La cámara lo vio, y eso es todo lo que se puede afirmar: ni cruzó por donde a esa cámara le interesa, ni se quedó el tiempo suficiente como para llamarlo estacionado.",
     },
 };
 
@@ -527,7 +531,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
                         snapshotUrl: viendo.foto,
                         bbox: viendo.bbox,
                         decision: viendo.decision,
-                        estado: viendo.tipo === "ESTACIONADO" ? "ESTACIONADO" : "PASO",
+                        estado: viendo.tipo === "ACCESO" ? "PASO" : viendo.tipo,
                         estDesde: viendo.estDesde,
                         estHasta: viendo.estHasta,
                         estCerrada: viendo.estCerrada,

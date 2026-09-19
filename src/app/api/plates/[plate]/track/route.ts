@@ -46,7 +46,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ plat
         },
     });
 
-    const conCoords = filas.filter((f) => f.lat != null && f.lng != null && f.estado !== "ESTACIONADO");
+    // El recorrido son las PASADAS. Antes era "todo lo que no sea estacionado", y por esa
+    // puerta entraban las lecturas sueltas fuera de la zona: el mapa dibujaba trayectos
+    // uniendo autos que esa camara solo vio de refilon.
+    const conCoords = filas.filter((f) => f.lat != null && f.lng != null && f.estado === "PASO");
     const sinCoords = filas.filter((f) => f.lat == null || f.lng == null).length;
     const estacionados = filas.filter((f) => f.estado === "ESTACIONADO" && f.lat != null && f.lng != null);
 

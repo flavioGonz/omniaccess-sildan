@@ -347,7 +347,7 @@ export default function HistoryPage() {
         // Las clases elegidas también son un filtro puesto: si no se ven acá, la barra
         // miente sobre por qué la tabla muestra lo que muestra.
         for (const t of tipos) {
-            const nombre: Record<string, string> = { ACCESO: "accesos", PASO: "avistamientos", ESTACIONADO: "estacionados" };
+            const nombre: Record<string, string> = { ACCESO: "accesos", PASO: "avistamientos", ESTACIONADO: "estacionados", VISTO: "vistos" };
             l.push({ id: "cl_" + t, texto: nombre[t] || t, quitar: () => setTipos((p) => p.filter((x) => x !== t)) });
         }
         if (!soloSeguimiento) {
@@ -500,6 +500,7 @@ export default function HistoryPage() {
                                         { valor: "ACCESO", rotulo: "Accesos" },
                                         { valor: "PASO", rotulo: "Avistamientos" },
                                         { valor: "ESTACIONADO", rotulo: "Estacionados" },
+                                        { valor: "VISTO", rotulo: "Vistos" },
                                     ],
                                 },
                                 {

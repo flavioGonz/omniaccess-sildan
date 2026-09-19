@@ -23,6 +23,41 @@ import { mismaChapa } from "@/lib/matriculas";
  *              cámara y vuelve a leerse en otro lugar del cuadro: ese cierra en el acto.
  */
 
+/**
+ * Los tres estados de una lectura de seguimiento.
+ *
+ *   PASO         cruzó por donde a esa cámara le interesa. Va al recorrido del mapa y
+ *                cuenta para la efectividad.
+ *   VISTO        se lo vio, pero ni cruzó por ahí ni se quedó todavía. Es la estadía en
+ *                veremos: puede crecer hasta ESTACIONADO o morir sin haber sido nada.
+ *   ESTACIONADO  se quedó, en el mismo lugar del cuadro, más que ESTADIA_MINIMA_SEG.
+ */
+export const PASO = "PASO";
+export const VISTO = "VISTO";
+export const ESTACIONADO = "ESTACIONADO";
+
+/** Los dos estados que ocupa una fila de estadía, esté abierta o cerrada. */
+export const ESTADOS_DE_ESTADIA = [ESTACIONADO, VISTO];
+
+/**
+ * Cuánto tiene que durar una permanencia para llamarse estacionamiento.
+ *
+ * Esto salió del historial antes que del código: de treinta estadías, DIECISÉIS duraban
+ * cero segundos y dos más no llegaban al minuto. No eran autos estacionados. Eran autos
+ * leídos una sola vez en un rincón del cuadro que esa cámara no vigila — el que pasa por
+ * la vereda de enfrente — y la fila nacía con la etiqueta ESTACIONADO puesta.
+ *
+ * El error no era el umbral: era el momento. El estado se escribía en la primera lectura,
+ * cuando todavía no había nada que lo sostuviera, y después nadie se lo sacaba. Ver un
+ * auto una vez no dice que esté quieto; dice que estaba ahí en ese instante. Para
+ * afirmar que está estacionado hay que verlo dos veces en el mismo lugar y que entre las
+ * dos haya pasado tiempo.
+ *
+ * Un minuto es el piso de lo que no puede explicarse de otra manera: menos que eso lo
+ * cubre una ráfaga larga, un semáforo o el auto que frena para que cruce alguien.
+ */
+export const ESTADIA_MINIMA_SEG = Number(process.env.TRACKING_PARKED_MIN_SEC || 60);
+
 /** Cuánto tiene que llevar quieto para que sea "estacionó" y no "paró un momento". */
 export const ESTADIA_MIN_MIN = Number(process.env.TRACKING_PARKED_CONFIRM_MIN || 3);
 
@@ -66,6 +101,19 @@ export const ESTADIA_TECHO_MIN = Number(process.env.TRACKING_PARKED_CEILING_MIN 
 
 export const duracionMin = (desde: Date | null, hasta: Date | null) =>
     desde && hasta ? Math.max(0, (hasta.getTime() - desde.getTime()) / 60000) : 0;
+
+export const duracionSeg = (desde: Date | null, hasta: Date | null) =>
+    desde && hasta ? Math.max(0, (hasta.getTime() - desde.getTime()) / 1000) : 0;
+
+/**
+ * Qué estado le corresponde a una estadía por lo único que puede probarlo: cuánto duró.
+ *
+ * Es la única puerta por la que se escribe ESTACIONADO. Mientras la permanencia no llegue
+ * al mínimo la fila queda en VISTO, y si nunca llega se cierra así: se la vio, no se quedó,
+ * y eso es todo lo que el sistema puede afirmar de ella.
+ */
+export const estadoDeEstadia = (desde: Date | null, hasta: Date | null) =>
+    duracionSeg(desde, hasta) >= ESTADIA_MINIMA_SEG ? ESTACIONADO : VISTO;
 
 /**
  * Marca una estadía como consolidada y avisa, una sola vez.
@@ -157,7 +205,11 @@ export function miradasSinVerlo(
 }
 
 /**
- * Las estadías abiertas de esa matrícula en esa cámara.
+ * Las estadías abiertas de esa matrícula en esa cámara, confirmadas o no.
+ *
+ * Entran también las que todavía están en VISTO: una estadía que no llegó al mínimo sigue
+ * siendo una fila abierta que hay que cerrar cuando el auto arranca, aunque al cerrarse no
+ * avise nada. Dejarlas afuera las volvía inmortales.
  *
  * Se buscan por PARECIDO y no por texto exacto, por el mismo motivo por el que se
  * enganchan así las lecturas: una estadía abierta bajo `AAU90` es la del auto que ahora
@@ -169,7 +221,7 @@ export function miradasSinVerlo(
  */
 export async function estadiasAbiertas(plate: string, deviceId: string | null) {
     const abiertas = await prisma.plateSighting.findMany({
-        where: { deviceId, source: "TRACK", estado: "ESTACIONADO", estCerrada: false },
+        where: { deviceId, source: "TRACK", estado: { in: ESTADOS_DE_ESTADIA }, estCerrada: false },
         orderBy: { timestamp: "desc" },
         take: 60,
     });
