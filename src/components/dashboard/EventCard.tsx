@@ -5,7 +5,7 @@ import { AccessEvent, User, Device, Unit } from "@prisma/client";
 import { Car, User as UserIcon, ShieldCheck, ShieldAlert, ArrowRightCircle, ArrowLeftCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-import { EventDetailsDialog } from "./EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { VehicleMetaChips } from "@/components/VehicleMeta";
 import { hora } from "@/lib/fechas";
 
@@ -25,7 +25,7 @@ export function EventCard({ event }: EventCardProps) {
     const plateImageUrl = event.imagePath;
 
     return (
-        <EventDetailsDialog event={event}>
+        <VisorEventoAcceso event={event}>
             <div className={`
                 bg-card/40 border rounded-xl overflow-hidden relative cursor-pointer group
                 transition-all duration-500 hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.7)] hover:-translate-y-1.5
@@ -158,6 +158,6 @@ export function EventCard({ event }: EventCardProps) {
                     </div>
                 </div>
             </div>
-        </EventDetailsDialog>
+        </VisorEventoAcceso>
     );
 }

@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { History, Search, Filter, Calendar as CalendarIcon, User as UserIcon, HardDrive, ArrowRightCircle, ArrowLeftCircle, Download, Camera, Loader2, Clock, Car, CreditCard, Building2, ArrowUpRight, ArrowDownLeft, Phone, MapPin, CheckCircle2, XCircle, X, MoreHorizontal, TrendingUp, ShieldAlert, Activity, Fingerprint, ScanFace, BadgeAlert, Cpu, Wifi, ChevronDown, RefreshCw, AlertTriangle, Film, Upload, FileJson, Users, Zap, ChevronLeft, ChevronRight, Route, ParkingCircle } from "lucide-react";
 import { AccessEvent, User, Device } from "@prisma/client";
 import Image from "next/image";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { cn } from "@/lib/utils";
 import { Pista, Columna } from "@/components/ui/pista";
 import { VisorCuadro } from "@/components/VisorCuadro";

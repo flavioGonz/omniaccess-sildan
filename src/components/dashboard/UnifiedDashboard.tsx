@@ -31,7 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
@@ -161,7 +161,7 @@ interface DashboardProps {
         const faceSimilarity = meta.Similitud;
 
         return (
-            <EventDetailsDialog event={event} timeStatus={timeStatus}>
+            <VisorEventoAcceso event={event} timeStatus={timeStatus}>
                 <div className={cn(
                     "p-4 cursor-pointer transition-all group border-b border-border last:border-0 border-l-[3px]",
                     isAnomalous
@@ -362,7 +362,7 @@ interface DashboardProps {
                         </div>
                     </div>
                 </div>
-            </EventDetailsDialog >
+            </VisorEventoAcceso>
         );
 });
 
@@ -758,7 +758,7 @@ export default function UnifiedDashboard({ variant = "acceso" }: DashboardProps)
                             const isLPR = !isFace && !isTag;
 
                             return (
-                                <EventDetailsDialog key={event.id} event={event}>
+                                <VisorEventoAcceso key={event.id} event={event}>
                                     <div className={cn(
                                         "relative aspect-video rounded-2xl overflow-hidden border group cursor-pointer shadow-lg transition-all duration-500",
                                         event.decision === "GRANT" ? "border-emerald-500/30 shadow-emerald-900/20" : "border-red-500/30 shadow-red-900/20"
@@ -948,7 +948,7 @@ export default function UnifiedDashboard({ variant = "acceso" }: DashboardProps)
                                             </div>
                                         )}
                                     </div>
-                                </EventDetailsDialog>
+                                </VisorEventoAcceso>
                             );
                         })}
                     </div>

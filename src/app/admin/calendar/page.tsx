@@ -24,7 +24,7 @@ import { AccessEvent, Device } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { Skeleton } from "@/components/ui/skeleton";
 import { hora } from "@/lib/fechas";
 
@@ -560,7 +560,7 @@ export default function CalendarPage() {
                                     );
                                 }
                                 return (
-                                <EventDetailsDialog key={evt.id} event={evt}>
+                                <VisorEventoAcceso key={evt.id} event={evt}>
                                     <div className="group bg-muted/40 hover:bg-accent p-3 rounded-xl cursor-pointer transition-all flex items-start gap-3 border border-border/60 hover:border-border">
                                         <div className="mt-1">
                                             {evt.decision === 'GRANT'
@@ -606,7 +606,7 @@ export default function CalendarPage() {
                                             </p>
                                         </div>
                                     </div>
-                                </EventDetailsDialog>
+                                </VisorEventoAcceso>
                                 );
                             })
                         ) : (

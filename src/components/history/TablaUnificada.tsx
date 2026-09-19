@@ -6,7 +6,7 @@ import {
     LogIn, LogOut, ParkingCircle, ShieldCheck, ShieldX,
     ShieldAlert, MoreHorizontal, Wifi, WifiOff,
 } from "lucide-react";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { cn } from "@/lib/utils";
 import { Pista } from "@/components/ui/pista";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
@@ -465,12 +465,12 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
             tituloAyuda: "La ficha completa",
             ayuda: "En los accesos, abre el detalle: fotos, datos del vehículo, permisos y por qué se decidió lo que se decidió.",
             celda: (f) => f.raw ? (
-                <EventDetailsDialog event={f.raw}>
+                <VisorEventoAcceso event={f.raw}>
                     <button onClick={(e) => e.stopPropagation()} title="Ficha completa del acceso"
                         className="inline-flex w-7 h-7 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent items-center justify-center transition-colors">
                         <MoreHorizontal className="w-3.5 h-3.5" />
                     </button>
-                </EventDetailsDialog>
+                </VisorEventoAcceso>
             ) : <Nada />,
         },
     ], [abierta, merodeo]);

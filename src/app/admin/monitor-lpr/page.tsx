@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import { VisorCuadro } from "@/components/VisorCuadro";
 import { Cronometro } from "@/components/tracking/Cronometro";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
@@ -168,9 +168,9 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
         </div>
     );
     return ev ? (
-        <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
+        <VisorEventoAcceso event={ev} timeStatus={null} onRegister={(p) => { if (p) onRegister?.(p); }}>
             <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
-        </EventDetailsDialog>
+        </VisorEventoAcceso>
     ) : inner;
 }
 
@@ -612,7 +612,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
     return (
       <>
-        <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)}>
+        <VisorEventoAcceso event={event} timeStatus={null} onRegister={(p) => onRegister(p)}>
             <div className={cn(
                 "relative p-3 cursor-pointer transition-all group border-b border-border last:border-0",
                 isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent",
@@ -656,7 +656,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                     </div>
                 </div>
             </div>
-        </EventDetailsDialog>
+        </VisorEventoAcceso>
         {showPark && <ParkingLocationDialog plate={event.plateDetected || ""} onClose={() => setShowPark(false)} />}
         {showVid && nvrCh != null && <NvrTimeMachine open={showVid} onClose={() => setShowVid(false)} deviceId={(event as any).device?.id} channel={nvrCh} eventTimeMs={new Date(event.timestamp).getTime()} deviceName={(event as any).device?.name} evidenceUrl={fullImageUrl || undefined} plate={event.plateDetected} />}
       </>
@@ -934,7 +934,7 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
                             isBlack ? "border-red-500/60 ring-2 ring-red-500/40" : anomalous ? "border-yellow-500/50" : "border-border"
                         )}>
                             <button onClick={() => onDismiss(ev.id)} title="Cerrar" className="absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md bg-black/50 hover:bg-black/70 text-white/80 hover:text-white flex items-center justify-center backdrop-blur"><X size={13} /></button>
-                            <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
+                            <VisorEventoAcceso event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
                                 <div className="flex gap-2.5 p-2.5 cursor-pointer">
                                     <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-border">
                                         <SmartThumb src={img} w={240} className="w-full h-full" />
@@ -960,7 +960,7 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
                                         </div>
                                     </div>
                                 </div>
-                            </EventDetailsDialog>
+                            </VisorEventoAcceso>
                         </div>
                     );
                 })}

@@ -24,7 +24,7 @@ import {
     Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getImagePath } from "@/lib/image-path";
@@ -226,7 +226,7 @@ export default function MonitorFace() {
         };
 
         return (
-            <EventDetailsDialog event={event} timeStatus={null}>
+            <VisorEventoAcceso event={event} timeStatus={null}>
                 <div className={cn(
                     "relative group cursor-pointer overflow-hidden rounded-md",
                     sizeClasses[size],
@@ -301,7 +301,7 @@ export default function MonitorFace() {
                         <div className="absolute inset-0 bg-foreground/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                     </div>
                 </div>
-            </EventDetailsDialog>
+            </VisorEventoAcceso>
         );
     }, []);
 
@@ -317,7 +317,7 @@ export default function MonitorFace() {
         const isDenied = event.decision !== "GRANT";
 
         return (
-            <EventDetailsDialog event={event} timeStatus={null}>
+            <VisorEventoAcceso event={event} timeStatus={null}>
                 <div className="relative group cursor-pointer overflow-hidden rounded-lg">
                     <div className="relative w-full aspect-[16/10] overflow-hidden">
                         {imgSrc ? (
@@ -410,7 +410,7 @@ export default function MonitorFace() {
                         </div>
                     </div>
                 </div>
-            </EventDetailsDialog>
+            </VisorEventoAcceso>
         );
     }, []);
 
