@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { pantallaInicio } from "@/lib/landing";
 import { useSessionRole } from "@/hooks/useSessionRole";
 import { OnlineUsersWidget } from "@/components/OnlineUsersWidget";
+import { GpuPulso } from "@/components/GpuPulso";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import Link from "next/link";
@@ -255,7 +256,12 @@ export default function AdminLayout({
                 </nav>
 
                 <div className="p-3 border-t border-border space-y-2">
-                    <OnlineUsersWidget collapsed={collapsed} />
+                    {/* Quien esta mirando y cuanto esta trabajando la placa, en la misma
+                        linea: son las dos cosas que se miran de reojo sin entrar a ningun lado. */}
+                    <div className={cn("flex items-center gap-2", collapsed && "flex-col gap-1.5")}>
+                        <div className="flex-1 min-w-0"><OnlineUsersWidget collapsed={collapsed} /></div>
+                        <GpuPulso collapsed={collapsed} />
+                    </div>
                     <div className={cn("flex items-center gap-3 group p-2 rounded-2xl hover:bg-accent/50 transition-colors", collapsed && "justify-center p-0 hover:bg-transparent")}>
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white font-bold text-xs shadow-lg shadow-blue-500/20 shrink-0">
                             A
