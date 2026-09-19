@@ -1119,3 +1119,250 @@ video::-webkit-media-controls { display: none !important; }
 .sek-hit:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px rgba(var(--ink-rgb), 0.4);}
+
+
+/* ══════════════════════════════════════════════════════════
+   ICON BAR  ·  bloque "Icon bar" de Bencho — bencho.dev, MIT
+   Autor: Lorenzo Cabra
+
+   El CSS va como lo publica el sitio, con dos cosas agregadas
+   al final y marcadas: el separador y los botones de acción,
+   que el bloque original no tiene porque es un navegador de
+   una sola selección y acá la barra también dispara acciones.
+
+   ── LOS TOKENS ────────────────────────────────────────────
+   Mismo criterio que con Seek: lo que el proyecto ya tiene se
+   engancha, lo que no existe se define SOBRE .gnav y no en
+   :root, para que no se filtre al resto ni compita con los
+   tokens que ya hay.
+
+     --ink         → --foreground   (el glifo)
+     --pane        → --card         (la superficie)
+     --pane-thumb  → derivado       (la píldora que se desliza)
+
+   El original define --pane-thumb como rgba(--ink-rgb, .07), y
+   ese token no se puede armar en un proyecto oklch (ver la nota
+   de Seek). Se deriva con color-mix, que hace el mismo trabajo
+   y sigue solo al tema.
+
+   --bar-slot, --bar-pad y --bar-gap sí son del bloque y van con
+   sus valores de origen: 38, 6 y 2. Un sitio que necesite otro
+   tamaño los pisa en su propio style.
+   ══════════════════════════════════════════════════════════ */
+
+.gnav {
+  --bar-slot: 38px;
+  --bar-pad: 6px;
+  --bar-gap: 2px;
+  --ink: var(--foreground);
+  --pane: var(--card);
+  --pane-thumb: color-mix(in oklab, var(--foreground) 9%, transparent);
+  --g-blur: 2px;
+  --g-sat: 150%;
+
+  --slot: var(--bar-slot);
+  --nav-pad: var(--bar-pad);
+  gap: var(--bar-gap);
+  padding: var(--nav-pad);
+  border-radius: var(--gnav-r, 999px);
+  display: inline-flex;
+  position: relative;
+  isolation: isolate;
+  color: var(--ink);
+  background: var(--pane);
+  -webkit-backdrop-filter: blur(var(--g-blur)) saturate(var(--g-sat));
+  backdrop-filter: blur(var(--g-blur)) saturate(var(--g-sat));}
+
+.gnav::before {
+  content: "";
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 3;
+  border: 1px solid transparent;
+  position: absolute;
+  inset: 0;}
+
+.gnav[data-orientation="vertical"] {
+  border-radius: var(--gnav-r, 30px);
+  flex-direction: column;}
+
+.gnav-ind {
+  top: var(--nav-pad);
+  height: calc(100% - var(--nav-pad) * 2);
+  border-radius: var(--gnav-r, 999px);
+  background: var(--pane-thumb);
+  pointer-events: none;
+  will-change: transform, width;
+  position: absolute;
+  left: 0;}
+
+.gnav[data-orientation="vertical"] .gnav-ind {
+  top: 0;
+  left: var(--nav-pad);
+  width: calc(100% - var(--nav-pad) * 2);
+  height: auto;}
+
+/* ── el indicador de dos fases ─────────────────────────────
+   Moverse entre ranuras se parte en dos en vez de suavizarse
+   sobre una sola distancia. Fase uno: el borde de adelante
+   salta y la píldora se dilata hasta cubrir las dos ranuras.
+   Fase dos: el borde de atrás alcanza y se contrae sobre el
+   destino, pasándose un poco. El traspaso entre las dos es lo
+   que decide cuánto se estira. */
+.gnav-ind[data-phase="stretch"] {
+  --d: var(--ind-stretch, 0.19s);
+  transition:
+    transform var(--d) cubic-bezier(0.32, 0.72, 0.24, 1),
+    width var(--d) cubic-bezier(0.32, 0.72, 0.24, 1),
+    height var(--d) cubic-bezier(0.32, 0.72, 0.24, 1);}
+
+/* el tercer punto de control pasado de 1 es el rebote, y es
+   todo el rebote: no hay nada más que lo produzca */
+.gnav-ind[data-phase="settle"] {
+  --d: var(--ind-settle, 0.42s);
+  transition:
+    transform var(--d) var(--ind-move, cubic-bezier(0.28, 1.28, 0.36, 1)),
+    width var(--d) var(--ind-size, cubic-bezier(0.24, 1.34, 0.38, 1)),
+    height var(--d) var(--ind-size, cubic-bezier(0.24, 1.34, 0.38, 1));}
+
+.gnav-ind[data-phase="idle"] {
+  transition: none;}
+
+/* la ranura es compartida: barras de glifos distintas se leen
+   como una familia, al mismo tamaño */
+.gnav-item {
+  z-index: 1;
+  width: var(--slot, 38px);
+  height: var(--slot, 38px);
+  border-radius: var(--gnav-r, 999px);
+  color: var(--ink);
+  opacity: 0.42;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  place-items: center;
+  transition: opacity 0.26s cubic-bezier(0.32, 0.72, 0.24, 1);
+  display: grid;
+  position: relative;}
+
+.gnav-item:hover {
+  opacity: 0.72;}
+
+.gnav-item[data-active="true"] {
+  opacity: 1;}
+
+.gnav-item:focus-visible {
+  outline: 1.5px solid var(--ink);
+  outline-offset: 2px;}
+
+/* ── agregados de este proyecto ────────────────────────────
+   El bloque original es un navegador de una sola selección.
+   Una barra de herramientas mezcla eso con acciones sueltas —
+   acercar, pantalla completa — que no tienen estado y por lo
+   tanto no pueden llevarse el indicador: saltaría a un botón
+   donde no hay dónde quedarse. Comparten la ranura y el glifo,
+   y se separan con una línea. */
+.gnav-sep {
+  align-self: center;
+  flex: none;
+  background: color-mix(in oklab, var(--ink) 16%, transparent);
+  margin: 0 3px;}
+
+.gnav[data-orientation="horizontal"] .gnav-sep {
+  width: 1px;
+  height: calc(var(--slot) * 0.55);}
+
+.gnav[data-orientation="vertical"] .gnav-sep {
+  height: 1px;
+  width: calc(var(--slot) * 0.55);
+  margin: 3px 0;}
+
+.gnav-item[data-accion="true"] {
+  opacity: 0.55;}
+
+.gnav-item[data-accion="true"]:hover {
+  opacity: 1;
+  background: color-mix(in oklab, var(--ink) 10%, transparent);}
+
+/* un interruptor encendido no es una acción disparada: se queda
+   marcado, y por eso lleva fondo propio en vez del indicador */
+.gnav-item[data-encendida] {
+  opacity: 1;
+  background: color-mix(in oklab, var(--ink) 14%, transparent);}
+
+.gnav-item[data-encendida][data-tono="alerta"] {
+  background: #e11d48;
+  color: #fff;}
+
+.gnav-item:disabled {
+  opacity: 0.18;
+  cursor: default;}
+
+.gnav-item:disabled:hover {
+  opacity: 0.18;
+  background: none;}
+
+/* Sobre una foto o un mapa el vidrio tiene que ser oscuro en
+   los dos temas: la superficie de abajo no es la de la
+   aplicación, es imagen. */
+.gnav[data-superficie="oscura"] {
+  --ink: #f5f6f8;
+  --pane: rgba(10, 13, 18, 0.8);
+  --pane-thumb: rgba(255, 255, 255, 0.14);
+  --g-blur: 16px;
+  --g-sat: 140%;}
+
+.gnav[data-superficie="oscura"]::before {
+  border-color: rgba(255, 255, 255, 0.08);}
+
+/* Lo que no entra en una ranura cuadrada: un menú con su flecha,
+   un botón con texto. Conserva el alto de la ranura — que es lo
+   que hace que la barra se lea pareja — y toma el ancho que
+   necesite. */
+.gnav-ancho {
+  z-index: 1;
+  height: var(--slot, 38px);
+  min-width: var(--slot, 38px);
+  width: auto;
+  padding: 0 12px;
+  border-radius: var(--gnav-r, 999px);
+  color: var(--ink);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0.62;
+  transition: opacity 0.26s cubic-bezier(0.32, 0.72, 0.24, 1), background 0.2s;
+  position: relative;}
+
+.gnav-ancho:hover {
+  opacity: 1;
+  background: color-mix(in oklab, var(--ink) 10%, transparent);}
+
+.gnav-ancho[data-abierto="true"] {
+  opacity: 1;
+  background: color-mix(in oklab, var(--ink) 16%, transparent);}
+
+.gnav-ancho:focus-visible {
+  outline: 1.5px solid var(--ink);
+  outline-offset: 2px;}
+
+/* La acción principal no se disuelve en la barra: es la única
+   que decide algo, así que lleva color propio y opacidad plena. */
+.gnav-ancho[data-principal] {
+  opacity: 1;
+  font-weight: 700;
+  color: #fff;}
+
+.gnav-ancho[data-principal="editar"] { background: #2563eb;}
+.gnav-ancho[data-principal="editar"]:hover { background: #3b82f6;}
+.gnav-ancho[data-principal="guardar"] { background: #059669;}
+.gnav-ancho[data-principal="guardar"]:hover { background: #10b981;}
+.gnav-ancho[data-principal]:disabled { opacity: 0.55; cursor: default;}

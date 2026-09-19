@@ -36,6 +36,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { IconBar } from "@/components/ui/icon-bar";
 import { getParkingSlots, saveParkingSlots, getParkingMap, uploadParkingMap, getParkingElements, saveParkingElements, getParkingOccupancy } from "@/app/actions/plazas";
 import { io } from "socket.io-client";
 import { getUnitsWithDetails } from "@/app/actions/units";
@@ -455,32 +456,62 @@ export default function PlazasPage() {
     return (
         <TooltipProvider delayDuration={150}>
         <div className="w-full h-full relative bg-background overflow-hidden animate-in fade-in duration-700 flex items-center justify-center">
-            {/* Barra central de acciones (estilo /admin/mapa) */}
+            {/* ── LA BARRA ──────────────────────────────────────────────────────────
+                El mismo bloque "Icon bar" de Bencho que usa /admin/mapa, y por el mismo
+                motivo: las herramientas de dibujo son UNA SOLA selección, que es
+                exactamente lo que el indicador de dos fases sabe representar. Antes cada
+                herramienta activa se pintaba de su propio color — azul la plaza, verde la
+                entrada, naranja la salida — y eso decía de qué color es cada cosa, no
+                cuál está elegida; con cinco colores distintos hay que leer los cinco para
+                saber. Ahora hay una sola píldora que se mueve, y el color de cada
+                herramienta vive donde sirve: en lo que dibuja sobre el plano.
+
+                La superficie va oscura en los dos temas porque la barra flota sobre un
+                plano subido por el operador, que puede ser claro o oscuro y no es la
+                superficie de la aplicación. */}
             {mapImage && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 bg-card/50 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 rounded-full shadow-lg px-1.5 py-1.5">
-                    {TOOLS.map((t) => (
-                        <Tooltip key={t.id}><TooltipTrigger asChild>
-                            <button type="button" onClick={() => { setTool(t.id); setCurrentPoints([]); setCurrentLine([]); }} className={cn("p-2 rounded-full transition-all", tool === t.id ? cn(t.active, "shadow-md ring-1 ring-white/25 scale-105") : "text-muted-foreground hover:bg-accent hover:scale-105")}><t.icon size={16} /></button>
-                        </TooltipTrigger><TooltipContent>{t.label}</TooltipContent></Tooltip>
-                    ))}
-                    <div className="w-px h-6 bg-border mx-0.5" />
-                    <Tooltip><TooltipTrigger asChild>
-                        <button type="button" onClick={() => setZoom((z) => Math.max(1, +(z - 0.3).toFixed(2)))} className="p-2 rounded-full text-muted-foreground hover:bg-accent transition-colors"><ZoomOut size={16} /></button>
-                    </TooltipTrigger><TooltipContent>Alejar</TooltipContent></Tooltip>
-                    <span className="text-[10px] font-bold text-muted-foreground tabular-nums w-9 text-center select-none">{Math.round(zoom * 100)}%</span>
-                    <Tooltip><TooltipTrigger asChild>
-                        <button type="button" onClick={() => setZoom((z) => Math.min(6, +(z + 0.3).toFixed(2)))} className="p-2 rounded-full text-muted-foreground hover:bg-accent transition-colors"><ZoomIn size={16} /></button>
-                    </TooltipTrigger><TooltipContent>Acercar</TooltipContent></Tooltip>
-                    <Tooltip><TooltipTrigger asChild>
-                        <button type="button" onClick={fitView} className="p-2 rounded-full text-muted-foreground hover:bg-accent transition-colors"><Maximize2 size={16} /></button>
-                    </TooltipTrigger><TooltipContent>Ajustar a pantalla</TooltipContent></Tooltip>
-                    <div className="w-px h-6 bg-border mx-0.5" />
-                    <Tooltip><TooltipTrigger asChild>
-                        <button type="button" onClick={() => { if (window.confirm("¿Quitar el plano y borrar plazas/calles/entradas dibujadas de la vista? (No se guarda hasta que uses Guardar)")) { setMapImage(null); setSlots([]); setImageDimensions({ width: 0, height: 0 }); setElements({ entradas: [], salidas: [], calles: [] }); setCurrentLine([]); setCurrentPoints([]); } }} className="p-2 rounded-full text-muted-foreground hover:bg-red-500/15 hover:text-red-400 transition-colors"><Trash2 size={16} /></button>
-                    </TooltipTrigger><TooltipContent>Resetear plano</TooltipContent></Tooltip>
-                    <Tooltip><TooltipTrigger asChild>
-                        <button type="button" onClick={handleSave} disabled={isSaving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors disabled:opacity-50">{isSaving ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save size={14} />} Guardar</button>
-                    </TooltipTrigger><TooltipContent>Guardar cambios</TooltipContent></Tooltip>
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100%-1.5rem)]">
+                    <IconBar
+                        superficie="oscura"
+                        className="shadow-2xl shadow-black/40 max-w-full"
+                        corner={26}
+                        glyph={15}
+                        items={TOOLS.map((t) => ({ key: t.id, label: t.label, Icon: t.icon }))}
+                        value={tool}
+                        onChange={(k) => { setTool(k as any); setCurrentPoints([]); setCurrentLine([]); }}
+                        acciones={[
+                            { key: "alejar", label: "Alejar", Icon: ZoomOut, onClick: () => setZoom((z) => Math.max(1, +(z - 0.3).toFixed(2))) },
+                            { key: "acercar", label: "Acercar", Icon: ZoomIn, onClick: () => setZoom((z) => Math.min(6, +(z + 0.3).toFixed(2))) },
+                            {
+                                key: "resetear", label: "Resetear plano", Icon: Trash2,
+                                onClick: () => {
+                                    if (window.confirm("¿Quitar el plano y borrar plazas/calles/entradas dibujadas de la vista? (No se guarda hasta que uses Guardar)")) {
+                                        setMapImage(null); setSlots([]); setImageDimensions({ width: 0, height: 0 });
+                                        setElements({ entradas: [], salidas: [], calles: [] });
+                                        setCurrentLine([]); setCurrentPoints([]);
+                                    }
+                                },
+                            },
+                        ]}
+                        antes={
+                            /* El nivel de acercamiento es a la vez estado y control: dice
+                               dónde está parado uno y vuelve a encuadrar de un clic. Un
+                               número suelto al lado de los botones sería sólo la mitad. */
+                            <button type="button" className="gnav-ancho" onClick={fitView}
+                                title="Ajustar a pantalla">
+                                <Maximize2 size={14} />
+                                <span className="tabular-nums">{Math.round(zoom * 100)}%</span>
+                            </button>
+                        }
+                        despues={
+                            <button type="button" data-principal="guardar" className="gnav-ancho"
+                                onClick={handleSave} disabled={isSaving} title="Guardar cambios">
+                                {isSaving
+                                    ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                    : <Save size={14} />} Guardar
+                            </button>
+                        }
+                    />
                 </div>
             )}
             {/* Floating Controls - Top Left */}

@@ -32,7 +32,9 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/api/devices/health/tick') ||
         pathname === '/api/subscribe' ||
         pathname.startsWith('/api/push/dispatch') ||
-        pathname === '/api/events' ||
+        // /api/events NO va aca: estaba en la lista publica y devolvia, sin sesion y a
+        // quien preguntara, el historial de accesos de cualquier matricula. Ahora exige
+        // sesion como el resto de la aplicacion.
         pathname.startsWith('/api/files/') ||
         pathname === '/api/system-status' ||
         pathname.startsWith('/api/topology/') ||

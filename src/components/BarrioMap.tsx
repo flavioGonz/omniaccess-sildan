@@ -19,6 +19,7 @@ import {
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { IconBar } from "@/components/ui/icon-bar";
 import { CSS_AUTO } from "@/lib/auto-svg";
 import { montarVivo } from "@/lib/vivo";
 import { sileo as toast } from "sileo";
@@ -390,6 +391,28 @@ export default function BarrioMap() {
         return [...cams, ...calles].slice(0, 6);
     })();
 
+    /**
+     * Las últimas pasadas que ofrece el buscador con el campo vacío.
+     *
+     * No sale de ninguna consulta nueva: son las mismas lecturas que ya alimentan las
+     * columnas de entradas y salidas, fusionadas y ordenadas por hora. El dato estaba a un
+     * `useMemo` de distancia de ser útil en otro lado.
+     */
+    const ultimasPasadas = useMemo(() => {
+        const todas = [...flow.entries, ...flow.exits];
+        return todas
+            .filter((e: any) => e.plateDetected)
+            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .slice(0, 10)
+            .map((e: any) => ({
+                id: e.id,
+                plate: String(e.plateDetected).toUpperCase(),
+                camara: e.device?.name || null,
+                cuando: e.timestamp,
+                sentido: e.direction as any,
+            }));
+    }, [flow.entries, flow.exits]);
+
     const irALugar = (l: Lugar) => {
         setVista3D(false);
         mapRef.current?.flyTo([l.lat, l.lng], l.tipo === "camara" ? 19 : 18, { duration: 0.9 });
@@ -603,7 +626,8 @@ ${CSS_AUTO}
                 </MapContainer>
                 )}
                 {!vista3D && oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
-                <PanelRecorrido {...rec} lugares={lugares} onIrA={irALugar} onVerCuadro={setCuadroRecorrido} />
+                <PanelRecorrido {...rec} lugares={lugares} onIrA={irALugar} onVerCuadro={setCuadroRecorrido}
+                    ultimas={ultimasPasadas} onUltima={(u) => flow.animateEvent({ id: u.id } as any)} />
 
                 {cuadroRecorrido && (
                     <VisorCuadro
@@ -621,149 +645,137 @@ ${CSS_AUTO}
                 {/* Columnas de flujo en vivo */}
                 {!editing && (
                     <>
-                        <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} onPick={(ev) => flow.animateEvent(ev)} />
-                        <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => flow.animateEvent(ev)} />
+                        <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} cargando={flow.cargando} onPick={(ev) => flow.animateEvent(ev)} />
+                        <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} cargando={flow.cargando} onPick={(ev) => flow.animateEvent(ev)} />
                     </>
                 )}
 
-                {/* Toolbar pill */}
-                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] flex items-center gap-1 flex-nowrap max-w-[calc(100%-1.5rem)] rounded-full px-1.5 py-1.5 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
-                    {/* Capas: un menú, disponible también al editar */}
-                    <div className="relative shrink-0">
-                        <motion.button whileTap={{ scale: 0.94 }} onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
-                            className={cn("flex items-center gap-1.5 h-8 px-3 rounded-full text-[11.5px] font-semibold transition-colors",
-                                menuCapas ? "bg-white/[0.16] text-white" : "text-white/60 hover:text-white hover:bg-white/[0.1]")}>
-                            <Layers3 size={14} />
-                            {vista3D ? "Vista 3D" : base}
-                            <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
-                        </motion.button>
-                        <AnimatePresence>
-                            {menuCapas && (
-                                <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                                    transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
-                                    className="absolute top-10 left-0 w-[188px] p-1.5 rounded-2xl bg-[#0a0d12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/60">
-                                    <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mapa de fondo</p>
-                                    <div className="grid grid-cols-2 gap-0.5">
-                                        {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
-                                            <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
-                                                className="relative h-7 rounded-lg text-[11px] font-semibold text-white/55 hover:text-white transition-colors">
-                                                {base === nb && !vista3D && (
+                {/* ── LA BARRA ──────────────────────────────────────────────────────
+                    Es el bloque "Icon bar" de Bencho (bencho.dev, MIT). Lo que aporta no
+                    es el vidrio sino el INDICADOR DE DOS FASES: al cambiar de herramienta
+                    la píldora primero se estira hasta cubrir la que deja y la que toma, y
+                    recién después se contrae sobre el destino pasándose un poco. Se lee
+                    como un objeto que se mueve, no como un fondo que se teletransporta.
+
+                    Por eso las herramientas de dibujo van como `items` — son una sola
+                    selección, que es lo que el indicador sabe representar — y acercar,
+                    alejar, centrar, vivo y pantalla completa van como `acciones`: no
+                    tienen estado donde quedarse, así que no se llevan el indicador. El
+                    menú de capas y el botón principal van adentro de la misma barra y no
+                    al lado, porque tres píldoras separadas no se leen como una barra de
+                    herramientas sino como tres cosas alineadas por casualidad. */}
+                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] max-w-[calc(100%-1.5rem)]">
+                    <IconBar
+                        superficie="oscura"
+                        className="shadow-2xl shadow-black/50 max-w-full overflow-x-auto omni-sin-barra"
+                        corner={26}
+                        glyph={15}
+                        items={editing ? tools.map((t) => ({ key: t.id, label: t.label, Icon: t.icon })) : []}
+                        value={editing ? tool : undefined}
+                        onChange={(k) => { setTool(k as Tool); setSelected(null); }}
+                        acciones={[
+                            { key: "mas", label: "Acercar", Icon: Plus, onClick: () => acercar(1), off: vista3D },
+                            { key: "menos", label: "Alejar", Icon: Minus, onClick: () => acercar(-1), off: vista3D },
+                            { key: "centrar", label: "Centrar en el barrio", Icon: Crosshair, onClick: centrarBarrio, off: vista3D },
+                            {
+                                key: "vivo",
+                                label: vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo",
+                                Icon: vivoTodas ? EyeOff : Eye,
+                                onClick: () => { setOcultas([]); setVivoTodas((v) => !v); },
+                                activa: vivoTodas,
+                                tono: "alerta" as const,
+                            },
+                            {
+                                key: "pantalla",
+                                label: pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa",
+                                Icon: pantallaCompleta ? Minimize2 : Maximize2,
+                                onClick: alternarPantalla,
+                            },
+                            ...(editing ? [{
+                                key: "borrar", label: "Borrar seleccionado", Icon: Trash2,
+                                onClick: deleteSelected, off: !selected,
+                            }] : []),
+                        ]}
+                        antes={
+                            <div className="relative shrink-0">
+                                <button type="button" data-abierto={menuCapas || undefined}
+                                    onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
+                                    className="gnav-ancho">
+                                    <Layers3 size={14} />
+                                    {vista3D ? "Vista 3D" : base}
+                                    <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
+                                </button>
+                                <AnimatePresence>
+                                    {menuCapas && (
+                                        <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                                            transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
+                                            className="absolute top-11 left-0 w-[188px] p-1.5 rounded-2xl bg-[#0a0d12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/60 z-10">
+                                            <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mapa de fondo</p>
+                                            <div className="grid grid-cols-2 gap-0.5">
+                                                {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
+                                                    <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
+                                                        className="relative h-7 rounded-lg text-[11px] font-semibold text-white/55 hover:text-white transition-colors">
+                                                        {base === nb && !vista3D && (
+                                                            <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                                                className="absolute inset-0 rounded-lg bg-white/[0.14]" />
+                                                        )}
+                                                        <span className={cn("relative", base === nb && !vista3D && "text-white")}>{nb}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <button onClick={() => setVista3D((v) => !v)}
+                                                className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-white/55 hover:text-white transition-colors">
+                                                {vista3D && ayuda3D && (
                                                     <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                        className="absolute inset-0 rounded-lg bg-white/[0.14]" />
+                                                        className="absolute inset-0 rounded-lg bg-sky-400/25" />
                                                 )}
-                                                <span className={cn("relative", base === nb && !vista3D && "text-white")}>{nb}</span>
+                                                <span className={cn("relative", vista3D && "text-sky-200")}>Vista 3D · girar e inclinar</span>
                                             </button>
-                                        ))}
-                                    </div>
-                                    <button onClick={() => setVista3D((v) => !v)}
-                                        className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-white/55 hover:text-white transition-colors">
-                                        {vista3D && ayuda3D && (
-                                            <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                className="absolute inset-0 rounded-lg bg-sky-400/25" />
-                                        )}
-                                        <span className={cn("relative", vista3D && "text-sky-200")}>Vista 3D · girar e inclinar</span>
+                                            {!vista3D && (<>
+                                                <span className="block h-px bg-white/[0.08] mx-1 my-1.5" />
+                                                <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mostrar</p>
+                                                {capas.map(({ k, label, icon: Ic }) => {
+                                                    const on = verCapa[k];
+                                                    return (
+                                                        <button key={k} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
+                                                            className={cn("w-full flex items-center gap-2 h-7 px-2 rounded-lg text-[11px] font-semibold transition-colors",
+                                                                on ? "text-white hover:bg-white/[0.08]" : "text-white/35 hover:text-white/70")}>
+                                                            <Ic size={12} />
+                                                            <span className="flex-1 text-left">{label}</span>
+                                                            {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </>)}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </div>
+                        }
+                        despues={
+                            /* La acción principal, siempre en la misma punta de la barra. */
+                            !editing ? (
+                                <button type="button" data-principal="editar" className="gnav-ancho"
+                                    title="Dibujar perímetro, calles y cámaras"
+                                    onClick={() => { setVista3D(false); setEditing(true); setMenuCapas(false); }}>
+                                    <Pencil size={14} /> Editar mapa
+                                </button>
+                            ) : (
+                                <>
+                                    <button type="button" data-principal="guardar" className="gnav-ancho"
+                                        onClick={save} disabled={saving}
+                                        title="Guarda el dibujo, la vista y la capa elegida">
+                                        {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
                                     </button>
-                                    {!vista3D && (<>
-                                        <span className="block h-px bg-white/[0.08] mx-1 my-1.5" />
-                                        <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Mostrar</p>
-                                        {capas.map(({ k, label, icon: Ic }) => {
-                                            const on = verCapa[k];
-                                            return (
-                                                <button key={k} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
-                                                    className={cn("w-full flex items-center gap-2 h-7 px-2 rounded-lg text-[11px] font-semibold transition-colors",
-                                                        on ? "text-white hover:bg-white/[0.08]" : "text-white/35 hover:text-white/70")}>
-                                                    <Ic size={12} />
-                                                    <span className="flex-1 text-left">{label}</span>
-                                                    {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
-                                                </button>
-                                            );
-                                        })}
-                                    </>)}
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
-
-                    <span className="w-px h-5 bg-white/10 mx-0.5 shrink-0" />
-
-                    <div className="flex items-center gap-1 min-w-0 overflow-x-auto omni-sin-barra">
-                    {/* Navegación: los mismos botones mirando o editando */}
-                    {[
-                        { ic: Plus, t: "Acercar", fn: () => acercar(1), off: vista3D },
-                        { ic: Minus, t: "Alejar", fn: () => acercar(-1), off: vista3D },
-                        { ic: Crosshair, t: "Centrar en el barrio", fn: centrarBarrio, off: vista3D },
-                        {
-                            ic: vivoTodas ? EyeOff : Eye,
-                            t: vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo",
-                            fn: () => { setOcultas([]); setVivoTodas((v) => !v); },
-                            off: false,
-                            activo: vivoTodas,
-                        },
-                        { ic: pantallaCompleta ? Minimize2 : Maximize2, t: pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa", fn: alternarPantalla, off: false },
-                    ].map(({ ic: Ic, t, fn, off, activo }: any) => (
-                        <Tooltip key={t}><TooltipTrigger asChild>
-                            <motion.button whileTap={{ scale: 0.88 }} onClick={fn} disabled={off}
-                                className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors shrink-0",
-                                    off ? "text-white/20"
-                                        : activo ? "bg-red-500/85 text-white hover:bg-red-500"
-                                            : "text-white/60 hover:text-white hover:bg-white/[0.12]")}>
-                                <Ic size={15} />
-                            </motion.button>
-                        </TooltipTrigger><TooltipContent>{t}</TooltipContent></Tooltip>
-                    ))}
-
-                    <span className="w-px h-5 bg-white/10 mx-0.5 shrink-0" />
-
-                    {editing && (
-                        <>
-                            {/* Herramientas de dibujo */}
-                            {tools.map((t) => (
-                                <Tooltip key={t.id}><TooltipTrigger asChild>
-                                    <motion.button whileTap={{ scale: 0.88 }} onClick={() => { setTool(t.id); setSelected(null); }}
-                                        className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors shrink-0",
-                                            tool === t.id ? "bg-blue-600 text-white" : "text-white/60 hover:text-white hover:bg-white/[0.12]")}>
-                                        <t.icon size={15} />
-                                    </motion.button>
-                                </TooltipTrigger><TooltipContent>{t.label}</TooltipContent></Tooltip>
-                            ))}
-                            <Tooltip><TooltipTrigger asChild>
-                                <motion.button whileTap={{ scale: 0.88 }} onClick={deleteSelected} disabled={!selected}
-                                    className={cn("w-8 h-8 rounded-full flex items-center justify-center transition-colors shrink-0",
-                                        selected ? "text-red-400 hover:bg-red-500/15" : "text-white/20")}>
-                                    <Trash2 size={15} />
-                                </motion.button>
-                            </TooltipTrigger><TooltipContent>Borrar seleccionado</TooltipContent></Tooltip>
-
-                        </>
-                    )}
-                    </div>
-
-                    <span className="w-px h-5 bg-white/10 mx-0.5 shrink-0" />
-
-                    {/* Acción principal: siempre en la misma punta de la barra */}
-                    {!editing ? (
-                        <Tooltip><TooltipTrigger asChild>
-                            <button onClick={() => { setVista3D(false); setEditing(true); setMenuCapas(false); }}
-                                className="flex items-center gap-2 h-8 px-3 rounded-full text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors shrink-0">
-                                <Pencil size={14} /> Editar mapa
-                            </button>
-                        </TooltipTrigger><TooltipContent>Dibujar perímetro, calles y cámaras</TooltipContent></Tooltip>
-                    ) : (
-                        <>
-                            <Tooltip><TooltipTrigger asChild>
-                                <button onClick={save} disabled={saving}
-                                    className="flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors shrink-0 disabled:opacity-60">
-                                    {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
-                                </button>
-                            </TooltipTrigger><TooltipContent>Guarda el dibujo, la vista y la capa elegida</TooltipContent></Tooltip>
-                            <Tooltip><TooltipTrigger asChild>
-                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftStreet([]); setDraftLote([]); setSelected(null); setAsignando(null); getBarrioMap().then(setData); }}
-                                    className="w-8 h-8 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:bg-white/[0.12] transition-colors shrink-0">
-                                    <X size={15} />
-                                </button>
-                            </TooltipTrigger><TooltipContent>Salir sin guardar</TooltipContent></Tooltip>
-                        </>
-                    )}
+                                    <button type="button" className="gnav-item" title="Salir sin guardar"
+                                        onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftStreet([]); setDraftLote([]); setSelected(null); setAsignando(null); getBarrioMap().then(setData); }}>
+                                        <X size={15} />
+                                    </button>
+                                </>
+                            )
+                        }
+                    />
                 </motion.div>
 
                 {/* Contextual editing panel */}
@@ -882,11 +894,11 @@ ${CSS_AUTO}
                     </div>
                 )}
 
-                {/* Legend */}
-                {!editing && <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 420, damping: 34 }} className="absolute top-4 left-3 z-[520] hidden xl:flex rounded-2xl px-3 py-2 items-center gap-2 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
-                    <MapIco size={16} className="text-blue-400" />
-                    <div><p className="text-xs font-bold leading-none">Mapa del barrio</p><p className="text-[10px] text-muted-foreground">{data.cameras.length} cámaras · {data.streets.length} calles · {lotes.length} casas · <span className={guards.length ? "text-emerald-500 font-bold" : ""}>{guards.length} guardias</span></p></div>
-                </motion.div>}
+                {/* El chip "Mapa del barrio" estaba acá. Se retiró: decía el nombre de la
+                    pantalla en la que uno ya está, y el recuento de cámaras, calles y casas
+                    es de la clase de dato que se mira una vez en la vida y después estorba
+                    todos los días, justo en la esquina donde arranca la lectura. Lo que sí
+                    importa de ahí — cuántos guardias hay — se ve en el mapa mismo. */}
 
                 {vista3D && (
                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}

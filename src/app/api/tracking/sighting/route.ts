@@ -15,9 +15,20 @@ const VENTANA_TRAYECTO_MIN = Number(process.env.TRACKING_PASS_WINDOW_MIN || 10);
 // que lo que se desplaza un auto andando, aunque vaya despacio.
 const TOLERANCIA_QUIETO = Number(process.env.TRACKING_PARKED_TOLERANCE || 0.03);
 
-// Si la última vez que se lo vio fue hace más que esto, la estadía se da por terminada y
-// la próxima lectura abre una nueva.
-const CORTE_ESTADIA_MIN = Number(process.env.TRACKING_PARKED_GAP_MIN || 20);
+/**
+ * Cuánto se mira para atrás buscando el antecedente de esta lectura.
+ *
+ * Eran veinte minutos, y eso partía en pedazos al mismo auto. Un vehículo quieto solo se
+ * relee cuando OTRO dispara una ráfaga; de madrugada en Calle 22 eso pasa cada veinte o
+ * veinticinco minutos, así que la lectura siguiente del mismo auto caía fuera de la
+ * ventana, no encontraba antecedente, y abría una estadía nueva. En el historial se veía
+ * al mismo Peugeot como cuatro estacionamientos encadenados.
+ *
+ * La ventana tiene que ser más larga que el intervalo con que se relee un auto quieto, no
+ * más corta. Noventa minutos cubre con holgura una calle tranquila y sigue siendo corto
+ * frente a lo que tarda un auto en irse y volver.
+ */
+const CORTE_ESTADIA_MIN = Number(process.env.TRACKING_PARKED_GAP_MIN || 90);
 
 type Caja = { x: number; y: number; w: number; h: number };
 
@@ -118,7 +129,7 @@ export async function POST(req: NextRequest) {
             timestamp: { gte: desdeEstadia, lte: cuando },
         },
         orderBy: { timestamp: "desc" },
-        take: 60,
+        take: 150,
     });
     const porChapa = recientes.find((f) => mismaChapa(f.plate, patente)) || null;
 

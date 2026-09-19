@@ -26,8 +26,43 @@ import { mismaChapa } from "@/lib/matriculas";
 /** Cuánto tiene que llevar quieto para que sea "estacionó" y no "paró un momento". */
 export const ESTADIA_MIN_MIN = Number(process.env.TRACKING_PARKED_CONFIRM_MIN || 3);
 
-/** Sin verlo por más que esto, la estadía se cierra: el vehículo se fue. */
+/**
+ * Sin verlo por más que esto, la estadía PUEDE cerrarse. No alcanza con el reloj: ver
+ * `miradasSinVerlo`.
+ */
 export const ESTADIA_VENCE_MIN = Number(process.env.TRACKING_PARKED_EXPIRE_MIN || 12);
+
+/**
+ * Cuántas veces tiene que haber mirado la cámara, sin verlo, para darlo por ido.
+ *
+ * Esta es la corrección de un error que se vio en el historial antes que en el código: el
+ * mismo Peugeot, estacionado toda la noche frente a la Calle 22, figuraba como CUATRO
+ * estadías encadenadas — 3 h 18 min, 50 min, 4 min, 38 min — con su "se retiró" y su
+ * "estacionó" entre medio. El auto nunca se movió.
+ *
+ * La causa: un auto quieto solo se relee cuando OTRO vehículo dispara una ráfaga. De
+ * madrugada en esa calle eso pasa cada veinte o veinticinco minutos, y el vencimiento
+ * eran doce. La estadía vencía antes de la siguiente ráfaga, se cerraba, y la ráfaga
+ * siguiente abría una nueva.
+ *
+ * El error de fondo es de razonamiento, no de número: **la ausencia solo es evidencia si
+ * uno estaba mirando.** Que hayan pasado doce minutos no dice nada si en esos doce
+ * minutos la cámara no leyó nada; dice mucho si leyó tres autos y ninguno era este. Subir
+ * el vencimiento a treinta lo hubiera disimulado hasta la próxima calle tranquila.
+ *
+ * Entonces se cierra cuando pasó el tiempo Y la cámara miró al menos esto sin verlo. Una
+ * "mirada" es una lectura de otra matrícula en esa cámara después de la última vez que se
+ * vio a esta: prueba que hubo ráfaga y que el auto ya no estaba.
+ */
+export const MIRADAS_MIN = Number(process.env.TRACKING_PARKED_LOOKS || 2);
+
+/**
+ * Techo: sin verlo por más que esto, se cierra aunque la cámara no haya mirado nunca.
+ *
+ * Sin esto, una cámara que se cae o una calle sin tránsito dejarían estadías abiertas para
+ * siempre, y el panel mostraría estacionado un auto que se fue hace dos días.
+ */
+export const ESTADIA_TECHO_MIN = Number(process.env.TRACKING_PARKED_CEILING_MIN || 720);
 
 export const duracionMin = (desde: Date | null, hasta: Date | null) =>
     desde && hasta ? Math.max(0, (hasta.getTime() - desde.getTime()) / 60000) : 0;
@@ -95,6 +130,30 @@ export async function cerrarEstadia(fila: {
     }).catch(() => { });
 
     return true;
+}
+
+/**
+ * ¿Miró la cámara y no lo vio?
+ *
+ * Recibe las lecturas recientes de esa cámara — ya traídas, para no consultar una vez por
+ * estadía — y cuenta cuántas ráfagas distintas hubo después de la última vez que se vio a
+ * este vehículo. Las lecturas del mismo vehículo no cuentan (esas lo habrían extendido), y
+ * las de una misma ráfaga tampoco se cuentan dos veces: llegan con el mismo instante.
+ */
+export function miradasSinVerlo(
+    fila: { plate: string; estHasta: Date | null },
+    lecturasDeLaCamara: { plate: string; timestamp: Date }[],
+) {
+    const desde = fila.estHasta?.getTime() ?? 0;
+    const instantes = new Set<number>();
+    for (const l of lecturasDeLaCamara) {
+        if (l.timestamp.getTime() <= desde) continue;
+        if (mismaChapa(l.plate, fila.plate)) continue;
+        // Una ráfaga resuelve varias matrículas con el mismo instante, o casi: se redondea
+        // a diez segundos para que cuente como una sola mirada.
+        instantes.add(Math.round(l.timestamp.getTime() / 10000));
+    }
+    return instantes.size;
 }
 
 /**

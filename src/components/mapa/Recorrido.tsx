@@ -8,8 +8,14 @@ import { Route, Search, Play, Pause, X, Clock, Camera, Loader2, ChevronUp, Video
 import { cn } from "@/lib/utils";
 import { polilinea, posicionEnTraza, recorrida as trazaRecorrida, type TramoTraza } from "@/lib/traza";
 import { svgAuto, TAM_AUTO } from "@/lib/auto-svg";
+import { iconoCacheado } from "@/lib/iconos-leaflet";
 
-const vidrio = "bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50";
+/**
+ * El vidrio del panel. Con los tokens del proyecto, no con colores fijos: escrito con
+ * #0a0d12 y blancos quedaba como un rectángulo negro flotando sobre un mapa claro.
+ * El /80 se queda — flota sobre el mapa y tiene que dejar ver algo de lo que tapa.
+ */
+const vidrio = "bg-card/80 backdrop-blur-2xl border border-border shadow-2xl shadow-black/20 dark:shadow-black/50";
 const resorte = { type: "spring" as const, stiffness: 420, damping: 34, mass: 0.7 };
 
 export type Punto = {
@@ -31,12 +37,15 @@ const duracionCorta = (seg: number) => seg < 60 ? `${Math.round(seg)} s` : seg <
 
 /** El autito del flujo. El dibujo vive en `@/lib/auto-svg`, compartido con la vista 3D. */
 function iconoAuto(grados: number) {
-    return L.divIcon({
+    // Redondeado a grados enteros: nadie ve medio grado, y así la memoria tiene 360
+    // entradas en vez de infinitas.
+    const g = Math.round(grados);
+    return iconoCacheado(`auto:${g}`, () => ({
         className: "bg-transparent border-0",
-        html: svgAuto(grados),
+        html: svgAuto(g),
         iconSize: [TAM_AUTO, TAM_AUTO],
         iconAnchor: [TAM_AUTO / 2, TAM_AUTO / 2],
-    });
+    }));
 }
 
 /**
@@ -50,13 +59,13 @@ function iconoParada(n: number, estado: "pasado" | "actual" | "futuro", color: s
     const fondo = estado === "futuro" ? "rgba(10,13,18,.75)" : color;
     const borde = estado === "actual" ? "#fbbf24" : estado === "futuro" ? "rgba(255,255,255,.25)" : "rgba(255,255,255,.65)";
     const texto = estado === "futuro" ? "rgba(255,255,255,.55)" : "#0a0d12";
-    return L.divIcon({
+    return iconoCacheado(`parada:${n}:${estado}:${color}:${esFin}`, () => ({
         className: "bg-transparent border-0",
         html: `<span style="display:flex;align-items:center;justify-content:center;width:${tam}px;height:${tam}px;border-radius:50%;
             background:${fondo};border:2px solid ${borde};color:${texto};font:700 ${estado === "actual" ? 12 : 10}px/1 ui-sans-serif,system-ui;
             box-shadow:0 2px 10px rgba(0,0,0,.55)${estado === "actual" ? ",0 0 0 7px rgba(251,191,36,.18)" : ""}">${esFin ? "◼" : n}</span>`,
         iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2],
-    });
+    }));
 }
 
 /**
@@ -66,13 +75,13 @@ function iconoParada(n: number, estado: "pasado" | "actual" | "futuro", color: s
  */
 function iconoEstacionado(minutos: number) {
     const tam = minutos >= 60 ? 30 : 26;
-    return L.divIcon({
+    return iconoCacheado(`estacionado:${tam}`, () => ({
         className: "bg-transparent border-0",
         html: `<span style="display:flex;align-items:center;justify-content:center;width:${tam}px;height:${tam}px;border-radius:9px;
             background:rgba(100,116,139,.92);border:2px dashed rgba(226,232,240,.75);color:#f1f5f9;
             font:800 ${tam >= 30 ? 13 : 11}px/1 ui-sans-serif,system-ui;box-shadow:0 2px 10px rgba(0,0,0,.55)">P</span>`,
         iconSize: [tam, tam], iconAnchor: [tam / 2, tam / 2],
-    });
+    }));
 }
 
 /** Cuanto estuvo quieto, en segundos. Si falta un extremo, se asume instantaneo. */
@@ -84,12 +93,13 @@ function segundosEstadia(e: Estadia) {
 
 /** Punta de flecha sobre el camino: sin esto no se sabe hacia dónde iba. */
 function iconoFlecha(angulo: number, encendida: boolean) {
-    return L.divIcon({
+    const a = Math.round(angulo);
+    return iconoCacheado(`flecha:${a}:${encendida}`, () => ({
         className: "bg-transparent border-0",
-        html: `<span style="display:block;transform:rotate(${angulo}deg);color:${encendida ? "#fbbf24" : "rgba(56,189,248,.5)"};
+        html: `<span style="display:block;transform:rotate(${a}deg);color:${encendida ? "#fbbf24" : "rgba(56,189,248,.5)"};
             font:700 13px/1 ui-sans-serif,system-ui;text-shadow:0 1px 4px rgba(0,0,0,.8)">➤</span>`,
         iconSize: [13, 13], iconAnchor: [6.5, 6.5],
-    });
+    }));
 }
 
 /** Interpola la posición del vehículo dentro del tramo, no salta de parada en parada. */
@@ -261,15 +271,28 @@ export function CapaRecorrido({ puntos, estacionados = [], traza = [], avance, i
  * Buscador y reproductor del recorrido. Vive abajo al centro, como una tarjeta que sube:
  * así no pisa las columnas de entradas y salidas, que van a los lados.
  */
+/** Una lectura reciente, tal como la ofrece el panel con el campo vacío. */
+export type UltimaPasada = {
+    id: string;
+    plate: string;
+    camara?: string | null;
+    cuando: string | Date;
+    sentido?: "ENTRY" | "EXIT" | "INTERNAL" | null;
+};
+
 export function PanelRecorrido({
     puntos, tramos, estacionados = [], cargando, error, sinUbicacion,
     plate, setPlate, horas, setHoras, buscar, limpiar,
     indice, setIndice, avance, setAvance,
     reproduciendo, setReproduciendo, velocidad, setVelocidad,
     lugares = [], onIrA, onVerCuadro,
+    ultimas = [], onUltima,
 }: {
     puntos: Punto[]; tramos: Tramo[]; estacionados?: Estadia[]; cargando: boolean; error: string | null; sinUbicacion: number;
     plate: string; setPlate: (v: string) => void;
+    /** Lo último que leyeron las cámaras, para ofrecerlo con el campo vacío. */
+    ultimas?: UltimaPasada[];
+    onUltima?: (u: UltimaPasada) => void;
     horas: number; setHoras: (v: number) => void;
     buscar: () => void; limpiar: () => void;
     indice: number; setIndice: (n: number) => void;
@@ -296,20 +319,31 @@ export function PanelRecorrido({
             <motion.div layout transition={resorte}
                 className={cn("rounded-[26px] overflow-hidden pointer-events-auto", vidrio)}>
 
+                {/* ── LAS ÚLTIMAS PASADAS ──────────────────────────────────────────
+                    Un campo de búsqueda vacío no dice qué se puede buscar, y acá el dato
+                    ya está en memoria: son las mismas lecturas que alimentan las columnas
+                    de entradas y salidas. Mostrarlas cuando no se escribió nada convierte
+                    el campo en un punto de partida — un clic y se traza el flujo — en vez
+                    de un hueco que hay que saber llenar. Desaparecen apenas se escribe:
+                    ahí manda lo que el operador quiere, no lo que pasó recién. */}
                 <AnimatePresence initial={false}>
-                    {lugares.length > 0 && (
-                        <motion.div key="lugares" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                            transition={resorte} className="overflow-hidden border-b border-white/[0.07]">
-                            <p className="px-4 pt-2.5 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-white/35">Ir a</p>
-                            <div className="pb-1.5 max-h-40 overflow-y-auto">
-                                {lugares.map((l) => (
-                                    <button key={l.tipo + l.id} onClick={() => onIrA?.(l)}
-                                        className="w-full flex items-center gap-2.5 px-4 py-2 text-left hover:bg-white/[0.08] transition-colors">
-                                        {l.tipo === "camara"
-                                            ? <Video size={13} className="text-blue-400 shrink-0" />
-                                            : <Spline size={13} className="text-sky-400 shrink-0" />}
-                                        <span className="text-[12.5px] text-white/85 truncate">{l.nombre}</span>
-                                        <span className="ml-auto text-[10px] text-white/30 uppercase tracking-wider">{l.tipo}</span>
+                    {plate.trim() === "" && ultimas.length > 0 && (
+                        <motion.div key="ultimas" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                            transition={resorte} className="overflow-hidden border-b border-border">
+                            <p className="px-4 pt-2.5 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Últimas pasadas</p>
+                            <div className="pb-1.5 max-h-44 overflow-y-auto custom-scrollbar">
+                                {ultimas.map((u) => (
+                                    <button key={u.id} onClick={() => { setPlate(u.plate); onUltima?.(u); }}
+                                        className="w-full flex items-center gap-2.5 px-4 py-2 text-left hover:bg-accent transition-colors">
+                                        <span className={cn("w-1.5 h-7 rounded-full shrink-0",
+                                            u.sentido === "EXIT" ? "bg-orange-400" : u.sentido === "ENTRY" ? "bg-emerald-400" : "bg-violet-400")} />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[13px] font-bold tracking-wider tabular-nums text-foreground truncate">{u.plate}</p>
+                                            <p className="text-[9.5px] text-muted-foreground truncate">{u.camara || "—"}</p>
+                                        </div>
+                                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                                            {new Date(u.cuando).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}
+                                        </span>
                                     </button>
                                 ))}
                             </div>
@@ -317,40 +351,65 @@ export function PanelRecorrido({
                     )}
                 </AnimatePresence>
 
-                <motion.div layout className="flex items-center gap-2 p-2">
+                <AnimatePresence initial={false}>
+                    {lugares.length > 0 && (
+                        <motion.div key="lugares" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                            transition={resorte} className="overflow-hidden border-b border-border">
+                            <p className="px-4 pt-2.5 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Ir a</p>
+                            <div className="pb-1.5 max-h-40 overflow-y-auto">
+                                {lugares.map((l) => (
+                                    <button key={l.tipo + l.id} onClick={() => onIrA?.(l)}
+                                        className="w-full flex items-center gap-2.5 px-4 py-2 text-left hover:bg-accent transition-colors">
+                                        {l.tipo === "camara"
+                                            ? <Video size={13} className="text-blue-400 shrink-0" />
+                                            : <Spline size={13} className="text-sky-400 shrink-0" />}
+                                        <span className="text-[12.5px] text-foreground/85 truncate">{l.nombre}</span>
+                                        <span className="ml-auto text-[10px] text-muted-foreground/60 uppercase tracking-wider">{l.tipo}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* El renglón mide LO MISMO que la barra de arriba: ranura de 38 y aire de
+                    6, que son los valores del bloque Icon bar. Dos barras flotando sobre el
+                    mismo mapa con alturas distintas se leen como dos sistemas; con la misma
+                    altura y el mismo radio se leen como uno. */}
+                <motion.div layout className="flex items-center gap-1.5 p-1.5">
                     <div className="relative flex-1">
-                        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/35" />
+                        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/70" />
                         <input
                             value={plate}
                             onChange={(e) => setPlate(e.target.value.toUpperCase())}
                             onKeyDown={(e) => e.key === "Enter" && buscar()}
                             placeholder="Matrícula, cámara o calle…"
-                            className="w-full h-11 pl-10 pr-3 rounded-[18px] bg-white/[0.06] text-[15px] font-semibold tracking-wide text-white placeholder:text-white/30 placeholder:font-normal placeholder:tracking-normal outline-none focus:bg-white/[0.1] transition-colors"
+                            className="w-full h-[38px] pl-10 pr-3 rounded-[19px] bg-muted text-[14px] font-semibold tracking-wide text-foreground placeholder:text-muted-foreground/60 placeholder:font-normal placeholder:tracking-normal outline-none focus:bg-accent transition-colors"
                         />
                     </div>
 
-                    <div className="flex items-center rounded-[18px] bg-white/[0.06] p-0.5">
+                    <div className="flex items-center rounded-[18px] bg-muted p-0.5">
                         {[1, 6, 24, 72].map((h) => (
                             <button key={h} onClick={() => setHoras(h)}
-                                className="relative px-2.5 h-10 text-[11px] font-bold text-white/60 transition-colors hover:text-white">
+                                className="relative px-2.5 h-10 text-[11px] font-bold text-muted-foreground transition-colors hover:text-foreground">
                                 {horas === h && (
                                     <motion.span layoutId="rango-activo" transition={resorte}
-                                        className="absolute inset-0 rounded-[15px] bg-white/[0.14]" />
+                                        className="absolute inset-0 rounded-[15px] bg-foreground/[0.12]" />
                                 )}
-                                <span className={cn("relative", horas === h && "text-white")}>{h < 24 ? `${h}h` : `${h / 24}d`}</span>
+                                <span className={cn("relative", horas === h && "text-foreground")}>{h < 24 ? `${h}h` : `${h / 24}d`}</span>
                             </button>
                         ))}
                     </div>
 
                     <motion.button whileTap={{ scale: 0.94 }} onClick={buscar} disabled={cargando || plate.trim().length < 4}
-                        className="h-11 w-11 rounded-[18px] bg-amber-500 text-black disabled:opacity-30 disabled:bg-white/10 disabled:text-white/40 flex items-center justify-center transition-colors"
+                        className="h-[38px] w-[38px] rounded-[19px] bg-amber-500 text-black disabled:opacity-30 disabled:bg-muted disabled:text-muted-foreground flex items-center justify-center transition-colors"
                         title="Trazar el flujo">
                         {cargando ? <Loader2 size={17} className="animate-spin" /> : <Route size={17} />}
                     </motion.button>
 
                     {puntos.length > 0 && (
                         <motion.button whileTap={{ scale: 0.94 }} onClick={() => setAbierto((o) => !o)}
-                            className="h-11 w-9 rounded-[18px] text-white/50 hover:text-white flex items-center justify-center">
+                            className="h-[38px] w-8 rounded-[19px] text-muted-foreground hover:text-foreground flex items-center justify-center">
                             <motion.span animate={{ rotate: abierto ? 0 : 180 }} transition={resorte}><ChevronUp size={16} /></motion.span>
                         </motion.button>
                     )}
@@ -373,10 +432,10 @@ export function PanelRecorrido({
                                     <div className="flex items-start gap-2 rounded-2xl bg-slate-500/[0.12] border border-slate-400/20 px-3 py-2">
                                         <ParkingCircle size={14} className="text-slate-300 shrink-0 mt-[1px]" />
                                         <div className="min-w-0 text-[11px] leading-relaxed">
-                                            <span className="text-white/80 font-semibold">
+                                            <span className="text-foreground/80 font-semibold">
                                                 {estacionados.length === 1 ? "1 parada quieta" : `${estacionados.length} paradas quietas`}
                                             </span>
-                                            <span className="text-white/45">
+                                            <span className="text-muted-foreground">
                                                 {" "}— el vehículo se quedó en el mismo lugar del cuadro, así que no cuenta como pasada.
                                             </span>
                                             <div className="mt-1 flex flex-wrap gap-1.5">
@@ -384,11 +443,11 @@ export function PanelRecorrido({
                                                     const seg = segundosEstadia(e);
                                                     return (
                                                         <span key={e.id}
-                                                            className="inline-flex items-center gap-1 rounded-full bg-white/[0.07] px-2 py-0.5 text-[10px] text-white/70">
+                                                            className="inline-flex items-center gap-1 rounded-full bg-accent px-2 py-0.5 text-[10px] text-foreground/70">
                                                             <span className="truncate max-w-[110px]">{e.cameraName || "Cámara"}</span>
-                                                            <span className="text-white/30">·</span>
+                                                            <span className="text-muted-foreground/60">·</span>
                                                             <span className="text-slate-200 font-semibold">{seg >= 60 ? duracionCorta(seg) : "< 1 min"}</span>
-                                                            <span className="text-white/25">{hora(e.estDesde || e.timestamp)}</span>
+                                                            <span className="text-muted-foreground/50">{hora(e.estDesde || e.timestamp)}</span>
                                                         </span>
                                                     );
                                                 })}
@@ -398,7 +457,7 @@ export function PanelRecorrido({
                                 )}
 
                                 {puntos.length === 0 && estacionados.length > 0 && !error && (
-                                    <p className="text-[11px] text-white/45 px-1">
+                                    <p className="text-[11px] text-muted-foreground px-1">
                                         Sin flujo en ese período: el vehículo estuvo quieto todo el tiempo.
                                     </p>
                                 )}
@@ -407,13 +466,13 @@ export function PanelRecorrido({
                                     <>
                                         {/* Resumen del recorrido, antes de los controles */}
                                         <div className="flex items-center gap-2 px-1 text-[11px]">
-                                            <span className="font-mono font-bold tracking-widest text-white text-[13px]">{puntos[0].plate}</span>
-                                            <span className="text-white/30">·</span>
-                                            <span className="text-white/60">{puntos.length} detecciones</span>
-                                            <span className="text-white/30">·</span>
-                                            <span className="text-white/60">{duracion < 60 ? `${duracion} min` : `${Math.floor(duracion / 60)} h ${duracion % 60} min`}</span>
+                                            <span className="font-mono font-bold tracking-widest text-foreground text-[13px]">{puntos[0].plate}</span>
+                                            <span className="text-muted-foreground/60">·</span>
+                                            <span className="text-muted-foreground">{puntos.length} detecciones</span>
+                                            <span className="text-muted-foreground/60">·</span>
+                                            <span className="text-muted-foreground">{duracion < 60 ? `${duracion} min` : `${Math.floor(duracion / 60)} h ${duracion % 60} min`}</span>
                                             <button onClick={() => { setReproduciendo(false); limpiar(); }}
-                                                className="ml-auto h-7 w-7 rounded-full bg-white/[0.06] hover:bg-white/[0.14] text-white/50 hover:text-white flex items-center justify-center transition-colors"
+                                                className="ml-auto h-7 w-7 rounded-full bg-muted hover:bg-foreground/[0.12] text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors"
                                                 title="Limpiar el flujo">
                                                 <X size={13} />
                                             </button>
@@ -436,11 +495,11 @@ export function PanelRecorrido({
                                                 {reproduciendo ? <Pause size={15} /> : <Play size={15} className="ml-0.5" />}
                                             </motion.button>
 
-                                            <div className="flex items-center rounded-full bg-white/[0.06] p-0.5">
+                                            <div className="flex items-center rounded-full bg-muted p-0.5">
                                                 {[1, 2, 4].map((v) => (
                                                     <button key={v} onClick={() => setVelocidad(v)}
                                                         className={cn("px-2 h-7 rounded-full text-[10px] font-bold transition-colors",
-                                                            velocidad === v ? "bg-white/[0.16] text-white" : "text-white/45 hover:text-white")}>
+                                                            velocidad === v ? "bg-foreground/[0.14] text-foreground" : "text-muted-foreground hover:text-foreground")}>
                                                         {v}×
                                                     </button>
                                                 ))}
@@ -448,24 +507,24 @@ export function PanelRecorrido({
 
 
 
-                                            <span className="ml-auto text-[10px] text-white/45 tabular-nums">
+                                            <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
                                                 {hora(puntos[0].timestamp)} → {hora(puntos[puntos.length - 1].timestamp)}
                                             </span>
                                         </div>
 
                                         {/* La parada donde está parado el reproductor */}
                                         {actual && (
-                                            <motion.div layout className="flex items-center gap-3 rounded-2xl bg-white/[0.05] px-2.5 py-2">
+                                            <motion.div layout className="flex items-center gap-3 rounded-2xl bg-muted/60 px-2.5 py-2">
                                                 <span className="w-7 h-7 rounded-xl flex items-center justify-center text-[11px] font-bold shrink-0 bg-amber-400 text-black">
                                                     {Math.min(indice, puntos.length - 1) + 1}
                                                 </span>
                                                 <span className="min-w-0 flex-1">
-                                                    <span className="block text-[13px] font-semibold text-white truncate">{actual.cameraName || "Cámara"}</span>
-                                                    <span className="block text-[10px] text-white/45 flex items-center gap-1 flex-wrap">
+                                                    <span className="block text-[13px] font-semibold text-foreground truncate">{actual.cameraName || "Cámara"}</span>
+                                                    <span className="block text-[10px] text-muted-foreground flex items-center gap-1 flex-wrap">
                                                         <Clock size={9} /> {fechaHora(actual.timestamp)}
-                                                        <span className="text-white/25">·</span>
+                                                        <span className="text-muted-foreground/50">·</span>
                                                         {actual.source === "TRACK" ? "cámara interior" : actual.decision === "DENY" ? "acceso denegado" : "acceso"}
-                                                        {actual.confidence != null && <><span className="text-white/25">·</span>{Math.round(actual.confidence * 100)}%</>}
+                                                        {actual.confidence != null && <><span className="text-muted-foreground/50">·</span>{Math.round(actual.confidence * 100)}%</>}
                                                     </span>
                                                     {/* Cómo llegó hasta acá desde la parada anterior */}
                                                     {tramoPrevio && (
@@ -477,11 +536,11 @@ export function PanelRecorrido({
                                                 </span>
                                                 {actual.snapshotUrl && (
                                                     <button onClick={() => onVerCuadro?.(actual)}
-                                                        className="relative h-12 w-20 rounded-xl overflow-hidden border border-white/10 hover:border-amber-400/60 transition-colors shrink-0 group">
+                                                        className="relative h-12 w-20 rounded-xl overflow-hidden border border-border hover:border-amber-400/60 transition-colors shrink-0 group">
                                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                                         <img src={actual.snapshotUrl} alt={actual.plate} className="absolute inset-0 w-full h-full object-cover" />
                                                         <span className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                                            <Camera size={14} className="text-white" />
+                                                            <Camera size={14} className="text-foreground" />
                                                         </span>
                                                     </button>
                                                 )}
@@ -520,7 +579,7 @@ function LineaDeTiempo({ puntos, t0, lapso, avance, indice, onElegir }: {
     return (
         <div className="px-1 pt-1 pb-3">
             <div className="relative h-7">
-                <div className="absolute inset-x-0 top-3 h-[3px] rounded-full bg-white/[0.08]" />
+                <div className="absolute inset-x-0 top-3 h-[3px] rounded-full bg-border" />
                 <motion.div className="absolute left-0 top-3 h-[3px] rounded-full bg-amber-400/80"
                     style={{ width: `${aqui}%` }} transition={{ duration: 0.1 }} />
 
@@ -539,7 +598,7 @@ function LineaDeTiempo({ puntos, t0, lapso, avance, indice, onElegir }: {
                                     : pasado ? `w-2 h-2 mt-[8px] ${color}`
                                         : `w-2 h-2 mt-[8px] ${color} opacity-40 group-hover:opacity-80`)} />
                             <span className={cn("mt-1 text-[8.5px] tabular-nums transition-colors whitespace-nowrap",
-                                esActual ? "text-amber-300 font-bold" : "text-white/30 group-hover:text-white/60")}>
+                                esActual ? "text-amber-300 font-bold" : "text-muted-foreground/60 group-hover:text-foreground/70")}>
                                 {hora(p.timestamp)}
                             </span>
                         </button>
