@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Unit, UnitType, User } from "@prisma/client";
 import {
     Building2, Home, MapPin, LayoutGrid, Pencil, Trash2, Plus, Info, Server,
@@ -23,6 +23,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getUnits, deleteUnit, createUnit, updateUnit, getUnitsWithDetails, bulkCreateSubUnits, getAvailableUsers, assignUserToUnit, unassignUserFromUnit } from "@/app/actions/units";
+import { getLotes } from "@/app/actions/barriomap";
+import { CajonUnidad } from "@/components/units/CajonUnidad";
 import { getUsers } from "@/app/actions/users";
 import { cn } from "@/lib/utils";
 import { TablaUnidades } from "@/components/units/TablaUnidades";
@@ -73,7 +75,15 @@ export default function UnitsPage() {
     const [searchAvailable, setSearchAvailable] = useState("");
     const [showAssignDialog, setShowAssignDialog] = useState(false);
     const [editingUnit, setEditingUnit] = useState<ExtendedUnit | null>(null);
-    const [showEditDialog, setShowEditDialog] = useState(false);
+    const [cajonAbierto, setCajonAbierto] = useState(false);
+    /**
+     * Los contornos dibujados en el mapa.
+     *
+     * Se traen acá y no adentro del cajón porque la lista también los quiere: saber cuáles
+     * ya están tomados es lo que permite decir, sobre un lote, «ya es Torre A» en vez de
+     * dejar al operador descubrirlo al pisarlo.
+     */
+    const [lotes, setLotes] = useState<{ id: string; label: string; unitId?: string | null }[]>([]);
     const [activeEditTab, setActiveEditTab] = useState<'general' | 'contact' | 'location' | 'map' | 'units' | 'residents' | 'vehicles'>('general');
     const [editingSubUnit, setEditingSubUnit] = useState<ExtendedUnit | null>(null);
     const [showBulkDialog, setShowBulkDialog] = useState(false);
@@ -128,74 +138,28 @@ export default function UnitsPage() {
         setAvailableUsers(u);
     };
 
+    const cargarLotes = useCallback(async () => {
+        try { setLotes(await getLotes() as any); } catch { setLotes([]); }
+    }, []);
+    useEffect(() => { cargarLotes(); }, [cargarLotes]);
+
     useEffect(() => {
         loadUnits();
         loadAvailableUsers();
     }, []);
 
     const handleCreateNew = (parentId?: string) => {
-        setEditingUnit(null);
-        setFormData({
-            name: "",
-            type: parentId ? "CASA" : "BARRIO",
-            floors: "",
-            lot: "",
-            houseNumber: "",
-            address: "",
-            adminPhone: "",
-            contactName: "",
-            contactEmail: "",
-            deviceCount: "2",
-            deviceType: "BOTH",
-            coordinates: "-34.6037, -58.3816",
-            parentId: parentId || ""
-        });
-        setStep(1);
-        setMode('wizard');
+        /* Un alta con padre ya elegido (desde «agregar sub-unidad») llega con ese dato
+           puesto; el resto lo decide el formulario, que ya no bifurca por clase. */
+        setEditingUnit(parentId ? ({ parentId } as any) : null);
+        setCajonAbierto(true);
     };
 
     const handleEdit = (unit: ExtendedUnit) => {
         setEditingUnit(unit);
-        setFormData({
-            name: unit.name,
-            type: unit.type,
-            floors: unit.floors?.toString() || "",
-            lot: unit.lot || "",
-            houseNumber: unit.houseNumber || "",
-            address: unit.address || "",
-            adminPhone: unit.adminPhone || "",
-            contactName: unit.contactName || "",
-            contactEmail: unit.contactEmail || "",
-            deviceCount: unit.deviceCount?.toString() || "2",
-            deviceType: unit.deviceType || "BOTH",
-            coordinates: unit.coordinates || "-34.6037, -58.3816",
-            parentId: unit.parentId || ""
-        });
-        setActiveEditTab('general');
-        setShowEditDialog(true);
+        setCajonAbierto(true);
     };
 
-    const handleSave = async () => {
-        const payload = new FormData();
-        Object.entries(formData).forEach(([key, value]) => {
-            payload.append(key, value);
-        });
-
-        try {
-            if (editingUnit) {
-                await updateUnit(editingUnit.id, payload);
-                toast.success({ title: "Propiedad actualizada" });
-            } else {
-                await createUnit(payload);
-                toast.success({ title: "Propiedad creada" });
-            }
-            setShowEditDialog(false);
-            setMode('list');
-            loadUnits();
-        } catch (e) {
-            toast.error({ title: "Error al guardar" });
-        }
-    };
 
     const handleBulkCreate = async () => {
         if (!editingUnit) return;
@@ -256,208 +220,6 @@ export default function UnitsPage() {
         }
         return res;
     }, [selectedUnit]);
-
-    if (mode === 'wizard') {
-        return (
-            <div className="max-w-4xl mx-auto py-10 space-y-8 animate-in zoom-in-95 duration-500 pb-20">
-                <div className="flex items-center justify-between mb-8">
-                    <Button variant="ghost" onClick={() => setMode('list')} className="text-muted-foreground hover:text-foreground">
-                        <ChevronLeft className="mr-2" /> Cancelar
-                    </Button>
-                    <div className="flex items-center gap-2">
-                        {[1, 2, 3, 4].map((s) => (
-                            <div key={s} className={cn("h-1.5 w-12 rounded-full transition-all duration-500", step >= s ? "bg-blue-600" : "bg-muted")} />
-                        ))}
-                    </div>
-                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">PASO {step} DE 4</span>
-                </div>
-
-                {step === 1 && (
-                    <div className="space-y-6">
-                        <div className="text-center space-y-1">
-                            <h2 className="text-2xl font-bold text-foreground uppercase tracking-tight">Tipo de Propiedad</h2>
-                            <p className="text-xs text-muted-foreground">Define la categoría de la unidad.</p>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            {[
-                                { id: "BARRIO", icon: MapPin, label: "Barrio / Lote", desc: "Parcelas y barrios cerrados." },
-                                { id: "EDIFICIO", icon: Building2, label: "Edificio", desc: "Torres y complejos verticales." },
-                                { id: "CASA", icon: Home, label: "Individual", desc: "Viviendas independientes." }
-                            ].map((type) => (
-                                <Card
-                                    key={type.id}
-                                    onClick={() => setFormData({ ...formData, type: type.id as UnitType })}
-                                    className={cn(
-                                        "bg-card/50 border-border cursor-pointer transition-all hover:border-blue-500/30 group relative",
-                                        formData.type === type.id ? "ring-1 ring-blue-500 border-transparent" : ""
-                                    )}
-                                >
-                                    <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
-                                        <div className={cn(
-                                            "p-3 rounded-xl transition-all duration-300",
-                                            formData.type === type.id ? "bg-blue-600 text-foreground shadow-lg" : "bg-muted text-muted-foreground"
-                                        )}>
-                                            <type.icon size={24} />
-                                        </div>
-                                        <div>
-                                            <h3 className="text-xs font-bold text-foreground uppercase tracking-wider">{type.label}</h3>
-                                            <p className="text-[9px] text-muted-foreground mt-1 uppercase tracking-widest">{type.desc}</p>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {step === 2 && (
-                    <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
-                        <div className="text-center space-y-1">
-                            <h2 className="text-2xl font-bold text-foreground uppercase tracking-tight">Detalles del Lugar</h2>
-                            <p className="text-xs text-muted-foreground">Información básica de identificación.</p>
-                        </div>
-                        <div className="bg-card/30 border border-border p-6 rounded-lg space-y-6">
-                            <div className="grid grid-cols-2 gap-6">
-                                <div className="space-y-2 col-span-2">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Nombre Completo</Label>
-                                    <Input
-                                        value={formData.name}
-                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                        placeholder="Ej: Loteo Los Alerces"
-                                        className="bg-card border-border h-10 rounded-lg text-sm font-semibold uppercase"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Identificador Lote</Label>
-                                    <Input
-                                        value={formData.lot}
-                                        onChange={(e) => setFormData({ ...formData, lot: e.target.value })}
-                                        placeholder="Ej: A-45"
-                                        className="bg-card border-border h-10 rounded-lg text-blue-500 font-bold"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Nº Casa / Puerta</Label>
-                                    <Input
-                                        value={formData.houseNumber}
-                                        onChange={(e) => setFormData({ ...formData, houseNumber: e.target.value })}
-                                        placeholder="Ej: 154"
-                                        className="bg-card border-border h-10 rounded-lg"
-                                    />
-                                </div>
-                                {formData.type === 'EDIFICIO' && (
-                                    <div className="space-y-2 col-span-2">
-                                        <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Cantidad de Pisos</Label>
-                                        <Input
-                                            type="number"
-                                            value={formData.floors}
-                                            onChange={(e) => setFormData({ ...formData, floors: e.target.value })}
-                                            className="bg-card border-border h-10 rounded-lg"
-                                        />
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {step === 3 && (
-                    <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
-                        <div className="text-center space-y-1">
-                            <h2 className="text-2xl font-bold text-foreground uppercase tracking-tight">Contacto</h2>
-                            <p className="text-xs text-muted-foreground">Información del propietario o administración.</p>
-                        </div>
-                        <div className="bg-card/30 border border-border p-6 rounded-lg space-y-6">
-                            <div className="grid grid-cols-2 gap-6">
-                                <div className="space-y-2 col-span-2">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Persona de Contacto</Label>
-                                    <Input
-                                        value={formData.contactName}
-                                        onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
-                                        placeholder="Nombre completo"
-                                        className="bg-card border-border h-10 rounded-lg text-sm"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Teléfono / WhatsApp</Label>
-                                    <Input
-                                        value={formData.adminPhone}
-                                        onChange={(e) => setFormData({ ...formData, adminPhone: e.target.value })}
-                                        placeholder="+54 9 ..."
-                                        className="bg-card border-border h-10 rounded-lg text-sm"
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Email</Label>
-                                    <Input
-                                        value={formData.contactEmail}
-                                        onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
-                                        placeholder="email@ejemplo.com"
-                                        className="bg-card border-border h-10 rounded-lg text-sm"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {step === 4 && (
-                    <div className="space-y-6 animate-in slide-in-from-right-4 duration-500">
-                        <div className="text-center space-y-1">
-                            <h2 className="text-2xl font-bold text-foreground uppercase tracking-tight">Localización</h2>
-                            <p className="text-xs text-muted-foreground">Coordenadas y dirección física.</p>
-                        </div>
-                        <div className="bg-card/30 border border-border p-6 rounded-lg space-y-4">
-                            <LocationPicker
-                                coords={formData.coordinates}
-                                onChange={(val) => setFormData({ ...formData, coordinates: val })}
-                            />
-                            <div className="space-y-2">
-                                <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Dirección Escrita</Label>
-                                <Input
-                                    value={formData.address}
-                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                    placeholder="Calle, Ciudad, Provincia"
-                                    className="bg-card border-border h-10 rounded-lg text-sm"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Navigation Bar */}
-                <div className="fixed bottom-0 left-0 right-0 bg-background/50 backdrop-blur-xl border-t border-border p-4 z-50">
-                    <div className="max-w-4xl mx-auto flex justify-between items-center">
-                        <Button
-                            variant="ghost"
-                            disabled={step === 1}
-                            onClick={() => setStep(step - 1)}
-                            className="h-10 px-6 rounded-lg font-bold text-[10px] uppercase tracking-widest text-muted-foreground"
-                        >
-                            <ChevronLeft className="mr-2" size={14} /> Volver
-                        </Button>
-                        <div className="flex gap-3">
-                            {step < 4 ? (
-                                <Button
-                                    onClick={() => setStep(step + 1)}
-                                    className="h-10 px-8 rounded-lg bg-blue-600 hover:bg-blue-500 text-foreground font-bold text-[10px] uppercase tracking-widest"
-                                >
-                                    Siguiente <ChevronRight className="ml-2" size={14} />
-                                </Button>
-                            ) : (
-                                <Button
-                                    onClick={handleSave}
-                                    className="h-10 px-8 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-foreground font-bold text-[10px] uppercase tracking-widest"
-                                >
-                                    Guardar Propiedad <Check className="ml-2" size={14} />
-                                </Button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div className="h-full flex flex-col bg-background animate-in fade-in duration-700 overflow-hidden">
@@ -581,494 +343,25 @@ export default function UnitsPage() {
                 </div>
             </main>
 
-            {/* Edit Dialog - Professional & Clean */}
-            <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-                <DialogContent className="bg-background border border-border text-foreground max-w-6xl p-0 overflow-hidden outline-none rounded-lg shadow-lg">
-                    <DialogHeader className="sr-only">
-                        <DialogTitle>Editar Propiedad</DialogTitle>
-                    </DialogHeader>
-
-                    {/* Clean Professional Header */}
-                    <div className="border-b border-border bg-card/50">
-                        <div className="px-6 py-4 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-lg bg-blue-600/10 border border-blue-500/20 flex items-center justify-center">
-                                    <Building2 className="text-blue-500" size={18} />
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-bold text-foreground uppercase tracking-wide">Configuración de Unidad</h3>
-                                    <p className="text-[10px] text-muted-foreground font-medium">{editingUnit?.name || 'Nueva Unidad'}</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => setShowEditDialog(false)}
-                                className="w-8 h-8 rounded-md bg-foreground/10 hover:bg-red-500/10 border border-border hover:border-red-500/30 flex items-center justify-center transition-colors"
-                            >
-                                <X className="text-muted-foreground hover:text-red-400" size={16} />
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="flex h-[600px]">
-                        {/* Compact Sidebar */}
-                        <div className="w-48 bg-card/30 border-r border-border p-4 flex flex-col gap-1">
-                            {[
-                                { id: 'general', icon: Info, label: 'General' },
-                                { id: 'location', icon: MapPinIcon, label: 'Ubicación' },
-                                ...(editingUnit?.type === 'BARRIO' || editingUnit?.type === 'EDIFICIO' ? [{ id: 'units', icon: LayoutGrid, label: 'Unidades' }] : []),
-                                { id: 'residents', icon: Users, label: 'Residentes' },
-                                { id: 'vehicles', icon: Car, label: 'Vehículos' },
-                            ].map((tab) => (
-                                <button
-                                    key={tab.id}
-                                    onClick={() => setActiveEditTab(tab.id as any)}
-                                    className={cn(
-                                        "flex items-center gap-2.5 px-3 py-2 rounded-md transition-all text-[11px] font-semibold uppercase tracking-wide",
-                                        activeEditTab === tab.id
-                                            ? "bg-blue-600 text-foreground"
-                                            : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                                    )}
-                                >
-                                    <tab.icon size={14} />
-                                    {tab.label}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Content Area */}
-                        <div className={cn(
-                            "flex-1 flex flex-col",
-                            activeEditTab === 'location' ? "" : "bg-muted/40"
-                        )}>
-                            <div className={cn(
-                                "flex-1",
-                                activeEditTab === 'location' ? "relative" : "overflow-y-auto p-6 custom-scrollbar"
-                            )}>
-                                {activeEditTab === 'general' && (
-                                    <div className="space-y-5 animate-in fade-in duration-300">
-                                        <div className="mb-4">
-                                            <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-1">Información General</h4>
-                                            <p className="text-[10px] text-muted-foreground">Datos básicos de identificación</p>
-                                        </div>
-
-                                        <div className="grid grid-cols-3 gap-4">
-                                            <div className="col-span-3 space-y-1.5">
-                                                <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Nombre de la Unidad</Label>
-                                                <div className="relative">
-                                                    <Building className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                                    <Input
-                                                        value={formData.name}
-                                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                                        className="bg-card border-border hover:border-blue-500/30 focus:border-blue-500 h-9 rounded-md text-sm font-medium pl-9 transition-colors"
-                                                        placeholder="Ej: Barrio Los Álamos"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="space-y-1.5">
-                                                <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Lote / Parcela</Label>
-                                                <div className="relative">
-                                                    <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                                    <Input
-                                                        value={formData.lot}
-                                                        onChange={(e) => setFormData({ ...formData, lot: e.target.value })}
-                                                        className="bg-card border-border hover:border-blue-500/30 focus:border-blue-500 h-9 rounded-md text-sm font-semibold pl-9 text-blue-400 transition-colors"
-                                                        placeholder="A-45"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="space-y-1.5">
-                                                <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Nº Casa / Puerta</Label>
-                                                <div className="relative">
-                                                    <Home className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                                    <Input
-                                                        value={formData.houseNumber}
-                                                        onChange={(e) => setFormData({ ...formData, houseNumber: e.target.value })}
-                                                        className="bg-card border-border hover:border-blue-500/30 focus:border-blue-500 h-9 rounded-md text-sm font-medium pl-9 transition-colors"
-                                                        placeholder="154"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {formData.type === 'EDIFICIO' && (
-                                                <div className="space-y-1.5">
-                                                    <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Pisos</Label>
-                                                    <div className="relative">
-                                                        <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                                        <Input
-                                                            type="number"
-                                                            value={formData.floors}
-                                                            onChange={(e) => setFormData({ ...formData, floors: e.target.value })}
-                                                            className="bg-card border-border hover:border-blue-500/30 focus:border-blue-500 h-9 rounded-md text-sm font-medium pl-9 transition-colors"
-                                                            placeholder="10"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <div className="pt-4 border-t border-border">
-                                            <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-3">Contacto</h4>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-1.5">
-                                                    <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Persona de Contacto</Label>
-                                                    <div className="relative">
-                                                        <UserCircle className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                                        <Input
-                                                            value={formData.contactName}
-                                                            onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
-                                                            className="bg-card border-border hover:border-blue-500/30 focus:border-blue-500 h-9 rounded-md text-sm pl-9 transition-colors"
-                                                            placeholder="Nombre completo"
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                <div className="space-y-1.5">
-                                                    <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Teléfono</Label>
-                                                    <div className="relative">
-                                                        <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                                        <Input
-                                                            value={formData.adminPhone}
-                                                            onChange={(e) => setFormData({ ...formData, adminPhone: e.target.value })}
-                                                            className="bg-card border-border hover:border-blue-500/30 focus:border-blue-500 h-9 rounded-md text-sm pl-9 transition-colors"
-                                                            placeholder="+54 9 ..."
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                <div className="col-span-2 space-y-1.5">
-                                                    <Label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Email</Label>
-                                                    <div className="relative">
-                                                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                                        <Input
-                                                            value={formData.contactEmail}
-                                                            onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
-                                                            className="bg-card border-border hover:border-blue-500/30 focus:border-blue-500 h-9 rounded-md text-sm pl-9 transition-colors"
-                                                            placeholder="email@ejemplo.com"
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeEditTab === 'location' && (
-                                    <>
-                                        {/* Input flotante sobre el mapa - SIN bordes redondeados */}
-                                        <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/80 via-black/50 to-transparent p-4 pb-8">
-                                            <div className="relative">
-                                                <MapPinIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" size={16} />
-                                                <Input
-                                                    value={formData.address}
-                                                    onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                                                    placeholder="Dirección completa de la propiedad..."
-                                                    className="bg-muted backdrop-blur-md border-border hover:border-blue-500/50 focus:border-blue-500 h-11 text-sm pl-10 shadow-lg transition-all font-medium"
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Mapa ocupando TODO el espacio - de arriba abajo */}
-                                        <div className="absolute inset-0 w-full h-full">
-                                            <LocationPicker
-                                                coords={formData.coordinates}
-                                                onChange={(val) => setFormData({ ...formData, coordinates: val })}
-                                                fullScreen={true}
-                                            />
-                                        </div>
-                                    </>
-                                )}
-
-                                {activeEditTab === 'residents' && (
-                                    <div className="space-y-4 animate-in fade-in duration-300">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <div>
-                                                <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-1">Residentes Vinculados</h4>
-                                                <p className="text-[10px] text-muted-foreground">Habitantes de esta propiedad</p>
-                                            </div>
-                                            <Badge className="bg-blue-600/20 text-blue-400 border border-blue-500/30 text-[10px] font-bold px-2.5 py-0.5">
-                                                {editingUnit?.users?.length || 0} Personas
-                                            </Badge>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 gap-2">
-                                            {editingUnit?.users?.map(user => (
-                                                <div key={user.id} className="bg-card/40 hover:bg-card/60 p-3 rounded-md flex items-center justify-between border border-border hover:border-blue-500/30 transition-colors group">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-9 h-9 rounded-md bg-foreground/10 flex items-center justify-center relative overflow-hidden border border-border">
-                                                            {user.cara ? <Image src={user.cara} alt="" fill className="object-cover" /> : <UserCircle size={18} className="text-muted-foreground" />}
-                                                        </div>
-                                                        <div className="flex flex-col">
-                                                            <div className="flex items-center gap-2">
-                                                                <p className="font-semibold text-foreground text-xs">{user.name}</p>
-                                                                <div className="flex items-center gap-1">
-                                                                    {(user as any).credentials?.some((c: any) => c.type === 'FACE') && <ScanFace size={10} className="text-emerald-500" />}
-                                                                    {(user as any).credentials?.some((c: any) => c.type === 'PLATE') && <Car size={10} className="text-blue-500" />}
-                                                                    {(user as any).credentials?.some((c: any) => c.type === 'TAG') && <IdCard size={10} className="text-amber-500" />}
-                                                                    {(user as any).credentials?.some((c: any) => c.type === 'PIN') && <Hash size={10} className="text-purple-500" />}
-                                                                </div>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 mt-0.5">
-                                                                <span className="text-[9px] text-muted-foreground uppercase font-medium">{user.role}</span>
-                                                                {user.vehicles?.length > 0 && (
-                                                                    <div className="flex items-center gap-1 border-l border-border pl-2">
-                                                                        {user.vehicles.map((v: any, vidx: number) => (
-                                                                            <span key={vidx} className="text-[9px] font-mono font-semibold text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded">{v.plate}</span>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-1">
-                                                        <Button
-                                                            onClick={() => window.open(`/admin/users?q=${encodeURIComponent(user.name)}`, '_blank')}
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7 text-muted-foreground hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-colors"
-                                                            title="Ver Perfil"
-                                                        >
-                                                            <ExternalLink size={13} />
-                                                        </Button>
-                                                        <Button
-                                                            onClick={async () => {
-                                                                await unassignUserFromUnit(user.id);
-                                                                toast.success({ title: `${user.name} desvinculado` });
-                                                                loadUnits();
-                                                                loadAvailableUsers();
-                                                            }}
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
-                                                        >
-                                                            <X size={13} />
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            ))}
-
-                                            <button
-                                                onClick={() => setShowAssignDialog(true)}
-                                                className="w-full mt-2 h-10 bg-foreground/10 hover:bg-blue-500/10 border border-dashed border-border hover:border-blue-500/30 rounded-md font-semibold text-[10px] uppercase tracking-wide text-blue-400 hover:text-blue-300 transition-colors flex items-center justify-center gap-2"
-                                            >
-                                                <Plus size={14} />
-                                                Vincular Nuevo Residente
-                                            </button>
-
-                                            {(editingUnit?.users?.length || 0) === 0 && (
-                                                <div className="py-12 text-center bg-muted/40 rounded-md border border-dashed border-border">
-                                                    <Users size={32} className="mx-auto text-muted-foreground mb-3" />
-                                                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Sin habitantes registrados</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Inner Assign Dialog */}
-                                <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
-                                    <DialogContent className="bg-card border-border text-foreground max-w-md p-6 rounded-lg shadow-lg">
-                                        <DialogHeader>
-                                            <DialogTitle className="text-lg font-bold uppercase tracking-tighter">Vincular Residente</DialogTitle>
-                                            <DialogDescription className="text-xs text-muted-foreground">Selecciona un usuario de la lista global para asignarlo a {editingUnit?.name}.</DialogDescription>
-                                        </DialogHeader>
-                                        <div className="space-y-4 py-4">
-                                            <div className="relative">
-                                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={12} />
-                                                <Input
-                                                    placeholder="Buscar usuario..."
-                                                    className="bg-card border-border pl-9 h-10 text-xs"
-                                                    value={searchAvailable}
-                                                    onChange={(e) => setSearchAvailable(e.target.value)}
-                                                />
-                                            </div>
-                                            <div className="max-h-[300px] overflow-y-auto custom-scrollbar space-y-1 pr-2">
-                                                {availableUsers.filter(u => u.name.toLowerCase().includes(searchAvailable.toLowerCase())).map(user => (
-                                                    <button
-                                                        key={user.id}
-                                                        onClick={async () => {
-                                                            if (editingUnit) {
-                                                                await assignUserToUnit(user.id, editingUnit.id);
-                                                                toast.success({ title: `${user.name} vinculado correctamente` });
-                                                                setShowAssignDialog(false);
-                                                                loadUnits();
-                                                                loadAvailableUsers();
-                                                            }
-                                                        }}
-                                                        className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-blue-600/10 border border-transparent hover:border-blue-500/30 transition-all group"
-                                                    >
-                                                        <div className="flex items-center gap-3 text-left">
-                                                            <div className="w-8 h-8 rounded-lg bg-foreground/10 flex items-center justify-center">
-                                                                <UserCircle size={16} className="text-muted-foreground group-hover:text-blue-400" />
-                                                            </div>
-                                                            <div>
-                                                                <p className="text-xs font-bold text-foreground uppercase">{user.name}</p>
-                                                                <p className="text-[9px] text-muted-foreground uppercase font-bold">{user.email}</p>
-                                                            </div>
-                                                        </div>
-                                                        <ChevronRight size={14} className="text-muted-foreground group-hover:text-blue-500" />
-                                                    </button>
-                                                ))}
-                                                {availableUsers.length === 0 && (
-                                                    <p className="text-center py-8 text-[10px] text-muted-foreground font-bold uppercase tracking-widest">No hay usuarios disponibles</p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </DialogContent>
-                                </Dialog>
-                                {activeEditTab === 'units' && (
-                                    <div className="space-y-6 animate-in fade-in duration-300">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <div className="flex items-center gap-2">
-                                                <LayoutGrid className="text-blue-500" size={16} />
-                                                <h4 className="text-[10px] font-bold text-foreground uppercase tracking-widest">Unidades del Complejo</h4>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <Button
-                                                    onClick={() => setShowBulkDialog(true)}
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-8 bg-card border-border rounded-lg font-bold text-[8px] uppercase tracking-widest text-emerald-500 hover:bg-emerald-500/5 hover:border-emerald-500/30"
-                                                >
-                                                    <Layers className="mr-2" size={12} /> Generación Masiva
-                                                </Button>
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        if (!editingUnit) return;
-                                                        const pId = editingUnit.id;
-                                                        setShowEditDialog(false);
-                                                        handleCreateNew(pId);
-                                                    }}
-                                                    className="h-8 bg-blue-600 border-none rounded-lg font-bold text-[8px] uppercase tracking-widest text-foreground hover:bg-blue-500"
-                                                >
-                                                    <Plus className="mr-2" size={12} /> Nueva
-                                                </Button>
-                                            </div>
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-3 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
-                                            {editingUnit?.children?.map((child) => (
-                                                <div key={child.id} className="bg-card/60 p-4 rounded-lg flex items-center justify-between border border-border hover:border-blue-500/30 transition-all group">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-8 h-8 rounded-lg bg-foreground/10 flex items-center justify-center text-muted-foreground group-hover:text-blue-400 group-hover:bg-blue-600/10 transition-all">
-                                                            <Home size={14} />
-                                                        </div>
-                                                        <div>
-                                                            <p className="font-bold text-foreground uppercase text-xs tracking-tight">{child.name}</p>
-                                                            <div className="flex items-center gap-2">
-                                                                <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest leading-none">
-                                                                    {child.lot ? `Lote ${child.lot}` : ""} {child.houseNumber ? `N° ${child.houseNumber}` : ""}
-                                                                </p>
-                                                                {child.users?.some(u => u.vehicles?.length > 0) && (
-                                                                    <div className="flex items-center gap-1.5 border-l border-border pl-2">
-                                                                        <Car size={10} className="text-blue-500" />
-                                                                        <div className="flex gap-1">
-                                                                            {child.users.flatMap(u => u.vehicles || []).slice(0, 2).map((v, idx) => (
-                                                                                <span key={idx} className="text-[7px] font-mono font-bold text-blue-400 bg-blue-500/10 px-1 rounded">{v.plate}</span>
-                                                                            ))}
-                                                                            {child.users.flatMap(u => u.vehicles || []).length > 2 && <span className="text-[7px] text-muted-foreground font-bold">...</span>}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-1">
-                                                        <div className="flex -space-x-1.5 mr-2">
-                                                            {child.users?.slice(0, 3).map((u, i) => (
-                                                                <div key={i} className="w-5 h-5 rounded-full border border-black bg-muted flex items-center justify-center overflow-hidden ring-1 ring-border" title={u.name}>
-                                                                    {u.cara ? <Image src={u.cara} alt="" width={20} height={20} className="object-cover" /> : <UserCircle size={10} className="text-muted-foreground" />}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        <Badge className={cn("text-[7px] border-none font-bold h-4 px-1.5 uppercase", child.users.length > 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-muted text-muted-foreground")}>
-                                                            {child.users.length > 0 ? 'Ocupada' : 'Libre'}
-                                                        </Badge>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-md"
-                                                            onClick={() => {
-                                                                setEditingUnit(child);
-                                                                setActiveEditTab('general');
-                                                            }}
-                                                        >
-                                                            <Pencil size={12} />
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                            {(editingUnit?.children?.length || 0) === 0 && (
-                                                <div className="col-span-2 py-12 text-center bg-muted/40 rounded-lg border border-dashed border-border opacity-50">
-                                                    <LayoutGrid size={32} className="mx-auto text-muted-foreground mb-3" />
-                                                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">No hay sub-unidades definidas</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {activeEditTab === 'vehicles' && (
-                                    <div className="space-y-4 animate-in fade-in duration-300">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <div>
-                                                <h4 className="text-xs font-bold text-foreground uppercase tracking-wider mb-1">Vehículos Registrados</h4>
-                                                <p className="text-[10px] text-muted-foreground">Matrículas con acceso LPR</p>
-                                            </div>
-                                            <Badge className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold px-2.5 py-0.5 flex items-center gap-1.5">
-                                                <Activity size={10} />
-                                                LPR Activo
-                                            </Badge>
-                                        </div>
-
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                            {editingUnit?.users?.flatMap(u => (u as any).credentials?.filter((c: any) => c.type === 'PLATE').map((c: any) => ({ ...c, userName: u.name }))).map((plate, idx) => (
-                                                <div key={idx} className="bg-card hover:bg-muted p-3 rounded-md border border-border hover:border-emerald-500/30 flex items-center gap-3 transition-colors">
-                                                    <div className="w-10 h-10 rounded-md bg-emerald-500/10 flex items-center justify-center text-emerald-400 border border-emerald-500/20">
-                                                        <Car size={18} />
-                                                    </div>
-                                                    <div className="flex-1">
-                                                        <p className="text-base font-bold text-foreground tracking-wider uppercase font-mono">{plate.value}</p>
-                                                        <p className="text-[9px] font-medium text-muted-foreground uppercase">{plate.userName}</p>
-                                                    </div>
-                                                </div>
-                                            ))}
-
-                                            {(editingUnit?.users?.reduce((acc, u) => acc + (u as any).credentials?.filter((c: any) => c.type === 'PLATE').length || 0, 0) || 0) === 0 && (
-                                                <div className="col-span-2 py-12 text-center bg-muted/40 rounded-md border border-dashed border-border">
-                                                    <Car size={32} className="mx-auto text-muted-foreground mb-3" />
-                                                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Sin matrículas registradas</p>
-                                                    <p className="text-[9px] text-muted-foreground mt-1">Los vehículos se vinculan desde el perfil del usuario</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Clean Footer */}
-                            <div className="p-4 bg-card/50 border-t border-border flex justify-end items-center gap-3">
-                                <button
-                                    onClick={() => setShowEditDialog(false)}
-                                    className="h-9 px-5 rounded-md bg-foreground/10 hover:bg-accent border border-border text-muted-foreground hover:text-foreground font-semibold text-[10px] uppercase tracking-wide transition-colors"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    onClick={handleSave}
-                                    className="h-9 px-6 rounded-md bg-blue-600 hover:bg-blue-500 text-foreground font-semibold text-[10px] uppercase tracking-wide transition-colors flex items-center gap-1.5"
-                                >
-                                    <Check size={13} />
-                                    Guardar
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
+            {/*
+              * La edición vive en un cajón, no en un diálogo.
+              *
+              * Acá había un diálogo centrado de 6xl con pestañas adentro: tan grande que
+              * tapaba la lista, pero sin llegar a ser una pantalla. Lo peor de los dos
+              * mundos — perdía el contexto como una pantalla y no daba el lugar de una.
+              * Y el alta era otro camino distinto: un asistente por pasos que obligaba a
+              * elegir la clase (barrio, edificio, casa) ANTES de tener los datos.
+              *
+              * Ahora es lo mismo dar de alta y editar, porque es lo mismo: una propiedad.
+              */}
+            <CajonUnidad
+                abierto={cajonAbierto}
+                alCerrar={() => { setCajonAbierto(false); setEditingUnit(null); }}
+                unidad={editingUnit}
+                unidades={units}
+                lotes={lotes}
+                alGuardar={() => { loadUnits(); cargarLotes(); }}
+            />
 
             {/* Bulk Creation Dialog */}
             <Dialog open={showBulkDialog} onOpenChange={setShowBulkDialog}>

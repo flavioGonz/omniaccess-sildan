@@ -116,3 +116,48 @@ export async function saveBarrioMap(data: BarrioMapData): Promise<{
         return { ok: false, error: String(e?.message || e) };
     }
 }
+
+/**
+ * Atar (o soltar) un lote dibujado a una unidad del padrón.
+ *
+ * Existe para que la pantalla de unidades no tenga que traerse el mapa entero, cambiarle un
+ * campo y volver a mandarlo: eso son dos viajes con todo el dibujo adentro, y entre el
+ * primero y el segundo cualquiera pudo haber movido una cámara — que se perdería en el
+ * camino sin que nadie se entere. Acá se lee y se escribe en el mismo lugar, y lo único que
+ * cambia es la atadura.
+ *
+ * Un lote pertenece a UNA unidad: asignarlo a otra lo suelta de la anterior. Si no fuera
+ * así, dos unidades podrían decir que son la misma casa, y el mapa tendría que elegir cuál
+ * dibujar.
+ */
+export async function asignarLoteAUnidad(loteId: string | null, unitId: string) {
+    try {
+        const row = await prisma.setting.findUnique({ where: { key: "BARRIO_MAP" } });
+        if (!row?.value) return { ok: false, error: "Todavía no hay un mapa guardado." };
+        const d = JSON.parse(row.value);
+        const lots = Array.isArray(d.lots) ? d.lots : [];
+
+        const nuevos = lots.map((l: any) => {
+            if (l.unitId === unitId) return { ...l, unitId: null };   // soltar el anterior
+            return l;
+        }).map((l: any) => (loteId && l.id === loteId ? { ...l, unitId } : l));
+
+        await prisma.setting.update({
+            where: { key: "BARRIO_MAP" },
+            data: { value: JSON.stringify({ ...d, lots: nuevos }) },
+        });
+        revalidatePath("/admin/mapa");
+        revalidatePath("/admin/units");
+        revalidatePath("/admin/consolas");
+        return { ok: true };
+    } catch (e: any) {
+        console.error("[asignarLoteAUnidad] fallo:", e);
+        return { ok: false, error: String(e?.message || e) };
+    }
+}
+
+/** Los lotes dibujados, para pantallas que sólo necesitan la lista. */
+export async function getLotes(): Promise<{ id: string; label: string; unitId?: string | null; parkingSlotId?: string | null; points: [number, number][] }[]> {
+    const d = await getBarrioMap();
+    return (d.lots || []) as any;
+}
