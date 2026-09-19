@@ -69,11 +69,20 @@ export type UnidadDelCajon = {
     [k: string]: any;
 };
 
-export function CajonUnidad({ abierto, alCerrar, unidad, unidades, lotes, alGuardar }: {
+export function CajonUnidad({ abierto, alCerrar, unidad, unidades, lotes, lotePorDefecto, alGuardar }: {
     abierto: boolean;
     alCerrar: () => void;
     /** La unidad a editar. Sin `id` es un alta. */
     unidad: UnidadDelCajon | null;
+    /**
+     * Con qué lote arranca un alta.
+     *
+     * Existe por el camino que empieza en el plano: se hace clic derecho sobre un contorno
+     * sin dueño y se pide crearle la unidad. El lote ya está elegido — es ese, el que se
+     * tocó — y volver a pedirlo en el mapa de adentro sería preguntar lo que se acaba de
+     * responder. En una edición no se usa: ahí el lote sale de quién lo tiene asignado.
+     */
+    lotePorDefecto?: string | null;
     /** El padrón, para elegir de qué depende y para nombrar lotes ya tomados. */
     unidades: UnidadDelCajon[];
     /** Los lotes dibujados en el mapa. */
@@ -108,9 +117,9 @@ export function CajonUnidad({ abierto, alCerrar, unidad, unidades, lotes, alGuar
         setTelefono(unidad?.adminPhone || "");
         setPadre(unidad?.parentId || "");
         setNotas(unidad?.description || "");
-        setLoteMapa(unidad?.id ? (lotes.find((l) => l.unitId === unidad.id)?.id || null) : null);
+        setLoteMapa(unidad?.id ? (lotes.find((l) => l.unitId === unidad.id)?.id || null) : (lotePorDefecto || null));
         setGuardando(false);
-    }, [abierto, unidad, lotes]);
+    }, [abierto, unidad, lotes, lotePorDefecto]);
 
     const nombreDeUnidad = useCallback(
         (id: string) => unidades.find((u) => u.id === id)?.name || undefined, [unidades]);

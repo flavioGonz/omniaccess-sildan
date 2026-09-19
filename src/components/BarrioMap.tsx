@@ -5,6 +5,10 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 const Mapa3D = dynamic(() => import("@/components/mapa/Mapa3D"), { ssr: false });
+/* El cajon de la unidad trae su propio plano adentro. Entra recien cuando se abre: cargarlo
+   con la pagina seria pagar dos veces Leaflet para mirar un mapa. */
+const CajonUnidad = dynamic(
+    () => import("@/components/units/CajonUnidad").then((m) => m.CajonUnidad), { ssr: false });
 import { motion } from "framer-motion";
 import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar, type Punto } from "@/components/mapa/Recorrido";
 import { VisorCuadro } from "@/components/VisorCuadro";
@@ -181,6 +185,17 @@ export default function BarrioMap() {
     const [draftStreet, setDraftStreet] = useState<LL[]>([]);
     const [draftLote, setDraftLote] = useState<LL[]>([]);
     const [asignando, setAsignando] = useState<{ id: string; que: "unidad" | "plaza" } | null>(null);
+    /**
+     * La ficha de la unidad, abierta sobre el plano.
+     *
+     * Antes "Ver la unidad" era un `router.push` a /admin/units con un texto de busqueda:
+     * se salia del mapa, se buscaba de nuevo lo que ya se habia senalado con el dedo, y
+     * para volver al lugar del plano habia que volver a encontrarlo. La pregunta "de quien
+     * es esta casa" se contesta donde se hizo, encima del contorno que la origino.
+     *
+     * `unidad` en null con un lote puesto es un alta: el contorno todavia no tiene dueno.
+     */
+    const [cajonUnidad, setCajonUnidad] = useState<{ unidad: any | null; lote: string | null } | null>(null);
     const [unidades, setUnidades] = useState<any[]>([]);
     const [plazas, setPlazas] = useState<any[]>([]);
     /**
@@ -592,7 +607,7 @@ export default function BarrioMap() {
     const capas: { k: keyof typeof verCapa; label: string; icon: any }[] = [
         { k: "camaras", label: "Cámaras", icon: Video },
         { k: "calles", label: "Calles", icon: RouteIco },
-        { k: "lotes", label: "Casas", icon: Pentagon },
+        { k: "lotes", label: "Lotes", icon: Pentagon },
         { k: "perimetro", label: "Perímetro", icon: Hexagon },
         { k: "guardias", label: "Guardias", icon: ShieldCheck },
         { k: "rotulos", label: "Nombres", icon: Type },
@@ -1233,6 +1248,26 @@ ${CSS_AUTO}
                     })()}
                 </AnimatePresence>
 
+                {/* La ficha de la unidad, sobre el plano. */}
+                {cajonUnidad && (
+                    <CajonUnidad
+                        abierto
+                        alCerrar={() => setCajonUnidad(null)}
+                        unidad={cajonUnidad.unidad}
+                        unidades={unidades}
+                        lotes={lotes}
+                        lotePorDefecto={cajonUnidad.lote}
+                        alGuardar={() => {
+                            getUnits().then((u: any) => setUnidades(u || [])).catch(() => { });
+                            /* El lote vive en el mapa, asi que guardarlo lo reescribio del
+                               lado del servidor y hay que releerlo. Salvo que haya dibujo
+                               sin guardar: ahi releer pisaria lo que el operador tiene a
+                               medias, y eso es justo lo que rompia antes. */
+                            if (!sinGuardar) getBarrioMap().then(setData).catch(() => { });
+                        }}
+                    />
+                )}
+
                 {/* Context menu */}
                 {ctx && (
                     <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[160px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
@@ -1258,10 +1293,15 @@ ${CSS_AUTO}
                                     className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
                                     <Pentagon size={13} /> Seleccionar
                                 </button>
-                                {uni && (
-                                    <button onClick={() => { router.push(`/admin/units?buscar=${encodeURIComponent(uni.name)}`); }}
+                                {uni ? (
+                                    <button onClick={() => { setCajonUnidad({ unidad: uni, lote: ctx.id }); setCtx(null); }}
                                         className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
                                         <Home size={13} /> Ver la unidad {uni.name}
+                                    </button>
+                                ) : (
+                                    <button onClick={() => { setCajonUnidad({ unidad: null, lote: ctx.id }); setCtx(null); }}
+                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                        <Home size={13} /> Crearle la unidad
                                     </button>
                                 )}
                                 {chapasDelLote(lo).length > 0 && (
