@@ -7,45 +7,40 @@ export default async function RFIDPage() {
     const tags = await getTags();
     const users = await getUsers();
 
-    const assignedTags = tags.filter(t => t.userId && t.userId !== "");
-    const unassignedTags = tags.filter(t => !t.userId || t.userId === "");
+    const asignados = tags.filter((t) => t.userId).length;
 
     return (
-        <div className="p-6 space-y-6 animate-in fade-in duration-500">
-            {/* Header */}
-            <div className="flex items-center justify-between bg-card p-6 rounded-xl">
+        <div className="h-full flex flex-col bg-background overflow-hidden animate-in fade-in duration-500">
+            <header className="px-8 py-6 border-b border-border bg-card/40 backdrop-blur-md flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-4">
-                    <div className="p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
-                        <CreditCard size={24} className="text-emerald-400" />
-                    </div>
+                    <span className="w-11 h-11 rounded-lg bg-muted border border-border flex items-center justify-center text-muted-foreground">
+                        <CreditCard size={20} />
+                    </span>
                     <div>
-                        <h1 className="text-2xl font-bold text-foreground tracking-tight uppercase">
-                            Tags RFID
-                        </h1>
-                        <p className="text-sm text-muted-foreground font-medium mt-1">
-                            Gestión de tarjetas y credenciales de acceso
+                        <h1 className="text-2xl font-bold text-foreground">Tags RFID</h1>
+                        <p className="text-sm text-muted-foreground mt-1">
+                            Las tarjetas del barrio y de quién es cada una
                         </p>
                     </div>
                 </div>
 
-                {/* Stats */}
-                <div className="flex gap-6">
-                    <div className="text-right">
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Total</p>
-                        <p className="text-2xl font-bold text-foreground">{tags.length}</p>
-                    </div>
+                <div className="flex items-center gap-8">
                     <div className="text-right">
                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Asignados</p>
-                        <p className="text-2xl font-bold text-emerald-400">{assignedTags.length}</p>
+                        <p className="text-2xl font-bold text-foreground tabular-nums">{asignados}</p>
                     </div>
                     <div className="text-right">
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Disponibles</p>
-                        <p className="text-2xl font-bold text-blue-400">{unassignedTags.length}</p>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">En el cajón</p>
+                        <p className="text-2xl font-bold text-muted-foreground tabular-nums">{tags.length - asignados}</p>
                     </div>
                 </div>
-            </div>
+            </header>
 
-            <TagList initialTags={tags as any} users={users as any} />
+            <main className="flex-1 overflow-hidden p-8 flex flex-col">
+                <div className="bg-card/40 border border-border rounded-lg flex-1 flex flex-col overflow-hidden shadow-lg">
+                    <TagList initialTags={tags as any} users={users as any} />
+                </div>
+            </main>
         </div>
     );
 }

@@ -10,6 +10,7 @@ import {
     DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { AlertTriangle, Trash2 } from "lucide-react";
 
 /**
@@ -43,13 +44,24 @@ interface DeleteConfirmDialogProps {
     description?: string;
     onDelete: (id: string) => Promise<Resultado>;
     onSuccess: () => void;
+    /**
+     * Si viene, hay que ESCRIBIR esta palabra para que el botón se habilite.
+     *
+     * Es para lo que no tiene vuelta atrás y afecta a muchos registros a la vez — purgar
+     * una tabla entera, por ejemplo. Un botón de confirmar se aprieta por reflejo; nadie
+     * escribe una palabra por reflejo. No es burocracia: es el único freno que obliga a
+     * leer qué se está por hacer.
+     */
+    escribir?: string;
+    /** Qué dice el botón. Por defecto "Eliminar". */
+    etiquetaAccion?: string;
     children?: React.ReactNode;
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
 }
 
 export function DeleteConfirmDialog({
-    id, title, description, onDelete, onSuccess, children,
+    id, title, description, onDelete, onSuccess, children, escribir, etiquetaAccion,
     open: abiertoControlado, onOpenChange,
 }: DeleteConfirmDialogProps) {
     const [abiertoPropio, setAbiertoPropio] = useState(false);
@@ -58,6 +70,8 @@ export function DeleteConfirmDialog({
 
     const [borrando, setBorrando] = useState(false);
     const [fallo, setFallo] = useState<string | null>(null);
+    const [escrito, setEscrito] = useState("");
+    const habilitado = !escribir || escrito.trim().toUpperCase() === escribir.toUpperCase();
 
     const borrar = async () => {
         setBorrando(true);
@@ -78,7 +92,7 @@ export function DeleteConfirmDialog({
     };
 
     return (
-        <Dialog open={abierto} onOpenChange={(o) => { if (!o) setFallo(null); setAbierto(o); }}>
+        <Dialog open={abierto} onOpenChange={(o) => { if (!o) { setFallo(null); setEscrito(""); } setAbierto(o); }}>
             <DialogTrigger asChild>{children}</DialogTrigger>
             <DialogContent className="max-w-[420px] p-0 gap-0 overflow-hidden">
                 <div className="flex flex-col items-center text-center px-8 pt-9 pb-6 space-y-5">
@@ -102,6 +116,16 @@ export function DeleteConfirmDialog({
                         </div>
                     )}
 
+                    {escribir && (
+                        <div className="w-full text-left space-y-1.5">
+                            <p className="text-[12px] text-muted-foreground">
+                                Escribí <span className="font-bold text-foreground">{escribir}</span> para confirmar.
+                            </p>
+                            <Input value={escrito} onChange={(e) => setEscrito(e.target.value)}
+                                autoComplete="off" spellCheck={false} className="h-10" />
+                        </div>
+                    )}
+
                     {fallo && (
                         <div className="w-full rounded-xl border bg-[var(--mal-suave)] border-[color-mix(in_oklab,var(--mal)_34%,transparent)] p-3.5 text-left">
                             <p className="text-[12px] font-semibold text-[var(--mal-texto)]">No se eliminó</p>
@@ -113,10 +137,10 @@ export function DeleteConfirmDialog({
                 <div className="px-6 pb-6 flex flex-col gap-2">
                     <Button
                         onClick={borrar}
-                        disabled={borrando}
-                        className="pleno-mal h-11 w-full rounded-lg hover:brightness-110 font-semibold text-[13px] transition-all"
+                        disabled={borrando || !habilitado}
+                        className="pleno-mal h-11 w-full rounded-lg hover:brightness-110 font-semibold text-[13px] transition-all disabled:opacity-40"
                     >
-                        {borrando ? "Eliminando…" : fallo ? "Reintentar" : "Eliminar"}
+                        {borrando ? "Eliminando…" : fallo ? "Reintentar" : (etiquetaAccion || "Eliminar")}
                     </Button>
                     <Button
                         onClick={() => setAbierto(false)}
