@@ -5,10 +5,12 @@ import axios from "axios";
 import { motion, AnimatePresence } from "framer-motion";
 import { sileo as toast } from "sileo";
 import {
-    X, Loader2, Play, Pause, Save, RotateCcw, SquareDashed, Crosshair,
+    X, Loader2, Play, Pause, Save, RotateCcw, SquareDashed, Crosshair, ParkingSquare,
     CheckCircle2, XCircle, Gauge, Timer, ScanLine, Minus, ArrowLeftRight, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Franja } from "@/components/tracking/Franja";
 
 import { LineaDePasada, ZONA_COMPLETA, type Linea, type Zona } from "@/components/tracking/Calibracion";
 
@@ -33,6 +35,10 @@ const AYUDA: Record<string, { titulo: string; detalle: string }> = {
     cuadro: {
         titulo: "Un cuadro",
         detalle: "Saca una sola foto del momento y la lee. La prueba rápida: sirve para confirmar que la cámara responde y que el recorte quedó donde querías.",
+    },
+    franja: {
+        titulo: "Dónde estacionan",
+        detalle: "Una franja dibujada sobre la calle, dividida en tantos lugares como autos entren. Mide si cada lugar está ocupado en vez de deducirlo de las lecturas de matrícula — que es lo que marcaba autos donde no había ninguno: una lectura dice que una chapa cruzó el cuadro, no que el vehículo esté quieto.",
     },
     zona: {
         titulo: "Zona de interés",
@@ -77,6 +83,7 @@ const AYUDA: Record<string, { titulo: string; detalle: string }> = {
 };
 
 export function InteriorCalibrator({ device, onClose }: { device: any; onClose: () => void }) {
+    const [franjaAbierta, setFranjaAbierta] = useState(false);
     const [cargando, setCargando] = useState(true);
     const [guardando, setGuardando] = useState(false);
     const [tomando, setTomando] = useState(false);
@@ -409,6 +416,22 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                             <Minus size={14} /> Línea
                             <span className="text-[10px] font-medium opacity-60">{linea ? "puesta" : "sin marcar"}</span>
                         </button>
+                        {/*
+                          * La franja va acá, junto a la zona y a la línea, porque son la misma
+                          * clase de cosa —geometría dibujada sobre el cuadro de esta cámara— y
+                          * porque este es el lugar donde alguien tiene la imagen en vivo delante.
+                          *
+                          * Abre en diálogo y no acá adentro: el dibujo de la franja necesita su
+                          * propio cuadro quieto y una referencia de vacío aprendida a mano, y
+                          * mezclarlo con el vivo que corre detrás llevaría a aprender el vacío
+                          * del cuadro equivocado — que es el único error de esto que no se nota
+                          * hasta el día siguiente.
+                          */}
+                        <button {...sobreProps("franja")} onClick={() => setFranjaAbierta(true)}
+                            className={cn("h-9 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors",
+                                "bg-white/[0.07] text-white/80 hover:bg-white/[0.12]")}>
+                            <ParkingSquare size={14} /> Estacionamiento
+                        </button>
                         {!zonaCompleta && (
                             <button {...sobreProps("todo")} onClick={() => { setRoi(ROI_COMPLETA); tomar(true, false); }}
                                 className="h-9 px-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-white/50 text-[11px] font-bold flex items-center gap-1.5">
@@ -452,6 +475,15 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                     </div>
                 </div>
             </div>
+
+            <Dialog open={franjaAbierta} onOpenChange={setFranjaAbierta}>
+                <DialogContent className="max-w-3xl">
+                    <DialogHeader>
+                        <DialogTitle>Dónde estacionan · {device.name}</DialogTitle>
+                    </DialogHeader>
+                    <Franja deviceId={device.id} hayRtsp={!!device.rtspUrl} />
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
