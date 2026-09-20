@@ -1029,8 +1029,8 @@ ${CSS_AUTO}
                 <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }}
                     className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] max-w-[calc(100%-1.5rem)] flex flex-col items-start">
                     <IconBar
-                        superficie="oscura"
-                        className="shadow-2xl shadow-black/50 max-w-full"
+                        superficie="imagen"
+                        className="sombra-flotante max-w-full"
                         corner={26}
                         glyph={15}
                         items={editing ? tools.map((t) => ({ key: t.id, label: t.label, Icon: t.icon })) : []}
@@ -1112,7 +1112,7 @@ ${CSS_AUTO}
                         {menuCapas && (
                             <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
                                 transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
-                                className="mt-2 w-[188px] p-1.5 rounded-2xl bg-card/95 backdrop-blur-2xl border border-border shadow-2xl shadow-black/40 origin-top">
+                                className="mt-2 w-[188px] p-1.5 rounded-2xl bg-card/95 backdrop-blur-2xl border border-border sombra-flotante origin-top">
                                 <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mapa de fondo</p>
                                 <div className="grid grid-cols-2 gap-0.5">
                                     {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
@@ -1130,9 +1130,12 @@ ${CSS_AUTO}
                                     className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-muted-foreground hover:text-foreground transition-colors">
                                     {vista3D && ayuda3D && (
                                         <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                            className="absolute inset-0 rounded-lg bg-sky-400/25" />
+                                            /* Era celeste: un segundo color de marca para una sola cosa.
+                                               Elegir una vista es una elección como cualquier otra, y las
+                                               elecciones van en el azul del sistema. */
+                                            className="absolute inset-0 rounded-lg bg-[color-mix(in_oklab,var(--accion)_22%,transparent)]" />
                                     )}
-                                    <span className={cn("relative", vista3D && "text-sky-600 dark:text-sky-200")}>Vista 3D · girar e inclinar</span>
+                                    <span className={cn("relative", vista3D && "text-[var(--accion)]")}>Vista 3D · girar e inclinar</span>
                                 </button>
                                 {!vista3D && (<>
                                     <span className="block h-px bg-border mx-1 my-1.5" />

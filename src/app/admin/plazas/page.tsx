@@ -472,8 +472,8 @@ export default function PlazasPage() {
             {mapImage && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100%-1.5rem)]">
                     <IconBar
-                        superficie="oscura"
-                        className="shadow-2xl shadow-black/40 max-w-full"
+                        superficie="imagen"
+                        className="sombra-flotante max-w-full"
                         corner={26}
                         glyph={15}
                         items={TOOLS.map((t) => ({ key: t.id, label: t.label, Icon: t.icon }))}

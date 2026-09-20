@@ -185,6 +185,11 @@
 
   --accion: oklch(0.57 0.20 256);
   --accion-sobre: oklch(0.62 0.20 256);
+  /* Lo que se escribe ENCIMA del azul. Estaba como #fff suelto en
+     cada lugar que pintaba un botón primario; es el mismo valor en
+     los dos temas, pero tener el nombre evita que el próximo lo
+     escriba de nuevo con otro matiz. */
+  --accion-texto: oklch(1 0 0);
   --accion-foco: oklch(0.65 0.19 256);
   /* Sobre foto, mapa o video el azul normal desaparece: el fondo no es
      nuestra superficie, es una imagen. */
@@ -1425,18 +1430,32 @@ video::-webkit-media-controls { display: none !important; }
   opacity: 0.18;
   background: none;}
 
-/* Sobre una foto o un mapa el vidrio tiene que ser oscuro en
-   los dos temas: la superficie de abajo no es la de la
-   aplicación, es imagen. */
-.gnav[data-superficie="oscura"] {
-  --ink: #f5f6f8;
-  --pane: rgba(10, 13, 18, 0.8);
-  --pane-thumb: rgba(255, 255, 255, 0.14);
+/* Flotando sobre una foto, un mapa o un plano subido.
+   
+   Esta barra estaba clavada en oscuro en los dos temas, con el
+   argumento de que abajo no hay superficie de la aplicación sino
+   imagen. El argumento es correcto a medias: lo que la imagen se
+   lleva puesto no es el TONO de la barra, es su silueta. Una
+   píldora del color de la aplicación sobre un satélite se pierde
+   por falta de borde y de sombra, no por ser clara.
+   
+   Y el costo de clavarla era grande: en tema claro quedaba un
+   rectángulo negro flotando sobre una pantalla clara, que es lo
+   único de la aplicación que no seguía al tema.
+   
+   Así que el tono lo pone el tema y la legibilidad la ponen el
+   vidrio y el filo: más opacidad que un panel común, más
+   desenfoque, y un borde de un píxel que le dibuja el contorno
+   contra cualquier fondo. En tema oscuro termina viendose casi
+   igual que antes; en claro, como los controles de un mapa. */
+.gnav[data-superficie="imagen"] {
+  --pane: color-mix(in oklab, var(--card) 88%, transparent);
+  --pane-thumb: color-mix(in oklab, var(--foreground) 14%, transparent);
   --g-blur: 16px;
   --g-sat: 140%;}
 
-.gnav[data-superficie="oscura"]::before {
-  border-color: rgba(255, 255, 255, 0.08);}
+.gnav[data-superficie="imagen"]::before {
+  border-color: color-mix(in oklab, var(--foreground) 16%, transparent);}
 
 /* Lo que no entra en una ranura cuadrada: un menú con su flecha,
    un botón con texto. Conserva el alto de la ranura — que es lo
@@ -1478,16 +1497,22 @@ video::-webkit-media-controls { display: none !important; }
   outline-offset: 2px;}
 
 /* La acción principal no se disuelve en la barra: es la única
-   que decide algo, así que lleva color propio y opacidad plena. */
+   que decide algo, así que lleva el azul y opacidad plena.
+   
+   Tenía cuatro hex sueltos, y uno de ellos era verde para
+   "Guardar". El verde del sistema quiere decir "salió bien", no
+   "guardar": pintado antes de apretar, promete un resultado que
+   todavía no ocurrió. La señal de que hay cambios sin guardar ya
+   existe y es el punto en --aviso que late al lado del texto; el
+   color del botón no estaba diciendo nada que esa señal no
+   dijera mejor. */
 .gnav-ancho[data-principal] {
   opacity: 1;
   font-weight: 700;
-  color: #fff;}
+  color: var(--accion-texto);
+  background: var(--accion);}
 
-.gnav-ancho[data-principal="editar"] { background: #2563eb;}
-.gnav-ancho[data-principal="editar"]:hover { background: #3b82f6;}
-.gnav-ancho[data-principal="guardar"] { background: #059669;}
-.gnav-ancho[data-principal="guardar"]:hover { background: #10b981;}
+.gnav-ancho[data-principal]:hover { background: var(--accion-sobre);}
 .gnav-ancho[data-principal]:disabled { opacity: 0.55; cursor: default;}
 
 /* La fila que acaba de llegar por el socket.
@@ -1610,7 +1635,7 @@ video::-webkit-media-controls { display: none !important; }
 .sombra-flotante { box-shadow: var(--sombra-flotante); }
 
 /* El unico "apretame" del sistema, por su nombre. */
-.accion { background: var(--accion); color: #fff; }
+.accion { background: var(--accion); color: var(--accion-texto); }
 .accion:hover { background: var(--accion-sobre); }
 .tono-accion { color: var(--accion); }
 .tono-accion-oscuro { color: var(--accion-en-oscuro); }

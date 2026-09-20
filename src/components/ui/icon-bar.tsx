@@ -111,9 +111,17 @@ export function IconBar({
     hug?: number;
     /** Esquina — 0 a 26 px. */
     corner?: number;
-    /** "oscura" cuando la barra flota sobre una foto o un mapa: la superficie de abajo no
-     *  es la de la aplicación, así que el vidrio tiene que ser oscuro en los dos temas. */
-    superficie?: "oscura";
+    /**
+     * "imagen" cuando la barra flota sobre una foto, un mapa o un plano: la superficie de
+     * abajo no es la de la aplicación. El tono lo sigue poniendo el tema — lo que cambia
+     * es el vidrio, que se vuelve más opaco y gana un filo de un píxel para que la silueta
+     * de la barra sobreviva a cualquier fondo.
+     *
+     * Antes este valor se llamaba "oscura" y era literal: pintaba la barra de negro en los
+     * dos temas. Se le cambió el nombre junto con el comportamiento a propósito — dejar un
+     * valor que se llama "oscura" y ya no oscurece nada es peor que el color equivocado.
+     */
+    superficie?: "imagen";
     className?: string;
 }) {
     const vertical = axis === "column";
