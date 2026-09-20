@@ -56,7 +56,7 @@ export type LoteDelMapa = {
     points: [number, number][];
 };
 
-export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alto = 300 }: {
+export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alto = 300, soloConUnidad, alCargar, pie }: {
     /** La unidad que se está editando: su lote se dibuja destacado. */
     unidadId?: string | null;
     /** El lote elegido en este momento, que puede no ser el guardado todavía. */
@@ -65,6 +65,19 @@ export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alt
     /** Para poder decir «ya es Torre A» sobre un lote tomado. */
     nombreDeUnidad?: (unitId: string) => string | undefined;
     alto?: number;
+    /**
+     * Un lote sin unidad atada no se puede elegir.
+     *
+     * Es para cuando lo que se está eligiendo NO es el lote sino la casa: una persona vive
+     * en una unidad del padrón, no en un contorno dibujado. Un lote que todavía no apunta a
+     * ninguna unidad no contesta la pregunta, así que se muestra — esconderlo dejaría un
+     * hueco sin explicación en el plano — pero apagado y diciendo qué le falta.
+     */
+    soloConUnidad?: boolean;
+    /** Los lotes, apenas se leen. Para que quien lo use pueda nombrar el que quedó elegido. */
+    alCargar?: (lotes: LoteDelMapa[]) => void;
+    /** El texto de la barra de abajo, cuando la pregunta no es "cuál es este lote". */
+    pie?: { conElegido?: (lote: LoteDelMapa) => string; sinElegir?: string };
 }) {
     const [mapa, setMapa] = useState<BarrioMapData | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -78,7 +91,20 @@ export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alt
     }, []);
 
     const lotes = useMemo<LoteDelMapa[]>(() => (mapa?.lots || []) as LoteDelMapa[], [mapa]);
-    const elegido = lotes.find((l) => l.id === loteElegido);
+
+    useEffect(() => { if (lotes.length) alCargar?.(lotes); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [lotes]);
+
+    /*
+     * Cuál está elegido: el que digan, y si no lo dicen, el de la unidad.
+     *
+     * Las dos pantallas preguntan cosas distintas con el mismo plano. La de unidades
+     * pregunta por el LOTE y lo dice derecho. La de personas pregunta por la CASA, y la
+     * casa es una unidad: quién la use no tiene por qué traerse los lotes sólo para
+     * traducir la unidad al contorno que le corresponde, si acá ya están todos.
+     */
+    const elegido = lotes.find((l) => l.id === loteElegido)
+        || (loteElegido == null && unidadId ? lotes.find((l) => l.unitId === unidadId) : undefined);
+    const idElegido = elegido?.id ?? null;
 
     /* Se encuadra el lote elegido; si no hay, todo lo dibujado; si no hay nada, el barrio. */
     const aEncuadrar = elegido ? [elegido.points] : lotes.map((l) => l.points);
@@ -137,25 +163,31 @@ export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alt
                 <Encuadrar puntos={aEncuadrar} />
 
                 {lotes.map((lo) => {
-                    const esEste = lo.id === loteElegido;
-                    const deOtra = !!lo.unitId && lo.unitId !== unidadId;
+                    const esEste = lo.id === idElegido;
+                    const sinCasa = soloConUnidad && !lo.unitId;
+                    const deOtra = !esEste && !!lo.unitId && lo.unitId !== unidadId;
                     const nombreOtra = deOtra && nombreDeUnidad ? nombreDeUnidad(lo.unitId!) : undefined;
+                    const nombreEste = lo.unitId && nombreDeUnidad ? nombreDeUnidad(lo.unitId) : undefined;
+                    const apagado = sinCasa || deOtra;
                     return (
                         <Polygon key={lo.id} positions={lo.points}
                             pathOptions={{
-                                color: esEste ? "#f59e0b" : deOtra ? "#64748b" : "#38bdf8",
+                                color: esEste ? "#f59e0b" : apagado ? "#64748b" : "#38bdf8",
                                 weight: esEste ? 3 : 2,
-                                fillColor: esEste ? "#f59e0b" : deOtra ? "#64748b" : "#38bdf8",
-                                fillOpacity: esEste ? 0.34 : deOtra ? 0.1 : 0.16,
+                                dashArray: sinCasa ? "5 5" : undefined,
+                                fillColor: esEste ? "#f59e0b" : apagado ? "#64748b" : "#38bdf8",
+                                fillOpacity: esEste ? 0.34 : apagado ? 0.08 : 0.16,
                             }}
                             eventHandlers={{
                                 /* Volver a tocar el lote elegido lo suelta. Es la única
                                    forma de quitar la asignación sin buscar otro botón. */
-                                click: () => alElegir(esEste ? null : lo),
+                                click: () => { if (!sinCasa) alElegir(esEste ? null : lo); },
                             }}>
                             <LTooltip direction="center" sticky>
                                 <span className="font-semibold">{lo.label}</span>
+                                {nombreEste && !deOtra && <span className="opacity-70"> · {nombreEste}</span>}
                                 {nombreOtra && <span className="opacity-70"> · ya es {nombreOtra}</span>}
+                                {sinCasa && <span className="opacity-70"> · sin unidad asignada</span>}
                                 {esEste && <span className="opacity-70"> · tocá otra vez para soltarlo</span>}
                             </LTooltip>
                         </Polygon>
@@ -166,8 +198,12 @@ export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alt
             <div className={cn("absolute bottom-2 left-2 right-2 z-[500] px-3 py-1.5 rounded-lg",
                 "bg-background/92 backdrop-blur-sm border border-border text-[11.5px] pointer-events-none")}>
                 {elegido
-                    ? <span><span className="font-semibold">{elegido.label}</span> · tocá el contorno otra vez para soltarlo</span>
-                    : <span className="text-muted-foreground">Tocá el contorno de esta propiedad en el plano</span>}
+                    ? <span>{pie?.conElegido
+                        ? pie.conElegido(elegido)
+                        : <><span className="font-semibold">{elegido.label}</span> · tocá el contorno otra vez para soltarlo</>}</span>
+                    : <span className="text-muted-foreground">
+                        {pie?.sinElegir || "Tocá el contorno de esta propiedad en el plano"}
+                    </span>}
             </div>
         </div>
     );

@@ -42,10 +42,22 @@ import { cn } from "@/lib/utils";
  * dos columnas obliga a barrer la vista en zigzag para leer lo que es una sola lista de
  * preguntas.
  */
+/**
+ * Los anchos del cajón, por lo que entra en ellos.
+ *
+ * `chico` era un segundo nombre para el mismo valor que `angosto` y no lo usaba nadie: un
+ * escalón que no existía. En su lugar hay uno que sí hacía falta — entre una columna de
+ * campos y dos columnas cómodas hay un caso intermedio: campos más algo para MIRAR, como
+ * un plano o una foto, que en 448 px queda apretado y en 672 sobra.
+ */
 const ANCHOS = {
+    /** Una sola columna de campos. */
     angosto: "sm:max-w-md",
-    chico: "sm:max-w-md",
+    /** Campos y algo para mirar: un plano, una foto. */
+    intermedio: "sm:max-w-xl",
+    /** Dos columnas de campos. */
     medio: "sm:max-w-2xl",
+    /** Una tabla o una grilla adentro. */
     ancho: "sm:max-w-5xl",
 } as const;
 

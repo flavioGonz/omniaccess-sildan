@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
-    Camera, Car, Check, CreditCard, DoorOpen,
-    KeyRound, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
-    Shield, Upload, User as UserIcon, HelpCircle,
+    Building2, Camera, Car, Check, CreditCard, DoorOpen, Home,
+    KeyRound, Loader2, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
+    Shield, Upload, User as UserIcon, HelpCircle, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,18 @@ import { PasosEnvio, type Paso } from "@/components/equipos/PasosEnvio";
 import { ElegirEquipos, RotuloEquipos } from "@/components/equipos/ElegirEquipos";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
+import type { LoteDelMapa } from "@/components/units/MapaLotes";
+
+/* El plano arrastra Leaflet, que toca `window` al cargarse. Entra sólo en el navegador y
+   sólo cuando el cajón se abre: no tiene sentido cargarlo para ver una lista de personas. */
+const MapaLotes = dynamic(() => import("@/components/units/MapaLotes").then((m) => m.MapaLotes), {
+    ssr: false,
+    loading: () => (
+        <div className="h-[260px] rounded-lg border border-border bg-muted/40 flex items-center justify-center">
+            <Loader2 size={18} className="animate-spin text-muted-foreground" />
+        </div>
+    ),
+});
 
 /**
  * La ficha de una persona, en un cajón.
@@ -105,6 +118,17 @@ export function CajonUsuario({
 
     const unidad = units.find((u) => u.id === unidadId);
     const esEdificio = unidad?.type === "EDIFICIO";
+    /* Los lotes dibujados, tal como los lee el plano. No se piden aparte: los trae el
+       propio plano cuando termina de cargar, así que no hay dos lecturas del mismo dato
+       que puedan discrepar. */
+    const [lotes, setLotes] = useState<LoteDelMapa[]>([]);
+    const loteDeLaCasa = lotes.find((l) => l.unitId && l.unitId === unidadId);
+    const [cocheraId, setCocheraId] = useState<string>(user?.parkingSlotId || "none");
+    /* La cochera que el plano dice que le corresponde a esa casa. Se ofrece, no se impone:
+       una cochera se puede haber prestado, alquilado o cambiado, y el plano no se entera. */
+    const cocheraDelLote = loteDeLaCasa?.parkingSlotId
+        ? parkingSlots.find((p: any) => p.id === loteDeLaCasa.parkingSlotId)
+        : undefined;
     const camarasLpr = devices.filter((d) => d.deviceType === "LPR_CAMERA");
     const terminalesFaciales = devices.filter((d) => d.deviceType === "FACE_TERMINAL");
 
@@ -119,6 +143,7 @@ export function CajonUsuario({
         setArchivoFoto(null);
         setGruposElegidos(user?.accessGroups?.map((g) => g.id) || []);
         setUnidadId(user?.unitId || "none");
+        setCocheraId(user?.parkingSlotId || "none");
         /* Los equipos NO se recuerdan de la vez anterior: mandar una credencial a un equipo
            es un acto, no una propiedad de la persona. Que quedara tildado invitaba a
            reenviar sin querer con cada guardado. */
@@ -186,6 +211,9 @@ export function CajonUsuario({
             return;
         }
         datos.set("unitId", unidadId);
+        /* Va explícito por el mismo motivo que la unidad: el desplegable manda su valor en
+           un campo oculto, y confiar en eso es confiar en un detalle de la librería. */
+        datos.set("parkingSlotId", cocheraId);
         const chapaLimpia = String(datos.get("plate") || "").toUpperCase().trim();
 
         const lista: Paso[] = [{
@@ -246,7 +274,7 @@ export function CajonUsuario({
     return (
         <Cajon open={open} onOpenChange={onOpenChange}>
             <CajonContenido
-                ancho="medio"
+                ancho="intermedio"
                 titulo={esAlta ? "Nueva persona" : user?.name || "Ficha de la persona"}
                 descripcion="Quién es, dónde vive, con qué entra y a qué equipos se manda."
                 onInteractOutside={(e) => e.preventDefault()}
@@ -339,41 +367,120 @@ export function CajonUsuario({
 
                     {/* ── Dónde vive ── */}
                     <CajonSeccion titulo="Dónde vive" icono={DoorOpen}>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            <CajonCampo etiqueta="Lote o unidad"
-                                    pista="El lote que tiene dibujado en el plano del barrio. Es lo que hace que, al leerse su matrícula, el sistema sepa a qué casa avisar.">
-                                <Select name="unitId" value={unidadId} onValueChange={setUnidadId}>
-                                    <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
-                                    <SelectContent className="max-h-[260px]">
-                                        <SelectItem value="none">Sin asignar</SelectItem>
-                                        {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </CajonCampo>
-                            <CajonCampo etiqueta="Cochera"
-                                    pista="Las que están ocupadas por otra persona aparecen apagadas: una cochera es de uno solo, y dejar elegir una tomada crea un conflicto que después nadie sabe de dónde salió.">
-                                <Select name="parkingSlotId" defaultValue={user?.parkingSlotId || "none"}>
-                                    <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
-                                    <SelectContent className="max-h-[260px]">
-                                        <SelectItem value="none">Sin cochera</SelectItem>
-                                        {parkingSlots.map((p) => {
-                                            const ocupada = p.user && p.user.id !== user?.id;
-                                            return (
-                                                <SelectItem key={p.id} value={p.id} disabled={ocupada}>
-                                                    {p.label}{ocupada ? ` · ocupada por ${p.user.name}` : ""}
-                                                </SelectItem>
-                                            );
-                                        })}
-                                    </SelectContent>
-                                </Select>
-                            </CajonCampo>
-                            {(esEdificio || user?.apartment) && (
-                                <CajonCampo etiqueta="Apartamento" className="sm:col-span-2"
-                                    ayuda="Aparece porque la unidad elegida es un edificio.">
-                                    <Input name="apartment" defaultValue={user?.apartment || ""} placeholder="4B, PB-2…" />
-                                </CajonCampo>
+                        {/*
+                          * Se elige tocando la casa en el plano, no de una lista.
+                          *
+                          * "Lote 14" y "Torre A" no le dicen nada a quien está dando de alta a un
+                          * vecino: el barrio se conoce por dónde queda cada casa, no por cómo se
+                          * llama en el padrón. Una lista de cuarenta nombres obliga a saber de
+                          * memoria la traducción; el plano la hace innecesaria.
+                          *
+                          * La lista queda igual, abajo y en chico, porque hay casos que el plano
+                          * no cubre — una unidad todavía sin lote dibujado — y porque cuando uno
+                          * ya sabe el nombre, escribirlo es más rápido que buscarlo.
+                          */}
+                        <div className={cn("rounded-[10px] border p-3.5 flex items-center gap-3 transition-colors",
+                            unidad
+                                ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]"
+                                : "border-dashed border-border bg-card/40")}>
+                            <span className={cn("w-11 h-11 rounded-[10px] flex items-center justify-center shrink-0",
+                                unidad ? "text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_12%,transparent)]"
+                                    : "text-muted-foreground bg-muted")}>
+                                {esEdificio ? <Building2 size={21} /> : unidad ? <Home size={21} /> : <MapPin size={21} />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                {unidad ? (
+                                    <>
+                                        <span className="block text-[14.5px] font-semibold text-foreground truncate">{unidad.name}</span>
+                                        <span className="block text-[11.5px] text-muted-foreground truncate mt-0.5">
+                                            {loteDeLaCasa
+                                                ? `${loteDeLaCasa.label} · dibujado en el plano`
+                                                : "Todavía no tiene su contorno dibujado en el plano"}
+                                        </span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="block text-[13.5px] font-semibold text-foreground">Todavía no se dijo dónde vive</span>
+                                        <span className="block text-[11.5px] text-muted-foreground mt-0.5">
+                                            Tocá su casa en el plano. Es lo que hace que, al leerse su matrícula, el
+                                            sistema sepa a qué casa avisar.
+                                        </span>
+                                    </>
+                                )}
+                            </span>
+                            {unidad && (
+                                <Button type="button" variant="ghost" size="icon" className="shrink-0"
+                                    title="Sacarle la casa" onClick={() => setUnidadId("none")}>
+                                    <X size={15} />
+                                </Button>
                             )}
                         </div>
+
+                        <MapaLotes
+                            alto={260}
+                            soloConUnidad
+                            unidadId={unidadId === "none" ? null : unidadId}
+                            alCargar={setLotes}
+                            nombreDeUnidad={(id) => units.find((u) => u.id === id)?.name}
+                            alElegir={(lo) => setUnidadId(lo?.unitId || "none")}
+                            pie={{
+                                sinElegir: "Tocá en el plano la casa donde vive",
+                                conElegido: (lo) => `${lo.label} · tocá otra vez para soltarla`,
+                            }} />
+
+                        <CajonCampo etiqueta="O buscala por su nombre"
+                            pista="Sirve para las unidades que todavía no tienen su contorno dibujado en el plano, y para cuando uno ya sabe cómo se llama.">
+                            <Select name="unitId" value={unidadId} onValueChange={setUnidadId}>
+                                <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
+                                <SelectContent className="max-h-[260px]">
+                                    <SelectItem value="none">Sin asignar</SelectItem>
+                                    {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </CajonCampo>
+
+                        {(esEdificio || user?.apartment) && (
+                            <CajonCampo etiqueta="Apartamento"
+                                ayuda="Aparece porque la unidad elegida es un edificio.">
+                                <Input name="apartment" defaultValue={user?.apartment || ""} placeholder="4B, PB-2…" />
+                            </CajonCampo>
+                        )}
+
+                        <CajonCampo etiqueta="Cochera"
+                            pista="Las que están ocupadas por otra persona aparecen apagadas: una cochera es de uno solo, y dejar elegir una tomada crea un conflicto que después nadie sabe de dónde salió.">
+                            <Select name="parkingSlotId" value={cocheraId} onValueChange={setCocheraId}>
+                                <SelectTrigger>
+                                    <span className="flex items-center gap-2 min-w-0">
+                                        <ParkingSquare size={14} className="text-muted-foreground shrink-0" />
+                                        <SelectValue placeholder="Elegir…" />
+                                    </span>
+                                </SelectTrigger>
+                                <SelectContent className="max-h-[260px]">
+                                    <SelectItem value="none">Sin cochera</SelectItem>
+                                    {parkingSlots.map((p: any) => {
+                                        const ocupada = p.user && p.user.id !== user?.id;
+                                        return (
+                                            <SelectItem key={p.id} value={p.id} disabled={ocupada}>
+                                                {p.label}{ocupada ? ` · ocupada por ${p.user.name}` : ""}
+                                            </SelectItem>
+                                        );
+                                    })}
+                                </SelectContent>
+                            </Select>
+                            {/* El plano sabe qué cochera le toca a esa casa. Se OFRECE y no se
+                                pone sola: una cochera se presta, se alquila o se cambia, y el
+                                plano no se entera de ninguna de las tres. */}
+                            {cocheraDelLote && cocheraId !== cocheraDelLote.id && (
+                                <button type="button" onClick={() => setCocheraId(cocheraDelLote.id)}
+                                    className="mt-1.5 w-full text-left px-2.5 py-1.5 rounded-[8px] border border-[var(--accion)]/35 bg-[color-mix(in_oklab,var(--accion)_7%,transparent)] text-[11.5px] flex items-center gap-2 hover:bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] transition-colors">
+                                    <ParkingSquare size={13} className="text-[var(--accion)] shrink-0" />
+                                    <span className="flex-1 min-w-0">
+                                        El plano dice que a esta casa le toca <b className="text-foreground">{cocheraDelLote.label}</b>
+                                    </span>
+                                    <span className="font-semibold text-[var(--accion)] shrink-0">Usarla</span>
+                                </button>
+                            )}
+                        </CajonCampo>
                     </CajonSeccion>
 
                     {/* ── Con qué entra ── */}
