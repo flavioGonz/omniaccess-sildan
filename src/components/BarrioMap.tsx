@@ -11,7 +11,7 @@ const CajonUnidad = dynamic(
     () => import("@/components/units/CajonUnidad").then((m) => m.CajonUnidad), { ssr: false });
 import { motion } from "framer-motion";
 import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar, type Punto } from "@/components/mapa/Recorrido";
-import { CapaEstacionados, type AutoParado, type SeñalSinRumbo } from "@/components/mapa/CapaEstacionados";
+import { CapaEstacionados, type AutoParado, type SeñalSinRumbo, type SeñalAuto } from "@/components/mapa/CapaEstacionados";
 import { conoDeVision, correr } from "@/lib/escena";
 import { VisorCuadro } from "@/components/VisorCuadro";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
@@ -26,6 +26,7 @@ import {
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { getImagePath } from "@/lib/image-path";
 import { IconBar } from "@/components/ui/icon-bar";
 import { CSS_AUTO } from "@/lib/auto-svg";
 import { montarVivo } from "@/lib/vivo";
@@ -79,6 +80,15 @@ const guardIconHtml = (name: string, heading?: number | null) => `
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
   </span>
 </div>`;
+
+/** Cuánto lleva parado, en palabras cortas. */
+const lapsoCorto = (desde: string | null) => {
+    if (!desde) return "—";
+    const min = Math.max(0, Math.round((Date.now() - new Date(desde).getTime()) / 60000));
+    if (min < 60) return `${min} min`;
+    const h = Math.floor(min / 60);
+    return `${h} h ${min % 60} min`;
+};
 
 function MapRefGrabber({ onMap }: { onMap: (m: L.Map) => void }) {
     const map = useMap();
@@ -245,6 +255,7 @@ export default function BarrioMap() {
     /* Las cámaras que ven autos parados pero todavía no dicen hacia dónde miran. La tarjeta
        se dibuja acá y no en un tooltip de Leaflet porque tiene un botón adentro. */
     const [sinRumbo, setSinRumbo] = useState<SeñalSinRumbo>(null);
+    const [autoSeñalado, setAutoSeñalado] = useState<SeñalAuto>(null);
     const [buscaUnidad, setBuscaUnidad] = useState("");
     const [pendingCam, setPendingCam] = useState<string>("");
     const [selected, setSelected] = useState<{ type: "street" | "camera" | "lote"; id: string } | null>(null);
@@ -910,6 +921,7 @@ ${CSS_AUTO}
                             visible={verCapa.estacionados}
                             alTocar={(a) => setAutoParado(a)}
                             alSeñalar={setSinRumbo}
+                            alSeñalarAuto={setAutoSeñalado}
                             alGirar={(deviceId) => {
                                 /* Hacerlo, no explicarlo: entra a edición, selecciona la
                                    cámara y la centra, que son los tres pasos que el aviso
@@ -1171,6 +1183,68 @@ ${CSS_AUTO}
                   * al que le falta el dato más importante.
                   */}
                 <AnimatePresence>
+                    {/*
+                      * La ficha del auto parado, con su última captura.
+                      *
+                      * La foto es el punto. En un plano satelital todos los autos son manchas
+                      * grises de dos metros: la chapa dice cuál es, pero la captura dice si es
+                      * el que uno está buscando, de qué color, si tiene a alguien adentro.
+                      * Antes esto era el tooltip de Leaflet, que sólo sabe mostrar texto.
+                      */}
+                    <AnimatePresence>
+                        {autoSeñalado && (() => {
+                            const a = autoSeñalado.auto;
+                            const ANCHO = 236;
+                            const x = Math.min(autoSeñalado.x + 16, (typeof window !== "undefined" ? window.innerWidth : 1200) - ANCHO - 12);
+                            const y = Math.min(autoSeñalado.y + 16, (typeof window !== "undefined" ? window.innerHeight : 800) - 250);
+                            const donde = autoSeñalado.desvio < -4 ? "a la izquierda"
+                                : autoSeñalado.desvio > 4 ? "a la derecha" : "al frente";
+                            return (
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.94, y: 6 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.96, y: 4 }}
+                                    transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.6 }}
+                                    style={{ left: x, top: y, width: ANCHO }}
+                                    className="fixed z-[580] pointer-events-none rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
+
+                                    {a.foto ? (
+                                        <div className="relative w-full aspect-video bg-black">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img src={getImagePath(a.foto) || ""} alt="" className="absolute inset-0 w-full h-full object-cover"
+                                                onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0"; }} />
+                                            <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 to-transparent" />
+                                            <div className="absolute left-2 bottom-1.5 flex items-center gap-1.5">
+                                                <span className={cn("w-1.5 h-1.5 rounded-full", a.conocida ? "bg-emerald-400" : "bg-slate-400")} />
+                                                <span className="text-[13px] font-bold tracking-[0.1em] text-white">{a.plate}</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
+                                            <span className={cn("w-1.5 h-1.5 rounded-full", a.conocida ? "bg-emerald-400" : "bg-slate-400")} />
+                                            <span className="text-[13px] font-bold tracking-[0.1em] text-white">{a.plate}</span>
+                                        </div>
+                                    )}
+
+                                    <div className="px-3 py-2.5 space-y-1.5">
+                                        {a.persona ? (
+                                            <p className="text-[12px] text-white/90 font-semibold truncate">{a.persona}</p>
+                                        ) : (
+                                            <p className="text-[11.5px] text-white/35 italic">no está en el padrón</p>
+                                        )}
+                                        <div className="flex items-baseline gap-1.5">
+                                            <span className="text-[9px] uppercase tracking-[0.14em] text-white/35">parado hace</span>
+                                            <span className="text-[13px] font-bold text-white tabular-nums">{lapsoCorto(a.desde)}</span>
+                                        </div>
+                                        <p className="text-[10.5px] text-white/45 leading-snug">
+                                            Lo ve {a.camara} · a unos {Math.round(autoSeñalado.metros)} m, {donde} de la escena
+                                        </p>
+                                    </div>
+                                </motion.div>
+                            );
+                        })()}
+                    </AnimatePresence>
+
                     {/* Autos parados que no se pueden ubicar todavía. */}
                     <AnimatePresence>
                         {sinRumbo && (() => {

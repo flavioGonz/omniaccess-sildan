@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Marker, Polygon, Tooltip as LTooltip } from "react-leaflet";
+import { Marker, Polygon } from "react-leaflet";
+import { AnimatePresence } from "framer-motion";
 import L from "leaflet";
 import { leerCaja, area as areaDe, type Caja } from "@/lib/recuadros";
 import { conoDeVision, ubicarEnLaEscena } from "@/lib/escena";
@@ -56,7 +57,11 @@ export type SeñalSinRumbo = {
     deviceId: string; camara: string | null; autos: AutoParado[]; x: number; y: number;
 } | null;
 
-export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar, visible = true }: {
+export type SeñalAuto = {
+    auto: AutoParado; metros: number; desvio: number; x: number; y: number;
+} | null;
+
+export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar, alSeñalarAuto, visible = true }: {
     camaras: { deviceId: string; lat: number; lng: number; rumbo?: number; angulo?: number }[];
     /** El socket que ya tiene el mapa abierto. Null mientras no conectó. */
     socket: any;
@@ -65,10 +70,14 @@ export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar
     alSeñalar?: (s: SeñalSinRumbo) => void;
     /** Llevar a girar esa cámara. */
     alGirar?: (deviceId: string) => void;
+    /** El puntero sobre un auto parado. El padre dibuja la ficha con su captura. */
+    alSeñalarAuto?: (s: SeñalAuto) => void;
     visible?: boolean;
 }) {
     const [autos, setAutos] = useState<AutoParado[]>([]);
     const [tipica, setTipica] = useState<Record<string, number | null>>({});
+    /* La cámara cuyo cono se está mostrando. Null = ninguno, que es casi siempre. */
+    const [señalada, setSeñalada] = useState<string | null>(null);
 
     const pedir = async () => {
         try {
@@ -140,15 +149,29 @@ export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar
 
     return (
         <>
-            {conRumbo.map(({ cam }) => (
-                <Polygon key={`cono-${cam.deviceId}`} positions={conoDeVision(cam)}
-                    pathOptions={{
-                        color: "#38bdf8", weight: 1, opacity: 0.35,
-                        fillColor: "#38bdf8", fillOpacity: 0.07,
-                        // El cono explica, no se toca: los clics son de los lotes de abajo.
-                        interactive: false,
-                    }} />
-            ))}
+            {/*
+              * El cono se dibuja SOLO mientras se señala un auto de esa cámara.
+              *
+              * Permanente contaba bien la historia —por qué el auto está dibujado ahí— pero
+              * la contaba todo el tiempo, y un plano con un triángulo celeste clavado sobre
+              * cada calle deja de ser un plano. El cono no es el dato: es la explicación del
+              * dato, y una explicación tiene que aparecer cuando alguien pregunta.
+              */}
+            <AnimatePresence>
+                {señalada && (() => {
+                    const cam = conRumbo.find((c) => c.cam.deviceId === señalada)?.cam;
+                    if (!cam) return null;
+                    return (
+                        <Polygon key={`cono-${cam.deviceId}`} positions={conoDeVision(cam)}
+                            pathOptions={{
+                                color: "#38bdf8", weight: 1, opacity: 0.45,
+                                fillColor: "#38bdf8", fillOpacity: 0.09,
+                                // El cono explica, no se toca: los clics son de los lotes de abajo.
+                                interactive: false,
+                            }} />
+                    );
+                })()}
+            </AnimatePresence>
 
             {/*
               * El aviso NO va en un tooltip de Leaflet.
@@ -186,6 +209,13 @@ export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar
                     const caja = leerCaja(a.bbox) as Caja | null;
                     const p = ubicarEnLaEscena(cam, caja, tipica[cam.deviceId] ?? null);
                     const tiempo = lapso(a.desde);
+                    const señalar = (e: any) => {
+                        setSeñalada(cam.deviceId);
+                        alSeñalarAuto?.({
+                            auto: a, metros: p.metros, desvio: p.desvio,
+                            x: e.originalEvent?.clientX ?? 0, y: e.originalEvent?.clientY ?? 0,
+                        });
+                    };
                     return (
                         <Marker key={a.id} position={[p.lat, p.lng]}
                             icon={L.divIcon({
@@ -193,19 +223,12 @@ export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar
                                 html: autoHtml(a.plate, a.conocida, tiempo),
                                 iconSize: [46, 46], iconAnchor: [23, 23],
                             })}
-                            eventHandlers={{ click: () => alTocar?.(a) }}>
-                            <LTooltip direction="top" offset={[0, -18]} className="cam-name-tip">
-                                <b>{a.plate}</b>{a.persona ? ` · ${a.persona}` : ""}
-                                <br />parado hace {tiempo} · lo ve {a.camara}
-                                {caja && (
-                                    <><br />
-                                        <span style={{ opacity: 0.7 }}>
-                                            a unos {Math.round(p.metros)} m, {p.desvio < -4 ? "a la izquierda" : p.desvio > 4 ? "a la derecha" : "al frente"} de la escena
-                                        </span>
-                                    </>
-                                )}
-                            </LTooltip>
-                        </Marker>
+                            eventHandlers={{
+                                click: () => alTocar?.(a),
+                                mouseover: señalar,
+                                mousemove: señalar,
+                                mouseout: () => { setSeñalada(null); alSeñalarAuto?.(null); },
+                            }} />
                     );
                 }),
             )}
