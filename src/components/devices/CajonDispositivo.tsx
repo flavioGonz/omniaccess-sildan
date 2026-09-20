@@ -191,9 +191,17 @@ const TITULOS: Record<string, string> = {
     listo: "Comprobar que anda",
 };
 
-export function CajonDispositivo({ device, groups, onSuccess, children, open, onOpenChange }: {
+export function CajonDispositivo({ device, groups = [], onSuccess, children, open, onOpenChange }: {
     device?: any;
-    groups: any[];
+    /**
+     * Los grupos de acceso, para el selector del alta.
+     *
+     * Opcional porque editando no se usa: `updateDevice` no toca los grupos, así que la
+     * ficha muestra los que tiene y dónde se cambian de verdad. Una pantalla que sólo abre
+     * fichas —el plano, por ejemplo— no tiene por qué traerse la lista entera para
+     * satisfacer una prop que no se dibuja.
+     */
+    groups?: any[];
     onSuccess: () => void;
     /** El disparador. Sin él el cajón se abre desde afuera, con `open`. */
     children?: React.ReactNode;

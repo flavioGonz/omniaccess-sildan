@@ -9,6 +9,11 @@ const Mapa3D = dynamic(() => import("@/components/mapa/Mapa3D"), { ssr: false })
    con la pagina seria pagar dos veces Leaflet para mirar un mapa. */
 const CajonUnidad = dynamic(
     () => import("@/components/units/CajonUnidad").then((m) => m.CajonUnidad), { ssr: false });
+/* La ficha del equipo, igual: entra cuando alguien la pide. Trae adentro el descubridor,
+   el vivo y el mapeo de canales de un grabador — nada de eso hace falta para mirar el
+   plano. */
+const CajonDispositivo = dynamic(
+    () => import("@/components/devices/CajonDispositivo").then((m) => m.CajonDispositivo), { ssr: false });
 import { motion } from "framer-motion";
 import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar, type Punto } from "@/components/mapa/Recorrido";
 import { CapaEstacionados, type SeñalSinRumbo, type SeñalAuto } from "@/components/mapa/CapaEstacionados";
@@ -262,6 +267,16 @@ export default function BarrioMap() {
     const [selected, setSelected] = useState<{ type: "street" | "camera" | "lote"; id: string } | null>(null);
     const [saving, setSaving] = useState(false);
     const [ctx, setCtx] = useState<{ x: number; y: number; type: "street" | "camera" | "lote"; id: string } | null>(null);
+    /**
+     * La ficha del equipo, abierta sobre el plano.
+     *
+     * Antes "Ver la ficha del equipo" era un `router.push` a /admin/devices con el nombre
+     * como texto de búsqueda. Eso es irse de la pantalla: se pierde el encuadre, el zoom y
+     * el recorrido que se estaba mirando, y para volver hay que rehacerlos. Y lo que se
+     * quiere saber de una cámara desde el plano —si está en línea, qué está viendo ahora,
+     * dónde le quedó la línea de paso— es exactamente lo que la ficha muestra arriba.
+     */
+    const [fichaEquipo, setFichaEquipo] = useState<any>(null);
     const mapRef = useRef<L.Map | null>(null);
     const [guards, setGuards] = useState<any[]>([]);
     // Usabilidad: capas que se pueden apagar y pantalla completa.
@@ -1561,6 +1576,25 @@ ${CSS_AUTO}
                     />
                 )}
 
+                {/* La ficha del equipo, sobre el plano. */}
+                {fichaEquipo && (
+                    <CajonDispositivo
+                        key={fichaEquipo.id}
+                        device={fichaEquipo}
+                        open
+                        onOpenChange={(v: boolean) => { if (!v) setFichaEquipo(null); }}
+                        onSuccess={() => {
+                            /* Puede haberle cambiado el nombre, y el nombre se dibuja en el
+                               plano. Se releen los equipos, no el plano: el dibujo no se
+                               tocó, y releerlo pisaría lo que haya a medias. */
+                            getDevices()
+                                .then((d: any) => setDevices((d || []).filter((x: any) =>
+                                    x.deviceType === "LPR_CAMERA" || x.deviceType === "LPR_INTERIOR")))
+                                .catch(() => { });
+                        }}
+                    />
+                )}
+
                 {/* Context menu */}
                 {ctx && (
                     <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[160px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
@@ -1648,8 +1682,9 @@ ${CSS_AUTO}
                                     className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
                                     <Compass size={13} /> {cam?.rumbo != null ? "Cambiar a dónde mira" : "Decir a dónde mira"}
                                 </button>
-                                <button onClick={() => { router.push(`/admin/devices?buscar=${encodeURIComponent(devById[ctx.id]?.name || "")}`); }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
+                                <button onClick={() => { setFichaEquipo(devById[ctx.id] || null); setCtx(null); }}
+                                    disabled={!devById[ctx.id]}
+                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 disabled:opacity-40">
                                     <Video size={13} /> Ver la ficha del equipo
                                 </button>
                                 {editing && (
