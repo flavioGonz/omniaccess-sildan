@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, BadgeCheck, Loader2, Radio, RefreshCw, Video } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { montarVivo } from "@/lib/vivo";
 import { probeDeviceInfo } from "@/app/actions/devices";
 import { cn } from "@/lib/utils";
+import { LineaDePasada, ZonaDeInteres, calzar, type Linea, type Zona } from "@/components/tracking/Calibracion";
 
 /**
  * El último paso: ir a buscar al equipo y mostrar lo que contestó.
@@ -56,63 +57,41 @@ function Punto({ estado, titulo, detalle }: {
     );
 }
 
-type Linea = { x1: number; y1: number; x2: number; y2: number; sentido?: string };
-type Zona = { x: number; y: number; w: number; h: number };
-
 const leerJson = <T,>(txt: string | null | undefined): T | null => {
     if (!txt) return null;
     try { return JSON.parse(String(txt)) as T; } catch { return null; }
 };
 
-/**
- * La línea y la zona dibujadas, encima del video en vivo.
- *
- * Están guardadas en fracciones del cuadro, así que sobre el video se dibujan igual sin
- * saber la resolución. Y hay que verlas ací: la línea decide CUÁNDO la cámara avisa, y
- * hasta ahora la única forma de saber dónde quedó era abrir el calibrador — sobre un
- * cuadro congelado, sin tránsito, que es justo cuando menos se nota si está mal puesta.
- * Con el vivo atrás se ve pasar un auto y cruzarla, que es la única comprobación que vale.
- *
- * El video va en `object-contain` y no `object-cover` por esto mismo: recortar la imagen
- * correría el dibujo respecto de lo que se ve, y el dibujo estaría mintiendo sobre dónde
- * está la línea.
- */
-function Dibujo({ linea, zona }: { linea: Linea | null; zona: Zona | null }) {
-    if (!linea && !zona) return null;
-    const p = (n: number) => Math.max(0, Math.min(100, n * 100));
-    return (
-        <svg className="absolute inset-0 w-full h-full pointer-events-none"
-            viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
-            {zona && zona.w > 0 && zona.h > 0 && (
-                <rect x={p(zona.x)} y={p(zona.y)} width={p(zona.w)} height={p(zona.h)}
-                    fill="none" stroke="#38bdf8" strokeWidth={0.5} strokeDasharray="2 1.6"
-                    vectorEffect="non-scaling-stroke" opacity={0.85} />
-            )}
-            {linea && (
-                <>
-                    {/* Dos trazos: uno oscuro y ancho abajo, el vivo arriba. Sobre una calle
-                        clara una línea de un color solo desaparece. */}
-                    <line x1={p(linea.x1)} y1={p(linea.y1)} x2={p(linea.x2)} y2={p(linea.y2)}
-                        stroke="rgba(0,0,0,.55)" strokeWidth={4} strokeLinecap="round"
-                        vectorEffect="non-scaling-stroke" />
-                    <line x1={p(linea.x1)} y1={p(linea.y1)} x2={p(linea.x2)} y2={p(linea.y2)}
-                        stroke="#f59e0b" strokeWidth={2} strokeLinecap="round"
-                        vectorEffect="non-scaling-stroke" />
-                    {[[linea.x1, linea.y1], [linea.x2, linea.y2]].map(([x, y], i) => (
-                        <circle key={i} cx={p(x)} cy={p(y)} r={3.5} fill="#f59e0b"
-                            stroke="rgba(0,0,0,.55)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
-                    ))}
-                </>
-            )}
-        </svg>
-    );
-}
-
 /** El video en vivo del equipo, con lo que le hayan dibujado encima. */
 function Vivo({ deviceId, linea, zona }: { deviceId: string; linea: Linea | null; zona: Zona | null }) {
     const ref = useRef<HTMLVideoElement>(null);
+    const caja = useRef<HTMLDivElement>(null);
     const [anda, setAnda] = useState<boolean | null>(null);
     const [intento, setIntento] = useState(0);
+    /**
+     * Dónde cae la imagen adentro del recuadro.
+     *
+     * El dibujo va sobre la IMAGEN y no sobre la caja. Si la cámara no tiene exactamente
+     * la proporción del recuadro quedan franjas negras a los costados, y una línea
+     * dibujada sobre la caja entera aparecería corrida respecto de la calle — que es
+     * justo el dato que la línea tiene para dar.
+     */
+    const [marco, setMarco] = useState({ left: 0, top: 0, w: 0, h: 0 });
+
+    const medir = useCallback(() => {
+        const v = ref.current, c = caja.current;
+        if (!v || !c) return;
+        const r = c.getBoundingClientRect();
+        setMarco(calzar(r.width, r.height, v.videoWidth, v.videoHeight));
+    }, []);
+
+    useEffect(() => {
+        const c = caja.current;
+        if (!c) return;
+        const obs = new ResizeObserver(() => medir());
+        obs.observe(c);
+        return () => obs.disconnect();
+    }, [medir]);
 
     useEffect(() => {
         const v = ref.current;
@@ -121,9 +100,10 @@ function Vivo({ deviceId, linea, zona }: { deviceId: string; linea: Linea | null
         /* `playing` y no `loadeddata`: go2rtc contesta con la cabecera del mp4 antes de
            tener un solo cuadro, así que un evento de carga puede llegar con la pantalla
            todavía en negro y diríamos que anda cuando no se ve nada. */
-        const bien = () => setAnda(true);
+        const bien = () => { setAnda(true); medir(); };
         const mal = () => setAnda((a) => (a === true ? a : false));
         v.addEventListener("playing", bien);
+        v.addEventListener("loadedmetadata", medir);
         v.addEventListener("error", mal);
         const cortar = montarVivo(v, deviceId);
         /* Si a los diez segundos no empezó, no empezó: go2rtc reintenta unas pocas veces
@@ -133,16 +113,24 @@ function Vivo({ deviceId, linea, zona }: { deviceId: string; linea: Linea | null
         return () => {
             clearTimeout(plazo);
             v.removeEventListener("playing", bien);
+            v.removeEventListener("loadedmetadata", medir);
             v.removeEventListener("error", mal);
             cortar?.();
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deviceId, intento]);
 
     return (
         <div className="space-y-2">
-            <div className="relative rounded-[10px] overflow-hidden border border-border bg-black aspect-video">
+            <div ref={caja} className="relative rounded-[10px] overflow-hidden border border-border bg-black aspect-video">
                 <video ref={ref} muted autoPlay playsInline className="block w-full h-full object-contain" />
-                {anda === true && <Dibujo linea={linea} zona={zona} />}
+                {anda === true && marco.w > 0 && (linea || zona) && (
+                    <div className="absolute pointer-events-none"
+                        style={{ left: marco.left, top: marco.top, width: marco.w, height: marco.h }}>
+                        {zona && <ZonaDeInteres zona={zona} />}
+                        {linea && <LineaDePasada linea={linea} w={marco.w} h={marco.h} />}
+                    </div>
+                )}
                 {anda === null && (
                     <span className="absolute inset-0 flex items-center justify-center gap-2 text-[12px] text-white/70">
                         <Loader2 size={14} className="animate-spin" /> Pidiendo el video…
@@ -154,13 +142,13 @@ function Vivo({ deviceId, linea, zona }: { deviceId: string; linea: Linea | null
                             <Radio size={10} className="text-[var(--mal)]" /> EN VIVO
                         </span>
                         {linea && (
-                            <span className="px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold flex items-center gap-1" style={{ color: "#f59e0b" }}>
-                                <span className="w-2 h-0.5 rounded-full" style={{ background: "#f59e0b" }} /> línea de paso
+                            <span className="px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold flex items-center gap-1" style={{ color: "#fda4af" }}>
+                                <span className="w-2 h-0.5 rounded-full" style={{ background: "#f43f5e" }} /> línea de paso
                             </span>
                         )}
                         {zona && (
-                            <span className="px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold flex items-center gap-1" style={{ color: "#38bdf8" }}>
-                                <span className="w-2 h-0.5 rounded-full" style={{ background: "#38bdf8" }} /> zona
+                            <span className="px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold flex items-center gap-1" style={{ color: "#fbbf24" }}>
+                                <span className="w-2 h-0.5 rounded-full" style={{ background: "#fbbf24" }} /> zona
                             </span>
                         )}
                     </span>
@@ -182,7 +170,7 @@ function Vivo({ deviceId, linea, zona }: { deviceId: string; linea: Linea | null
     );
 }
 
-export function Verificacion({ deviceId, datos, tipo, faltantes, linea, zona }: {
+export function Verificacion({ deviceId, datos, tipo, faltantes, linea, zona, alLeer }: {
     /** El equipo ya creado. Null mientras todavía no se guardó. */
     deviceId: string | null;
     datos: { name: string; ip: string; brand: string; username: string; password: string; authType: string; rtspUrl?: string };
@@ -193,6 +181,15 @@ export function Verificacion({ deviceId, datos, tipo, faltantes, linea, zona }: 
     linea?: string | null;
     /** La zona de interés guardada. */
     zona?: string | null;
+    /**
+     * Lo que el equipo contó de sí mismo.
+     *
+     * Sube al formulario para que "Guardar cambios" lo deje guardado. Antes la ficha
+     * mostraba la MAC leída recién en el recuadro verde y, tres centímetros más abajo,
+     * avisaba "No tiene MAC" — las dos cosas ciertas (una es lo que el equipo dice, la
+     * otra lo que hay guardado) y juntas incomprensibles.
+     */
+    alLeer?: (l: { mac?: string; modelo?: string }) => void;
 }) {
     const [lectura, setLectura] = useState<Lectura | null>(null);
     const [leyendo, setLeyendo] = useState(false);
@@ -205,6 +202,7 @@ export function Verificacion({ deviceId, datos, tipo, faltantes, linea, zona }: 
                 authType: datos.authType, brand: datos.brand,
             });
             setLectura(r);
+            if (r?.ok) alLeer?.({ mac: r.macAddress, modelo: r.model });
         } catch (e: any) {
             setLectura({ ok: false, error: e?.message || "No se pudo conectar" });
         } finally { setLeyendo(false); }

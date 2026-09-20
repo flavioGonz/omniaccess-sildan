@@ -511,7 +511,12 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
             titulo: "No tiene canal de video",
             detalle: "Sin RTSP la pasarela no le puede pedir un solo cuadro, así que no va a leer ninguna matrícula.",
         });
-        if (tipo?.aviso && (f.trackTrigger === "linea" || f.trackTrigger === "zona")) l.push({
+        /* Esto avisaba SIEMPRE que el modo fuera línea o zona, tuviera el dibujo o no. Y la
+           cámara tenía la línea puesta — se veía dibujada sobre el video, ahí arriba, al
+           mismo tiempo que el aviso decía que faltaba. Un pendiente que no se puede
+           resolver porque ya está resuelto enseña a ignorar la lista entera. */
+        const dibujo = f.trackTrigger === "linea" ? device?.trackLine : device?.trackRoi;
+        if (tipo?.aviso && (f.trackTrigger === "linea" || f.trackTrigger === "zona") && !dibujo) l.push({
             titulo: f.trackTrigger === "linea" ? "Falta dibujarle la línea de paso" : "Falta dibujarle la zona",
             detalle: "Se hace en el calibrador, sobre un cuadro real de esta cámara. Hasta entonces la cámara no tiene qué avisar y la pasarela cae al disparo por escena.",
         });
@@ -519,12 +524,20 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
             titulo: "No se leyeron los canales del grabador",
             detalle: "Sin el mapeo canal↔cámara no se puede ir de un evento a su grabación.",
         });
-        if (!f.mac.trim()) l.push({
-            titulo: "No tiene MAC",
-            detalle: "Sirve para reconocerlo si alguien le cambia la IP. La completa la detección sola.",
+        /* Lo que importa es la MAC GUARDADA, no la que el equipo acaba de decir. Editando,
+           la ficha mostraba la MAC leída en el recuadro verde y tres centímetros más abajo
+           avisaba "No tiene MAC": las dos cosas ciertas —una es lo que el equipo dice, la
+           otra lo que hay en la base— y juntas incomprensibles. Ahora el aviso distingue
+           las dos situaciones y dice qué hacer con cada una. */
+        const guardada = (esEdicion ? device?.mac : f.mac) || "";
+        if (!String(guardada).trim()) l.push({
+            titulo: "No tiene la MAC guardada",
+            detalle: f.mac.trim()
+                ? "La detección ya la leyó del equipo. Guardá los cambios para dejarla guardada."
+                : "Sirve para reconocerlo si alguien le cambia la IP. La completa la detección sola.",
         });
         return l;
-    }, [esEdicion, tipo, f.groupId, f.rtspUrl, f.trackTrigger, f.mac, nvrCanales.length]);
+    }, [esEdicion, device, tipo, f.groupId, f.rtspUrl, f.trackTrigger, f.mac, nvrCanales.length]);
 
     const guia = GUIAS[f.brand];
 
@@ -589,6 +602,51 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                 }>
 
                 <PasoAnimado clave={clave} hacia={hacia}>
+                    {muestra("cual") && (
+                        <CajonSeccion titulo="Cuál es" icono={Cpu}>
+                            <CajonCampo etiqueta="Cómo se lo va a llamar"
+                                pista="Es el nombre que sale en el historial, en el mapa y en los avisos. Conviene el del lugar donde está puesto — 'Portón principal' dice más que el modelo.">
+                                <Input value={f.name} placeholder="Portón principal, Calle 21…" autoFocus
+                                    onChange={(e) => set("name", e.target.value)} />
+                            </CajonCampo>
+                            <div className="grid grid-cols-1 gap-4">
+                                <CajonCampo etiqueta="Modelo"
+                                    pista="Decide qué controlador usa OmniAccess para hablarle. Si no está en la lista, se puede dejar vacío y probar igual: la detección de abajo suele completarlo.">
+                                    <Popover open={abreModelos} onOpenChange={setAbreModelos}>
+                                        <PopoverTrigger asChild>
+                                            <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                                                <span className="truncate">
+                                                    {f.deviceModel
+                                                        ? (DRIVER_MODELS[f.brand as DriverDeviceBrand]?.find((m) => m.value === f.deviceModel)?.label || f.deviceModel)
+                                                        : "Elegir modelo…"}
+                                                </span>
+                                                <ChevronsUpDown size={14} className="opacity-50 shrink-0" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[360px] p-0" align="start">
+                                            <Command>
+                                                <CommandInput placeholder="Buscar modelo…" />
+                                                <CommandEmpty>No hay modelos cargados para esta marca.</CommandEmpty>
+                                                <CommandGroup className="max-h-60 overflow-y-auto">
+                                                    {DRIVER_MODELS[f.brand as DriverDeviceBrand]?.map((m) => (
+                                                        <CommandItem key={m.value} value={m.value}
+                                                            onSelect={(v) => { set("deviceModel", v); setAbreModelos(false); }}>
+                                                            <span className="flex flex-col">
+                                                                <span className="text-[12.5px] font-semibold text-foreground">{m.label}</span>
+                                                                <span className="text-[11px] text-muted-foreground">{m.category}</span>
+                                                            </span>
+                                                            {f.deviceModel === m.value && <Check size={14} className="ml-auto text-[var(--accion)]" />}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
+                                </CajonCampo>
+                            </div>
+                        </CajonSeccion>
+                    )}
+
                     {esEdicion && (
                         /* Lo primero de la ficha no es un campo: es el equipo contestando.
                            Todo lo demás de esta pantalla es lo que alguien escribió alguna
@@ -600,7 +658,14 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                                 tipo={tipo}
                                 faltantes={faltantes}
                                 linea={device.trackLine}
-                                zona={device.trackRoi} />
+                                zona={device.trackRoi}
+                                alLeer={(e) => setF((p) => ({
+                                    /* Sólo lo vacío: si alguien escribió algo a mano, el equipo
+                                       no tiene por qué pisárselo. */
+                                    ...p,
+                                    mac: p.mac || e.mac || "",
+                                    deviceModel: p.deviceModel || e.modelo || "",
+                                }))} />
                         </CajonSeccion>
                     )}
                     {muestra("que") && (
@@ -650,93 +715,46 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                         </CajonSeccion>
                     )}
 
-                    {muestra("cual") && (
-                        <>
-                            <CajonSeccion titulo="Cuál es" icono={Cpu}>
-                                <CajonCampo etiqueta="Cómo se lo va a llamar"
-                                    pista="Es el nombre que sale en el historial, en el mapa y en los avisos. Conviene el del lugar donde está puesto — 'Portón principal' dice más que el modelo.">
-                                    <Input value={f.name} placeholder="Portón principal, Calle 21…" autoFocus
-                                        onChange={(e) => set("name", e.target.value)} />
-                                </CajonCampo>
-                                <div className="grid grid-cols-1 gap-4">
-                                    <CajonCampo etiqueta="Modelo"
-                                        pista="Decide qué controlador usa OmniAccess para hablarle. Si no está en la lista, se puede dejar vacío y probar igual: la detección de abajo suele completarlo.">
-                                        <Popover open={abreModelos} onOpenChange={setAbreModelos}>
-                                            <PopoverTrigger asChild>
-                                                <Button type="button" variant="outline" className="w-full justify-between font-normal">
-                                                    <span className="truncate">
-                                                        {f.deviceModel
-                                                            ? (DRIVER_MODELS[f.brand as DriverDeviceBrand]?.find((m) => m.value === f.deviceModel)?.label || f.deviceModel)
-                                                            : "Elegir modelo…"}
-                                                    </span>
-                                                    <ChevronsUpDown size={14} className="opacity-50 shrink-0" />
-                                                </Button>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-[360px] p-0" align="start">
-                                                <Command>
-                                                    <CommandInput placeholder="Buscar modelo…" />
-                                                    <CommandEmpty>No hay modelos cargados para esta marca.</CommandEmpty>
-                                                    <CommandGroup className="max-h-60 overflow-y-auto">
-                                                        {DRIVER_MODELS[f.brand as DriverDeviceBrand]?.map((m) => (
-                                                            <CommandItem key={m.value} value={m.value}
-                                                                onSelect={(v) => { set("deviceModel", v); setAbreModelos(false); }}>
-                                                                <span className="flex flex-col">
-                                                                    <span className="text-[12.5px] font-semibold text-foreground">{m.label}</span>
-                                                                    <span className="text-[11px] text-muted-foreground">{m.category}</span>
-                                                                </span>
-                                                                {f.deviceModel === m.value && <Check size={14} className="ml-auto text-[var(--accion)]" />}
-                                                            </CommandItem>
-                                                        ))}
-                                                    </CommandGroup>
-                                                </Command>
-                                            </PopoverContent>
-                                        </Popover>
-                                    </CajonCampo>
-                                </div>
+                    {muestra("cual") && guia && (
+                            <CajonSeccion titulo="Del lado del equipo" icono={BookOpen}
+                                ayuda="Esto no se hace acá: se hace entrando al equipo por su IP. Si no está configurado así, OmniAccess lo va a ver pero no va a recibir sus eventos.">
+                                <button type="button" onClick={() => setVerGuia(!verGuia)}
+                                    className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-[10px] border border-border bg-card/40 hover:bg-accent transition-colors">
+                                    <span className="text-[12.5px] font-semibold text-foreground">{guia.titulo}</span>
+                                    <ChevronDown size={15} className={cn("text-muted-foreground transition-transform duration-200", verGuia && "rotate-180")} />
+                                </button>
+                                <AnimatePresence initial={false}>
+                                    {verGuia && (
+                                        <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{ height: "auto", opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+                                            className="overflow-hidden">
+                                            <ol className="space-y-2 pt-3.5">
+                                                {guia.pasos.map((s, i) => (
+                                                    <li key={i} className="flex gap-2.5">
+                                                        <span className="w-[19px] h-[19px] rounded-full bg-muted text-muted-foreground text-[10px] font-bold flex items-center justify-center shrink-0 mt-px">{i + 1}</span>
+                                                        <span className="text-[12px] text-muted-foreground leading-relaxed">{s}</span>
+                                                    </li>
+                                                ))}
+                                            </ol>
+                                            <div className="mt-3.5 pt-3 border-t border-border space-y-1.5">
+                                                <p className="text-[12px] text-muted-foreground">
+                                                    A dónde manda los eventos: <code className="text-foreground tabular-nums">{guia.webhook}</code>
+                                                </p>
+                                                <p className="text-[12px] text-muted-foreground">Cómo se autentica: {guia.auth}</p>
+                                                {guia.doc && (
+                                                    <a href={guia.doc} target="_blank" rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1.5 text-[12px] text-[var(--accion)] hover:underline">
+                                                        <ExternalLink size={12} /> Documentación del fabricante
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </CajonSeccion>
-
-                            {guia && (
-                                <CajonSeccion titulo="Del lado del equipo" icono={BookOpen}
-                                    ayuda="Esto no se hace acá: se hace entrando al equipo por su IP. Si no está configurado así, OmniAccess lo va a ver pero no va a recibir sus eventos.">
-                                    <button type="button" onClick={() => setVerGuia(!verGuia)}
-                                        className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-[10px] border border-border bg-card/40 hover:bg-accent transition-colors">
-                                        <span className="text-[12.5px] font-semibold text-foreground">{guia.titulo}</span>
-                                        <ChevronDown size={15} className={cn("text-muted-foreground transition-transform duration-200", verGuia && "rotate-180")} />
-                                    </button>
-                                    <AnimatePresence initial={false}>
-                                        {verGuia && (
-                                            <motion.div
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: "auto", opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
-                                                transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-                                                className="overflow-hidden">
-                                                <ol className="space-y-2 pt-3.5">
-                                                    {guia.pasos.map((s, i) => (
-                                                        <li key={i} className="flex gap-2.5">
-                                                            <span className="w-[19px] h-[19px] rounded-full bg-muted text-muted-foreground text-[10px] font-bold flex items-center justify-center shrink-0 mt-px">{i + 1}</span>
-                                                            <span className="text-[12px] text-muted-foreground leading-relaxed">{s}</span>
-                                                        </li>
-                                                    ))}
-                                                </ol>
-                                                <div className="mt-3.5 pt-3 border-t border-border space-y-1.5">
-                                                    <p className="text-[12px] text-muted-foreground">
-                                                        A dónde manda los eventos: <code className="text-foreground tabular-nums">{guia.webhook}</code>
-                                                    </p>
-                                                    <p className="text-[12px] text-muted-foreground">Cómo se autentica: {guia.auth}</p>
-                                                    {guia.doc && (
-                                                        <a href={guia.doc} target="_blank" rel="noopener noreferrer"
-                                                            className="inline-flex items-center gap-1.5 text-[12px] text-[var(--accion)] hover:underline">
-                                                            <ExternalLink size={12} /> Documentación del fabricante
-                                                        </a>
-                                                    )}
-                                                </div>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
-                                </CajonSeccion>
-                            )}
-                        </>
                     )}
 
                     {muestra("conexion") && (

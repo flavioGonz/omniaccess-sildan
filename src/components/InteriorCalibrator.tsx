@@ -10,9 +10,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type Roi = { x: number; y: number; w: number; h: number };
-type Linea = { x1: number; y1: number; x2: number; y2: number; sentido: string };
-const ROI_COMPLETA: Roi = { x: 0, y: 0, w: 1, h: 1 };
+import { LineaDePasada, ZONA_COMPLETA, type Linea, type Zona } from "@/components/tracking/Calibracion";
+
+type Roi = Zona;
+const ROI_COMPLETA: Roi = ZONA_COMPLETA;
 
 /**
  * Calibrador de una cámara interior.
@@ -452,58 +453,6 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                 </div>
             </div>
         </div>
-    );
-}
-
-/**
- * La línea de pasada dibujada sobre el cuadro.
- *
- * Se dibuja en píxeles del lienzo, no en fracciones sobre un SVG estirado: si no, los
- * extremos salen elipses y la flecha del sentido no queda perpendicular a la raya.
- *
- * Lo que se ve: un resplandor por debajo para que se lea sobre cualquier fondo, la raya,
- * los dos extremos como manijas — se pueden agarrar y mover — y, en el medio, la flecha
- * del sentido en que tiene que cruzar el vehículo para que la cámara avise.
- */
-function LineaDePasada({ linea, w, h }: { linea: Linea; w: number; h: number }) {
-    const ax = linea.x1 * w, ay = linea.y1 * h;
-    const bx = linea.x2 * w, by = linea.y2 * h;
-    const largo = Math.hypot(bx - ax, by - ay) || 1;
-    const mx = (ax + bx) / 2, my = (ay + by) / 2;
-    // Normal unitaria: hacia dónde se cruza la raya.
-    const nx = -(by - ay) / largo, ny = (bx - ax) / largo;
-    const flecha = (signo: number, desde: number, hasta: number) => {
-        const x0 = mx + nx * desde * signo, y0 = my + ny * desde * signo;
-        const x1 = mx + nx * hasta * signo, y1 = my + ny * hasta * signo;
-        const ux = (x1 - x0) / (Math.hypot(x1 - x0, y1 - y0) || 1), uy = (y1 - y0) / (Math.hypot(x1 - x0, y1 - y0) || 1);
-        const px = -uy, py = ux;
-        return { x0, y0, x1, y1, punta: `${x1},${y1} ${x1 - ux * 9 + px * 5},${y1 - uy * 9 + py * 5} ${x1 - ux * 9 - px * 5},${y1 - uy * 9 - py * 5}` };
-    };
-    const sentidos = linea.sentido === "left-right" ? [1] : linea.sentido === "right-left" ? [-1] : [1, -1];
-
-    return (
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${w} ${h}`}>
-            {/* resplandor: la raya se tiene que ver sobre asfalto claro y sobre sombra */}
-            <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#f43f5e" strokeWidth={9} strokeLinecap="round" opacity={0.22} />
-            <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#f43f5e" strokeWidth={2.5} strokeLinecap="round" />
-
-            {sentidos.map((sg, i) => {
-                const f = flecha(sg, 4, 30);
-                return (
-                    <g key={i}>
-                        <line x1={f.x0} y1={f.y0} x2={f.x1} y2={f.y1} stroke="#fda4af" strokeWidth={2} strokeLinecap="round" />
-                        <polygon points={f.punta} fill="#fda4af" />
-                    </g>
-                );
-            })}
-
-            {[[ax, ay], [bx, by]].map(([cx, cy], i) => (
-                <g key={i}>
-                    <circle cx={cx} cy={cy} r={7} fill="#f43f5e" />
-                    <circle cx={cx} cy={cy} r={7} fill="none" stroke="#fff" strokeWidth={2} />
-                </g>
-            ))}
-        </svg>
     );
 }
 
