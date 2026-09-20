@@ -39,8 +39,22 @@ export async function GET(req: NextRequest) {
     const auth = await verifyApiAuth();
     if (!auth.authenticated) return unauthorizedResponse();
 
-    const horas = Math.min(Math.max(parseInt(req.nextUrl.searchParams.get("horas") || "24", 10) || 24, 1), 336);
-    const desde = new Date(Date.now() - horas * 60 * 60 * 1000);
+    /*
+     * La ventana se pide en MINUTOS.
+     *
+     * Venía en horas con un piso de una, y eso dejaba afuera justo la pregunta más
+     * frecuente cuando algo acaba de pasar: ¿qué está haciendo AHORA? Con una hora como
+     * ventana más corta, un pico de treinta segundos queda promediado contra los otros
+     * cincuenta y nueve minutos y desaparece. `horas` sigue aceptado para no romper nada.
+     */
+    const pedidoMin = req.nextUrl.searchParams.get("minutos");
+    const pedidoHoras = req.nextUrl.searchParams.get("horas");
+    const minutos = Math.min(Math.max(
+        pedidoMin != null ? (parseInt(pedidoMin, 10) || 60)
+            : (parseInt(pedidoHoras || "24", 10) || 24) * 60,
+        5), 336 * 60);
+    const horas = minutos / 60;
+    const desde = new Date(Date.now() - minutos * 60 * 1000);
 
     const [crudas, avistamientos, camaras] = await Promise.all([
         prisma.trackingSample.findMany({
@@ -63,18 +77,26 @@ export async function GET(req: NextRequest) {
         }),
     ]);
 
-    // ── Lecturas por hora, para el gráfico de barras
-    const porHora: { hora: string; lecturas: number }[] = [];
-    const cubos = new Map<string, number>();
+    /*
+     * Las lecturas agrupadas, para el gráfico de barras.
+     *
+     * El tramo sale de la ventana y no es fijo de una hora. Con la hora clavada, una
+     * ventana de diez minutos daba UNA barra — un gráfico de una sola columna, que no es
+     * un gráfico — y siete días daban ciento sesenta y ocho, que tampoco se leen. Se
+     * apunta a unas veinte o treinta barras, que es lo que el ojo distingue de un vistazo.
+     */
+    const tramoMin = minutos <= 15 ? 1 : minutos <= 45 ? 2 : minutos <= 120 ? 5
+        : minutos <= 360 ? 15 : minutos <= 1440 ? 60 : 360;
+    const tramoMs = tramoMin * 60 * 1000;
+    const porTramo: { desde: string; lecturas: number }[] = [];
+    const cubos = new Map<number, number>();
     for (const a of avistamientos) {
-        const h = new Date(a.timestamp); h.setMinutes(0, 0, 0);
-        const k = h.toISOString();
+        const k = Math.floor(new Date(a.timestamp).getTime() / tramoMs) * tramoMs;
         cubos.set(k, (cubos.get(k) || 0) + 1);
     }
-    const inicio = new Date(desde); inicio.setMinutes(0, 0, 0);
-    for (let t = inicio.getTime(); t <= Date.now(); t += 3600000) {
-        const k = new Date(t).toISOString();
-        porHora.push({ hora: k, lecturas: cubos.get(k) || 0 });
+    const primero = Math.floor(desde.getTime() / tramoMs) * tramoMs;
+    for (let t = primero; t <= Date.now(); t += tramoMs) {
+        porTramo.push({ desde: new Date(t).toISOString(), lecturas: cubos.get(t) || 0 });
     }
 
     // ── Por cámara: lo que de verdad importa mirar para calibrar
@@ -129,7 +151,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
         horas,
         muestras: comprimir(crudas, 120),
-        porHora,
+        porTramo,
+        tramoMin,
         porCamara,
         resumen: {
             disparos,

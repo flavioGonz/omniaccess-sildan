@@ -6,6 +6,7 @@ import {
     ArrowLeft, ArrowRight, BadgeCheck, BookOpen, Check, ChevronDown, ChevronsUpDown,
     AlertTriangle, Cpu, ExternalLink, GitCommitHorizontal, Loader2, MapPin, Network, Plus,
     Radio, Save, Scan, Tag, Video, Wifi,
+    ParkingSquare,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from
 import { PasoAnimado } from "@/components/devices/Pasos";
 import { CompatibilidadMarca, ElegirMarca, MarcaFija } from "@/components/devices/Compatibilidad";
 import { Verificacion } from "@/components/devices/Verificacion";
+import { Franja } from "@/components/tracking/Franja";
 import { Descubridor } from "@/components/devices/Descubridor";
 import { tiposSegunModulos, tipoDeEquipo } from "@/components/devices/tipos";
 import { getEnabledModules } from "@/app/actions/modules";
@@ -1027,6 +1029,20 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                                     </CajonCampo>
                                 </div>
                             </CajonSeccion>
+
+                            {/*
+                              * La franja va acá, y sólo en un equipo ya creado, porque para
+                              * dibujarla hace falta un cuadro de la cámara — y para eso hace
+                              * falta que el RTSP esté guardado. Ofrecerla durante el alta
+                              * sería ofrecer un lienzo en blanco sobre el que no se puede
+                              * calibrar nada.
+                              */}
+                            {creado && (
+                                <CajonSeccion titulo="Dónde estacionan" icono={ParkingSquare}
+                                    ayuda="Una franja dibujada sobre la calle mide si cada lugar está ocupado. Reemplaza al criterio anterior, que deducía el estacionamiento de las lecturas de matrícula y terminaba marcando autos donde no había ninguno: una lectura dice que una chapa cruzó el cuadro, no que el vehículo esté quieto.">
+                                    <Franja deviceId={creado} hayRtsp={!!f.rtspUrl} />
+                                </CajonSeccion>
+                            )}
                         </>
                     )}
 

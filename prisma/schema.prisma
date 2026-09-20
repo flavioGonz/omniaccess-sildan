@@ -164,6 +164,8 @@ model Device {
   queueEvents     QueueEvent[]
   queueAlerts     QueueAlert[]
   accessGroups    AccessGroup[]    @relation("AccessGroupToDevice")
+  franja          Franja?
+  ocupaciones     Ocupacion[]
 }
 
 model AccessEvent {
@@ -698,4 +700,83 @@ model TrackingSample {
   enGpu     Boolean?
 
   @@index([momento])
+}
+
+
+// ---------------------------------------------------------------------------
+// La franja de estacionamiento de una camara.
+//
+// Por que existe esto, y por que reemplaza al criterio anterior:
+//
+// Hasta ahora la estadia colgaba de la CHAPA, y la unica prueba de que un auto seguia
+// ahi era otra lectura de la misma chapa. Pero una lectura es un evento sobre una chapa
+// que cruzo el cuadro: no dice nada sobre si el vehiculo esta quieto. El parche de la
+// vigilia intento tapar ese hueco comparando los pixeles alrededor del ultimo recuadro,
+// y ahi aparecio el falso positivo: un pedazo de calle vacia tambien se ve igual de una
+// mirada a la otra, asi que "no cambio nada" se leia como "el auto sigue".
+//
+// En treinta horas de Calle 22 eso produjo SIETE estadias para AAU9032 — un solo auto
+// que no se movio nunca — y en Calle 21 el mismo auto figuro como tres (SDM1707,
+// SDH1707, 5DH177) porque el OCR lo leyo distinto cada vez.
+//
+// La franja cambia el sujeto de la pregunta: la estadia pasa a ser del LUGAR.
+// "Esta ocupado este poligono?" si se puede contestar con pixeles, porque el poligono no
+// se mueve nunca y su aspecto vacio se puede aprender. Ocupado contra vacio es una
+// diferencia enorme; "cambio este recorte?" es una diferencia minima. La chapa pasa a
+// NOMBRAR al ocupante, no a probarlo.
+// ---------------------------------------------------------------------------
+model Franja {
+  id       String  @id @default(cuid())
+  deviceId String  @unique
+  device   Device  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  nombre   String?
+
+  // Cuatro esquinas en fracciones del cuadro, en orden a, b, c, d: a→b es un lado largo
+  // de la franja y d→c el opuesto. La celda i va de lerp(a,b) a lerp(d,c), asi que las
+  // celdas se achican solas hacia el fondo — igual que los autos en perspectiva. Un
+  // rectangulo con lados iguales no serviria: una calle se ve en diagonal.
+  esquinas String
+
+  // Cuantos autos entran en la franja. No se deduce: no hay escala en la imagen, y
+  // deducirla de la chapa ya fallo antes (ver arquitectura §3.11). Lo sabe el operador
+  // mirando la calle, y es el unico numero que tiene que poner.
+  lugares Int @default(6)
+
+  // La huella de cada celda con la franja vacia, aprendida a pedido del operador.
+  // JSON [[n,...],...]. Mientras sea null la franja no mide nada y lo dice: inventar una
+  // referencia es exactamente el error que produjo los fantasmas.
+  vacio   String?
+  vacioAt DateTime?
+
+  activa      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  ocupaciones Ocupacion[]
+}
+
+// Una estadia, que ahora es de un lugar de la franja y no de una matricula.
+model Ocupacion {
+  id       String @id @default(cuid())
+  franjaId String
+  franja   Franja @relation(fields: [franjaId], references: [id], onDelete: Cascade)
+  deviceId String
+  device   Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  lugar    Int
+
+  // Quien es. Puede quedar en null: un auto ocupa el lugar aunque no se le lea la chapa.
+  plate      String?
+  plateConf  Float?
+  sightingId String?
+
+  desde   DateTime
+  hasta   DateTime
+  cerrada Boolean  @default(false)
+  avisado Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([franjaId, lugar, cerrada])
+  @@index([deviceId, cerrada])
+  @@index([plate])
 }

@@ -9,7 +9,7 @@
  * la serie: si la GPU viene trabajando, si el lector viene leyendo, y de cada disparo
  * cuántos terminaron en una matrícula.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useId, useRef } from "react";
 import axios from "axios";
 import { sileo as toast } from "sileo";
 import {
@@ -23,11 +23,25 @@ import { fechaCorta, fechaHora } from "@/lib/fechas";
 
 type Camara = { id: string; name: string; rtsp: string; rtspVisible?: string; activa?: boolean; enMapa?: boolean; lat?: number | null; lng?: number | null };
 
+/*
+ * Las ventanas empiezan en diez minutos.
+ *
+ * La más corta era una hora, y eso dejaba afuera la pregunta más frecuente: acaba de
+ * pasar algo, ¿qué está haciendo AHORA? Un pico de treinta segundos promediado contra
+ * cincuenta y nueve minutos tranquilos no existe.
+ */
 const RANGOS = [
-    { horas: 6, etiqueta: "6 h" },
-    { horas: 24, etiqueta: "24 h" },
-    { horas: 168, etiqueta: "7 días" },
+    { minutos: 10, etiqueta: "10 min" },
+    { minutos: 30, etiqueta: "30 min" },
+    { minutos: 60, etiqueta: "1 h" },
+    { minutos: 360, etiqueta: "6 h" },
+    { minutos: 1440, etiqueta: "24 h" },
+    { minutos: 10080, etiqueta: "7 días" },
 ];
+
+const rotuloRango = (min: number) => RANGOS.find((r) => r.minutos === min)?.etiqueta || `${min} min`;
+
+const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" });
 
 /* ─────────────────────────── piezas ─────────────────────────── */
 
@@ -59,47 +73,161 @@ function Dato({ rotulo, valor, pie, tono }: { rotulo: string; valor: string; pie
     );
 }
 
-/** Línea de tendencia. El área rellena ayuda a leer el nivel de un vistazo. */
-function Linea({ datos, color, max }: { datos: (number | null)[]; color: string; max?: number }) {
-    const vals = datos.map((v) => (v == null ? 0 : v));
-    if (vals.length < 2) return <div className="h-10 rounded bg-muted/30" />;
-    const tope = Math.max(max ?? 0, ...vals, 1);
-    const an = 100, al = 30;
-    const px = (i: number) => (i / (vals.length - 1)) * an;
-    const py = (v: number) => al - (v / tope) * (al - 2) - 1;
-    const linea = vals.map((v, i) => `${i ? "L" : "M"}${px(i).toFixed(2)},${py(v).toFixed(2)}`).join(" ");
-    const area = `${linea} L${an},${al} L0,${al} Z`;
+/**
+ * La línea de tendencia de una medida.
+ *
+ * Tres cosas cambiaron respecto de la primera versión, y ninguna es decorativa:
+ *
+ * **Un hueco es un hueco.** Antes los nulos se dibujaban como cero, así que un minuto sin
+ * muestra —la pasarela reiniciando, por ejemplo— se veía igual que un minuto con la GPU
+ * apagada. La línea se corta donde no hay dato.
+ *
+ * **Se puede preguntar.** Un gráfico en una pantalla no es un gráfico en un papel: pasar
+ * el puntero y que diga cuánto y cuándo es lo mínimo. Sin eso, el único número legible
+ * era el último, y toda la historia quedaba en "más o menos por ahí".
+ *
+ * **El punto y la cruz van en HTML, no en el SVG.** El SVG se estira con
+ * `preserveAspectRatio="none"` para que la curva ocupe todo el ancho; adentro de un
+ * sistema estirado un círculo sale elipse. Afuera, posicionado en porcentaje, sale
+ * redondo.
+ */
+function Linea({ datos, momentos, color, max, formato }: {
+    datos: (number | null)[];
+    momentos?: string[];
+    color: string;
+    max?: number;
+    formato?: (v: number) => string;
+}) {
+    const [sobre, setSobre] = useState<number | null>(null);
+    const caja = useRef<HTMLDivElement>(null);
+    const id = useId();
+
+    if (datos.length < 2) return <div className="h-12 rounded bg-muted/30" />;
+
+    const tope = Math.max(max ?? 0, ...datos.filter((v): v is number => v != null), 1);
+    const an = 100, al = 32;
+    const px = (i: number) => (i / (datos.length - 1)) * an;
+    const py = (v: number) => al - (v / tope) * (al - 3) - 1.5;
+
+    /* Un trazo por tramo continuo. Unir a través de un hueco dibujaría una recta que
+       nadie midió, justo sobre el rato del que no se sabe nada. */
+    const tramos: { d: string; desde: number; hasta: number }[] = [];
+    let actual: string[] = [];
+    let arranque = 0;
+    datos.forEach((v, i) => {
+        if (v == null) {
+            if (actual.length > 1) tramos.push({ d: actual.join(" "), desde: arranque, hasta: i - 1 });
+            actual = [];
+            return;
+        }
+        if (!actual.length) arranque = i;
+        actual.push(`${actual.length ? "L" : "M"}${px(i).toFixed(2)},${py(v).toFixed(2)}`);
+    });
+    if (actual.length > 1) tramos.push({ d: actual.join(" "), desde: arranque, hasta: datos.length - 1 });
+
+    const ultimo = datos.map((v, i) => (v == null ? -1 : i)).reduce((a, b) => Math.max(a, b), -1);
+    const senalado = sobre != null && datos[sobre] != null ? sobre : null;
+
     return (
-        <svg viewBox={`0 0 ${an} ${al}`} preserveAspectRatio="none" className="h-10 w-full" aria-hidden>
-            <path d={area} fill={color} opacity={0.14} />
-            <path d={linea} fill="none" stroke={color} strokeWidth={1.2} vectorEffect="non-scaling-stroke" />
-        </svg>
+        <div ref={caja} className="relative h-12 select-none"
+            onMouseLeave={() => setSobre(null)}
+            onMouseMove={(e) => {
+                const r = caja.current?.getBoundingClientRect();
+                if (!r || r.width === 0) return;
+                const f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+                setSobre(Math.round(f * (datos.length - 1)));
+            }}>
+            <svg viewBox={`0 0 ${an} ${al}`} preserveAspectRatio="none" className="h-full w-full" aria-hidden>
+                <defs>
+                    <linearGradient id={`g-${id}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={color} stopOpacity={0.28} />
+                        <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+                    </linearGradient>
+                </defs>
+                {tramos.map((t, i) => (
+                    <path key={`a${i}`}
+                        d={`${t.d} L${px(t.hasta).toFixed(2)},${al} L${px(t.desde).toFixed(2)},${al} Z`}
+                        fill={`url(#g-${id})`} className="omni-graf-area" />
+                ))}
+                {tramos.map((t, i) => (
+                    <path key={`l${i}`} d={t.d} fill="none" stroke={color} strokeWidth={1.6}
+                        strokeLinecap="round" strokeLinejoin="round"
+                        vectorEffect="non-scaling-stroke" className="omni-graf-linea" />
+                ))}
+            </svg>
+
+            {/* El último valor, marcado. Es el que se está leyendo arriba en grande. */}
+            {ultimo >= 0 && senalado == null && (
+                <span className="absolute w-[7px] h-[7px] rounded-full pointer-events-none"
+                    style={{
+                        background: color, left: `${px(ultimo)}%`, top: `${(py(datos[ultimo] as number) / al) * 100}%`,
+                        transform: "translate(-50%,-50%)", boxShadow: `0 0 0 2px var(--card)`,
+                    }} />
+            )}
+
+            {senalado != null && (
+                <>
+                    <span className="absolute inset-y-0 w-px bg-border pointer-events-none"
+                        style={{ left: `${px(senalado)}%` }} />
+                    <span className="absolute w-[7px] h-[7px] rounded-full pointer-events-none"
+                        style={{
+                            background: color, left: `${px(senalado)}%`,
+                            top: `${(py(datos[senalado] as number) / al) * 100}%`,
+                            transform: "translate(-50%,-50%)", boxShadow: `0 0 0 2px var(--card)`,
+                        }} />
+                    <span className="absolute -top-1 z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[10.5px] text-popover-foreground shadow-lg pointer-events-none tabular-nums"
+                        style={{ left: `${Math.min(92, Math.max(8, px(senalado)))}%` }}>
+                        <b className="text-foreground">
+                            {formato ? formato(datos[senalado] as number) : String(datos[senalado])}
+                        </b>
+                        {momentos?.[senalado] && <span className="text-muted-foreground"> · {hora(momentos[senalado])}</span>}
+                    </span>
+                </>
+            )}
+        </div>
     );
 }
 
-/** Barras por hora. Cada barra es una hora; el pie dice cuál es cuál. */
-function Barras({ datos }: { datos: { hora: string; lecturas: number }[] }) {
+/**
+ * Las lecturas agrupadas en tramos parejos.
+ *
+ * El ancho del tramo lo decide el servidor según la ventana, y se dice acá en el pie:
+ * "cada barra son 5 min" es la diferencia entre leer el gráfico y suponerlo.
+ *
+ * Un solo color y no una escala: esto es magnitud, no identidad. Las barras en cero se
+ * dibujan igual, tenues — un hueco en la fila diría "acá no hay dato" y lo que hay es un
+ * dato que vale cero, que no es lo mismo.
+ */
+function Barras({ datos, tramoMin }: { datos: { desde: string; lecturas: number }[]; tramoMin?: number }) {
     const tope = Math.max(1, ...datos.map((d) => d.lecturas));
+    const cuanto = tramoMin == null ? null
+        : tramoMin < 60 ? `${tramoMin} min`
+            : tramoMin === 60 ? "1 h" : `${Math.round(tramoMin / 60)} h`;
     return (
         <div>
-            <div className="flex items-end gap-[2px] h-20">
+            <div className="flex items-end gap-[2px] h-24">
                 {datos.map((d) => {
                     const h = (d.lecturas / tope) * 100;
                     return (
-                        <div key={d.hora} className="flex-1 min-w-0 flex items-end h-full group relative">
+                        <div key={d.desde} className="flex-1 min-w-0 flex items-end h-full group relative">
                             <div
-                                className={cn("w-full rounded-sm transition-colors", d.lecturas ? "bg-violet-500/70 group-hover:bg-violet-400" : "bg-muted/50")}
-                                style={{ height: `${Math.max(d.lecturas ? 6 : 2, h)}%` }}
-                            />
-                            <div className="pointer-events-none absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 whitespace-nowrap rounded bg-popover border border-border px-2 py-1 text-[10px] text-popover-foreground shadow">
-                                {fechaHora(new Date(d.hora))} · {d.lecturas}
+                                className={cn("w-full rounded-t-[4px] transition-all duration-200",
+                                    d.lecturas ? "group-hover:brightness-110" : "bg-muted/50")}
+                                style={{
+                                    height: `${Math.max(d.lecturas ? 6 : 2, h)}%`,
+                                    background: d.lecturas ? "var(--accion)" : undefined,
+                                }} />
+                            <div className="pointer-events-none absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover:block z-10 whitespace-nowrap rounded-md bg-popover border border-border px-2 py-1 text-[10.5px] text-popover-foreground shadow-lg tabular-nums">
+                                <b className="text-foreground">{d.lecturas}</b>
+                                <span className="text-muted-foreground"> · {hora(d.desde)}</span>
                             </div>
                         </div>
                     );
                 })}
             </div>
-            <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5">
-                <span>{datos[0] ? fechaHora(new Date(datos[0].hora)) : ""}</span>
+            <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5 tabular-nums">
+                <span>{datos[0] ? hora(datos[0].desde) : ""}</span>
+                {cuanto && <span>cada barra, {cuanto}</span>}
                 <span>ahora</span>
             </div>
         </div>
@@ -121,7 +249,7 @@ export default function TrackingSection() {
     const [estado, setEstado] = useState<any>(null);
     const [camaras, setCamaras] = useState<Camara[]>([]);
     const [serie, setSerie] = useState<any>(null);
-    const [horas, setHoras] = useState(24);
+    const [minutos, setMinutos] = useState(360);
     const [cargando, setCargando] = useState(true);
     const [operando, setOperando] = useState<string | null>(null);
     const [probando, setProbando] = useState(false);
@@ -145,11 +273,11 @@ export default function TrackingSection() {
 
     useEffect(() => {
         let vivo = true;
-        const leer = async () => { try { const r = await axios.get(`/api/tracking/series?horas=${horas}`); if (vivo) setSerie(r.data); } catch { } };
+        const leer = async () => { try { const r = await axios.get(`/api/tracking/series?minutos=${minutos}`); if (vivo) setSerie(r.data); } catch { } };
         leer();
         const t = setInterval(leer, 60000);
         return () => { vivo = false; clearInterval(t); };
-    }, [horas]);
+    }, [minutos]);
 
     useEffect(() => {
         let vivo = true;
@@ -274,7 +402,7 @@ export default function TrackingSection() {
                 <Dato rotulo="Pasarela"
                     valor={`${estado?.camaras || 0} cámara${estado?.camaras === 1 ? "" : "s"}`}
                     pie={workerVivo ? (serie?.porCamara?.some((c: any) => c.modo === "camara") ? "disparo por aviso de la cámara" : "disparo por cambio de escena") : "detenida"} />
-                <Dato rotulo={`Lecturas · ${horas >= 168 ? "7 días" : horas + " h"}`}
+                <Dato rotulo={`Lecturas · ${rotuloRango(minutos)}`}
                     valor={String(r?.avistamientos ?? 0)}
                     pie={r?.confianzaMediana != null ? `confianza mediana ${r.confianzaMediana}%` : "sin lecturas todavía"} />
                 <Dato rotulo="Efectividad"
@@ -289,9 +417,11 @@ export default function TrackingSection() {
                     <span className="text-sm font-semibold text-foreground">Rendimiento</span>
                     <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">
                         {RANGOS.map((x) => (
-                            <button key={x.horas} onClick={() => setHoras(x.horas)}
-                                className={cn("px-2.5 py-1 rounded text-[11px] font-semibold transition-all",
-                                    horas === x.horas ? "bg-teal-600 text-white" : "text-muted-foreground hover:text-foreground")}>
+                            <button key={x.minutos} onClick={() => setMinutos(x.minutos)}
+                                className={cn("px-2.5 py-1 rounded text-[11px] font-semibold transition-colors",
+                                    minutos === x.minutos
+                                        ? "bg-[var(--accion)] text-[var(--accion-texto)]"
+                                        : "text-muted-foreground hover:text-foreground")}>
                                 {x.etiqueta}
                             </button>
                         ))}
@@ -323,20 +453,24 @@ export default function TrackingSection() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                         {[
                             {
-                                ic: Zap, t: "GPU", col: "#10b981", k: "gpuWatts",
+                                ic: Zap, t: "GPU", col: "var(--grafico-1)", k: "gpuWatts", fmt: (v: number) => `${v.toFixed(0)} W`,
                                 v: metricas?.gpu?.potencia != null ? `${metricas.gpu.potencia.toFixed(0)} W` : "—",
                                 pie: pieDeGpu, max: metricas?.gpu?.potenciaMax ?? undefined,
                             },
-                            { ic: Cpu, t: "CPU del lector", col: "#0ea5e9", k: "cpuCont", v: metricas?.contenedor ? `${metricas.contenedor.cpu.toFixed(0)}%` : "—", pie: "del total de la máquina", max: 100 },
-                            { ic: MemoryStick, t: "Memoria del lector", col: "#8b5cf6", k: "memCont", v: metricas?.contenedor ? `${(metricas.contenedor.memUsada / 1e9).toFixed(1)} GB` : "—", pie: "residente", max: undefined },
-                            { ic: Thermometer, t: "Temperatura", col: "#f59e0b", k: "gpuTemp", v: metricas?.gpu ? `${metricas.gpu.temperatura} °C` : "—", pie: metricas?.gpu ? `${metricas.gpu.potencia?.toFixed(0)} de ${metricas.gpu.potenciaMax?.toFixed(0)} W` : "", max: 90 },
+                            { ic: Cpu, t: "CPU del lector", col: "var(--grafico-2)", k: "cpuCont", v: metricas?.contenedor ? `${metricas.contenedor.cpu.toFixed(0)}%` : "—", pie: "del total de la máquina", max: 100, fmt: (v: number) => `${v.toFixed(0)} %` },
+                            { ic: MemoryStick, t: "Memoria del lector", col: "var(--grafico-3)", k: "memCont", v: metricas?.contenedor ? `${(metricas.contenedor.memUsada / 1e9).toFixed(1)} GB` : "—", pie: "residente", max: undefined, fmt: (v: number) => `${(v / 1e9).toFixed(2)} GB` },
+                            { ic: Thermometer, t: "Temperatura", col: "var(--grafico-4)", k: "gpuTemp", v: metricas?.gpu ? `${metricas.gpu.temperatura} °C` : "—", pie: metricas?.gpu ? `${metricas.gpu.potencia?.toFixed(0)} de ${metricas.gpu.potenciaMax?.toFixed(0)} W` : "", max: 90, fmt: (v: number) => `${v.toFixed(0)} °C` },
                         ].map((x) => (
                             <div key={x.k}>
                                 <div className="flex items-center justify-between">
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5"><x.ic size={11} /> {x.t}</span>
                                     <span className="text-sm font-bold text-foreground tabular-nums">{x.v}</span>
                                 </div>
-                                <div className="mt-1.5"><Linea datos={m.map((d: any) => d[x.k])} color={x.col} max={x.max} /></div>
+                                <div className="mt-1.5">
+                                    <Linea datos={m.map((d: any) => d[x.k])}
+                                        momentos={m.map((d: any) => d.momento)}
+                                        color={x.col} max={x.max} formato={x.fmt} />
+                                </div>
                                 {x.pie && <div className="text-[10px] text-muted-foreground mt-0.5">{x.pie}</div>}
                             </div>
                         ))}
@@ -345,15 +479,15 @@ export default function TrackingSection() {
             </div>
 
             {/* ── Lecturas en el tiempo ── */}
-            {!!serie?.porHora?.length && (
+            {!!serie?.porTramo?.length && (
                 <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <span className="text-sm font-semibold text-foreground">Lecturas por hora</span>
+                        <span className="text-sm font-semibold text-foreground">Lecturas en el tiempo</span>
                         <span className="text-[11px] text-muted-foreground">
                             {r?.lecturas ?? 0} aceptadas · {r?.descartes ?? 0} descartadas por no coincidir entre cuadros
                         </span>
                     </div>
-                    <Barras datos={serie.porHora} />
+                    <Barras datos={serie.porTramo} tramoMin={serie.tramoMin} />
                     {r?.efectividad != null && r.efectividad < 30 && r.disparos > 10 && (
                         <div className="flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
                             <AlertTriangle size={13} className="mt-px shrink-0" />

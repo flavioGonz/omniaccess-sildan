@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { franjaDe, nombrarOcupante } from "@/lib/ocupaciones";
+import { lugarDelPunto } from "@/lib/franja";
 import { funcionActiva } from "@/app/actions/funciones";
 import {
     confirmarEstadia, cerrarEstadia, estadiasAbiertas,
@@ -245,6 +247,51 @@ export async function POST(req: NextRequest) {
         : null;
 
     const previo = porChapa || porLugar;
+
+    /*
+     * La franja manda donde está dibujada.
+     *
+     * En una cámara con franja la estadía es del LUGAR y no de la chapa: la abre y la cierra
+     * el barrido midiendo ocupación, y acá la lectura sólo hace una cosa — ponerle NOMBRE al
+     * ocupante. Es la diferencia que arregla el caso de Calle 21, donde el mismo auto entró
+     * al historial como SDM1707, SDH1707 y 5DH177 y salieron tres estadías: ahora son tres
+     * lecturas del ocupante del mismo lugar, y se queda la de más confianza.
+     *
+     * Por eso la lectura se guarda sin `estDesde`/`estHasta`: es un avistamiento del
+     * historial, no una estadía abierta. Dejarle fechas la convertiría en una estadía que
+     * el barrido ya no mira —esas cámaras están excluidas— y que por lo tanto no cerraría
+     * nunca.
+     */
+    const franja = body.deviceId ? await franjaDe(body.deviceId) : null;
+    if (franja && caja) {
+        // El centro del recuadro de la chapa, que es el punto del que se sabe dónde cayó.
+        const centro = { x: caja.x + caja.w / 2, y: caja.y + caja.h / 2 };
+        const lugar = lugarDelPunto(franja.esquinas, franja.lugares, centro);
+        const guardada = await prisma.plateSighting.create({
+            data: {
+                plate: patente,
+                deviceId: body.deviceId || null,
+                cameraName: body.cameraName || null,
+                lat: body.lat ?? null,
+                lng: body.lng ?? null,
+                timestamp: cuando,
+                source: "TRACK",
+                eventType: body.eventType || "INTERNAL",
+                confidence: confianza,
+                reads: lecturas,
+                snapshotUrl: body.snapshotUrl || null,
+                bbox: JSON.stringify(caja),
+                estado: lugar != null ? VISTO : "PASO",
+            },
+        });
+        if (lugar != null) {
+            await nombrarOcupante(body.deviceId!, lugar, patente, confianza ?? 0, guardada.id).catch(() => null);
+        }
+        return NextResponse.json({
+            ok: true, estado: lugar != null ? "OCUPA" : "PASO", id: guardada.id,
+            lugar: lugar != null ? lugar + 1 : null, franja: true,
+        });
+    }
 
     // Si el enganche fue por el recuadro, por definición está en el mismo lugar.
     const quieto = !!porLugar || !!(previo && caja && estaQuieto(caja, leerCaja(previo.bbox)));

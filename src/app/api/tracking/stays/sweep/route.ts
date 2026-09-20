@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
-    cerrarEstadia, confirmarEstadia, estadoDeEstadia, miradasSinVerlo,
+    cerrarEstadia, confirmarEstadia, miradasSinVerlo, ESTACIONADO,
     ESTADIA_VENCE_MIN, ESTADIA_TECHO_MIN, MIRADAS_MIN, ESTADOS_DE_ESTADIA,
 } from "@/lib/estadias";
 import { mirarSiSigue, VIGILIA_POR_VUELTA } from "@/lib/vigilia";
 import { funcionActiva } from "@/app/actions/funciones";
+import { mirarLaFranja } from "@/lib/ocupaciones";
 
 export const dynamic = "force-dynamic";
 
@@ -58,8 +59,33 @@ export async function POST(req: NextRequest) {
        abiertas: apagar una función no es borrar lo que registró, y al volver a prenderla
        esas estadías siguen siendo ciertas o las cierra el techo. */
     if (!(await funcionActiva("LPR_ESTADIAS"))) {
-        return NextResponse.json({ ok: true, apagado: true, revisadas: 0, avisadas: 0, esperando: 0, cerradas: [] });
+        return NextResponse.json({ ok: true, apagado: true, franjas: [], revisadas: 0, avisadas: 0, esperando: 0, cerradas: [] });
     }
+
+    /*
+     * Primero la franja, que es el criterio bueno.
+     *
+     * Las cámaras que tienen franja dibujada miden OCUPACIÓN DEL LUGAR: el polígono no se
+     * mueve, su aspecto vacío se conoce, y un auto encima tapa la celda entera. Eso
+     * contesta la pregunta que el criterio de abajo no puede contestar — "¿sigue ahí?" —
+     * porque abajo la única prueba disponible es otra lectura de la misma chapa, y una
+     * lectura no dice nada sobre si el vehículo está quieto.
+     *
+     * Y por eso esas cámaras quedan EXCLUIDAS del barrido viejo: dos motores sobre la misma
+     * calle darían dos estadías por auto, y la peor de las dos seguiría mandando avisos.
+     * El criterio viejo sobrevive sólo donde todavía no hay franja dibujada.
+     */
+    const conFranja = await prisma.franja.findMany({
+        where: { activa: true },
+        select: { deviceId: true, device: { select: { id: true, name: true, rtspUrl: true } } },
+    });
+    const franjas = [];
+    for (const f of conFranja) {
+        franjas.push(await mirarLaFranja(f.device).catch((e: any) => ({
+            deviceId: f.deviceId, medida: false, motivo: e?.message || "falló la mirada",
+        })));
+    }
+    const camarasDeFranja = conFranja.map((f) => f.deviceId);
 
     const ahora = Date.now();
     const corte = new Date(ahora - ESTADIA_VENCE_MIN * 60 * 1000);
@@ -73,12 +99,13 @@ export async function POST(req: NextRequest) {
             estado: { in: ESTADOS_DE_ESTADIA },
             estCerrada: false,
             estHasta: { lt: corte },
+            ...(camarasDeFranja.length ? { deviceId: { notIn: camarasDeFranja } } : {}),
         },
         orderBy: { estHasta: "asc" },
         take: 200,
     });
     if (!candidatas.length) {
-        return NextResponse.json({ ok: true, revisadas: 0, avisadas: 0, esperando: 0, cerradas: [] });
+        return NextResponse.json({ ok: true, franjas, revisadas: 0, avisadas: 0, esperando: 0, cerradas: [] });
     }
 
     // Las lecturas de cada cámara se traen UNA vez, no una por estadía: en una cámara con
@@ -128,23 +155,29 @@ export async function POST(req: NextRequest) {
          * alcanza, se gasta en las que hace más tiempo que nadie mira.
          */
         /*
-         * También las que NO están confirmadas todavía, y eso es el arreglo de un callejón
-         * sin salida.
+         * También las que NO están confirmadas todavía — pero la mirada SOSTIENE la estadía
+         * y ya no la asciende. Eso último fue un error, y vale dejar escrito cuál.
          *
-         * Una estadía nace en VISTO y sólo pasa a ESTACIONADO cuando se la ve dos veces
-         * separadas en el tiempo. En una calle con tránsito eso ocurre solo. En una
-         * tranquila no: la cámara de la Calle 21 lee el auto parado una vez cada varias
-         * horas, así que cada lectura abría una estadía nueva con estDesde igual a estHasta
-         * — duración cero — que vencia antes de la segunda. Cuatro estadías cerradas en un
-         * día por un auto que no se movió nunca, y el plano sin un solo auto parado.
+         * El razonamiento era: ver el mismo auto en el mismo lugar dos veces separadas por
+         * doce minutos es la prueba que el estado pide, y que la segunda sea una mirada de
+         * píxeles en vez de una lectura de chapa no la hace peor.
          *
-         * La vigilia miraba sólo las confirmadas, así que no rompía el círculo: para que la
-         * miraran tenía que estar confirmada, y para confirmarse tenía que ser mirada.
+         * Lo que falla es la premisa. La mirada no ve *el auto*: compara el pedazo de calle
+         * alrededor del último recuadro contra cómo se veía antes. **Un pedazo de calle
+         * vacía también se ve igual de una mirada a la otra**, así que "no cambió nada"
+         * salía como "el auto sigue" — y una lectura suelta de un auto que pasaba por una
+         * parte del cuadro que esa cámara no vigila terminaba ascendida a ESTACIONADO y
+         * dibujada en el mapa. Es el falso positivo que el operador vio: autos marcados
+         * donde no había ninguno.
          *
-         * Y mirar es justamente lo que falta. Ver el mismo auto en el mismo lugar dos veces
-         * separadas por doce minutos ES la prueba que el estado pide; que la segunda sea una
-         * mirada de píxeles y no una lectura de la chapa no la hace peor — de hecho de
-         * noche la hace mejor.
+         * La mirada se queda con lo que sí puede probar — que algo cambió, y por lo tanto
+         * que el auto se fue — y pierde lo que no podía: crear un estacionamiento. Para
+         * ascender hace falta una segunda lectura de verdad.
+         *
+         * El callejón sin salida que esto reabre (una calle tan tranquila que el auto
+         * parado no se relee nunca) es el que resuelve la franja: ahí la pregunta pasa a ser
+         * del lugar y no de la chapa, y se contesta sin depender de que alguien pase. Ver
+         * `src/lib/franja.ts`.
          */
         const equipo = fila.deviceId ? equipos.get(fila.deviceId) : null;
         if (equipo?.rtspUrl && quedanMiradas > 0) {
@@ -169,15 +202,17 @@ export async function POST(req: NextRequest) {
                     where: { id: fila.id },
                     data: {
                         estHasta: ahoraMismo,
-                        /* Y el estado se recalcula: con la estadía estirada puede haber
-                           dejado de ser "se lo vio" para pasar a ser "se quedó". */
-                        estado: estadoDeEstadia(fila.estDesde ?? fila.timestamp, ahoraMismo),
+                        /* NO se recalcula el estado: ver el comentario largo de arriba. Una
+                           estadía sube a ESTACIONADO por una segunda lectura, nunca por una
+                           mirada de píxeles. */
                     },
                 }).catch(() => null);
-                /* Y si con esto ya alcanza, se anuncia. `confirmarEstadia` no hace nada si
-                   ya estaba avisada o si todavía no llegó al mínimo, así que llamarla en cada
-                   vuelta es gratis y evita tener que repetir sus reglas acá. */
-                if (estirada) await confirmarEstadia(estirada as any).catch(() => { });
+                /* Sólo se anuncia la que YA era un estacionamiento por lecturas propias.
+                   `confirmarEstadia` no hace nada si ya estaba avisada, así que llamarla en
+                   cada vuelta es gratis. */
+                if (estirada && estirada.estado === ESTACIONADO) {
+                    await confirmarEstadia(estirada as any).catch(() => { });
+                }
                 continue;
             }
             if (vista.resultado === "no se pudo") {
@@ -218,6 +253,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
         ok: true,
+        franjas,
         revisadas: candidatas.length,
         miradas: miradasHechas,
         avisadas: cerradas.length,

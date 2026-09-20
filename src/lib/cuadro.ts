@@ -28,18 +28,31 @@ export type Recorte = { x: number; y: number; w: number; h: number } | null;
  * colgado, y con él la petición: sin corte, una cámara caída se lleva puesto un hilo del
  * servidor por cada intento.
  */
-export function capturarCuadro(rtsp: string, opciones?: { roi?: Recorte; segundos?: number }): Promise<Buffer> {
-    const { roi = null, segundos = 20 } = opciones || {};
+/**
+ * Cuántos cuadros se tiran antes de quedarse con uno.
+ *
+ * No es prolijidad: en la Calle 22, que transmite HEVC, `-frames:v 1` a veces devuelve un
+ * cuadro roto — el decodificador arranca sin referencia (`Could not find ref with POC 0`) y
+ * entrega una imagen gris de 94 KB donde las buenas pesan un megabyte. Una vez cada varias
+ * capturas, lo suficiente como para no notarlo probando a mano y lo suficiente como para
+ * envenenar una referencia que después se usa todo el día.
+ */
+export const CUADROS_A_TIRAR = Number(process.env.TRACKING_SKIP_FRAMES || 10);
+
+export function capturarCuadro(rtsp: string, opciones?: { roi?: Recorte; segundos?: number; tirar?: number }): Promise<Buffer> {
+    const { roi = null, segundos = 20, tirar = 0 } = opciones || {};
     return new Promise((resolve, reject) => {
         const filtros: string[] = [];
         if (roi && roi.w > 0 && roi.h > 0 && (roi.w < 1 || roi.h < 1 || roi.x > 0 || roi.y > 0)) {
             // crop trabaja en píxeles; iw/ih son el ancho y el alto de entrada.
             filtros.push(`crop=iw*${roi.w}:ih*${roi.h}:iw*${roi.x}:ih*${roi.y}`);
         }
+        if (tirar > 0) filtros.unshift(`select=gte(n\\,${tirar})`);
         const ff = spawn("ffmpeg", [
             "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp",
             "-i", rtsp,
             ...(filtros.length ? ["-vf", filtros.join(",")] : []),
+            ...(tirar > 0 ? ["-vsync", "0"] : []),
             "-frames:v", "1", "-q:v", "3",
             "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
         ]);

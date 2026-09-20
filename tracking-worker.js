@@ -1140,6 +1140,35 @@ function procesarAviso(est, xml) {
         rearmar(est);
     }
     disparar(est, `camara:${tipo}`);
+    // La intrusion en zona es, justamente, algo que entro donde se estaciona: se adelanta
+    // la mirada de la franja en vez de esperar al barrido del minuto.
+    if (/fielddetection|regionEntrance/i.test(tipo)) mirarFranja(est);
+}
+
+/** Cada cuanto, como mucho, se le hace caso a la camara para mirar la franja. */
+const FRANJA_MIN_MS = Number(process.env.TRACKING_FRANJA_MIN_MS || 20000);
+
+/**
+ * Mirar la franja fuera de turno.
+ *
+ * Con freno, y no por prolijidad: cada mirada es un ffmpeg contra la camara, y una calle con
+ * transito manda avisos de intrusion en rafaga. Sin el freno, la mejora de latencia se
+ * pagaria con la camara ocupada todo el tiempo sacando cuadros que dicen lo mismo.
+ */
+async function mirarFranja(est) {
+    const ahora = Date.now();
+    if (est.franjaAl && ahora - est.franjaAl < FRANJA_MIN_MS) return;
+    est.franjaAl = ahora;
+    try {
+        await fetch(`${APP_URL}/api/tracking/franja/mirar`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-tracking-token": token },
+            body: JSON.stringify({ deviceId: est.cam.deviceId }),
+        });
+    } catch (e) {
+        // Que no se pueda mirar ahora no es un problema: el barrido del minuto igual pasa.
+        log(`${est.cam.name}: no se pudo mirar la franja: ${e.message}`);
+    }
 }
 
 /** Rearma el ffmpeg de una camara (cambio de modo o de calibracion). */

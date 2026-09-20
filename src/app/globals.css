@@ -190,6 +190,28 @@
      los dos temas, pero tener el nombre evita que el próximo lo
      escriba de nuevo con otro matiz. */
   --accion-texto: oklch(1 0 0);
+
+  /*
+   * Los colores de las series de un grafico.
+   *
+   * Existen porque estaban sueltos: cuatro hex escritos adentro del componente de
+   * seguimiento. Y no son decoracion — un color de serie tiene que seguir siendo
+   * distinguible para quien no ve bien los rojos y los verdes, y tiene que tener
+   * suficiente contraste contra el fondo para que una linea de dos pixeles se vea.
+   *
+   * Validados con el script de la guia de visualizacion, en los dos temas, en este
+   * orden: banda de luminosidad, piso de croma, separacion entre pares vecinos para
+   * daltonismo (deutan/protan/tritan), piso de vision normal y contraste contra la
+   * superficie. Los dos temas pasan las cinco.
+   *
+   * El orden importa: la validacion mide pares VECINOS. Memoria quedo en rosa y no en
+   * violeta justo por eso — violeta al lado de celeste da 7,8 de separacion para un
+   * deuteranope, que esta en el piso; rosa da 14,1.
+   */
+  --grafico-1: #059669;  /* GPU */
+  --grafico-2: #0369a1;  /* CPU */
+  --grafico-3: #be185d;  /* memoria */
+  --grafico-4: #a16207;  /* temperatura */
   --accion-foco: oklch(0.65 0.19 256);
   /* Sobre foto, mapa o video el azul normal desaparece: el fondo no es
      nuestra superficie, es una imagen. */
@@ -237,6 +259,12 @@
   --primary-foreground: oklch(0.985 0 0);
   --accion: oklch(0.62 0.20 256);
   --accion-sobre: oklch(0.68 0.19 256);
+  /* Los mismos cuatro, un paso mas claros: sobre fondo oscuro los de arriba no llegan
+     a 3:1 de contraste. Validados aparte contra la superficie oscura. */
+  --grafico-1: #0d9668;
+  --grafico-2: #0284c7;
+  --grafico-3: #db2777;
+  --grafico-4: #d97706;
   --accion-foco: oklch(0.70 0.18 256);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -1828,4 +1856,36 @@ video::-webkit-media-controls { display: none !important; }
 }
 @keyframes esqueletoBrillo {
   100% { transform: translateX(100%); }
+}
+
+/*
+ * Las dos animaciones de las gráficas de rendimiento.
+ *
+ * La línea se dibuja de izquierda a derecha y el relleno aparece atrás: el ojo sigue el
+ * trazo en el sentido en que avanza el tiempo, que es la única dirección en que estos
+ * datos se leen. Es medio segundo y no se repite — una gráfica que se anima cada vez que
+ * llegan datos nuevos deja de ser legible justo cuando hay algo que mirar.
+ *
+ * `prefers-reduced-motion` las apaga enteras: el dibujo final es el mismo, así que acá no
+ * se pierde ninguna información al sacarlas.
+ */
+@keyframes omni-trazo { from { stroke-dashoffset: var(--largo, 1200); } to { stroke-dashoffset: 0; } }
+@keyframes omni-aparecer { from { opacity: 0; } to { opacity: 1; } }
+
+.omni-graf-linea {
+    stroke-dasharray: var(--largo, 1200);
+    animation: omni-trazo .55s cubic-bezier(.4, 0, .2, 1) both;
+}
+
+.omni-graf-area {
+    animation: omni-aparecer .55s cubic-bezier(.4, 0, .2, 1) both;
+    animation-delay: .1s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .omni-graf-linea,
+    .omni-graf-area {
+        animation: none;
+        stroke-dasharray: none;
+    }
 }
