@@ -1,14 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Marker, Polygon } from "react-leaflet";
-import { AnimatePresence } from "framer-motion";
+import { Marker } from "react-leaflet";
 import L from "leaflet";
 import { leerCaja, area as areaDe, type Caja } from "@/lib/recuadros";
-import { conoDeVision, ubicarEnLaEscena } from "@/lib/escena";
+import { ubicarEnLaEscena } from "@/lib/escena";
 
 /**
  * Los autos parados, dibujados dentro de lo que mira cada cámara.
+ *
+ * **El cono no se dibuja acá.** Se probó mostrarlo —primero siempre, después al señalar un
+ * auto— y las dos veces sobró: en la vista normal el plano es para mirar el barrio, y un
+ * triángulo celeste sobre cada calle compite con lo único que importa, que son los autos.
+ * El cono aparece sólo mientras se APUNTA la cámara, que pasa en modo edición y lo dibuja
+ * el mapa, no esta capa. Ahí sí hace falta: es la única forma de ver hacia dónde quedó
+ * mirando mientras se la gira.
  *
  * El problema que resuelve: una estadía guarda la posición de la CÁMARA, no la del auto.
  * Poner el ícono ahí sería afirmar un punto que nadie midió. Con el rumbo de la cámara y
@@ -76,8 +82,6 @@ export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar
 }) {
     const [autos, setAutos] = useState<AutoParado[]>([]);
     const [tipica, setTipica] = useState<Record<string, number | null>>({});
-    /* La cámara cuyo cono se está mostrando. Null = ninguno, que es casi siempre. */
-    const [señalada, setSeñalada] = useState<string | null>(null);
 
     const pedir = async () => {
         try {
@@ -150,30 +154,6 @@ export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar
     return (
         <>
             {/*
-              * El cono se dibuja SOLO mientras se señala un auto de esa cámara.
-              *
-              * Permanente contaba bien la historia —por qué el auto está dibujado ahí— pero
-              * la contaba todo el tiempo, y un plano con un triángulo celeste clavado sobre
-              * cada calle deja de ser un plano. El cono no es el dato: es la explicación del
-              * dato, y una explicación tiene que aparecer cuando alguien pregunta.
-              */}
-            <AnimatePresence>
-                {señalada && (() => {
-                    const cam = conRumbo.find((c) => c.cam.deviceId === señalada)?.cam;
-                    if (!cam) return null;
-                    return (
-                        <Polygon key={`cono-${cam.deviceId}`} positions={conoDeVision(cam)}
-                            pathOptions={{
-                                color: "#38bdf8", weight: 1, opacity: 0.45,
-                                fillColor: "#38bdf8", fillOpacity: 0.09,
-                                // El cono explica, no se toca: los clics son de los lotes de abajo.
-                                interactive: false,
-                            }} />
-                    );
-                })()}
-            </AnimatePresence>
-
-            {/*
               * El aviso NO va en un tooltip de Leaflet.
               *
               * El de Leaflet es una caja negra sin estilo que se estira con el texto: con
@@ -209,14 +189,10 @@ export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar
                     const caja = leerCaja(a.bbox) as Caja | null;
                     const p = ubicarEnLaEscena(cam, caja, tipica[cam.deviceId] ?? null);
                     const tiempo = lapso(a.desde);
-                    const señalar = (e: any) => {
-                        setSeñalada(cam.deviceId);
-                        alSeñalarAuto?.({
-                            auto: a, metros: p.metros, desvio: p.desvio,
-                            x: e.originalEvent?.clientX ?? 0, y: e.originalEvent?.clientY ?? 0,
-                        });
-                    };
                     return (
+                        /* Al CLIC y no al pasar por encima: la ficha trae la captura, y una
+                           foto que aparece y desaparece sola mientras uno recorre el plano
+                           es un parpadeo, no un dato. Abrir es una decisión. */
                         <Marker key={a.id} position={[p.lat, p.lng]}
                             icon={L.divIcon({
                                 className: "bg-transparent border-0",
@@ -224,10 +200,13 @@ export function CapaEstacionados({ camaras, socket, alTocar, alSeñalar, alGirar
                                 iconSize: [46, 46], iconAnchor: [23, 23],
                             })}
                             eventHandlers={{
-                                click: () => alTocar?.(a),
-                                mouseover: señalar,
-                                mousemove: señalar,
-                                mouseout: () => { setSeñalada(null); alSeñalarAuto?.(null); },
+                                click: (e: any) => {
+                                    alTocar?.(a);
+                                    alSeñalarAuto?.({
+                                        auto: a, metros: p.metros, desvio: p.desvio,
+                                        x: e.originalEvent?.clientX ?? 0, y: e.originalEvent?.clientY ?? 0,
+                                    });
+                                },
                             }} />
                     );
                 }),

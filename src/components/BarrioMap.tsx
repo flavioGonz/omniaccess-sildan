@@ -632,6 +632,17 @@ export default function BarrioMap() {
         return [...cams, ...calles].slice(0, 6);
     })();
 
+    /* Un clic en cualquier otra parte del plano cierra la ficha del auto. Es la salida que
+       uno busca sin pensarla, antes de ir a buscar la cruz. */
+    useEffect(() => {
+        if (!autoSeñalado) return;
+        const m = mapRef.current;
+        if (!m) return;
+        const cerrar = () => setAutoSeñalado(null);
+        m.on("click", cerrar);
+        return () => { m.off("click", cerrar); };
+    }, [autoSeñalado]);
+
     const irALugar = (l: Lugar) => {
         setVista3D(false);
         mapRef.current?.flyTo([l.lat, l.lng], l.tipo === "camara" ? 19 : 18, { duration: 0.9 });
@@ -1206,7 +1217,16 @@ ${CSS_AUTO}
                                     exit={{ opacity: 0, scale: 0.96, y: 4 }}
                                     transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.6 }}
                                     style={{ left: x, top: y, width: ANCHO }}
-                                    className="fixed z-[580] pointer-events-none rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
+                                    className="fixed z-[580] rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
+
+                                    {/* Se cierra a propósito. Abierta por un clic, no puede
+                                        irse sola con el puntero: quien la abrió la está
+                                        mirando, y mirar una foto lleva más de un segundo. */}
+                                    <button type="button" onClick={() => setAutoSeñalado(null)}
+                                        aria-label="Cerrar"
+                                        className="absolute top-1.5 right-1.5 z-[2] w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur text-white/70 hover:text-white transition-colors flex items-center justify-center">
+                                        <X size={13} />
+                                    </button>
 
                                     {a.foto ? (
                                         <div className="relative w-full aspect-video bg-black">
