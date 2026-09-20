@@ -187,10 +187,33 @@ export async function POST(req: NextRequest) {
     // carácter entre dos ráfagas: el mismo auto quedó como DAF1168 y, dos segundos
     // después, como OAF1168. La agrupación de la pasarela no alcanza para esto porque
     // trabaja dentro de una ráfaga, y acá son dos.
+    /**
+     * Una estadía CERRADA no engancha con nada. Ya terminó.
+     *
+     * Esto faltaba, y hacía desaparecer autos del plano para siempre.
+     *
+     * El barrendero cierra una estadía cuando la cámara miró dos veces sin ver al auto.
+     * Si el auto en realidad seguía ahí —de noche una chapa se lee mucho peor, y dos
+     * lecturas fallidas seguidas no son raras— la fila queda cerrada igual. Y cuando el
+     * auto se volvía a leer, esta búsqueda lo enganchaba con esa fila cerrada y la
+     * actualizaba: estHasta avanzaba, reads subía, la hora se veía fresca... y estCerrada
+     * seguía en true. El plano pide las estadías abiertas, así que ese auto no volvía a
+     * aparecer nunca más, por más que la cámara lo siguiera viendo cada pocos minutos.
+     *
+     * Eso es exactamente lo que pasó con el auto de la Calle 21: figuraba ESTACIONADO, con
+     * seis lecturas y la última recién, y el mapa mostraba un solo auto — el de la otra
+     * cámara.
+     *
+     * Ahora una fila cerrada es historia y no se toca. Si el auto se vuelve a ver, empieza
+     * una estadía nueva, que es lo honesto: el sistema lo dio por ido y lo volvió a
+     * encontrar, y eso es lo que muestra. Las filas de PASO no se cierran nunca, así que
+     * este filtro no cambia en nada cómo se agrupan las pasadas.
+     */
     const recientes = await prisma.plateSighting.findMany({
         where: {
             deviceId: body.deviceId || null,
             source: "TRACK",
+            estCerrada: false,
             timestamp: { gte: desdeEstadia, lte: cuando },
         },
         orderBy: { timestamp: "desc" },
