@@ -490,12 +490,15 @@ async function grabSnapshot(
 
 // ─── Main Poll Function ────────────────────────────
 export async function pollBoschDevices(): Promise<{
+    /** Cuantos hay dados de alta. De esto sale el ritmo: sin contadores no hay nada que mirar. */
+    devicesFound: number;
+    /** Cuantos se pudieron leer de verdad. Uno sin IP ni credenciales existe pero no se lee. */
     devicesPolled: number;
     eventsCreated: number;
     errors: string[];
 }> {
     const logPrefix = `[${new Date().toISOString()}] [ONVIF-Poll]`;
-    const result = { devicesPolled: 0, eventsCreated: 0, errors: [] as string[] };
+    const result = { devicesFound: 0, devicesPolled: 0, eventsCreated: 0, errors: [] as string[] };
 
     // Get all Bosch QUEUE_COUNTER devices
     const devices = await prisma.device.findMany({
@@ -505,10 +508,8 @@ export async function pollBoschDevices(): Promise<{
         },
     });
 
-    if (devices.length === 0) {
-        console.log(`${logPrefix} No Bosch QUEUE_COUNTER devices found`);
-        return result;
-    }
+    result.devicesFound = devices.length;
+    if (devices.length === 0) return result;
 
     for (const device of devices) {
         if (!device.ip || !device.username || !device.password) {
@@ -632,9 +633,10 @@ export async function pollBoschDevices(): Promise<{
                 await evaluateNotificationRules(device.id, channelName, evt.count, snapshotPath).catch(() => {});
             }
 
-            if (events.length === 0) {
-                console.log(`${logPrefix} ${device.name}: no new events`);
-            }
+            /* Antes se anotaba "no new events" en cada vuelta. Un contador leido cada
+               segundo pasa casi todo el dia sin eventos nuevos: eso no es una novedad,
+               es el estado normal, y escribirlo tapa los renglones que si importan. Lo
+               que hubo queda anotado arriba, uno por evento. */
         } catch (e: any) {
             const errMsg = `Error polling ${device.name} (${device.ip}): ${e.message}`;
             console.error(`${logPrefix} ❌ ${errMsg}`);
@@ -870,8 +872,35 @@ export function getActiveSubscriptions(): Array<{
 }
 
 // ─── Auto-Polling Manager ──────────────────────────
-let pollInterval: ReturnType<typeof setInterval> | null = null;
+/**
+ * Cada cuanto se les pregunta a los contadores de fila.
+ *
+ * Un contador de personas solo sirve leido seguido: entre dos lecturas separadas por
+ * minutos la fila se formo y se deshizo, y no queda rastro de que haya existido. De ahi
+ * el segundo.
+ *
+ * Pero ese segundo se pagaba SIEMPRE, incluso donde no hay un solo contador instalado.
+ * Aca hay dos camaras de matricula y el modulo de filas apagado: eran 86.400 consultas
+ * por dia preguntandole a la base por un aparato que nadie compro, y 86.400 renglones
+ * diciendo que no lo encontro — el 99,3 % de todo lo que escribia el servidor web.
+ *
+ * Lo caro no es la consulta, es el renglon. Un registro donde 99 de cada 100 lineas no
+ * dicen nada es un registro donde la linea que si dice algo no se encuentra; el dia que
+ * el mapa se cayo, buscar el error ahi fue tiempo perdido.
+ *
+ * Asi que el ritmo lo decide lo que hay: rapido mientras haya algo que mirar, lento
+ * mientras no. Si manana alguien da de alta un contador, la proxima ronda lenta lo ve y
+ * el ritmo se acelera solo. No hay que reiniciar nada ni acordarse de ningun interruptor.
+ */
+const RITMO_ACTIVO_MS = 1_000;
+const RITMO_DORMIDO_MS = 5 * 60_000;
+
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+/** Si el ciclo esta encendido. Aparte del temporizador: entre vuelta y vuelta no hay temporizador. */
+let pollAndando = false;
 let isPolling = false;
+/** El ultimo ritmo que se anuncio, para avisar cuando cambia y no en cada vuelta. */
+let ritmoAnunciado: number | null = null;
 
 // ── ONVIF push (WS-BaseNotification): la cámara empuja eventos a /api/onvif/notify en vivo ──
 const ONVIF_PUSH_URL = process.env.ONVIF_PUSH_URL || "http://192.168.99.99:10001/api/onvif/notify";
@@ -910,33 +939,54 @@ export async function startPushSubscriptions() {
     if (!pushRenewInterval) pushRenewInterval = setInterval(() => { subscribePushForAll().catch(() => {}); }, 90000);
 }
 
-export function startAutoPolling(intervalMs = 1000) {
-    if (pollInterval) {
+export function startAutoPolling(intervalMs = RITMO_ACTIVO_MS) {
+    if (pollAndando) {
         console.log("[ONVIF-Poll] Auto-polling already running");
         return;
     }
-
-    console.log(`[ONVIF-Poll] Starting auto-polling every ${intervalMs / 1000}s`);
+    pollAndando = true;
+    console.log(`[ONVIF-Poll] Encendido: cada ${intervalMs / 1000}s con contadores, cada ${RITMO_DORMIDO_MS / 60000} min sin ellos`);
     startPushSubscriptions().catch(() => {});
-    pollInterval = setInterval(async () => {
-        if (isPolling) return; // Skip if previous poll still running
-        isPolling = true;
-        try {
-            await pollBoschDevices();
-        } catch (e: any) {
-            console.error("[ONVIF-Poll] Auto-poll error:", e.message);
-        } finally {
-            isPolling = false;
+
+    /*
+     * Cada vuelta agenda la siguiente. Con setInterval el ritmo queda decidido al
+     * encender y ya no se puede cambiar sin apagar y volver a encender; aca la vuelta
+     * que acaba de terminar es la que sabe cuanto conviene esperar, porque acaba de ver
+     * cuantos contadores hay.
+     */
+    const vuelta = async () => {
+        let proximo = intervalMs;
+        if (!isPolling) {
+            isPolling = true;
+            try {
+                const r = await pollBoschDevices();
+                proximo = r.devicesFound > 0 ? intervalMs : RITMO_DORMIDO_MS;
+                if (proximo !== ritmoAnunciado) {
+                    console.log(r.devicesFound > 0
+                        ? `[ONVIF-Poll] ${r.devicesFound} contador(es) de fila: leyendo cada ${intervalMs / 1000}s`
+                        : `[ONVIF-Poll] no hay contadores de fila dados de alta: vuelvo a mirar en ${RITMO_DORMIDO_MS / 60000} min`);
+                    ritmoAnunciado = proximo;
+                }
+            } catch (e: any) {
+                // Un error no es una respuesta: no dice si hay contadores o no, asi que
+                // se mantiene el ritmo de antes en vez de irse a dormir cinco minutos.
+                console.error("[ONVIF-Poll] Auto-poll error:", e?.message || e);
+                proximo = ritmoAnunciado ?? intervalMs;
+            } finally {
+                isPolling = false;
+            }
         }
-    }, intervalMs);
+        if (pollAndando) pollTimer = setTimeout(vuelta, proximo);
+    };
+    void vuelta();
 }
 
 export function stopAutoPolling() {
-    if (pollInterval) {
-        clearInterval(pollInterval);
-        pollInterval = null;
-        console.log("[ONVIF-Poll] Auto-polling stopped");
-    }
+    if (!pollAndando) return;
+    pollAndando = false;
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    ritmoAnunciado = null;
+    console.log("[ONVIF-Poll] Auto-polling stopped");
 }
 
 // Reset in-memory queue counters for a device (called at store opening).
@@ -952,5 +1002,5 @@ export function resetQueueCounters(deviceId: string) {
 }
 
 export function isAutoPollingActive(): boolean {
-    return pollInterval !== null;
+    return pollAndando;
 }

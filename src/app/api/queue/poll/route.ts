@@ -25,9 +25,12 @@ export async function GET(req: NextRequest) {
     if (searchParams.get("start")) {
         const interval = parseInt(searchParams.get("interval") || "1000", 10);
         startAutoPolling(interval);
+        /* El intervalo pedido es el ritmo CON contadores; sin ninguno dado de alta el
+           ciclo se va a dormir solo. Decir "cada 1s" a secas seria mentir en la mayoria
+           de las instalaciones, que no tienen un contador de filas. */
         return NextResponse.json({
             status: "ok",
-            message: `Auto-polling started (every ${interval / 1000}s)`,
+            message: `Auto-polling on (cada ${interval / 1000}s mientras haya contadores de fila)`,
             autoPolling: true,
         });
     }
