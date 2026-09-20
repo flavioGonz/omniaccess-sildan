@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { notificarEvento } from "@/lib/reglas-notificacion";
 import { mismaChapa } from "@/lib/matriculas";
 import { avisarPorSocket } from "@/lib/avisar";
+import { olvidarVigilia } from "@/lib/vigilia";
 
 /**
  * Estadías: cuándo un vehículo estaciona y cuándo se va.
@@ -166,6 +167,10 @@ export async function cerrarEstadia(fila: {
     id: string; plate: string; deviceId: string | null; cameraName: string | null;
     estDesde: Date | null; estHasta: Date | null; estAvisado: boolean; snapshotUrl: string | null;
 }) {
+    /* La nota de vigilia no tiene por qué sobrevivir a la estadía: sin esto quedarían
+       archivitos huérfanos para siempre, y el día que un id se repitiera —no pasa, pero el
+       razonamiento vale igual— se compararía contra la huella de otro auto. */
+    await olvidarVigilia(fila.id);
     const tomado = await prisma.plateSighting.updateMany({
         where: { id: fila.id, estCerrada: false },
         data: { estCerrada: true },

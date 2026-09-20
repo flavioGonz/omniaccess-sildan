@@ -4,6 +4,7 @@ import {
     cerrarEstadia, miradasSinVerlo,
     ESTADIA_VENCE_MIN, ESTADIA_TECHO_MIN, MIRADAS_MIN, ESTADOS_DE_ESTADIA,
 } from "@/lib/estadias";
+import { mirarSiSigue, VIGILIA_POR_VUELTA } from "@/lib/vigilia";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,18 @@ export const dynamic = "force-dynamic";
  * ráfagas con otras matrículas después de la última vez que se lo vio. Si la cámara no
  * miró — se cayó, o no pasó nadie — la estadía queda abierta hasta el techo, porque el
  * auto probablemente siga ahí y decir que se fue sería inventar.
+ *
+ * **Y antes de cerrar, va a mirar.** Esperar a que otro vehículo dispare una ráfaga anda en
+ * una calle con tránsito y no anda en una tranquila: una de las cámaras de acá tuvo UNA
+ * lectura en dos horas, y en ese hueco un auto estacionado enfrente desaparecía del plano.
+ * La vigilia mira el pedazo de calle donde estaba el auto y compara píxeles con la vez
+ * anterior — sin GPU. Recién si eso cambió le pide la chapa al lector, y sobre el recorte,
+ * no sobre el cuadro entero. Ver `src/lib/vigilia.ts`.
+ *
+ * Quiénes se miran sale solo: candidata es la estadía que hace ESTADIA_VENCE_MIN que nadie
+ * lee. Un auto que se está releyendo cada minuto nunca entra acá, así que no se le gasta una
+ * sola mirada; y una que sigue viva vuelve a quedar fuera por otros doce minutos. El ritmo
+ * lo pone la propia falta de lecturas, que es exactamente lo que se quiere vigilar.
  *
  * Lo llama la pasarela una vez por minuto. Es idempotente: cerrar una estadía ya cerrada
  * no hace nada ni vuelve a avisar.
@@ -77,13 +90,75 @@ export async function POST(req: NextRequest) {
         porCamara.set(deviceId, filas);
     }));
 
+    /* Las cámaras de las candidatas, una sola vez: la vigilia necesita el RTSP y la zona de
+       interés, y varias estadías pueden ser de la misma cámara. */
+    const equipos = new Map<string, { rtspUrl: string | null; trackRoi: string | null }>();
+    if (camaras.length) {
+        const filas = await prisma.device.findMany({
+            where: { id: { in: camaras } },
+            select: { id: true, rtspUrl: true, trackRoi: true },
+        });
+        for (const d of filas) equipos.set(d.id, { rtspUrl: d.rtspUrl, trackRoi: d.trackRoi });
+    }
+
     const cerradas: { plate: string; camara: string | null; minutos: number; motivo: string }[] = [];
+    const miradasHechas: { plate: string; camara: string | null; resultado: string; gpu: boolean; detalle: string }[] = [];
     let esperando = 0;
+    let quedanMiradas = VIGILIA_POR_VUELTA;
 
     for (const fila of candidatas) {
         const lecturas = fila.deviceId ? porCamara.get(fila.deviceId) || [] : [];
         const miradas = miradasSinVerlo(fila as any, lecturas);
         const porTecho = (fila.estHasta?.getTime() ?? ahora) < techo.getTime();
+
+        /*
+         * Primero se va a mirar, y lo que se vea manda sobre todo lo demás.
+         *
+         * Sólo para las estadías CONFIRMADAS: una que nunca llegó a ser un estacionamiento
+         * se cierra en silencio sin avisar nada, y no vale una mirada. Las candidatas vienen
+         * ordenadas de la más vieja a la más nueva, así que si el cupo de la vuelta no
+         * alcanza, se gasta en las que hace más tiempo que nadie mira.
+         */
+        const equipo = fila.deviceId ? equipos.get(fila.deviceId) : null;
+        if (fila.estAvisado && equipo?.rtspUrl && quedanMiradas > 0) {
+            quedanMiradas--;
+            const vista = await mirarSiSigue(
+                { id: fila.id, plate: fila.plate, bbox: fila.bbox },
+                equipo,
+            ).catch((e) => ({ resultado: "no se pudo" as const, gpu: false, detalle: String(e?.message || e), fallas: 0 }));
+
+            miradasHechas.push({
+                plate: fila.plate, camara: fila.cameraName,
+                resultado: vista.resultado, gpu: vista.gpu, detalle: vista.detalle,
+            });
+
+            if (vista.resultado === "sigue") {
+                /* Sigue ahí: la estadía se estira hasta ahora. No se crea una lectura nueva
+                   —esto es una mirada, no un avistamiento de la cámara— y por eso tampoco se
+                   toca `timestamp`, que sigue queriendo decir "la última vez que se le leyó
+                   la chapa". */
+                await prisma.plateSighting.update({
+                    where: { id: fila.id },
+                    data: { estHasta: new Date() },
+                }).catch(() => { });
+                continue;
+            }
+            if (vista.resultado === "no se pudo") {
+                /* No se sabe. No se cierra por no saber: se deja para la vuelta que viene, y
+                   si la cámara nunca vuelve, el techo es el que corta. */
+                esperando++;
+                continue;
+            }
+            /* "se fue": mirado y no encontrado. Eso cierra, sin pedirle permiso a las reglas
+               de abajo — que existen justamente porque antes no se podía ir a mirar. */
+            const aviso = await cerrarEstadia(fila as any).catch(() => false);
+            if (aviso) cerradas.push({
+                plate: fila.plate, camara: fila.cameraName,
+                minutos: Math.round(((fila.estHasta?.getTime() ?? 0) - (fila.estDesde?.getTime() ?? 0)) / 60000),
+                motivo: `se fue mirándolo: ${vista.detalle}`,
+            });
+            continue;
+        }
 
         if (miradas < MIRADAS_MIN && !porTecho) {
             // La cámara no volvió a mirar. No hay nada que probar una ausencia.
@@ -107,6 +182,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
         ok: true,
         revisadas: candidatas.length,
+        miradas: miradasHechas,
         avisadas: cerradas.length,
         // Las que vencieron por reloj pero todavía no tienen prueba de ausencia.
         esperando,
