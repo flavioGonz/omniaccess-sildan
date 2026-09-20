@@ -409,6 +409,24 @@ export default function BarrioMap() {
                 sentido: e.direction as any,
             }));
     }, [flow.entries, flow.exits]);
+    /**
+     * Un clic en cualquier otra parte del plano cierra la ficha del auto.
+     *
+     * Va ACÁ ARRIBA, con el resto de los hooks, y no donde se lee más natural: abajo hay
+     * un `if (!data) return` mientras el mapa carga, y un hook después de ese return se
+     * ejecuta en unos renders y en otros no. React cuenta los hooks por orden y explota
+     * con "rendered more hooks than during the previous render" apenas llegan los datos.
+     * Lo rompí así y la pantalla quedó en blanco.
+     */
+    useEffect(() => {
+        if (!autoSeñalado) return;
+        const m = mapRef.current;
+        if (!m) return;
+        const cerrar = () => setAutoSeñalado(null);
+        m.on("click", cerrar);
+        return () => { m.off("click", cerrar); };
+    }, [autoSeñalado]);
+
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
 
@@ -631,17 +649,6 @@ export default function BarrioMap() {
             .map((st) => ({ tipo: "calle" as const, id: st.id, nombre: st.name || "Calle", lat: st.points[Math.floor(st.points.length / 2)][0], lng: st.points[Math.floor(st.points.length / 2)][1] }));
         return [...cams, ...calles].slice(0, 6);
     })();
-
-    /* Un clic en cualquier otra parte del plano cierra la ficha del auto. Es la salida que
-       uno busca sin pensarla, antes de ir a buscar la cruz. */
-    useEffect(() => {
-        if (!autoSeñalado) return;
-        const m = mapRef.current;
-        if (!m) return;
-        const cerrar = () => setAutoSeñalado(null);
-        m.on("click", cerrar);
-        return () => { m.off("click", cerrar); };
-    }, [autoSeñalado]);
 
     const irALugar = (l: Lugar) => {
         setVista3D(false);
