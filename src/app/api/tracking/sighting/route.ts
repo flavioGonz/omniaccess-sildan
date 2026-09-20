@@ -238,6 +238,27 @@ export async function POST(req: NextRequest) {
      */
     if (previo && (quieto || fueraDePuerta)) {
         const mejorFoto = confianza != null && (previo.confidence ?? 0) < confianza;
+        /**
+         * Una estadía consolidada renueva su foto en cada relectura.
+         *
+         * La regla de "la mejor foto" es la correcta mientras la estadía se está formando:
+         * ahí lo que importa es quedarse con la lectura donde la chapa se ve mejor. Pero
+         * una vez confirmada deja de servir y empieza a mentir. Un auto entró a las seis y
+         * media de la tarde con 0,90 de confianza; a las diez de la noche seguía ahí y
+         * ninguna relectura superó ese 0,90, así que la ficha mostraba la foto de las
+         * 18:28 — pleno día, con sol— abajo del renglón "Hace 3m". La hora era cierta y
+         * la foto también; juntas decían algo falso, que es la peor clase de error porque
+         * no hay nada roto que se pueda encontrar.
+         *
+         * Y para quien mira el plano a las diez de la noche, la foto de las seis y media no
+         * es sólo confusa: es inútil. Lo que quiere saber es si el auto sigue estando, y
+         * eso sólo lo contesta la última imagen.
+         *
+         * No se pierde nada: la matrícula y su confianza quedan escritas en la fila y no
+         * las toca una lectura peor. Lo único que cambia es cuál de todas las imágenes se
+         * guarda, y pasa a ser la que corresponde a la hora que se muestra.
+         */
+        const fotoVencida = quieto && previo.estAvisado;
         const desdeCuando = quieto ? (previo.estDesde ?? previo.timestamp) : cuando;
         const actualizado = await prisma.plateSighting.update({
             where: { id: previo.id },
@@ -253,7 +274,7 @@ export async function POST(req: NextRequest) {
                 timestamp: cuando,
                 confidence: mejorFoto ? confianza : previo.confidence,
                 reads: mejorFoto ? (lecturas ?? previo.reads) : previo.reads,
-                snapshotUrl: mejorFoto ? (body.snapshotUrl || previo.snapshotUrl) : previo.snapshotUrl,
+                snapshotUrl: (mejorFoto || fotoVencida) ? (body.snapshotUrl || previo.snapshotUrl) : previo.snapshotUrl,
                 ...(caja ? { bbox: JSON.stringify(caja) } : {}),
                 // Si se movió, lo de antes dejó de valer: vuelve a estar por confirmarse.
                 ...(quieto ? {} : { estAvisado: false }),

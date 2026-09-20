@@ -5,7 +5,7 @@ import Image from "next/image";
 import {
     ArrowLeft, ArrowRight, BadgeCheck, BookOpen, Check, ChevronDown, ChevronsUpDown,
     Cpu, ExternalLink, GitCommitHorizontal, KeyRound, Loader2, MapPin, Network, Plus,
-    Save, Scan, Tag, Video, Wifi,
+    Radio, Save, Scan, Tag, Video, Wifi,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { PasoAnimado } from "@/components/devices/Pasos";
 import { CompatibilidadMarca, ElegirMarca } from "@/components/devices/Compatibilidad";
+import { Verificacion } from "@/components/devices/Verificacion";
 import { tiposSegunModulos, tipoDeEquipo } from "@/components/devices/tipos";
 import { getEnabledModules } from "@/app/actions/modules";
 import type { ModuleId } from "@/lib/module-definitions";
@@ -186,6 +187,7 @@ const TITULOS: Record<string, string> = {
     aviso: "¿Cómo avisa que pasó un auto?",
     video: "El canal de video",
     canales: "Los canales del grabador",
+    listo: "Comprobar que anda",
 };
 
 export function CajonDispositivo({ device, groups, onSuccess, children }: {
@@ -253,6 +255,19 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
     const [nvrOcupado, setNvrOcupado] = useState(false);
     const [nvrAviso, setNvrAviso] = useState("");
 
+    /**
+     * El equipo recién creado.
+     *
+     * El alta no termina al guardar. Guardar es escribir una fila; que el equipo exista de
+     * verdad, esté bien cableado y tenga las credenciales que alguien escribió es otra
+     * cosa, y es la que importa. Con el id acá la última hoja puede ir a buscarlo y
+     * mostrar lo que contestó.
+     */
+    const [creado, setCreado] = useState<string | null>(null);
+    /* Si tocaron algo DESPUÉS de guardar, el botón vuelve a ser "guardar cambios": si no,
+       se editaría sobre un equipo ya creado y el cambio se perdería al cerrar. */
+    const [tocadoDespues, setTocadoDespues] = useState(false);
+
     const tipo = tipoDeEquipo(f.deviceType);
 
     /**
@@ -263,8 +278,22 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
      * cosa. Los últimos dos son de un tipo cada uno y no aparecen para el resto.
      */
     const pasos = useMemo(() => {
+        /*
+         * Editar no es dar de alta.
+         *
+         * El asistente existe porque al dar de alta no se sabe nada todavía, y preguntar
+         * cinco cosas de a una es más fácil que veinte juntas. Pero un equipo que ya está
+         * puesto en una calle no se vuelve a instalar: se lo consulta. Y consultarlo pasando
+         * hojas es peor que inútil — para ver la IP hay que pasar dos veces, y nunca se ve
+         * al mismo tiempo la IP y el video, que es justo lo que se compara cuando algo no
+         * anda.
+         *
+         * Así que editando hay UNA hoja con todo a la vista, y arriba de todo el equipo
+         * contestando en vivo, que es lo primero que uno quiere saber al abrirlo.
+         */
+        if (esEdicion) return [{ clave: "ficha", rotulo: "Ficha" }];
         const l: { clave: string; rotulo: string }[] = [];
-        if (!esEdicion) l.push({ clave: "que", rotulo: "Qué es" });
+        l.push({ clave: "que", rotulo: "Qué es" });
         l.push({ clave: "marca", rotulo: "Fabricante" });
         l.push({ clave: "cual", rotulo: "Cuál es" });
         l.push({ clave: "conexion", rotulo: "Cómo se llega" });
@@ -276,10 +305,31 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         if (t?.aviso) l.push({ clave: "aviso", rotulo: "Cómo avisa" });
         if (t?.video) l.push({ clave: "video", rotulo: "Canal de video" });
         if (t?.canales) l.push({ clave: "canales", rotulo: "Canales" });
+        /* La hoja de comprobación es sólo del alta. Editando, el equipo ya existe y su
+           estado se ve en la ficha, que es otra pantalla y está siempre a la vista. */
+        if (!esEdicion) l.push({ clave: "listo", rotulo: "Verificar" });
         return l;
     }, [esEdicion, f.deviceType]);
 
     const clave = pasos[Math.min(paso, pasos.length - 1)]?.clave || "cual";
+
+    /**
+     * Si un bloque va en pantalla.
+     *
+     * Al dar de alta va el de la hoja en la que se está. En la ficha van todos los que le
+     * correspondan a ese tipo de equipo, uno abajo del otro. Los bloques son los MISMOS en
+     * los dos casos, a propósito: si la ficha tuviera sus propios campos, cada cosa que se
+     * agregara al alta habría que acordarse de agregarla también ahí — y el día que uno
+     * se olvida, hay un campo que se puede cargar y no se puede corregir.
+     */
+    const muestra = (k: string) => {
+        if (!esEdicion) return clave === k;
+        if (k === "que" || k === "listo") return false;   // el tipo no se cambia; el estado va arriba
+        if (k === "aviso") return !!tipo?.aviso;
+        if (k === "video") return !!tipo?.video;
+        if (k === "canales") return !!tipo?.canales;
+        return true;
+    };
     const ultimo = paso >= pasos.length - 1;
 
     /* Si el tipo cambia y quedan menos pasos que antes, el índice puede apuntar afuera. */
@@ -298,6 +348,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         setPaso(0); setHacia(1);
         setDetectado(null); setPrueba(null);
         setNvrCanales([]); setNvrAviso("");
+        setCreado(null); setTocadoDespues(false);
         setGuardando(false);
     }, [abierto, enBlanco]);
 
@@ -314,7 +365,10 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         })();
     }, [abierto, f.deviceType]);
 
-    const set = (k: string, v: string) => setF((p) => ({ ...p, [k]: v }));
+    const set = (k: string, v: string) => {
+        if (creado) setTocadoDespues(true);
+        setF((p) => ({ ...p, [k]: v }));
+    };
     const ir = (i: number) => { setHacia(i > paso ? 1 : -1); setPaso(i); };
 
     const detectar = async () => {
@@ -414,17 +468,63 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         const datos = new FormData();
         Object.entries(f).forEach(([k, v]) => datos.append(k, v as string));
         try {
-            if (esEdicion) await updateDevice(device.id, datos);
-            else await createDevice(datos);
-            toast.success({ title: esEdicion ? "Equipo guardado" : "Equipo dado de alta" });
-            setAbierto(false);
-            onSuccess();
+            if (esEdicion || creado) {
+                await updateDevice((device?.id || creado) as string, datos);
+                setTocadoDespues(false);
+                toast.success({ title: "Equipo guardado" });
+                onSuccess();
+                /* Editando se cierra, como siempre. Recién creado no: la hoja de
+                   comprobación sigue ahí y ahora muestra lo que quedó. */
+                if (esEdicion) setAbierto(false);
+            } else {
+                const r: any = await createDevice(datos);
+                toast.success({ title: "Equipo dado de alta" });
+                onSuccess();
+                if (r?.id) setCreado(r.id);
+                else {
+                    /* Sin id no hay nada que verificar y dejar la hoja vacía sería peor que
+                       cerrar: parecería que la comprobación falló cuando ni siquiera corrió. */
+                    setAbierto(false);
+                }
+            }
         } catch (e: any) {
             /* Antes esto era un console.error y nada más: el equipo no se guardaba, el
                diálogo quedaba abierto igual y no había una sola señal de por qué. */
             toast.error({ title: "No se pudo guardar", description: e?.message });
         } finally { setGuardando(false); }
     };
+
+    /**
+     * Lo que quedó a medias.
+     *
+     * No son errores —el equipo se puede dar de alta igual— pero cada uno es una forma
+     * conocida de que después no funcione y nadie sepa por qué. Decirlos acá, con el
+     * equipo delante, cuesta un renglón; descubrirlos después cuesta una visita.
+     */
+    const faltantes = useMemo(() => {
+        const l: { titulo: string; detalle: string }[] = [];
+        if (!esEdicion && tipo?.sentido && f.groupId === "none") l.push({
+            titulo: "No tiene grupo de acceso",
+            detalle: "Queda cargado, pero hoy no deja pasar a nadie. Se arregla en Grupos de Acceso.",
+        });
+        if (tipo?.video && !f.rtspUrl.trim()) l.push({
+            titulo: "No tiene canal de video",
+            detalle: "Sin RTSP la pasarela no le puede pedir un solo cuadro, así que no va a leer ninguna matrícula.",
+        });
+        if (tipo?.aviso && (f.trackTrigger === "linea" || f.trackTrigger === "zona")) l.push({
+            titulo: f.trackTrigger === "linea" ? "Falta dibujarle la línea de paso" : "Falta dibujarle la zona",
+            detalle: "Se hace en el calibrador, sobre un cuadro real de esta cámara. Hasta entonces la cámara no tiene qué avisar y la pasarela cae al disparo por escena.",
+        });
+        if (tipo?.canales && !nvrCanales.length) l.push({
+            titulo: "No se leyeron los canales del grabador",
+            detalle: "Sin el mapeo canal↔cámara no se puede ir de un evento a su grabación.",
+        });
+        if (!f.mac.trim()) l.push({
+            titulo: "No tiene MAC",
+            detalle: "Sirve para reconocerlo si alguien le cambia la IP. La completa la detección sola.",
+        });
+        return l;
+    }, [esEdicion, tipo, f.groupId, f.rtspUrl, f.trackTrigger, f.mac, nvrCanales.length]);
 
     const guia = GUIAS[f.brand];
 
@@ -437,7 +537,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                 /* El título dice en qué paso se está. Al sacar la barra, el encabezado es
                    lo único que ubica: si dijera siempre "Nuevo equipo", pasar de hoja no
                    se distinguiría de que la pantalla se quedó. */
-                titulo={TITULOS[clave] || (esEdicion ? f.name || "Equipo" : "Nuevo equipo")}
+                titulo={esEdicion ? (f.name || "Equipo") : (TITULOS[clave] || "Nuevo equipo")}
                 descripcion={
                     clave === "que" ? "Lo primero, porque de esto depende todo lo demás."
                         : [tipo?.rotulo, esEdicion ? f.name : null].filter(Boolean).join(" · ")
@@ -446,19 +546,19 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                 /* Sin barra de pasos con números ni nombres: esto se lee como una hoja que
                    pasa, y lo único que hace falta es saber cuánto queda. Una línea que
                    avanza lo dice sin agregar una interfaz que después hay que mirar. */
-                encabezado={
+                encabezado={esEdicion ? undefined : (
                     <div className="h-0.5 bg-border/60 overflow-hidden">
                         <motion.div className="h-full bg-[var(--accion)]"
                             initial={false}
                             animate={{ width: `${((paso + 1) / pasos.length) * 100}%` }}
                             transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }} />
                     </div>
-                }
+                )}
                 pie={
                     <>
                         {paso > 0 && (
                             <Button type="button" variant="ghost" onClick={() => ir(paso - 1)}>
-                                <ArrowLeft size={15} /> Atrás
+                                <ArrowLeft size={15} /> {creado ? "Corregir algo" : "Atrás"}
                             </Button>
                         )}
                         <div className="flex-1" />
@@ -470,17 +570,38 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                                     || (clave === "aviso" && !f.trackTrigger)}>
                                 Siguiente <ArrowRight size={15} />
                             </Button>
+                        ) : creado && !tocadoDespues ? (
+                            /* Ya está creado y nadie tocó nada desde entonces: lo único que
+                               queda es cerrar. Ofrecer "guardar" acá invitaría a guardar dos
+                               veces lo mismo y a dudar de si la primera funcionó. */
+                            <Button type="button" onClick={() => setAbierto(false)}>
+                                <Check size={15} /> Listo
+                            </Button>
                         ) : (
                             <Button type="button" onClick={guardar} disabled={guardando}>
                                 {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-                                {guardando ? "Guardando…" : esEdicion ? "Guardar cambios" : "Dar de alta"}
+                                {guardando ? "Guardando…"
+                                    : esEdicion || creado ? "Guardar cambios"
+                                        : "Dar de alta y comprobar"}
                             </Button>
                         )}
                     </>
                 }>
 
                 <PasoAnimado clave={clave} hacia={hacia}>
-                    {clave === "que" && (
+                    {esEdicion && (
+                        /* Lo primero de la ficha no es un campo: es el equipo contestando.
+                           Todo lo demás de esta pantalla es lo que alguien escribió alguna
+                           vez; esto es lo único que dice cómo está ahora. */
+                        <CajonSeccion titulo="Cómo está ahora" icono={Radio}>
+                            <Verificacion
+                                deviceId={device.id}
+                                datos={f}
+                                tipo={tipo}
+                                faltantes={faltantes} />
+                        </CajonSeccion>
+                    )}
+                    {muestra("que") && (
                         /* Sin título ni ayuda: el encabezado del cajón ya dice "¿Qué vas a
                            agregar?" y por qué es lo primero. Repetirlo debajo con otras
                            palabras hace leer dos veces lo mismo antes de llegar a las
@@ -512,7 +633,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </CajonSeccion>
                     )}
 
-                    {clave === "marca" && (
+                    {muestra("marca") && (
                         <CajonSeccion titulo="De qué fabricante es" icono={Tag}
                             ayuda="No todas las marcas están al mismo nivel. Cada una habla por su propio driver, y algunos todavía no están escritos: acá se dice cuál es cuál antes de cargar nada.">
                             <ElegirMarca valor={f.brand} alElegir={(v) => set("brand", v)} />
@@ -521,7 +642,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </CajonSeccion>
                     )}
 
-                    {clave === "cual" && (
+                    {muestra("cual") && (
                         <>
                             <CajonSeccion titulo="Cuál es" icono={Cpu}>
                                 <CajonCampo etiqueta="Cómo se lo va a llamar"
@@ -610,7 +731,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </>
                     )}
 
-                    {clave === "conexion" && (
+                    {muestra("conexion") && (
                         <CajonSeccion titulo="Cómo se llega al equipo" icono={Wifi}
                             ayuda="La IP y las credenciales van juntas porque la detección las necesita a las tres. Antes estaban en pasos separados y había que ir y volver para ver lo que la detección completaba.">
                             <div className="grid grid-cols-1 gap-4">
@@ -680,7 +801,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </CajonSeccion>
                     )}
 
-                    {clave === "lugar" && (
+                    {muestra("lugar") && (
                         <CajonSeccion titulo="Dónde está y quién pasa" icono={MapPin}>
                             <CajonCampo etiqueta="En qué lugar del barrio"
                                 pista="En palabras, como lo diría un guardia por radio. Para ubicarlo en el plano hay una pantalla aparte.">
@@ -742,7 +863,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </CajonSeccion>
                     )}
 
-                    {clave === "aviso" && (
+                    {muestra("aviso") && (
                         <CajonSeccion titulo=""
                             ayuda="Esta cámara no abre nada: mira una calle de adentro para saber por dónde anduvo cada vehículo. Lo que cambia entre una opción y otra es quién decide que hay algo para mirar.">
                             <div className="grid grid-cols-1 gap-2">
@@ -787,7 +908,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </CajonSeccion>
                     )}
 
-                    {clave === "video" && (
+                    {muestra("video") && (
                         <>
                             <CajonSeccion titulo="Qué hace esta cámara" icono={Video}
                                 ayuda="No abre la barrera. La pasarela le saca cuadros por RTSP y se los manda al lector, que saca la matrícula; con eso se dibuja por dónde anduvo cada vehículo adentro del barrio. El control de acceso lo siguen haciendo las cámaras de entrada y salida.">
@@ -880,7 +1001,17 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </>
                     )}
 
-                    {clave === "canales" && (
+                    {muestra("listo") && (
+                        <CajonSeccion titulo="">
+                            <Verificacion
+                                deviceId={creado}
+                                datos={f}
+                                tipo={tipo}
+                                faltantes={faltantes} />
+                        </CajonSeccion>
+                    )}
+
+                    {muestra("canales") && (
                         <CajonSeccion titulo="Qué cámara es cada canal" icono={Network}
                             ayuda="El grabador numera sus canales; OmniAccess conoce las cámaras por su IP. Este mapeo une las dos cosas, y es lo que después permite ir de un evento a su grabación.">
                             <div className="flex items-center justify-between gap-3">

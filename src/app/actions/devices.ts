@@ -129,6 +129,9 @@ export async function createDevice(formData: FormData) {
     }
 
     revalidatePath("/admin/devices");
+    /* El id vuelve porque el alta no termina al guardar: termina cuando alguien vio el
+       equipo contestar. Y el video sale de go2rtc, que lo conoce por el id recién creado. */
+    return { ok: true, id: newDevice.id };
 }
 
 export async function updateDevice(id: string, formData: FormData) {
