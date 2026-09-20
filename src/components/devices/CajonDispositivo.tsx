@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
     ArrowLeft, ArrowRight, BadgeCheck, BookOpen, Check, ChevronDown, ChevronsUpDown,
-    Cpu, ExternalLink, GitCommitHorizontal, KeyRound, Loader2, MapPin, Network, Plus,
+    Cpu, ExternalLink, GitCommitHorizontal, Loader2, MapPin, Network, Plus,
     Radio, Save, Scan, Tag, Video, Wifi,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -18,10 +18,11 @@ import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from
 import { PasoAnimado } from "@/components/devices/Pasos";
 import { CompatibilidadMarca, ElegirMarca } from "@/components/devices/Compatibilidad";
 import { Verificacion } from "@/components/devices/Verificacion";
+import { Descubridor } from "@/components/devices/Descubridor";
 import { tiposSegunModulos, tipoDeEquipo } from "@/components/devices/tipos";
 import { getEnabledModules } from "@/app/actions/modules";
 import type { ModuleId } from "@/lib/module-definitions";
-import { createDevice, updateDevice, probeDeviceInfo, getDevices } from "@/app/actions/devices";
+import { createDevice, updateDevice, getDevices } from "@/app/actions/devices";
 import { getNvrChannels, getNvrChannelMap, saveNvrChannelMap } from "@/app/actions/nvr";
 import { DRIVER_MODELS, type DeviceBrand as DriverDeviceBrand } from "@/lib/driver-models";
 import { cn } from "@/lib/utils";
@@ -240,10 +241,6 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
 
     const [f, setF] = useState(enBlanco());
 
-    // ── Detección por ISAPI
-    const [detectando, setDetectando] = useState(false);
-    const [detectado, setDetectado] = useState<any>(null);
-
     // ── Prueba del RTSP
     const [probando, setProbando] = useState(false);
     const [prueba, setPrueba] = useState<any>(null);
@@ -346,7 +343,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         if (!abierto) return;
         setF(enBlanco());
         setPaso(0); setHacia(1);
-        setDetectado(null); setPrueba(null);
+        setPrueba(null);
         setNvrCanales([]); setNvrAviso("");
         setCreado(null); setTocadoDespues(false);
         setGuardando(false);
@@ -370,29 +367,6 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         setF((p) => ({ ...p, [k]: v }));
     };
     const ir = (i: number) => { setHacia(i > paso ? 1 : -1); setPaso(i); };
-
-    const detectar = async () => {
-        setDetectando(true); setDetectado(null);
-        try {
-            const r: any = await probeDeviceInfo({
-                ip: f.ip, username: f.username, password: f.password,
-                authType: f.authType, brand: f.brand,
-            });
-            setDetectado(r);
-            if (r?.ok) {
-                /* Sólo completa lo que está vacío: si alguien escribió un nombre a mano, el
-                   equipo no tiene por qué pisárselo con el suyo de fábrica. */
-                setF((p) => ({
-                    ...p,
-                    mac: p.mac || r.macAddress || "",
-                    deviceModel: p.deviceModel || r.model || "",
-                    name: p.name || r.deviceName || r.model || "",
-                }));
-            }
-        } catch (e: any) {
-            setDetectado({ ok: false, error: e?.message || "No se pudo conectar" });
-        } finally { setDetectando(false); }
-    };
 
     const escanearCanales = async () => {
         setNvrOcupado(true); setNvrAviso("");
@@ -763,41 +737,28 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                                 </CajonCampo>
                             </div>
 
-                            <div>
-                                <Button type="button" variant="outline" className="w-full"
-                                    onClick={detectar} disabled={detectando || !f.ip}>
-                                    {detectando ? <Loader2 size={15} className="animate-spin" /> : <Cpu size={15} />}
-                                    {detectando ? "Preguntándole al equipo…" : "Probar la conexión y leer sus datos"}
-                                </Button>
-                                <AnimatePresence initial={false}>
-                                    {detectado && (
-                                        <motion.div
-                                            initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
-                                            transition={{ duration: 0.2 }}
-                                            className={cn("mt-2.5 rounded-[10px] border p-3.5",
-                                                detectado.ok ? "border-[var(--bien)]/35 bg-[var(--bien-suave)]"
-                                                    : "border-[var(--mal)]/35 bg-[var(--mal-suave)]")}>
-                                            {detectado.ok ? (
-                                                <>
-                                                    <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--bien-texto)]">
-                                                        <BadgeCheck size={14} /> El equipo contestó
-                                                    </p>
-                                                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-[12px] text-muted-foreground">
-                                                        <span>Modelo: <b className="text-foreground">{detectado.model || "—"}</b></span>
-                                                        <span>Firmware: <b className="text-foreground">{detectado.firmwareVersion || "—"}</b></span>
-                                                        <span>MAC: <b className="text-foreground tabular-nums">{detectado.macAddress || "—"}</b></span>
-                                                        <span>Serie: <b className="text-foreground tabular-nums">{detectado.serialNumber || "—"}</b></span>
-                                                    </div>
-                                                </>
-                                            ) : (
-                                                <p className="text-[12.5px] text-[var(--mal-texto)]">
-                                                    {detectado.error || "No contestó. Revisá la IP, el usuario y la forma de autenticarse."}
-                                                </p>
-                                            )}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
+                            {/*
+                              * Antes acá había un botón que preguntaba modelo, firmware, MAC y serie.
+                              * Eso alcanzaba para saber que el equipo está vivo y para nada más: la URL
+                              * del canal se seguía escribiendo de memoria, y si la cámara sabía avisar
+                              * por cruce de línea no lo decía nadie. El equipo sabe todo eso de sí
+                              * mismo; lo que faltaba era ir a buscarlo.
+                              */}
+                            <Descubridor
+                                datos={f}
+                                pediCanal={!!tipo?.video}
+                                pediGrabador={!!tipo?.canales}
+                                alElegirCanal={(rtsp) => set("rtspUrl", rtsp)}
+                                alSugerirDisparo={(clave) => set("trackTrigger", clave)}
+                                alCompletar={(e) => setF((p) => ({
+                                    ...p,
+                                    /* Sólo lo que esté vacío: si alguien escribió un nombre o un
+                                       modelo a mano, el equipo no tiene por qué pisárselo. */
+                                    mac: p.mac || e.mac || "",
+                                    deviceModel: p.deviceModel || e.modelo || "",
+                                    name: p.name || e.modelo || "",
+                                    authType: e.autenticacion || p.authType,
+                                }))} />
                         </CajonSeccion>
                     )}
 
