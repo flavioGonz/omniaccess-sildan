@@ -16,7 +16,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { PasoAnimado } from "@/components/devices/Pasos";
 import { CompatibilidadMarca, ElegirMarca } from "@/components/devices/Compatibilidad";
-import { TIPOS_DE_EQUIPO, tipoDeEquipo } from "@/components/devices/tipos";
+import { tiposSegunModulos, tipoDeEquipo } from "@/components/devices/tipos";
+import { getEnabledModules } from "@/app/actions/modules";
+import type { ModuleId } from "@/lib/module-definitions";
 import { createDevice, updateDevice, probeDeviceInfo, getDevices } from "@/app/actions/devices";
 import { getNvrChannels, getNvrChannelMap, saveNvrChannelMap } from "@/app/actions/nvr";
 import { DRIVER_MODELS, type DeviceBrand as DriverDeviceBrand } from "@/lib/driver-models";
@@ -145,6 +147,8 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
     const [hacia, setHacia] = useState(1);
     const [verGuia, setVerGuia] = useState(false);
     const [abreModelos, setAbreModelos] = useState(false);
+    /* Qué módulos tiene prendidos este barrio. Decide qué clases de equipo se ofrecen. */
+    const [modulos, setModulos] = useState<Partial<Record<ModuleId, boolean>> | null>(null);
 
     const enBlanco = useCallback(() => ({
         name: device?.name || "",
@@ -216,6 +220,13 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
 
     /* Si el tipo cambia y quedan menos pasos que antes, el índice puede apuntar afuera. */
     useEffect(() => { if (paso > pasos.length - 1) setPaso(pasos.length - 1); }, [pasos.length, paso]);
+
+    useEffect(() => {
+        if (!abierto || modulos) return;
+        getEnabledModules().then(setModulos).catch(() => { });
+    }, [abierto, modulos]);
+
+    const tiposOfrecidos = useMemo(() => tiposSegunModulos(modulos), [modulos]);
 
     useEffect(() => {
         if (!abierto) return;
@@ -405,10 +416,13 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
 
                 <PasoAnimado clave={clave} hacia={hacia}>
                     {clave === "que" && (
-                        <CajonSeccion titulo="Qué vas a agregar"
-                            ayuda="Lo primero, porque de esto depende todo lo demás: cuántos pasos hay, qué datos hacen falta y a qué circuito entra el equipo.">
+                        /* Sin título ni ayuda: el encabezado del cajón ya dice "¿Qué vas a
+                           agregar?" y por qué es lo primero. Repetirlo debajo con otras
+                           palabras hace leer dos veces lo mismo antes de llegar a las
+                           opciones, que es lo único que hay para hacer en esta hoja. */
+                        <CajonSeccion titulo="">
                             <div className="grid grid-cols-1 gap-2">
-                                {TIPOS_DE_EQUIPO.map((t) => {
+                                {tiposOfrecidos.map((t) => {
                                     const puesto = f.deviceType === t.valor;
                                     return (
                                         <button key={t.valor} type="button"

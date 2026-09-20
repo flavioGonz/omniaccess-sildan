@@ -157,12 +157,17 @@ function CajonSeccion({ titulo, ayuda, icono: Icono, children, className }: {
 }) {
     return (
         <section className={cn("px-6 py-8 border-b border-border last:border-0", className)}>
-            <h3 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                {Icono && <Icono size={13} className="text-muted-foreground/70" />}
-                {titulo}
-            </h3>
+            {/* Título vacío = no hay rótulo. Pasa cuando el encabezado del cajón ya dice de
+                qué es la hoja: repetirlo abajo con otras palabras hace leer dos veces lo
+                mismo antes de llegar a lo único que hay para hacer. */}
+            {titulo && (
+                <h3 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                    {Icono && <Icono size={13} className="text-muted-foreground/70" />}
+                    {titulo}
+                </h3>
+            )}
             {ayuda && <p className="text-[12px] text-muted-foreground/80 mt-1.5 max-w-prose">{ayuda}</p>}
-            <div className="mt-4 space-y-4">{children}</div>
+            <div className={cn("space-y-4", (titulo || ayuda) && "mt-4")}>{children}</div>
         </section>
     );
 }
