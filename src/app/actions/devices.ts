@@ -22,17 +22,50 @@ async function saveFile(file: any, folder: string): Promise<string | null> {
 }
 
 
-/** Campos propios de las camaras interiores de seguimiento. */
+/**
+ * Campos propios de las camaras de seguimiento.
+ *
+ * Solo se toca lo que VIENE en el formulario. Antes se escribian los tres siempre, asi
+ * que cualquier formulario que no los trajera —la ficha de una camara LPR, la de un
+ * portero— le ponia rtspUrl en null a lo que hubiera guardado. Un formulario no dice
+ * nada sobre los campos que no incluye, y tratar su silencio como un "borralo" es como
+ * se pierde una configuracion sin que nadie toque nada.
+ */
 function camposSeguimiento(formData: FormData) {
-    const rtsp = ((formData.get("rtspUrl") as string) || "").trim();
-    const escenaRaw = ((formData.get("trackScene") as string) || "").trim();
-    const escena = escenaRaw === "" ? null : Number(escenaRaw);
-    const habilitada = (formData.get("trackEnabled") as string) !== "false";
-    return {
-        rtspUrl: rtsp || null,
-        trackScene: escena != null && !Number.isNaN(escena) ? escena : null,
-        trackEnabled: habilitada,
-    };
+    const datos: Record<string, unknown> = {};
+
+    if (formData.has("rtspUrl")) {
+        const rtsp = ((formData.get("rtspUrl") as string) || "").trim();
+        datos.rtspUrl = rtsp || null;
+    }
+    if (formData.has("trackScene")) {
+        const crudo = ((formData.get("trackScene") as string) || "").trim();
+        const n = crudo === "" ? null : Number(crudo);
+        datos.trackScene = n != null && !Number.isNaN(n) ? n : null;
+    }
+    if (formData.has("trackEnabled")) {
+        datos.trackEnabled = (formData.get("trackEnabled") as string) !== "false";
+    }
+    /*
+     * Como se entera la pasarela de que paso un vehiculo.
+     *
+     *   escena  lo decide ffmpeg mirando cambiar la imagen. Anda con cualquier camara,
+     *           incluso una sin una sola analitica, y por eso es el unico modo que
+     *           siempre esta disponible. Tambien es el mas caro: cada rafaga de cuadros
+     *           sale de una sospecha, no de un hecho.
+     *   linea   la camara avisa cuando algo cruzo la linea que le dibujaron. El disparo
+     *           es el instante del cruce y entre auto y auto la GPU queda en reposo.
+     *   zona    igual, pero con una region en vez de una linea.
+     *
+     * Son los tres valores que entiende el worker (ver porAviso en tracking-worker.js);
+     * "camara" se acepta por las camaras que ya estaban cargadas con ese nombre. Un valor
+     * que no sea ninguno de esos cae en escena, que es el que funciona en todos lados.
+     */
+    if (formData.has("trackTrigger")) {
+        const t = ((formData.get("trackTrigger") as string) || "").trim();
+        datos.trackTrigger = ["escena", "linea", "zona", "camara"].includes(t) ? t : "escena";
+    }
+    return datos;
 }
 
 export async function createDevice(formData: FormData) {

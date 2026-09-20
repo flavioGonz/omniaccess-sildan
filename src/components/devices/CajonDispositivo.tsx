@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
     ArrowLeft, ArrowRight, BadgeCheck, BookOpen, Check, ChevronDown, ChevronsUpDown,
-    Cpu, ExternalLink, KeyRound, Loader2, MapPin, Network, Plus, Save, Tag, Video, Wifi,
+    Cpu, ExternalLink, GitCommitHorizontal, KeyRound, Loader2, MapPin, Network, Plus,
+    Save, Scan, Tag, Video, Wifi,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -50,6 +51,19 @@ import { sileo as toast } from "sileo";
  * busca "usuario" y "contraseña"; ese lenguaje no hacía al sistema más serio, hacía al
  * instalador más lento.
  */
+
+/**
+ * Qué equipos pueden ser el canal de un grabador.
+ *
+ * Decía únicamente LPR_CAMERA, y por eso el mapeo de canales aparecía vacío en un barrio
+ * donde las dos cámaras son interiores de seguimiento: el grabador listaba sus ocho
+ * canales y el desplegable de "qué cámara es este canal" no tenía una sola opción. Lo que
+ * el grabador graba es una cámara, sin importar para qué la usa OmniAccess — y las de
+ * analítica son justamente las que más vale poder mirar grabadas.
+ */
+const esCamara = (d: { deviceType?: string }) =>
+    d.deviceType === "LPR_CAMERA" || d.deviceType === "LPR_INTERIOR"
+    || d.deviceType === "QUEUE_COUNTER" || d.deviceType === "DOOR_INTERCOM";
 
 /** Cómo se prepara cada marca del lado del equipo, antes de que OmniAccess pueda usarlo. */
 const GUIAS: Record<string, { titulo: string; pasos: string[]; webhook: string; auth: string; doc?: string }> = {
@@ -122,6 +136,45 @@ const GUIAS: Record<string, { titulo: string; pasos: string[]; webhook: string; 
     },
 };
 
+/**
+ * Cómo se entera la pasarela de que pasó un vehículo.
+ *
+ * Esta pregunta no estaba, y es la que parte en dos el costo de todo el seguimiento.
+ *
+ * Una cámara moderna ya sabe cuándo algo cruzó una línea: lo detecta ella, con su propio
+ * procesador, y lo avisa. Si se aprovecha eso, la pasarela le pide cuadros en el instante
+ * del cruce y el resto del tiempo no le pide nada — la GPU queda en reposo. Si no se
+ * aprovecha, ffmpeg tiene que mirar la imagen cambiar y adivinar; funciona con cualquier
+ * cámara, pero cada ráfaga sale de una sospecha en vez de un hecho, y se gasta GPU en
+ * una rama que se movió con el viento.
+ *
+ * Los dos modos andan. La diferencia no es "mejor" y "peor": es qué sabe hacer la cámara
+ * que hay puesta, y eso hay que preguntarlo, no suponerlo.
+ */
+const MODOS_DE_AVISO = [
+    {
+        valor: "linea",
+        rotulo: "Avisa cuando algo cruza una línea",
+        que: "La cámara tiene una línea de paso dibujada y avisa en el momento del cruce. Es lo más preciso y lo que menos GPU gasta.",
+        nota: "La línea se dibuja después, en el calibrador, sobre un cuadro real de esta cámara.",
+        icono: GitCommitHorizontal,
+    },
+    {
+        valor: "zona",
+        rotulo: "Avisa cuando algo entra en una zona",
+        que: "Igual que la anterior pero con una región en vez de una línea. Sirve cuando el paso no se puede reducir a una raya.",
+        nota: "La zona se dibuja después, en el calibrador.",
+        icono: Scan,
+    },
+    {
+        valor: "escena",
+        rotulo: "Sólo manda video; no avisa nada",
+        que: "La cámara no tiene analítica, o no está configurada. La pasarela mira el flujo RTSP y dispara cuando la imagen cambia.",
+        nota: "Anda con cualquier cámara. Gasta más GPU, porque cada ráfaga sale de una sospecha y no de un hecho.",
+        icono: Video,
+    },
+] as const;
+
 /** Cómo se llama cada hoja. Reemplaza a la barra de pasos: dice dónde se está, sin
  *  agregar una interfaz aparte que después hay que mirar. */
 const TITULOS: Record<string, string> = {
@@ -130,6 +183,7 @@ const TITULOS: Record<string, string> = {
     cual: "¿Cuál es exactamente?",
     conexion: "¿Cómo se llega al equipo?",
     lugar: "¿Dónde está y quién pasa?",
+    aviso: "¿Cómo avisa que pasó un auto?",
     video: "El canal de video",
     canales: "Los canales del grabador",
 };
@@ -165,6 +219,11 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         rtspUrl: device?.rtspUrl || "",
         trackScene: device?.trackScene != null ? String(device.trackScene) : "",
         trackEnabled: device?.trackEnabled === false ? "false" : "true",
+        /* Cómo avisa la cámara que pasó un vehículo. Vacío al dar de alta a propósito: es
+           una pregunta, no un valor por defecto. Poner "escena" de arranque haría que la
+           mitad de las cámaras del barrio terminen mirando la imagen cambiar cuando la
+           cámara sabe perfectamente cuándo cruzó un auto. */
+        trackTrigger: device?.trackTrigger || "",
         /**
          * El grupo de acceso.
          *
@@ -210,8 +269,13 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         l.push({ clave: "cual", rotulo: "Cuál es" });
         l.push({ clave: "conexion", rotulo: "Cómo se llega" });
         l.push({ clave: "lugar", rotulo: "Dónde está" });
-        if (f.deviceType === "LPR_INTERIOR") l.push({ clave: "video", rotulo: "Canal de video" });
-        if (f.deviceType === "NVR") l.push({ clave: "canales", rotulo: "Canales" });
+        /* Qué hojas hacen falta lo dice el catálogo de tipos, no una lista de valores
+           escrita acá: agregar una clase de equipo no tiene que obligar a acordarse de
+           tocar también este archivo. */
+        const t = tipoDeEquipo(f.deviceType);
+        if (t?.aviso) l.push({ clave: "aviso", rotulo: "Cómo avisa" });
+        if (t?.video) l.push({ clave: "video", rotulo: "Canal de video" });
+        if (t?.canales) l.push({ clave: "canales", rotulo: "Canales" });
         return l;
     }, [esEdicion, f.deviceType]);
 
@@ -244,7 +308,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
         (async () => {
             try {
                 const [devs, mapa] = await Promise.all([getDevices(), getNvrChannelMap()]);
-                setNvrCamaras((devs || []).filter((d: any) => d.deviceType === "LPR_CAMERA"));
+                setNvrCamaras((devs || []).filter(esCamara));
                 setNvrMapa(mapa || {});
             } catch { /* la pantalla sigue siendo utilizable sin esto */ }
         })();
@@ -319,7 +383,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
             fd.set("groupId", "none");
             await createDevice(fd);
             const devs: any = await getDevices();
-            setNvrCamaras((devs || []).filter((d: any) => d.deviceType === "LPR_CAMERA"));
+            setNvrCamaras((devs || []).filter(esCamara));
             setNvrMapa((prev) => ({ ...prev, [ch.ip]: ch.channel }));
             setNvrAviso(`Cámara creada: ${ch.name || ch.ip}`);
         } catch (e: any) {
@@ -402,7 +466,8 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                             <Button type="button" onClick={() => ir(paso + 1)}
                                 /* Sin tipo elegido no hay nada que preguntar después: todo lo
                                    que viene depende de qué clase de equipo es. */
-                                disabled={clave === "que" && !f.deviceType}>
+                                disabled={(clave === "que" && !f.deviceType)
+                                    || (clave === "aviso" && !f.trackTrigger)}>
                                 Siguiente <ArrowRight size={15} />
                             </Button>
                         ) : (
@@ -677,6 +742,51 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                         </CajonSeccion>
                     )}
 
+                    {clave === "aviso" && (
+                        <CajonSeccion titulo=""
+                            ayuda="Esta cámara no abre nada: mira una calle de adentro para saber por dónde anduvo cada vehículo. Lo que cambia entre una opción y otra es quién decide que hay algo para mirar.">
+                            <div className="grid grid-cols-1 gap-2">
+                                {MODOS_DE_AVISO.map((m) => {
+                                    const puesto = f.trackTrigger === m.valor
+                                        /* Las cámaras viejas quedaron guardadas como "camara",
+                                           que es lo mismo que "linea" para el worker. Sin esto,
+                                           editar una de ésas no mostraría nada elegido. */
+                                        || (m.valor === "linea" && f.trackTrigger === "camara");
+                                    return (
+                                        <button key={m.valor} type="button"
+                                            onClick={() => set("trackTrigger", m.valor)}
+                                            className={cn(
+                                                "text-left p-3.5 rounded-[10px] border transition-colors flex gap-3",
+                                                puesto ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]"
+                                                    : "border-border bg-card/40 hover:bg-accent",
+                                            )}>
+                                            <span className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                                                puesto ? "text-[var(--accion)]" : "text-muted-foreground bg-muted")}>
+                                                <m.icono size={18} />
+                                            </span>
+                                            <span className="min-w-0">
+                                                <span className="block text-[13.5px] font-semibold text-foreground">{m.rotulo}</span>
+                                                <span className="block text-[11.5px] text-muted-foreground leading-snug mt-0.5">{m.que}</span>
+                                                <AnimatePresence initial={false}>
+                                                    {puesto && (
+                                                        <motion.span
+                                                            initial={{ height: 0, opacity: 0 }}
+                                                            animate={{ height: "auto", opacity: 1 }}
+                                                            exit={{ height: 0, opacity: 0 }}
+                                                            transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+                                                            className="block overflow-hidden">
+                                                            <span className="block text-[11.5px] text-[var(--accion)] leading-snug mt-1.5">{m.nota}</span>
+                                                        </motion.span>
+                                                    )}
+                                                </AnimatePresence>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </CajonSeccion>
+                    )}
+
                     {clave === "video" && (
                         <>
                             <CajonSeccion titulo="Qué hace esta cámara" icono={Video}
@@ -737,8 +847,21 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
 
                             <CajonSeccion titulo="Cuánto trabaja" icono={Cpu}>
                                 <div className="grid grid-cols-1 gap-4">
-                                    <CajonCampo etiqueta="Sensibilidad de escena"
-                                        pista="Cuánto tiene que cambiar la imagen para que se mande un cuadro al lector. Más bajo, más cuadros y más GPU. Se termina de afinar en el calibrador, sobre un cuadro real.">
+                                    {/*
+                                      * La misma sensibilidad, dos papeles distintos.
+                                      *
+                                      * Si la cámara avisa, esto es el paracaídas: el worker vuelve
+                                      * solo al disparo por escena cuando la cámara deja de avisar,
+                                      * y sin decirlo acá el número parece muerto y se deja en
+                                      * cualquier cosa. Si la cámara no avisa, esto es el disparo.
+                                      */}
+                                    <CajonCampo
+                                        etiqueta={f.trackTrigger === "escena"
+                                            ? "Sensibilidad de escena"
+                                            : "Sensibilidad de escena (el respaldo)"}
+                                        pista={f.trackTrigger === "escena"
+                                            ? "Cuánto tiene que cambiar la imagen para que se mande un cuadro al lector. Más bajo, más cuadros y más GPU. Se termina de afinar en el calibrador, sobre un cuadro real."
+                                            : "Acá la cámara avisa, así que esto no se usa casi nunca. Pero si la cámara deja de avisar —se le cae la analítica, le cambian la regla— la pasarela vuelve sola a mirar la escena, y entonces este número es lo único que queda. Conviene dejarlo razonable."}>
                                         <Input value={f.trackScene} placeholder="0.08" className="tabular-nums"
                                             onChange={(e) => set("trackScene", e.target.value)} />
                                     </CajonCampo>

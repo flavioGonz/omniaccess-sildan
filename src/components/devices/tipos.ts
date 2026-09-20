@@ -30,6 +30,8 @@ export const TIPOS_DE_EQUIPO = [
         valor: "LPR_CAMERA",
         modulo: "MODULE_LPR" as ModuleId,
         rotulo: "Cámara LPR de acceso",
+        /** Se le puede mostrar el video en vivo al final del alta. */
+        vivo: true,
         icono: Camera,
         que: "Lee la matrícula en la entrada o la salida y decide si se abre la barrera.",
         /** Si tiene sentido preguntarle por dónde pasa el vehículo. */
@@ -39,6 +41,11 @@ export const TIPOS_DE_EQUIPO = [
         valor: "LPR_INTERIOR",
         modulo: "MODULE_LPR" as ModuleId,
         rotulo: "Cámara interior de seguimiento",
+        /** Hay que preguntarle COMO avisa que paso un vehículo. */
+        aviso: true,
+        /** Tiene un canal RTSP propio que lee la pasarela. */
+        video: true,
+        vivo: true,
         icono: Video,
         que: "No abre nada. Mira una calle de adentro para dibujar por dónde anduvo cada vehículo.",
         sentido: false,
@@ -46,6 +53,8 @@ export const TIPOS_DE_EQUIPO = [
     {
         valor: "NVR",
         rotulo: "Grabador (NVR)",
+        /** Hay que decirle qué cámara es cada canal. */
+        canales: true,
         icono: HardDrive,
         que: "Guarda el video de las cámaras. Se le mapea qué canal corresponde a cada una.",
         sentido: false,
@@ -54,6 +63,7 @@ export const TIPOS_DE_EQUIPO = [
         valor: "FACE_TERMINAL",
         modulo: "MODULE_FACE" as ModuleId,
         rotulo: "Terminal de rostro",
+        vivo: true,
         icono: ScanFace,
         que: "Reconoce la cara de quien se presenta y abre si está cargada.",
         sentido: true,
@@ -68,6 +78,7 @@ export const TIPOS_DE_EQUIPO = [
     {
         valor: "DOOR_INTERCOM",
         rotulo: "Portero IP",
+        vivo: true,
         icono: Phone,
         que: "Llama a la casa desde la entrada y permite abrir desde adentro.",
         sentido: true,
@@ -76,6 +87,7 @@ export const TIPOS_DE_EQUIPO = [
         valor: "QUEUE_COUNTER",
         modulo: "MODULE_QUEUE" as ModuleId,
         rotulo: "Contador de filas",
+        vivo: true,
         icono: Users,
         que: "Cuenta cuánta gente hay y cuántos entran y salen de una zona.",
         sentido: false,
@@ -84,8 +96,30 @@ export const TIPOS_DE_EQUIPO = [
 
 export type TipoDeEquipo = (typeof TIPOS_DE_EQUIPO)[number]["valor"];
 
+/**
+ * Lo que cada clase de equipo necesita que le pregunten.
+ *
+ * El `as const` del catálogo hace que las propiedades que un tipo no declara no existan
+ * en su objeto, en vez de estar en undefined. Eso es lo que mantiene `valor` como literal
+ * y no como string cualquiera, pero obliga a leerlas de costado. Este tipo junta las
+ * cuatro banderas en un solo lugar para no repetir el truco en cada uso.
+ */
+export type RasgosDeEquipo = {
+    /** Preguntarle cómo avisa que pasó un vehículo (cruce de línea, zona o sólo RTSP). */
+    aviso?: boolean;
+    /** Tiene un canal RTSP propio. */
+    video?: boolean;
+    /** Hay que mapearle los canales a las cámaras. */
+    canales?: boolean;
+    /** Se le puede mostrar el video en vivo. */
+    vivo?: boolean;
+    /** Tiene sentido preguntarle por dónde pasa la gente. */
+    sentido?: boolean;
+};
+
 export const tipoDeEquipo = (valor: string) =>
-    TIPOS_DE_EQUIPO.find((t) => t.valor === valor);
+    TIPOS_DE_EQUIPO.find((t) => t.valor === valor) as
+        (typeof TIPOS_DE_EQUIPO)[number] & RasgosDeEquipo | undefined;
 
 /**
  * Los tipos que se pueden dar de alta con los módulos que este barrio tiene prendidos.
