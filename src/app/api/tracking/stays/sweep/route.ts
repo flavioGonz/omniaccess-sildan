@@ -5,6 +5,7 @@ import {
     ESTADIA_VENCE_MIN, ESTADIA_TECHO_MIN, MIRADAS_MIN, ESTADOS_DE_ESTADIA,
 } from "@/lib/estadias";
 import { mirarSiSigue, VIGILIA_POR_VUELTA } from "@/lib/vigilia";
+import { funcionActiva } from "@/app/actions/funciones";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,13 @@ export async function POST(req: NextRequest) {
     }
     if (!esperado || token !== esperado) {
         return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    /* Apagadas las estadías no hay nada que barrer. No se cierran las que quedaron
+       abiertas: apagar una función no es borrar lo que registró, y al volver a prenderla
+       esas estadías siguen siendo ciertas o las cierra el techo. */
+    if (!(await funcionActiva("LPR_ESTADIAS"))) {
+        return NextResponse.json({ ok: true, apagado: true, revisadas: 0, avisadas: 0, esperando: 0, cerradas: [] });
     }
 
     const ahora = Date.now();

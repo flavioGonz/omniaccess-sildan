@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { funcionActiva } from "@/app/actions/funciones";
 import {
     confirmarEstadia, cerrarEstadia, estadiasAbiertas,
     estadoDeEstadia, ESTADOS_DE_ESTADIA, VISTO,
@@ -177,6 +178,10 @@ export async function POST(req: NextRequest) {
         }
     }
 
+    /* Las estadías se pueden apagar. Cuando lo están, esta ruta hace lo que hacía antes de
+       que existieran: registra pasadas y nada más. Ver src/lib/funciones.ts. */
+    const estadias = await funcionActiva("LPR_ESTADIAS");
+
     // ── ¿Sigue ahí el mismo auto quieto?
     const desdeEstadia = new Date(cuando.getTime() - CORTE_ESTADIA_MIN * 60 * 1000);
 
@@ -259,7 +264,7 @@ export async function POST(req: NextRequest) {
      * De un modo u otro queda UNA fila por vehículo y cámara, que es lo que evita que el
      * historial se llene con el mismo auto veinte veces.
      */
-    if (previo && (quieto || fueraDePuerta)) {
+    if (estadias && previo && (quieto || fueraDePuerta)) {
         const mejorFoto = confianza != null && (previo.confidence ?? 0) < confianza;
         /**
          * Una estadía consolidada renueva su foto en cada relectura.
@@ -324,6 +329,14 @@ export async function POST(req: NextRequest) {
      * esa cámara no mira, vence sin avisar nada.
      */
     if (fueraDePuerta) {
+        /*
+         * Con las estadías apagadas esta lectura no se guarda, y eso es lo correcto: el
+         * vehículo NO pasó por donde a esta cámara le interesa — anotarlo como pasada sería
+         * inventar un cruce que no ocurrió — y de su permanencia no se quiere saber nada.
+         */
+        if (!estadias) {
+            return NextResponse.json({ ok: true, estado: "IGNORADA", motivo: "las estadías están apagadas" });
+        }
         const abierta = await prisma.plateSighting.create({
             data: {
                 plate: patente,

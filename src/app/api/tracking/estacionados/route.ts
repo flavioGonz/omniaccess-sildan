@@ -5,6 +5,7 @@ import { leerCaja, areaTipica, type Caja } from "@/lib/recuadros";
 import { ESTACIONADO } from "@/lib/estadias";
 
 export const dynamic = "force-dynamic";
+import { funcionActiva } from "@/app/actions/funciones";
 
 /**
  * Los autos que están parados ahora, con lo que hace falta para dibujarlos en el plano.
@@ -21,6 +22,12 @@ export const dynamic = "force-dynamic";
 export async function GET() {
     const auth = await verifyApiAuth();
     if (!auth.authenticated) return unauthorizedResponse();
+
+    /* Con la función apagada el plano no dibuja autos parados. Se contesta una lista vacía
+       y no un error: para quien pregunta, "no hay ninguno" es la respuesta correcta. */
+    if (!(await funcionActiva("LPR_ESTADIAS"))) {
+        return NextResponse.json({ autos: [], areaTipica: {}, apagado: true });
+    }
 
     const filas = await prisma.plateSighting.findMany({
         where: { source: "TRACK", estado: ESTACIONADO, estCerrada: false, estAvisado: true },

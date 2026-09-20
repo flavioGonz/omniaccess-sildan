@@ -40,6 +40,7 @@ import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { sileo as toast } from "sileo";
 import { getBarrioMap, saveBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
 import { getParkingSlots } from "@/app/actions/plazas";
+import { funcionActiva } from "@/app/actions/funciones";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
@@ -277,6 +278,15 @@ export default function BarrioMap() {
      * dónde le quedó la línea de paso— es exactamente lo que la ficha muestra arriba.
      */
     const [fichaEquipo, setFichaEquipo] = useState<any>(null);
+    /*
+     * Si este barrio sigue estadías o no.
+     *
+     * Empieza en false y no en true: mientras la respuesta viaja, mostrar la capa para
+     * después sacarla es un parpadeo, y en una instalación que la tiene apagada sería un
+     * parpadeo de algo que ahí no existe.
+     */
+    const [estadiasOn, setEstadiasOn] = useState(false);
+    useEffect(() => { funcionActiva("LPR_ESTADIAS").then(setEstadiasOn).catch(() => { }); }, []);
     const mapRef = useRef<L.Map | null>(null);
     const [guards, setGuards] = useState<any[]>([]);
     // Usabilidad: capas que se pueden apagar y pantalla completa.
@@ -406,7 +416,7 @@ export default function BarrioMap() {
      * dos miran la misma lista y el mismo lugar: un auto no puede estar en un punto
      * distinto según si el plano está inclinado o no.
      */
-    const estacionados = useEstacionados((data?.cameras || []) as any, liveSocket, verCapa.estacionados);
+    const estacionados = useEstacionados((data?.cameras || []) as any, liveSocket, estadiasOn && verCapa.estacionados);
 
     /**
      * Las últimas pasadas que ofrece el buscador con el campo vacío.
@@ -687,7 +697,10 @@ export default function BarrioMap() {
         { k: "lotes", label: "Lotes", icon: Pentagon },
         { k: "perimetro", label: "Perímetro", icon: Hexagon },
         { k: "guardias", label: "Guardias", icon: ShieldCheck },
-        { k: "estacionados", label: "Estacionados", icon: SquareParking },
+        /* Sin la función de estadías no hay autos parados que mostrar, así que tampoco hay
+           nada que prender y apagar: un interruptor que no cambia nada es peor que no
+           tenerlo, porque invita a probarlo y a dudar de si anda. */
+        ...(estadiasOn ? [{ k: "estacionados" as const, label: "Estacionados", icon: SquareParking }] : []),
         { k: "rotulos", label: "Nombres", icon: Type },
     ];
 
@@ -762,8 +775,8 @@ ${CSS_AUTO}
                            cámaras y nada más: el plano entero desaparecía al inclinarlo. */
                         lots={(verCapa.lotes ? (data.lots || []) : []) as any}
                         rotulos={verCapa.rotulos}
-                        estacionados={verCapa.estacionados ? estacionados.ubicados : []}
-                        pendientes={verCapa.estacionados ? estacionados.pendientes : []}
+                        estacionados={estadiasOn && verCapa.estacionados ? estacionados.ubicados : []}
+                        pendientes={estadiasOn && verCapa.estacionados ? estacionados.pendientes : []}
                         flujos={flow.anims}
                         pulsos={flow.pulses}
                         cameras={data.cameras.map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
@@ -970,7 +983,7 @@ ${CSS_AUTO}
                         <CapaEstacionados
                             ubicados={estacionados.ubicados}
                             pendientes={estacionados.pendientes}
-                            visible={verCapa.estacionados}
+                            visible={estadiasOn && verCapa.estacionados}
                             alTocar={(a) => setAutoParado(a)}
                             alSeñalar={setSinRumbo}
                             alSeñalarAuto={setAutoSeñalado}

@@ -70,6 +70,8 @@ import { getEnabledModules, toggleModule, setExclusiveMode } from "@/app/actions
 import { OtpInput, type OtpStatus } from "@/components/ui/otp-input";
 import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
+import { FUNCIONES, type FuncionId } from "@/lib/funciones";
+import { getFunciones, toggleFuncion } from "@/app/actions/funciones";
 import { Switch } from "@/components/ui/switch";
 import {
     Dialog,
@@ -2659,13 +2661,29 @@ function ModulesSection() {
     const [modules, setModules] = useState<Record<string, boolean>>({});
     const [loading, setLoading] = useState(true);
     const [toggling, setToggling] = useState<string | null>(null);
+    const [funciones, setFunciones] = useState<Record<string, boolean>>({});
+    const [alternando, setAlternando] = useState<string | null>(null);
 
     useEffect(() => {
         getEnabledModules().then(m => {
             setModules(m);
             setLoading(false);
         });
+        getFunciones().then(setFunciones).catch(() => { });
     }, []);
+
+    const alternarFuncion = async (id: string) => {
+        setAlternando(id);
+        const valor = !(funciones[id] ?? true);
+        const r = await toggleFuncion(id as FuncionId, valor);
+        if (r.ok) {
+            setFunciones((p) => ({ ...p, [id]: valor }));
+            toast.success({ title: valor ? "Funci\u00f3n activada" : "Funci\u00f3n desactivada" });
+        } else {
+            toast.error({ title: "No se pudo cambiar" });
+        }
+        setAlternando(null);
+    };
 
     const handleToggle = async (moduleId: string) => {
         setToggling(moduleId);
@@ -2757,6 +2775,43 @@ function ModulesSection() {
                     );
                 })}
             </div>
+
+            {/*
+              * Las funciones de un módulo.
+              *
+              * Un módulo es una instalación entera; una función es algo que ese módulo puede
+              * hacer o no hacer sin dejar de ser él mismo. Las estadías estaban escritas en
+              * el código: un barrio al que sólo le importa quién entró y quién salió
+              * igual mantenía una fila abierta por cada auto quieto, la releía y la vigilaba.
+              */}
+            {FUNCIONES.filter((f) => modules[f.modulo] ?? true).map((f) => {
+                const encendida = funciones[f.id] ?? f.porDefecto;
+                return (
+                    <div key={f.id} className="mt-4 rounded-2xl border border-border bg-card/50 p-5">
+                        <div className="flex items-start gap-4">
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-bold text-foreground">{f.nombre}</span>
+                                <span className="block text-xs text-muted-foreground leading-relaxed mt-1">{f.que}</span>
+                                {/* Lo que deja de pasar se dice ANTES de apagar, no después. */}
+                                <span className="block text-xs text-muted-foreground leading-relaxed mt-2">
+                                    <b className="text-foreground/80">Si se apaga:</b> {f.siSeApaga}
+                                </span>
+                            </span>
+                            <button
+                                onClick={() => alternarFuncion(f.id)}
+                                disabled={alternando === f.id}
+                                aria-label={encendida ? `Apagar ${f.nombre}` : `Prender ${f.nombre}`}
+                                className={cn("relative w-12 h-6 rounded-full transition-colors shrink-0 mt-0.5",
+                                    encendida ? "bg-[var(--accion)]" : "bg-muted",
+                                    alternando === f.id && "opacity-60")}>
+                                <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all",
+                                    encendida ? "left-[26px]" : "left-0.5")} />
+                            </button>
+                        </div>
+                    </div>
+                );
+            })}
+
         </div>
     );
 }
