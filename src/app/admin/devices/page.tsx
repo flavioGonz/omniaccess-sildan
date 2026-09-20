@@ -204,6 +204,10 @@ export default function DevicesPage() {
 
     const [devices, setDevices] = useState<any[]>([]);
     const [groups, setGroups] = useState<any[]>([]);
+    /* Qué equipo se está editando. El cajón vive al nivel de la página y no adentro del
+       menú de la fila: adentro, cerrar el menú lo desmontaba, así que el menú se quedaba
+       abierto encima de la ficha. */
+    const [editando, setEditando] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [testingDevice, setTestingDevice] = useState<string | null>(null);
@@ -1016,11 +1020,14 @@ export default function DevicesPage() {
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
-                                                    <CajonDispositivo device={dev} groups={groups} onSuccess={loadData}>
-                                                        <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-accent hover:text-blue-400 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-2">
-                                                            <Settings2 size={14} /> Editar Configuración
-                                                        </div>
-                                                    </CajonDispositivo>
+                                                    {/* Un item de menú de verdad, no un div disfrazado.
+                                                        Antes el cajón colgaba de acá adentro, y por eso el
+                                                        menú no podía cerrarse: cerrarlo desmontaba el
+                                                        cajón. Quedaba flotando encima, tapando la ficha. */}
+                                                    <DropdownMenuItem onClick={() => setEditando(dev)}
+                                                        className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
+                                                        <Settings2 size={14} /> Editar Configuración
+                                                    </DropdownMenuItem>
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
@@ -1186,11 +1193,10 @@ export default function DevicesPage() {
                                                         <DropdownMenuItem onClick={() => setHealthHistory(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-indigo-400 focus:bg-foreground/10 focus:text-indigo-400">
                                                             <Activity size={14} /> Historial de salud
                                                         </DropdownMenuItem>
-                                                        <CajonDispositivo device={dev} groups={groups} onSuccess={loadData}>
-                                                            <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-accent hover:text-blue-400 gap-2">
-                                                                <Settings2 size={14} /> Editar / Mapeo de canales
-                                                            </div>
-                                                        </CajonDispositivo>
+                                                        <DropdownMenuItem onClick={() => setEditando(dev)}
+                                                            className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
+                                                            <Settings2 size={14} /> Editar / Mapeo de canales
+                                                        </DropdownMenuItem>
                                                         <DropdownMenuSeparator className="bg-foreground/10" />
                                                         <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se eliminará este NVR." onDelete={deleteDevice} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-red-500/10 hover:text-red-500 gap-2 text-red-400">
@@ -1215,6 +1221,21 @@ export default function DevicesPage() {
 
             {calibrandoInterior && (
                 <InteriorCalibrator device={calibrandoInterior} onClose={() => setCalibrandoInterior(null)} />
+            )}
+
+            {/* La ficha del equipo, al nivel de la página y con el mismo patrón que el resto
+                de los diálogos de esta pantalla. Adentro del menú de la fila no podía estar:
+                el menú tenía que quedarse abierto para no desmontarla, y terminaba flotando
+                encima de la ficha. */}
+            {editando && (
+                <CajonDispositivo
+                    key={editando.id}
+                    device={editando}
+                    groups={groups}
+                    onSuccess={loadData}
+                    open={!!editando}
+                    onOpenChange={(v) => !v && setEditando(null)}
+                />
             )}
 
             {healthHistory && (

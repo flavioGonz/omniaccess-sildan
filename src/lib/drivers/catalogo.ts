@@ -51,7 +51,7 @@ export const SOPORTE: Soporte[] = [
     {
         marca: "HIKVISION", rotulo: "Hikvision", estado: "andando",
         hace: ["lpr", "rostro", "bitacora", "relé", "video"],
-        nota: "Es la marca sobre la que está construido el sistema. Es la única con LPR funcionando.",
+        nota: "Es la marca sobre la que se construyó el sistema y la que más cosas tiene probadas. Hoy es la única que sabe cargarle matrículas a un equipo.",
     },
     {
         marca: "AKUVOX", rotulo: "Akuvox", estado: "andando",

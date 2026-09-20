@@ -3,7 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, BadgeCheck, Check, CircleSlash } from "lucide-react";
 import { Pista } from "@/components/ui/pista";
-import { SOPORTE, QUE_ES, evaluar, type Soporte } from "@/lib/drivers/catalogo";
+import { SOPORTE, QUE_ES, NECESITA, evaluar, soporteDe, type Soporte } from "@/lib/drivers/catalogo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,6 +61,48 @@ export function ElegirMarca({ valor, alElegir }: { valor: string; alElegir: (v: 
 }
 
 /**
+ * La marca de un equipo que YA existe.
+ *
+ * Editando no puede ser una grilla de diez opciones. La marca decide qué driver le habla
+ * al equipo: cambiarla en una ficha no convierte una Hikvision en una Dahua, sólo hace que
+ * OmniAccess empiece a hablarle en un idioma que el equipo de la pared no entiende. Y peor,
+ * la grilla invitaba a tocarla — diez tarjetas apretables donde hay un solo dato cierto.
+ *
+ * Acá se muestra la que tiene, con su estado, y se dice por qué no se cambia.
+ */
+export function MarcaFija({ marca }: { marca: string }) {
+    const s = soporteDe(marca);
+    const t = s ? TONO[s.estado] : null;
+    return (
+        <div className="rounded-[10px] border border-border bg-card/40 p-3">
+            <span className="flex items-center gap-2">
+                {t && <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", t.punto)} />}
+                <span className="text-[13.5px] font-semibold text-foreground flex-1 truncate">
+                    {s?.rotulo || marca}
+                </span>
+                {t && s && (
+                    <Pista titulo={s.rotulo} texto={s.nota} lado="arriba" ancho={260}>
+                        <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded border cursor-help", t.chip)}>
+                            {t.rotulo}
+                        </span>
+                    </Pista>
+                )}
+            </span>
+            <span className="block text-[11.5px] text-muted-foreground mt-1 leading-snug">
+                {s?.hace.length
+                    ? s.hace.map((c) => QUE_ES[c].replace(/^(Cargarle|Leerle|Abrirle|Ver su) /, "")).join(" · ")
+                    : "Todavía no se le puede mandar nada"}
+            </span>
+            <span className="block text-[11.5px] text-muted-foreground mt-2 leading-snug">
+                El fabricante no se cambia desde acá: es lo que decide qué driver le habla al
+                equipo, y un equipo no cambia de marca. Si se cargó con la marca equivocada,
+                conviene darlo de alta de nuevo.
+            </span>
+        </div>
+    );
+}
+
+/**
  * El veredicto de esta marca PARA ESTE TIPO de equipo.
  *
  * "La marca está a medias" y "la marca no sirve para lo que vine a hacer" son cosas
@@ -83,10 +125,19 @@ export function CompatibilidadMarca({ marca, tipo, rotuloTipo }: {
                     v.sirve ? "border-[var(--bien)]/35 bg-[var(--bien-suave)]"
                         : "border-[var(--mal)]/35 bg-[var(--mal-suave)]")}>
                 {v.sirve ? (
+                    /*
+                     * Antes acá iba la nota general de la marca, y para una cámara interior
+                     * eso terminaba diciendo "es la única con LPR funcionando" — una frase
+                     * cierta sobre la marca y completamente al lado de la pregunta, porque
+                     * una cámara interior no necesita que el driver lea matrículas: la
+                     * matrícula la saca Omni-LPR del RTSP. Lo que hay que contestar es qué
+                     * hace esta marca PARA ESTO.
+                     */
                     <p className="flex items-start gap-2 text-[12.5px] text-[var(--bien-texto)]">
                         <Check size={14} className="mt-px shrink-0" />
                         <span>
-                            <b>{v.soporte?.rotulo}</b> sirve para esto. {v.soporte?.nota}
+                            <b>{v.soporte?.rotulo}</b> sirve para esto: {(NECESITA[tipo] || [])
+                                .map((c) => QUE_ES[c].toLowerCase()).join(" y ") || "no necesita nada especial del driver"}.
                         </span>
                     </p>
                 ) : (

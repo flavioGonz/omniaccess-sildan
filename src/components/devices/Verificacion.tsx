@@ -56,8 +56,60 @@ function Punto({ estado, titulo, detalle }: {
     );
 }
 
-/** El video en vivo del equipo recién dado de alta. */
-function Vivo({ deviceId }: { deviceId: string }) {
+type Linea = { x1: number; y1: number; x2: number; y2: number; sentido?: string };
+type Zona = { x: number; y: number; w: number; h: number };
+
+const leerJson = <T,>(txt: string | null | undefined): T | null => {
+    if (!txt) return null;
+    try { return JSON.parse(String(txt)) as T; } catch { return null; }
+};
+
+/**
+ * La línea y la zona dibujadas, encima del video en vivo.
+ *
+ * Están guardadas en fracciones del cuadro, así que sobre el video se dibujan igual sin
+ * saber la resolución. Y hay que verlas ací: la línea decide CUÁNDO la cámara avisa, y
+ * hasta ahora la única forma de saber dónde quedó era abrir el calibrador — sobre un
+ * cuadro congelado, sin tránsito, que es justo cuando menos se nota si está mal puesta.
+ * Con el vivo atrás se ve pasar un auto y cruzarla, que es la única comprobación que vale.
+ *
+ * El video va en `object-contain` y no `object-cover` por esto mismo: recortar la imagen
+ * correría el dibujo respecto de lo que se ve, y el dibujo estaría mintiendo sobre dónde
+ * está la línea.
+ */
+function Dibujo({ linea, zona }: { linea: Linea | null; zona: Zona | null }) {
+    if (!linea && !zona) return null;
+    const p = (n: number) => Math.max(0, Math.min(100, n * 100));
+    return (
+        <svg className="absolute inset-0 w-full h-full pointer-events-none"
+            viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+            {zona && zona.w > 0 && zona.h > 0 && (
+                <rect x={p(zona.x)} y={p(zona.y)} width={p(zona.w)} height={p(zona.h)}
+                    fill="none" stroke="#38bdf8" strokeWidth={0.5} strokeDasharray="2 1.6"
+                    vectorEffect="non-scaling-stroke" opacity={0.85} />
+            )}
+            {linea && (
+                <>
+                    {/* Dos trazos: uno oscuro y ancho abajo, el vivo arriba. Sobre una calle
+                        clara una línea de un color solo desaparece. */}
+                    <line x1={p(linea.x1)} y1={p(linea.y1)} x2={p(linea.x2)} y2={p(linea.y2)}
+                        stroke="rgba(0,0,0,.55)" strokeWidth={4} strokeLinecap="round"
+                        vectorEffect="non-scaling-stroke" />
+                    <line x1={p(linea.x1)} y1={p(linea.y1)} x2={p(linea.x2)} y2={p(linea.y2)}
+                        stroke="#f59e0b" strokeWidth={2} strokeLinecap="round"
+                        vectorEffect="non-scaling-stroke" />
+                    {[[linea.x1, linea.y1], [linea.x2, linea.y2]].map(([x, y], i) => (
+                        <circle key={i} cx={p(x)} cy={p(y)} r={3.5} fill="#f59e0b"
+                            stroke="rgba(0,0,0,.55)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+                    ))}
+                </>
+            )}
+        </svg>
+    );
+}
+
+/** El video en vivo del equipo, con lo que le hayan dibujado encima. */
+function Vivo({ deviceId, linea, zona }: { deviceId: string; linea: Linea | null; zona: Zona | null }) {
     const ref = useRef<HTMLVideoElement>(null);
     const [anda, setAnda] = useState<boolean | null>(null);
     const [intento, setIntento] = useState(0);
@@ -89,15 +141,28 @@ function Vivo({ deviceId }: { deviceId: string }) {
     return (
         <div className="space-y-2">
             <div className="relative rounded-[10px] overflow-hidden border border-border bg-black aspect-video">
-                <video ref={ref} muted autoPlay playsInline className="block w-full h-full object-cover" />
+                <video ref={ref} muted autoPlay playsInline className="block w-full h-full object-contain" />
+                {anda === true && <Dibujo linea={linea} zona={zona} />}
                 {anda === null && (
                     <span className="absolute inset-0 flex items-center justify-center gap-2 text-[12px] text-white/70">
                         <Loader2 size={14} className="animate-spin" /> Pidiendo el video…
                     </span>
                 )}
                 {anda === true && (
-                    <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded bg-black/70 text-white text-[10px] font-bold flex items-center gap-1">
-                        <Radio size={10} className="text-[var(--mal)]" /> EN VIVO
+                    <span className="absolute top-2 left-2 flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-black/70 text-white text-[10px] font-bold flex items-center gap-1">
+                            <Radio size={10} className="text-[var(--mal)]" /> EN VIVO
+                        </span>
+                        {linea && (
+                            <span className="px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold flex items-center gap-1" style={{ color: "#f59e0b" }}>
+                                <span className="w-2 h-0.5 rounded-full" style={{ background: "#f59e0b" }} /> línea de paso
+                            </span>
+                        )}
+                        {zona && (
+                            <span className="px-1.5 py-0.5 rounded bg-black/70 text-[10px] font-bold flex items-center gap-1" style={{ color: "#38bdf8" }}>
+                                <span className="w-2 h-0.5 rounded-full" style={{ background: "#38bdf8" }} /> zona
+                            </span>
+                        )}
                     </span>
                 )}
                 {anda === false && (
@@ -117,13 +182,17 @@ function Vivo({ deviceId }: { deviceId: string }) {
     );
 }
 
-export function Verificacion({ deviceId, datos, tipo, faltantes }: {
+export function Verificacion({ deviceId, datos, tipo, faltantes, linea, zona }: {
     /** El equipo ya creado. Null mientras todavía no se guardó. */
     deviceId: string | null;
     datos: { name: string; ip: string; brand: string; username: string; password: string; authType: string; rtspUrl?: string };
     tipo?: { rotulo: string; vivo?: boolean } | null;
     /** Lo que quedó a medias y conviene decir antes de dar por terminado. */
     faltantes: { titulo: string; detalle: string }[];
+    /** La línea de paso guardada, para dibujarla encima del vivo. */
+    linea?: string | null;
+    /** La zona de interés guardada. */
+    zona?: string | null;
 }) {
     const [lectura, setLectura] = useState<Lectura | null>(null);
     const [leyendo, setLeyendo] = useState(false);
@@ -179,7 +248,11 @@ export function Verificacion({ deviceId, datos, tipo, faltantes }: {
     return (
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}
             className="space-y-4">
-            {tipo?.vivo && <Vivo deviceId={deviceId} />}
+            {tipo?.vivo && (
+                <Vivo deviceId={deviceId}
+                    linea={leerJson<Linea>(linea)}
+                    zona={leerJson<Zona>(zona)} />
+            )}
 
             <div className={cn("rounded-[10px] border p-3.5",
                 lectura?.ok ? "border-[var(--bien)]/35 bg-[var(--bien-suave)]"
@@ -190,11 +263,14 @@ export function Verificacion({ deviceId, datos, tipo, faltantes }: {
                 {!leyendo && lectura?.ok && (
                     <>
                         <Punto estado="bien" titulo="El equipo contestó" />
+                        {/* El número de serie es una tira de cuarenta caracteres sin un solo
+                            espacio: en su media columna no tenía dónde cortar y se salía del
+                            cajón. Va solo, a lo ancho, y con permiso para partirse. */}
                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-1.5 text-[12px] text-muted-foreground">
-                            <span>Modelo: <b className="text-foreground">{lectura.model || "—"}</b></span>
-                            <span>Firmware: <b className="text-foreground">{lectura.firmwareVersion || "—"}</b></span>
-                            <span>MAC: <b className="text-foreground tabular-nums">{lectura.macAddress || "—"}</b></span>
-                            <span>Serie: <b className="text-foreground tabular-nums">{lectura.serialNumber || "—"}</b></span>
+                            <span className="min-w-0 break-words">Modelo: <b className="text-foreground">{lectura.model || "—"}</b></span>
+                            <span className="min-w-0 break-words">Firmware: <b className="text-foreground">{lectura.firmwareVersion || "—"}</b></span>
+                            <span className="min-w-0 break-words">MAC: <b className="text-foreground tabular-nums">{lectura.macAddress || "—"}</b></span>
+                            <span className="col-span-2 min-w-0">Serie: <b className="text-foreground tabular-nums break-all">{lectura.serialNumber || "—"}</b></span>
                         </div>
                     </>
                 )}

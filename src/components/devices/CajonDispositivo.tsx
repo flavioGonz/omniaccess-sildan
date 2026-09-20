@@ -16,7 +16,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { PasoAnimado } from "@/components/devices/Pasos";
-import { CompatibilidadMarca, ElegirMarca } from "@/components/devices/Compatibilidad";
+import { CompatibilidadMarca, ElegirMarca, MarcaFija } from "@/components/devices/Compatibilidad";
 import { Verificacion } from "@/components/devices/Verificacion";
 import { Descubridor } from "@/components/devices/Descubridor";
 import { tiposSegunModulos, tipoDeEquipo } from "@/components/devices/tipos";
@@ -191,14 +191,32 @@ const TITULOS: Record<string, string> = {
     listo: "Comprobar que anda",
 };
 
-export function CajonDispositivo({ device, groups, onSuccess, children }: {
+export function CajonDispositivo({ device, groups, onSuccess, children, open, onOpenChange }: {
     device?: any;
     groups: any[];
     onSuccess: () => void;
-    children: React.ReactNode;
+    /** El disparador. Sin él el cajón se abre desde afuera, con `open`. */
+    children?: React.ReactNode;
+    /**
+     * Abierto desde afuera.
+     *
+     * Existe por un problema concreto: al editar, el cajón colgaba de un menú contextual,
+     * y ese menú NO se podía cerrar sin llevarse el cajón puesto — el cajón vivía adentro
+     * de su contenido, así que cerrar el menú lo desmontaba. La solución de entonces fue
+     * no cerrarlo, y el resultado era el menú flotando ENCIMA del cajón, tapando media
+     * pantalla. Con el estado afuera, el menú cierra como cualquier menú y el cajón vive
+     * al nivel de la página, que es donde tiene que vivir algo que ocupa media pantalla.
+     */
+    open?: boolean;
+    onOpenChange?: (v: boolean) => void;
 }) {
     const esEdicion = !!device;
-    const [abierto, setAbierto] = useState(false);
+    const [abiertoPropio, setAbiertoPropio] = useState(false);
+    const abierto = open ?? abiertoPropio;
+    const setAbierto = (v: boolean) => {
+        if (open === undefined) setAbiertoPropio(v);
+        onOpenChange?.(v);
+    };
     const [guardando, setGuardando] = useState(false);
     const [paso, setPaso] = useState(0);
     const [hacia, setHacia] = useState(1);
@@ -504,7 +522,7 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
 
     return (
         <Cajon open={abierto} onOpenChange={setAbierto}>
-            <CajonDisparador asChild>{children}</CajonDisparador>
+            {children && <CajonDisparador asChild>{children}</CajonDisparador>}
 
             <CajonContenido
                 ancho="angosto"
@@ -572,7 +590,9 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                                 deviceId={device.id}
                                 datos={f}
                                 tipo={tipo}
-                                faltantes={faltantes} />
+                                faltantes={faltantes}
+                                linea={device.trackLine}
+                                zona={device.trackRoi} />
                         </CajonSeccion>
                     )}
                     {muestra("que") && (
@@ -608,9 +628,15 @@ export function CajonDispositivo({ device, groups, onSuccess, children }: {
                     )}
 
                     {muestra("marca") && (
-                        <CajonSeccion titulo="De qué fabricante es" icono={Tag}
-                            ayuda="No todas las marcas están al mismo nivel. Cada una habla por su propio driver, y algunos todavía no están escritos: acá se dice cuál es cuál antes de cargar nada.">
-                            <ElegirMarca valor={f.brand} alElegir={(v) => set("brand", v)} />
+                        <CajonSeccion
+                            titulo={esEdicion ? "De qué fabricante es" : "¿De qué fabricante es?"}
+                            icono={Tag}
+                            ayuda={esEdicion
+                                ? "Cada marca habla por su propio driver. Acá se ve qué sabe hacer OmniAccess con la de este equipo."
+                                : "No todas las marcas están al mismo nivel. Cada una habla por su propio driver, y algunos todavía no están escritos: acá se dice cuál es cuál antes de cargar nada."}>
+                            {esEdicion
+                                ? <MarcaFija marca={f.brand} />
+                                : <ElegirMarca valor={f.brand} alElegir={(v) => set("brand", v)} />}
                             <CompatibilidadMarca marca={f.brand} tipo={f.deviceType}
                                 rotuloTipo={tipo?.rotulo || "equipo"} />
                         </CajonSeccion>
