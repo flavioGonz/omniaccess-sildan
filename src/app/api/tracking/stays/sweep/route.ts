@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
-    cerrarEstadia, miradasSinVerlo,
+    cerrarEstadia, confirmarEstadia, estadoDeEstadia, miradasSinVerlo,
     ESTADIA_VENCE_MIN, ESTADIA_TECHO_MIN, MIRADAS_MIN, ESTADOS_DE_ESTADIA,
 } from "@/lib/estadias";
 import { mirarSiSigue, VIGILIA_POR_VUELTA } from "@/lib/vigilia";
@@ -119,8 +119,27 @@ export async function POST(req: NextRequest) {
          * ordenadas de la más vieja a la más nueva, así que si el cupo de la vuelta no
          * alcanza, se gasta en las que hace más tiempo que nadie mira.
          */
+        /*
+         * También las que NO están confirmadas todavía, y eso es el arreglo de un callejón
+         * sin salida.
+         *
+         * Una estadía nace en VISTO y sólo pasa a ESTACIONADO cuando se la ve dos veces
+         * separadas en el tiempo. En una calle con tránsito eso ocurre solo. En una
+         * tranquila no: la cámara de la Calle 21 lee el auto parado una vez cada varias
+         * horas, así que cada lectura abría una estadía nueva con estDesde igual a estHasta
+         * — duración cero — que vencia antes de la segunda. Cuatro estadías cerradas en un
+         * día por un auto que no se movió nunca, y el plano sin un solo auto parado.
+         *
+         * La vigilia miraba sólo las confirmadas, así que no rompía el círculo: para que la
+         * miraran tenía que estar confirmada, y para confirmarse tenía que ser mirada.
+         *
+         * Y mirar es justamente lo que falta. Ver el mismo auto en el mismo lugar dos veces
+         * separadas por doce minutos ES la prueba que el estado pide; que la segunda sea una
+         * mirada de píxeles y no una lectura de la chapa no la hace peor — de hecho de
+         * noche la hace mejor.
+         */
         const equipo = fila.deviceId ? equipos.get(fila.deviceId) : null;
-        if (fila.estAvisado && equipo?.rtspUrl && quedanMiradas > 0) {
+        if (equipo?.rtspUrl && quedanMiradas > 0) {
             quedanMiradas--;
             const vista = await mirarSiSigue(
                 { id: fila.id, plate: fila.plate, bbox: fila.bbox },
@@ -137,10 +156,20 @@ export async function POST(req: NextRequest) {
                    —esto es una mirada, no un avistamiento de la cámara— y por eso tampoco se
                    toca `timestamp`, que sigue queriendo decir "la última vez que se le leyó
                    la chapa". */
-                await prisma.plateSighting.update({
+                const ahoraMismo = new Date();
+                const estirada = await prisma.plateSighting.update({
                     where: { id: fila.id },
-                    data: { estHasta: new Date() },
-                }).catch(() => { });
+                    data: {
+                        estHasta: ahoraMismo,
+                        /* Y el estado se recalcula: con la estadía estirada puede haber
+                           dejado de ser "se lo vio" para pasar a ser "se quedó". */
+                        estado: estadoDeEstadia(fila.estDesde ?? fila.timestamp, ahoraMismo),
+                    },
+                }).catch(() => null);
+                /* Y si con esto ya alcanza, se anuncia. `confirmarEstadia` no hace nada si
+                   ya estaba avisada o si todavía no llegó al mínimo, así que llamarla en cada
+                   vuelta es gratis y evita tener que repetir sus reglas acá. */
+                if (estirada) await confirmarEstadia(estirada as any).catch(() => { });
                 continue;
             }
             if (vista.resultado === "no se pudo") {
