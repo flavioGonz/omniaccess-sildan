@@ -394,6 +394,9 @@ enum DeviceType {
 }
 
 enum DeviceBrand {
+  /// Sin marca conocida: lo unico que se le pide es el flujo RTSP. Ver SOPORTE en
+  /// src/lib/drivers/catalogo.ts.
+  GENERICA
   HIKVISION
   AKUVOX
   INTELBRAS

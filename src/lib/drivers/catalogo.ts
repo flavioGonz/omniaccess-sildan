@@ -64,6 +64,27 @@ export const SOPORTE: Soporte[] = [
         nota: "Sólo para contar gente: lee el aforo y los cruces por ONVIF. No maneja credenciales.",
     },
     {
+        /*
+         * La cámara sin marca.
+         *
+         * Faltaba, y su ausencia obligaba a mentir: quien instalaba una cámara que no está
+         * en la lista tenía que elegir una marca cualquiera para poder cargarla, y a partir
+         * de ahí el sistema creía que podía hablarle por el driver de esa otra marca.
+         *
+         * Y sobre todo: para una cámara interior de seguimiento la marca no importa. No se
+         * le manda nada — se le PIDE video, y eso se hace por RTSP con ffmpeg, que habla
+         * con cualquiera. Lo que decide si sirve no es el fabricante sino el flujo:
+         * resolución, códec y cuadros por segundo. Eso lo mide la prueba del canal.
+         */
+        marca: "GENERICA", rotulo: "Genérica / ONVIF · sólo RTSP", estado: "parcial",
+        hace: ["video"],
+        nota: "No tiene driver: OmniAccess no le manda nada ni le abre nada. Lo único que hace es leerle el video por RTSP, que es todo lo que necesita una cámara interior de seguimiento. Probá el canal antes de darla de alta: lo que decide si sirve es la resolución y no la marca.",
+    },
+    {
+        marca: "AXIS", rotulo: "Axis", estado: "sin hacer", hace: [],
+        nota: "No tiene driver escrito. Si sólo hace falta su video, cargála como genérica.",
+    },
+    {
         marca: "AVICAM", rotulo: "Avicam", estado: "sin hacer",
         hace: [],
         nota: "El driver está empezado pero sus funciones están vacías: no le va a llegar nada al equipo.",

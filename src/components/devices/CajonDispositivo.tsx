@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
     ArrowLeft, ArrowRight, BadgeCheck, BookOpen, Check, ChevronDown, ChevronsUpDown,
-    Cpu, ExternalLink, GitCommitHorizontal, Loader2, MapPin, Network, Plus,
+    AlertTriangle, Cpu, ExternalLink, GitCommitHorizontal, Loader2, MapPin, Network, Plus,
     Radio, Save, Scan, Tag, Video, Wifi,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -959,6 +959,22 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                                                         <p className="text-[11.5px] text-muted-foreground tabular-nums">
                                                             Cuadro de {Math.round(prueba.bytes / 1024)} KB · capturar {prueba.msCaptura} ms · leer {prueba.msLectura} ms
                                                         </p>
+                                                        {/* La ficha técnica del flujo. Es lo que decide si una cámara
+                                                            sirve, y no la marca: una matrícula a quince metros no entra
+                                                            en 704×480, y eso no da ningún síntoma — el video se ve bien. */}
+                                                        {prueba.flujo && (
+                                                            <p className="text-[11.5px] text-muted-foreground tabular-nums">
+                                                                {[prueba.flujo.ancho && `${prueba.flujo.ancho}×${prueba.flujo.alto}`,
+                                                                  prueba.flujo.codec?.toUpperCase(),
+                                                                  prueba.flujo.cps && `${prueba.flujo.cps} c/s`].filter(Boolean).join(" · ")}
+                                                            </p>
+                                                        )}
+                                                        {(prueba.avisos || []).map((a: any, i: number) => (
+                                                            <p key={i} className={cn("text-[11.5px] leading-snug flex gap-1.5",
+                                                                a.grave ? "text-[var(--mal-texto)]" : "text-[var(--aviso-texto)]")}>
+                                                                <AlertTriangle size={12} className="shrink-0 mt-px" /> <span>{a.que}</span>
+                                                            </p>
+                                                        ))}
                                                         {prueba.lecturas?.length ? prueba.lecturas.slice(0, 3).map((l: any, i: number) => (
                                                             <div key={i} className="flex items-center gap-2 text-[13px]">
                                                                 <Check size={13} className={l.confidence >= prueba.umbral ? "text-[var(--bien)]" : "text-[var(--aviso)]"} />
