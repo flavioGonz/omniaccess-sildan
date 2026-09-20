@@ -178,8 +178,37 @@ const MOTOR_REINICIOS_DIA = Number(process.env.TRACKING_ENGINE_MAX_RESTARTS || 4
 /** Hora local del reinicio de red. Vacio lo desactiva. */
 const MOTOR_HORA_NOCTURNA = process.env.TRACKING_ENGINE_NIGHTLY ?? "4";
 const MOTOR_CONTENEDOR = process.env.TRACKING_ENGINE_CONTAINER || "omni-lpr";
+/**
+ * Cuantos minutos seguidos sin que el lector conteste antes de reiniciarlo.
+ *
+ * Esto faltaba, y era el agujero mas grande del vigia: sabia detectar al lector VIVO PERO
+ * TRABADO --GPU girando sin leer-- y era ciego al caso mas simple, que el lector no este.
+ * La deteccion de trabado exige uso alto de GPU; con el contenedor muerto el uso cae a
+ * cero, asi que no se cumplia y no se reiniciaba nada.
+ *
+ * Paso de verdad: el 20 de setiembre a las 13:35 el contenedor murio con un
+ * cudaErrorIllegalAddress (senal 11) y se quedo abajo. La politica de Docker era
+ * unless-stopped y tampoco lo levanto, porque el demonio habia perdido contacto con el
+ * shim. Media hora sin leer una sola matricula, y lo unico que lo decia era un punto rojo
+ * en una pantalla que nadie estaba mirando.
+ *
+ * Dos minutos porque un reinicio del propio contenedor tarda menos que eso en contestar:
+ * con uno solo se reiniciaria a si mismo en el medio del arranque.
+ */
+const MOTOR_MUDO_MIN = Number(process.env.TRACKING_ENGINE_DEAD_MIN || 2);
+const LECTOR_URL = (process.env.OMNI_LPR_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
-const motor = { sospecha: 0, reinicios: [], nocturnaHecha: null, potenciaMax: null };
+/** La misma pregunta que hace la pantalla de configuracion, para que no discrepen. */
+async function lectorContesta() {
+    try {
+        const r = await fetch(`${LECTOR_URL}/api/health`, { signal: AbortSignal.timeout(4000) });
+        return r.ok;
+    } catch {
+        return false;
+    }
+}
+
+const motor = { sospecha: 0, mudo: 0, reinicios: [], nocturnaHecha: null, potenciaMax: null };
 
 // Modelos del lector. El detector por defecto del contenedor es el de 384 px, el mas
 // chico de los seis: achica cualquier imagen a eso antes de buscar nada, y por eso un
@@ -1232,6 +1261,29 @@ async function vigilarMotor({ gpuUso, gpuWatts, lecturas, disparos }) {
         && ahora.getMinutes() < 2 && motor.nocturnaHecha !== hoy) {
         motor.nocturnaHecha = hoy;
         await reiniciarMotor("reinicio de red de cada noche");
+        return;
+    }
+
+    /*
+     * Antes que nada: esta el lector?
+     *
+     * Va primero porque todo lo de abajo razona sobre GPU y lecturas, y con el lector
+     * caido esos numeros no dicen nada -- parecen los de una calle tranquila.
+     */
+    if (await lectorContesta()) {
+        if (motor.mudo) {
+            log(`motor: el lector volvio a contestar (estuvo ${motor.mudo} min sin hacerlo)`);
+            motor.mudo = 0;
+        }
+    } else {
+        motor.mudo++;
+        if (motor.mudo === 1) {
+            log(`motor: el lector no contesta en ${LECTOR_URL}. Si sigue asi ${MOTOR_MUDO_MIN} min se reinicia.`);
+        }
+        if (motor.mudo >= MOTOR_MUDO_MIN) {
+            await reiniciarMotor(`${motor.mudo} min sin que el lector conteste`);
+            motor.mudo = 0;
+        }
         return;
     }
 
