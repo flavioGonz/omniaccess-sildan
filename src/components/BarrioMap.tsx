@@ -11,7 +11,8 @@ const CajonUnidad = dynamic(
     () => import("@/components/units/CajonUnidad").then((m) => m.CajonUnidad), { ssr: false });
 import { motion } from "framer-motion";
 import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar, type Punto } from "@/components/mapa/Recorrido";
-import { CapaEstacionados, type AutoParado, type SeñalSinRumbo, type SeñalAuto } from "@/components/mapa/CapaEstacionados";
+import { CapaEstacionados, type SeñalSinRumbo, type SeñalAuto } from "@/components/mapa/CapaEstacionados";
+import { useEstacionados, type AutoParado } from "@/components/mapa/estacionados";
 import { conoDeVision, correr } from "@/lib/escena";
 import { VisorCuadro } from "@/components/VisorCuadro";
 import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
@@ -382,6 +383,15 @@ export default function BarrioMap() {
     // Flujo en vivo (columnas + autitos) — hooks siempre antes del early-return
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
     const flow = useFlow(data?.streets || [], camsNamed, liveSocket);
+    /*
+     * Los autos parados salen de acá y no de la capa de Leaflet.
+     *
+     * La vista plana y la 3D dibujan los mismos autos, y antes sólo la plana los tenía
+     * porque el pedido y el socket vivían adentro de su capa. Con el cálculo afuera las
+     * dos miran la misma lista y el mismo lugar: un auto no puede estar en un punto
+     * distinto según si el plano está inclinado o no.
+     */
+    const estacionados = useEstacionados((data?.cameras || []) as any, liveSocket, verCapa.estacionados);
 
     /**
      * Las últimas pasadas que ofrece el buscador con el campo vacío.
@@ -732,6 +742,15 @@ ${CSS_AUTO}
                         nombre={(id: string) => devById[id]?.name || "Cámara"}
                         perimeter={data.perimeter as [number, number][]}
                         streets={data.streets as any}
+                        /* Los lotes nunca habían llegado acá. En un barrio sin perímetro ni
+                           calles dibujadas —que es éste— eso dejaba la vista 3D con dos
+                           cámaras y nada más: el plano entero desaparecía al inclinarlo. */
+                        lots={(verCapa.lotes ? (data.lots || []) : []) as any}
+                        rotulos={verCapa.rotulos}
+                        estacionados={verCapa.estacionados ? estacionados.ubicados : []}
+                        pendientes={verCapa.estacionados ? estacionados.pendientes : []}
+                        flujos={flow.anims}
+                        pulsos={flow.pulses}
                         cameras={data.cameras.map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
                         puntos={rec.puntos}
                         traza={rec.traza}
@@ -934,8 +953,8 @@ ${CSS_AUTO}
                         edición: dibujando el plano, lo que importa es el plano. */}
                     {!editing && (
                         <CapaEstacionados
-                            camaras={data.cameras as any}
-                            socket={liveSocket}
+                            ubicados={estacionados.ubicados}
+                            pendientes={estacionados.pendientes}
                             visible={verCapa.estacionados}
                             alTocar={(a) => setAutoParado(a)}
                             alSeñalar={setSinRumbo}

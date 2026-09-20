@@ -44,7 +44,7 @@ interface Anim {
     color: string; // emerald | orange
 }
 
-const carIconHtml = (plate: string, bearing: number, color: string) => `
+export const carIconHtml = (plate: string, bearing: number, color: string) => `
 <div style="display:flex;flex-direction:column;align-items:center;pointer-events:none">
   <span style="margin-bottom:2px;padding:1px 5px;border-radius:5px;background:${color};color:#fff;font-size:9px;font-weight:800;font-family:var(--font-sans);letter-spacing:.5px;box-shadow:0 2px 6px rgba(0,0,0,.5)">${plate}</span>
   <span style="width:26px;height:26px;border-radius:50%;background:${color};border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,.5);transform:rotate(${bearing}deg)">
@@ -52,7 +52,7 @@ const carIconHtml = (plate: string, bearing: number, color: string) => `
   </span>
 </div>`;
 
-const pulseHtml = (color: string) => `
+export const pulseHtml = (color: string) => `
 <style>@keyframes omniPing{0%{transform:scale(.22);opacity:.95}75%{opacity:.2}100%{transform:scale(1);opacity:0}}</style>
 <div style="position:relative;width:64px;height:64px;pointer-events:none">
   <span style="position:absolute;inset:0;border-radius:50%;border:3px solid ${color};animation:omniPing 1.1s ease-out infinite"></span>

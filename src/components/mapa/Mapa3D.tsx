@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MLMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { autoHtml, lapso, pendienteHtml, type AutoUbicado, type CamaraPendiente } from "@/components/mapa/estacionados";
+import { carIconHtml, pulseHtml } from "@/components/barrio/FlowLayer";
+import { pointAlong } from "@/lib/street-graph";
 import type { Punto } from "@/components/mapa/Recorrido";
 import { polilinea, posicionEnTraza, recorrida as trazaRecorrida, type TramoTraza } from "@/lib/traza";
 import { svgAuto, CSS_AUTO, TAM_AUTO } from "@/lib/auto-svg";
@@ -41,6 +44,7 @@ function marcadorCamara(nombre: string) {
     return el;
 }
 type Calle = { id: string; name?: string; points: [number, number][] };
+type Lote = { id: string; label?: string; unitId?: string | null; points: [number, number][] };
 
 /**
  * Vista 3D del barrio: misma foto satelital, pero con giro e inclinacion de
@@ -51,6 +55,7 @@ export default function Mapa3D({
     center, zoom, perimeter, streets, cameras, puntos, traza = [], avance = 0, indice,
     pitch: pitchIni = 55, bearing: bearingIni = -20, onVista,
     vivo = false, ocultas = [], nombre,
+    lots = [], rotulos = true, estacionados = [], pendientes = [], flujos = [], pulsos = [],
 }: {
     center: [number, number];
     zoom: number;
@@ -64,6 +69,25 @@ export default function Mapa3D({
     nombre?: (id: string) => string;
     perimeter: [number, number][];
     streets: Calle[];
+    /**
+     * Los lotes dibujados.
+     *
+     * Faltaban, y era lo que hacía que esta vista pareciera rota. Acá no hay perímetro ni
+     * calles cargadas —sólo diecisiete lotes— así que al inclinar el plano no quedaba
+     * absolutamente nada dibujado salvo las dos cámaras, y se leía como que la vista 3D
+     * no andaba. Andábamos bien: nunca le habíamos pasado los lotes.
+     */
+    lots?: Lote[];
+    /** Si van los nombres de los lotes puestos encima. */
+    rotulos?: boolean;
+    /** Los autos parados, ya ubicados. La cuenta es la misma que en la vista plana. */
+    estacionados?: AutoUbicado[];
+    /** Las cámaras que todavía no dicen hacia dónde miran, con lo que no se puede ubicar. */
+    pendientes?: CamaraPendiente[];
+    /** Los autitos del flujo en vivo, andando por la red de calles. */
+    flujos?: { key: string; path: [number, number][]; startedAt: number; durMs: number; plate: string; color: string }[];
+    /** El destello sobre la cámara que acaba de leer algo. */
+    pulsos?: { key: string; lat: number; lng: number; color: string }[];
     cameras: Camara[];
     puntos: Punto[];
     traza?: TramoTraza[];
@@ -82,6 +106,9 @@ export default function Mapa3D({
     }, []);
     const mapa = useRef<MLMap | null>(null);
     const marcadores = useRef<any[]>([]);
+    const marcLotes = useRef<any[]>([]);
+    const marcAutos = useRef<any[]>([]);
+    const marcFlujo = useRef<any[]>([]);
     const auto = useRef<any>(null);
     const encuadrado = useRef<string>("");
     const burbujas = useRef<{ marcador: any; cortar: () => void }[]>([]);
@@ -230,10 +257,195 @@ export default function Mapa3D({
         }
     }, [listo, perimeter, streets, cameras]);
 
+    /**
+     * Los lotes.
+     *
+     * Van con el mismo criterio que el resto: cada capa aislada en su propio try, porque
+     * una lista vacía hace que MapLibre rechace la capa, y una excepción acá se llevaba
+     * puesto todo lo que viniera después en el mismo efecto.
+     *
+     * El rótulo va como marcador de HTML y no como capa de símbolos: rotular con una capa
+     * necesita que el estilo tenga cargadas las fuentes, y este estilo apunta a las de
+     * demostración de MapLibre — el día que ese servidor no conteste, los nombres
+     * desaparecen sin que nadie entienda por qué.
+     */
+    useEffect(() => {
+        const m = mapa.current;
+        if (!m || !listo) return;
+
+        const validos = (lots || []).filter((l) => (l.points || []).length >= 3);
+        try {
+            const data: any = {
+                type: "FeatureCollection",
+                features: validos.map((l) => ({
+                    type: "Feature",
+                    geometry: { type: "Polygon", coordinates: [l.points.map((p) => [p[1], p[0]])] },
+                    properties: { id: l.id, atado: l.unitId ? 1 : 0 },
+                })),
+            };
+            const src = m.getSource("lotes") as any;
+            if (src) src.setData(data);
+            else {
+                m.addSource("lotes", { type: "geojson", data });
+                /* Atado a una unidad y sin atar se distinguen por color: un lote dibujado que
+                   no apunta a ninguna casa no sirve para nada, y así se ve de una. */
+                if (!m.getLayer("lotes-relleno")) m.addLayer({
+                    id: "lotes-relleno", type: "fill", source: "lotes",
+                    paint: {
+                        "fill-color": ["case", ["==", ["get", "atado"], 1], "#f59e0b", "#94a3b8"],
+                        "fill-opacity": 0.16,
+                    },
+                });
+                if (!m.getLayer("lotes-borde")) m.addLayer({
+                    id: "lotes-borde", type: "line", source: "lotes",
+                    paint: {
+                        "line-color": ["case", ["==", ["get", "atado"], 1], "#f59e0b", "#cbd5e1"],
+                        "line-width": 1.6, "line-opacity": 0.9,
+                    },
+                });
+            }
+        } catch { /* una capa que falla no puede llevarse las demás */ }
+
+        for (const mk of marcLotes.current) { try { mk.remove(); } catch { } }
+        marcLotes.current = [];
+        if (!rotulos) return;
+        for (const l of validos) {
+            if (!l.label) continue;
+            /* El centro de masa del polígono. Con el promedio simple de los vértices un lote
+               con muchos puntos de un lado corre el nombre para ese lado. */
+            let a = 0, cx = 0, cy = 0;
+            const pts = l.points;
+            for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+                const cruz = pts[j][1] * pts[i][0] - pts[i][1] * pts[j][0];
+                a += cruz;
+                cx += (pts[j][1] + pts[i][1]) * cruz;
+                cy += (pts[j][0] + pts[i][0]) * cruz;
+            }
+            let lng: number, lat: number;
+            if (Math.abs(a) < 1e-12) {
+                lng = pts.reduce((t, p) => t + p[1], 0) / pts.length;
+                lat = pts.reduce((t, p) => t + p[0], 0) / pts.length;
+            } else {
+                lng = cx / (3 * a); lat = cy / (3 * a);
+            }
+            try {
+                const el = document.createElement("div");
+                el.style.cssText = "padding:1px 6px;border-radius:5px;background:rgba(15,23,42,.78);color:#e2e8f0;font-size:10px;font-weight:600;white-space:nowrap;pointer-events:none";
+                el.textContent = l.label;
+                marcLotes.current.push(
+                    new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([lng, lat]).addTo(m),
+                );
+            } catch { }
+        }
+    }, [listo, lots, rotulos]);
+
+    /** Los autos parados, en el mismo lugar y con el mismo dibujo que en la vista plana. */
+    useEffect(() => {
+        const m = mapa.current;
+        if (!m || !listo) return;
+        for (const mk of marcAutos.current) { try { mk.remove(); } catch { } }
+        marcAutos.current = [];
+
+        for (const u of estacionados) {
+            try {
+                const el = document.createElement("div");
+                el.innerHTML = autoHtml(u.auto.plate, u.auto.conocida, lapso(u.auto.desde));
+                marcAutos.current.push(
+                    new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([u.lng, u.lat]).addTo(m),
+                );
+            } catch { }
+        }
+        /* Igual que en plano: sin rumbo no se inventa un lugar, se dice cuántos hay. */
+        for (const g of pendientes) {
+            try {
+                const el = document.createElement("div");
+                el.innerHTML = pendienteHtml(g.autos.length);
+                marcAutos.current.push(
+                    new maplibregl.Marker({ element: el, anchor: "bottom", offset: [0, -30] })
+                        .setLngLat([g.cam.lng, g.cam.lat]).addTo(m),
+                );
+            } catch { }
+        }
+    }, [listo, estacionados, pendientes]);
+
+    /**
+     * El flujo en vivo: el destello sobre la cámara y el autito recorriendo la calle.
+     *
+     * El recorrido sale del grafo de calles DIBUJADAS. Donde no hay calles dibujadas no hay
+     * por dónde hacerlo andar, y el autito no aparece ni acá ni en la vista plana — no es
+     * algo que la vista 3D pueda arreglar por su cuenta. El destello sí funciona siempre:
+     * sólo necesita saber dónde está la cámara.
+     */
+    useEffect(() => {
+        const m = mapa.current;
+        if (!m || !listo) return;
+
+        for (const mk of marcFlujo.current) { try { mk.remove(); } catch { } }
+        marcFlujo.current = [];
+
+        for (const p of pulsos) {
+            try {
+                const el = document.createElement("div");
+                el.innerHTML = pulseHtml(p.color);
+                marcFlujo.current.push(
+                    new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(m),
+                );
+            } catch { }
+        }
+
+        const andando = (flujos || []).filter((f) => (f.path || []).length >= 2);
+        const autos = andando.map((f) => {
+            const el = document.createElement("div");
+            const mk = new maplibregl.Marker({ element: el, anchor: "center" })
+                .setLngLat([f.path[0][1], f.path[0][0]]).addTo(m);
+            marcFlujo.current.push(mk);
+            return { f, el, mk };
+        });
+
+        try {
+            const data: any = {
+                type: "FeatureCollection",
+                features: andando.map((f) => ({
+                    type: "Feature",
+                    geometry: { type: "LineString", coordinates: f.path.map((p) => [p[1], p[0]]) },
+                    properties: { color: f.color },
+                })),
+            };
+            const src = m.getSource("flujo") as any;
+            if (src) src.setData(data);
+            else if (andando.length) {
+                m.addSource("flujo", { type: "geojson", data });
+                if (!m.getLayer("flujo-linea")) m.addLayer({
+                    id: "flujo-linea", type: "line", source: "flujo",
+                    layout: { "line-cap": "round", "line-join": "round" },
+                    paint: { "line-color": ["get", "color"], "line-width": 5, "line-opacity": 0.55, "line-dasharray": [2, 1.6] },
+                });
+            }
+        } catch { }
+
+        if (!autos.length) return;
+        let raf = 0;
+        const cuadro = () => {
+            const ahora = Date.now();
+            for (const { f, el, mk } of autos) {
+                const t = Math.min(1, (ahora - f.startedAt) / f.durMs);
+                const { pt, bearing } = pointAlong(f.path as any, t);
+                const opacidad = t >= 1 ? 0.15 : t > 0.92 ? 1 - (t - 0.92) * 8 : 1;
+                el.innerHTML = `<div style="opacity:${opacidad}">${carIconHtml(f.plate, bearing, f.color)}</div>`;
+                try { mk.setLngLat([pt[1], pt[0]]); } catch { }
+            }
+            raf = requestAnimationFrame(cuadro);
+        };
+        raf = requestAnimationFrame(cuadro);
+        return () => cancelAnimationFrame(raf);
+    }, [listo, flujos, pulsos]);
+
     // Los marcadores viven fuera de React: si no se sacan a mano quedan pegados al mapa.
     useEffect(() => () => {
-        for (const mk of marcadores.current) { try { mk.remove(); } catch { } }
-        marcadores.current = [];
+        for (const lista of [marcadores, marcLotes, marcAutos, marcFlujo]) {
+            for (const mk of lista.current) { try { mk.remove(); } catch { } }
+            lista.current = [];
+        }
     }, []);
 
     /**
