@@ -2,11 +2,76 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { UserRole } from "@prisma/client";
+import { UserRole, type VehicleType } from "@prisma/client";
 import { addDevicePlate } from "./devices";
 import fs from "fs/promises";
 import path from "path";
 import { uploadToS3 } from "@/lib/s3";
+
+/**
+ * Las matrículas de una persona. Varias, no una.
+ *
+ * El formulario mandaba UNA, y la base siempre supo de varias: `User.vehicles` es una
+ * lista. Con un solo campo, la persona que tiene dos autos se cargaba con uno y el otro
+ * entraba por la pantalla de vehículos — y a partir de ahí el alta de la persona era un
+ * campo minado: `updateUser` agarraba el PRIMER vehículo con findFirst y le pisaba la
+ * chapa, así que editarle el teléfono a alguien podía renombrarle un auto.
+ *
+ * Acá la lista es la verdad: lo que no está en ella deja de ser de esta persona.
+ */
+function leerMatriculas(formData: FormData): string[] | null {
+    const limpiar = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+    /* `plates` es lo que manda el cajon; `plate` queda por si algo viejo todavia manda una
+       sola. Si no viene ninguno de los dos, no se toca nada: un formulario que no incluye
+       un campo no esta diciendo "borralo". */
+    const varias = formData.get("plates");
+    if (varias != null) {
+        return [...new Set(String(varias).split(",").map(limpiar).filter(Boolean))];
+    }
+    const una = formData.get("plate");
+    if (una != null) {
+        const v = limpiar(String(una));
+        return v ? [v] : [];
+    }
+    return null;
+}
+
+async function ponerMatriculas(userId: string, chapas: string[], tipo: VehicleType) {
+    /* Las credenciales se reemplazan enteras: son un reflejo de la lista, no tienen datos
+       propios que valga la pena conservar. */
+    await prisma.credential.deleteMany({ where: { userId, type: "PLATE" } });
+    if (chapas.length) {
+        await prisma.credential.createMany({
+            data: chapas.map((value) => ({ type: "PLATE" as const, value, userId })),
+        });
+    }
+
+    const suyos = await prisma.vehicle.findMany({ where: { userId } });
+    const sobran = suyos.filter((v) => !chapas.includes(v.plate));
+    if (sobran.length) {
+        await prisma.vehicle.deleteMany({ where: { id: { in: sobran.map((v) => v.id) } } });
+    }
+
+    for (const plate of chapas.filter((p) => !suyos.some((v) => v.plate === p))) {
+        /* La matrícula es única en todo el sistema. Si ya es de otro, el error de Prisma
+           dice "Unique constraint failed on the fields: (plate)", que no le sirve a nadie.
+           Con el nombre de quién la tiene, el problema se resuelve solo. */
+        const ajeno = await prisma.vehicle.findUnique({
+            where: { plate }, include: { user: { select: { name: true } } },
+        });
+        if (ajeno) throw new Error(`La matrícula ${plate} ya está cargada a nombre de ${ajeno.user?.name || "otra persona"}.`);
+        await prisma.vehicle.create({ data: { plate, type: tipo, userId } });
+    }
+}
+
+/** El tipo de vehículo que se le pone a los que se crean acá. */
+function leerTipoVehiculo(formData: FormData): VehicleType {
+    const v = String(formData.get("vehicleType") || "").toUpperCase();
+    /* El desplegable existía en el formulario desde siempre y NADIE lo leía: todo vehículo
+       nacía SEDAN, eligiera lo que eligiera el operador. Un control que se dibuja y no hace
+       nada es peor que no tenerlo. */
+    return (v || "SEDAN") as VehicleType;
+}
 
 export async function getUsers(options?: { take?: number, skip?: number }) {
     const users = await prisma.user.findMany({
@@ -299,7 +364,6 @@ export async function createUser(formData: FormData) {
     const cara = formData.get("cara") as string; // Optional snapshot path
 
     // Optional fields
-    const plate = formData.get("plate") as string;
     const accessTags = formData.get("accessTags") as string;
     const pin = formData.get("pin") as string;
 
@@ -325,24 +389,9 @@ export async function createUser(formData: FormData) {
         data: userPayload,
     });
 
-    // Handle Vehicle/Plate creation if provided
-    if (plate && plate.trim() !== "") {
-        await prisma.vehicle.create({
-            data: {
-                plate: plate.toUpperCase().trim(),
-                type: 'SEDAN', // Default type, can be enhanced later
-                userId: newUser.id
-            }
-        });
-
-        // Also add as explicit PLATE credential
-        await prisma.credential.create({
-            data: {
-                type: 'PLATE',
-                value: plate.toUpperCase().trim(),
-                userId: newUser.id
-            }
-        });
+    const chapas = leerMatriculas(formData);
+    if (chapas?.length) {
+        await ponerMatriculas(newUser.id, chapas, leerTipoVehiculo(formData));
     }
 
     // Handle Access Tags (RFID) creation
@@ -384,7 +433,6 @@ export async function updateUser(id: string, formData: FormData) {
     const role = formData.get("role") as UserRole;
     const unitId = formData.get("unitId") as string;
 
-    const plate = formData.get("plate") as string;
     const accessTags = formData.get("accessTags") as string;
     const pin = formData.get("pin") as string;
 
@@ -412,52 +460,9 @@ export async function updateUser(id: string, formData: FormData) {
         data: userPayload,
     });
 
-    // Update or Create Vehicle/Plate
-    if (plate !== null) {
-        const existingVehicle = await prisma.vehicle.findFirst({
-            where: { userId: id }
-        });
-
-        if (plate.trim() === "") {
-            if (existingVehicle) {
-                await prisma.vehicle.delete({ where: { id: existingVehicle.id } });
-            }
-            await prisma.credential.deleteMany({
-                where: { userId: id, type: 'PLATE' }
-            });
-        } else {
-            if (existingVehicle) {
-                await prisma.vehicle.update({
-                    where: { id: existingVehicle.id },
-                    data: { plate: plate.toUpperCase().trim() }
-                });
-            } else {
-                await prisma.vehicle.create({
-                    data: {
-                        plate: plate.toUpperCase().trim(),
-                        type: 'SEDAN',
-                        userId: id
-                    }
-                });
-            }
-            const existingCred = await prisma.credential.findFirst({
-                where: { userId: id, type: 'PLATE' }
-            });
-            if (existingCred) {
-                await prisma.credential.update({
-                    where: { id: existingCred.id },
-                    data: { value: plate.toUpperCase().trim() }
-                });
-            } else {
-                await prisma.credential.create({
-                    data: {
-                        type: 'PLATE',
-                        value: plate.toUpperCase().trim(),
-                        userId: id
-                    }
-                });
-            }
-        }
+    const chapas = leerMatriculas(formData);
+    if (chapas !== null) {
+        await ponerMatriculas(id, chapas, leerTipoVehiculo(formData));
     }
 
     // Update or Create Access Tags (RFID)

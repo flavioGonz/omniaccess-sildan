@@ -97,13 +97,25 @@ export interface CajonUsuarioProps {
     onOpenChange: (open: boolean) => void;
 }
 
+/** Como la lee una cámara: sin espacios, sin guiones, en mayúscula. */
+const limpiarChapa = (v: string) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
 export function CajonUsuario({
     user, initialData, units, groups, devices, parkingSlots = [], onSuccess, open, onOpenChange,
 }: CajonUsuarioProps) {
     const esAlta = !user;
     const [foto, setFoto] = useState<string | null>(null);
     const [archivoFoto, setArchivoFoto] = useState<File | null>(null);
-    const [chapa, setChapa] = useState("");
+    /**
+     * Las matrículas. En plural.
+     *
+     * Había un solo campo, y la base siempre supo de varias — `User.vehicles` es una
+     * lista. Quien tenía dos autos se cargaba con uno, y el otro entraba por la pantalla de
+     * vehículos; a partir de ahí editarle el teléfono a esa persona le podía renombrar un
+     * auto, porque el guardado agarraba el primer vehículo y le pisaba la chapa.
+     */
+    const [chapas, setChapas] = useState<string[]>([]);
+    const [chapaNueva, setChapaNueva] = useState("");
     const [pin, setPin] = useState("");
     const [gruposElegidos, setGruposElegidos] = useState<string[]>([]);
     const [lprElegidos, setLprElegidos] = useState<string[]>([]);
@@ -137,8 +149,15 @@ export function CajonUsuario({
         let ruta = user?.cara || initialData?.cara || null;
         if (ruta && !ruta.startsWith("http") && !ruta.startsWith("/")) ruta = "/" + ruta;
         setFoto(ruta);
-        setChapa(user?.credentials?.find((c) => c.type === "PLATE")?.value
-            || user?.vehicles?.[0]?.plate || initialData?.plate || "");
+        /* De las dos fuentes a la vez: los vehículos son la lista de verdad y las
+           credenciales PLATE su reflejo, pero una ficha vieja puede tener una sin la otra y
+           esconder cualquiera de las dos sería hacer desaparecer una matrícula cargada. */
+        setChapas([...new Set([
+            ...(user?.vehicles || []).map((v: any) => v.plate),
+            ...(user?.credentials || []).filter((c: any) => c.type === "PLATE").map((c: any) => c.value),
+            initialData?.plate || "",
+        ].map(limpiarChapa).filter(Boolean))]);
+        setChapaNueva("");
         setPin(user?.credentials?.find((c) => c.type === "PIN")?.value || "");
         setArchivoFoto(null);
         setGruposElegidos(user?.accessGroups?.map((g) => g.id) || []);
@@ -214,7 +233,8 @@ export function CajonUsuario({
         /* Va explícito por el mismo motivo que la unidad: el desplegable manda su valor en
            un campo oculto, y confiar en eso es confiar en un detalle de la librería. */
         datos.set("parkingSlotId", cocheraId);
-        const chapaLimpia = String(datos.get("plate") || "").toUpperCase().trim();
+        datos.delete("plate");
+        datos.set("plates", chapas.join(","));
 
         const lista: Paso[] = [{
             id: "ficha",
@@ -237,14 +257,22 @@ export function CajonUsuario({
             },
         } as any);
 
-        if (chapaLimpia) for (const id of lprElegidos) {
+        /* Un paso por cámara y no uno por matrícula: con tres autos y tres cámaras serían
+           nueve renglones que se leen como nueve problemas distintos cuando en realidad la
+           pregunta es una sola por cámara — ¿aceptó lo que se le mandó? */
+        if (chapas.length) for (const id of lprElegidos) {
             const eq = devices.find((d) => d.id === id);
             lista.push({
-                id: `lpr:${id}`, titulo: `Copiar ${chapaLimpia} a ${eq?.name || "la cámara"}`,
+                id: `lpr:${id}`,
+                titulo: chapas.length === 1
+                    ? `Copiar ${chapas[0]} a ${eq?.name || "la cámara"}`
+                    : `Copiar ${chapas.length} matrículas a ${eq?.name || "la cámara"}`,
                 detalle: eq?.ip, estado: "espera",
                 hacer: async () => {
-                    const r = await addDevicePlate(id, chapaLimpia);
-                    if (!r?.success) throw new Error((r as any)?.error || "La cámara rechazó la matrícula.");
+                    for (const ch of chapas) {
+                        const r = await addDevicePlate(id, ch);
+                        if (!r?.success) throw new Error((r as any)?.error || `La cámara rechazó ${ch}.`);
+                    }
                 },
             } as any);
         }
@@ -352,6 +380,17 @@ export function CajonUsuario({
                                     pista="Por acá salen los avisos de WhatsApp: que llegó una visita, que quedó un vehículo estacionado. Sin código de país no sale nada.">
                                     <Input name="phone" type="tel" defaultValue={user?.phone || ""} placeholder="Con código de país" />
                                 </CajonCampo>
+                                {/*
+                                  * El correo faltaba, y no faltaba de adorno: el guardado lo
+                                  * escribe desde siempre a partir del formulario. Como el
+                                  * formulario no lo mandaba, toda persona nacía sin correo — y
+                                  * peor, editarle cualquier cosa a alguien que sí lo tenía se lo
+                                  * borraba, sin que nada lo dijera.
+                                  */}
+                                <CajonCampo etiqueta="Correo" className="sm:col-span-2"
+                                    pista="Por acá salen los avisos que no van por WhatsApp y los informes. No abre ninguna puerta.">
+                                    <Input name="email" type="email" defaultValue={user?.email || ""} placeholder="Opcional" />
+                                </CajonCampo>
                                 <CajonCampo etiqueta="Qué es para el barrio" className="sm:col-span-2"
                                     pista="Decide qué ve y qué puede hacer, y cómo lo trata el historial. Una visita temporal caduca sola; un residente no. Administrador y Personal además entran al panel.">
                                     <Select name="role" defaultValue={user?.role || "RESIDENT"}>
@@ -428,16 +467,54 @@ export function CajonUsuario({
                                 conElegido: (lo) => `${lo.label} · tocá otra vez para soltarla`,
                             }} />
 
-                        <CajonCampo etiqueta="O buscala por su nombre"
-                            pista="Sirve para las unidades que todavía no tienen su contorno dibujado en el plano, y para cuando uno ya sabe cómo se llama.">
-                            <Select name="unitId" value={unidadId} onValueChange={setUnidadId}>
-                                <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
-                                <SelectContent className="max-h-[260px]">
-                                    <SelectItem value="none">Sin asignar</SelectItem>
-                                    {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
-                        </CajonCampo>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 items-start">
+                            <CajonCampo etiqueta="O buscala por su nombre"
+                                pista="Sirve para las unidades que todavía no tienen su contorno dibujado en el plano, y para cuando uno ya sabe cómo se llama.">
+                                <Select name="unitId" value={unidadId} onValueChange={setUnidadId}>
+                                    <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
+                                    <SelectContent className="max-h-[260px]">
+                                        <SelectItem value="none">Sin asignar</SelectItem>
+                                        {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                            </CajonCampo>
+
+                            <CajonCampo etiqueta="Cochera"
+                                pista="Las que están ocupadas por otra persona aparecen apagadas: una cochera es de uno solo, y dejar elegir una tomada crea un conflicto que después nadie sabe de dónde salió.">
+                                <Select name="parkingSlotId" value={cocheraId} onValueChange={setCocheraId}>
+                                    <SelectTrigger>
+                                        <span className="flex items-center gap-2 min-w-0">
+                                            <ParkingSquare size={14} className="text-muted-foreground shrink-0" />
+                                            <SelectValue placeholder="Elegir…" />
+                                        </span>
+                                    </SelectTrigger>
+                                    <SelectContent className="max-h-[260px]">
+                                        <SelectItem value="none">Sin cochera</SelectItem>
+                                        {parkingSlots.map((p: any) => {
+                                            const ocupada = p.user && p.user.id !== user?.id;
+                                            return (
+                                                <SelectItem key={p.id} value={p.id} disabled={ocupada}>
+                                                    {p.label}{ocupada ? ` · ocupada por ${p.user.name}` : ""}
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                                {/* El plano sabe qué cochera le toca a esa casa. Se OFRECE y no se
+                                    pone sola: una cochera se presta, se alquila o se cambia, y el
+                                    plano no se entera de ninguna de las tres. */}
+                                {cocheraDelLote && cocheraId !== cocheraDelLote.id && (
+                                    <button type="button" onClick={() => setCocheraId(cocheraDelLote.id)}
+                                        className="mt-1.5 w-full text-left px-2.5 py-1.5 rounded-[8px] border border-[var(--accion)]/35 bg-[color-mix(in_oklab,var(--accion)_7%,transparent)] text-[11.5px] flex items-center gap-2 hover:bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] transition-colors">
+                                        <ParkingSquare size={13} className="text-[var(--accion)] shrink-0" />
+                                        <span className="flex-1 min-w-0">
+                                            El plano dice que a esta casa le toca <b className="text-foreground">{cocheraDelLote.label}</b>
+                                        </span>
+                                        <span className="font-semibold text-[var(--accion)] shrink-0">Usarla</span>
+                                    </button>
+                                )}
+                            </CajonCampo>
+                        </div>
 
                         {(esEdificio || user?.apartment) && (
                             <CajonCampo etiqueta="Apartamento"
@@ -446,55 +523,57 @@ export function CajonUsuario({
                             </CajonCampo>
                         )}
 
-                        <CajonCampo etiqueta="Cochera"
-                            pista="Las que están ocupadas por otra persona aparecen apagadas: una cochera es de uno solo, y dejar elegir una tomada crea un conflicto que después nadie sabe de dónde salió.">
-                            <Select name="parkingSlotId" value={cocheraId} onValueChange={setCocheraId}>
-                                <SelectTrigger>
-                                    <span className="flex items-center gap-2 min-w-0">
-                                        <ParkingSquare size={14} className="text-muted-foreground shrink-0" />
-                                        <SelectValue placeholder="Elegir…" />
-                                    </span>
-                                </SelectTrigger>
-                                <SelectContent className="max-h-[260px]">
-                                    <SelectItem value="none">Sin cochera</SelectItem>
-                                    {parkingSlots.map((p: any) => {
-                                        const ocupada = p.user && p.user.id !== user?.id;
-                                        return (
-                                            <SelectItem key={p.id} value={p.id} disabled={ocupada}>
-                                                {p.label}{ocupada ? ` · ocupada por ${p.user.name}` : ""}
-                                            </SelectItem>
-                                        );
-                                    })}
-                                </SelectContent>
-                            </Select>
-                            {/* El plano sabe qué cochera le toca a esa casa. Se OFRECE y no se
-                                pone sola: una cochera se presta, se alquila o se cambia, y el
-                                plano no se entera de ninguna de las tres. */}
-                            {cocheraDelLote && cocheraId !== cocheraDelLote.id && (
-                                <button type="button" onClick={() => setCocheraId(cocheraDelLote.id)}
-                                    className="mt-1.5 w-full text-left px-2.5 py-1.5 rounded-[8px] border border-[var(--accion)]/35 bg-[color-mix(in_oklab,var(--accion)_7%,transparent)] text-[11.5px] flex items-center gap-2 hover:bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] transition-colors">
-                                    <ParkingSquare size={13} className="text-[var(--accion)] shrink-0" />
-                                    <span className="flex-1 min-w-0">
-                                        El plano dice que a esta casa le toca <b className="text-foreground">{cocheraDelLote.label}</b>
-                                    </span>
-                                    <span className="font-semibold text-[var(--accion)] shrink-0">Usarla</span>
-                                </button>
-                            )}
-                        </CajonCampo>
                     </CajonSeccion>
 
                     {/* ── Con qué entra ── */}
                     <CajonSeccion titulo="Con qué entra" icono={KeyRound}
                         ayuda="Cada credencial abre por un camino distinto. Se pueden cargar todas o ninguna.">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            <CajonCampo etiqueta="Matrícula"
-                                pista="Se escribe sin espacios ni guiones, como la lee la cámara. Cargarla acá no alcanza para que abra la barrera: hay que mandarla además a los equipos, abajo.">
-                                <Input name="plate" value={chapa} placeholder="ABC1234"
-                                    onChange={(e) => setChapa(e.target.value.toUpperCase())}
-                                    className="font-bold tracking-[0.12em] tabular-nums uppercase" />
+                            <CajonCampo etiqueta="Matrículas" className="sm:col-span-2"
+                                pista="Se escriben sin espacios ni guiones, como las lee la cámara. Una persona puede tener varias. Sacar una de acá le saca ese vehículo a la persona. Y cargarlas no alcanza para que abra la barrera: hay que mandarlas además a los equipos, ahí abajo.">
+                                <div className="rounded-[10px] border border-border bg-card/40 p-2 flex flex-wrap gap-1.5 items-center">
+                                    {chapas.map((ch) => (
+                                        <span key={ch}
+                                            className="inline-flex items-center gap-1 pl-2 pr-1 py-1 rounded-[7px] border border-[var(--accion)]/35 bg-[color-mix(in_oklab,var(--accion)_9%,transparent)]">
+                                            <Car size={12} className="text-[var(--accion)] shrink-0" />
+                                            <span className="text-[12.5px] font-bold tracking-[0.1em] tabular-nums text-foreground">{ch}</span>
+                                            <button type="button" aria-label={`Sacar ${ch}`}
+                                                onClick={() => setChapas((l) => l.filter((x) => x !== ch))}
+                                                className="w-4 h-4 rounded-full flex items-center justify-center text-muted-foreground hover:text-[var(--mal-texto)] transition-colors">
+                                                <X size={11} />
+                                            </button>
+                                        </span>
+                                    ))}
+                                    <input
+                                        value={chapaNueva}
+                                        placeholder={chapas.length ? "Otra más…" : "ABC1234"}
+                                        onChange={(e) => setChapaNueva(limpiarChapa(e.target.value))}
+                                        /* Enter, coma o espacio la agregan. El que viene de cargar
+                                           una lista escribe separando con comas sin pensarlo, y
+                                           obligarlo a apretar un botón entre una y otra es pelear
+                                           contra lo que sus dedos ya saben hacer. */
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                                                e.preventDefault();
+                                                const v = limpiarChapa(chapaNueva);
+                                                if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
+                                                setChapaNueva("");
+                                            } else if (e.key === "Backspace" && !chapaNueva && chapas.length) {
+                                                setChapas((l) => l.slice(0, -1));
+                                            }
+                                        }}
+                                        /* Al salir del campo también: escribir una matrícula y
+                                           apretar Guardar sin darle Enter era perderla en silencio. */
+                                        onBlur={() => {
+                                            const v = limpiarChapa(chapaNueva);
+                                            if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
+                                            setChapaNueva("");
+                                        }}
+                                        className="flex-1 min-w-[108px] bg-transparent outline-none px-1.5 py-1 text-[12.5px] font-bold tracking-[0.1em] tabular-nums uppercase placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground" />
+                                </div>
                             </CajonCampo>
                             <CajonCampo etiqueta="Qué vehículo es"
-                                pista="No cambia si abre o no. Sirve para reconocerlo en el historial cuando la foto no se ve bien, y para los informes por tipo de vehículo.">
+                                pista="No cambia si abre o no: sirve para reconocerlo en el historial cuando la foto no se ve bien. Se le pone a los vehículos que se den de alta acá; los que ya estaban conservan el suyo, que se cambia en la pantalla de Vehículos. Hasta hoy este desplegable no se leía en ninguna parte y todo vehículo nacía Sedán.">
                                 <Select name="vehicleType" defaultValue={user?.vehicles?.[0]?.type || "SEDAN"}>
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
@@ -559,13 +638,13 @@ export function CajonUsuario({
                             <ElegirEquipos
                                 equipos={camarasLpr} elegidos={lprElegidos} icono={Camera}
                                 alAlternar={(id) => alternar(lprElegidos, setLprElegidos, id)}
-                                bloqueo={!chapa.trim() ? "Cargá una matrícula arriba para poder mandarla." : undefined}
+                                bloqueo={!chapas.length ? "Cargá una matrícula arriba para poder mandarla." : undefined}
                                 vacio="No hay cámaras LPR dadas de alta." />
                             {lprElegidos.map((id) => <input key={id} type="hidden" name="syncDeviceId" value={id} />)}
-                            {lprElegidos.length > 0 && chapa.trim() && (
+                            {lprElegidos.length > 0 && chapas.length > 0 && (
                                 <p className="text-[12px] text-muted-foreground mt-1.5">
-                                    Al guardar, <b className="text-foreground">{chapa.trim().toUpperCase()}</b> se copia
-                                    a {lprElegidos.length} {lprElegidos.length === 1 ? "cámara" : "cámaras"}.
+                                    Al guardar, <b className="text-foreground">{chapas.join(", ")}</b> se
+                                    {chapas.length === 1 ? " copia" : " copian"} a {lprElegidos.length} {lprElegidos.length === 1 ? "cámara" : "cámaras"}.
                                 </p>
                             )}
                         </div>
