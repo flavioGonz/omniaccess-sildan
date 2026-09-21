@@ -136,6 +136,9 @@
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
+  /* El globo de avisos lo dibuja un canvas, que no entiende oklch ni color-mix: este
+     token va como literal a propósito. Ver src/components/ThemedToaster.tsx. */
+  --globo-aviso: #ffffff;
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -250,6 +253,7 @@
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
+  --globo-aviso: #2b2b2b;
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);

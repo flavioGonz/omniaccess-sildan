@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Pista } from "@/components/ui/pista";
 import { calzar } from "@/components/tracking/Calibracion";
 import {
-    aprenderVacio, borrarFranja, guardarFranja, leerFranja, medirFranja, type Medicion,
+    aprenderVacio, borrarFranja, guardarFranja, leerFranja, medirFranja, tomarCuadro, type Medicion,
 } from "@/app/actions/franja";
 
 /**
@@ -70,7 +70,7 @@ export function Franja({ deviceId, hayRtsp }: { deviceId: string; hayRtsp: boole
     const [existe, setExiste] = useState(false);
     const [aprendida, setAprendida] = useState<string | null>(null);
     const [medicion, setMedicion] = useState<Medicion | null>(null);
-    const [ocupado, setOcupado] = useState<"" | "guardando" | "midiendo" | "aprendiendo">("");
+    const [ocupado, setOcupado] = useState<"" | "guardando" | "midiendo" | "aprendiendo" | "tomando">("");
     const [aviso, setAviso] = useState<string | null>(null);
 
     const caja = useRef<HTMLDivElement>(null);
@@ -143,10 +143,23 @@ export function Franja({ deviceId, hayRtsp }: { deviceId: string; hayRtsp: boole
 
     const enPx = (p: Punto) => (vista.left + p.x * vista.w) + "," + (vista.top + p.y * vista.h);
 
-    async function conCarga(que: "guardando" | "midiendo" | "aprendiendo", fn: () => Promise<void>) {
+    async function conCarga(que: "guardando" | "midiendo" | "aprendiendo" | "tomando", fn: () => Promise<void>) {
         setOcupado(que); setAviso(null);
         try { await fn(); } finally { setOcupado(""); }
     }
+
+    /* Se pide solo al abrir: sin la foto no se puede dibujar, y hacérsela pedir a mano era
+       justamente el círculo que dejaba trabado al operador. */
+    useEffect(() => {
+        if (hayRtsp && !medicion) tomar();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hayRtsp]);
+
+    const tomar = () => conCarga("tomando", async () => {
+        const r = await tomarCuadro(deviceId);
+        setMedicion(r);
+        if (!r.ok && r.error) setAviso(r.error);
+    });
 
     const guardar = () => conCarga("guardando", async () => {
         const r = await guardarFranja(deviceId, { esquinas, lugares, activa });
@@ -209,9 +222,11 @@ export function Franja({ deviceId, hayRtsp }: { deviceId: string; hayRtsp: boole
                     />
                 ) : (
                     <div className="absolute inset-0 grid place-items-center text-[12px] text-muted-foreground px-6 text-center">
-                        {hayRtsp
-                            ? "Tomá un cuadro para dibujar sobre la calle de verdad."
-                            : "Este equipo no tiene RTSP configurado, así que no hay de dónde sacar un cuadro."}
+                        {!hayRtsp
+                            ? "Este equipo no tiene RTSP configurado, así que no hay de dónde sacar un cuadro."
+                            : ocupado === "tomando"
+                                ? "Pidiéndole un cuadro a la cámara…"
+                                : "No llegó el cuadro. Probá de nuevo con «Tomar cuadro»."}
                     </div>
                 )}
 
@@ -271,7 +286,10 @@ export function Franja({ deviceId, hayRtsp }: { deviceId: string; hayRtsp: boole
 
                 <div className="flex-1" />
 
-                <Button size="sm" variant="outline" disabled={!hayRtsp || !!ocupado} onClick={medir}>
+                <Button size="sm" variant="outline" disabled={!hayRtsp || !!ocupado} onClick={tomar}>
+                    {ocupado === "tomando" ? "Tomando…" : "Tomar cuadro"}
+                </Button>
+                <Button size="sm" variant="outline" disabled={!hayRtsp || !existe || !!ocupado} onClick={medir}>
                     {ocupado === "midiendo" ? "Mirando…" : "Medir ahora"}
                 </Button>
                 <Pista

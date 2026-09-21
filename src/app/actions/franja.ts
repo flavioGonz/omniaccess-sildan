@@ -34,6 +34,33 @@ async function equipoDe(deviceId: string) {
     });
 }
 
+/**
+ * Un cuadro de la cámara, sin pedir nada a cambio.
+ *
+ * Faltaba, y la falta armaba un círculo: el lienzo decía "tomá un cuadro para dibujar sobre
+ * la calle de verdad" y los dos botones que había —medir y aprender— exigen que la franja
+ * ya esté guardada. O sea que hacía falta la foto para dibujar y haber dibujado para ver la
+ * foto. Un cartel que pide algo que la pantalla no ofrece es peor que no decir nada.
+ */
+export async function tomarCuadro(deviceId: string): Promise<Medicion> {
+    const equipo = await equipoDe(deviceId);
+    if (!equipo?.rtspUrl) return { ok: false, error: "El equipo no tiene RTSP configurado." };
+    try {
+        const jpeg = await capturarCuadro(equipo.rtspUrl, { segundos: 20, tirar: CUADROS_A_TIRAR });
+        const mirada = await enGrises(jpeg, ANCHO_MIRADA);
+        const util = cuadroUtil(mirada);
+        const foto = `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+        // Se devuelve la foto igual cuando el cuadro vino flojo: sirve para dibujar
+        // encima, y lo que no sirve es para aprender el vacío. Decirlo es mejor que
+        // negarle la imagen a quien sólo quiere ver dónde apunta la cámara.
+        return util.ok
+            ? { ok: true, foto }
+            : { ok: false, foto, error: `El cuadro llegó con poco contraste (${util.contraste.toFixed(1)}). Sirve para dibujar, no para aprender el vacío.` };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || "No llegó video." };
+    }
+}
+
 export async function leerFranja(deviceId: string) {
     const f = await prisma.franja.findUnique({ where: { deviceId } });
     if (!f) return null;
