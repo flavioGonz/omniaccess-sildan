@@ -17,6 +17,7 @@ import { verifyFaceAction, purgeSubjectFacesAction } from "@/app/actions/face-ve
 import { sileo as toast } from "sileo";
 import { RefreshCcw, Scan, Loader2, Trash2, UserPlus, Database } from "lucide-react";
 import { registerFace, toggleBlacklist } from "@/app/actions/users";
+import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { syncFaceToAllDevicesAction } from "@/app/actions/face-sync";
 import { hora } from "@/lib/fechas";
 
@@ -222,30 +223,42 @@ export function FaceMatchModal({ event, verification, isOpen, onClose }: FaceMat
         }
     };
 
-    const handlePurge = async () => {
-        if (!verifState?.recognizedAs || verifState?.recognizedAs === 'Desconocido') return;
+    /*
+     * Limpiar el perfil neural borra TODAS las fotos de esa persona en el motor, y la
+     * persona deja de ser reconocida hasta que alguien la vuelva a capturar. Estaba detrás
+     * de un `confirm()` del navegador: dos botones iguales y un párrafo largo que nadie
+     * lee, en un cartel que se aprieta por reflejo.
+     *
+     * Ahora va por el mismo diálogo que el resto de los borrados del sistema, que dice qué
+     * se pierde y —esto es lo que faltaba— deja abierto el diálogo con el motivo si el
+     * motor rechaza la operación, en vez de cerrarse como si hubiera salido bien.
+     */
+    const [purgarAbierto, setPurgarAbierto] = useState(false);
 
-        if (!confirm(`¿Está seguro de que desea limpiar el perfil de '${verifState.recognizedAs}'? Esto eliminará todas las fotos asociadas en el motor neural para corregir errores de reconocimiento.`)) {
-            return;
-        }
-
-        setIsPurging(true);
-        try {
-            const res = await purgeSubjectFacesAction(verifState.recognizedAs, verifState.collection === 'Visitors');
-            if (res.success) {
-                toast.success({ title: "Perfil neural limpiado correctamente. Se requiere una nueva captura para re-entrenar." });
-                handleReverify();
-            } else {
-                toast.error({ title: "Error al limpiar el perfil" });
-            }
-        } catch (err) {
-            toast.error({ title: "Error de comunicación con el motor neural" });
-        } finally {
-            setIsPurging(false);
-        }
-    };
+    const aQuien = verifState?.recognizedAs || "";
 
     return (
+        <>
+        <ConfirmarAccion
+            id={aQuien}
+            open={purgarAbierto}
+            onOpenChange={setPurgarAbierto}
+            title={`Limpiar el perfil de ${aQuien}`}
+            description="Se borran TODAS las fotos de esta persona en el motor neural. Deja de ser reconocida en el acto, y hay que volver a capturarla para que vuelva a entrar por cara."
+            etiquetaAccion="Limpiar el perfil"
+            onDelete={async () => {
+                setIsPurging(true);
+                try {
+                    const res = await purgeSubjectFacesAction(aQuien, verifState?.collection === 'Visitors');
+                    if (!res.success) return { success: false, error: "El motor neural rechazó la limpieza." };
+                    return { success: true };
+                } finally { setIsPurging(false); }
+            }}
+            onSuccess={() => {
+                toast.success({ title: "Perfil neural limpiado. Hace falta una captura nueva para re-entrenar." });
+                handleReverify();
+            }}
+        />
         <AnimatePresence>
             {isOpen && (
                 <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -496,7 +509,7 @@ export function FaceMatchModal({ event, verification, isOpen, onClose }: FaceMat
                                                         </span>
                                                         {neuralSimilarity > 0 && (
                                                             <button
-                                                                onClick={handlePurge}
+                                                                onClick={() => setPurgarAbierto(true)}
                                                                 disabled={isPurging}
                                                                 title="Limpiar perfil (Corregir error de match)"
                                                                 className="p-1.5 rounded-full bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-foreground transition-all border border-red-500/20"
@@ -632,6 +645,7 @@ export function FaceMatchModal({ event, verification, isOpen, onClose }: FaceMat
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(178,13,48,0.8); }
             `}</style>
         </AnimatePresence >
+        </>
     );
 }
 

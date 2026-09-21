@@ -107,7 +107,7 @@ export function DriverDetailsDialog({ brand, isOpen, onClose }: DriverDetailsDia
 
     const handleAddModel = async () => {
         if (!newModel.value || !newModel.label || !newModel.category) {
-            alert("Por favor completa todos los campos");
+            toast.error("Completá todos los campos");
             return;
         }
 
@@ -120,7 +120,7 @@ export function DriverDetailsDialog({ brand, isOpen, onClose }: DriverDetailsDia
             // Reload page to get updated models
             window.location.reload();
         } else {
-            alert("Error al agregar modelo: " + result.error);
+            toast.error("No se pudo agregar el modelo: " + result.error);
         }
     };
 
@@ -134,7 +134,7 @@ export function DriverDetailsDialog({ brand, isOpen, onClose }: DriverDetailsDia
         if (result.success) {
             window.location.reload();
         } else {
-            alert("Error al eliminar modelo: " + result.error);
+            toast.error("No se pudo eliminar el modelo: " + result.error);
         }
     };
 

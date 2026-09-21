@@ -16,6 +16,7 @@ import { getAccessEvents } from "@/app/actions/history";
 import { getReportBranding } from "@/app/actions/settings";
 import ExcelJS from "exceljs";
 import { fecha, hora } from "@/lib/fechas";
+import { sileo as toast } from "sileo";
 
 interface ExportHistoryDialogProps {
     open: boolean;
@@ -205,7 +206,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
             onOpenChange(false);
         } catch (error) {
             console.error("Export error:", error);
-            alert("Error al exportar los datos.");
+            toast.error({ title: "No se pudieron exportar los datos", description: (error as any)?.message });
         } finally {
             setIsExporting(false);
         }

@@ -26,6 +26,7 @@ import { getGuardsList, saveGuard, deleteGuard } from "@/app/actions/users";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
+import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 
 export default function GuardManagement() {
     const [guardsList, setGuardsList] = useState<any[]>([]);
@@ -84,17 +85,15 @@ export default function GuardManagement() {
         }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm("¿Está seguro de eliminar este guardia?")) return;
-        try {
-            await deleteGuard(id);
-            toast.success("Guardia eliminado");
-            loadGuards();
-        } catch (e) {
-            console.error(e);
-            toast.error("Error al eliminar guardia");
-        }
-    };
+    /*
+     * Borrar un guardia estaba detrás de un `confirm()` del navegador: dos botones iguales
+     * y una pregunta que no dice de quién se trata ni qué se pierde. Un guardia borrado
+     * deja de poder entrar y su bitácora queda sin autor.
+     *
+     * Va por el mismo diálogo que el resto de los borrados, que además deja abierto el
+     * cartel con el motivo cuando el servidor rechaza — antes el error terminaba en un
+     * toast y la fila seguía ahí sin explicación.
+     */
 
     if (loadingGuards) {
         return (
@@ -274,12 +273,18 @@ export default function GuardManagement() {
                                                 >
                                                     <Pencil size={16} />
                                                 </button>
-                                                <button
-                                                    onClick={() => handleDelete(guard.id)}
-                                                    className="w-10 h-10 rounded-xl bg-red-500/10 hover:bg-red-600 text-red-500 hover:text-foreground flex items-center justify-center transition-all shadow-lg"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
+                                                <ConfirmarAccion
+                                                    id={guard.id}
+                                                    title={`Eliminar a ${guard.name || "este guardia"}`}
+                                                    description="Deja de poder entrar en el acto, y las entradas que escribió en la bitácora quedan sin autor."
+                                                    onDelete={async (id) => { await deleteGuard(id); }}
+                                                    onSuccess={loadGuards}>
+                                                    <button
+                                                        className="w-10 h-10 rounded-xl bg-red-500/10 hover:bg-red-600 text-red-500 hover:text-foreground flex items-center justify-center transition-all shadow-lg"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                </ConfirmarAccion>
                                             </div>
                                         </TableCell>
                                     </TableRow>

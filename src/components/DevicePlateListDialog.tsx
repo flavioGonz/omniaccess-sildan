@@ -297,10 +297,19 @@ export function DevicePlateListDialog({ device, open, onOpenChange }: DevicePlat
     // Abre el splash de confirmación (reemplaza los confirm() del navegador)
     const handleSyncClick = () => setOv({ mode: "up", phase: "confirm" });
 
-    const handleDelete = async (plate: string) => {
-        if (!confirm(`¿Eliminar matrícula ${plate} de la cámara?`)) return;
-        toast.info({ title: "Borrado individual deshabilitado por seguridad." });
-    };
+    /*
+     * El borrado individual está deshabilitado a propósito, y eso está bien. Lo que estaba
+     * mal era cómo se contaba.
+     *
+     * Había un botón con un tacho, y al apretarlo salía un `confirm()` del navegador
+     * preguntando "¿Eliminar matrícula X de la cámara?". Quien decía que sí recibía un
+     * aviso de que la función está deshabilitada — o sea que el diálogo pedía confirmar
+     * algo que no iba a pasar. Peor que un mal diálogo: un control que miente sobre lo que
+     * hace, y que enseña a apretar "sí" sin leer.
+     *
+     * Ahora el botón se ve apagado y el globo dice por qué. Si alguna vez se habilita, se
+     * cambia acá y el botón vuelve a hacer lo que su ícono promete.
+     */
 
     const allFilteredPlates = useMemo(() => {
         const uniquePool = Array.from(new Set([...plates, ...localPlates]));
@@ -559,14 +568,19 @@ export function DevicePlateListDialog({ device, open, onOpenChange }: DevicePlat
                                                         <TooltipProvider>
                                                             <Tooltip>
                                                                 <TooltipTrigger asChild>
-                                                                    <button
-                                                                        className="text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                                                                        onClick={(e) => { e.stopPropagation(); handleDelete(plate); }}
+                                                                    <span
+                                                                        aria-disabled
+                                                                        className="text-muted-foreground/40 opacity-0 group-hover:opacity-100 cursor-not-allowed"
                                                                     >
                                                                         <Trash2 className="w-3.5 h-3.5" />
-                                                                    </button>
+                                                                    </span>
                                                                 </TooltipTrigger>
-                                                                <TooltipContent><p className="text-[10px] uppercase font-bold text-red-400">Eliminar de Cámara</p></TooltipContent>
+                                                                <TooltipContent>
+                                                                    <p className="text-[11px] max-w-[220px]">
+                                                                        Borrar una matrícula suelta de la cámara está deshabilitado. Se saca
+                                                                        desde el padrón y se vuelca la lista entera con «Sincronizar».
+                                                                    </p>
+                                                                </TooltipContent>
                                                             </Tooltip>
                                                         </TooltipProvider>
                                                     )}
