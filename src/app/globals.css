@@ -139,6 +139,12 @@
   /* El globo de avisos lo dibuja un canvas, que no entiende oklch ni color-mix: este
      token va como literal a propósito. Ver src/components/ThemedToaster.tsx. */
   --globo-aviso: #ffffff;
+  /* La sombra del globo de avisos. Va aparte de --sombra-flotante porque el
+     globo es un SVG y se sombrea con filter, no con box-shadow. Dos capas:
+     la que lo despega de la página y el hilo que le dibuja el borde — que en
+     claro tiene que ser oscuro y en oscuro claro, o el borde desaparece. */
+  --globo-sombra: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.20))
+                  drop-shadow(0 0 0.5px rgba(0, 0, 0, 0.18));
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -254,6 +260,8 @@
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --globo-aviso: #2b2b2b;
+  --globo-sombra: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.55))
+                  drop-shadow(0 0 0.5px rgba(255, 255, 255, 0.14));
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
@@ -931,51 +939,104 @@ video::-webkit-media-controls { display: none !important; }
 @keyframes vidshimmer { 0% { background-position: 220% 0; } 100% { background-position: -220% 0; } }
 
 
-/* ── Sileo toasts: contraste alto, texto legible y color por tipo ──
-   El "pill" lo dibuja un canvas SVG (fill = ThemedToaster), asi que aca
-   ajustamos tipografia, tonos y sombra; el relleno va por la prop fill.  */
+/* ══ Los globos de aviso (sileo) ═══════════════════════════════════════════
+
+   QUÉ ESTABA MAL
+
+   Este bloque tenía cinco colores escritos a mano — #10b981, #f43f5e,
+   #f59e0b, #38bdf8, #6366f1 — que no son ninguno de los cinco tonos del
+   sistema y que, por ser literales, valían exactamente lo mismo en tema
+   claro y en oscuro. Un verde calibrado para fondo blanco se apaga sobre el
+   globo oscuro; el ámbar sobre blanco casi desaparece. Esa es la razón por
+   la que los avisos no seguían el tema: no tenían con qué seguirlo.
+
+   Y lo peor es que el enganche ya existía. La librería publica sus colores
+   como variables (--sileo-state-*) justamente para que los pise quien la
+   usa. Lo que faltaba era enchufarlas a los tokens en vez de repetir hexes
+   al lado.
+
+   CÓMO QUEDA
+
+   - El ícono usa el tono en su versión de TINTA (--bien-texto y compañía),
+     que es la que el tema oscuro ya corrige para que se lea sobre negro.
+   - El disco detrás del ícono usa el lavado (--bien-suave), el mismo que
+     llevan los chips de estado. Un aviso y un chip dicen lo mismo; tienen
+     que verse igual.
+   - El título y el texto van con tinta de texto, nunca con el color del
+     tono. El color lo carga el ícono al lado: si además lo carga la letra,
+     el globo entero grita.
+   - El botón es --accion, el único "apretame" del sistema. Estaba en
+     `background: var(--foreground)`, que en claro es un botón negro y en
+     oscuro uno blanco — o sea que cambiaba de color con el tema por
+     accidente, no por decisión.
+   - La sombra sale de un token por tema. Estaba fija en rgba(0,0,0,0.55),
+     el valor calibrado para fondo oscuro; sobre una página blanca una
+     sombra así es una mancha. Es la misma nota que --sombra-flotante.
+   - Sin tracking negativo: el título mide 13px y la regla del sistema es
+     que abajo de 15px apretar las letras empeora la lectura.
+
+   El relleno del globo NO se decide acá: lo dibuja un canvas SVG y se lo
+   pasa ThemedToaster por prop, desde --globo-aviso. Ver ese archivo.
+   ══════════════════════════════════════════════════════════════════════ */
+
 [data-sileo-viewport] {
-    --sileo-state-success: #10b981;
-    --sileo-state-error:   #f43f5e;
-    --sileo-state-warning: #f59e0b;
-    --sileo-state-info:    #38bdf8;
-    --sileo-state-action:  #6366f1;
-    --sileo-state-loading: color-mix(in oklab, var(--foreground) 55%, transparent);
+    --sileo-state-success: var(--bien-texto);
+    --sileo-state-error:   var(--mal-texto);
+    --sileo-state-warning: var(--aviso-texto);
+    --sileo-state-info:    var(--info-texto);
+    --sileo-state-action:  var(--accion);
+    --sileo-state-loading: var(--muted-foreground);
 }
+
+/* El disco del ícono. Va con el selector de descendencia para ganarle a la
+   regla de la librería sin depender del orden en que el bundler junte los
+   dos CSS — que no es algo que convenga dar por sentado. */
+[data-sileo-viewport] [data-sileo-badge][data-state="success"] { --sileo-tone-bg: var(--bien-suave); }
+[data-sileo-viewport] [data-sileo-badge][data-state="error"]   { --sileo-tone-bg: var(--mal-suave); }
+[data-sileo-viewport] [data-sileo-badge][data-state="warning"] { --sileo-tone-bg: var(--aviso-suave); }
+[data-sileo-viewport] [data-sileo-badge][data-state="info"]    { --sileo-tone-bg: var(--info-suave); }
+[data-sileo-viewport] [data-sileo-badge][data-state="loading"] { --sileo-tone-bg: var(--muted); }
+/* El azul de acción no tiene lavado propio porque en el resto de la
+   aplicación nunca va de fondo tenue: es botón o es enlace. Acá hace falta
+   uno, y se deriva del mismo token en vez de inventar un color nuevo. */
+[data-sileo-viewport] [data-sileo-badge][data-state="action"]  { --sileo-tone-bg: color-mix(in oklab, var(--accion) 14%, transparent); }
+
 [data-sileo-toast] {
     background: transparent !important;
     color: var(--foreground) !important;
     border: 0 !important;
 }
-/* sombra y borde sutil sobre la forma real del pill */
-[data-sileo-canvas] {
-    filter:
-        drop-shadow(0 14px 30px rgb(0 0 0 / 0.55))
-        drop-shadow(0 0 0.5px color-mix(in oklab, var(--foreground) 35%, transparent));
-}
+
+/* La sombra va sobre la forma real del globo (es un SVG, no una caja), por
+   eso es filter y no box-shadow, y por eso no puede usar --sombra-flotante
+   tal cual. El token tiene las dos capas: la sombra que lo despega de la
+   página y el hilo de un cuarto de píxel que le dibuja el borde. */
+[data-sileo-canvas] { filter: var(--globo-sombra); }
+
 [data-sileo-title] {
     color: var(--foreground) !important;
     font-weight: 600 !important;
-    font-size: 0.85rem !important;
-    letter-spacing: -0.01em;
-    text-transform: none !important;   /* evita el "Texto Con Todas En Mayuscula" */
+    font-size: 0.8125rem !important;
+    letter-spacing: normal !important;
+    text-transform: none !important;   /* evita el "Texto Con Todas En Mayúscula" */
 }
 [data-sileo-description] {
-    color: color-mix(in oklab, var(--foreground) 78%, transparent) !important;
+    color: var(--muted-foreground) !important;
     font-size: 0.8125rem !important;
     line-height: 1.2rem !important;
     text-transform: none !important;
 }
-[data-sileo-badge] {
-    color: var(--sileo-tone, currentColor) !important;
-    background-color: color-mix(in oklab, var(--sileo-tone, currentColor) 20%, transparent) !important;
-}
+
 [data-sileo-button] {
-    background: var(--foreground) !important;
-    color: var(--background) !important;
+    background: var(--accion) !important;
+    color: var(--accion-texto) !important;
     font-weight: 600 !important;
-    border-radius: 0.5rem !important;
+    /* 6px, el radio de control. Una píldora significaría elección — un
+       botón que dispara una acción no es una elección. */
+    border-radius: var(--radius-sm) !important;
 }
+[data-sileo-button]:hover { background: var(--accion-sobre) !important; }
+
 [data-sileo-svg] { animation: sileo-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 @keyframes sileo-pop {
     0%   { transform: scale(0.35) rotate(-8deg); opacity: 0; }
