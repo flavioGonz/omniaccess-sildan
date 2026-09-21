@@ -54,6 +54,40 @@
             "out_file": "./logs/tracking-out.log",
             "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
             "merge_logs": true
+        },
+        {
+            "name": "dispatch-worker",
+            "script": "dispatch-worker.js",
+            "cwd": "./",
+            "instances": 1,
+            "exec_mode": "fork",
+            "autorestart": true,
+            "watch": false,
+            "max_memory_restart": "512M",
+            "env": {
+                "NODE_ENV": "production"
+            },
+            "error_file": "./logs/dispatch-worker-error.log",
+            "out_file": "./logs/dispatch-worker-out.log",
+            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+            "merge_logs": true
+        },
+        {
+            "name": "omniaccess-vigia",
+            "script": "vigia.js",
+            "cwd": "./",
+            "instances": 1,
+            "exec_mode": "fork",
+            "autorestart": true,
+            "watch": false,
+            "max_memory_restart": "256M",
+            "env": {
+                "NODE_ENV": "production"
+            },
+            "error_file": "./logs/vigia-error.log",
+            "out_file": "./logs/vigia-out.log",
+            "log_date_format": "YYYY-MM-DD HH:mm:ss Z",
+            "merge_logs": true
         }
     ]
 }

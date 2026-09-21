@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { FranjaServicios } from "@/components/vigia/FranjaServicios";
 import { fechaCorta, fechaHora } from "@/lib/fechas";
 
 type Camara = { id: string; name: string; rtsp: string; rtspVisible?: string; activa?: boolean; enMapa?: boolean; lat?: number | null; lng?: number | null };
@@ -410,6 +411,10 @@ export default function TrackingSection() {
                     tono={r?.efectividad != null && r.efectividad < 30 ? "text-amber-500" : undefined}
                     pie={r?.disparos ? `${r.lecturas} de ${r.disparos} disparos` : "sin disparos en el período"} />
             </div>
+
+            {/* La franja va arriba de todo: el lector estuvo veintitrés minutos caído y la
+                única señal era un punto rojo dentro de un diagrama que hay que ir a buscar. */}
+            <FranjaServicios />
 
             {/* ── Rendimiento con historia ── */}
             <div className="rounded-2xl border border-border bg-card p-5 space-y-4">

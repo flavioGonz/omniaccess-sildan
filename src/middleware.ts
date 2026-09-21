@@ -27,6 +27,7 @@ export async function middleware(request: NextRequest) {
 
     // --- PUBLIC API ROUTES (webhooks, external integrations) ---
     if (
+        pathname === '/api/health' ||
         pathname.startsWith('/api/apk') ||
         pathname.startsWith('/api/webhooks/') ||
         pathname.startsWith('/api/devices/health/tick') ||

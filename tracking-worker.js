@@ -72,6 +72,32 @@ const MUDO_MS = Number(process.env.TRACKING_QUIET_MS || 4000);
 const COINCIDENCIAS_MIN = Number(process.env.TRACKING_MIN_AGREE || 2);
 // ...salvo que una sola lectura venga muy segura.
 const CONF_ALTA = Number(process.env.TRACKING_HIGH_CONF || 0.85);
+/**
+ * Cuadros rotos: no mandarselos al lector.
+ *
+ * El 20 de setiembre el contenedor del lector murio, y segundos antes habia tirado esto:
+ *
+ *     cv2.error: (-215:Assertion failed) !_src.empty() in function 'cvtColor'
+ *
+ * Le llego una imagen vacia. Es el mismo cuadro roto que aparecio calibrando la franja: en
+ * Calle 22, que transmite HEVC, cada varias capturas el decodificador arranca sin
+ * referencia ("Could not find ref with POC 0") y entrega una imagen gris de 94 KB donde
+ * las buenas pesan un megabyte.
+ *
+ * No esta probado que ese cuadro cause el fallo de GPU que mato al contenedor. Lo que si
+ * esta claro es que es basura que le estamos dando de comer, que cuesta una inferencia, y
+ * que el lector contesta 500 — asi que la rafaga se pierde igual.
+ *
+ * El filtro no tiene un tamano fijo posible: cuanto pesa un cuadro depende de la camara, de
+ * la escena y de la hora. La referencia sale de la propia camara, igual que el area tipica
+ * de las chapas (src/lib/recuadros.ts), y el unico parametro es cuanto se tolera bajar. Sin
+ * muestras suficientes no se filtra: preferible mandar un cuadro dudoso que tirar los
+ * buenos por una referencia inventada.
+ */
+const CUADRO_MIN_BYTES = Number(process.env.TRACKING_CUADRO_MIN_BYTES || 4096);
+const CUADRO_FACTOR = Number(process.env.TRACKING_CUADRO_FACTOR || 4);
+const CUADRO_MUESTRAS = Number(process.env.TRACKING_CUADRO_MUESTRAS || 12);
+
 /** Cuantas chapas se atienden por recorte: mas que esto en una baldosa es ruido. */
 const CHAPAS_POR_BALDOSA = Number(process.env.TRACKING_PLATES_PER_TILE || 3);
 /**
@@ -779,6 +805,39 @@ function disparar(est, motivo) {
     est.temporizador = setTimeout(() => resolverRafaga(est), RAFAGA_DESPUES_MS);
 }
 
+/**
+ * El peso tipico de un cuadro de ESTA camara. `null` mientras no haya con que comparar.
+ *
+ * Mediana y no promedio: un solo cuadro roto ya metido corre el promedio hacia abajo lo
+ * suficiente como para dejar entrar al siguiente, y al siguiente.
+ */
+function pesoTipico(est) {
+    const v = (est.pesos || []).slice().sort((a, b) => a - b);
+    if (v.length < CUADRO_MUESTRAS) return null;
+    const m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+/** Saca los cuadros que no pueden ser una imagen buena. Ver CUADRO_FACTOR. */
+function sinCuadrosRotos(est, cuadros) {
+    const ref = pesoTipico(est);
+    const buenos = [];
+    let tirados = 0;
+    for (const c of cuadros) {
+        const roto = c.length < CUADRO_MIN_BYTES || (ref != null && c.length * CUADRO_FACTOR < ref);
+        if (roto) { tirados++; continue; }
+        buenos.push(c);
+        // Solo los buenos alimentan la referencia: si los rotos contaran, la referencia
+        // bajaria hasta dejarlos pasar a todos.
+        est.pesos = (est.pesos || []).concat(c.length).slice(-60);
+    }
+    if (tirados) {
+        log(`${est.cam.name}: ${tirados} cuadro(s) roto(s) descartado(s) antes del lector`
+            + (ref != null ? ` (tipico ${Math.round(ref / 1024)} KB)` : ""));
+    }
+    return buenos;
+}
+
 async function resolverRafaga(est) {
     const r = est.rafaga;
     est.rafaga = null;
@@ -787,7 +846,13 @@ async function resolverRafaga(est) {
 
     est.mudoHasta = Date.now() + mudoQueCorresponde(est);
     const cam = est.cam;
-    const cuadros = r.cuadros.slice(0, RAFAGA_MAX_CUADROS);
+    const cuadros = sinCuadrosRotos(est, r.cuadros.slice(0, RAFAGA_MAX_CUADROS));
+    if (!cuadros.length) {
+        // Todos rotos: no es "no habia matricula", es "no hubo imagen". Se dice, porque
+        // las dos cosas se ven igual desde el panel y son problemas distintos.
+        log(`${cam.name}: la rafaga entera llego rota, no se lee nada`);
+        return;
+    }
 
     try {
         // Concurrencia acotada: el lector es uno solo y encima esta compartido.
