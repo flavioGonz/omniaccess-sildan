@@ -222,6 +222,40 @@ const fitViewOptions: FitViewOptions = {
     padding: 0.2,
 };
 
+/**
+ * Qué servicio del vigía corresponde a cada nodo del diagrama.
+ *
+ * El lector tiene dos: el contenedor y su API. Se prefiere el que está caído, porque el
+ * caso que importa es distinguir "el contenedor murió" de "el contenedor corre pero la
+ * API no contesta" — son dos problemas con dos arreglos distintos.
+ */
+const VIGIA_POR_NODO: Record<string, string[]> = {
+    "omni-lpr": ["lector:contenedor", "lector:api"],
+    "tracking": ["pm2:tracking-worker"],
+    "lpr-node": ["web", "pm2:omniaccess-web"],
+    "webhook-api": ["webhooks", "pm2:omniaccess-webhooks"],
+    "postgres": ["base"],
+    "redis": ["redis"],
+};
+
+type ParteVigia = { caido: boolean; desde: string | null; detalle: string };
+
+function deVigia(nodoId: string, porId: Record<string, ParteVigia>): ParteVigia | null {
+    const claves = VIGIA_POR_NODO[nodoId];
+    if (!claves) return null;
+    const partes = claves.map((k) => porId[k]).filter(Boolean);
+    if (!partes.length) return null;
+    return partes.find((p) => p.caido) || partes[0];
+}
+
+/** Hace cuánto, en palabras. */
+export function haceCuanto(desde: string | null): string {
+    if (!desde) return "";
+    const min = Math.round((Date.now() - Date.parse(desde)) / 60000);
+    if (!Number.isFinite(min) || min < 1) return "recién";
+    return min < 60 ? `hace ${min} min` : `hace ${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
 export default function SystemFlow() {
     const [nodes, setNodes] = useState<Node[]>([]);
     const [edges, setEdges] = useState<Edge[]>([]);
@@ -267,8 +301,18 @@ export default function SystemFlow() {
                     dragHandle: '.custom-drag-handle'
                 }));
 
-                // Apply saved positions to initial nodes
-                const nodesWithPositions = initialNodes.map(node => ({
+                /*
+                 * Las posiciones guardadas se aplican sobre `baseNodes`, no sobre
+                 * `initialNodes`.
+                 *
+                 * Estaba al revés, y el efecto era que la IP y el puerto REALES que trae
+                 * /api/system/endpoints se calculaban y se tiraban: `baseNodes` se armaba
+                 * con ellos y después nadie lo usaba. Los nodos mostraban lo que dice la
+                 * lista escrita a mano, que puede no ser lo que hay en la máquina — y un
+                 * diagrama que muestra una dirección inventada con la misma cara que una
+                 * medida es peor que uno que no muestre ninguna.
+                 */
+                const nodesWithPositions = baseNodes.map(node => ({
                     ...node,
                     position: savedPositions[node.id] || node.position
                 }));
@@ -309,7 +353,11 @@ export default function SystemFlow() {
                     dragHandle: '.custom-drag-handle'
                 }));
 
-                setNodes([...baseNodes, ...driverNodes]);
+                /* El respaldo arranca de `initialNodes`: `baseNodes` se construye adentro
+                   del `try` y acá no existe. Tal como estaba, cualquier fallo en el try
+                   terminaba en un ReferenceError y el diagrama se quedaba SIN NODOS — o
+                   sea que el camino de respaldo fallaba justo cuando hacía falta. */
+                setNodes([...initialNodes, ...driverNodes]);
 
                 const initialEdges: Edge[] = [
                     ...ENLACES_BASE,
@@ -491,7 +539,26 @@ export default function SystemFlow() {
     useEffect(() => {
         const fetchStatus = async () => {
             try {
-                const res = await axios.get('/api/system-status');
+                /*
+                 * El sondeo y el vigía contestan cosas distintas, y las dos hacen falta.
+                 *
+                 * El sondeo dice si AHORA contesta — de ahí sale el color del nodo, y por
+                 * eso el color nunca mintió. Lo que no sabe es DESDE CUÁNDO no contesta ni
+                 * si alguien lo está intentando levantar, que es lo único accionable
+                 * cuando algo se cayó. Eso lo sabe el vigía, y es lo que se pega abajo.
+                 *
+                 * El parte del vigía es opcional a propósito: si el vigía no está
+                 * corriendo, el diagrama sigue funcionando igual que antes en vez de
+                 * quedarse en blanco.
+                 */
+                const [res, parte] = await Promise.all([
+                    axios.get('/api/system-status'),
+                    axios.get('/api/vigia/estado').then((r) => r.data).catch(() => null),
+                ]);
+                const vigia: Record<string, { caido: boolean; desde: string | null; detalle: string }> =
+                    parte?.hay && parte?.vigente
+                        ? Object.fromEntries((parte.servicios || []).map((v: any) => [v.id, v]))
+                        : {};
                 const data = res.data;
 
                 setConCaptura(data.omniLprEnabled !== false);
@@ -611,7 +678,10 @@ export default function SystemFlow() {
 
                     return {
                         ...node,
-                        data: { ...node.data, status: nodeStatus, stats, ip, port },
+                        data: {
+                            ...node.data, status: nodeStatus, stats, ip, port,
+                            vigia: deVigia(node.id, vigia),
+                        },
                         style: {
                             ...node.style,
                             border: `2px solid ${borderColor}`,
@@ -685,6 +755,30 @@ export default function SystemFlow() {
                                 <div className="flex items-center justify-between px-2">
                                     <span className="text-[8px] text-muted-foreground font-bold uppercase">Data</span>
                                     <span className="text-[8px] text-muted-foreground font-mono">{node.data.stats}</span>
+                                </div>
+                            )}
+                            {/*
+                              * Desde cuándo está caído, y el motivo.
+                              *
+                              * El punto rojo ya decía QUE no contesta. Lo que faltaba es lo
+                              * único que se puede hacer algo con ello: si hace dos minutos o
+                              * dos horas, y qué contestó el equipo. Dos minutos es un
+                              * reinicio; dos horas es que nadie se enteró.
+                              *
+                              * Sólo aparece cuando está caído: un renglón "está bien desde
+                              * hace 6 días" en cada nodo es ruido, y el ruido es lo que hace
+                              * que después no se mire ninguno.
+                              */}
+                            {node.data.vigia?.caido && (
+                                <div className="px-2 pt-0.5">
+                                    <span className="text-[8px] tono-mal font-semibold">
+                                        caído {haceCuanto(node.data.vigia.desde)}
+                                    </span>
+                                    {node.data.vigia.detalle && (
+                                        <p className="text-[8px] text-muted-foreground leading-tight">
+                                            {node.data.vigia.detalle}
+                                        </p>
+                                    )}
                                 </div>
                             )}
                         </div>
