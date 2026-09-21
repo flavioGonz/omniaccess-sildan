@@ -286,6 +286,41 @@ const porAviso = (m) => m === "camara" || m === "zona" || m === "linea";
 // Contadores del minuto en curso. Se vuelcan a la muestra y se ponen en cero.
 const contadores = { disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0, fallos: 0 };
 
+/**
+ * Los mismos contadores, pero por cámara.
+ *
+ * Existe porque el panel de "tasa de lectura" no podía decir nada del seguimiento. Ese
+ * panel mide AccessEvent con accessType = 'PLATE', o sea los eventos de barrera: la
+ * cámara Hikvision dispara siempre y escribe NO_LEIDA cuando no reconoce, así que el
+ * denominador viene solo.
+ *
+ * Acá no hay nada de eso. Cuando el lector no reconoce nada no se escribe ninguna fila:
+ * una ráfaga seca no deja rastro en PlateSighting. Contar avistamientos daría un número
+ * sin denominador — "Calle 21 leyó 40 chapas" no dice si leyó el 90% o el 9%.
+ *
+ * El denominador verdadero es la RÁFAGA: cuántas veces se miró y cuántas de esas dieron
+ * una lectura aceptada. Eso ya se contaba, pero global, y global no sirve para decidir:
+ * si el total baja, no dice qué cámara hay que ir a mirar.
+ *
+ * Sólo entran las cámaras que tuvieron actividad en el minuto. Un minuto con cero
+ * disparos aporta 0/0 a cualquier promedio, así que una fila de ceros sería peso muerto.
+ */
+const porCamara = new Map();
+
+function cuenta(cam, campo) {
+    const id = cam?.id;
+    if (!id) return;
+    let c = porCamara.get(id);
+    if (!c) {
+        c = { nombre: cam.name || null, disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0 };
+        porCamara.set(id, c);
+    }
+    // El nombre se refresca cada vez: si lo renombraron en el alta, la muestra vieja ya
+    // está escrita y la nueva tiene que salir con el nombre nuevo.
+    if (cam.name) c.nombre = cam.name;
+    c[campo]++;
+}
+
 // Ancho de la banda de la linea de pasada, medido en alturas de la chapa leida.
 // Se mide asi y no en fracciones fijas porque la chapa se ve mas chica cuanto mas
 // lejos esta: en alturas de chapa, la banda se adapta sola a la distancia.
@@ -826,6 +861,7 @@ function disparar(est, motivo) {
     // igual baldosea y descarta, que es casi todo el gasto de una rafaga.
     if (presupuesto(est) <= 0) {
         contadores.frenados++;
+        cuenta(est.cam, "frenados");
         if (!est.avisoFreno || ahora - est.avisoFreno > 60000) {
             est.avisoFreno = ahora;
             log(`${est.cam.name}: sin cuota este minuto (${PRESUPUESTO_POR_MIN} inferencias); `
@@ -838,6 +874,7 @@ function disparar(est, motivo) {
     // todavia esta entrando en cuadro y la chapa no se fue de foco.
     const previos = est.memoria.filter((c) => ahora - c.t <= RAFAGA_ANTES_MS).map((c) => c.jpeg);
     contadores.disparos++;
+    cuenta(est.cam, "disparos");
     est.rafaga = { motivo, cuadros: previos.slice(-RAFAGA_MAX_CUADROS) };
     if (motivo !== "escena") log(`${est.cam.name}: rafaga abierta por ${motivo} (${previos.length} cuadros previos)`);
     est.temporizador = setTimeout(() => resolverRafaga(est), RAFAGA_DESPUES_MS);
@@ -929,6 +966,7 @@ async function resolverRafaga(est) {
         }
         if (!lecturas.length) {
             contadores.descartes++;
+            cuenta(cam, "descartes");
             // Una rafaga seca en respaldo es la prueba de que ese respaldo no esta
             // rindiendo. La siguiente espera el doble.
             est.secas = (est.secas || 0) + 1;
@@ -983,6 +1021,7 @@ async function resolverRafaga(est) {
             const respaldada = v.reads >= COINCIDENCIAS_MIN || v.maxima >= CONF_ALTA;
             if (!respaldada) {
                 contadores.descartes++;
+                cuenta(cam, "descartes");
                 // Solo se nombra la que estuvo cerca. Con varias matriculas por rafaga, el
                 // detector propone veinte recortes por cuadro y casi todos son ruido:
                 // escribir un renglon por cada uno tapaba el unico que importa.
@@ -1013,6 +1052,7 @@ async function resolverRafaga(est) {
 
             if (resp.ignorado === "fuera de la zona") {
                 contadores.fueraDeLinea++;
+                cuenta(cam, "fueraDeLinea");
                 log(`${cam.name}: ${v.plate} fuera de ${puerta.motivo} y en movimiento (${puerta.detalle || "-"})`);
                 continue;
             }
@@ -1020,7 +1060,7 @@ async function resolverRafaga(est) {
             yaVistas.add(v.plate);
             // Un auto quieto que se vuelve a leer no es una lectura nueva: no se cuenta como
             // tal, o la efectividad mediria el estacionamiento en vez del trabajo del lector.
-            if (resp.estado !== "ESTACIONADO") contadores.lecturas++;
+            if (resp.estado !== "ESTACIONADO") { contadores.lecturas++; cuenta(cam, "lecturas"); }
             const nota = resp.estado === "ESTACIONADO"
                 ? (resp.nuevo ? " · estaciono" : " · estacionado")
                 : (puerta.pasa ? "" : ` · fuera de ${puerta.motivo}`);
@@ -1548,14 +1588,41 @@ async function muestrear() {
             fallos: contadores.fallos,
         });
 
+        // Las muestras por camara, en un solo viaje. createMany y no una insercion por
+        // camara porque esto corre cada minuto para siempre: con veinte camaras serian
+        // veinte idas y vueltas por minuto para escribir seis numeros cada una.
+        if (porCamara.size) {
+            try {
+                await prisma.trackingCamaraMuestra.createMany({
+                    data: [...porCamara.entries()].map(([deviceId, c]) => ({
+                        deviceId,
+                        nombre: c.nombre,
+                        disparos: c.disparos,
+                        lecturas: c.lecturas,
+                        descartes: c.descartes,
+                        fueraDeLinea: c.fueraDeLinea,
+                        frenados: c.frenados,
+                    })),
+                });
+            } catch (e) {
+                // No se tira la vuelta por esto: la muestra es una estadistica, y perder
+                // un minuto de estadistica no justifica dejar de leer matriculas.
+                log(`no se pudo guardar la muestra por camara: ${e.message}`);
+            }
+        }
+        porCamara.clear();
+
         contadores.disparos = 0; contadores.lecturas = 0; contadores.descartes = 0; contadores.frenados = 0;
         contadores.fallos = 0;
 
         // Limpieza barata: una vez por hora, y solo lo que ya no se muestra.
         if (new Date().getMinutes() === 7) {
-            await prisma.trackingSample.deleteMany({
-                where: { momento: { lt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } },
-            });
+            const viejo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+            await prisma.trackingSample.deleteMany({ where: { momento: { lt: viejo } } });
+            // La muestra por camara se borra con la misma regla y en la misma pasada: son
+            // el mismo dato mirado con distinto detalle, y dos politicas de retencion
+            // distintas para lo mismo terminan en un panel que se contradice consigo mismo.
+            await prisma.trackingCamaraMuestra.deleteMany({ where: { momento: { lt: viejo } } });
         }
     } catch (e) {
         log("no se pudo guardar la muestra:", e.message);

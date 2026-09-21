@@ -161,11 +161,11 @@ model Device {
   // "escena": ffmpeg decide mirando el cambio de imagen (sirve en cualquier camara).
   // "camara": la propia camara avisa que paso un vehiculo (AcuSense) y recien ahi
   // se leen cuadros. Mucho mas preciso y deja la GPU en reposo el resto del tiempo.
-  trackTrigger  String?  @default("escena")
+  trackTrigger    String?          @default("escena")
   // Linea de pasada, cuando el disparo es por cruce: {x1,y1,x2,y2,sentido} en fracciones
   // del cuadro. Una linea es mejor que una zona para una calle: dispara en el instante
   // del cruce, y un auto estacionado adentro del encuadre deja de importar.
-  trackLine     String?
+  trackLine       String?
   trackMinConf    Float?
   trackFps        Float?
   createdAt       DateTime         @default(now())
@@ -338,7 +338,6 @@ model QueueAlert {
   @@index([deviceId])
 }
 
-
 model PendingRegistration {
   id        String   @id @default(cuid())
   type      String
@@ -351,7 +350,6 @@ model PendingRegistration {
 }
 
 enum VehicleType {
-
   SEDAN
   SUV
   PICKUP
@@ -451,8 +449,8 @@ enum AccessDecision {
 model NotificationChannel {
   id        String   @id @default(cuid())
   name      String
-  type      String   // TELEGRAM, EMAIL, SLACK, WEBHOOK
-  config    String   // JSON: { token, chatId } | { email } | { webhookUrl } | { slackUrl }
+  type      String // TELEGRAM, EMAIL, SLACK, WEBHOOK
+  config    String // JSON: { token, chatId } | { email } | { webhookUrl } | { slackUrl }
   enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -463,15 +461,15 @@ model NotificationChannel {
 }
 
 model NotificationLog {
-  id        String   @id @default(cuid())
+  id        String              @id @default(cuid())
   channelId String
   channel   NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   alertId   String?
   message   String
-  status    String   // SENT, FAILED, PENDING
+  status    String // SENT, FAILED, PENDING
   error     String?
-  metadata  String?  // JSON with extra context
-  createdAt DateTime @default(now())
+  metadata  String? // JSON with extra context
+  createdAt DateTime            @default(now())
 
   @@index([channelId])
   @@index([createdAt])
@@ -514,17 +512,17 @@ model NotificationRule {
   // Modulo al que aplica la regla y, para LPR/FACE, que eventos la disparan.
   // QUEUE usa metric/operator/threshold; LPR y FACE usan eventos.
   modulo      String    @default("QUEUE") // QUEUE | LPR | FACE
-  eventos     String?   // csv: ALLOW,DENY,UNKNOWN,WATCHLIST
-  deviceId    String?   // null = todas las cámaras
-  channelName String?   // zona/canal ("Aforo","Entrada","Salida"); null = cualquiera
+  eventos     String? // csv: ALLOW,DENY,UNKNOWN,WATCHLIST
+  deviceId    String? // null = todas las cámaras
+  channelName String? // zona/canal ("Aforo","Entrada","Salida"); null = cualquiera
   metric      String    @default("aforo") // aforo | entrada | salida
-  operator    String    @default(">=")    // >= | > | == | <=
+  operator    String    @default(">=") // >= | > | == | <=
   threshold   Int       @default(1)
   daysOfWeek  String    @default("1,2,3,4,5,6,7")
   startTime   String    @default("00:00")
   endTime     String    @default("23:59")
   channels    String    @default("telegram") // csv: telegram,email,...
-  minSeverity String?   // ok | warn | full | critico (gate opcional)
+  minSeverity String? // ok | warn | full | critico (gate opcional)
   cooldownSec Int       @default(60)
   dedupe      Boolean   @default(true)
   lastFiredAt DateTime?
@@ -538,8 +536,8 @@ model NotificationRule {
 // ── Despachos: cola/outbox de envíos con estado y reintentos ───────────────
 model DispatchJob {
   id          String    @id @default(cuid())
-  type        String    // ALERT | REPORT
-  channel     String    // telegram | email | ...
+  type        String // ALERT | REPORT
+  channel     String // telegram | email | ...
   status      String    @default("PENDING") // PENDING|PROCESSING|SENT|FAILED|CANCELLED
   payload     Json
   ruleId      String?
@@ -550,7 +548,7 @@ model DispatchJob {
   scheduledAt DateTime  @default(now())
   startedAt   DateTime?
   sentAt      DateTime?
-  bullJobId   String?   // id del job en BullMQ para correlación
+  bullJobId   String? // id del job en BullMQ para correlación
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -567,8 +565,8 @@ model ReportSchedule {
   enabled   Boolean   @default(true)
   frequency String    @default("daily") // daily | weekly
   time      String    @default("22:00") // HH:MM hora de envío
-  dayOfWeek Int       @default(7)        // 1-7 (solo weekly; 7=domingo)
-  period    String    @default("daily")  // ventana del reporte: daily | weekly
+  dayOfWeek Int       @default(7) // 1-7 (solo weekly; 7=domingo)
+  period    String    @default("daily") // ventana del reporte: daily | weekly
   deviceId  String?
   channel   String    @default("telegram")
   lastRunAt DateTime?
@@ -577,7 +575,6 @@ model ReportSchedule {
 
   @@index([enabled])
 }
-
 
 // ── Salud de dispositivos: muestreo histórico + alertas (health tick 24/7) ──
 model DeviceHealthSample {
@@ -598,7 +595,7 @@ model DeviceHealthSample {
 model DeviceAlert {
   id         String    @id @default(cuid())
   deviceId   String
-  type       String    // offline | disk | mem | drift
+  type       String // offline | disk | mem | drift
   severity   String    @default("warning") // warning | critical
   message    String
   openedAt   DateTime  @default(now())
@@ -608,7 +605,6 @@ model DeviceAlert {
   @@index([active])
   @@index([deviceId])
 }
-
 
 // ── Watchlist / lista negra de matrículas (resaltado + sonido + alerta) ──
 model PlateWatch {
@@ -634,8 +630,8 @@ model PlateSighting {
   lng           Float?
   timestamp     DateTime
   source        String   @default("LPR") // LPR | TRACK (camara comun + Omni-LPR)
-  eventType     String?                  // ENTRY | EXIT | INTERNAL | MOTION
-  decision      String?                  // GRANT | DENY | UNKNOWN
+  eventType     String? // ENTRY | EXIT | INTERNAL | MOTION
+  decision      String? // GRANT | DENY | UNKNOWN
   confidence    Float?
   snapshotUrl   String?
   accessEventId String?  @unique
@@ -644,29 +640,29 @@ model PlateSighting {
   // Cuantos cuadros de la rafaga coincidieron en esta lectura. Una matricula
   // vista en cinco cuadros seguidos vale mucho mas que una vista en uno solo,
   // y es lo que permite separar una lectura buena de un invento del OCR.
-  reads         Int?
+  reads Int?
 
   // Donde aparecio la chapa dentro del cuadro, en fracciones {x,y,w,h}. Es la senal que
   // distingue un vehiculo que pasa de uno estacionado: el que pasa mueve el recuadro
   // entre una lectura y la siguiente; el que esta quieto lo deja en el mismo lugar.
-  bbox          String?
+  bbox String?
 
   // PASO o ESTACIONADO. Un auto quieto dentro del encuadre se relee con cada vehiculo
   // que pasa: tratarlo como avistamiento nuevo llenaba el historial de repeticiones y
   // dibujaba recorridos que nunca ocurrieron. Ahora es UNA fila por estadia, con su
   // intervalo, que se va extendiendo mientras el auto siga ahi.
-  estado        String   @default("PASO")
-  estDesde      DateTime?
-  estHasta      DateTime?
+  estado     String    @default("PASO")
+  estDesde   DateTime?
+  estHasta   DateTime?
   // Si ya se aviso que estaciono. Una estadia recien nacida todavia puede ser un auto
   // detenido un momento; el aviso sale cuando la estadia se consolida.
-  estAvisado    Boolean  @default(false)
+  estAvisado Boolean   @default(false)
   // Si la estadia ya se cerro (el vehiculo se fue). Un auto que se va no genera ninguna
   // lectura: se nota por ausencia, y lo cierra el barrendero.
-  estCerrada    Boolean  @default(false)
+  estCerrada Boolean   @default(false)
 
-  passId        String?
-  pass          VehiclePass? @relation(fields: [passId], references: [id], onDelete: SetNull)
+  passId String?
+  pass   VehiclePass? @relation(fields: [passId], references: [id], onDelete: SetNull)
 
   @@index([passId])
   @@index([estado, timestamp])
@@ -675,23 +671,21 @@ model PlateSighting {
   @@index([deviceId, timestamp])
 }
 
-
 /// Un paso del vehiculo por el barrio: agrupa los avistamientos de una misma
 /// matricula que ocurren cerca en el tiempo. El mapa dibuja trayectos, no puntos
 /// sueltos, y la pantalla puede decir "entro 12:35, paso por Calle 21, salio 12:41"
 /// en vez de mostrar una lista plana que con volumen se vuelve ilegible.
 model VehiclePass {
-  id         String          @id @default(cuid())
-  plate      String
-  startedAt  DateTime
-  endedAt    DateTime
-  sightings  PlateSighting[]
-  createdAt  DateTime        @default(now())
+  id        String          @id @default(cuid())
+  plate     String
+  startedAt DateTime
+  endedAt   DateTime
+  sightings PlateSighting[]
+  createdAt DateTime        @default(now())
 
   @@index([plate, startedAt])
   @@index([startedAt])
 }
-
 
 /// Una muestra por minuto del estado del seguimiento. El panel dejaba ver solo la foto
 /// del instante, que no sirve para decidir nada: si la GPU esta al 10% ahora no dice si
@@ -705,16 +699,52 @@ model TrackingSample {
   gpuTemp   Int?
   gpuWatts  Int?
   cpuCont   Float?
-  memCont   Int?     // MB
+  memCont   Int? // MB
   camaras   Int?
-  disparos  Int?     // rafagas abiertas desde la muestra anterior
-  lecturas  Int?     // avistamientos aceptados
-  descartes Int?     // rafagas que no dieron una lectura confiable
+  disparos  Int? // rafagas abiertas desde la muestra anterior
+  lecturas  Int? // avistamientos aceptados
+  descartes Int? // rafagas que no dieron una lectura confiable
   enGpu     Boolean?
 
   @@index([momento])
 }
 
+/// Una muestra por camara y por minuto del trabajo del lector.
+///
+/// TrackingSample guarda lo mismo pero sumado: sirve para ver si el motor esta leyendo,
+/// no para saber CUAL camara dejo de leer. Y esa es justo la pregunta que se hace cuando
+/// el numero baja.
+///
+/// El denominador es la RAFAGA, no el evento. En la barrera el denominador viene solo
+/// porque la camara escribe NO_LEIDA cuando no reconoce; en seguimiento una rafaga seca
+/// no deja ninguna fila, asi que contar avistamientos daria un numerador sin denominador.
+///
+/// Sin relacion a Device a proposito: si mañana se da de baja una camara, su historial de
+/// rendimiento tiene que sobrevivir — es el registro de como venia funcionando, y suele
+/// ser lo primero que se quiere mirar justo despues de sacarla. Por eso ademas se guarda
+/// el nombre: sin el, una fila de una camara borrada seria un cuid sin significado.
+model TrackingCamaraMuestra {
+  id           String   @id @default(cuid())
+  momento      DateTime @default(now())
+  deviceId     String
+  nombre       String?
+  /// Rafagas abiertas en el minuto. Es el denominador de la tasa.
+  disparos     Int      @default(0)
+  /// Rafagas que dieron un avistamiento aceptado. Un auto ya estacionado que se relee no
+  /// cuenta: mediria el estacionamiento y no el trabajo del lector.
+  lecturas     Int      @default(0)
+  /// Rafagas que no dieron una lectura confiable.
+  descartes    Int      @default(0)
+  /// Lecturas buenas descartadas por caer fuera de la zona o la linea. No son un fallo
+  /// del lector: son una decision del calibrador, y confundirlas hunde la tasa sin motivo.
+  fueraDeLinea Int      @default(0)
+  /// Disparos que no se hicieron por falta de cuota. Explican una tasa que no baja pero
+  /// un conteo que si.
+  frenados     Int      @default(0)
+
+  @@index([momento])
+  @@index([deviceId, momento])
+}
 
 // ---------------------------------------------------------------------------
 // La franja de estacionamiento de una camara.
