@@ -7,7 +7,7 @@ import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
     Building2, Camera, Car, Check, CreditCard, DoorOpen, Home,
     KeyRound, Loader2, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
-    Shield, Upload, User as UserIcon, HelpCircle, X,
+    Shield, Upload, User as UserIcon, HelpCircle, History, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import { addDevicePlate } from "@/app/actions/devices";
 import { syncUserToDevice } from "@/app/actions/deviceMemory";
 import { Pista } from "@/components/ui/pista";
 import { PasosEnvio, type Paso } from "@/components/equipos/PasosEnvio";
+import { HistorialAccesos } from "@/components/users/HistorialAccesos";
 import { ElegirEquipos, RotuloEquipos } from "@/components/equipos/ElegirEquipos";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
@@ -127,6 +128,10 @@ export function CajonUsuario({
     const [terminado, setTerminado] = useState(false);
     const [idGuardado, setIdGuardado] = useState<string | undefined>(undefined);
     const archivoRef = useRef<HTMLInputElement>(null);
+    /* La auditoría de esta persona. Sólo existe si la persona existe: en un alta no hay
+       historial que mirar, y un botón que se dibuja para después decir "no hay nada" es un
+       botón que miente. */
+    const [verHistorial, setVerHistorial] = useState(false);
 
     const unidad = units.find((u) => u.id === unidadId);
     const esEdificio = unidad?.type === "EDIFICIO";
@@ -312,6 +317,14 @@ export function CajonUsuario({
                    cortar por la mitad algo que ya está a mitad de camino. */
                 pie={pasos ? undefined : (
                     <>
+                        {/* A la izquierda y separado de los otros dos: no es una acción sobre
+                            el formulario, es una consulta sobre la persona. Ponerlo al lado de
+                            "Guardar" invitaría a confundirlo con algo que modifica la ficha. */}
+                        {!esAlta && user && (
+                            <Button type="button" variant="outline" className="mr-auto" onClick={() => setVerHistorial(true)}>
+                                <History size={15} /> Historial de accesos
+                            </Button>
+                        )}
                         <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
                         <Button type="submit" form="ficha-persona">
                             <Save size={15} />{esAlta ? "Registrar" : "Guardar cambios"}
@@ -663,6 +676,15 @@ export function CajonUsuario({
                 </form>
                 )}
             </CajonContenido>
+
+            {user && (
+                <HistorialAccesos
+                    userId={user.id}
+                    nombre={user.name}
+                    open={verHistorial}
+                    onOpenChange={setVerHistorial}
+                />
+            )}
         </Cajon>
     );
 }
