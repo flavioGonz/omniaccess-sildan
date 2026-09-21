@@ -6,11 +6,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import { sileo as toast } from "sileo";
 import {
     X, Loader2, Play, Pause, Save, RotateCcw, SquareDashed, Crosshair, ParkingSquare,
-    CheckCircle2, XCircle, Gauge, Timer, ScanLine, Minus, ArrowLeftRight, Trash2,
+    CheckCircle2, XCircle, Gauge, Timer, ScanLine, Minus, ArrowLeftRight, Trash2, Camera,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Franja } from "@/components/tracking/Franja";
+import { Button } from "@/components/ui/button";
+import { IconBar } from "@/components/ui/icon-bar";
+import { useFranja } from "@/components/tracking/useFranja";
+import { FranjaLienzo } from "@/components/tracking/FranjaLienzo";
+import { FranjaPanel } from "@/components/tracking/FranjaPanel";
+import { calzar } from "@/components/tracking/Calibracion";
 
 import { LineaDePasada, ZONA_COMPLETA, type Linea, type Zona } from "@/components/tracking/Calibracion";
 
@@ -83,7 +87,6 @@ const AYUDA: Record<string, { titulo: string; detalle: string }> = {
 };
 
 export function InteriorCalibrator({ device, onClose }: { device: any; onClose: () => void }) {
-    const [franjaAbierta, setFranjaAbierta] = useState(false);
     const [cargando, setCargando] = useState(true);
     const [guardando, setGuardando] = useState(false);
     const [tomando, setTomando] = useState(false);
@@ -95,7 +98,15 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     const [fps, setFps] = useState(2);
     const [roi, setRoi] = useState<Roi>(ROI_COMPLETA);
     const [linea, setLinea] = useState<Linea | null>(null);
-    const [dibujando, setDibujando] = useState<null | "zona" | "linea">(null);
+    /**
+     * Qué se está dibujando encima de la escena.
+     *
+     * La franja entró acá, como una herramienta más, y no como un diálogo aparte. Abrir
+     * otra ventana modal encima de esta obligaba a perder de vista la escena que se está
+     * calibrando — justo lo único que hay que mirar para dibujar sobre ella — y dejaba dos
+     * encuadres distintos del mismo cuadro, uno en cada ventana.
+     */
+    const [dibujando, setDibujando] = useState<null | "zona" | "linea" | "franja">(null);
     const [regla, setRegla] = useState<any>(null);
     const [modo, setModo] = useState<"escena" | "zona" | "linea">("escena");
     const [aplicando, setAplicando] = useState(false);
@@ -110,6 +121,10 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     // deformaba todo: los extremos salían elipses y una flecha perpendicular no habría
     // quedado perpendicular. Con las medidas se dibuja en píxeles y la geometría cierra.
     const [tam, setTam] = useState({ w: 0, h: 0 });
+    /* El cuadro llega encajado (object-contain): entre la caja y la imagen hay bandas, y
+       dibujar sobre la caja corre la franja hacia ellas. El corrimiento sólo se nota
+       cuando ya está mal calibrada, o sea tarde. */
+    const [nativo, setNativo] = useState({ w: 16, h: 9 });
     useEffect(() => {
         const el = lienzo.current;
         if (!el) return;
@@ -184,7 +199,9 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
         };
     };
     const alBajar = (e: React.MouseEvent) => {
-        if (!dibujando) return;
+        /* Sólo zona y línea se arrastran acá. La franja tiene sus propios tiradores en
+           `FranjaLienzo`, y sin esta guarda cada clic sobre la escena redibujaba la zona. */
+        if (dibujando !== "zona" && dibujando !== "linea") return;
         e.preventDefault();
         const p = aRelativo(e);
         arrastre.current = p;
@@ -200,7 +217,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
         } else setRoi({ ...p, w: 0, h: 0 });
     };
     const alMover = (e: React.MouseEvent) => {
-        if (!arrastre.current || !dibujando) return;
+        if (!arrastre.current || (dibujando !== "zona" && dibujando !== "linea")) return;
         const p = aRelativo(e);
         const a = arrastre.current;
         if (dibujando === "linea") {
@@ -256,6 +273,11 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
         } finally { setAplicando(false); }
     };
 
+    /* Una sola copia del estado de la franja, compartida con el dibujo de la escena y con
+       el panel del costado. Ver `useFranja`. */
+    const franja = useFranja(device.id, !!device.rtspUrl);
+    const encuadre = calzar(tam.w, tam.h, nativo.w, nativo.h);
+
     const mejor = cuadro?.lecturas?.[0];
     const pasa = mejor ? mejor.confidence >= confianza : false;
     const zonaCompleta = roi.x < 0.01 && roi.y < 0.01 && roi.w > 0.99 && roi.h > 0.99;
@@ -272,6 +294,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
         "modo-linea": modo === "linea" ? "en uso" : regla?.soportaLinea === false ? "no disponible en esta cámara" : "disponible",
         "modo-zona": modo === "zona" ? "en uso" : regla?.soportaZona === false ? "no disponible en esta cámara" : "disponible",
         "modo-escena": modo === "escena" ? "en uso" : "disponible",
+        franja: franja.aprendida ? "midiendo" : franja.existe ? "falta enseñarle el vacío" : "sin dibujar",
     };
 
     const ayuda = sobre ? AYUDA[sobre] : null;
@@ -287,222 +310,301 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     ];
 
     return (
-        <div className="fixed inset-0 z-[3300] flex items-center justify-center bg-black/95 backdrop-blur-sm p-3 md:p-6 animate-in fade-in duration-200">
-            <div className="relative w-full max-w-6xl h-[88vh] rounded-2xl overflow-hidden shadow-2xl bg-[#0b0d11] border border-white/10 flex flex-col">
+        <div className="fixed inset-0 z-[var(--capa-panel)] flex items-center justify-center bg-black/70 backdrop-blur-[2px] p-0 md:p-6 animate-in fade-in duration-200">
+            <div className="relative w-full h-full md:h-[90vh] md:max-w-[1500px] md:rounded-[14px] overflow-hidden bg-background flex flex-col md:flex-row">
 
-                {/* ── Encabezado ── */}
-                <div className="shrink-0 flex items-center gap-3 px-5 h-14 border-b border-white/[0.07]">
-                    <div className="p-1.5 rounded-lg bg-teal-500/10 border border-teal-500/20"><ScanLine size={15} className="text-teal-400" /></div>
-                    <div className="flex-1 min-w-0">
-                        <div className="text-sm font-bold text-white truncate">Calibrar {device.name}</div>
-                        <div className="text-[10px] text-white/40">Cámara interior · lectura por Omni-LPR</div>
-                    </div>
-                    {cuadro && (
-                        <span className="hidden md:block text-[10px] text-white/35 tabular-nums mr-1">
-                            {Math.round(cuadro.bytes / 1024)} KB · captura {cuadro.msCaptura} ms · lectura {cuadro.msLectura} ms
-                        </span>
-                    )}
-                    <button onClick={guardar} disabled={guardando || cargando}
-                        className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 disabled:opacity-50">
-                        {guardando ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar
-                    </button>
-                    <button onClick={onClose} className="w-9 h-9 rounded-xl text-white/50 hover:text-white hover:bg-white/[0.08] flex items-center justify-center"><X size={16} /></button>
-                </div>
-
-                {/* ── Cuadro ── */}
+                {/*
+                 * ── La escena, a sangre ──
+                 *
+                 * Sin marco, sin borde y sin radio propio. Lo que hay que mirar acá es la
+                 * calle: un recuadro alrededor de la imagen agrega una línea que compite con
+                 * las que uno está dibujando encima, que son las que importan. Los controles
+                 * flotan sobre ella en vez de robarle alto a un riel.
+                 */}
                 <div className="relative flex-1 min-h-0 bg-black">
                     <div ref={lienzo}
                         onMouseDown={alBajar} onMouseMove={alMover} onMouseUp={alSoltar} onMouseLeave={alSoltar}
-                        className={cn("absolute inset-0", dibujando && "cursor-crosshair")}>
+                        className={cn("absolute inset-0", dibujando && dibujando !== "franja" && "cursor-crosshair")}>
 
                         {cuadro?.imagen ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={cuadro.imagen} alt="" className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none" draggable={false} />
+                            <img src={cuadro.imagen} alt="" draggable={false}
+                                onLoad={(e) => setNativo({
+                                    w: e.currentTarget.naturalWidth || 16,
+                                    h: e.currentTarget.naturalHeight || 9,
+                                })}
+                                className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none" />
                         ) : (
-                            <div className="absolute inset-0 flex items-center justify-center text-white/30 text-xs">
+                            <div className="absolute inset-0 grid place-items-center text-[13px] text-white/40">
                                 {tomando ? "Tomando el cuadro…" : cargando ? "Leyendo la calibración…" : "Sin imagen"}
                             </div>
                         )}
 
                         {dibujando === "zona" && !zonaCompleta && (
-                            <div className="absolute border-2 border-amber-400 bg-amber-400/10 pointer-events-none"
-                                style={{ left: `${roi.x * 100}%`, top: `${roi.y * 100}%`, width: `${roi.w * 100}%`, height: `${roi.h * 100}%` }} />
+                            <div className="absolute pointer-events-none"
+                                style={{
+                                    left: `${roi.x * 100}%`, top: `${roi.y * 100}%`,
+                                    width: `${roi.w * 100}%`, height: `${roi.h * 100}%`,
+                                    border: "2px solid var(--accion-en-oscuro)",
+                                    background: "color-mix(in oklab, var(--accion-en-oscuro) 14%, transparent)",
+                                }} />
                         )}
 
-                        {/* La línea se dibuja sobre el cuadro ENTERO. Con una zona marcada lo que se
-                            ve es el recorte, y la misma línea caería en otro lugar: por eso solo se
-                            muestra mientras se la edita, que es cuando la imagen es la completa. */}
+                        {/* La línea vive en coordenadas del cuadro ENTERO. Con una zona marcada
+                            lo que se ve es el recorte, y la misma línea caería en otro lugar:
+                            por eso sólo se muestra mientras se la edita, que es cuando la
+                            imagen es la completa. */}
                         {linea && dibujando === "linea" && tam.w > 0 && (
                             <LineaDePasada linea={linea} w={tam.w} h={tam.h} />
                         )}
                     </div>
 
-                    {/* Panel de ayuda del control que el mouse está tocando */}
-                    <AnimatePresence>
-                        {ayuda && (
-                            <motion.div
-                                initial={{ opacity: 0, y: 16, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 16, scale: 0.96 }}
-                                transition={{ type: "spring", stiffness: 320, damping: 26 }}
-                                className="absolute left-3 bottom-3 w-[320px] rounded-xl bg-white/[0.07] backdrop-blur-2xl border border-white/10 p-4 shadow-2xl pointer-events-none z-20">
-                                <p className="text-white font-bold text-sm">{ayuda.titulo}</p>
-                                {ACTUAL[sobre!] && <p className="text-[11px] text-white/60 font-mono mb-2">actual: {ACTUAL[sobre!]}</p>}
-                                <p className="text-[12px] text-white/80 leading-relaxed">{ayuda.detalle}</p>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                    {/* La franja se dibuja sobre la imagen encajada, no sobre la caja. */}
+                    {dibujando === "franja" && (
+                        <FranjaLienzo franja={franja} encuadre={encuadre} />
+                    )}
 
+                    {/* ── Herramientas, flotando ── */}
+                    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[var(--capa-flotante)]">
+                        <IconBar
+                            superficie="imagen"
+                            items={[
+                                { key: "mirar", label: "Sólo mirar", Icon: Crosshair },
+                                { key: "zona", label: `Zona · ${zonaCompleta ? "todo el cuadro" : `${Math.round(roi.w * 100)}×${Math.round(roi.h * 100)}%`}`, Icon: SquareDashed },
+                                { key: "linea", label: `Línea · ${linea ? "puesta" : "sin marcar"}`, Icon: Minus },
+                                { key: "franja", label: `Estacionamiento · ${franja.existe ? `${franja.lugares} lugares` : "sin dibujar"}`, Icon: ParkingSquare },
+                            ]}
+                            value={dibujando ?? "mirar"}
+                            onChange={(k) => {
+                                setAuto(false);
+                                if (k === "mirar") { setDibujando(null); tomar(true, true); return; }
+                                setDibujando(k as any);
+                                /* Sin recorte: la zona, la línea y la franja se dibujan sobre el
+                                   cuadro entero, porque en eso están expresadas. Mostrar el
+                                   recorte mientras se dibuja pondría cada trazo en otro lado. */
+                                tomar(false, false);
+                            }}
+                            acciones={[
+                                {
+                                    key: "vivo", label: auto ? "Detener el vivo" : "Ver en vivo",
+                                    Icon: auto ? Pause : Play, activa: auto, off: !!dibujando,
+                                    onClick: () => setAuto((a) => !a),
+                                },
+                                {
+                                    key: "cuadro", label: "Tomar un cuadro", Icon: Camera,
+                                    off: tomando || auto,
+                                    onClick: () => (dibujando === "franja" ? franja.tomar() : tomar(true, !dibujando)),
+                                },
+                            ]}
+                        />
+                    </div>
+
+                    {/* ── Lo que hay que hacer, cuando se está dibujando ── */}
                     {dibujando && (
-                        <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-3 px-3 py-1.5 rounded-xl bg-black/80 border border-white/10 backdrop-blur z-20">
-                            <span className="text-[11px] font-bold text-white/85">
-                                {dibujando === "linea" ? "Arrastrá la línea por donde cruzan los autos" : "Arrastrá el rectángulo sobre la calzada"}
+                        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-[var(--capa-flotante)]
+                            flex items-center gap-3 px-3 py-2 rounded-[10px] bg-black/75 backdrop-blur-md border border-white/15">
+                            <span className="text-[12px] font-semibold text-white">
+                                {dibujando === "linea" ? "Arrastrá la línea por donde cruzan los autos"
+                                    : dibujando === "zona" ? "Arrastrá el rectángulo sobre la calzada"
+                                        : "Movés las cuatro esquinas sobre el cordón donde estacionan"}
                             </span>
                             {dibujando === "linea" && linea && (
-                                <button onClick={() => setLinea(null)} className="text-[11px] text-white/50 hover:text-white flex items-center gap-1"><Trash2 size={12} /> borrar</button>
+                                <button onClick={() => setLinea(null)}
+                                    className="text-[12px] text-white/60 hover:text-white flex items-center gap-1">
+                                    <Trash2 size={13} /> borrar
+                                </button>
                             )}
-                            <button onClick={() => { setDibujando(null); tomar(true, true); }}
-                                className="h-7 px-3 rounded-lg bg-white text-black text-[11px] font-bold">Listo</button>
+                            {dibujando === "zona" && !zonaCompleta && (
+                                <button onClick={() => { setRoi(ROI_COMPLETA); }}
+                                    className="text-[12px] text-white/60 hover:text-white flex items-center gap-1">
+                                    <RotateCcw size={13} /> todo el cuadro
+                                </button>
+                            )}
                         </div>
                     )}
 
-                    {mejor && !dibujando && !ayuda && (
-                        <div className={cn("absolute bottom-3 left-3 flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold backdrop-blur",
-                            pasa ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300")}>
+                    {/* ── La lectura, abajo a la izquierda ── */}
+                    {!dibujando && mejor && (
+                        <div className={cn("absolute bottom-3 left-3 z-[var(--capa-flotante)] flex items-center gap-2 px-3 py-2 rounded-[10px] text-[12px] font-semibold backdrop-blur-md",
+                            pasa ? "chip-bien" : "chip-aviso")}>
                             {pasa ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-                            <span className="font-mono tracking-widest">{mejor.plate}</span>
-                            <span className="opacity-70">{Math.round(mejor.confidence * 100)}%</span>
-                            <span className="opacity-60 font-medium">{pasa ? "se registraría" : "por debajo del mínimo"}</span>
+                            <span className="tracking-widest tabular-nums">{mejor.plate}</span>
+                            <span className="opacity-75 tabular-nums">{Math.round(mejor.confidence * 100)}%</span>
+                            <span className="opacity-70 font-normal">{pasa ? "se registraría" : "por debajo del mínimo"}</span>
                         </div>
                     )}
-                    {cuadro && !cuadro.errorLpr && !mejor && !dibujando && !ayuda && (
-                        <div className="absolute bottom-3 left-3 px-3 py-2 rounded-xl bg-black/70 text-[11px] text-white/55 backdrop-blur max-w-md">
-                            Ninguna matrícula en este cuadro. Si no pasaba ningún auto es normal: poné <b className="text-white/75">Ver en vivo</b> y esperá a que pase uno.
+                    {!dibujando && cuadro && !cuadro.errorLpr && !mejor && (
+                        <div className="absolute bottom-3 left-3 z-[var(--capa-flotante)] max-w-md px-3 py-2 rounded-[10px] bg-black/70 backdrop-blur-md text-[12px] text-white/70">
+                            Ninguna matrícula en este cuadro. Si no pasaba ningún auto es normal:
+                            poné <b className="text-white">Ver en vivo</b> y esperá a que pase uno.
                         </div>
                     )}
-                    {cuadro?.errorLpr && !dibujando && !ayuda && (
-                        <div className="absolute bottom-3 left-3 px-3 py-2 rounded-xl bg-red-500/20 text-[11px] text-red-300 backdrop-blur">{cuadro.errorLpr}</div>
+                    {!dibujando && cuadro?.errorLpr && (
+                        <div className="absolute bottom-3 left-3 z-[var(--capa-flotante)] px-3 py-2 rounded-[10px] text-[12px] chip-mal backdrop-blur-md">
+                            {cuadro.errorLpr}
+                        </div>
                     )}
+
                     {tomando && (
-                        <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/70 text-[10px] text-white/70">
-                            <Loader2 size={10} className="animate-spin" /> capturando
+                        <div className="absolute top-3 left-3 z-[var(--capa-flotante)] flex items-center gap-1.5 px-2.5 py-1.5 rounded-[10px] bg-black/70 backdrop-blur-md text-[11px] text-white/80">
+                            <Loader2 size={11} className="animate-spin" /> capturando
                         </div>
                     )}
                 </div>
 
-                {/* ── Riel de controles ── */}
-                <div className="shrink-0 border-t border-white/[0.07] bg-[#0e1116] px-4 py-3 space-y-3">
+                {/* ── La barra lateral ── */}
+                <aside className="w-full md:w-[360px] shrink-0 border-t md:border-t-0 md:border-l border-border bg-card flex flex-col min-h-0">
+                    <header className="shrink-0 flex items-center gap-3 px-4 h-14 border-b border-border">
+                        <span className="size-8 rounded-[6px] bg-muted flex items-center justify-center text-muted-foreground">
+                            <ScanLine size={15} />
+                        </span>
+                        <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-semibold truncate">{device.name}</div>
+                            <div className="text-[11px] text-muted-foreground">Cámara interior · lee Omni-LPR</div>
+                        </div>
+                        <button onClick={onClose}
+                            className="size-8 rounded-[6px] text-muted-foreground hover:text-foreground hover:bg-accent flex items-center justify-center">
+                            <X size={16} />
+                        </button>
+                    </header>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                        <button {...sobreProps("vivo")} onClick={() => setAuto((a) => !a)} disabled={!!dibujando}
-                            className={cn("h-9 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40",
-                                auto ? "bg-amber-500 text-black" : "bg-white/[0.07] text-white/80 hover:bg-white/[0.12]")}>
-                            {auto ? <Pause size={14} /> : <Play size={14} />} {auto ? "Detener" : "Ver en vivo"}
-                        </button>
-                        <button {...sobreProps("cuadro")} onClick={() => tomar(true, true)} disabled={tomando || auto || !!dibujando}
-                            className="h-9 px-3 rounded-xl bg-white/[0.07] hover:bg-white/[0.12] text-white/80 text-xs font-bold flex items-center gap-1.5 disabled:opacity-40">
-                            <Crosshair size={14} /> Un cuadro
-                        </button>
+                    <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-6">
 
-                        <div className="w-px h-6 bg-white/10 mx-1" />
+                        {/* La ayuda del control que el mouse está tocando. Va arriba y quieta:
+                            cuando saltaba sobre la escena tapaba justo lo que se estaba por
+                            dibujar. */}
+                        <AnimatePresence mode="wait">
+                            {ayuda && (
+                                <motion.div key={sobre!}
+                                    initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                                    transition={{ duration: 0.16 }}
+                                    className="rounded-[10px] bg-muted px-3 py-2.5">
+                                    <p className="text-[13px] font-semibold">{ayuda.titulo}</p>
+                                    {ACTUAL[sobre!] && (
+                                        <p className="text-[11px] text-muted-foreground tabular-nums mb-1.5">ahora: {ACTUAL[sobre!]}</p>
+                                    )}
+                                    <p className="text-[12px] text-muted-foreground leading-relaxed">{ayuda.detalle}</p>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
 
-                        <button {...sobreProps("zona")} onClick={() => { setDibujando("zona"); setAuto(false); tomar(false, false); }}
-                            className={cn("h-9 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors",
-                                dibujando === "zona" ? "bg-amber-500 text-black" : "bg-white/[0.07] text-white/80 hover:bg-white/[0.12]")}>
-                            <SquareDashed size={14} /> Zona
-                            <span className="text-[10px] font-medium opacity-60">{zonaCompleta ? "completa" : `${Math.round(roi.w * 100)}×${Math.round(roi.h * 100)}%`}</span>
-                        </button>
-                        <button {...sobreProps("linea")} onClick={() => { setDibujando("linea"); setAuto(false); tomar(false, false); }}
-                            className={cn("h-9 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors",
-                                dibujando === "linea" ? "bg-rose-500 text-white" : "bg-white/[0.07] text-white/80 hover:bg-white/[0.12]")}>
-                            <Minus size={14} /> Línea
-                            <span className="text-[10px] font-medium opacity-60">{linea ? "puesta" : "sin marcar"}</span>
-                        </button>
-                        {/*
-                          * La franja va acá, junto a la zona y a la línea, porque son la misma
-                          * clase de cosa —geometría dibujada sobre el cuadro de esta cámara— y
-                          * porque este es el lugar donde alguien tiene la imagen en vivo delante.
-                          *
-                          * Abre en diálogo y no acá adentro: el dibujo de la franja necesita su
-                          * propio cuadro quieto y una referencia de vacío aprendida a mano, y
-                          * mezclarlo con el vivo que corre detrás llevaría a aprender el vacío
-                          * del cuadro equivocado — que es el único error de esto que no se nota
-                          * hasta el día siguiente.
-                          */}
-                        <button {...sobreProps("franja")} onClick={() => setFranjaAbierta(true)}
-                            className={cn("h-9 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors",
-                                "bg-white/[0.07] text-white/80 hover:bg-white/[0.12]")}>
-                            <ParkingSquare size={14} /> Estacionamiento
-                        </button>
-                        {!zonaCompleta && (
-                            <button {...sobreProps("todo")} onClick={() => { setRoi(ROI_COMPLETA); tomar(true, false); }}
-                                className="h-9 px-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-white/50 text-[11px] font-bold flex items-center gap-1.5">
-                                <RotateCcw size={13} /> todo el cuadro
-                            </button>
+                        {/* ── Estacionamiento: acá adentro, no en otra ventana ── */}
+                        {dibujando === "franja" && (
+                            <Bloque titulo="Dónde estacionan" icono={ParkingSquare}>
+                                <FranjaPanel franja={franja} alTomar={() => tomar(false, false)} />
+                            </Bloque>
                         )}
-                        {modo === "linea" && linea && (
-                            <button {...sobreProps("sentido")}
-                                onClick={() => setLinea((l) => l && ({ ...l, sentido: l.sentido === "any" ? "left-right" : l.sentido === "left-right" ? "right-left" : "any" }))}
-                                className="h-9 px-2.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-white/60 text-[11px] font-bold flex items-center gap-1.5">
-                                <ArrowLeftRight size={13} />
-                                {linea.sentido === "any" ? "los dos sentidos" : linea.sentido === "left-right" ? "izq → der" : "der → izq"}
-                            </button>
+
+                        <Bloque titulo="Qué dispara la lectura" icono={Gauge}>
+                            <div className="flex flex-col gap-1.5">
+                                {MODOS.map((o) => {
+                                    const bloqueado = !o.puede || (!o.listo && o.id !== "escena") || aplicando;
+                                    const activo = modo === o.id;
+                                    return (
+                                        <button key={o.id} {...sobreProps(`modo-${o.id}`)} type="button"
+                                            disabled={bloqueado} onClick={() => cambiarModo(o.id)}
+                                            data-principal={activo || undefined}
+                                            className={cn("h-9 px-3 rounded-[6px] text-[12px] font-semibold flex items-center gap-2 text-left transition-colors",
+                                                activo ? "text-[var(--accion-texto)]" : "hover:bg-accent",
+                                                bloqueado && !activo && "opacity-40 cursor-not-allowed")}>
+                                            <o.ic size={13} />
+                                            <span className="flex-1">{o.txt}</span>
+                                            {!o.puede && <span className="text-[11px] font-normal opacity-70">no la soporta</span>}
+                                            {o.puede && !o.listo && o.id !== "escena" && (
+                                                <span className="text-[11px] font-normal opacity-70">{o.falta}</span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            {modo === "linea" && linea && (
+                                <button {...sobreProps("sentido")}
+                                    onClick={() => setLinea((l) => l && ({ ...l, sentido: l.sentido === "any" ? "left-right" : l.sentido === "left-right" ? "right-left" : "any" }))}
+                                    className="h-8 px-2.5 rounded-[6px] hover:bg-accent text-[12px] flex items-center gap-1.5 text-muted-foreground">
+                                    <ArrowLeftRight size={13} />
+                                    {linea.sentido === "any" ? "los dos sentidos" : linea.sentido === "left-right" ? "izq → der" : "der → izq"}
+                                </button>
+                            )}
+                        </Bloque>
+
+                        <Bloque titulo="Ajustes" icono={SlidersIcono}>
+                            <Mando clave="sensibilidad" sobreProps={sobreProps} icono={Gauge} titulo="Sensibilidad"
+                                valor={escena.toFixed(2)} min={0.02} max={0.3} paso={0.01} v={escena} set={setEscena}
+                                apagado={modo !== "escena"} />
+                            <Mando clave="confianza" sobreProps={sobreProps} icono={ScanLine} titulo="Confianza mínima"
+                                valor={`${Math.round(confianza * 100)}%`} min={0.2} max={0.95} paso={0.05} v={confianza} set={setConfianza} />
+                            <Mando clave="fps" sobreProps={sobreProps} icono={Timer} titulo="Cuadros por segundo"
+                                valor={String(fps)} min={0.5} max={10} paso={0.5} v={fps} set={setFps} />
+                        </Bloque>
+
+                        {cuadro && (
+                            <p className="text-[11px] text-muted-foreground tabular-nums">
+                                {Math.round(cuadro.bytes / 1024)} KB · captura {cuadro.msCaptura} ms · lectura {cuadro.msLectura} ms
+                            </p>
                         )}
                     </div>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto] gap-3 items-end">
-                        <div className="grid grid-cols-3 gap-3">
-                            <Mando clave="sensibilidad" sobreProps={sobreProps} icono={Gauge} titulo="Sensibilidad" valor={escena.toFixed(2)}
-                                min={0.02} max={0.3} paso={0.01} v={escena} set={setEscena} apagado={modo !== "escena"} />
-                            <Mando clave="confianza" sobreProps={sobreProps} icono={ScanLine} titulo="Confianza mínima" valor={`${Math.round(confianza * 100)}%`}
-                                min={0.2} max={0.95} paso={0.05} v={confianza} set={setConfianza} />
-                            <Mando clave="fps" sobreProps={sobreProps} icono={Timer} titulo="Cuadros por segundo" valor={String(fps)}
-                                min={0.5} max={10} paso={0.5} v={fps} set={setFps} />
-                        </div>
-
-                        <div className="flex items-center gap-1 bg-white/[0.04] rounded-xl p-1 border border-white/[0.06]">
-                            {MODOS.map((o) => {
-                                const bloqueado = !o.puede || (!o.listo && o.id !== "escena") || aplicando;
-                                const activo = modo === o.id;
-                                return (
-                                    <button key={o.id} {...sobreProps(`modo-${o.id}`)} type="button" disabled={bloqueado} onClick={() => cambiarModo(o.id)}
-                                        className={cn("h-9 px-3 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-colors whitespace-nowrap",
-                                            activo ? "bg-emerald-600 text-white" : "text-white/60 hover:text-white hover:bg-white/[0.06]",
-                                            bloqueado && !activo && "opacity-35 cursor-not-allowed")}>
-                                        <o.ic size={12} /> {o.txt}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </div>
+                    <footer className="shrink-0 border-t border-border px-4 py-3">
+                        <Button onClick={guardar} disabled={guardando || cargando} className="w-full accion">
+                            {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar calibración
+                        </Button>
+                    </footer>
+                </aside>
             </div>
-
-            <Dialog open={franjaAbierta} onOpenChange={setFranjaAbierta}>
-                <DialogContent className="max-w-3xl">
-                    <DialogHeader>
-                        <DialogTitle>Dónde estacionan · {device.name}</DialogTitle>
-                    </DialogHeader>
-                    <Franja deviceId={device.id} hayRtsp={!!device.rtspUrl} />
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }
 
-/** Control compacto: rótulo, valor y una barra fina. Entra en el riel sin empujar nada. */
-function Mando({ clave, sobreProps, icono: Ic, titulo, valor, min, max, paso, v, set, apagado }:
-    {
-        clave: string; sobreProps: (k: string) => any; icono: any; titulo: string; valor: string;
-        min: number; max: number; paso: number; v: number; set: (n: number) => void; apagado?: boolean;
-    }) {
+/** Un ícono de regulador, sin traerse otro paquete por tres rayas. */
+function SlidersIcono({ size = 14 }: { size?: number }) {
     return (
-        <div {...sobreProps(clave)} className={cn("rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2 transition-colors hover:bg-white/[0.06]", apagado && "opacity-45")}>
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round">
+            <path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0" />
+            <circle cx="16" cy="7" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="17" r="2" />
+        </svg>
+    );
+}
+
+/**
+ * Un bloque de la barra lateral.
+ *
+ * El riel de antes ponía todo en una fila: nueve controles de distinta naturaleza —
+ * herramientas de dibujo, reguladores y modos de disparo — separados apenas por un palito
+ * de un píxel. Agrupar por lo que cada cosa decide es lo que hace que se encuentre sin
+ * leerlos todos.
+ */
+function Bloque({ titulo, icono: Ic, children }: {
+    titulo: string;
+    icono: React.ComponentType<{ size?: number }>;
+    children: React.ReactNode;
+}) {
+    return (
+        <section className="space-y-2.5">
+            <h3 className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground flex items-center gap-1.5">
+                <Ic size={11} /> {titulo}
+            </h3>
+            {children}
+        </section>
+    );
+}
+
+/** Regulador: rótulo, valor y una barra fina. */
+function Mando({ clave, sobreProps, icono: Ic, titulo, valor, min, max, paso, v, set, apagado }: {
+    clave: string; sobreProps: (k: string) => any; icono: any; titulo: string; valor: string;
+    min: number; max: number; paso: number; v: number; set: (n: number) => void; apagado?: boolean;
+}) {
+    return (
+        <div {...sobreProps(clave)} className={cn("rounded-[6px] px-2.5 py-2 hover:bg-accent transition-colors", apagado && "opacity-45")}>
             <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-white/40 flex items-center gap-1.5 truncate"><Ic size={11} /> {titulo}</span>
-                <span className="text-xs font-bold text-white tabular-nums">{valor}</span>
+                <span className="text-[12px] text-muted-foreground flex items-center gap-1.5 truncate">
+                    <Ic size={12} /> {titulo}
+                </span>
+                <span className="text-[12px] font-semibold tabular-nums">{valor}</span>
             </div>
             <input type="range" min={min} max={max} step={paso} value={v}
                 onChange={(e) => set(Number(e.target.value))}
-                className="w-full mt-1.5 h-1 accent-teal-400 cursor-pointer" />
+                className="w-full mt-2 h-1 cursor-pointer accent-[var(--accion)]" />
         </div>
     );
 }
