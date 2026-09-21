@@ -75,14 +75,27 @@ model User {
 }
 
 model Credential {
-  id        String         @id @default(cuid())
-  type      CredentialType
-  value     String
-  notes     String?
-  userId    String
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id    String         @id @default(cuid())
+  type  CredentialType
+  value String
+  notes String?
+
+  // Sin dueno todavia.
+  //
+  // Antes era obligatorio, y la pantalla de tags igual ofrecia "dejar en el cajon": para
+  // eso las acciones escribian userId = "", que es una cadena vacia y no el id de nadie.
+  // La clave foranea lo rechazaba, el error caia en un catch que solo lo escribia en la
+  // consola del servidor, y el boton quedaba sin hacer nada y sin decirlo. O sea que dar
+  // de alta una tarjeta sin asignar y desasignar una tarjeta nunca funcionaron.
+  //
+  // El caso es real y hay que poder representarlo: se compran cincuenta tarjetas, se
+  // cargan, y despues se reparten. Nulo es "todavia de nadie"; cadena vacia no significa
+  // nada en ningun lado.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model AccessGroup {

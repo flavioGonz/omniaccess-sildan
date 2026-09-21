@@ -1893,3 +1893,20 @@ video::-webkit-media-controls { display: none !important; }
         stroke-dasharray: none;
     }
 }
+
+/*
+ * Las ondas de la tarjeta RFID salen del chip hacia afuera, una detrás de otra.
+ *
+ * El retardo escalonado es lo que hace que se lean como una onda que viaja y no como tres
+ * arcos parpadeando a destiempo. Y sólo corren cuando la tarjeta está cargada en algún
+ * lector: acá el movimiento es estado, no adorno.
+ */
+@keyframes omni-onda { 0%, 100% { opacity: .18 } 50% { opacity: 1 } }
+
+.omni-rfid-ondas > path { animation: omni-onda 1.8s ease-in-out infinite; }
+.omni-rfid-ondas > path:nth-child(2) { animation-delay: .22s; }
+.omni-rfid-ondas > path:nth-child(3) { animation-delay: .44s; }
+
+@media (prefers-reduced-motion: reduce) {
+    .omni-rfid-ondas > path { animation: none; opacity: .9; }
+}

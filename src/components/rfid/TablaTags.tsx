@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { CreditCard, UserMinus, UserPlus } from "lucide-react";
+import { CreditCard } from "lucide-react";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Estado, Identidad, Nada } from "@/components/ui/celdas";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
@@ -32,13 +32,15 @@ export type TagFila = {
     [k: string]: any;
 };
 
-export function TablaTags({ tags, cargando, error, alReintentar, alAsignar, alDesasignar, alRecargar, barra }: {
+export function TablaTags({ tags, cargando, error, alReintentar, alAbrir, alRecargar, barra }: {
     tags: TagFila[];
     cargando?: boolean;
     error?: string | null;
     alReintentar?: () => void;
-    alAsignar: (t: TagFila) => void;
-    alDesasignar: (t: TagFila) => void;
+    /* Antes había dos botones de fila —asignar y desasignar— que abrían cada uno su
+       propio diálogo. Ahora la fila abre el cajón y ahí adentro está todo: el dueño, el
+       número, la nota y en qué lectores quedó. Un objeto, una pantalla. */
+    alAbrir: (t: TagFila) => void;
     alRecargar: () => void;
     barra?: React.ReactNode;
 }) {
@@ -88,22 +90,9 @@ export function TablaTags({ tags, cargando, error, alReintentar, alAsignar, alDe
             ),
         },
         {
-            clave: "acciones", titulo: "", ancho: 90, alinear: "der", auxiliar: true,
+            clave: "acciones", titulo: "", ancho: 56, alinear: "der", auxiliar: true,
             celda: (t) => (
                 <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {t.userId ? (
-                        <button type="button" title="Desasignar del usuario"
-                            onClick={(e) => { e.stopPropagation(); alDesasignar(t); }}
-                            className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                            <UserMinus size={13} />
-                        </button>
-                    ) : (
-                        <button type="button" title="Asignar a un usuario"
-                            onClick={(e) => { e.stopPropagation(); alAsignar(t); }}
-                            className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                            <UserPlus size={13} />
-                        </button>
-                    )}
                     <span onClick={(e) => e.stopPropagation()}>
                         <DeleteConfirmDialog
                             id={t.id}
@@ -111,7 +100,13 @@ export function TablaTags({ tags, cargando, error, alReintentar, alAsignar, alDe
                             description={t.user?.name
                                 ? `Está asignado a ${t.user.name}. Al eliminarlo, esa tarjeta deja de abrir en el acto.`
                                 : "La tarjeta deja de existir en el sistema. Si aparece después, no va a abrir."}
-                            onDelete={deleteTag}
+                            /* El diálogo espera {success}, las acciones devuelven {ok}: se
+                               traduce acá en vez de cambiar el contrato de uno de los dos,
+                               que tocaría pantallas que no tienen nada que ver con esto. */
+                            onDelete={async (id: string) => {
+                                const r = await deleteTag(id);
+                                return r.ok ? { success: true } : { success: false, error: r.error };
+                            }}
                             onSuccess={alRecargar}>
                             <button type="button" title="Eliminar"
                                 className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-[var(--mal-texto)] hover:bg-[var(--mal-suave)] transition-colors">
@@ -124,7 +119,7 @@ export function TablaTags({ tags, cargando, error, alReintentar, alAsignar, alDe
                 </div>
             ),
         },
-    ], [alAsignar, alDesasignar, alRecargar]);
+    ], [alRecargar]);
 
     return (
         <Tabla<TagFila>
@@ -132,6 +127,7 @@ export function TablaTags({ tags, cargando, error, alReintentar, alAsignar, alDe
             nombreArchivo="tags-rfid"
             filas={tags}
             clave={(t) => t.id}
+            alClickFila={alAbrir}
             columnas={columnas}
             barra={barra}
             cargando={cargando}
