@@ -221,6 +221,8 @@ const MOTOR_CONTENEDOR = process.env.TRACKING_ENGINE_CONTAINER || "omni-lpr";
  * Dos minutos porque un reinicio del propio contenedor tarda menos que eso en contestar:
  * con uno solo se reiniciaria a si mismo en el medio del arranque.
  */
+/** Minutos contestando y fallando todo antes de reiniciar. Ver la tercera regla. */
+const MOTOR_ROTO_MIN = Number(process.env.TRACKING_MOTOR_ROTO_MIN || 3);
 const MOTOR_MUDO_MIN = Number(process.env.TRACKING_ENGINE_DEAD_MIN || 2);
 const LECTOR_URL = (process.env.OMNI_LPR_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 
@@ -234,7 +236,7 @@ async function lectorContesta() {
     }
 }
 
-const motor = { sospecha: 0, mudo: 0, reinicios: [], nocturnaHecha: null, potenciaMax: null };
+const motor = { sospecha: 0, mudo: 0, roto: 0, reinicios: [], nocturnaHecha: null, potenciaMax: null };
 
 // Modelos del lector. El detector por defecto del contenedor es el de 384 px, el mas
 // chico de los seis: achica cualquier imagen a eso antes de buscar nada, y por eso un
@@ -257,7 +259,7 @@ const log = (...a) => console.log(new Date().toISOString(), "[track]", ...a);
 const porAviso = (m) => m === "camara" || m === "zona" || m === "linea";
 
 // Contadores del minuto en curso. Se vuelcan a la muestra y se ponen en cero.
-const contadores = { disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0 };
+const contadores = { disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0, fallos: 0 };
 
 // Ancho de la banda de la linea de pasada, medido en alturas de la chapa leida.
 // Se mide asi y no en fracciones fijas porque la chapa se ve mas chica cuanto mas
@@ -468,6 +470,17 @@ async function invocar(herramienta, cuerpo, ms = 20000) {
     const t0 = Date.now();
     try {
         return await invocarReal(herramienta, cuerpo, ms);
+    } catch (e) {
+        /*
+         * Contar los fallos del lector, que es el dato que faltaba.
+         *
+         * Cero lecturas no dice nada por si solo: puede ser que no paso ningun auto. Cero
+         * lecturas CON fallos es otra cosa completamente: el lector esta contestando, y
+         * esta contestando mal. Sin este contador las dos se ven iguales desde afuera, y
+         * por eso el vigia no podia distinguir una calle tranquila de un lector roto.
+         */
+        contadores.fallos++;
+        throw e;
     } finally {
         medidor.llamadas++;
         medidor.ms += Date.now() - t0;
@@ -1345,7 +1358,7 @@ async function reiniciarMotor(motivo) {
  * borra entera al primer minuto sano: no se reinicia por un pico, se reinicia por una
  * racha.
  */
-async function vigilarMotor({ gpuUso, gpuWatts, lecturas, disparos }) {
+async function vigilarMotor({ gpuUso, gpuWatts, lecturas, disparos, fallos }) {
     if (!MOTOR_VIGIA) return;
 
     // Red de seguridad: un reinicio a la hora sin transito, una vez por dia.
@@ -1379,6 +1392,55 @@ async function vigilarMotor({ gpuUso, gpuWatts, lecturas, disparos }) {
             motor.mudo = 0;
         }
         return;
+    }
+
+    /*
+     * La tercera forma de romperse, que es la que faltaba.
+     *
+     * El vigia sabia detectar dos: el lector CAIDO (no contesta) y el lector TRABADO
+     * girando en la GPU (uso alto con potencia baja, la firma de una espera activa). Hay
+     * una tercera que no entraba en ninguna: **el lector contesta y falla todo**.
+     *
+     * Asi se ve desde el panel, y es lo que reporto el operador: 98 disparos, 0 lecturas,
+     * GPU tranquila, la API contestando OK. Con la GPU en reposo `espera` es falsa, asi
+     * que la heuristica de abajo no dispara nunca — y el sistema parece sano mientras no
+     * lee una sola matricula.
+     *
+     * Hay al menos dos causas conocidas para ese estado, y las dos terminan igual:
+     *
+     *   - Un cuadro roto del decodificador HEVC: el lector tira
+     *     `cv2.error: !_src.empty()` y contesta 500. (Eso ahora se filtra antes de
+     *     mandarlo, ver `sinCuadrosRotos`.)
+     *   - El contexto de CUDA envenenado despues de un `cudaErrorIllegalAddress`: el
+     *     contenedor arranca, `/api/health` contesta, y toda inferencia falla contra una
+     *     GPU que quedo en mal estado. Es lo que paso el 20 y el 21 de setiembre.
+     *
+     * El discriminador es el contador de FALLOS, no las lecturas. Cero lecturas sin fallos
+     * es una calle sin autos y no se toca. Cero lecturas CON fallos es un lector que esta
+     * contestando mal, y eso si se reinicia.
+     */
+    if (fallos > 0 && lecturas === 0) {
+        motor.roto++;
+        if (motor.roto === 1) {
+            log(`motor: el lector contesta pero fallo ${fallos} veces sin leer nada. `
+                + `Si sigue asi ${MOTOR_ROTO_MIN} min se reinicia.`);
+        }
+        if (motor.roto >= MOTOR_ROTO_MIN) {
+            const pudo = await reiniciarMotor(`${motor.roto} min contestando y fallando todo (${fallos} fallos, 0 lecturas)`);
+            motor.roto = 0;
+            /* Si el tope diario ya no deja reiniciar, se dice con todas las letras: un
+               reinicio que no arregla suele significar que la GPU quedo mal desde afuera
+               del contenedor, y eso se resuelve en el host, no acá. */
+            if (!pudo) {
+                log("motor: reiniciar no lo esta arreglando. Si el lector sigue fallando toda inferencia, "
+                    + "mirar en el host si quedaron procesos de CUDA colgados (nvidia-smi los muestra como [Not Found]).");
+            }
+        }
+        return;
+    }
+    if (motor.roto) {
+        log(`motor: el lector volvio a leer, se borra la sospecha de roto (iban ${motor.roto} min)`);
+        motor.roto = 0;
     }
 
     const max = motor.potenciaMax;
@@ -1454,9 +1516,15 @@ async function muestrear() {
             log(`presupuesto: ${contadores.frenados} disparos salteados este minuto por falta de cuota `
                 + `(${PRESUPUESTO_POR_MIN} inferencias por camara y por minuto)`);
         }
-        await vigilarMotor({ gpuUso, gpuWatts, lecturas: contadores.lecturas, disparos: contadores.disparos });
+        await vigilarMotor({
+            gpuUso, gpuWatts,
+            lecturas: contadores.lecturas,
+            disparos: contadores.disparos,
+            fallos: contadores.fallos,
+        });
 
         contadores.disparos = 0; contadores.lecturas = 0; contadores.descartes = 0; contadores.frenados = 0;
+        contadores.fallos = 0;
 
         // Limpieza barata: una vez por hora, y solo lo que ya no se muestra.
         if (new Date().getMinutes() === 7) {
