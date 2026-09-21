@@ -196,6 +196,15 @@ export default function AdminLayout({
                             {collapsed && <div className="my-2 border-t border-border" />}
                             {isAdmin && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users"} collapsed={collapsed} />)}
                             {isAdmin && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
+                            {/* Una sola entrada para toda la flota.
+                                Antes había tres —una por módulo—, y cada una llevaba su propio
+                                `?type=`. O sea que desde el menú NUNCA se llegaba a la lista
+                                completa: se entraba siempre filtrado, y la pestaña "Todos" había
+                                que ir a buscarla. Además el `active` de las tres comparaba
+                                `pathname` contra "type=LPR", y usePathname() no devuelve la query
+                                — asi que ninguna de las tres se marcaba nunca como elegida.
+                                Los dispositivos no son de un módulo: son el parque. */}
+                            {isAdmin && (<SidebarItem icon={<Video size={18} />} label="Dispositivos" href="/admin/devices" active={!!pathname?.startsWith("/admin/devices")} collapsed={collapsed} />)}
                             <SidebarItem icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />
                         </>
                     )}
@@ -204,7 +213,6 @@ export default function AdminLayout({
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-amber-500/60 uppercase tracking-widest">LPR</div>}
                             {isAdmin && (<SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
-                            {isAdmin && (<SidebarItem icon={<Video size={18} />} label="Dispositivos LPR" href="/admin/devices?type=LPR_CAMERA" active={pathname?.includes("devices") && pathname.includes("type=LPR")} collapsed={collapsed} />)}
                             {acuseekOk && <SidebarItem icon={<Sparkles size={18} />} label="Búsqueda inteligente" href="/admin/acuseek" active={pathname === "/admin/acuseek"} collapsed={collapsed} />}
                         </>
                     )}
@@ -212,7 +220,6 @@ export default function AdminLayout({
                     {modules.MODULE_FACE && !modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-teal-500/60 uppercase tracking-widest">Face</div>}
-                            <SidebarItem icon={<ScanFace size={18} />} label="Dispositivos Faciales" href="/admin/devices?type=FACE_TERMINAL" active={pathname?.includes("devices") && pathname.includes("type=FACE")} collapsed={collapsed} />
                         </>
                     )}
 
@@ -222,7 +229,6 @@ export default function AdminLayout({
                             <SidebarItem icon={<Rows3 size={18} />} label="Filas" href="/admin/filas" active={pathname === "/admin/filas"} collapsed={collapsed} />
                             <SidebarItem icon={<Send size={18} />} label="Despachos" href="/admin/despachos" active={pathname === "/admin/despachos"} collapsed={collapsed} />
                             <SidebarItem icon={<FileBarChart size={18} />} label="Reportes" href="/admin/reportes-queue" active={pathname === "/admin/reportes-queue"} collapsed={collapsed} />
-                            <SidebarItem icon={<Video size={18} />} label="Dispositivos Conteo" href="/admin/devices?type=QUEUE_COUNTER" active={pathname?.includes("devices") && pathname.includes("type=QUEUE")} collapsed={collapsed} />
                             <SidebarItem icon={<Calendar size={18} />} label="Horarios de Filas" href="/admin/horarios-filas" active={pathname === "/admin/horarios-filas"} collapsed={collapsed} />
                             <SidebarItem icon={<LayoutGrid size={18} />} label="Pantalla / Kiosko" href="/admin/kiosko" active={pathname === "/admin/kiosko"} collapsed={collapsed} />
                             <SidebarItem icon={<SlidersHorizontal size={18} />} label="Calibración" href="/admin/calibracion-aforo" active={pathname === "/admin/calibracion-aforo"} collapsed={collapsed} />

@@ -106,13 +106,34 @@ import { cn } from "@/lib/utils";
 const PLACEHOLDER_DEVICE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="8" fill="%23262626"/><path d="M24 14a4 4 0 100 8 4 4 0 000-8zm-6 14c0-2 4-3.1 6-3.1S30 26 30 28v1H18v-1z" fill="%23525252"/><rect x="14" y="32" width="20" height="3" rx="1.5" fill="%23525252"/></svg>')}`;
 const PLACEHOLDER_BRAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="4" fill="%23262626"/><circle cx="16" cy="16" r="8" stroke="%23525252" stroke-width="1.5" fill="none"/><path d="M16 12v4l3 3" stroke="%23525252" stroke-width="1.5" stroke-linecap="round"/></svg>')}`;
 
-const TYPE_META: Record<string, { label: string; color: string; activeClass: string }> = {
+/**
+ * Los tipos de dispositivo que esta pantalla sabe nombrar.
+ *
+ * Tiene que cubrir el enum DeviceType COMPLETO. Faltaban ACCESS_CONTROL y
+ * DOOR_INTERCOM, y como la lista filtra por `allowedTypes.includes(...)`, un
+ * equipo de esos tipos no aparecía en ninguna pestaña — tampoco en "Todos" —
+ * sin ningún mensaje que lo dijera. Un registro que existe en la base y que la
+ * lista simplemente no dibuja es peor que un error: no hay nada que revisar.
+ *
+ * `activeClass` es opcional a propósito. El color por tipo le presta el
+ * vocabulario de ESTADO (los cinco tonos) a una categoría, que es otra cosa: un
+ * portero no está "bien" ni "en aviso", es un portero. Los tipos nuevos entran
+ * sin color y quedan como los quiere el sistema; los viejos conservan el suyo
+ * hasta que se migre la pantalla entera, para no cambiar de aspecto a mitad de
+ * camino en un arreglo que es de datos, no de diseño.
+ */
+const TYPE_META: Record<string, { label: string; color: string; activeClass?: string }> = {
     LPR_CAMERA: { label: "LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
     LPR_INTERIOR: { label: "Interior", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
     FACE_TERMINAL: { label: "Face", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
     QUEUE_COUNTER: { label: "Queue", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
     NVR: { label: "NVR", color: "text-blue-400", activeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+    ACCESS_CONTROL: { label: "Acceso", color: "text-muted-foreground" },
+    DOOR_INTERCOM: { label: "Portero", color: "text-muted-foreground" },
 };
+
+/** El estilo de una pestaña elegida cuando el tipo no trae color propio. */
+const PESTANA_ELEGIDA = "bg-foreground/10 text-foreground";
 
 const BRAND_CONFIG: Record<string, { label: string, color: string, bg: string, logoUrl: string }> = {
     HIKVISION: { label: "Hikvision", color: "#E4002B", bg: "bg-red-500/10", logoUrl: "/logos/hikvision.png" },
@@ -242,6 +263,10 @@ export default function DevicesPage() {
     if (modules.MODULE_LPR) { allowedTypes.push("LPR_CAMERA"); allowedTypes.push("LPR_INTERIOR"); allowedTypes.push("NVR"); }
     if (modules.MODULE_FACE) allowedTypes.push("FACE_TERMINAL");
     if (modules.MODULE_QUEUE) allowedTypes.push("QUEUE_COUNTER");
+    // El control de acceso no tiene interruptor de módulo porque no es opcional:
+    // es el sistema. Estos dos tipos estaban fuera de la lista y por eso sus
+    // equipos no se veían nunca, ni siquiera con la pestaña "Todos" puesta.
+    allowedTypes.push("ACCESS_CONTROL", "DOOR_INTERCOM");
 
     const filteredDevices = devices.filter(d => {
         // Only show devices whose type belongs to an active module
@@ -467,7 +492,7 @@ export default function DevicesPage() {
                                     onClick={() => setFilter(type)}
                                     className={cn(
                                         "h-8 px-3 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all border border-transparent",
-                                        typeFilter === type ? meta.activeClass : "text-muted-foreground hover:text-muted-foreground hover:bg-accent"
+                                        typeFilter === type ? (meta.activeClass || PESTANA_ELEGIDA) : "text-muted-foreground hover:text-muted-foreground hover:bg-accent"
                                     )}
                                 >
                                     {meta.label}
@@ -956,7 +981,11 @@ export default function DevicesPage() {
                                             </TooltipProvider>
                                             )}
 
-                                            {dev.deviceType !== 'NVR' && (
+                                            {/* El ojo abre el vivo pelado. En una cámara de seguimiento eso es el
+                                                mismo video que ya abre el calibrador, pero SIN la franja, las zonas
+                                                ni el sentido dibujados encima: la misma imagen con menos información.
+                                                Dos botones para el mismo flujo, y el peor de los dos primero. */}
+                                            {dev.deviceType !== 'NVR' && dev.deviceType !== 'LPR_INTERIOR' && (
                                             <TooltipProvider>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
