@@ -55,7 +55,32 @@ const LPR_URL = process.env.OMNI_LPR_URL || "http://127.0.0.1:8000";
 const APP_URL = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001";
 const MIN_CONF = Number(process.env.TRACKING_MIN_CONFIDENCE || 0.6);
 const DIR_SHOTS = process.env.TRACKING_SHOTS_DIR || "/datos/track";
-const MAX_EN_VUELO = Number(process.env.TRACKING_MAX_INFLIGHT || 2);
+/**
+ * Cuantas inferencias van al lector a la vez. UNA.
+ *
+ * El lector se cayo tres veces en dos dias, siempre igual y siempre despues de horas
+ * leyendo bien:
+ *
+ *     [E:onnxruntime CudaCall] CUDA failure 700: an illegal memory access
+ *       gpu_data_transfer.cc line=91  cudaMemcpyAsync(... HostToDevice ...)
+ *     terminate called ... device free failed: cudaErrorIllegalAddress
+ *
+ * No es falta de memoria (479 de 6144 MiB) ni un cuadro en particular: es una copia hacia
+ * la GPU que encuentra el contexto en mal estado. Y en el log del lector, justo antes de
+ * cada caida, hay DIEZ conexiones simultaneas.
+ *
+ * onnxruntime con el proveedor CUDA **no es seguro de usar concurrentemente sobre la misma
+ * sesion**. Es la unica explicacion que da cuenta de las tres caracteristicas juntas: que
+ * pase despues de horas, que no dependa del cuadro, y que deje el contexto envenenado.
+ *
+ * El precio es latencia por rafaga, no lecturas: las baldosas se leen todas igual, una
+ * despues de la otra. Y una rafaga mas lenta que termina vale infinitamente mas que una
+ * rapida que tumba el lector por horas.
+ *
+ * Si algun dia se sube, que sea MIDIENDO: subir a 2 y esperar una semana sin caidas antes
+ * de pensar en 3. Estaba en 6.
+ */
+const MAX_EN_VUELO = Number(process.env.TRACKING_MAX_INFLIGHT || 1);
 
 // Ancho maximo que se le manda al lector DESPUES del recorte. No se agranda nunca:
 // si el recorte ya es mas chico, va tal cual (ampliar no inventa detalle, solo gasta).
