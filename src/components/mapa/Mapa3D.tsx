@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
+import { guardIconHtml, type GuardiaEnMapa } from "@/lib/iconos-mapa";
 import type { Map as MLMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { autoHtml, lapso, pendienteHtml, type AutoUbicado, type CamaraPendiente } from "@/components/mapa/estacionados";
@@ -56,6 +57,7 @@ export default function Mapa3D({
     pitch: pitchIni = 55, bearing: bearingIni = -20, onVista,
     vivo = false, ocultas = [], nombre,
     lots = [], rotulos = true, estacionados = [], pendientes = [], flujos = [], pulsos = [],
+    guardias = [],
 }: {
     center: [number, number];
     zoom: number;
@@ -80,6 +82,16 @@ export default function Mapa3D({
     lots?: Lote[];
     /** Si van los nombres de los lotes puestos encima. */
     rotulos?: boolean;
+    /**
+     * Los guardias en vivo.
+     *
+     * Faltaban. El interruptor "Guardias" existía en el menú y esta vista no los dibujaba,
+     * así que el menú escondía el grupo entero para no mostrar un control que no hacía
+     * nada. Ahora se dibujan con el MISMO distintivo que la vista plana —el HTML sale de
+     * `lib/iconos-mapa`— porque un guardia que cambia de aspecto al girar el mapa hace
+     * dudar de si es el mismo guardia.
+     */
+    guardias?: GuardiaEnMapa[];
     /** Los autos parados, ya ubicados. La cuenta es la misma que en la vista plana. */
     estacionados?: AutoUbicado[];
     /** Las cámaras que todavía no dicen hacia dónde miran, con lo que no se puede ubicar. */
@@ -109,6 +121,7 @@ export default function Mapa3D({
     const marcLotes = useRef<any[]>([]);
     const marcAutos = useRef<any[]>([]);
     const marcFlujo = useRef<any[]>([]);
+    const marcGuardias = useRef<any[]>([]);
     const auto = useRef<any>(null);
     const encuadrado = useRef<string>("");
     const burbujas = useRef<{ marcador: any; cortar: () => void }[]>([]);
@@ -256,6 +269,33 @@ export default function Mapa3D({
             } catch { }
         }
     }, [listo, perimeter, streets, cameras]);
+
+    /**
+     * Los guardias, en vivo.
+     *
+     * En su propio efecto y con su propio grupo de marcadores, y no junto a las cámaras,
+     * porque cambian de lugar todo el tiempo: llegan por el socket cada pocos segundos.
+     * Metidos en el efecto de las cámaras, cada reporte de un guardia recrearía también
+     * todos los marcadores de cámara, que no se movieron.
+     */
+    useEffect(() => {
+        const m = mapa.current;
+        if (!m || !listo) return;
+        for (const mk of marcGuardias.current) { try { mk.remove(); } catch { } }
+        marcGuardias.current = [];
+        for (const g of guardias) {
+            if (!Number.isFinite(g.lat) || !Number.isFinite(g.lng)) continue;
+            try {
+                const el = document.createElement("div");
+                el.innerHTML = guardIconHtml(g.guardName || g.name || "Guardia", g.heading);
+                marcGuardias.current.push(
+                    new maplibregl.Marker({ element: el, anchor: "bottom" })
+                        .setLngLat([g.lng, g.lat])
+                        .addTo(m),
+                );
+            } catch { }
+        }
+    }, [listo, guardias]);
 
     /**
      * Los lotes.

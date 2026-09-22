@@ -32,6 +32,7 @@ import {
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Pista } from "@/components/ui/pista";
+import { guardIconHtml } from "@/lib/iconos-mapa";
 import { cn } from "@/lib/utils";
 import { getImagePath } from "@/lib/image-path";
 import { IconBar } from "@/components/ui/icon-bar";
@@ -79,15 +80,6 @@ const camIconDe = (rumbo?: number | null) => L.divIcon({
 
 /** Manija de vértice: arrastrar mueve, clic derecho lo quita. */
 const verticeHtml = `<span style="display:block;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #f59e0b;box-shadow:0 1px 4px rgba(0,0,0,.6)"></span>`;
-
-const guardIconHtml = (name: string, heading?: number | null) => `
-<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-2px)">
-  <span style="margin-bottom:2px;padding:1px 6px;border-radius:6px;background:rgba(16,185,129,.95);color:#fff;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.4)">${name}</span>
-  <span style="position:relative;width:30px;height:30px;border-radius:50%;background:#10b981;border:3px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,.45)">
-    ${heading != null ? `<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%) rotate(${Math.round(heading)}deg);transform-origin:50% 24px"><svg width="14" height="14" viewBox="0 0 24 24" fill="#10b981" stroke="#fff" stroke-width="1.5"><path d="M12 2 L19 21 L12 17 L5 21 Z"/></svg></span>` : ``}
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
-  </span>
-</div>`;
 
 /** Cuánto lleva parado, en palabras cortas. */
 const lapsoCorto = (desde: string | null) => {
@@ -852,8 +844,13 @@ ${CSS_AUTO}
                         vivo={vivoTodas}
                         ocultas={ocultas}
                         nombre={(id: string) => devById[id]?.name || "Cámara"}
-                        perimeter={data.perimeter as [number, number][]}
-                        streets={data.streets as any}
+                        /* Los interruptores de "Mostrar" valen en las dos vistas.
+                           Antes esta vista recibia el perimetro, las calles y las camaras
+                           SIEMPRE, y los guardias no le llegaban: por eso el menu escondia
+                           el grupo entero en vez de ofrecer controles que no hacian nada. */
+                        perimeter={(verCapa.perimetro ? data.perimeter : []) as [number, number][]}
+                        streets={(verCapa.calles ? data.streets : []) as any}
+                        guardias={verCapa.guardias ? guards : []}
                         /* Los lotes nunca habían llegado acá. En un barrio sin perímetro ni
                            calles dibujadas —que es éste— eso dejaba la vista 3D con dos
                            cámaras y nada más: el plano entero desaparecía al inclinarlo. */
@@ -863,7 +860,7 @@ ${CSS_AUTO}
                         pendientes={estadiasOn && verCapa.estacionados ? estacionados.pendientes : []}
                         flujos={flow.anims}
                         pulsos={flow.pulses}
-                        cameras={data.cameras.map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
+                        cameras={(verCapa.camaras ? data.cameras : []).map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
                         puntos={rec.puntos}
                         traza={rec.traza}
                         avance={rec.avance}
@@ -1287,7 +1284,11 @@ ${CSS_AUTO}
                                     </p>
                                 )}
                                 
-                                {!vista3D && (<>
+                                {/* "Mostrar" va en las TRES vistas. Se escondia en las de MapLibre
+                                    porque cuatro de los siete interruptores no estaban conectados ahi;
+                                    ahora lo estan, asi que esconderlo seria quitarle al operador
+                                    controles que funcionan. */}
+                                {(<>
                                     <span className="block h-px bg-border mx-1 my-1.5" />
                                     <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mostrar</p>
                                     {capas.map(({ k, label, icon: Ic }) => {
