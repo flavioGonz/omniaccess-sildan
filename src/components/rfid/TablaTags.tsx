@@ -97,8 +97,26 @@ export function TablaTags({ tags, cargando, error, alReintentar, alAbrir, alReca
                         <DeleteConfirmDialog
                             id={t.id}
                             title={`Tag ${t.value}`}
+                            /*
+                             * El texto decía "esa tarjeta deja de abrir en el acto" y era FALSO.
+                             *
+                             * `quitarTagDeLosLectores` sólo olvida el espejo: ningún driver tiene
+                             * un `deleteRfKey` escrito, así que la tarjeta sigue cargada en el
+                             * portero y sigue abriendo. Un diálogo que afirma lo contrario de lo
+                             * que pasa es peor que no tener diálogo: ante una tarjeta robada el
+                             * operador la borra, lee que ya no abre, y cierra el tema.
+                             *
+                             * Y hay un segundo daño que el texto tampoco decía: al borrarla se
+                             * borra también el espejo, que es el ÚNICO lugar que sabía en qué
+                             * lectores había quedado. Después de borrar no hay forma de saber
+                             * dónde ir a sacarla. Por eso el aviso pide mirar la ficha primero.
+                             *
+                             * El caso sin dueño no se toca porque ahí el texto sí era cierto: una
+                             * tarjeta sin dueño nunca se manda a ningún lector (`sincronizarTag`
+                             * corta si no hay `userId`), así que borrarla no deja nada atrás.
+                             */
                             description={t.user?.name
-                                ? `Está asignado a ${t.user.name}. Al eliminarlo, esa tarjeta deja de abrir en el acto.`
+                                ? `Está asignada a ${t.user.name}. Borrarla NO la saca de los lectores: sigue abriendo hasta que alguien la quite a mano desde la app del fabricante. Y al borrarla se pierde el registro de en qué lectores quedó — abrí la ficha y anotalos antes.`
                                 : "La tarjeta deja de existir en el sistema. Si aparece después, no va a abrir."}
                             /* El diálogo espera {success}, las acciones devuelven {ok}: se
                                traduce acá en vez de cambiar el contrato de uno de los dos,
