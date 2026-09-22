@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Smartphone, RefreshCw, Trash2, Pencil, Check, X, Send, Globe, BellOff } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { getPushSubscribers, deletePushSubscriber, togglePushSubscriber, renamePushSubscriber } from "@/app/actions/pwa-subs";
 import { fecha } from "@/lib/fechas";
 

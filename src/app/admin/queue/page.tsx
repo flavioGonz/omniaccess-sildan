@@ -21,7 +21,7 @@ import {
     deleteQueueAlert,
     getQueueDevices,
 } from "@/app/actions/queue";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { fecha } from "@/lib/fechas";
 
 // ─── Types ─────────────────────────────────────────

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { FileText, Plus, Save, Trash2, RefreshCw, Pencil, X, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { getDispatchTemplates, saveDispatchTemplates } from "@/app/actions/queue";
 
 type Tpl = { id: string; name: string; channel: string; body: string };

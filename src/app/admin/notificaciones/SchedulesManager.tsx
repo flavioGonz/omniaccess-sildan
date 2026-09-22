@@ -5,7 +5,7 @@ import {
     CalendarClock, Plus, Trash2, Pencil, Save, X, ToggleLeft, ToggleRight, Clock, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import {
     getReportSchedules, createReportSchedule, updateReportSchedule, deleteReportSchedule,
 } from "@/app/actions/queue";

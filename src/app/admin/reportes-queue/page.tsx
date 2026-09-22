@@ -19,7 +19,7 @@ import {
     getQueueDevices,
     getCameraOutages,
 } from "@/app/actions/queue";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { fecha, fechaHora } from "@/lib/fechas";
 
 /* ── Types ─────────────────────────────────── */

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Users, Plus, Save, Trash2, RefreshCw, X, Pencil, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { getDispatchRecipients, saveDispatchRecipients, getWhatsAppSeenGroups } from "@/app/actions/queue";
 
 type R = { id: string; name: string; channel: string; address: string; enabled: boolean };

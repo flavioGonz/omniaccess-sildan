@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Radio, Video, CircleDot, HardDrive, Cpu, Power, RefreshCw, Cctv, Database, Trash2 } from "lucide-react";
 import { getPreRecStatus, killPreRecFlow, cleanOrphanRings } from "@/app/actions/queue";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 
 type Dev = { deviceId: string; name: string; ip: string | null; running: boolean; pid: number | null; uptimeSec: number | null; fresh: boolean; ringBytes: number; segments: number };
 type Status = { instances: number; ringTotalBytes: number; disk: { totalBytes: number; usedBytes: number; freeBytes: number }; devices: Dev[] };

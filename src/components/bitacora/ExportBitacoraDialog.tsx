@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Calendar as CalendarIcon, Download, Loader2, FileSpreadsheet } from "lucide-react";
 import { getBitacoraForReport, getBitacoraGuards } from "@/app/actions/bitacora";
 import ExcelJS from "exceljs";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { useEffect } from "react";
 import { fecha, hora } from "@/lib/fechas";
 

@@ -17,7 +17,7 @@ import { HIKVISION_VEHICLE_BRANDS } from "@/lib/hikvision-codes";
 import { getCarLogo } from "@/lib/car-logos";
 import carLogos from "@/lib/car-logos.json";
 import { saveHikvisionBrands } from "@/app/actions/settings";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";

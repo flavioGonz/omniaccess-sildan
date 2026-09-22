@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Film } from "lucide-react";
 import { getSetting, updateSetting } from "@/app/actions/settings";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { cn } from "@/lib/utils";
 
 export default function AnimatedAlertToggle() {

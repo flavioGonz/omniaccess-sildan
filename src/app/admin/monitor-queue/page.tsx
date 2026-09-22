@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import {
     getLatestQueueCounts, getQueueHourlyBreakdown, getQueueAlerts, getQueueDevices, getQueueEvents, getCameraOutages,
 } from "@/app/actions/queue";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { io } from "socket.io-client";
 import { hora, horaSeg } from "@/lib/fechas";
 

@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import MapFloatingWindow from "./MapFloatingWindow";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { getMapConfig, saveMapConfig, getMapDevices } from "@/app/actions/maps";
 import { getLatestQueueCounts, getQueueAlerts } from "@/app/actions/queue";

@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getQueueNotifications, getDispatchHistory } from "@/app/actions/queue";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import io from "socket.io-client";
 import { fecha, fechaHora, hora } from "@/lib/fechas";
 

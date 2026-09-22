@@ -6,7 +6,7 @@ import {
     Loader2, RotateCcw, AlertTriangle, BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { getDispatchJobs, getDispatchStats, retryDispatchJob, enqueueReportDispatch, getDispatchSeries } from "@/app/actions/queue";
 import { fechaHora } from "@/lib/fechas";
 
