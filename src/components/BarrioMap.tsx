@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Pista } from "@/components/ui/pista";
 import { cn } from "@/lib/utils";
 import { getImagePath } from "@/lib/image-path";
 import { IconBar } from "@/components/ui/icon-bar";
@@ -373,7 +374,6 @@ export default function BarrioMap() {
     const vista3DRef = useRef<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null);
     const [ocultas, setOcultas] = useState<string[]>([]);
     const [menuCapas, setMenuCapas] = useState(false);
-    const [ayuda3D, setAyuda3D] = useState(false);
     const [pantallaCompleta, setPantallaCompleta] = useState(false);
     const contenedorRef = useRef<HTMLDivElement | null>(null);
     const [liveSocket, setLiveSocket] = useState<any>(null);
@@ -475,13 +475,6 @@ export default function BarrioMap() {
         return () => window.removeEventListener("keydown", onKey);
     }, []);
 
-    // La ayuda de la vista 3D se muestra unos segundos y se va sola.
-    useEffect(() => {
-        if (!vista3D) { setAyuda3D(false); return; }
-        setAyuda3D(true);
-        const t = setTimeout(() => setAyuda3D(false), 7000);
-        return () => clearTimeout(t);
-    }, [vista3D]);
 
     useEffect(() => {
         const onFs = () => setPantallaCompleta(!!document.fullscreenElement);
@@ -1188,7 +1181,7 @@ ${CSS_AUTO}
                                 onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
                                 className="gnav-ancho">
                                 <Layers3 size={14} />
-                                {vista3D ? (inclinada ? "Vista 3D" : "Plano · girado") : base}
+                                {vista3D ? (inclinada ? "3D" : "Girado") : base}
                                 <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
                             </button>
                         }
@@ -1232,7 +1225,47 @@ ${CSS_AUTO}
                             <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
                                 transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
                                 className="mt-2 w-[188px] p-1.5 rounded-2xl bg-card/95 backdrop-blur-2xl border border-border sombra-flotante origin-top">
-                                <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mapa de fondo</p>
+                                {/*
+                                  * Dos preguntas, dos grupos.
+                                  *
+                                  * Antes estaban juntos bajo "Mapa de fondo": las cuatro capas en una
+                                  * grilla de dos columnas y, pegadas debajo, dos botones de ancho
+                                  * completo con la vista. Se leia como dos capas mas, agregadas
+                                  * despues — porque eso es exactamente lo que parecian.
+                                  *
+                                  * Son cosas distintas: la capa es QUE IMAGEN se ve; la vista es DESDE
+                                  * DONDE se mira. Cada una con su rotulo y su fila propia.
+                                  *
+                                  * Y los rotulos dicen la opcion, no el gesto. "Plano · girar" explicaba
+                                  * como se usa; un menu nombra lo que se elige y el resto se descubre
+                                  * usandolo.
+                                  */}
+                                <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Vista</p>
+                                <div className="grid grid-cols-3 gap-0.5">
+                                    {([
+                                        { id: "plano", rotulo: "Plano", pista: "Mapa plano, norte arriba. Es la única donde se puede dibujar el mapa." },
+                                        { id: "girado", rotulo: "Girado", pista: "Plano, pero se puede girar: arrastrá con el botón derecho." },
+                                        { id: "3d", rotulo: "3D", pista: "Girar e inclinar, para ver el relieve y la altura de las cosas." },
+                                    ] as const).map(({ id, rotulo, pista }) => {
+                                        const activa = id === "plano" ? !vista3D : vista3D && (id === "3d") === inclinada;
+                                        return (
+                                            <Pista key={id} titulo={rotulo} texto={pista} lado="abajo" ancho={230}>
+                                                <button
+                                                    onClick={() => { setVista3D(id !== "plano"); if (id !== "plano") setInclinada(id === "3d"); }}
+                                                    className="relative w-full h-7 rounded-lg text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                                                    {activa && (
+                                                        <motion.span layoutId="vista-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                                            className="absolute inset-0 rounded-lg bg-foreground/[0.12]" />
+                                                    )}
+                                                    <span className={cn("relative", activa && "text-foreground")}>{rotulo}</span>
+                                                </button>
+                                            </Pista>
+                                        );
+                                    })}
+                                </div>
+
+                                <span className="block h-px bg-border mx-1 my-1.5" />
+                                <p className="px-2 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mapa de fondo</p>
                                 <div className="grid grid-cols-2 gap-0.5">
                                     {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
                                         <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
@@ -1245,35 +1278,15 @@ ${CSS_AUTO}
                                         </button>
                                     ))}
                                 </div>
-                                {/* Las dos cámaras del mismo motor. Están separadas porque son dos
-                                    maneras distintas de mirar el barrio, no un interruptor de "3D":
-                                    plana y girada es una vista de todos los días; inclinada es para
-                                    entender el relieve y la altura de las cosas. */}
-                                {([
-                                    { plana: true, rotulo: "Plano · girar" },
-                                    { plana: false, rotulo: "Vista 3D · girar e inclinar" },
-                                ] as const).map(({ plana, rotulo }) => {
-                                    const activa = vista3D && inclinada !== plana;
-                                    return (
-                                        <button key={rotulo}
-                                            onClick={() => { setVista3D(true); setInclinada(!plana); }}
-                                            className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-muted-foreground hover:text-foreground transition-colors">
-                                            {/* La marca sigue al ESTADO, no a un temporizador. Antes colgaba
-                                                de `ayuda3D`, que se apaga sola a los siete segundos: pasado ese
-                                                rato el menú no marcaba ninguna opción como elegida, ni la capa
-                                                de fondo ni la vista. Un menú que no dice qué está puesto
-                                                obliga a probar para averiguarlo. */}
-                                            {activa && (
-                                                <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                    /* Era celeste: un segundo color de marca para una sola cosa.
-                                                       Elegir una vista es una elección como cualquier otra, y las
-                                                       elecciones van en el azul del sistema. */
-                                                    className="absolute inset-0 rounded-lg bg-[color-mix(in_oklab,var(--accion)_22%,transparent)]" />
-                                            )}
-                                            <span className={cn("relative", activa && "text-[var(--accion)]")}>{rotulo}</span>
-                                        </button>
-                                    );
-                                })}
+                                {/* Girado y 3D traen su propia imagen satelital: elegir una capa con
+                                    nombre vuelve a la vista Plano. Decirlo evita que el operador piense
+                                    que la capa no hizo nada. */}
+                                {vista3D && (
+                                    <p className="px-2 pt-1.5 text-[10px] leading-snug text-muted-foreground/70">
+                                        Girado y 3D usan su propia imagen. Elegir una capa vuelve a Plano.
+                                    </p>
+                                )}
+                                
                                 {!vista3D && (<>
                                     <span className="block h-px bg-border mx-1 my-1.5" />
                                     <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mostrar</p>
