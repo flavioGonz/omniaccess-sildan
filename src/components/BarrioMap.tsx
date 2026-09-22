@@ -271,6 +271,22 @@ export default function BarrioMap() {
     // Capa base elegida: define el tratamiento de color del mapa.
     const [base, setBase] = useState<string>("Híbrido");
     const [vista3D, setVista3D] = useState(false);
+    /*
+     * Inclinada o plana, con el MISMO motor.
+     *
+     * El pedido fue "poder girar el mapa, no sólo en vista 3D", y la respuesta no era una
+     * función nueva: la vista plana es Leaflet, y **Leaflet no puede rotar** — no tiene
+     * rumbo ni inclinación, y los plugins que lo simulan rompen los popups, el arrastre y
+     * la posición de las capas propias.
+     *
+     * MapLibre —el motor de la vista 3D— sí rota, y con la inclinación en CERO es un mapa
+     * plano común. O sea que "plano" y "giratorio" nunca fueron incompatibles: estaban
+     * escondidos detrás de un interruptor que decía 3D y obligaba a inclinar para girar.
+     *
+     * Acá sólo se elige con qué inclinación entra la cámara. El giro ya estaba y funciona
+     * en las dos.
+     */
+    const [inclinada, setInclinada] = useState(true);
     const rec = useRecorrido();
     const [cuadroRecorrido, setCuadroRecorrido] = useState<Punto | null>(null);
     const [devices, setDevices] = useState<any[]>([]);
@@ -421,8 +437,15 @@ export default function BarrioMap() {
             // es exactamente lo que no funcionaba. El mapa guardado queda como el valor
             // por defecto, para quien nunca eligió.
             let local: string | null = null;
-            try { local = localStorage.getItem("omni-mapa-3d"); } catch { }
+            let localInc: string | null = null;
+            try {
+                local = localStorage.getItem("omni-mapa-3d");
+                localInc = localStorage.getItem("omni-mapa-inclinada");
+            } catch { }
             setVista3D(local != null ? local === "1" : (data as any).tresD === true);
+            /* Sin preferencia guardada, inclinada: es como venia funcionando y no conviene
+               cambiarle la vista a quien ya la tenia puesta. */
+            setInclinada(localInc != null ? localInc === "1" : true);
         }
     }, [data]);
     useEffect(() => {
@@ -430,8 +453,11 @@ export default function BarrioMap() {
     }, [base]);
     useEffect(() => {
         if (!restaurada.current) return;   // no pisar antes de haber restaurado
-        try { localStorage.setItem("omni-mapa-3d", vista3D ? "1" : "0"); } catch { }
-    }, [vista3D]);
+        try {
+            localStorage.setItem("omni-mapa-3d", vista3D ? "1" : "0");
+            localStorage.setItem("omni-mapa-inclinada", inclinada ? "1" : "0");
+        } catch { }
+    }, [vista3D, inclinada]);
 
     // Atajos: "/" o Ctrl/Cmd+K enfocan el buscador de abajo (hay uno solo);
     // Esc cierra el menú de capas y el menú contextual.
@@ -700,7 +726,9 @@ export default function BarrioMap() {
                        g.calles && `${g.calles} calle${g.calles === 1 ? "" : "s"}`,
                        g.camaras && `${g.camaras} cámara${g.camaras === 1 ? "" : "s"}`,
                        g.perimetro && "perímetro"].filter(Boolean).join(" · ") || "sin dibujo todavía"
-                    : (vista3D ? "Abre en vista 3D, con este giro e inclinación" : `Vista, zoom y capa ${base}`);
+                    : (vista3D
+                        ? (inclinada ? "Abre en vista 3D, con este giro e inclinación" : "Abre en vista plana, con este giro")
+                        : `Vista, zoom y capa ${base}`);
                 toast.success({ title: "Mapa guardado", description: detalle });
                 setData(payload); setSinGuardar(false); setEditing(false); setTool("select");
                 /* Sin esto, el punteado del borrador seguía dibujado sobre el mapa después
@@ -821,7 +849,11 @@ ${CSS_AUTO}
                     <Mapa3D
                         center={data.center as [number, number]}
                         zoom={data.zoom}
-                        pitch={data.pitch}
+                        /* Plana es inclinación cero; el rumbo se conserva en las dos, que es
+                           justamente lo que se pidió. El `|| 55` existe porque si lo último
+                           guardado fue una vista plana, `data.pitch` es 0 y "Vista 3D"
+                           entraría sin inclinar — el botón no haría nada visible. */
+                        pitch={inclinada ? (data.pitch || 55) : 0}
                         bearing={data.bearing}
                         onVista={(v) => { vista3DRef.current = v; }}
                         vivo={vivoTodas}
@@ -1156,7 +1188,7 @@ ${CSS_AUTO}
                                 onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
                                 className="gnav-ancho">
                                 <Layers3 size={14} />
-                                {vista3D ? "Vista 3D" : base}
+                                {vista3D ? (inclinada ? "Vista 3D" : "Plano · girado") : base}
                                 <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
                             </button>
                         }
@@ -1213,17 +1245,35 @@ ${CSS_AUTO}
                                         </button>
                                     ))}
                                 </div>
-                                <button onClick={() => setVista3D((v) => !v)}
-                                    className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-muted-foreground hover:text-foreground transition-colors">
-                                    {vista3D && ayuda3D && (
-                                        <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                            /* Era celeste: un segundo color de marca para una sola cosa.
-                                               Elegir una vista es una elección como cualquier otra, y las
-                                               elecciones van en el azul del sistema. */
-                                            className="absolute inset-0 rounded-lg bg-[color-mix(in_oklab,var(--accion)_22%,transparent)]" />
-                                    )}
-                                    <span className={cn("relative", vista3D && "text-[var(--accion)]")}>Vista 3D · girar e inclinar</span>
-                                </button>
+                                {/* Las dos cámaras del mismo motor. Están separadas porque son dos
+                                    maneras distintas de mirar el barrio, no un interruptor de "3D":
+                                    plana y girada es una vista de todos los días; inclinada es para
+                                    entender el relieve y la altura de las cosas. */}
+                                {([
+                                    { plana: true, rotulo: "Plano · girar" },
+                                    { plana: false, rotulo: "Vista 3D · girar e inclinar" },
+                                ] as const).map(({ plana, rotulo }) => {
+                                    const activa = vista3D && inclinada !== plana;
+                                    return (
+                                        <button key={rotulo}
+                                            onClick={() => { setVista3D(true); setInclinada(!plana); }}
+                                            className="relative w-full h-7 mt-0.5 rounded-lg text-[11px] font-bold text-muted-foreground hover:text-foreground transition-colors">
+                                            {/* La marca sigue al ESTADO, no a un temporizador. Antes colgaba
+                                                de `ayuda3D`, que se apaga sola a los siete segundos: pasado ese
+                                                rato el menú no marcaba ninguna opción como elegida, ni la capa
+                                                de fondo ni la vista. Un menú que no dice qué está puesto
+                                                obliga a probar para averiguarlo. */}
+                                            {activa && (
+                                                <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                                                    /* Era celeste: un segundo color de marca para una sola cosa.
+                                                       Elegir una vista es una elección como cualquier otra, y las
+                                                       elecciones van en el azul del sistema. */
+                                                    className="absolute inset-0 rounded-lg bg-[color-mix(in_oklab,var(--accion)_22%,transparent)]" />
+                                            )}
+                                            <span className={cn("relative", activa && "text-[var(--accion)]")}>{rotulo}</span>
+                                        </button>
+                                    );
+                                })}
                                 {!vista3D && (<>
                                     <span className="block h-px bg-border mx-1 my-1.5" />
                                     <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mostrar</p>
