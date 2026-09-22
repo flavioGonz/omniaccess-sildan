@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -127,16 +127,68 @@ function LiveMp4({ deviceId }: { deviceId: string }) {
  * y ahí adentro un <video> se comporta mal; además Leaflet recrea el icono en cada
  * cambio de vista, lo que cortaría el flujo en cada paneo. Acá el video se monta una
  * sola vez y en cada movimiento del mapa se recalcula únicamente su posición.
+ *
+ * ## Por qué el mapa se trababa al panear, y qué cambió
+ *
+ * La intención de arriba estaba bien; el mecanismo era el caro. La versión anterior hacía
+ * `useMapEvents({ move: redibujar })` contra un `useReducer`, o sea **un render de React
+ * entero por cada evento `move`** — y Leaflet los emite a ritmo de cuadro mientras se
+ * arrastra. En cada uno de esos renders se volvía a montar el árbol de cada burbuja, con
+ * su `motion.div` recalculando animación, y se reposicionaba con `left` y `top`.
+ *
+ * `left`/`top` son la parte peor: obligan al navegador a **recalcular el layout** de la
+ * página en cada cuadro. `transform` no — el compositor mueve la capa y listo. Y adentro
+ * de cada burbuja hay un `<video>` reproduciendo en vivo, que es lo más caro que se puede
+ * pedir que se re-maquete sesenta veces por segundo.
+ *
+ * Ahora React sólo dibuja cuando cambia la LISTA de cámaras. El movimiento no pasa por
+ * React: se escribe `transform` directo sobre el nodo, que es lo que de verdad hacía falta
+ * cuando el comentario decía "se recalcula únicamente su posición".
+ *
+ * Por eso hay dos divs anidados y no uno: el de afuera lo posiciona este código con
+ * `transform`, y el de adentro es el de framer-motion, que usa `transform` para su propia
+ * animación de entrada. Compartir la propiedad haría que se pisen.
  */
+/** Media anchura y alto de la burbuja, en pixeles. Se usan para que no quede cortada
+ *  contra el borde del mapa, que es justo cuando mas falta hace verla entera. */
+const BURBUJA_MEDIO = 118;
+const BURBUJA_ALTO = 168;
+/** Cuanto se levanta la burbuja sobre el distintivo de la camara, para no taparlo. */
+const BURBUJA_SUBE = 34;
+/** Si hubo que correrla para que entrara, el pico apuntaria a cualquier lado: se esconde. */
+const PICO_TOLERANCIA = 2;
+
 function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
     camaras: { deviceId: string; lat: number; lng: number }[];
     nombre: (id: string) => string;
     onCerrarUna: (id: string) => void;
 }) {
     const map = useMap();
-    const [, redibujar] = useReducer((n: number) => n + 1, 0);
-    useMapEvents({ move: redibujar, zoom: redibujar, resize: redibujar });
     const { esFija } = useVivo();
+
+    /* Los nodos que este codigo mueve a mano, y la lista vigente. Van en refs porque el
+       posicionador corre en cada cuadro de un arrastre y no puede depender de un render. */
+    const nodos = useRef(new Map<string, HTMLDivElement>());
+    const picos = useRef(new Map<string, HTMLSpanElement>());
+    const lista = useRef<{ deviceId: string; lat: number; lng: number }[]>([]);
+
+    const ubicar = useCallback(() => {
+        const tam = map.getSize();
+        for (const c of lista.current) {
+            const el = nodos.current.get(c.deviceId);
+            if (!el) continue;
+            let p: L.Point;
+            try { p = map.latLngToContainerPoint([c.lat, c.lng]); } catch { continue; }
+            const x = Math.max(BURBUJA_MEDIO + 6, Math.min(tam.x - BURBUJA_MEDIO - 6, p.x));
+            const y = Math.max(BURBUJA_ALTO + 6, p.y - BURBUJA_SUBE);
+            // translate3d y no left/top: el compositor mueve la capa sin recalcular layout.
+            el.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
+            const pico = picos.current.get(c.deviceId);
+            if (pico) pico.style.visibility = Math.abs(x - p.x) < PICO_TOLERANCIA ? "visible" : "hidden";
+        }
+    }, [map]);
+
+    useMapEvents({ move: ubicar, zoom: ubicar, resize: ubicar });
 
     /*
      * Una cámara fijada NO sigue colgando del mapa.
@@ -148,30 +200,34 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
      */
     const utiles = camaras.filter((c) =>
         Number.isFinite(c.lat) && Number.isFinite(c.lng) && !esFija(c.deviceId));
+    lista.current = utiles;
+
+    /* La primera colocacion. Sin esto una burbuja recien abierta aparece en 0,0 hasta que
+       el operador mueva el mapa — y si no lo mueve, se queda ahi. */
+    useEffect(() => { ubicar(); });
     if (!utiles.length) return null;
 
     return createPortal(
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 640 }}>
             {utiles.map((c) => {
-                let p: L.Point;
-                try { p = map.latLngToContainerPoint([c.lat, c.lng]); } catch { return null; }
-
-                // Se mantiene dentro del mapa. Una cámara cerca del borde dejaba la burbuja
-                // cortada por la mitad, que es justo cuando más falta hace verla entera.
-                const tam = map.getSize();
-                const MEDIO = 118, ALTO = 168;
-                const x = Math.max(MEDIO + 6, Math.min(tam.x - MEDIO - 6, p.x));
-                const y = Math.max(ALTO + 6, p.y - 34);
+                /* Dos divs, y cada uno con su dueño del `transform`:
+                   el de afuera lo mueve `ubicar()` en cada cuadro; el de adentro es de
+                   framer-motion, que usa transform para la animación de entrada. */
                 return (
-                    <motion.div
+                    <div
                         key={c.deviceId}
+                        ref={(el) => {
+                            if (el) nodos.current.set(c.deviceId, el);
+                            else { nodos.current.delete(c.deviceId); picos.current.delete(c.deviceId); }
+                        }}
+                        className="absolute left-0 top-0 pointer-events-auto"
+                        style={{ willChange: "transform" }}
+                    >
+                    <motion.div
                         initial={{ opacity: 0, scale: 0.9, y: 6 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9 }}
                         transition={{ type: "spring", stiffness: 420, damping: 32 }}
-                        className="absolute pointer-events-auto"
-                        /* Se ancla abajo, sobre el distintivo de la cámara, para no taparlo. */
-                        style={{ left: x, top: y, transform: "translate(-50%,-100%)" }}
                     >
                         <div className="rounded-xl overflow-hidden border border-white/15 shadow-2xl shadow-black/70 bg-[#0a0d12]">
                             <div className="relative w-[224px] h-[126px]">
@@ -194,12 +250,15 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
                                 </span>
                             </div>
                         </div>
-                        {/* Pico que la ata al marcador de abajo. Si hubo que correr la
-                            burbuja para que entrara, el pico apuntaría a cualquier lado. */}
-                        {Math.abs(x - p.x) < 2 && (
-                            <span className="block mx-auto w-2 h-2 rotate-45 -mt-1 bg-black/85 border-r border-b border-white/15" />
-                        )}
+                        {/* Pico que la ata al marcador de abajo. Se dibuja siempre y se
+                            muestra u oculta desde `ubicar()`: si se montara y desmontara
+                            con la posición, volveríamos a necesitar un render por cuadro. */}
+                        <span
+                            ref={(el) => { if (el) picos.current.set(c.deviceId, el); }}
+                            className="block mx-auto w-2 h-2 rotate-45 -mt-1 bg-black/85 border-r border-b border-white/15"
+                        />
                     </motion.div>
+                    </div>
                 );
             })}
         </div>,
