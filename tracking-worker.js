@@ -307,9 +307,32 @@ const contadores = { disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, fr
  */
 const porCamara = new Map();
 
+/** Para avisar UNA vez si una cámara llega sin identificador, y no en cada disparo. */
+let avisoSinId = false;
+
 function cuenta(cam, campo) {
-    const id = cam?.id;
-    if (!id) return;
+    /*
+     * `deviceId`, no `id`.
+     *
+     * Esto salió mal la primera vez y vale escribir por qué. El objeto de cámara lo arma
+     * `camaras()` a mano y ahí el identificador se llama `deviceId`; yo escribí `cam?.id`,
+     * que es `undefined` siempre. El `return` mudo que seguía descartaba TODAS las cuentas,
+     * la tabla quedó vacía, y como los contadores globales seguían funcionando la pantalla
+     * no mostraba nada raro. Un guard que descarta el valor bueno y no dice nada es el peor
+     * error posible: anda, está mal, y no hay una sola línea en ningún log.
+     *
+     * Por eso ahora el caso imposible AVISA en vez de callarse, y se leen las dos claves:
+     * si mañana el objeto cambia de forma, sigue contando.
+     */
+    const id = cam?.deviceId || cam?.id;
+    if (!id) {
+        if (!avisoSinId) {
+            avisoSinId = true;
+            log(`una camara llego sin identificador (${cam?.name || "sin nombre"}); `
+                + "no se pueden contar sus muestras por camara");
+        }
+        return;
+    }
     let c = porCamara.get(id);
     if (!c) {
         c = { nombre: cam.name || null, disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0 };
