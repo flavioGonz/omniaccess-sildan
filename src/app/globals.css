@@ -145,6 +145,13 @@
      claro tiene que ser oscuro y en oscuro claro, o el borde desaparece. */
   --globo-sombra: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.20))
                   drop-shadow(0 0 0.5px rgba(0, 0, 0, 0.18));
+  /* La tinta secundaria DEL GLOBO, que no es la de la página.
+     Medido: --muted-foreground sobre el globo oscuro da 2,07:1, muy por debajo
+     del 4,5:1 que hace falta para leer. No es culpa del token: está calibrado
+     contra el fondo de la PÁGINA, y el globo es otra superficie —más clara que
+     la página en oscuro—, así que la misma tinta pierde contraste encima.
+     En claro el valor de siempre ya da 14:1 y se conserva. */
+  --globo-tinta-suave: oklch(0.556 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
@@ -262,6 +269,10 @@
   --globo-aviso: #2b2b2b;
   --globo-sombra: drop-shadow(0 12px 26px rgba(0, 0, 0, 0.55))
                   drop-shadow(0 0 0.5px rgba(255, 255, 255, 0.14));
+  /* 0.88 y no 0.708: medido da 6,37:1 sobre #2b2b2b. El mínimo que pasa es
+     0.83 (4,54:1) y quedarse en el filo no deja margen para una pantalla mal
+     calibrada o un poco de sol. */
+  --globo-tinta-suave: oklch(0.88 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
@@ -979,6 +990,23 @@ video::-webkit-media-controls { display: none !important; }
    pasa ThemedToaster por prop, desde --globo-aviso. Ver ese archivo.
    ══════════════════════════════════════════════════════════════════════ */
 
+/*
+ * El globo aparece en el CENTRO de la pantalla, no colgado de arriba.
+ *
+ * Arriba al centro choca con la barra de herramientas del mapa: en la foto del
+ * operador el título quedaba tapado por la barra y sólo se leía la descripción, que
+ * es justo al revés de lo que hace falta.
+ *
+ * La librería no tiene una posición "centro": sus seis opciones cuelgan de arriba o
+ * de abajo. Se consigue corriendo el visor a la mitad, que es un cambio de dos
+ * líneas y no toca nada más — el apilado, la animación de entrada y el arrastre
+ * siguen funcionando igual porque sólo cambia dónde está anclado el contenedor.
+ */
+[data-sileo-viewport][data-position="top-center"] {
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+}
+
 [data-sileo-viewport] {
     --sileo-state-success: var(--bien-texto);
     --sileo-state-error:   var(--mal-texto);
@@ -1021,7 +1049,7 @@ video::-webkit-media-controls { display: none !important; }
     text-transform: none !important;   /* evita el "Texto Con Todas En Mayúscula" */
 }
 [data-sileo-description] {
-    color: var(--muted-foreground) !important;
+    color: var(--globo-tinta-suave) !important;
     font-size: 0.8125rem !important;
     line-height: 1.2rem !important;
     text-transform: none !important;
