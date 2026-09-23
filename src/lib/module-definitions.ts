@@ -29,6 +29,20 @@ export interface ModuleInfo {
    * tarjeta la usa sin tocar la pantalla.
    */
   ilustracion?: string;
+  /**
+   * La clave del Setting que guarda el nombre de su bucket, si el módulo guarda imágenes.
+   *
+   * Está acá y no suelta en la pantalla de almacenamiento porque es lo que permite mostrar
+   * ÚNICAMENTE el bucket del modo que está puesto. Antes esa pantalla listaba el bucket
+   * LPR y el bucket FACE siempre, en las dos instalaciones: un barrio que corre en modo
+   * matrículas veía —y podía reconfigurar— el bucket de un módulo que no tiene prendido.
+   */
+  bucket?: {
+    /** La clave del Setting donde vive el nombre del bucket. */
+    key: string;
+    /** El identificador que usan las acciones de S3 para elegir la configuración. */
+    tipo: "lpr" | "face";
+  };
   defaultEnabled: boolean;
   /**
    * `true` = es un MODO: sólo puede haber uno prendido, y cambiarlo apaga a los otros.
@@ -48,6 +62,7 @@ export const MODULE_DEFINITIONS: ModuleInfo[] = [
     name: 'Matrículas',
     description: 'Lee las chapas en las barreras y en las cámaras de calle: quién entró, quién salió y qué vehículos están adentro del barrio.',
     icon: 'Car',
+    bucket: { key: 'S3_BUCKET_LPR', tipo: 'lpr' },
     defaultEnabled: true,
     exclusive: true,
   },
@@ -56,6 +71,7 @@ export const MODULE_DEFINITIONS: ModuleInfo[] = [
     name: 'Rostro',
     description: 'Reconocimiento facial en los accesos peatonales, con el mismo padrón de usuarios y permisos que el resto del sistema.',
     icon: 'ScanFace',
+    bucket: { key: 'S3_BUCKET_FACE', tipo: 'face' },
     defaultEnabled: true,
     exclusive: true,
   },

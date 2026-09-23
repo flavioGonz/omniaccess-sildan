@@ -963,3 +963,46 @@ export async function getStorageCapacity() {
     }
     return { success: false, path: null, total: 0, free: 0, used: 0, percent: 0 };
 }
+
+/**
+ * Cuánto ocupan las capturas que NO están en el object storage.
+ *
+ * Existe porque la pantalla de almacenamiento mentía por omisión. Ofrecía una política de
+ * retención sobre el bucket LPR mientras las capturas del seguimiento —que en San Nicolás
+ * son las únicas que hay, porque todavía no hay cámaras de barrera— se escriben con
+ * `fs.writeFileSync` en el disco del contenedor y no pasan por S3 en ningún momento. En
+ * `tracking-worker.js` y en toda `api/tracking/` no aparece la palabra S3 una sola vez.
+ *
+ * Medido el 23 de setiembre de 2026: 368 MB en 1.214 archivos, y el bucket con una sola
+ * carpeta de mapas. Un panel que configura la retención de un bucket vacío mientras el
+ * disco crece sin control no está informando: está tapando.
+ *
+ * Así que la pantalla muestra los dos lugares, con lo que cada uno tiene. Que el número
+ * del disco esté a la vista es lo que convierte "hay que decidir la retención" en algo que
+ * se ve en vez de algo que hay que acordarse.
+ */
+export async function estadoCapturasLocales(): Promise<{
+    ok: boolean; carpeta: string; archivos: number; bytes: number; masViejo: string | null; motivo?: string;
+}> {
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const carpeta = process.env.TRACKING_SHOTS_DIR || "/datos/track";
+    try {
+        const nombres = await fs.readdir(carpeta);
+        let archivos = 0, bytes = 0, masViejo: number | null = null;
+        for (const n of nombres) {
+            if (!n.toLowerCase().endsWith(".jpg")) continue;
+            try {
+                const st = await fs.stat(path.join(carpeta, n));
+                if (!st.isFile()) continue;
+                archivos++; bytes += st.size;
+                if (masViejo == null || st.mtimeMs < masViejo) masViejo = st.mtimeMs;
+            } catch { /* un archivo que se borró entre el readdir y el stat no es un error */ }
+        }
+        return { ok: true, carpeta, archivos, bytes, masViejo: masViejo ? new Date(masViejo).toISOString() : null };
+    } catch (e: any) {
+        /* Se dice el motivo. Una carpeta que no existe y una sin permisos son problemas
+           distintos, y las dos se verían igual como "0 archivos". */
+        return { ok: false, carpeta, archivos: 0, bytes: 0, masViejo: null, motivo: e?.message || "no se pudo leer" };
+    }
+}
