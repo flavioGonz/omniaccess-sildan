@@ -116,8 +116,28 @@ export async function POST(req: NextRequest) {
             // llegaron a ser un estacionamiento se cierran en silencio, sin avisar nada.
             estado: { in: ESTADOS_DE_ESTADIA },
             estCerrada: false,
-            estHasta: { lt: corte },
             ...(camarasDeFranja.length ? { deviceId: { notIn: camarasDeFranja } } : {}),
+            /*
+             * Dos caminos para ser candidata, y el segundo es el que faltaba.
+             *
+             * El primero es el de siempre: hace rato que no se la ve (`estHasta` viejo).
+             *
+             * El segundo mira `timestamp`, que es la última vez que se le LEYÓ LA CHAPA.
+             * Hace falta porque la mirada de la vigilia mueve `estHasta` a "ahora" cada vez
+             * que dice "no cambió nada" — y este mismo archivo explica, unas líneas más
+             * abajo, que un pedazo de calle vacía también se ve igual de una mirada a la
+             * otra. O sea que una estadía sostenida por miradas nunca vuelve a ser
+             * candidata, y el techo de las 12 horas no se alcanza jamás: la vigilia lo
+             * empuja hacia adelante sola.
+             *
+             * Medido: SBW3369 en Calle 22 con la última lectura del 21/09 12:53 y `estHasta`
+             * moviéndose al minuto actual, cuarenta y seis horas después, dibujada en el
+             * mapa todo ese tiempo.
+             */
+            OR: [
+                { estHasta: { lt: corte } },
+                { timestamp: { lt: techo } },
+            ],
         },
         orderBy: { estHasta: "asc" },
         take: 200,
@@ -162,7 +182,17 @@ export async function POST(req: NextRequest) {
     for (const fila of candidatas) {
         const lecturas = fila.deviceId ? porCamara.get(fila.deviceId) || [] : [];
         const miradas = miradasSinVerlo(fila as any, lecturas);
-        const porTecho = (fila.estHasta?.getTime() ?? ahora) < techo.getTime();
+        /*
+         * El techo se mide contra `timestamp` —la última lectura de chapa— y NO contra
+         * `estHasta`, que la mirada de la vigilia empuja al minuto actual.
+         *
+         * Un techo que se mide contra un valor que la propia vigilia renueva no es un techo:
+         * es una promesa que nunca vence. La lectura, en cambio, sólo la mueve la cámara
+         * viendo de verdad la chapa, que es el único hecho que sostiene una afirmación
+         * sobre el mundo ("ese vehículo sigue ahí").
+         */
+        const ultimaLectura = fila.timestamp?.getTime() ?? fila.estHasta?.getTime() ?? ahora;
+        const porTecho = ultimaLectura < techo.getTime();
 
         /*
          * Primero se va a mirar, y lo que se vea manda sobre todo lo demás.
