@@ -1048,10 +1048,29 @@ video::-webkit-media-controls { display: none !important; }
     letter-spacing: normal !important;
     text-transform: none !important;   /* evita el "Texto Con Todas En Mayúscula" */
 }
+/*
+ * El texto del globo va CENTRADO.
+ *
+ * QUÉ ESTABA MAL: la librería trae `text-align: left` y el globo mide siempre
+ * 350px, venga el texto que venga (el ancho sale de --sileo-width, pero además
+ * la constante WIDTH = 350 está escrita adentro del JS y es contra ella que se
+ * calcula la posición de la píldora — o sea que achicar el token descoloca el
+ * encabezado. El ancho fijo no se puede negociar desde acá).
+ *
+ * Con el ancho fijo, un aviso corto como «74 lotes · 2 cámaras» ocupa un tercio
+ * del globo y deja dos tercios de vacío a la derecha. Leído de un vistazo eso no
+ * parece un aviso centrado en la pantalla: parece un aviso mal cortado.
+ *
+ * La píldora de arriba ya viene centrada sola (la librería la alinea según la
+ * posición del visor, y la nuestra es «center»). Era la descripción la que
+ * quedaba colgada a la izquierda, contra una píldora centrada. Centrarla las
+ * alinea entre sí y reparte el aire sobrante a los dos lados.
+ */
 [data-sileo-description] {
     color: var(--globo-tinta-suave) !important;
     font-size: 0.8125rem !important;
     line-height: 1.2rem !important;
+    text-align: center !important;
     text-transform: none !important;
 }
 
