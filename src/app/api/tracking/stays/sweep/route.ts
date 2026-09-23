@@ -75,8 +75,26 @@ export async function POST(req: NextRequest) {
      * calle darían dos estadías por auto, y la peor de las dos seguiría mandando avisos.
      * El criterio viejo sobrevive sólo donde todavía no hay franja dibujada.
      */
+    /*
+     * `vacio: { not: null }` — y esto NO es un detalle.
+     *
+     * Abajo, las cámaras de esta lista quedan EXCLUIDAS del barrido por chapa, porque se
+     * asume que su franja se hace cargo. Pero una franja dibujada y sin el vacío aprendido
+     * no mide nada: `mirarLaFranja` no tiene contra qué comparar.
+     *
+     * Con el filtro anterior (`activa: true` a secas) esas cámaras caían en un hueco entre
+     * los dos criterios: el viejo se inhibía porque "hay franja", y el nuevo no podía
+     * correr porque le falta el vacío. **Nadie cerraba sus estadías.**
+     *
+     * Y pasó de verdad: Calle 22 tenía la franja dibujada con tres lugares y sin aprender
+     * el vacío, y SBW3369 quedó marcada como estacionada CUARENTA HORAS después de su
+     * última lectura, dibujada en el mapa todo ese tiempo. Calle 21, que sí aprendió el
+     * vacío, cerró sus veintiocho ocupaciones sin dejar ninguna abierta.
+     *
+     * La regla correcta es: una franja releva al barrendero sólo si PUEDE medir.
+     */
     const conFranja = await prisma.franja.findMany({
-        where: { activa: true },
+        where: { activa: true, vacio: { not: null } },
         select: { deviceId: true, device: { select: { id: true, name: true, rtspUrl: true } } },
     });
     const franjas = [];
