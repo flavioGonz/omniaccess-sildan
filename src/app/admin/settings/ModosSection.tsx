@@ -35,10 +35,27 @@
  * pertenecen, que es lo que son. Una función que depende de otra va indentada abajo de
  * ella y se apaga sola cuando su padre se apaga — y lo DICE, en vez de quedar prendida
  * gobernando algo que ya no corre.
+ *
+ * ── UN MODO NO SE PRENDE: SE ELIGE ────────────────────────────────────────────────
+ *
+ * La primera versión de esta pantalla le puso un interruptor a cada módulo, y eso estaba
+ * mal por una razón que no se ve mirando la pantalla: **los tres modos se excluyen**. El
+ * camino que ya existía (`setExclusiveMode`) prende uno y apaga los otros dos, pide clave
+ * y recarga la aplicación. El interruptor nuevo llamaba a `toggleModule`, que prende ese
+ * solo y sin clave.
+ *
+ * O sea que en la misma pantalla convivían dos controles sobre los mismos cuatro módulos
+ * que hacían cosas distintas, y el nuevo además rompía en silencio la regla que el viejo
+ * protegía — y salteaba el PIN, que con eso dejaba de proteger nada.
+ *
+ * Ahora la forma dice la regla: los tres modos son una ELECCIÓN entre tres, así que se
+ * dibujan como tal y activar uno pasa por la clave. Guardia no es un modo sino una capa
+ * (`exclusive: false`): convive con cualquiera, así que va aparte y con interruptor de
+ * verdad. Las dos cosas se ven distintas porque SON distintas.
  */
 
 import { useEffect, useState } from "react";
-import { Car, ScanFace, Users, ShieldCheck, Cpu, CornerDownRight, type LucideIcon } from "lucide-react";
+import { Car, ScanFace, Users, ShieldCheck, Cpu, CornerDownRight, Check, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { MODULE_DEFINITIONS, type ModuleId, type ModuleInfo } from "@/lib/module-definitions";
@@ -213,7 +230,17 @@ function FilaFuncion({ f, encendida, ocupada, bloqueada, padre, onToggle }: {
 }
 
 /* ── La pantalla ──────────────────────────────────────────────────────────────── */
-export default function ModosSection() {
+export default function ModosSection({ onActivar }: {
+    /**
+     * Activar un modo NO se resuelve acá.
+     *
+     * Apaga los otros dos, pide la clave de operación y recarga la aplicación entera, y
+     * ese flujo —con su modal de PIN y su splash— ya vive en la pantalla de configuración.
+     * Duplicarlo sería repetir el error que esta pantalla viene a arreglar: dos caminos
+     * para lo mismo que pueden empezar a diferir.
+     */
+    onActivar: (moduleId: ModuleId, label: string) => void;
+}) {
     const [modulos, setModulos] = useState<Record<string, boolean>>({});
     const [funciones, setFunciones] = useState<Record<string, boolean>>({});
     const [cargando, setCargando] = useState(true);
@@ -227,15 +254,15 @@ export default function ModosSection() {
         getFunciones().then(setFunciones).catch(() => { });
     }, []);
 
-    const alternarModulo = async (id: ModuleId) => {
-        setAlternando(id);
-        const valor = !modulos[id];
-        const r = await toggleModule(id, valor);
+    const alternarCapa = async (mod: ModuleInfo) => {
+        setAlternando(mod.id);
+        const valor = !(modulos[mod.id] ?? mod.defaultEnabled);
+        const r = await toggleModule(mod.id, valor);
         if (r.success) {
-            setModulos((p) => ({ ...p, [id]: valor }));
-            toast.success({ title: valor ? "Módulo activado" : "Módulo desactivado" });
+            setModulos((p) => ({ ...p, [mod.id]: valor }));
+            toast.success({ title: valor ? `${mod.name} activado` : `${mod.name} desactivado` });
         } else {
-            toast.error({ title: "No se pudo cambiar el módulo" });
+            toast.error({ title: "No se pudo cambiar" });
         }
         setAlternando(null);
     };
@@ -261,13 +288,17 @@ export default function ModosSection() {
         setAlternando(null);
     };
 
+    const modos = MODULE_DEFINITIONS.filter((m) => m.exclusive);
+    const capas = MODULE_DEFINITIONS.filter((m) => !m.exclusive);
+    const prendido = (m: ModuleInfo) => modulos[m.id] ?? m.defaultEnabled;
+
     if (cargando) {
         return (
             <div className="space-y-6">
-                <div className="h-6 w-56 rounded-[var(--radius-sm)] bg-muted" />
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                    {MODULE_DEFINITIONS.map((m) => (
-                        <div key={m.id} className="h-64 rounded-[var(--radius)] border border-border bg-card" />
+                <div className="h-5 w-56 rounded-[var(--radius-sm)] bg-muted" />
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    {modos.map((m) => (
+                        <div key={m.id} className="h-60 rounded-[var(--radius)] border border-border bg-card" />
                     ))}
                 </div>
             </div>
@@ -276,85 +307,124 @@ export default function ModosSection() {
 
     return (
         <div className="space-y-8">
-            <header>
-                <h2 className="text-[20px] font-bold leading-tight tracking-[-0.015em] text-foreground">
-                    Modos del sistema
-                </h2>
-                <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
-                    Un módulo es una instalación entera. El que está apagado no aparece en el menú ni
-                    corre en el servidor: sus pantallas, sus trabajos de fondo y sus avisos dejan de existir.
-                </p>
-            </header>
+            {/* ── Los tres modos ───────────────────────────────────────────── */}
+            <section className="space-y-3">
+                <div>
+                    <h2 className="text-[20px] font-bold leading-tight tracking-[-0.015em] text-foreground">
+                        Modo de la instalación
+                    </h2>
+                    <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
+                        San Nicolás corre en <b className="font-semibold text-foreground">uno</b> de estos tres.
+                        Cambiarlo apaga el anterior, pide la clave de operación y recarga la aplicación con la
+                        interfaz del modo nuevo.
+                    </p>
+                </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {MODULE_DEFINITIONS.map((mod) => {
-                    const Icono = ICONOS[mod.icon] || Cpu;
-                    const encendido = modulos[mod.id] ?? mod.defaultEnabled;
-                    const ocupado = alternando === mod.id;
+                {/* `radiogroup` y no una fila de interruptores: es una elección entre tres,
+                    y el lector de pantalla tiene que escuchar lo mismo que se ve. */}
+                <div role="radiogroup" aria-label="Modo de la instalación" className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    {modos.map((mod) => {
+                        const activo = prendido(mod);
+                        const Icono = ICONOS[mod.icon] || Cpu;
 
-                    return (
-                        <article
-                            key={mod.id}
-                            className={cn(
-                                "flex flex-col rounded-[var(--radius)] border p-3.5 transition-colors duration-200",
-                                // La jerarquía por SUPERFICIE, no por color de marca ni por
-                                // sombra: prendido descansa sobre `card`, apagado se hunde a
-                                // `muted` y pierde el borde marcado.
-                                encendido ? "border-border bg-card" : "border-border/60 bg-muted/40",
-                            )}
-                        >
-                            <Ilustracion mod={mod} encendido={encendido} />
+                        return (
+                            <article
+                                key={mod.id}
+                                role="radio"
+                                aria-checked={activo}
+                                className={cn(
+                                    "flex flex-col rounded-[var(--radius)] border p-3.5 transition-colors duration-200",
+                                    activo ? "border-[var(--accion)] bg-card" : "border-border bg-muted/40",
+                                )}
+                            >
+                                <Ilustracion mod={mod} encendido={activo} />
 
-                            <div className="mt-3.5 flex items-start justify-between gap-3">
-                                <div className="flex min-w-0 items-center gap-2">
-                                    <Icono
-                                        size={16}
-                                        className={encendido ? "text-foreground" : "text-muted-foreground"}
-                                    />
+                                <div className="mt-3.5 flex items-center gap-2">
+                                    <Icono size={16} className={activo ? "text-foreground" : "text-muted-foreground"} />
                                     <h3 className="truncate text-[15px] font-semibold leading-tight tracking-[-0.01em] text-foreground">
                                         {mod.name}
                                     </h3>
+                                    {activo && (
+                                        <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-[var(--bien-suave)] px-2 py-0.5 text-[11px] font-semibold text-[var(--bien-texto)]">
+                                            <Check size={11} /> En uso
+                                        </span>
+                                    )}
                                 </div>
-                                <Interruptor
-                                    encendido={encendido}
-                                    ocupado={ocupado}
-                                    onClick={() => alternarModulo(mod.id)}
-                                    etiqueta={`${encendido ? "Apagar" : "Prender"} ${mod.name}`}
-                                />
-                            </div>
 
-                            <p className="mt-2 text-[11px] leading-[1.45] text-muted-foreground">
-                                {mod.description}
-                            </p>
-                        </article>
-                    );
-                })}
-            </div>
+                                <p className="mt-2 flex-1 text-[11px] leading-[1.45] text-muted-foreground">
+                                    {mod.description}
+                                </p>
+
+                                {/* El botón sólo existe en los que NO están puestos. Un botón
+                                    deshabilitado que dice "Activo" es un control que no controla
+                                    nada: el chip de arriba ya lo dice, y mejor. */}
+                                {!activo && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onActivar(mod.id, mod.name)}
+                                        className="mt-3 w-full rounded-[var(--radius-sm)] bg-[var(--accion)] px-4 py-2 text-[12px] font-semibold text-[var(--accion-texto)] transition-colors hover:bg-[var(--accion-sobre)]"
+                                    >
+                                        Cambiar a este modo
+                                    </button>
+                                )}
+                            </article>
+                        );
+                    })}
+                </div>
+            </section>
+
+            {/* ── Las capas ────────────────────────────────────────────────── */}
+            {capas.length > 0 && (
+                <section className="space-y-2.5">
+                    <h3 className="text-[9px] font-bold uppercase leading-none tracking-[0.14em] text-muted-foreground">
+                        Capas
+                    </h3>
+                    <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground">
+                        No son modos: conviven con el que esté puesto, y se prenden y apagan por su cuenta
+                        sin recargar nada.
+                    </p>
+                    <div className="divide-y divide-border rounded-[var(--radius)] border border-border bg-card">
+                        {capas.map((mod) => {
+                            const Icono = ICONOS[mod.icon] || Cpu;
+                            const on = prendido(mod);
+                            return (
+                                <div key={mod.id} className="flex items-start gap-3 px-4 py-3.5">
+                                    <Icono size={16} className={cn("mt-0.5 shrink-0", on ? "text-foreground" : "text-muted-foreground")} />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-[13px] font-semibold leading-snug text-foreground">{mod.name}</div>
+                                        <p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">{mod.description}</p>
+                                    </div>
+                                    <Interruptor
+                                        encendido={on}
+                                        ocupado={alternando === mod.id}
+                                        onClick={() => alternarCapa(mod)}
+                                        etiqueta={`${on ? "Apagar" : "Prender"} ${mod.name}`}
+                                    />
+                                </div>
+                            );
+                        })}
+                    </div>
+                </section>
+            )}
 
             {/*
               * Las funciones, colgadas del módulo al que pertenecen.
               *
-              * Antes estaban sueltas al final de la pantalla, abajo de las cuatro tarjetas,
-              * sin decir de cuál. Con una sola función se podía adivinar; con dos ya no, y
-              * con la tercera sería una lista de interruptores sin dueño.
+              * Antes estaban sueltas al final de la pantalla, abajo de las tarjetas, sin
+              * decir de cuál. Con una sola función se podía adivinar; con dos ya no.
               */}
             {MODULE_DEFINITIONS.map((mod) => {
                 const delModulo = FUNCIONES.filter((f) => f.modulo === mod.id);
-                if (!delModulo.length) return null;
-                const moduloEncendido = modulos[mod.id] ?? mod.defaultEnabled;
-                if (!moduloEncendido) return null;
+                if (!delModulo.length || !prendido(mod)) return null;
 
                 return (
                     <section key={`fn-${mod.id}`} className="space-y-2.5">
-                        <div className="flex items-baseline gap-2">
-                            <h3 className="text-[9px] font-bold uppercase leading-none tracking-[0.14em] text-muted-foreground">
-                                Funciones de {mod.name}
-                            </h3>
-                        </div>
+                        <h3 className="text-[9px] font-bold uppercase leading-none tracking-[0.14em] text-muted-foreground">
+                            Funciones de {mod.name}
+                        </h3>
                         <p className="max-w-2xl text-[11px] leading-[1.45] text-muted-foreground">
-                            Cosas que este módulo puede hacer o no hacer sin dejar de ser él mismo. No
-                            cambian qué pantallas se ven: cambian cuánto trabajo hace el servidor y qué
-                            se registra.
+                            Cosas que este módulo puede hacer o no hacer sin dejar de ser él mismo. No cambian
+                            qué pantallas se ven: cambian cuánto trabajo hace el servidor y qué se registra.
                         </p>
                         <div className="divide-y divide-border rounded-[var(--radius)] border border-border bg-card">
                             {delModulo.map((f) => {

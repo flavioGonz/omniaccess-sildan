@@ -30,7 +30,16 @@ export interface ModuleInfo {
    */
   ilustracion?: string;
   defaultEnabled: boolean;
-  exclusive?: boolean; // false = modulo transversal (capa), no un modo exclusivo
+  /**
+   * `true` = es un MODO: sólo puede haber uno prendido, y cambiarlo apaga a los otros.
+   * `false` = es una CAPA: convive con cualquier modo.
+   *
+   * Estaba como `exclusive?: boolean` y se leía en todos lados como `exclusive !== false`,
+   * o sea que la regla más importante del archivo —cuáles se excluyen entre sí— vivía en
+   * la AUSENCIA de un campo. Eso es lo que dejó pasar el control duplicado: la pantalla
+   * nueva ofrecía prender dos modos a la vez y nada en el tipo decía que no se podía.
+   */
+  exclusive: boolean;
 }
 
 export const MODULE_DEFINITIONS: ModuleInfo[] = [
@@ -40,6 +49,7 @@ export const MODULE_DEFINITIONS: ModuleInfo[] = [
     description: 'Lee las chapas en las barreras y en las cámaras de calle: quién entró, quién salió y qué vehículos están adentro del barrio.',
     icon: 'Car',
     defaultEnabled: true,
+    exclusive: true,
   },
   {
     id: 'MODULE_FACE',
@@ -47,6 +57,7 @@ export const MODULE_DEFINITIONS: ModuleInfo[] = [
     description: 'Reconocimiento facial en los accesos peatonales, con el mismo padrón de usuarios y permisos que el resto del sistema.',
     icon: 'ScanFace',
     defaultEnabled: true,
+    exclusive: true,
   },
   {
     id: 'MODULE_QUEUE',
@@ -54,6 +65,7 @@ export const MODULE_DEFINITIONS: ModuleInfo[] = [
     description: 'Mide cuánta gente espera en cada acceso y cuánto tarda en pasar, para saber cuándo hace falta abrir otro puesto.',
     icon: 'Users',
     defaultEnabled: false,
+    exclusive: true,
   },
   {
     id: 'MODULE_GUARD',

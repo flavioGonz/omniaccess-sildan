@@ -22,7 +22,6 @@ import {
     Upload,
     Table as TableIcon,
     ScanFace,
-    ScanLine,
     Car,
     Eye,
     X,
@@ -220,11 +219,15 @@ export default function SettingsPage() {
     const [storageTab, setStorageTab] = useState("explorador");
     const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
     const [modelSearch, setModelSearch] = useState("");
-    const [modeSubTab, setModeSubTab] = useState<string>("mode_lpr");
     const [enabledModules, setEnabledModules] = useState<Record<string, boolean>>({});
     const [pendingMode, setPendingMode] = useState<{ moduleId: string; label: string } | null>(null);
     const [switchingTo, setSwitchingTo] = useState<string | null>(null);
-    useEffect(() => { getEnabledModules().then((m: any) => { setEnabledModules(m); const act = m.MODULE_LPR ? "mode_lpr" : m.MODULE_FACE ? "mode_face" : m.MODULE_QUEUE ? "mode_queue" : "mode_lpr"; setModeSubTab(act); }).catch(() => {}); }, []);
+    /* Ya no hay que elegir una sub-pestaña: la configuración es la del modo que está
+       puesto, y eso sale de `enabledModules` directamente. La línea que estaba acá
+       adivinaba la pestaña inicial con un encadenado de ternarios que terminaba en
+       "mode_lpr" — o sea que sin ningún modo prendido mostraba igual la configuración de
+       matrículas, como si estuviera activa. */
+    useEffect(() => { getEnabledModules().then(setEnabledModules).catch(() => { }); }, []);
     const [pinEstado, setPinEstado] = useState<OtpStatus>("idle");
     const [verificando, setVerificando] = useState(false);
     const confirmSwitch = async () => { if (!pendingMode) return; const { moduleId, label } = pendingMode; setPendingMode(null); setPinEstado("idle"); setSwitchingTo(label); try { await setExclusiveMode(moduleId as ModuleId); } catch {} setTimeout(() => window.location.reload(), 1800); };
@@ -329,108 +332,83 @@ export default function SettingsPage() {
                               * Es la misma clase de defecto que el resto de la auditoría, sólo
                               * que al revés: acá no es una pantalla que dice algo falso, es una
                               * función que existe y no tiene puerta. */}
-                            <ModosSection />
+                            <ModosSection onActivar={(moduleId, label) => setPendingMode({ moduleId, label })} />
 
-                            {/* Sub-pestañas: qué modo se está configurando.
+                            {/*
+                              * La configuración del modo QUE ESTÁ PUESTO. Sin sub-pestañas.
                               *
-                              * Son una ELECCIÓN entre tres, así que van en píldora — la gramática
-                              * del sistema para lo que se prende y se apaga. Antes eran
-                              * `rounded-lg`, que es la forma de un botón que dispara algo.
+                              * Había una fila de tres pestañas (Modo LPR / Face / Cola) y abajo
+                              * un cartel con un botón «Activar». Entre las dos cosas y las
+                              * tarjetas de arriba, la misma pantalla tenía TRES lugares que
+                              * hablaban de los mismos tres módulos, y dos de ellos permitían
+                              * activarlos por caminos distintos — uno con clave y excluyente, el
+                              * otro sin clave y suelto.
                               *
-                              * Y el ícono tenía un color por pestaña (ámbar, verde azulado,
-                              * violeta) que no significaba nada: tres colores para tres nombres.
-                              * El azul de la píldora ya dice cuál está elegida. */}
-                            <div className="flex flex-wrap items-center gap-1.5 border-b border-border pb-4">
-                                {[
-                                    { k: "mode_lpr", label: "Matrículas", moduleId: "MODULE_LPR", Icon: ScanLine },
-                                    { k: "mode_face", label: "Rostro", moduleId: "MODULE_FACE", Icon: ScanFace },
-                                    { k: "mode_queue", label: "Filas", moduleId: "MODULE_QUEUE", Icon: Users },
-                                ].map((t) => {
-                                    const sel = modeSubTab === t.k;
-                                    const isOn = enabledModules[t.moduleId];
-                                    const Ic = t.Icon;
-                                    return (
-                                        <button key={t.k} onClick={() => setModeSubTab(t.k)}
-                                            className={cn(
-                                                "flex items-center gap-2 rounded-full px-3.5 py-2 text-[12px] font-semibold transition-colors",
-                                                sel
-                                                    ? "bg-[var(--accion)] text-[var(--accion-texto)]"
-                                                    : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
-                                            <Ic size={14} />
-                                            {t.label}
-                                            {/* El punto sólo aparece cuando el módulo está prendido, y no
-                                                late: un punto que parpadea dice "pasando algo ahora", y
-                                                acá no pasa nada — es un estado quieto. */}
-                                            {isOn && <span className={cn("h-1.5 w-1.5 rounded-full",
-                                                sel ? "bg-[var(--accion-texto)]" : "bg-[var(--bien)]")} />}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            {/* Banner activar */}
+                              * Lo que queda es lo único que hacía falta: elegir el modo arriba,
+                              * configurarlo acá. Mirar la configuración de un modo apagado era
+                              * posible y se pierde a propósito; no compensa una segunda fila de
+                              * controles con los mismos nombres.
+                              */}
                             {(() => {
-                                const meta = ({ mode_lpr: { moduleId: "MODULE_LPR", label: "Modo LPR" }, mode_face: { moduleId: "MODULE_FACE", label: "Modo Face" }, mode_queue: { moduleId: "MODULE_QUEUE", label: "Modo Cola" } } as any)[modeSubTab];
-                                const isOn = enabledModules[meta.moduleId];
-                                return (
-                                    /* El tono `bien` acá SÍ dice algo —"está como tiene que
-                                       estar"— pero el botón no es verde ni violeta: es el azul
-                                       de acción, el único del sistema. El color del botón tiene
-                                       que decir algo de lo que pasa al apretarlo, y "violeta" no
-                                       decía nada. */
-                                    <div className={cn("flex items-center justify-between gap-4 rounded-[var(--radius)] border p-4",
-                                        isOn ? "border-[color-mix(in_oklab,var(--bien)_35%,transparent)] bg-[var(--bien-suave)]" : "border-border bg-card")}>
-                                        <div className="min-w-0">
-                                            <div className="text-[13px] font-semibold text-foreground">{isOn ? "Este modo está activo" : "Activar este modo"}</div>
-                                            <p className="mt-0.5 text-[11px] leading-[1.45] text-muted-foreground">Cambiar de modo recarga la aplicación con la interfaz del nuevo modo, y desactiva los demás.</p>
+                                const activo = MODULE_DEFINITIONS.find((m) => m.exclusive && enabledModules[m.id]);
+
+                                /* Ningún modo puesto es un estado posible —alcanza con apagar el
+                                   que había— y hay que decirlo. Una pantalla en blanco acá se lee
+                                   como "todavía está cargando". */
+                                if (!activo) {
+                                    return (
+                                        <div className="rounded-[var(--radius)] border border-border bg-card p-6">
+                                            <div className="text-[13px] font-semibold text-foreground">Esta instalación no tiene ningún modo puesto</div>
+                                            <p className="mt-1 max-w-xl text-[11px] leading-[1.45] text-muted-foreground">
+                                                Sin un modo activo no hay nada que configurar acá, y el sistema no
+                                                está leyendo matrículas ni rostros. Elegí uno arriba.
+                                            </p>
                                         </div>
-                                        <button disabled={isOn} onClick={() => setPendingMode(meta)}
-                                            className={cn("shrink-0 rounded-[var(--radius-sm)] px-4 py-2 text-[12px] font-semibold transition-colors",
-                                                isOn ? "cursor-default bg-muted text-muted-foreground" : "bg-[var(--accion)] text-[var(--accion-texto)] hover:bg-[var(--accion-sobre)]")}>
-                                            {isOn ? "Activo" : "Activar"}
-                                        </button>
-                                    </div>
+                                    );
+                                }
+
+                                if (activo.id === "MODULE_FACE") return (
+                                    <ModeConfiguration
+                                        title="Comportamiento del modo Rostro"
+                                        description="Qué hace el sistema cuando reconoce una cara"
+                                        settingKey="MODE_FACE"
+                                        options={[
+                                            { id: "BLACKLIST", label: "Lista Negra", desc: "Las capturas identificadas serán DENEGADAS automáticamente.", icon: ShieldAlert, color: "red" },
+                                            { id: "WHITELIST", label: "Lista Blanca", desc: "Las capturas identificadas serán PERMITIDAS automáticamente.", icon: ShieldCheck, color: "emerald" },
+                                            { id: "LEARNING", label: "Aprendizaje", desc: "Modo en desarrollo. Captura rostros para entrenamiento.", icon: Cpu, color: "amber", disabled: true }
+                                        ]}
+                                    />
+                                );
+
+                                if (activo.id === "MODULE_LPR") return (
+                                    <>
+                                        <ModeConfiguration
+                                            title="Comportamiento del modo Matrículas"
+                                            description="Qué hace el sistema cuando lee una chapa"
+                                            settingKey="MODE_LPR"
+                                            options={[
+                                                { id: "BLACKLIST", label: "Lista Negra", desc: "Las matrículas identificadas en lista serán DENEGADAS.", icon: ShieldAlert, color: "red" },
+                                                { id: "WHITELIST", label: "Lista Blanca", desc: "Las matrículas identificadas en lista serán PERMITIDAS.", icon: ShieldCheck, color: "emerald" },
+                                                { id: "LEARNING", label: "Aprendizaje", desc: "Agrega matrículas desconocidas a la base de datos.", icon: Activity, color: "blue" }
+                                            ]}
+                                        />
+                                        <OmniLprToggle />
+                                    </>
+                                );
+
+                                return (
+                                    <ModeConfiguration
+                                        title="Comportamiento del modo Filas"
+                                        description="Qué hace el sistema con la gente que espera"
+                                        settingKey="MODE_QUEUE"
+                                        options={[
+                                            { id: "COUNTER", label: "Contador", desc: "Cuenta personas en fila. Alerta cuando supera el umbral.", icon: Activity, color: "blue" },
+                                            { id: "TICKET", label: "Turnos", desc: "Sistema de turnos con ticket virtual y notificación.", icon: Bell, color: "violet" },
+                                            { id: "LEARNING", label: "Aprendizaje", desc: "Modo en desarrollo. Aprende patrones de flujo.", icon: Cpu, color: "amber", disabled: true }
+                                        ]}
+                                    />
                                 );
                             })()}
-
-                            {/* Configuración del modo seleccionado */}
-                            {modeSubTab === "mode_face" && (
-                                <ModeConfiguration
-                                    title="Modo Face"
-                                    description="Define cómo se comporta el sistema ante eventos de reconocimiento facial"
-                                    settingKey="MODE_FACE"
-                                    options={[
-                                        { id: "BLACKLIST", label: "Lista Negra", desc: "Las capturas identificadas serán DENEGADAS automáticamente.", icon: ShieldAlert, color: "red" },
-                                        { id: "WHITELIST", label: "Lista Blanca", desc: "Las capturas identificadas serán PERMITIDAS automáticamente.", icon: ShieldCheck, color: "emerald" },
-                                        { id: "LEARNING", label: "Aprendizaje", desc: "Modo en desarrollo. Captura rostros para entrenamiento.", icon: Cpu, color: "amber", disabled: true }
-                                    ]}
-                                />
-                            )}
-                            {modeSubTab === "mode_lpr" && (
-                                <ModeConfiguration
-                                    title="Modo LPR"
-                                    description="Define la lógica de control para matrículas detectadas"
-                                    settingKey="MODE_LPR"
-                                    options={[
-                                        { id: "BLACKLIST", label: "Lista Negra", desc: "Las matrículas identificadas en lista serán DENEGADAS.", icon: ShieldAlert, color: "red" },
-                                        { id: "WHITELIST", label: "Lista Blanca", desc: "Las matrículas identificadas en lista serán PERMITIDAS.", icon: ShieldCheck, color: "emerald" },
-                                        { id: "LEARNING", label: "Aprendizaje", desc: "Agrega matrículas desconocidas a la base de datos.", icon: Activity, color: "blue" }
-                                    ]}
-                                />
-                            )}
-                            {modeSubTab === "mode_lpr" && <OmniLprToggle />}
-                            {modeSubTab === "mode_queue" && (
-                                <ModeConfiguration
-                                    title="Modo Filas"
-                                    description="Define la lógica de control para el sistema de filas y turnos"
-                                    settingKey="MODE_QUEUE"
-                                    options={[
-                                        { id: "COUNTER", label: "Contador", desc: "Cuenta personas en fila. Alerta cuando supera el umbral.", icon: Activity, color: "blue" },
-                                        { id: "TICKET", label: "Turnos", desc: "Sistema de turnos con ticket virtual y notificación.", icon: Bell, color: "violet" },
-                                        { id: "LEARNING", label: "Aprendizaje", desc: "Modo en desarrollo. Aprende patrones de flujo.", icon: Cpu, color: "amber", disabled: true }
-                                    ]}
-                                />
-                            )}
 
                             {/* Modal de confirmación */}
                             {pendingMode && (
