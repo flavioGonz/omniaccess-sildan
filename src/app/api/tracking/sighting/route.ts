@@ -262,7 +262,21 @@ export async function POST(req: NextRequest) {
      * el barrido ya no mira —esas cámaras están excluidas— y que por lo tanto no cerraría
      * nunca.
      */
-    const franja = body.deviceId ? await franjaDe(body.deviceId) : null;
+    /*
+     * El motor de ocupación se puede apagar, y apagarlo tiene que apagar TAMBIÉN esta rama.
+     *
+     * La franja dibujada no es la que manda: la que manda es la función. Si quedara
+     * mirando sólo el dibujo, apagar el motor dejaría las cámaras con franja entrando
+     * igual por acá — que es la rama que NO abre estadía, porque da por sentado que la
+     * ocupación la lleva el barrido. Con el barrido apagado eso significa que esas
+     * cámaras no registrarían ninguna permanencia en ningún lado.
+     *
+     * Apagado, `franja` queda en null y la lectura sigue de largo hasta el criterio por
+     * matrícula, que es el mismo camino que recorren las cámaras sin franja.
+     */
+    const franja = (body.deviceId && await funcionActiva("LPR_OCUPACION"))
+        ? await franjaDe(body.deviceId)
+        : null;
     if (franja && caja) {
         // El centro del recuadro de la chapa, que es el punto del que se sabe dónde cayó.
         const centro = { x: caja.x + caja.w / 2, y: caja.y + caja.h / 2 };

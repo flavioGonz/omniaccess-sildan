@@ -70,6 +70,7 @@ import { getEnabledModules, toggleModule, setExclusiveMode } from "@/app/actions
 import { OtpInput, type OtpStatus } from "@/components/ui/otp-input";
 import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
+import ModosSection from "./ModosSection";
 import { FUNCIONES, type FuncionId } from "@/lib/funciones";
 import { getFunciones, toggleFuncion } from "@/app/actions/funciones";
 import { Switch } from "@/components/ui/switch";
@@ -244,7 +245,15 @@ export default function SettingsPage() {
     const cerrarPin = () => { setPendingMode(null); setPinEstado("idle"); };
 
     return (
-        <div className="h-full overflow-y-auto px-6 pb-6 pt-0 space-y-6 animate-in fade-in duration-700 custom-scrollbar">
+        /* Sin animación de entrada.
+              *
+              * Había tres encadenadas: la pantalla entera se desvanecía durante 700 ms, el
+              * contenido subía 500 ms más, y cada sección volvía a hacerlo al cambiar de
+              * pestaña. Es configuración: se entra a cambiar UNA cosa y salir, y esperar a
+              * que media pantalla termine de acomodarse antes de poder apuntarle a un
+              * interruptor es peaje puro. Una animación se gana explicando un cambio de
+              * estado; ésta no explicaba ninguno. */
+        <div className="h-full overflow-y-auto px-6 pb-6 pt-0 space-y-6 custom-scrollbar">
 
 
             {/* Tabs Navigation (agrupado por familias) */}
@@ -297,7 +306,7 @@ export default function SettingsPage() {
 
             {/* Main Content */}
             <div className="w-full space-y-6">
-                <div key={activeSection} className="animate-in fade-in slide-in-from-bottom-2 duration-500 ease-out">
+                <div key={activeSection}>
                     {/* Mode Face Section */}
                     {activeSection === "audit" && <AuditPage />}
 
@@ -307,24 +316,53 @@ export default function SettingsPage() {
 
 
                     {activeSection === "modo" && (
-                        <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                            {/* Sub-tabs de modo */}
-                            <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="space-y-8">
+                            {/* Los módulos y sus funciones.
+                              *
+                              * Estaban escritos y NO SE RENDERIZABAN. `ModulesSection` existía
+                              * en este mismo archivo, con sus cuatro tarjetas y los interruptores
+                              * de funciones, y no había una sola línea que la dibujara: el
+                              * operador no tenía forma de prender ni apagar un módulo, ni de
+                              * apagar las estadías, por más que el mecanismo entero —la acción,
+                              * el Setting, el caché— estuviera terminado y andando.
+                              *
+                              * Es la misma clase de defecto que el resto de la auditoría, sólo
+                              * que al revés: acá no es una pantalla que dice algo falso, es una
+                              * función que existe y no tiene puerta. */}
+                            <ModosSection />
+
+                            {/* Sub-pestañas: qué modo se está configurando.
+                              *
+                              * Son una ELECCIÓN entre tres, así que van en píldora — la gramática
+                              * del sistema para lo que se prende y se apaga. Antes eran
+                              * `rounded-lg`, que es la forma de un botón que dispara algo.
+                              *
+                              * Y el ícono tenía un color por pestaña (ámbar, verde azulado,
+                              * violeta) que no significaba nada: tres colores para tres nombres.
+                              * El azul de la píldora ya dice cuál está elegida. */}
+                            <div className="flex flex-wrap items-center gap-1.5 border-b border-border pb-4">
                                 {[
-                                    { k: "mode_lpr", label: "Modo LPR", moduleId: "MODULE_LPR", Icon: ScanLine, color: "amber" },
-                                    { k: "mode_face", label: "Modo Face", moduleId: "MODULE_FACE", Icon: ScanFace, color: "teal" },
-                                    { k: "mode_queue", label: "Modo Cola", moduleId: "MODULE_QUEUE", Icon: Users, color: "violet" },
+                                    { k: "mode_lpr", label: "Matrículas", moduleId: "MODULE_LPR", Icon: ScanLine },
+                                    { k: "mode_face", label: "Rostro", moduleId: "MODULE_FACE", Icon: ScanFace },
+                                    { k: "mode_queue", label: "Filas", moduleId: "MODULE_QUEUE", Icon: Users },
                                 ].map((t) => {
                                     const sel = modeSubTab === t.k;
                                     const isOn = enabledModules[t.moduleId];
                                     const Ic = t.Icon;
                                     return (
                                         <button key={t.k} onClick={() => setModeSubTab(t.k)}
-                                            className={cn("flex items-center gap-2 px-3.5 py-2 rounded-lg border text-sm font-semibold transition",
-                                                sel ? "bg-accent border-border text-foreground" : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50")}>
-                                            <Ic size={15} className={sel ? `text-${t.color}-400` : "text-muted-foreground"} />
+                                            className={cn(
+                                                "flex items-center gap-2 rounded-full px-3.5 py-2 text-[12px] font-semibold transition-colors",
+                                                sel
+                                                    ? "bg-[var(--accion)] text-[var(--accion-texto)]"
+                                                    : "text-muted-foreground hover:bg-accent hover:text-foreground")}>
+                                            <Ic size={14} />
                                             {t.label}
-                                            {isOn && <span className="ml-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Activo</span>}
+                                            {/* El punto sólo aparece cuando el módulo está prendido, y no
+                                                late: un punto que parpadea dice "pasando algo ahora", y
+                                                acá no pasa nada — es un estado quieto. */}
+                                            {isOn && <span className={cn("h-1.5 w-1.5 rounded-full",
+                                                sel ? "bg-[var(--accion-texto)]" : "bg-[var(--bien)]")} />}
                                         </button>
                                     );
                                 })}
@@ -335,13 +373,20 @@ export default function SettingsPage() {
                                 const meta = ({ mode_lpr: { moduleId: "MODULE_LPR", label: "Modo LPR" }, mode_face: { moduleId: "MODULE_FACE", label: "Modo Face" }, mode_queue: { moduleId: "MODULE_QUEUE", label: "Modo Cola" } } as any)[modeSubTab];
                                 const isOn = enabledModules[meta.moduleId];
                                 return (
-                                    <div className={cn("flex items-center justify-between gap-3 rounded-xl border p-4", isOn ? "border-emerald-500/30 bg-emerald-500/[0.06]" : "border-border bg-card")}>
-                                        <div>
-                                            <div className="text-sm font-bold text-foreground">{isOn ? "Este modo está activo" : "Activar este modo"}</div>
-                                            <p className="text-xs text-muted-foreground mt-0.5">Cambiar de modo recarga la aplicación con la interfaz del nuevo modo.</p>
+                                    /* El tono `bien` acá SÍ dice algo —"está como tiene que
+                                       estar"— pero el botón no es verde ni violeta: es el azul
+                                       de acción, el único del sistema. El color del botón tiene
+                                       que decir algo de lo que pasa al apretarlo, y "violeta" no
+                                       decía nada. */
+                                    <div className={cn("flex items-center justify-between gap-4 rounded-[var(--radius)] border p-4",
+                                        isOn ? "border-[color-mix(in_oklab,var(--bien)_35%,transparent)] bg-[var(--bien-suave)]" : "border-border bg-card")}>
+                                        <div className="min-w-0">
+                                            <div className="text-[13px] font-semibold text-foreground">{isOn ? "Este modo está activo" : "Activar este modo"}</div>
+                                            <p className="mt-0.5 text-[11px] leading-[1.45] text-muted-foreground">Cambiar de modo recarga la aplicación con la interfaz del nuevo modo, y desactiva los demás.</p>
                                         </div>
                                         <button disabled={isOn} onClick={() => setPendingMode(meta)}
-                                            className={cn("px-4 py-2 rounded-lg text-sm font-bold transition shrink-0", isOn ? "bg-muted text-muted-foreground cursor-default" : "bg-violet-600 hover:bg-violet-500 text-white")}>
+                                            className={cn("shrink-0 rounded-[var(--radius-sm)] px-4 py-2 text-[12px] font-semibold transition-colors",
+                                                isOn ? "cursor-default bg-muted text-muted-foreground" : "bg-[var(--accion)] text-[var(--accion-texto)] hover:bg-[var(--accion-sobre)]")}>
                                             {isOn ? "Activo" : "Activar"}
                                         </button>
                                     </div>
@@ -1735,11 +1780,17 @@ function ModeConfiguration({ title, description, settingKey, options }: {
 
     return (
         <>
-            <div className="bg-card/50 backdrop-blur-xl border border-border rounded-2xl p-8 space-y-8 animate-in slide-in-from-bottom-5 duration-500">
+            {/* Sin `backdrop-blur-xl`, sin `rounded-2xl` y sin la animación de entrada.
+              *
+              * El vidrio esmerilado es para lo que se apoya sobre una FOTO o un mapa, donde
+              * el fondo no es nuestro y un hairline desaparece. Esto se apoya sobre la
+              * página, así que alcanza con la superficie y una línea. Y 16px de radio no
+              * está en la gramática (0 / 6 / 10 / 14): un panel es 10. */}
+            <div className="rounded-[var(--radius)] border border-border bg-card p-6 space-y-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h2 className="text-2xl font-bold text-foreground">{title}</h2>
-                        <p className="text-sm text-muted-foreground mt-1">{description}</p>
+                        <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
+                        <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{description}</p>
                     </div>
                 </div>
 
@@ -1756,35 +1807,45 @@ function ModeConfiguration({ title, description, settingKey, options }: {
                                     key={option.id}
                                     onClick={() => !isDisabled && handleSelect(option.id)}
                                     disabled={isDisabled}
+                                    /* Elegida = azul de acción. Antes cada opción traía su
+                                       propio color (rojo para lista negra, verde para blanca,
+                                       ámbar y violeta para aprendizaje), y esos colores decían
+                                       DOS cosas contradictorias: rojo por "denegar" y rojo por
+                                       "ésta es la que está puesta". Cuál de las dos, dependía de
+                                       si estaba seleccionada. El significado del color no puede
+                                       depender del estado del control que lo lleva.
+                                       Ahora el color del ícono dice qué HACE la opción, y el
+                                       marco azul dice cuál está elegida. */
                                     className={cn(
-                                        "w-full relative p-4 rounded-xl border text-left transition-all duration-300 group flex items-center gap-4",
+                                        "group relative flex w-full items-center gap-3.5 rounded-[var(--radius-sm)] border p-3.5 text-left transition-colors",
                                         isSelected
-                                            ? `bg-${option.color}-500/10 border-${option.color}-500/50 shadow-lg shadow-${option.color}-900/10`
+                                            ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]"
                                             : isDisabled
-                                                ? "bg-card/20 border-border opacity-50 cursor-not-allowed"
-                                                : "bg-card/40 border-border hover:bg-card/60 hover:border-border"
+                                                ? "cursor-not-allowed border-border bg-muted/40 opacity-60"
+                                                : "border-border bg-card hover:bg-accent"
                                     )}
                                 >
                                     <div className={cn(
-                                        "w-10 h-10 rounded-lg flex items-center justify-center transition-colors shrink-0",
-                                        isSelected ? `bg-${option.color}-500/20 text-${option.color}-400` : "bg-foreground/10 text-muted-foreground group-hover:bg-accent group-hover:text-muted-foreground"
+                                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] transition-colors",
+                                        isSelected ? `bg-${option.color}-500/15 text-${option.color}-400` : "bg-muted text-muted-foreground"
                                     )}>
-                                        <Icon size={20} />
+                                        <Icon size={18} />
                                     </div>
                                     <div>
-                                        <h3 className={cn(
-                                            "font-bold text-sm",
-                                            isSelected ? "text-foreground" : "text-muted-foreground"
-                                        )}>
+                                        <h3 className="text-[13px] font-semibold text-foreground">
                                             {option.label}
                                         </h3>
-                                        <p className="text-[10px] text-muted-foreground font-medium leading-tight mt-0.5">
+                                        {/* 11px y peso 400: el peso 500 está proscripto y a 10px
+                                            esto no se leía de pie frente al puesto. */}
+                                        <p className="mt-0.5 text-[11px] leading-[1.45] text-muted-foreground">
                                             {option.desc}
                                         </p>
                                     </div>
-                                    {isSelected && (
-                                        <div className={`ml-auto w-2 h-2 rounded-full bg-${option.color}-500 shadow-[0_0_8px_currentColor] animate-pulse`} />
-                                    )}
+                                    {/* Una tilde, no un punto que late. El latido dice "está
+                                        pasando algo ahora mismo"; acá el dato es quieto — esta
+                                        es la opción puesta. Y sin el resplandor, que era una
+                                        tercera sombra fuera del sistema. */}
+                                    {isSelected && <Check size={16} className="ml-auto shrink-0 text-[var(--accion)]" />}
                                 </button>
                             );
                         })}
@@ -1795,7 +1856,7 @@ function ModeConfiguration({ title, description, settingKey, options }: {
                         <div className="bg-background/30 border border-border rounded-xl p-6 h-full">
                             <div className="flex items-center gap-2 mb-4">
                                 <Info size={16} className="text-muted-foreground" />
-                                <h3 className="text-xs font-bold text-foreground uppercase tracking-widest">¿CÓMO FUNCIONA ESTE MODO?</h3>
+                                <h3 className="text-[9px] font-bold uppercase leading-none tracking-[0.14em] text-muted-foreground">Cómo funciona este modo</h3>
                             </div>
 
                             <div className="space-y-4">
@@ -2652,166 +2713,5 @@ function AdminsSection() {
                     onSuccess={() => setAdminABorrar(null)}
                 />
             )}        </div>
-    );
-}
-
-
-// ─── Modules Section ────────────────────────────────
-function ModulesSection() {
-    const [modules, setModules] = useState<Record<string, boolean>>({});
-    const [loading, setLoading] = useState(true);
-    const [toggling, setToggling] = useState<string | null>(null);
-    const [funciones, setFunciones] = useState<Record<string, boolean>>({});
-    const [alternando, setAlternando] = useState<string | null>(null);
-
-    useEffect(() => {
-        getEnabledModules().then(m => {
-            setModules(m);
-            setLoading(false);
-        });
-        getFunciones().then(setFunciones).catch(() => { });
-    }, []);
-
-    const alternarFuncion = async (id: string) => {
-        setAlternando(id);
-        const valor = !(funciones[id] ?? true);
-        const r = await toggleFuncion(id as FuncionId, valor);
-        if (r.ok) {
-            setFunciones((p) => ({ ...p, [id]: valor }));
-            toast.success({ title: valor ? "Funci\u00f3n activada" : "Funci\u00f3n desactivada" });
-        } else {
-            toast.error({ title: "No se pudo cambiar" });
-        }
-        setAlternando(null);
-    };
-
-    const handleToggle = async (moduleId: string) => {
-        setToggling(moduleId);
-        const newValue = !modules[moduleId];
-        const result = await toggleModule(moduleId as ModuleId, newValue);
-        if (result.success) {
-            setModules(prev => ({ ...prev, [moduleId]: newValue }));
-            toast.success({ title: `Módulo ${newValue ? 'activado' : 'desactivado'}` });
-        }
-        setToggling(null);
-    };
-
-    const iconMap: Record<string, any> = {
-        Car: Car,
-        ScanFace: ScanFace,
-        Users: Users,
-    };
-
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center py-20">
-                <RefreshCcw className="animate-spin text-muted-foreground" size={24} />
-            </div>
-        );
-    }
-
-    return (
-        <div className="space-y-6 animate-in zoom-in-95 duration-500">
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h2 className="text-2xl font-bold text-foreground tracking-tight">Módulos del Sistema</h2>
-                    <p className="text-sm text-muted-foreground mt-1">Activa o desactiva los módulos de OmniAccess. Los módulos desactivados no aparecen en el menú.</p>
-                </div>
-                <div className="p-2 bg-violet-500/10 rounded-xl border border-violet-500/20">
-                    <Cpu className="text-violet-400" size={24} />
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {MODULE_DEFINITIONS.map((mod) => {
-                    const Icon = iconMap[mod.icon] || Cpu;
-                    const enabled = modules[mod.id] ?? mod.defaultEnabled;
-                    const isToggling = toggling === mod.id;
-
-                    const modColorMap: Record<string, string> = { MODULE_LPR: 'amber', MODULE_FACE: 'teal', MODULE_QUEUE: 'violet', MODULE_GUARD: 'emerald' };
-                    const modColor = modColorMap[mod.id] || 'violet';
-                    const colorClasses: Record<string, { bg: string; border: string; text: string; glow: string }> = {
-                        amber: { bg: "bg-amber-500/10", border: "border-amber-500/30", text: "text-amber-400", glow: "shadow-amber-500/20" },
-                        teal: { bg: "bg-teal-500/10", border: "border-teal-500/30", text: "text-teal-400", glow: "shadow-teal-500/20" },
-                        violet: { bg: "bg-violet-500/10", border: "border-violet-500/30", text: "text-violet-400", glow: "shadow-violet-500/20" },
-                    };
-                    const colors = colorClasses[modColor] || colorClasses.violet;
-
-                    return (
-                        <div
-                            key={mod.id}
-                            className={cn(
-                                "relative rounded-2xl border p-6 transition-all duration-300",
-                                enabled
-                                    ? `${colors.bg} ${colors.border} shadow-lg ${colors.glow}`
-                                    : "bg-card/50 border-border/50 opacity-60"
-                            )}
-                        >
-                            <div className="flex items-start justify-between mb-4">
-                                <div className={cn(
-                                    "p-3 rounded-xl",
-                                    enabled ? colors.bg : "bg-muted"
-                                )}>
-                                    <Icon className={enabled ? colors.text : "text-muted-foreground"} size={24} />
-                                </div>
-                                <button
-                                    onClick={() => handleToggle(mod.id)}
-                                    disabled={isToggling}
-                                    className={cn(
-                                        "relative w-12 h-7 rounded-full transition-all duration-300 focus:outline-none",
-                                        enabled ? "bg-emerald-500" : "bg-muted"
-                                    )}
-                                >
-                                    <div className={cn(
-                                        "absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-all duration-300",
-                                        enabled ? "left-[22px]" : "left-0.5",
-                                        isToggling && "animate-pulse"
-                                    )} />
-                                </button>
-                            </div>
-                            <h3 className="text-lg font-bold text-foreground mb-1">{mod.name}</h3>
-                            <p className="text-xs text-muted-foreground leading-relaxed">{mod.description}</p>
-                        </div>
-                    );
-                })}
-            </div>
-
-            {/*
-              * Las funciones de un módulo.
-              *
-              * Un módulo es una instalación entera; una función es algo que ese módulo puede
-              * hacer o no hacer sin dejar de ser él mismo. Las estadías estaban escritas en
-              * el código: un barrio al que sólo le importa quién entró y quién salió
-              * igual mantenía una fila abierta por cada auto quieto, la releía y la vigilaba.
-              */}
-            {FUNCIONES.filter((f) => modules[f.modulo] ?? true).map((f) => {
-                const encendida = funciones[f.id] ?? f.porDefecto;
-                return (
-                    <div key={f.id} className="mt-4 rounded-2xl border border-border bg-card/50 p-5">
-                        <div className="flex items-start gap-4">
-                            <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-bold text-foreground">{f.nombre}</span>
-                                <span className="block text-xs text-muted-foreground leading-relaxed mt-1">{f.que}</span>
-                                {/* Lo que deja de pasar se dice ANTES de apagar, no después. */}
-                                <span className="block text-xs text-muted-foreground leading-relaxed mt-2">
-                                    <b className="text-foreground/80">Si se apaga:</b> {f.siSeApaga}
-                                </span>
-                            </span>
-                            <button
-                                onClick={() => alternarFuncion(f.id)}
-                                disabled={alternando === f.id}
-                                aria-label={encendida ? `Apagar ${f.nombre}` : `Prender ${f.nombre}`}
-                                className={cn("relative w-12 h-6 rounded-full transition-colors shrink-0 mt-0.5",
-                                    encendida ? "bg-[var(--accion)]" : "bg-muted",
-                                    alternando === f.id && "opacity-60")}>
-                                <span className={cn("absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all",
-                                    encendida ? "left-[26px]" : "left-0.5")} />
-                            </button>
-                        </div>
-                    </div>
-                );
-            })}
-
-        </div>
     );
 }

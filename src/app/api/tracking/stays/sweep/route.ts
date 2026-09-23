@@ -93,10 +93,24 @@ export async function POST(req: NextRequest) {
      *
      * La regla correcta es: una franja releva al barrendero sólo si PUEDE medir.
      */
-    const conFranja = await prisma.franja.findMany({
+    /*
+     * Y ahora, además, el motor tiene que estar PRENDIDO.
+     *
+     * Era la última condición que faltaba para que las dos frases de arriba fueran ciertas
+     * siempre. La exclusión del barrido por chapa se justifica con "la franja se hace
+     * cargo"; si el operador apagó el motor de ocupación, la franja no se hace cargo de
+     * nada, y excluir igual a esas cámaras las devolvería al mismo hueco que dejó a
+     * SBW3369 estacionada cuarenta horas — sólo que esta vez por decisión de la pantalla.
+     *
+     * Apagado, `conFranja` queda vacío: no se mira ninguna franja Y ninguna cámara se
+     * excluye. Las cámaras con franja pasan a medirse por matrícula, igual que las que
+     * nunca tuvieron una dibujada. No hace falta ninguna otra rama.
+     */
+    const ocupacion = await funcionActiva("LPR_OCUPACION");
+    const conFranja = ocupacion ? await prisma.franja.findMany({
         where: { activa: true, vacio: { not: null } },
         select: { deviceId: true, device: { select: { id: true, name: true, rtspUrl: true } } },
-    });
+    }) : [];
     const franjas = [];
     for (const f of conFranja) {
         franjas.push(await mirarLaFranja(f.device).catch((e: any) => ({
