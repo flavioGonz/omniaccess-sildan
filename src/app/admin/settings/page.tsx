@@ -568,7 +568,7 @@ export default function SettingsPage() {
                     )}
 
                     {activeSection === "prerec" && (
-                        <div className="space-y-6 animate-in zoom-in-95 duration-500">
+                        <div className="space-y-6">
                             <div className="flex items-center justify-between mb-2">
                                 <div>
                                     <h2 className="text-2xl font-bold text-foreground tracking-tight">Pre-grabación</h2>
@@ -583,7 +583,7 @@ export default function SettingsPage() {
                     )}
 
                     {activeSection === "system_status" && (
-                        <div className="space-y-6 animate-in zoom-in-95 duration-500">
+                        <div className="space-y-6">
                             <div className="flex items-center justify-between mb-6">
                                 <div>
                                     <h2 className="text-2xl font-bold text-foreground tracking-tight">Topología de Red</h2>
@@ -2185,7 +2185,7 @@ function WhatsAppSection() {
     }
 
     return (
-        <div className="space-y-6 animate-in zoom-in-95 duration-500">
+        <div className="space-y-6">
             {/* Header Compacto */}
             <div className="bg-gradient-to-br from-emerald-600/10 to-teal-600/10 border border-emerald-500/10 rounded-lg p-5 flex items-center justify-between">
                 <div className="flex items-center gap-4">
