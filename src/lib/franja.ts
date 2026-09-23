@@ -367,6 +367,76 @@ export function lugarDelPunto(esq: Esquinas, lugares: number, p: Punto): number 
     return null;
 }
 
+/** Distancia de un punto a un segmento. */
+function aSegmento(p: Punto, a: Punto, b: Punto): number {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const largo = dx * dx + dy * dy;
+    let t = largo ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / largo : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/** Distancia de un punto al borde de un polígono. Cero si está adentro no se comprueba acá. */
+function alBorde(p: Punto, poli: Punto[]): number {
+    let min = Infinity;
+    for (let i = 0, j = poli.length - 1; i < poli.length; j = i++) {
+        min = Math.min(min, aSegmento(p, poli[i], poli[j]));
+    }
+    return min;
+}
+
+/**
+ * Cuántos anchos de chapa se tolera que la matrícula caiga FUERA de la franja.
+ *
+ * Existe porque la franja se dibuja sobre el PISO —es donde se apoya el auto y es lo que
+ * el motor de ocupación puede medir— y la matrícula no está en el piso: está en el
+ * paragolpes, medio metro más arriba y más cerca de la cámara. Proyectadas al cuadro, las
+ * dos cosas no coinciden.
+ *
+ * Medido en Calle 21 el 23 de setiembre: un auto estacionado tres horas y veinte, con el
+ * recuadro idéntico hasta el cuarto decimal en 25 lecturas, daba el centro de la chapa a
+ * 0.0064 del borde — el 7% del ancho de la franja, unos diez píxeles. Erraba por los
+ * mismos diez píxeles SIEMPRE, así que ese vehículo no podía ser identificado nunca.
+ *
+ * La tolerancia se mide en anchos de la propia chapa y no en una fracción del cuadro, que
+ * fue lo primero que probé. El motivo es la perspectiva: una chapa cerca de la cámara mide
+ * el triple que una lejos, y su desvío contra el piso crece en la misma proporción. Con un
+ * número fijo, o es muy chico para los autos de adelante o muy grande para los del fondo.
+ * Con el ancho de la chapa, la referencia viene de la propia medición y se ajusta sola —
+ * el mismo criterio que `areaTipica` en `recuadros.ts`.
+ *
+ * Uno y medio y no tres: a 1,5 anchos el caso medido entra con holgura (0.0064 contra
+ * 0.041) y un auto de la vereda de enfrente sigue quedando afuera.
+ */
+const CHAPAS_DE_TOLERANCIA = Number(process.env.TRACKING_FRANJA_TOLERANCIA || 1.5);
+
+/**
+ * ¿En qué lugar de la franja está el vehículo cuya chapa tiene este recuadro?
+ *
+ * Igual que `lugarDelPunto` pero admitiendo que la chapa caiga un poco afuera, porque no
+ * está a la altura del piso. Devuelve la celda MÁS CERCANA dentro de la tolerancia, no la
+ * primera que pase: entre dos lugares contiguos hay que quedarse con el de verdad, y en el
+ * caso medido la celda 1 estaba seis veces más cerca que la 2 (0.0064 contra 0.0394), así
+ * que la ambigüedad es teórica.
+ */
+export function lugarDeLaChapa(
+    esq: Esquinas, lugares: number, caja: { x: number; y: number; w: number; h: number },
+): { lugar: number | null; afuera: number } {
+    const centro = { x: caja.x + caja.w / 2, y: caja.y + caja.h / 2 };
+
+    const dentro = lugarDelPunto(esq, lugares, centro);
+    if (dentro != null) return { lugar: dentro, afuera: 0 };
+
+    const tolerancia = CHAPAS_DE_TOLERANCIA * caja.w;
+    let mejor: number | null = null;
+    let menor = Infinity;
+    for (let i = 0; i < lugares; i++) {
+        const d = alBorde(centro, celda(esq, i, lugares));
+        if (d < menor) { menor = d; mejor = i; }
+    }
+    return menor <= tolerancia ? { lugar: mejor, afuera: menor } : { lugar: null, afuera: menor };
+}
+
 /** ¿Este cuadro sirve para juzgar? Ver `CUADRO_PISO`. */
 export function cuadroUtil(m: Mirada): { ok: boolean; contraste: number } {
     let suma = 0;

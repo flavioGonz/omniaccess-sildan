@@ -81,6 +81,98 @@ const camIconDe = (rumbo?: number | null) => L.divIcon({
 /** Manija de vértice: arrastrar mueve, clic derecho lo quita. */
 const verticeHtml = `<span style="display:block;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #f59e0b;box-shadow:0 1px 4px rgba(0,0,0,.6)"></span>`;
 
+/**
+ * Un lote. En `memo`, y con TODO lo que Leaflet compara por referencia memoizado adentro.
+ *
+ * ── POR QUÉ SE TRANCABA EL MAPA ───────────────────────────────────────────────────────
+ *
+ * El lote se dibujaba inline adentro del `.map()` de `BarrioMap`, y eso significa que
+ * `pathOptions`, `eventHandlers` y los hijos del tooltip eran objetos NUEVOS en cada
+ * render del mapa entero. Los tres se comparan por referencia río abajo, así que cada
+ * render de `BarrioMap` disparaba, POR LOTE:
+ *
+ * 1. `Tooltip.update()` — porque `props.children` era un array nuevo. Y `update()` de
+ *    Leaflet escribe `style.width=''`, lee `offsetWidth`, escribe, lee `offsetHeight`:
+ *    lectura y escritura intercaladas, o sea **layout sincrónico forzado**. Dos o tres
+ *    por lote. Con trescientos lotes son entre 600 y 900 reflows forzados por render.
+ *    Es, de lejos, el costo dominante, y crece lineal con los lotes — que es exactamente
+ *    el síntoma: "con muchos lotes se tranca".
+ * 2. `Path.setStyle()` — porque `pathOptions` era literal. Son diez `setAttribute` sobre
+ *    el `<path>` más un `_updateBounds()` por el `weight`. Unas 3.000 escrituras de
+ *    atributo SVG con trescientos lotes.
+ * 3. `off()` + `on()` de los cinco manejadores — porque `eventHandlers` era literal.
+ *    Otras 3.000 operaciones sobre las listas de eventos de Leaflet.
+ *
+ * Y todo eso corría en CADA render del mapa, incluido el que dispara mover el mouse por
+ * encima de un lote (ver `posHover` en `BarrioMap`) y cada cuadro de una reproducción de
+ * recorrido. Mover el puntero por el barrio pedía sesenta veces por segundo un trabajo
+ * que es lineal en la cantidad de lotes.
+ *
+ * ── LO QUE NO ERA EL PROBLEMA ─────────────────────────────────────────────────────────
+ *
+ * Vale anotarlo porque es lo primero que uno toca: los vértices NO se reproyectan por
+ * render. `Polygon` sólo llama `setLatLngs` si `positions` cambió de referencia, y
+ * `lo.points` viene del mismo objeto `data`, así que es estable. Tampoco hay
+ * `removeLayer`/`addLayer` por render: el ciclo de vida de la capa depende sólo del
+ * contexto y del elemento. Lo caro era el chrome alrededor del polígono, no el polígono.
+ */
+type LotePintado = {
+    id: string; points: LL[]; label: string; conUnidad: boolean; nombreUnidad: string | null;
+    sel: boolean; señalado: boolean; rotulo: boolean; editando: boolean;
+    onElegir: (id: string) => void;
+    onMenu: (e: any, id: string) => void;
+    onEntrar: (id: string, e: any) => void;
+    onMover: (id: string, e: any) => void;
+    onSalir: (id: string) => void;
+    onVertice: (id: string, i: number, ll: LL) => void;
+    onQuitarVertice: (id: string, i: number) => void;
+};
+
+const Lote = React.memo(function Lote(p: LotePintado) {
+    const estilo = useMemo(() => ({
+        /* Señalado y seleccionado son dos cosas distintas y se ven distinto: señalar es
+           pasar por encima, seleccionar es haber elegido. El hover sólo sube el relleno. */
+        color: p.sel ? "#f59e0b" : p.conUnidad ? "#38bdf8" : "#94a3b8",
+        weight: p.sel ? 3 : p.señalado ? 3 : 2,
+        fillColor: p.sel ? "#f59e0b" : p.conUnidad ? "#38bdf8" : "#94a3b8",
+        fillOpacity: p.sel ? 0.28 : p.señalado ? 0.26 : 0.14,
+    }), [p.sel, p.señalado, p.conUnidad]);
+
+    const manejadores = useMemo(() => ({
+        click: () => p.onElegir(p.id),
+        contextmenu: (e: any) => p.onMenu(e, p.id),
+        mouseover: (e: any) => p.onEntrar(p.id, e),
+        mousemove: (e: any) => p.onMover(p.id, e),
+        mouseout: () => p.onSalir(p.id),
+    }), [p.id, p.onElegir, p.onMenu, p.onEntrar, p.onMover, p.onSalir]);
+
+    /* UNA string, no dos hijos.
+       Dos hijos JSX son un array nuevo en cada render y eso es lo que gatilla el
+       `update()` del punto 1 de arriba. Una string idéntica es `===` a la anterior, así
+       que el efecto no vuelve a correr. El texto que se ve es el mismo. */
+    const texto = p.nombreUnidad ? `${p.label} · ${p.nombreUnidad}` : p.label;
+
+    return (
+        <>
+            <Polygon positions={p.points} pathOptions={estilo} eventHandlers={manejadores}>
+                {/* El nombre clavado encima tapa la foto cuando hay muchos lotes. Apagando
+                    "Nombres" el contorno queda y el nombre vuelve al pasar el mouse. */}
+                {p.rotulo && (
+                    <LTooltip direction="center" permanent className="cam-name-tip">{texto}</LTooltip>
+                )}
+            </Polygon>
+            {p.editando && p.sel && p.points.map((pt, i) => (
+                <Marker key={i} position={pt} draggable
+                    icon={L.divIcon({ className: "bg-transparent border-0", html: verticeHtml, iconSize: [12, 12], iconAnchor: [6, 6] })}
+                    eventHandlers={{
+                        drag: (e: any) => { const ll = e.target.getLatLng(); p.onVertice(p.id, i, [ll.lat, ll.lng]); },
+                        contextmenu: (e: any) => { e.originalEvent?.preventDefault?.(); p.onQuitarVertice(p.id, i); },
+                    }} />
+            ))}
+        </>
+    );
+});
+
 /** Cuánto lleva parado, en palabras cortas. */
 const lapsoCorto = (desde: string | null) => {
     if (!desde) return "—";
@@ -325,7 +417,36 @@ export default function BarrioMap() {
      * y una ficha lejos del polígono obliga a mirar dos lugares y recordar cuál se estaba
      * señalando.
      */
-    const [hoverLote, setHoverLote] = useState<{ id: string; x: number; y: number } | null>(null);
+    /*
+     * El hover guarda SÓLO el id. La posición va a un ref.
+     *
+     * Estaba `{ id, x, y }` en estado, y el `mousemove` de Leaflet lo escribía con un
+     * objeto nuevo en cada evento — o sea a ritmo de puntero, unas sesenta veces por
+     * segundo. Cada una de esas era un render completo de este componente: los N
+     * polígonos, los N rótulos, las calles, los guardias y los estacionados. Pasar el
+     * mouse por el barrio era pedir sesenta veces por segundo un trabajo lineal en la
+     * cantidad de lotes.
+     *
+     * La identidad cambia poco (una vez por lote que se pisa) y merece estado. La
+     * posición cambia siempre y no cambia NADA de lo que React dibuja: sólo mueve una
+     * tarjeta. Eso se escribe directo sobre el nodo, que es el mismo patrón que ya está
+     * resuelto en `BurbujasVivo` acá abajo.
+     */
+    const [hoverLote, setHoverLote] = useState<{ id: string } | null>(null);
+    const posHover = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    const tarjetaHover = useRef<HTMLDivElement | null>(null);
+
+    /* Que no se salga de la pantalla: pegada al borde queda cortada justo cuando el lote
+       está en la orilla del mapa. */
+    const ANCHO_FICHA = 260, ALTO_FICHA = 190;
+    const ubicarTarjeta = useCallback(() => {
+        const n = tarjetaHover.current;
+        if (!n) return;
+        const { x, y } = posHover.current;
+        const iz = Math.min(x + 16, window.innerWidth - ANCHO_FICHA - 12);
+        const ar = Math.min(y + 16, window.innerHeight - ALTO_FICHA - 12);
+        n.style.transform = `translate3d(${iz}px, ${ar}px, 0)`;
+    }, []);
     const [autoParado, setAutoParado] = useState<AutoParado | null>(null);
     /* Las cámaras que ven autos parados pero todavía no dicen hacia dónde miran. La tarjeta
        se dibuja acá y no en un tooltip de Leaflet porque tiene un botón adentro. */
@@ -477,6 +598,26 @@ export default function BarrioMap() {
     const devById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices]);
     // Flujo en vivo (columnas + autitos) — hooks siempre antes del early-return
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
+
+    /*
+     * Las cámaras que recibe la vista 3D, memoizadas — y esto NO era cosmético.
+     *
+     * Se armaban con un `.map()` inline en el JSX, o sea un array nuevo en cada render de
+     * este componente. En `Mapa3D` ese array es dependencia de dos efectos, y el de las
+     * burbujas en vivo tiene función de limpieza: **destruía y volvía a crear todos los
+     * marcadores de cámara, cortando y remontando cada flujo de video**, en cada render
+     * del mapa. Con "Ver todas" prendido y el mouse moviéndose sobre un lote, eso era
+     * sesenta remontajes de video por segundo.
+     *
+     * Y de paso se va el `devices.find(...)` de adentro del bucle: `devById` ya existe.
+     */
+    const cams3D = useMemo(
+        () => (verCapa.camaras ? (data?.cameras || []) : []).map((c: any) => ({
+            ...c, nombre: (devById as any)[c.deviceId]?.name,
+        })),
+        [verCapa.camaras, data, devById],
+    );
+    const nombreDeCamara = useCallback((id: string) => devById[id]?.name || "Cámara", [devById]);
     const flow = useFlow(data?.streets || [], camsNamed, liveSocket);
     /*
      * Los autos parados salen de acá y no de la capa de Leaflet.
@@ -622,14 +763,29 @@ export default function BarrioMap() {
         cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, unitId } : l) }));
         setAsignando(null); setBuscaUnidad("");
     };
-    const moverVertice = (loteId: string, idx: number, ll: LL) => {
+    const moverVertice = useCallback((loteId: string, idx: number, ll: LL) => {
         cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, points: l.points.map((p, i) => i === idx ? ll : p) } : l) }));
-    };
-    const quitarVertice = (loteId: string, idx: number) => {
+    }, []);
+    const quitarVertice = useCallback((loteId: string, idx: number) => {
         cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId && l.points.length > 3 ? { ...l, points: l.points.filter((_, i) => i !== idx) } : l) }));
-    };
+    }, []);
     /** Unidad asignada a un lote, para el cartel y el panel. */
-    const unidadDe = (unitId?: string | null) => unidades.find((u: any) => u.id === unitId);
+    /*
+     * Un índice, no un `find`.
+     *
+     * `unidades.find(...)` se llamaba DENTRO del bucle de lotes, así que era
+     * O(lotes × unidades): con trescientos de cada uno, noventa mil comparaciones por
+     * render — y había un render por cada movimiento del mouse. Es el mismo `devById`
+     * que ya existe unas líneas más arriba para los dispositivos.
+     */
+    const uniPorId = useMemo(
+        () => new Map<string, any>((unidades || []).map((u: any) => [u.id, u])),
+        [unidades],
+    );
+    const unidadDe = useCallback(
+        (unitId?: string | null) => (unitId ? uniPorId.get(unitId) : undefined),
+        [uniPorId],
+    );
 
     const removeCamera = (id: string) => cambiar((d) => ({ ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) }));
     const removeStreet = (id: string) => cambiar((d) => ({ ...d, streets: d.streets.filter((s) => s.id !== id) }));
@@ -725,10 +881,30 @@ export default function BarrioMap() {
         catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); } finally { setSaving(false); }
     };
 
-    const openCtx = (e: any, type: "street" | "camera" | "lote", id: string) => {
+    /* Los manejadores del lote, estables. Si cambiaran de referencia, el `memo` del
+       componente no serviría de nada: cada render volvería a pasarle props nuevas. */
+    const loteElegir = useCallback((id: string) => setSelected({ type: "lote", id }), []);
+    const loteEntrar = useCallback((id: string, e: any) => {
+        const oe = e?.originalEvent;
+        posHover.current = { x: oe?.clientX ?? 0, y: oe?.clientY ?? 0 };
+        setHoverLote((h) => (h?.id === id ? h : { id }));
+        ubicarTarjeta();
+    }, [ubicarTarjeta]);
+    const loteMover = useCallback((_id: string, e: any) => {
+        const oe = e?.originalEvent;
+        if (!oe) return;
+        // Sin `setState`: se mueve el nodo y listo. Esta es la línea que costaba un
+        // render completo del mapa por cada píxel que se movía el puntero.
+        posHover.current = { x: oe.clientX, y: oe.clientY };
+        ubicarTarjeta();
+    }, [ubicarTarjeta]);
+    const loteSalir = useCallback((id: string) => setHoverLote((h) => (h?.id === id ? null : h)), []);
+
+    const openCtx = useCallback((e: any, type: "street" | "camera" | "lote", id: string) => {
         const oe = e.originalEvent || e; oe.preventDefault?.(); oe.stopPropagation?.();
         setCtx({ x: oe.clientX, y: oe.clientY, type, id });
-    };
+    }, []);
+    const loteMenu = useCallback((e: any, id: string) => openCtx(e, "lote", id), [openCtx]);
 
     // ── Controles del mapa ──────────────────────────────────────────────
     const acercar = (d: number) => { const m = mapRef.current; if (m) m.setZoom(m.getZoom() + d); };
@@ -843,7 +1019,7 @@ ${CSS_AUTO}
                         onVista={(v) => { vista3DRef.current = v; }}
                         vivo={vivoTodas}
                         ocultas={ocultas}
-                        nombre={(id: string) => devById[id]?.name || "Cámara"}
+                        nombre={nombreDeCamara}
                         /* Los interruptores de "Mostrar" valen en las dos vistas.
                            Antes esta vista recibia el perimetro, las calles y las camaras
                            SIEMPRE, y los guardias no le llegaban: por eso el menu escondia
@@ -860,7 +1036,7 @@ ${CSS_AUTO}
                         pendientes={estadiasOn && verCapa.estacionados ? estacionados.pendientes : []}
                         flujos={flow.anims}
                         pulsos={flow.pulses}
-                        cameras={(verCapa.camaras ? data.cameras : []).map((c: any) => ({ ...c, nombre: devices.find((d: any) => d.id === c.deviceId)?.name })) as any}
+                        cameras={cams3D as any}
                         puntos={rec.puntos}
                         traza={rec.traza}
                         avance={rec.avance}
@@ -894,57 +1070,30 @@ ${CSS_AUTO}
                     {verCapa.perimetro && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
-                    {/* Casas / lotes: polígono, nombre y vértices arrastrables al editar */}
-                    {(verCapa.lotes ? lotes : []).map((lo) => {
-                        const sel = selected?.type === "lote" && selected.id === lo.id;
-                        const señalado = hoverLote?.id === lo.id;
-                        const uni = unidadDe(lo.unitId);
-                        return (
-                            <React.Fragment key={lo.id}>
-                                <Polygon positions={lo.points}
-                                    pathOptions={{
-                                        /* Señalado y seleccionado son dos cosas distintas y se
-                                           ven distinto: señalar es pasar por encima, seleccionar
-                                           es haber elegido. El hover sólo sube el relleno. */
-                                        color: sel ? "#f59e0b" : lo.unitId ? "#38bdf8" : "#94a3b8",
-                                        weight: sel ? 3 : señalado ? 3 : 2,
-                                        fillColor: sel ? "#f59e0b" : lo.unitId ? "#38bdf8" : "#94a3b8",
-                                        fillOpacity: sel ? 0.28 : señalado ? 0.26 : 0.14,
-                                    }}
-                                    eventHandlers={{
-                                        click: () => setSelected({ type: "lote", id: lo.id }),
-                                        contextmenu: (e) => openCtx(e, "lote", lo.id),
-                                        mouseover: (e: any) => {
-                                            const oe = e.originalEvent;
-                                            setHoverLote({ id: lo.id, x: oe?.clientX ?? 0, y: oe?.clientY ?? 0 });
-                                        },
-                                        mousemove: (e: any) => {
-                                            const oe = e.originalEvent;
-                                            setHoverLote((h) => h?.id === lo.id
-                                                ? { id: lo.id, x: oe?.clientX ?? h.x, y: oe?.clientY ?? h.y } : h);
-                                        },
-                                        mouseout: () => setHoverLote((h) => h?.id === lo.id ? null : h),
-                                    }}>
-                                    {/* El nombre clavado encima tapa la foto cuando hay muchos
-                                        lotes. Apagando "Nombres" el contorno queda y el nombre
-                                        vuelve al pasar el mouse, que ya lo cuenta todo. */}
-                                    {verCapa.rotulos && (
-                                        <LTooltip direction="center" permanent className="cam-name-tip">
-                                            {lo.label}{uni ? ` · ${uni.name}` : ""}
-                                        </LTooltip>
-                                    )}
-                                </Polygon>
-                                {editing && sel && lo.points.map((pt, i) => (
-                                    <Marker key={i} position={pt} draggable
-                                        icon={L.divIcon({ className: "bg-transparent border-0", html: verticeHtml, iconSize: [12, 12], iconAnchor: [6, 6] })}
-                                        eventHandlers={{
-                                            drag: (e: any) => { const ll = e.target.getLatLng(); moverVertice(lo.id, i, [ll.lat, ll.lng]); },
-                                            contextmenu: (e: any) => { e.originalEvent?.preventDefault?.(); quitarVertice(lo.id, i); },
-                                        }} />
-                                ))}
-                            </React.Fragment>
-                        );
-                    })}
+                    {/* Casas / lotes: polígono, nombre y vértices arrastrables al editar.
+                        El cuerpo salió a `<Lote>` en `memo` — ver el comentario largo en su
+                        definición, arriba, que explica por qué esto trancaba el mapa. */}
+                    {(verCapa.lotes ? lotes : []).map((lo) => (
+                        <Lote
+                            key={lo.id}
+                            id={lo.id}
+                            points={lo.points}
+                            label={lo.label}
+                            conUnidad={!!lo.unitId}
+                            nombreUnidad={unidadDe(lo.unitId)?.name ?? null}
+                            sel={selected?.type === "lote" && selected.id === lo.id}
+                            señalado={hoverLote?.id === lo.id}
+                            rotulo={!!verCapa.rotulos}
+                            editando={!!editing}
+                            onElegir={loteElegir}
+                            onMenu={loteMenu}
+                            onEntrar={loteEntrar}
+                            onMover={loteMover}
+                            onSalir={loteSalir}
+                            onVertice={moverVertice}
+                            onQuitarVertice={quitarVertice}
+                        />
+                    ))}
                     {draftLote.length > 0 && (
                         <Polygon positions={draftLote} pathOptions={{ color: "#38bdf8", weight: 2, dashArray: "6 6", fillOpacity: 0.12 }} />
                     )}
@@ -1514,19 +1663,27 @@ ${CSS_AUTO}
                         const pl = plazaDe(lo.parkingSlotId);
                         const gente: any[] = uni?.users || [];
                         const chapas = gente.flatMap((r: any) => (r.vehicles || []).map((v: any) => v.plate)).filter(Boolean);
-                        /* Que no se salga de la pantalla: pegada al borde queda cortada
-                           justo cuando el lote está en la orilla del mapa. */
-                        const ANCHO = 260, ALTO = 190;
-                        const x = Math.min(hoverLote.x + 16, (typeof window !== "undefined" ? window.innerWidth : 1200) - ANCHO - 12);
-                        const y = Math.min(hoverLote.y + 16, (typeof window !== "undefined" ? window.innerHeight : 800) - ALTO - 12);
                         return (
+                            /*
+                             * Dos divs anidados a propósito, y no uno.
+                             *
+                             * El de afuera lo posiciona `ubicarTarjeta` escribiendo
+                             * `transform` directo sobre el nodo, sin pasar por React. El de
+                             * adentro es el de framer-motion, que también anima `transform`.
+                             * Si fueran el mismo nodo se pisarían: la animación de entrada
+                             * le ganaría a la posición y la ficha aparecería en la esquina.
+                             * Es la misma lección que está anotada en `BurbujasVivo`.
+                             */
+                            <div
+                                ref={(n) => { tarjetaHover.current = n; if (n) ubicarTarjeta(); }}
+                                style={{ width: ANCHO_FICHA }}
+                                className="fixed left-0 top-0 z-[580] pointer-events-none will-change-transform">
                             <motion.div
                                 initial={{ opacity: 0, scale: 0.94, y: 6 }}
                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.96, y: 4 }}
                                 transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.6 }}
-                                style={{ left: x, top: y, width: ANCHO }}
-                                className="fixed z-[580] pointer-events-none rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
+                                className="rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
 
                                 <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
                                     <Pentagon size={13} className="text-amber-400 shrink-0" />
@@ -1579,6 +1736,7 @@ ${CSS_AUTO}
                                     </div>
                                 </div>
                             </motion.div>
+                            </div>
                         );
                     })()}
                 </AnimatePresence>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { franjaDe, nombrarOcupante } from "@/lib/ocupaciones";
-import { lugarDelPunto } from "@/lib/franja";
+import { lugarDeLaChapa } from "@/lib/franja";
 import { funcionActiva } from "@/app/actions/funciones";
 import {
     confirmarEstadia, cerrarEstadia, estadiasAbiertas,
@@ -252,10 +252,14 @@ export async function POST(req: NextRequest) {
      * La franja manda donde está dibujada.
      *
      * En una cámara con franja la estadía es del LUGAR y no de la chapa: la abre y la cierra
-     * el barrido midiendo ocupación, y acá la lectura sólo hace una cosa — ponerle NOMBRE al
-     * ocupante. Es la diferencia que arregla el caso de Calle 21, donde el mismo auto entró
-     * al historial como SDM1707, SDH1707 y 5DH177 y salieron tres estadías: ahora son tres
-     * lecturas del ocupante del mismo lugar, y se queda la de más confianza.
+     * el barrido midiendo ocupación, y acá la lectura hace dos cosas — ponerle NOMBRE al
+     * ocupante, y dejar UNA fila de historial por vehículo.
+     *
+     * Este comentario decía que el mismo auto leído como SDM1707, SDH1707 y 5DH177 quedaba
+     * como «tres lecturas del ocupante del mismo lugar». Era falso: salían tres FILAS,
+     * porque abajo había un `create` sin ninguna comprobación. Lo escribí describiendo la
+     * intención y no lo que el código hacía, y así quedó durante días mientras el historial
+     * se llenaba. Ahora es cierto, y lo que lo hace cierto está abajo, no acá.
      *
      * Por eso la lectura se guarda sin `estDesde`/`estHasta`: es un avistamiento del
      * historial, no una estadía abierta. Dejarle fechas la convertiría en una estadía que
@@ -277,10 +281,76 @@ export async function POST(req: NextRequest) {
     const franja = (body.deviceId && await funcionActiva("LPR_OCUPACION"))
         ? await franjaDe(body.deviceId)
         : null;
+
     if (franja && caja) {
-        // El centro del recuadro de la chapa, que es el punto del que se sabe dónde cayó.
-        const centro = { x: caja.x + caja.w / 2, y: caja.y + caja.h / 2 };
-        const lugar = lugarDelPunto(franja.esquinas, franja.lugares, centro);
+        /*
+         * ── EL ANTIRREBOTE QUE ESTA RAMA NO TENÍA ────────────────────────────────────
+         *
+         * Acá había un `create` pelado. La ruta tiene TRES mecanismos para no repetir —la
+         * estadía, el antirrebote de 45 s y el agrupado por trayecto— y esta rama devolvía
+         * antes de los tres. Una lectura, una fila. Siempre.
+         *
+         * Medido en Calle 21 el 23 de setiembre: veinticinco filas en un día, un solo auto,
+         * el recuadro idéntico hasta el cuarto decimal desde las 08:15 hasta las 11:34, y
+         * las veinticinco diciendo que PASÓ. Con ocho ortografías distintas de la misma
+         * chapa —SDH, SDM, SDW, SEH, SOH, SDI, SCH 1707— porque tampoco llamaba a
+         * `mismaChapa`, que ya existía y junta las ocho sin despeinarse.
+         *
+         * El recuadro es la prueba más fuerte que hay acá, más que la matrícula: dos
+         * lecturas en el mismo lugar del cuadro son el mismo vehículo, diga lo que diga el
+         * OCR. Por eso se busca por las dos cosas y se exige quietud para actualizar.
+         */
+        const { lugar, afuera } = lugarDeLaChapa(franja.esquinas, franja.lugares, caja);
+
+        const mismoVehiculo = recientes.find((f) => {
+            const suya = leerCaja(f.bbox);
+            return estaQuieto(caja, suya) || (mismaChapa(f.plate, patente) && !!suya);
+        }) || null;
+
+        const quietoAhi = !!mismoVehiculo && estaQuieto(caja, leerCaja(mismoVehiculo.bbox));
+
+        if (mismoVehiculo && quietoAhi) {
+            /*
+             * Es el mismo auto, en el mismo lugar del cuadro, otra vez. No es una lectura
+             * nueva: es la misma permanencia vista de nuevo. Se actualiza la fila.
+             *
+             * Y el estado pasa a VISTO aunque la chapa haya caído afuera de la franja.
+             * Dos lecturas en el mismo recuadro son PRUEBA de que no se movió, y escribir
+             * "pasó" sobre algo que se midió quieto es afirmar lo contrario de lo que
+             * dicen los datos. En la primera lectura no se sabe y ahí PASÓ es honesto;
+             * en la segunda ya se sabe.
+             */
+            const mejor = confianza != null && (mismoVehiculo.confidence ?? 0) < confianza;
+            const actualizado = await prisma.plateSighting.update({
+                where: { id: mismoVehiculo.id },
+                data: {
+                    // La ortografía se queda con la lectura más segura, no con la primera.
+                    ...(mejor ? { plate: patente, confidence: confianza, reads: lecturas ?? mismoVehiculo.reads } : {}),
+                    timestamp: cuando,
+                    // La foto se renueva siempre: la hora que se muestra es la de ahora, y
+                    // una foto de hace tres horas abajo de "Hace 2m" dice algo falso.
+                    snapshotUrl: body.snapshotUrl || mismoVehiculo.snapshotUrl,
+                    bbox: JSON.stringify(caja),
+                    estado: VISTO,
+                },
+            });
+            if (lugar != null) {
+                await nombrarOcupante(body.deviceId!, lugar, actualizado.plate, confianza ?? 0, actualizado.id).catch(() => null);
+            }
+            return NextResponse.json({
+                ok: true, estado: actualizado.estado, id: actualizado.id, repetido: true,
+                lugar: lugar != null ? lugar + 1 : null, franja: true,
+                corregida: mismoVehiculo.plate !== actualizado.plate ? mismoVehiculo.plate : null,
+            });
+        }
+
+        /*
+         * Vehículo nuevo para esta cámara. Acá sí se abre fila.
+         *
+         * `afuera` va en la respuesta para que, cuando una chapa no se asigne a ningún
+         * lugar, se pueda ver CONTRA QUÉ se la comparó en vez de adivinar — la misma razón
+         * por la que el filtro de recuadros devuelve `areaTipica`.
+         */
         const guardada = await prisma.plateSighting.create({
             data: {
                 plate: patente,
@@ -304,6 +374,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
             ok: true, estado: lugar != null ? "OCUPA" : "PASO", id: guardada.id,
             lugar: lugar != null ? lugar + 1 : null, franja: true,
+            afuera: Number(afuera.toFixed(4)),
         });
     }
 
