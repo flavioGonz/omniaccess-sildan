@@ -298,8 +298,8 @@ export function UserFormDialog({ user, initialData, units, groups, devices, park
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl p-0 bg-card border-border overflow-hidden rounded-2xl gap-0 shadow-[0_20px_60px_rgba(0,0,0,0.8)] transition-all duration-300">
-                <div className="flex flex-col md:flex-row h-full min-h-[500px]">
+            <DialogContent className="max-w-4xl max-h-[90vh] p-0 bg-card border-border overflow-hidden rounded-2xl gap-0 shadow-[0_20px_60px_rgba(0,0,0,0.8)] transition-all duration-300">
+                <div className="flex flex-col md:flex-row h-full min-h-[500px] max-h-[90vh]">
 
                     {/* Left Side: Form with Tabs */}
                     <div className="flex-1 bg-card flex flex-col h-full overflow-hidden">
@@ -639,7 +639,7 @@ export function UserFormDialog({ user, initialData, units, groups, devices, park
                                             <div className="flex items-center gap-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border pb-1">
                                                 <Camera size={12} /> Sincronización Manual (Cámaras LPR)
                                             </div>
-                                            <div className="grid grid-cols-1 gap-2">
+                                            <div className="grid grid-cols-1 gap-2 max-h-[260px] overflow-y-auto pr-1 custom-scrollbar">
                                                 {devices.filter(d => d.deviceType === 'LPR_CAMERA').length > 0 ? (
                                                     devices.filter(d => d.deviceType === 'LPR_CAMERA').map(device => {
                                                         const isSelected = selectedDeviceIds.includes(device.id);

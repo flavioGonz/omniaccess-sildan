@@ -505,6 +505,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         });
 
         newSocket.on('new_bitacora', (entry: any) => {
+            const mine = guardNameRef.current || localStorage.getItem("guard_name") || "";
+            if (mine && entry.guardName && entry.guardName !== mine) return; // cada guardia ve solo sus registros
             setEntries(prev => {
                 if (prev.some(e => e.id === entry.id)) return prev;
                 return [entry, ...prev];
@@ -734,7 +736,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         if (query) {
             const timer = setTimeout(async () => {
                 setIsSearchingRecords(true);
-                const results = await searchRecentBitacora(query);
+                const results = await searchRecentBitacora(query, guardNameRef.current || guardName || "");
                 if (results && results.length > 0) {
                     setRecentRecords(results);
                     setShowSearchFillModal(true);
@@ -979,7 +981,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         setIsHistoryLoading(true);
         try {
             const nextPage = historyPage + 1;
-            const newEntries = await getBitacoraPage(nextPage, 20, historySearch);
+            const newEntries = await getBitacoraPage(nextPage, 20, historySearch, guardNameRef.current || guardName || "");
             if (newEntries.length < 20) setHasMoreHistory(false);
             setEntries(prev => [...prev, ...newEntries]);
             setHistoryPage(nextPage);
@@ -996,7 +998,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             if (activeTab === "history") {
                 setIsHistoryLoading(true);
                 try {
-                    const firstPage = await getBitacoraPage(0, 20, historySearch);
+                    const firstPage = await getBitacoraPage(0, 20, historySearch, guardNameRef.current || guardName || "");
                     setEntries(firstPage);
                     setHistoryPage(0);
                     setHasMoreHistory(firstPage.length === 20);

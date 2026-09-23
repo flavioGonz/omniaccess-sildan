@@ -79,7 +79,7 @@ export async function getBitacoraEntries() {
     });
 }
 
-export async function getBitacoraPage(page: number = 0, pageSize: number = 20, query: string = "") {
+export async function getBitacoraPage(page: number = 0, pageSize: number = 20, query: string = "", guardName: string = "") {
     const skip = page * pageSize;
     const where: any = query ? {
         type: { not: 'MERODEO' },
@@ -89,6 +89,7 @@ export async function getBitacoraPage(page: number = 0, pageSize: number = 20, q
             { destination: { contains: query, mode: 'insensitive' as any } },
         ]
     } : { type: { not: 'MERODEO' } };
+    if (guardName && guardName !== "ALL") where.guardName = guardName; // cada guardia ve solo lo suyo
 
     return await prisma.bitacora.findMany({
         where,
@@ -113,11 +114,12 @@ export async function deleteBitacoraEntry(id: string) {
     revalidatePath("/admin/bitacora");
 }
 
-export async function searchRecentBitacora(query: string) {
+export async function searchRecentBitacora(query: string, guardName: string = "") {
     if (!query || query.length < 3) return [];
     
     return await prisma.bitacora.findMany({
         where: {
+            ...(guardName && guardName !== "ALL" ? { guardName } : {}),
             type: { not: 'MERODEO' },
             OR: [
                 { plate: { contains: query, mode: 'insensitive' } },

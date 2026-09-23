@@ -664,6 +664,76 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
     );
 }
 
+/** Alertas críticas (merodeo + lista negra): mini-popups abajo a la IZQUIERDA con
+ *  animación de peligro constante. Siempre activas, se cierran a mano. */
+function CriticalAlerts({ items, onDismiss, onClear, onRegister }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void }) {
+    const router = useRouter();
+    if (!items.length) return null;
+    return (
+        <div className="fixed bottom-4 left-4 z-[410] w-[340px] max-w-[92vw] flex flex-col gap-2 pointer-events-none">
+            <style>{`@keyframes oaPeligro{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.55),0 0 12px 1px rgba(239,68,68,.35)}50%{box-shadow:0 0 0 4px rgba(239,68,68,0),0 0 26px 8px rgba(239,68,68,.7)}}@keyframes oaLatir{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}`}</style>
+            <div className="flex items-center justify-between px-1 pointer-events-auto">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-red-400"><ShieldAlert size={13} style={{ animation: "oaLatir 1s ease-in-out infinite" }} /> Alertas críticas · {items.length}</span>
+                <button onClick={onClear} className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:text-foreground bg-card border border-border rounded px-2 py-0.5">Cerrar todas</button>
+            </div>
+            <div className="flex flex-col gap-2 pointer-events-auto">
+                {items.slice(0, 4).map((ev) => {
+                    const isMer = ev.kind === "merodeo";
+                    const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
+                    return (
+                        <div key={ev.id} className="relative rounded-xl border-2 border-red-500/70 bg-card overflow-hidden" style={{ animation: "oaPeligro 1.1s ease-in-out infinite" }}>
+                            <button onClick={() => onDismiss(ev.id)} title="Cerrar" className="absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md bg-black/50 hover:bg-black/70 text-white/80 hover:text-white flex items-center justify-center backdrop-blur"><X size={13} /></button>
+                            {isMer ? (
+                                <button onClick={() => router.push(`/admin/history?search=${encodeURIComponent(ev.plate || "")}`)} className="w-full text-left flex gap-2.5 p-2.5">
+                                    <div className="w-12 h-12 rounded-lg bg-red-500/15 border border-red-500/40 flex items-center justify-center shrink-0">
+                                        <AlertTriangle size={22} className="text-red-400" style={{ animation: "oaLatir 1s ease-in-out infinite" }} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-red-400">Merodeo</span>
+                                            <span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plate || "S/L"}</span>
+                                        </div>
+                                        <div className="mt-0.5 text-[10px] text-muted-foreground">{ev.count} pasadas en {ev.windowMin} min · {ev.distinctDevices} acceso/s{ev.deviceName ? ` · ${ev.deviceName}` : ""}</div>
+                                        <div className="mt-0.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} /></div>
+                                    </div>
+                                </button>
+                            ) : (
+                                <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
+                                    <div className="flex gap-2.5 p-2.5 cursor-pointer">
+                                        <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-red-500/40">
+                                            <SmartThumb src={img} w={240} className="w-full h-full" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-1.5">
+                                                <span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plateDetected || "S/L"}</span>
+                                                <Badge className={cn("text-[8px] px-1 py-0", ev.direction === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{ev.direction === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                                <span className="inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/20 text-red-300 border border-red-500/50"><ShieldAlert size={9} /> Lista Negra</span>
+                                                {ev.user?.name && <span className="text-[10px] text-blue-400 truncate max-w-[110px]">{ev.user.name}</span>}
+                                            </div>
+                                            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} />{ev.device?.name && <span className="truncate">· {ev.device.name}</span>}</div>
+                                        </div>
+                                    </div>
+                                </EventDetailsDialog>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+            {items.length > 4 && (
+                <div className="relative h-8 mt-0.5 pointer-events-auto">
+                    <div className="absolute inset-x-3 top-2 h-7 rounded-xl bg-red-500/10 border border-red-500/40" />
+                    <div className="absolute inset-x-1.5 top-1 h-7 rounded-xl bg-red-500/15 border border-red-500/50" />
+                    <div className="absolute inset-x-0 top-0 h-8 rounded-xl bg-card border-2 border-red-500/60 shadow-lg flex items-center justify-center gap-1.5 text-[11px] font-bold text-red-400">
+                        <ShieldAlert size={12} /> +{items.length - 4} críticas más
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function MonitorLPR() {
     const [events, setEvents] = useState<FullAccessEvent[]>([]);
     const [socket, setSocket] = useState<Socket | null>(null);
@@ -684,7 +754,12 @@ export default function MonitorLPR() {
     const [parkingSlots, setParkingSlots] = useState<any[]>([]);
     const [registerOpen, setRegisterOpen] = useState(false);
     const [registerInit, setRegisterInit] = useState<{ plate?: string } | undefined>(undefined);
-    const [merodeo, setMerodeo] = useState<any | null>(null);
+    // Alertas críticas (merodeo + lista negra) — mini-popups con animación de peligro, siempre activas.
+    const [criticals, setCriticals] = useState<any[]>([]);
+    const critSeenRef = useRef<Set<string>>(new Set());
+    const critInitedRef = useRef(false);
+    const dismissedCritRef = useRef<Set<string>>(new Set());
+    const dismissCritical = useCallback((id: string) => { dismissedCritRef.current.add(id); setCriticals(c => c.filter(x => x.id !== id)); }, []);
     const [eventsLoading, setEventsLoading] = useState(true);
     const pendingRef = useRef<any[]>([]);
     // Lecturas anómalas fijadas (sin lectura / lista negra / lista blanca / vigilancia):
@@ -724,17 +799,51 @@ export default function MonitorLPR() {
     const [soundOn, setSoundOn] = useState(true);
     const soundOnRef = useRef(true);
     useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
-    const alertAudioRef = useRef<HTMLAudioElement | null>(null);
+    const audioCtxRef = useRef<any>(null);
     const lastAlertRef = useRef<Record<string, number>>({});
     const refreshWatch = useCallback(() => { getWatchMap().then((m) => setWatchMap(m || {})).catch(() => { }); }, []);
     useEffect(() => { refreshWatch(); const iv = setInterval(refreshWatch, 60000); return () => clearInterval(iv); }, [refreshWatch]);
-    const playWatchAlert = useCallback((plate: string) => {
+    // El navegador bloquea el audio hasta que el usuario interactúa: desbloqueamos el
+    // AudioContext en el primer gesto (click/tecla) para que las alertas suenen.
+    useEffect(() => {
+        const unlock = () => {
+            try {
+                const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+                if (!audioCtxRef.current) audioCtxRef.current = new AC();
+                if (audioCtxRef.current.state === "suspended") audioCtxRef.current.resume();
+            } catch { }
+        };
+        window.addEventListener("pointerdown", unlock);
+        window.addEventListener("keydown", unlock);
+        return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
+    }, []);
+    // Beep sintetizado (Web Audio) — no depende de un archivo ni de la caché. urgent = patrón doble.
+    const beep = useCallback((urgent = false) => {
+        try {
+            const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+            const ctx = audioCtxRef.current || (audioCtxRef.current = new AC());
+            if (ctx.state === "suspended") ctx.resume();
+            const now = ctx.currentTime;
+            const tones = urgent ? [988, 1319, 988, 1319] : [880, 660];
+            tones.forEach((f, i) => {
+                const o = ctx.createOscillator(); const g = ctx.createGain();
+                o.type = "square"; o.frequency.value = f;
+                const t0 = now + i * 0.16;
+                g.gain.setValueAtTime(0.0001, t0);
+                g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.15);
+                o.connect(g); g.connect(ctx.destination);
+                o.start(t0); o.stop(t0 + 0.16);
+            });
+        } catch { }
+    }, []);
+    const playWatchAlert = useCallback((plate: string, urgent = false) => {
         if (!soundOnRef.current) return;
         const now = Date.now();
         if (lastAlertRef.current[plate] && now - lastAlertRef.current[plate] < 4000) return; // throttle por placa
         lastAlertRef.current[plate] = now;
-        try { const a = alertAudioRef.current || (alertAudioRef.current = new Audio("/sounds/alert.mp3")); a.currentTime = 0; a.volume = 1; a.play().catch(() => { }); } catch { }
-    }, []);
+        beep(urgent);
+    }, [beep]);
 
     // Auto-refresh cada 5s: mismo efecto que el botón de refrescar (re-baja los eventos
     // con snapshotPath actualizado, no sólo cache-bust de imágenes).
@@ -797,15 +906,22 @@ export default function MonitorLPR() {
             const plate = (event.plateDetected || '').toUpperCase();
             if (plate === 'DOOR_OPEN' || plate === 'DOOR_CLOSE') return;
 
-            // Watchlist: alerta sonora inmediata si el server marcó la placa
-            if ((event as any).watch && plate) playWatchAlert(plate);
+            // Watchlist: alerta sonora inmediata. La lista NEGRA la maneja el stack crítico (beep urgente aparte).
+            if ((event as any).watch && plate) {
+                const cat = String((event as any).watch.category || "").toLowerCase();
+                if (cat !== "negra" && cat !== "blacklisted") playWatchAlert(plate);
+            }
 
             // Buffer the event; a 250ms flush loop coalesces bursts into a single render
             // so the main thread stays free to paint incoming snapshots.
             pendingRef.current.push(event);
         });
 
-        newSocket.on("merodeo_alert", (a: any) => { setMerodeo(a); setTimeout(() => setMerodeo(null), 30000); });
+        newSocket.on("merodeo_alert", (a: any) => {
+            const id = `mer_${(a.plate || "?")}_${Date.now()}`;
+            setCriticals((prev) => [{ id, kind: "merodeo", timestamp: new Date().toISOString(), ...a }, ...prev].slice(0, 24));
+            if (soundOnRef.current) beep(true);
+        });
         setSocket(newSocket);
         return () => {
             clearInterval(watchdog);
@@ -838,13 +954,19 @@ export default function MonitorLPR() {
     // Popup automático de lecturas anómalas: cuando el toggle está activo, siembra las
     // mini-ventanas desde los eventos ya cargados (poll + socket), no solo de eventos nuevos.
     // Así aparecen apenas se activa, y quedan fijas hasta que el guardia las cierra.
+    const esNegra = useCallback((e: any) => {
+        const cat = String(e.watch?.category || "").toLowerCase();
+        const role = String(e.user?.role || "").toUpperCase();
+        return cat === "negra" || cat === "blacklisted" || role === "BLACKLISTED";
+    }, []);
     const esAnomala = useCallback((e: any) => {
         const plate = (e.plateDetected || "").toUpperCase();
         if (plate === "DOOR_OPEN" || plate === "DOOR_CLOSE") return false;
+        if (esNegra(e)) return false; // la lista negra va al stack CRÍTICO, no al de anomalías
         const anomalous = !e.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
         const role = (e.user?.role || "").toUpperCase();
-        return anomalous || !!e.watch || role === "WHITELISTED" || role === "BLACKLISTED";
-    }, []);
+        return anomalous || !!e.watch || role === "WHITELISTED";
+    }, [esNegra]);
     useEffect(() => {
         if (!pinEnabled) return;
         setPinned((prev) => {
@@ -854,6 +976,19 @@ export default function MonitorLPR() {
             return [...nuevos, ...prev].slice(0, 24);
         });
     }, [pinEnabled, events, esAnomala]);
+    // Lista negra → stack crítico SIEMPRE (independiente del toggle). Solo detecciones nuevas
+    // (las históricas del feed al cargar se marcan como vistas para no inundar ni sonar).
+    useEffect(() => {
+        const negras = events.filter(esNegra);
+        if (!critInitedRef.current) { negras.forEach((e) => critSeenRef.current.add(e.id)); critInitedRef.current = true; return; }
+        const nuevos = negras.filter((e) => !critSeenRef.current.has(e.id));
+        if (!nuevos.length) return;
+        nuevos.forEach((e) => critSeenRef.current.add(e.id));
+        const dispo = nuevos.filter((e) => !dismissedCritRef.current.has(e.id)).map((e) => ({ ...e, kind: "negra" }));
+        if (!dispo.length) return;
+        setCriticals((prev) => [...dispo, ...prev].slice(0, 24));
+        if (soundOnRef.current) beep(true);
+    }, [events, esNegra, beep]);
 
     const vehFacets = useMemo(() => collectVehicleFacets(events as any[]), [events]);
     const filteredEvents = useMemo(() => {
@@ -1007,16 +1142,6 @@ export default function MonitorLPR() {
                     </div>
                 </div>
 
-                {merodeo && (
-                    <div className="mx-6 mt-2 mb-1 flex items-center gap-3 rounded-xl border border-red-500/50 bg-red-500/10 px-4 py-2 shrink-0">
-                        <AlertTriangle size={18} className="text-red-500 shrink-0" />
-                        <div className="min-w-0 flex-1">
-                            <p className="text-sm font-bold text-red-500">Merodeo detectado &mdash; <span className="font-mono tracking-wider">{merodeo.plate}</span></p>
-                            <p className="text-[11px] text-muted-foreground truncate">{merodeo.count} pasadas en {merodeo.windowMin} min &middot; {merodeo.distinctDevices} acceso/s{merodeo.deviceName ? ` \u00b7 ${merodeo.deviceName}` : ""}</p>
-                        </div>
-                        <button onClick={() => setMerodeo(null)} className="text-muted-foreground hover:text-foreground shrink-0"><XCircle size={18} /></button>
-                    </div>
-                )}
                 {/* Three columns */}
                 <div className="flex-1 grid grid-cols-3 divide-x divide-neutral-800 overflow-hidden">
                     {/* ENTRIES */}
@@ -1098,6 +1223,7 @@ export default function MonitorLPR() {
                 </div>
             </div>
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
+                <CriticalAlerts items={criticals} onDismiss={dismissCritical} onClear={() => setCriticals([])} onRegister={openRegister} />
                 <UserFormDialog open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
         </TooltipProvider>
     );
