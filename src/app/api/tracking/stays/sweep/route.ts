@@ -240,6 +240,28 @@ export async function POST(req: NextRequest) {
                 resultado: vista.resultado, gpu: vista.gpu, detalle: vista.detalle,
             });
 
+            /*
+             * El techo manda sobre la mirada, y tiene que mandar.
+             *
+             * La rama de abajo estira la estadía y hace `continue` sin mirar el techo, así
+             * que una mirada que dice "sigue" la sostiene para siempre. Y este archivo ya
+             * dice, más arriba, que esa prueba no prueba nada: un pedazo de calle vacía
+             * también se ve igual de una mirada a la otra.
+             *
+             * Un techo existe justamente para ser el corte cuando la otra evidencia no es
+             * confiable. Si hace más de ESTADIA_TECHO_MIN que nadie le lee la chapa, se
+             * cierra — la mirada diga lo que diga.
+             */
+            if (vista.resultado === "sigue" && porTecho) {
+                const aviso = await cerrarEstadia(fila as any).catch(() => false);
+                if (aviso) cerradas.push({
+                    plate: fila.plate, camara: fila.cameraName,
+                    minutos: Math.round(((fila.estHasta?.getTime() ?? 0) - (fila.estDesde?.getTime() ?? 0)) / 60000),
+                    motivo: `techo: hace más de ${Math.round(ESTADIA_TECHO_MIN / 60)} h que no se le lee la chapa`,
+                });
+                continue;
+            }
+
             if (vista.resultado === "sigue") {
                 /* Sigue ahí: la estadía se estira hasta ahora. No se crea una lectura nueva
                    —esto es una mirada, no un avistamiento de la cámara— y por eso tampoco se
