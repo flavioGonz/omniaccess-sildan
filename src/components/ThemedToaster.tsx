@@ -47,19 +47,61 @@ import { Toaster } from "sileo";
  * respecto del tema de la app, o el texto vuelve a pelearse con el fondo.
  */
 
-/** Mientras el tema no resolvió. Claro, porque es el tema por defecto de la app. */
-const GLOBO_POR_DEFECTO = "#ffffff";
+/**
+ * Sólo para el servidor, donde no hay DOM al que preguntarle. En el navegador NUNCA se usa:
+ * el color sale siempre del token, leído del documento real.
+ *
+ * Esto importa más de lo que parece. La versión anterior arrancaba en blanco y dependía de
+ * que un efecto llegara a corregirlo; si ese efecto no corría —o corría antes de que el
+ * tema estuviera puesto— el globo se quedaba blanco en tema oscuro y nadie se enteraba.
+ * Es la MISMA forma del error que esta pantalla ya tuvo una vez: un valor de emergencia que
+ * se vuelve permanente porque el camino bueno falló en silencio.
+ */
+const GLOBO_SIN_DOM = "#ffffff";
+
+/** El color del globo, leído del documento en este instante. */
+function leerGlobo(): string {
+    if (typeof document === "undefined") return GLOBO_SIN_DOM;
+    try {
+        const v = getComputedStyle(document.documentElement)
+            .getPropertyValue("--globo-aviso").trim();
+        return v || GLOBO_SIN_DOM;
+    } catch {
+        return GLOBO_SIN_DOM;
+    }
+}
 
 export default function ThemedToaster() {
+    /* `resolvedTheme` no se usa para leer el color: se usa sólo como una señal más de que
+       algo del tema cambió. El color siempre sale del DOM. */
     const { resolvedTheme } = useTheme();
-    const [fill, setFill] = useState(GLOBO_POR_DEFECTO);
+
+    /* Se lee en el inicializador, no en un efecto. Cuando este componente se monta, el
+       script que next-themes inyecta ya puso la clase en <html>, así que el primer valor
+       ya es el correcto y no hay un instante en blanco que corregir después. */
+    const [fill, setFill] = useState(leerGlobo);
 
     useEffect(() => {
-        try {
-            const v = getComputedStyle(document.documentElement)
-                .getPropertyValue("--globo-aviso").trim();
-            if (v) setFill(v);
-        } catch { /* sin token queda el claro: poco contrastado en oscuro, nunca ilegible */ }
+        const refrescar = () => setFill((antes) => {
+            const ahora = leerGlobo();
+            return ahora === antes ? antes : ahora;
+        });
+        refrescar();
+
+        /*
+         * Y además se mira el DOM directamente.
+         *
+         * El tema lo cambia una clase en <html>. Colgar la lectura sólo de `resolvedTheme`
+         * es confiar en que la librería avise SIEMPRE y en el orden correcto, y este archivo
+         * ya tiene un antecedente de confiar en un camino que fallaba callado.
+         *
+         * Con el observador da igual quién cambie la clase —next-themes, otra pantalla, o
+         * alguien desde la consola—: el globo se entera igual. Es la diferencia entre
+         * "me avisaron" y "lo vi".
+         */
+        const obs = new MutationObserver(refrescar);
+        obs.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-theme", "style"] });
+        return () => obs.disconnect();
     }, [resolvedTheme]);
 
     return <Toaster position="top-center" options={{ fill }} />;
