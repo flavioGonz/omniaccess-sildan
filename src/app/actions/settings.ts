@@ -362,45 +362,93 @@ export async function getDbStats() {
     }
 }
 
+/**
+ * Las tablas que la restauración VACÍA, con lo necesario para contarlas y borrarlas.
+ *
+ * ── POR QUÉ ESTA LISTA EXISTE ───────────────────────────────────────────────────────
+ *
+ * Porque el respaldo y el borrado se habían separado sin que nadie lo decidiera. El
+ * respaldo guardaba nueve tablas; la restauración vaciaba once. Las cuatro de la
+ * diferencia —`callEvent`, `hardwareMirror`, `topologyNode`, `wahaRequestLog`— se
+ * borraban y no volvían NUNCA, porque no estaban en el archivo.
+ *
+ * No es hipotético: San Nicolás tiene hoy 16 filas de `topologyNode`, que es el dibujo de
+ * la red. Restaurar un respaldo las borraba y la pantalla decía "Base de datos restaurada
+ * correctamente".
+ *
+ * Y `hardwareMirror` es peor todavía desde que existe el borrado de tarjetas: es el único
+ * lugar que sabe en qué lector quedó cada tarjeta. Perderlo es perder la capacidad de
+ * sacarlas.
+ *
+ * Con una sola lista, las dos mitades no pueden volver a discrepar: lo que se borra es
+ * exactamente lo que se guarda.
+ */
+const TABLAS_DEL_RESPALDO = [
+    { clave: "wahaRequestLog", nombre: "Mensajes de WhatsApp" },
+    { clave: "callEvent", nombre: "Llamadas del portero" },
+    { clave: "events", nombre: "Eventos de acceso", modelo: "accessEvent" },
+    { clave: "hardwareMirror", nombre: "Espejo de credenciales en equipos" },
+    { clave: "credentials", nombre: "Credenciales", modelo: "credential" },
+    { clave: "vehicles", nombre: "Vehículos", modelo: "vehicle" },
+    { clave: "accessGroups", nombre: "Grupos de acceso", modelo: "accessGroup" },
+    { clave: "parkingSlots", nombre: "Plazas de parking", modelo: "parkingSlot" },
+    { clave: "users", nombre: "Usuarios", modelo: "user" },
+    { clave: "units", nombre: "Unidades", modelo: "unit" },
+    { clave: "topologyNode", nombre: "Nodos de topología" },
+] as const;
+
+const modeloDe = (t: { clave: string; modelo?: string }) => (prisma as any)[t.modelo || t.clave];
+
 export async function downloadBackup() {
     try {
-        // Export all relevant tables
         const [
-            users,
-            vehicles,
-            devices,
-            events,
-            units,
-            credentials,
-            accessGroups,
-            settings,
-            parkingSlots
+            users, vehicles, devices, events, units, credentials,
+            accessGroups, settings, parkingSlots,
+            callEvent, hardwareMirror, topologyNode, wahaRequestLog,
         ] = await Promise.all([
             prisma.user.findMany(),
             prisma.vehicle.findMany(),
             prisma.device.findMany(),
-            prisma.accessEvent.findMany({ take: 5000, orderBy: { timestamp: 'desc' } }),
+            /*
+             * SIN `take: 5000`.
+             *
+             * Estaba limitado a los últimos cinco mil eventos mientras la restauración los
+             * borraba TODOS. Con seis meses de retención eso significa que restaurar un
+             * respaldo truncaba el historial de accesos del barrio a cinco mil filas —y
+             * el historial de accesos es el registro que importa cuando alguien pregunta
+             * quién entró— y después informaba éxito.
+             *
+             * Si algún día el volumen molesta, la respuesta es paginar o comprimir, no
+             * tirar historia en silencio.
+             */
+            prisma.accessEvent.findMany({ orderBy: { timestamp: "desc" } }),
             prisma.unit.findMany(),
             prisma.credential.findMany(),
             prisma.accessGroup.findMany({ include: { users: true, devices: true } }),
             prisma.setting.findMany(),
             prisma.parkingSlot.findMany(),
+            /* Las cuatro que faltaban. Ver TABLAS_DEL_RESPALDO. */
+            prisma.callEvent.findMany(),
+            prisma.hardwareMirror.findMany(),
+            prisma.topologyNode.findMany(),
+            prisma.wahaRequestLog.findMany(),
         ]);
 
+        const data = {
+            users, vehicles, devices, events, units, credentials,
+            accessGroups, settings, parkingSlots,
+            callEvent, hardwareMirror, topologyNode, wahaRequestLog,
+        };
+
         const backupData = {
-            version: "1.1",
+            /* 1.2: la versión en la que el archivo cubre todo lo que la restauración borra.
+               Un archivo 1.1 restaurado con este código dispara el chequeo de abajo. */
+            version: "1.2",
             timestamp: new Date().toISOString(),
-            data: {
-                users,
-                vehicles,
-                devices,
-                events,
-                units,
-                credentials,
-                accessGroups,
-                settings,
-                parkingSlots
-            }
+            /* El recuento va EN el archivo. Sin esto, mirar un respaldo y saber si trae el
+               historial entero o una punta exigía abrirlo y contar a mano. */
+            filas: Object.fromEntries(Object.entries(data).map(([k, v]) => [k, (v as any[]).length])),
+            data,
         };
 
         return { success: true, data: backupData };
@@ -410,10 +458,56 @@ export async function downloadBackup() {
     }
 }
 
-export async function restoreBackup(backupData: any, merge: boolean = false) {
+/**
+ * Restaurar un respaldo.
+ *
+ * ── LO QUE SE CHEQUEA ANTES DE BORRAR NADA ──────────────────────────────────────────
+ *
+ * Un archivo viejo (versión 1.1) no trae las cuatro tablas que esta función vacía. Si se
+ * restaurara igual, borraría el espejo de credenciales y el dibujo de la topología y no
+ * los repondría — que es exactamente el defecto que esto viene a cerrar, sólo que
+ * disparado por un archivo en vez de por el código.
+ *
+ * Así que primero se compara: para cada tabla que se va a vaciar, si el archivo no la
+ * trae Y la base tiene filas, se corta y se dice cuál y cuántas. El operador decide si
+ * sigue con `forzar`.
+ *
+ * Es la misma regla que rige todo lo demás de esta sesión: no afirmar lo que no se puede
+ * sostener. Acá la afirmación implícita era "esto te devuelve tu base", y no era cierta.
+ */
+export async function restoreBackup(
+    backupData: any,
+    merge: boolean = false,
+    opciones?: { forzar?: boolean },
+) {
     try {
-        const data = backupData.data;
+        const data = backupData?.data;
         if (!data) throw new Error("Formato de backup inválido");
+
+        /* El chequeo previo. Sólo importa cuando se va a borrar. */
+        if (!merge) {
+            const faltantes: string[] = [];
+            for (const t of TABLAS_DEL_RESPALDO) {
+                const enElArchivo = Array.isArray(data[t.clave]) ? data[t.clave].length : null;
+                if (enElArchivo !== null) continue;
+                const enLaBase = await modeloDe(t).count().catch(() => 0);
+                if (enLaBase > 0) faltantes.push(`${t.nombre} (${enLaBase} filas)`);
+            }
+            if (faltantes.length && !opciones?.forzar) {
+                return {
+                    success: false,
+                    message: `Este respaldo es de una versión anterior y no incluye: ${faltantes.join(", ")}. `
+                        + `Restaurarlo las borraría sin poder reponerlas. Bajá un respaldo nuevo, o forzá si estás seguro.`,
+                    faltantes,
+                };
+            }
+        }
+
+        /* Cuánto había antes, para poder decir después qué pasó de verdad. */
+        const antes: Record<string, number> = {};
+        for (const t of TABLAS_DEL_RESPALDO) {
+            antes[t.clave] = await modeloDe(t).count().catch(() => 0);
+        }
 
         // Transaction to ensure integrity
         await prisma.$transaction(async (tx) => {
@@ -430,7 +524,9 @@ export async function restoreBackup(backupData: any, merge: boolean = false) {
                 await tx.user.deleteMany();
                 await tx.unit.deleteMany();
                 await tx.topologyNode.deleteMany();
-                // await tx.setting.deleteMany(); // Keep current settings?
+                // Los Setting no se borran a propósito: traen la conexión a la base, a S3 y
+                // al WhatsApp. Vaciarlos dejaría la instalación sin poder hablar con nada,
+                // incluida la base desde la que se está restaurando.
             }
 
             // 2. Restore/Merge data (Order matters)
@@ -531,6 +627,41 @@ export async function restoreBackup(backupData: any, merge: boolean = false) {
                 });
             }
 
+            /* Las cuatro que antes se borraban y no volvían. Van después de los
+               dispositivos porque `callEvent` y `hardwareMirror` cuelgan de ellos. */
+            if (data.callEvent?.length > 0) {
+                await tx.callEvent.createMany({
+                    data: data.callEvent.map((c: any) => ({
+                        ...c,
+                        timestamp: new Date(c.timestamp),
+                        createdAt: new Date(c.createdAt),
+                    })),
+                    skipDuplicates: true,
+                });
+            }
+            if (data.hardwareMirror?.length > 0) {
+                await tx.hardwareMirror.createMany({
+                    data: data.hardwareMirror.map((m: any) => ({ ...m, lastUpdated: new Date(m.lastUpdated) })),
+                    skipDuplicates: true,
+                });
+            }
+            if (data.topologyNode?.length > 0) {
+                await tx.topologyNode.createMany({
+                    data: data.topologyNode.map((n: any) => ({
+                        ...n,
+                        createdAt: new Date(n.createdAt),
+                        updatedAt: new Date(n.updatedAt),
+                    })),
+                    skipDuplicates: true,
+                });
+            }
+            if (data.wahaRequestLog?.length > 0) {
+                await tx.wahaRequestLog.createMany({
+                    data: data.wahaRequestLog.map((w: any) => ({ ...w, timestamp: new Date(w.timestamp) })),
+                    skipDuplicates: true,
+                });
+            }
+
             // Settings if included
             if (data.settings?.length > 0) {
                 for (const s of data.settings) {
@@ -545,8 +676,36 @@ export async function restoreBackup(backupData: any, merge: boolean = false) {
             timeout: 30000 // Increase timeout for large restores
         });
 
+        /*
+         * El informe cuenta la base DESPUÉS, no lo que el archivo traía.
+         *
+         * Antes esto devolvía `{ success: true }` y la pantalla decía "Base de datos
+         * restaurada correctamente" pasara lo que pasara. `createMany` con
+         * `skipDuplicates` puede saltear filas en silencio, y la diferencia entre lo que
+         * había, lo que traía el archivo y lo que quedó es justamente lo que el operador
+         * necesita para saber si confiar.
+         */
+        const despues: Record<string, number> = {};
+        for (const t of TABLAS_DEL_RESPALDO) {
+            despues[t.clave] = await modeloDe(t).count().catch(() => 0);
+        }
+
+        const perdidas = TABLAS_DEL_RESPALDO
+            .filter((t) => despues[t.clave] < antes[t.clave])
+            .map((t) => `${t.nombre}: ${antes[t.clave]} → ${despues[t.clave]}`);
+
         revalidatePath("/admin/settings");
-        return { success: true };
+        return {
+            success: true,
+            antes, despues,
+            /* Si algo quedó con MENOS filas que antes, es una pérdida y se nombra. No
+               siempre es un error —restaurar un respaldo viejo achica la base a
+               propósito— pero tiene que decirse, no descubrirse. */
+            message: perdidas.length
+                ? `Restaurado, pero quedó con menos filas que antes en: ${perdidas.join("; ")}.`
+                : `Restaurado. ${despues.users} usuarios, ${despues.events} eventos de acceso, ${despues.credentials} credenciales.`,
+            perdidas,
+        };
     } catch (error: unknown) {
         console.error("Restore failed:", error);
         return { success: false, message: error instanceof Error ? error.message : String(error) };

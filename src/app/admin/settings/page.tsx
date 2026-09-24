@@ -759,6 +759,9 @@ function DatabaseSection() {
         }
     } | null>(null);
     const [mergeMode, setMergeMode] = useState(false);
+    /* La palabra que hay que escribir para reemplazar la base. Se limpia al cerrar el
+       diálogo: si quedara escrita, el próximo reemplazo volvería a ser de un clic. */
+    const [palabraReemplazo, setPalabraReemplazo] = useState("");
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const triggerImport = () => {
@@ -787,6 +790,12 @@ function DatabaseSection() {
         }
     };
 
+    /* Reemplazar la base entera pide escribir la palabra, igual que cambiar de base en
+       esta misma pantalla. Antes era UN CLIC en un botón rojo — y es la única acción de
+       toda la aplicación que borra usuarios, credenciales y el historial de accesos de
+       golpe. Fusionar no la pide: agrega, no destruye. */
+    const PALABRA_REEMPLAZO = "REEMPLAZAR";
+
     const confirmAction = async () => {
         if (!pendingAction) return;
 
@@ -799,11 +808,21 @@ function DatabaseSection() {
 
                 const res = await restoreBackup(json, mergeMode);
                 if (res.success) {
-                    toast.success({ title: `Base de datos restaurada correctamente` });
+                    /*
+                     * El mensaje sale de la acción, que contó la base DESPUÉS de restaurar.
+                     *
+                     * Acá había un texto fijo —"Base de datos restaurada correctamente"—
+                     * que se mostraba pasara lo que pasara. Ahora la acción devuelve los
+                     * números reales y, si algo quedó con menos filas que antes, lo dice.
+                     */
+                    const perdio = (res as any).perdidas?.length > 0;
+                    if (perdio) toast.warning({ title: "Restaurado con pérdidas", description: res.message });
+                    else toast.success({ title: "Base de datos restaurada", description: res.message });
                     loadStats();
                 } else {
-                    toast.error({ title: "Error al restaurar: " + res.message });
+                    toast.error({ title: "No se restauró", description: res.message });
                 }
+                setPalabraReemplazo("");
             } catch (error) {
                 console.error(error);
                 toast.error({ title: "Error al procesar el archivo de respaldo" });
@@ -1150,6 +1169,20 @@ function DatabaseSection() {
                                             ? "Se agregarán los registros nuevos. Los existentes se mantendrán."
                                             : "ADVERTENCIA: Se BORRARÁN todos los datos actuales antes de importar."}
                                     </p>
+                                    {!mergeMode && (
+                                        <div className="mt-4">
+                                            <label className="block text-[11px] text-muted-foreground mb-1.5">
+                                                Escribí <b className="font-semibold text-foreground">{PALABRA_REEMPLAZO}</b> para habilitar el botón.
+                                            </label>
+                                            <Input
+                                                value={palabraReemplazo}
+                                                onChange={(e) => setPalabraReemplazo(e.target.value)}
+                                                placeholder={PALABRA_REEMPLAZO}
+                                                autoComplete="off"
+                                                className="h-9 text-center text-[13px] font-semibold tracking-[0.1em]"
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                             ) : (
                                 <p className="text-xs text-muted-foreground leading-relaxed">
@@ -1158,10 +1191,13 @@ function DatabaseSection() {
                             )}
                         </div>
                         <div className="grid grid-cols-2 gap-3">
-                            <Button onClick={() => setPendingAction(null)} variant="ghost" className="h-10 text-muted-foreground hover:bg-accent hover:text-foreground font-bold rounded-lg border border-border">
+                            <Button onClick={() => { setPendingAction(null); setPalabraReemplazo(""); }} variant="ghost" className="h-10 text-muted-foreground hover:bg-accent hover:text-foreground font-bold rounded-lg border border-border">
                                 Cancelar
                             </Button>
-                            <Button onClick={confirmAction} className={cn("h-10 text-foreground font-bold rounded-lg", mergeMode ? "bg-blue-600 hover:bg-blue-500" : "bg-red-600 hover:bg-red-500")}>
+                            <Button
+                                onClick={confirmAction}
+                                disabled={pendingAction.type === 'IMPORT' && !mergeMode && palabraReemplazo.trim().toUpperCase() !== PALABRA_REEMPLAZO}
+                                className={cn("h-10 text-foreground font-bold rounded-lg disabled:opacity-40", mergeMode ? "bg-blue-600 hover:bg-blue-500" : "bg-red-600 hover:bg-red-500")}>
                                 {pendingAction.type === 'IMPORT' ? (mergeMode ? 'Confirmar Fusión' : 'Confirmar Reemplazo') : 'Sí, Inicializar'}
                             </Button>
                         </div>
