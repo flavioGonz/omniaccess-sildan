@@ -75,21 +75,17 @@ export function TagList({ initialTags, users }: { initialTags: TagWithUser[]; us
                                 {/* Purgar borra TODOS los tags: deja a todo el barrio sin tarjeta.
                                     Por eso hay que escribir la palabra, y no alcanza con un clic.
 
-                                    El texto decía "todas las tarjetas dejan de abrir en el acto" y
-                                    era falso, y acá el engaño era mayor que en el borrado de a uno:
-                                    `purgeTags` ni siquiera llama a `quitarTagDeLosLectores`. Borra
-                                    las credenciales y el espejo, y nada más. Las asignadas siguen
-                                    cargadas en los porteros y siguen abriendo.
-
-                                    Peor todavía: al borrar los `credential.id` se pierde el
-                                    identificador con el que el lector reconoce cada tarjeta, así
-                                    que después de purgar no queda forma de saber cuáles ir a sacar.
-                                    Por eso el aviso dice el número de las que SIGUEN abriendo, que
-                                    es el dato con el que el operador decide si aprieta o no. */}
+                                    El texto pasó por tres versiones y vale dejar las tres anotadas.
+                                    Decía "todas las tarjetas dejan de abrir en el acto", que era
+                                    falso: `purgeTags` ni siquiera llamaba a
+                                    `quitarTagDeLosLectores`. Se corrigió a advertir que NO las
+                                    sacaba. Ahora sí las saca, una por una, y la que un lector no
+                                    deje quitar no se borra — así que el aviso vuelve a describir lo
+                                    que pasa, incluido que puede tardar. */}
                                 <DeleteConfirmDialog
                                     id="__todos__"
                                     title="Eliminar todos los tags"
-                                    description={`Se borran los ${initialTags.length} tags del sistema. Pero NO se sacan de los lectores: las ${asignados} que están asignadas siguen abriendo, y al borrarlas se pierde el registro de en qué equipo quedó cada una — después no hay forma de saber cuáles ir a quitar a mano. No se puede deshacer.`}
+                                    description={`Se borran los ${initialTags.length} tags del sistema, sacándolos primero de cada lector uno por uno — las ${asignados} asignadas están cargadas en los porteros. Puede tardar. La que un lector no deje quitar NO se borra, y te digo en cuál quedó. No se puede deshacer.`}
                                     escribir="ELIMINAR"
                                     etiquetaAccion="Eliminar todo"
                                     onDelete={async () => {

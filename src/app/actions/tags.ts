@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
-import { estadoDelTag, quitarTagDeLosLectores, sincronizarTag, type Destino } from "@/lib/tags";
+import { estadoDelTag, quitarTagDeLosLectores, sincronizarTag, type Destino, type QuitadaDe } from "@/lib/tags";
 
 /**
  * Las tarjetas RFID.
@@ -94,12 +94,45 @@ export async function updateTag(id: string, data: { value?: string; userId?: str
     } catch (e) { return falla(e, "guardar la tarjeta"); }
 }
 
-export async function deleteTag(id: string): Promise<Respuesta> {
+/**
+ * Borrar la tarjeta. Primero se la saca de los lectores; recién después se la olvida.
+ *
+ * ── POR QUE NO BORRA A LA FUERZA ────────────────────────────────────────────────────
+ *
+ * Antes esto llamaba a `quitarTagDeLosLectores`, **descartaba lo que devolvía** y borraba
+ * la credencial igual. Hoy esa función sí saca la tarjeta del equipo, pero puede fallar
+ * —un portero apagado, sin red, o de una marca que no sabe quitar— y en ese caso borrar
+ * la credencial es el peor final posible: la tarjeta sigue abriendo la puerta y se acaba
+ * de destruir la última fila que sabía que existe, que es la que permite reintentar.
+ *
+ * Así que si algún lector la conserva, no se borra y se dice DÓNDE quedó. El operador
+ * decide: la saca a mano y reintenta, o la borra igual con `forzar` sabiendo que queda
+ * una tarjeta viva sin registro.
+ *
+ * No es prudencia de más: una tarjeta que no se pudo quitar es, casi siempre, una tarjeta
+ * perdida o robada. Es justo el caso en que hay que insistir, no el que hay que tapar.
+ */
+export async function deleteTag(
+    id: string,
+    opciones?: { forzar?: boolean },
+): Promise<Respuesta<{ quedan: QuitadaDe[] }>> {
     try {
-        await quitarTagDeLosLectores(id);
+        const salidas = await quitarTagDeLosLectores(id);
+        const quedan = salidas.filter((s) => !s.quitada);
+
+        if (quedan.length && !opciones?.forzar) {
+            return {
+                ok: false,
+                error: `La tarjeta sigue cargada en ${quedan.length} `
+                    + `${quedan.length === 1 ? "lector" : "lectores"}: `
+                    + `${quedan.map((q) => q.nombre).join(", ")}. `
+                    + `No se borró para no perder el registro de dónde quedó.`,
+            };
+        }
+
         await prisma.credential.delete({ where: { id } });
         revalidatePath("/admin/rfid");
-        return { ok: true };
+        return { ok: true, dato: { quedan } };
     } catch (e) { return falla(e, "eliminar la tarjeta"); }
 }
 
@@ -112,12 +145,26 @@ export async function assignTag(tagId: string, userId: string): Promise<Respuest
     } catch (e) { return falla(e, "asignar la tarjeta"); }
 }
 
-export async function unassignTag(tagId: string): Promise<Respuesta> {
+export async function unassignTag(tagId: string): Promise<Respuesta<{ quedan: QuitadaDe[] }>> {
     try {
+        /* Se saca de los lectores ANTES de quitarle el dueño: `quitarTagDeLosLectores`
+           necesita la credencial para identificarla en el equipo, y una tarjeta sin dueño
+           que sigue cargada abre igual — es exactamente lo que desasignar quiere evitar. */
+        const salidas = await quitarTagDeLosLectores(tagId);
         await prisma.credential.update({ where: { id: tagId }, data: { userId: null } });
-        await quitarTagDeLosLectores(tagId);
         revalidatePath("/admin/rfid");
-        return { ok: true };
+
+        const quedan = salidas.filter((s) => !s.quitada);
+        /* Desasignar sí se hace igual —el vínculo con la persona es nuestro y se corta—
+           pero si la tarjeta quedó en un lector hay que decirlo: sigue abriendo. */
+        if (quedan.length) {
+            return {
+                ok: false,
+                error: `Se desasignó, pero la tarjeta sigue cargada en: `
+                    + `${quedan.map((q) => q.nombre).join(", ")}. Hasta sacarla de ahí, sigue abriendo.`,
+            };
+        }
+        return { ok: true, dato: { quedan } };
     } catch (e) { return falla(e, "desasignar la tarjeta"); }
 }
 
@@ -132,12 +179,42 @@ export async function destinosDeTag(tagId: string): Promise<Destino[]> {
     catch (e) { console.error("[tags] estado:", e); return []; }
 }
 
-export async function purgeTags(): Promise<Respuesta> {
+/**
+ * Borrar TODAS las tarjetas. Deja al barrio entero sin llave.
+ *
+ * Antes borraba las credenciales y el espejo y nada más: las asignadas seguían cargadas en
+ * los porteros y seguían abriendo, y al borrar los `credential.id` se perdía el
+ * identificador con el que el lector reconoce cada una — después de purgar no quedaba
+ * forma de saber cuáles ir a sacar a mano.
+ *
+ * Ahora hace lo mismo que el borrado de a una, tarjeta por tarjeta: la saca de cada lector
+ * y recién ahí la olvida. Las que no se pudieron quitar **no se borran**, y se informan
+ * con nombre. Es más lento y está bien que lo sea: son porteros con un CPU chico y esto es
+ * la operación más destructiva de la pantalla.
+ */
+export async function purgeTags(): Promise<Respuesta<{ borradas: number; quedan: QuitadaDe[] }>> {
     try {
-        const ids = (await prisma.credential.findMany({ where: { type: "TAG" }, select: { id: true } })).map((c) => c.id);
-        await prisma.hardwareMirror.deleteMany({ where: { hardwareId: { in: ids } } }).catch(() => { });
-        await prisma.credential.deleteMany({ where: { type: "TAG" } });
+        const tags = await prisma.credential.findMany({ where: { type: "TAG" }, select: { id: true } });
+
+        let borradas = 0;
+        const quedan: QuitadaDe[] = [];
+        for (const t of tags) {
+            const salidas = await quitarTagDeLosLectores(t.id);
+            const pendientes = salidas.filter((s) => !s.quitada);
+            if (pendientes.length) { quedan.push(...pendientes); continue; }
+            await prisma.credential.delete({ where: { id: t.id } }).catch(() => { });
+            borradas++;
+        }
+
         revalidatePath("/admin/rfid");
-        return { ok: true };
+        if (quedan.length) {
+            const lectores = [...new Set(quedan.map((q) => q.nombre))];
+            return {
+                ok: false,
+                error: `Se borraron ${borradas} de ${tags.length}. `
+                    + `${tags.length - borradas} siguen cargadas y no se borraron, en: ${lectores.join(", ")}.`,
+            };
+        }
+        return { ok: true, dato: { borradas, quedan } };
     } catch (e) { return falla(e, "purgar las tarjetas"); }
 }

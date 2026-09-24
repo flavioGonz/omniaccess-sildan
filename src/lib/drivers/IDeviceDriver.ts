@@ -40,6 +40,18 @@ export interface IFaceDriver extends IDeviceDriver {
  */
 export interface IRfidDriver extends IDeviceDriver {
     syncRfKey(credential: Credential, device: Device): Promise<void>;
+    /**
+     * Sacar la tarjeta del equipo.
+     *
+     * Opcional a propósito: un driver puede saber cargar y no saber quitar, y eso hay que
+     * poder DECIRLO. Si fuera obligatorio, cada driver nuevo tendría que escribir un
+     * método vacío para compilar — y un método vacío que no falla es lo que hizo que esta
+     * función se diera por existente durante meses.
+     *
+     * Quien la llame tiene que tratar la ausencia como "no se puede quitar de acá" y
+     * avisar, nunca como "quitada".
+     */
+    deleteRfKey?(credential: Credential, device: Device): Promise<void>;
 }
 
 /**

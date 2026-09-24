@@ -267,15 +267,101 @@ export class AkuvoxDriver implements IFaceDriver, IRfidDriver, ILogDriver, IStat
             }
         };
 
-        try {
-            const response = await this.request("POST", path, payload, device);
-            if (response && response.retcode === 0) {
-            } else {
-                console.warn(`[Akuvox] RFKey sync failed: ${JSON.stringify(response)}`);
-            }
-        } catch (error: any) {
-            console.error(`[Akuvox] Error calling RFKey API:`, error.message);
+        /*
+         * ── EL `retcode` QUE SE TRAGABA ─────────────────────────────────────────────
+         *
+         * Acá decía: si `retcode === 0` no hacer nada, si no, un `console.warn`; y el
+         * `catch` sólo escribía en la consola del servidor. O sea que este método **nunca
+         * lanzaba**, pasara lo que pasara.
+         *
+         * Y quien lo llama (`cargarTagEn`, en `lib/tags.ts`) decide entre "cargado" y
+         * "error" con un `try/catch`. Sin excepción no hay `catch`, así que **toda tarjeta
+         * quedaba informada como "cargado"** aunque el portero la hubiera rechazado: la
+         * ficha del tag decía que estaba en el lector y la puerta no abría.
+         *
+         * Es el mismo defecto que `HikvisionDriver.upsertCredential`, arreglado ayer, en
+         * otro archivo. Vale escribirlo otra vez porque el patrón es el que más caro sale
+         * en este proyecto: una operación falla, el error se traga, y la pantalla informa
+         * éxito.
+         */
+        const response = await this.request("POST", path, payload, device);
+        if (!response || response.retcode !== 0) {
+            throw new Error(`el portero rechazo la tarjeta ${credential.value}`
+                + ` (retcode ${response?.retcode ?? "sin respuesta"})`);
         }
+    }
+
+    /**
+     * Sacarle una tarjeta al portero.
+     *
+     * ── POR QUE NO EXISTIA, Y POR QUE IMPORTA ───────────────────────────────────────
+     *
+     * No estaba escrita en ningun driver, asi que borrar un tag en OmniAccess sólo
+     * olvidaba el espejo: **la tarjeta seguia cargada en el portero y seguia abriendo**.
+     * Ante una tarjeta robada, el operador la borraba, la pantalla le decia que ya no
+     * abria, y cerraba el tema.
+     *
+     * ── SE VERIFICA LEYENDO, Y NO ES OPCIONAL ───────────────────────────────────────
+     *
+     * Esto se escribio **sin un equipo contra el cual probarlo**: San Nicolas no tiene
+     * ningun lector de tarjetas instalado todavia. El endpoint `/api/rfkey/del` sigue la
+     * misma forma que `add` y `get`, que si estan probados contra equipos reales, pero
+     * "sigue la misma forma" no es lo mismo que "anda".
+     *
+     * Por eso no alcanza con mirar el `retcode`: despues de borrar se vuelve a LEER la
+     * lista del equipo y se confirma que la tarjeta no esta. Si el endpoint fuera
+     * distinto en algun modelo y el equipo contestara `retcode: 0` sin borrar nada, esto
+     * falla ruidosamente en vez de informar un exito que no ocurrio — que es exactamente
+     * el defecto que este metodo viene a cerrar. Seria absurdo arreglarlo cometiendolo.
+     */
+    async deleteRfKey(credential: Credential, device: Device): Promise<void> {
+        const internalId = this.getNumericId(credential.id);
+
+        const response = await this.request("POST", "/api/rfkey/del", {
+            "target": "rfkey",
+            "action": "del",
+            "data": { "item": [{ "ID": internalId }] },
+        }, device);
+
+        if (!response || response.retcode !== 0) {
+            throw new Error(`el portero no acepto quitar la tarjeta ${credential.value}`
+                + ` (retcode ${response?.retcode ?? "sin respuesta"})`);
+        }
+
+        /* La comprobacion. Ver el comentario de arriba: sin esto, un endpoint equivocado
+           se veria igual que un borrado exitoso. */
+        if (await this.tieneRfKey(device, internalId, credential.value)) {
+            throw new Error(`el portero contesto que borro la tarjeta ${credential.value}`
+                + ` pero sigue en su lista`);
+        }
+    }
+
+    /**
+     * ¿Esta esta tarjeta en el equipo? Se busca por ID interno y tambien por codigo.
+     *
+     * Por las dos cosas porque el ID lo calculamos nosotros con un hash del id de la base:
+     * si una tarjeta se cargo antes de que existiera ese calculo, o desde la app del
+     * fabricante, su ID en el equipo no coincide con el nuestro y sólo el codigo la
+     * encuentra. Buscar por una sola de las dos daria "no esta" sobre una tarjeta que si
+     * esta, que en una comprobacion de borrado es el error caro.
+     */
+    private async tieneRfKey(device: Device, internalId: string, codigo: string): Promise<boolean> {
+        const PAGINA = 100;
+        for (let offset = 0; offset < 5000; offset += PAGINA) {
+            const res = await this.request("POST", "/api/rfkey/get", {
+                "target": "rfkey", "action": "get",
+                "data": { "offset": offset, "num": PAGINA },
+            }, device, 15000);
+
+            const items: any[] = res?.data?.item || [];
+            if (!items.length) return false;
+            if (items.some((i) => String(i?.ID) === String(internalId)
+                || String(i?.Code || "").trim() === String(codigo).trim())) return true;
+            if (items.length < PAGINA) return false;
+        }
+        /* Mas de cinco mil tarjetas y ninguna coincidio: se corta para no quedar girando,
+           pero NO se afirma que no esta. Quien llama lo trata como "no pude comprobar". */
+        throw new Error("no se pudo recorrer la lista del equipo para comprobar el borrado");
     }
 
     async triggerRelay(device: Device): Promise<void> {

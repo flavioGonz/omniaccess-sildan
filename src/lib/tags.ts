@@ -145,11 +145,87 @@ export async function estadoDelTag(credentialId: string): Promise<Destino[]> {
     });
 }
 
-/** Sacar la tarjeta de los equipos. Se usa al desasignar y al borrar. */
-export async function quitarTagDeLosLectores(credentialId: string) {
-    /* Por ahora sólo se olvida el espejo: ninguno de los drivers tiene un `deleteRfKey`
-       escrito, y borrar la anotación sin borrarla del equipo sería peor que no hacer nada
-       — la tarjeta seguiría abriendo y el sistema diría que no. Queda dicho acá y en la
-       pantalla, que avisa que hay que sacarla a mano. */
-    await prisma.hardwareMirror.deleteMany({ where: { hardwareId: credentialId } }).catch(() => { });
+/**
+ * Sacar la tarjeta de los equipos. Se usa al desasignar y al borrar.
+ *
+ * ── EL ORDEN ES LA MITAD DEL ARREGLO ────────────────────────────────────────────────
+ *
+ * Antes esto sólo borraba el espejo, porque ningún driver tenía `deleteRfKey`. Dos daños,
+ * y el segundo es el que no se ve:
+ *
+ * 1. La tarjeta seguía cargada en el portero y **seguía abriendo**.
+ * 2. El espejo es el ÚNICO lugar que sabe en qué lectores quedó. Borrarlo primero deja al
+ *    operador sin saber a dónde ir a sacarla a mano.
+ *
+ * Por eso ahora: **primero se saca del equipo, después se olvida** — y sólo se olvida el
+ * espejo de los equipos donde el borrado se pudo confirmar. El de un equipo que falló se
+ * conserva, que es lo que permite reintentar y lo que permite decir dónde quedó.
+ *
+ * Nunca se borra el espejo de un equipo que no contestó. Un espejo vacío significa "no
+ * está en ningún lado", y afirmar eso sin saberlo es exactamente el defecto original.
+ */
+export type QuitadaDe = {
+    deviceId: string;
+    nombre: string;
+    quitada: boolean;
+    detalle: string;
+};
+
+export async function quitarTagDeLosLectores(credentialId: string): Promise<QuitadaDe[]> {
+    const cred = await prisma.credential.findUnique({ where: { id: credentialId } });
+
+    /* El espejo dice dónde está cargada. Se lee ANTES de tocar nada. */
+    const espejos = await prisma.hardwareMirror.findMany({ where: { hardwareId: credentialId } });
+    if (!espejos.length) return [];
+
+    /* Una credencial ya borrada de la base no se puede quitar del equipo: el driver
+       necesita su `value` para identificarla. Se dice, no se calla. */
+    if (!cred) {
+        return espejos.map((m) => ({
+            deviceId: m.deviceId, nombre: m.deviceId, quitada: false,
+            detalle: "La tarjeta ya no está en la base, así que no se pudo identificar en el equipo.",
+        }));
+    }
+
+    const equipos = await prisma.device.findMany({
+        where: { id: { in: espejos.map((m) => m.deviceId) } },
+    });
+    const porId = new Map(equipos.map((d) => [d.id, d]));
+
+    const salidas: QuitadaDe[] = [];
+    for (const m of espejos) {
+        const device = porId.get(m.deviceId);
+        if (!device) {
+            /* El equipo ya no existe en la base. No hay a quién pedirle el borrado, y
+               conservar el espejo de un equipo fantasma no ayuda a nadie. */
+            await prisma.hardwareMirror.deleteMany({
+                where: { hardwareId: credentialId, deviceId: m.deviceId },
+            }).catch(() => { });
+            salidas.push({ deviceId: m.deviceId, nombre: m.deviceId, quitada: true, detalle: "El equipo ya no está dado de alta." });
+            continue;
+        }
+
+        const base = { deviceId: device.id, nombre: device.name };
+        const driver: any = driverDe(device);
+        if (!driver?.deleteRfKey) {
+            salidas.push({ ...base, quitada: false, detalle: "Este equipo no sabe quitar tarjetas: hay que sacarla desde la app del fabricante." });
+            continue;
+        }
+
+        try {
+            await driver.deleteRfKey(cred, device);
+            await prisma.hardwareMirror.deleteMany({
+                where: { hardwareId: credentialId, deviceId: device.id },
+            });
+            salidas.push({ ...base, quitada: true, detalle: "La tarjeta ya no está en el equipo." });
+        } catch (e: any) {
+            /* El espejo SE CONSERVA. Es lo único que sabe que la tarjeta sigue ahí. */
+            await prisma.hardwareMirror.updateMany({
+                where: { hardwareId: credentialId, deviceId: device.id },
+                data: { syncStatus: "ERROR", lastUpdated: new Date() },
+            }).catch(() => { });
+            salidas.push({ ...base, quitada: false, detalle: e?.message || "El equipo no pudo quitarla." });
+        }
+    }
+    return salidas;
 }
