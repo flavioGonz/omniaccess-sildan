@@ -179,6 +179,12 @@ const PRESUPUESTO_POR_MIN = Number(process.env.TRACKING_INFER_PER_MIN || 90);
  * tranquila por estar tranquila.
  */
 const RESPALDO_PACIENCIA = Number(process.env.TRACKING_FALLBACK_PATIENCE || 4);
+/**
+ * Cuantas ventanas de silencio hay que aguantar, con el flujo vivo, antes de sospechar de
+ * la regla. Cuatro por quince minutos es una hora: mas que cualquier bache de transito
+ * razonable de madrugada, y bastante menos que una noche entera.
+ */
+const RESPALDO_TOLERANCIA = Number(process.env.TRACKING_FALLBACK_TOLERANCE || 4);
 const RESPALDO_MUDO_MAX_MS = Number(process.env.TRACKING_FALLBACK_MAX_QUIET_MS || 4 * 60 * 1000);
 
 /**
@@ -1417,6 +1423,16 @@ function procesarAviso(est, xml) {
     // Si el aviso trae clasificacion y dice que es una persona, no es lo nuestro.
     if (/<detectionTarget>human<\/detectionTarget>/i.test(xml) && !/vehicle/i.test(xml)) return;
     est.ultimoAviso = Date.now();
+    /*
+     * `ultimoUtil` es lo mismo que `ultimoAviso` pero el vigia NO lo pisa.
+     *
+     * `ultimoAviso` se reinicia cada vez que el vigia decide algo, asi que no sirve para
+     * medir cuanto hace que NO pasa un vehiculo de verdad: cada quince minutos vuelve a
+     * cero solo. Para decidir si una regla esta mal puesta hace falta el silencio real, y
+     * ese es este.
+     */
+    est.ultimoUtil = Date.now();
+    est.avisoCalleVacia = 0;
     if (!porAviso(est.modoEfectivo) && porAviso(est.cam.disparo)) {
         log(`${est.cam.name}: la camara volvio a avisar, se deja el respaldo por escena`);
         est.modoEfectivo = est.cam.disparo;
@@ -1511,8 +1527,46 @@ function vigilarDisparo() {
             continue;
         }
 
-        log(`${est.cam.name}: la camara no avisa hace ${min} min y reenganchar no lo arreglo; `
-            + `se pasa al disparo por escena. Revisar la zona y el objetivo de la regla en el calibrador.`);
+        /*
+         * ── UNA CALLE VACIA NO ES UNA REGLA MAL PUESTA ──────────────────────────────
+         *
+         * Acá se degradaba a escena apenas el reenganche no traía analítica. Medido sobre
+         * cinco días de log: **80 degradaciones, y en las 57 que dejaron rastro del estado
+         * del flujo, el flujo estaba VIVO entregando movimiento. Cero veces estaba callado
+         * de verdad.** Y el pico de degradaciones es a las 23, 02, 05, 06 y 07 — o sea de
+         * madrugada.
+         *
+         * O sea que la pasarela leía "quince minutos sin un auto" como "la regla está mal"
+         * y castigaba a la cámara por mirar una calle vacía. El castigo no es barato: en
+         * respaldo por escena las dos cámaras produjeron 19 de 975 lecturas (el 2%) en el
+         * 20% del tiempo. Se degradaba de noche y podía quedarse así entrada la mañana.
+         *
+         * `flujoVivo` YA se calculaba acá — y se usaba sólo para redactar el log, no para
+         * decidir. El dato correcto estaba a la vista y no gobernaba nada.
+         *
+         * Ahora: si el flujo está vivo, la cámara está hablando y no se la degrada por
+         * falta de autos. La escotilla para el caso real —una regla de analítica mal
+         * dibujada— sigue abierta, pero pide MUCHO más silencio (`RESPALDO_TOLERANCIA`
+         * veces la ventana) antes de dar por mala una configuración, y lo dice como
+         * sospecha y no como diagnóstico.
+         */
+        const callado = Date.now() - (est.ultimoUtil || est.arranque || 0);
+        if (flujoVivo && callado < RESPALDO_MS * RESPALDO_TOLERANCIA) {
+            est.ultimoAviso = Date.now();
+            est.reenganches = 0;   // que pueda volver a reenganchar la próxima vez
+            if (!est.avisoCalleVacia || Date.now() - est.avisoCalleVacia > 60 * 60 * 1000) {
+                est.avisoCalleVacia = Date.now();
+                log(`${est.cam.name}: ${min} min sin un vehiculo, pero el flujo de la camara `
+                    + `sigue entregando avisos. Se queda en disparo por camara: una calle vacia `
+                    + `no es una regla mal puesta.`);
+            }
+            continue;
+        }
+
+        log(`${est.cam.name}: ${Math.round(callado / 60000)} min sin una sola analitica de vehiculo`
+            + (flujoVivo ? " con el flujo abierto y entregando otros avisos" : " y sin nada llegando")
+            + `; se pasa al disparo por escena. Puede ser la zona o el objetivo de la regla: `
+            + `revisar en el calibrador.`);
         est.modoEfectivo = "escena";
         est.ultimoAviso = Date.now();
         rearmar(est);
@@ -1831,7 +1885,7 @@ async function sincronizar() {
         }
         if (camarasVivas.has(cam.name)) { camarasVivas.get(cam.name).cam = cam; continue; }
 
-        const est = { cam, huella, modoEfectivo: cam.disparo, ultimoAviso: Date.now(), memoria: [], recuento: {}, rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false, gasto: null, secas: 0, avisoFreno: 0, ultimoBloque: 0, reenganches: 0 };
+        const est = { cam, huella, modoEfectivo: cam.disparo, ultimoAviso: Date.now(), ultimoUtil: Date.now(), arranque: Date.now(), avisoCalleVacia: 0, memoria: [], recuento: {}, rafaga: null, temporizador: null, mudoHasta: 0, ffmpeg: null, escucha: null, retirada: false, gasto: null, secas: 0, avisoFreno: 0, ultimoBloque: 0, reenganches: 0 };
         camarasVivas.set(cam.name, est);
         engancharCamara(est);
         if (porAviso(cam.disparo)) escucharCamara(est);
