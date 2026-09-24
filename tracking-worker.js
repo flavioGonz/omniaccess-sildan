@@ -335,7 +335,7 @@ function cuenta(cam, campo) {
     }
     let c = porCamara.get(id);
     if (!c) {
-        c = { nombre: cam.name || null, disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0 };
+        c = { nombre: cam.name || null, disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0, reconexiones: 0 };
         porCamara.set(id, c);
     }
     // El nombre se refresca cada vez: si lo renombraron en el alta, la muestra vieja ya
@@ -867,6 +867,22 @@ function gastar(est, inferencias) {
  */
 function mudoQueCorresponde(est) {
     if (porAviso(est.modoEfectivo)) return MUDO_MS;
+
+    /*
+     * Espaciar SOLO si el respaldo es el modo elegido, no si es una degradacion.
+     *
+     * Duplicar el silencio tras cada rafaga seca tiene sentido en una camara configurada
+     * para mirar por escena en una calle tranquila: no hay nada, no vale la pena gastar.
+     *
+     * No lo tiene cuando la camara DEBERIA estar avisando y no avisa. Ahi el respaldo es
+     * lo unico que queda, y espaciarlo es apagarle la luz a alguien que ya esta a oscuras:
+     * menos miradas -> menos chances de leer -> mas rafagas secas -> todavia menos
+     * miradas. Medido sobre cinco dias, las dos camaras pasaron 48,5 h en este modo (el
+     * 20% del tiempo) y produjeron 19 de las 975 lecturas: el 2%. Parte de eso es que el
+     * modo lee peor, y parte es que encima se estaba frenando solo.
+     */
+    if (porAviso(est.cam.disparo)) return MUDO_MS;
+
     const secas = Math.max(0, (est.secas || 0) - RESPALDO_PACIENCIA + 1);
     if (secas <= 0) return MUDO_MS;
     return Math.min(RESPALDO_MUDO_MAX_MS, MUDO_MS * 2 ** secas);
@@ -993,10 +1009,21 @@ async function resolverRafaga(est) {
             // Una rafaga seca en respaldo es la prueba de que ese respaldo no esta
             // rindiendo. La siguiente espera el doble.
             est.secas = (est.secas || 0) + 1;
+            /* El mensaje tiene que decir lo que de verdad va a pasar, y eso depende de
+               si el respaldo es el modo elegido o una degradacion — ver
+               `mudoQueCorresponde`. Decir "se empieza a espaciar" en una camara que ya
+               NO se espacia seria mandar a revisar el calibrador por un sintoma que no
+               existe. */
             if (!porAviso(est.modoEfectivo) && est.secas === RESPALDO_PACIENCIA) {
-                log(`${cam.name}: ${est.secas} rafagas por escena sin una sola matricula; `
-                    + `se empieza a espaciar el respaldo hasta ${Math.round(RESPALDO_MUDO_MAX_MS / 60000)} min. `
-                    + `La camara no avisa y por escena no se lee: hay que revisar la regla y la zona en el calibrador.`);
+                if (porAviso(est.cam.disparo)) {
+                    log(`${cam.name}: ${est.secas} rafagas por escena sin una sola matricula. `
+                        + `Esta camara DEBERIA disparar por aviso y no lo esta haciendo: el respaldo `
+                        + `sigue a ritmo completo, pero lo que hay que arreglar es el flujo de eventos.`);
+                } else {
+                    log(`${cam.name}: ${est.secas} rafagas por escena sin una sola matricula; `
+                        + `se empieza a espaciar el respaldo hasta ${Math.round(RESPALDO_MUDO_MAX_MS / 60000)} min. `
+                        + `Hay que revisar la regla y la zona en el calibrador.`);
+                }
             }
             if (r.motivo !== "escena") log(`${cam.name}: rafaga sin matricula (${cuadros.length} cuadros, ${cola.length} baldosas)`);
             // Se guarda un cuadro del ultimo intento fallido, siempre el mismo archivo por
@@ -1211,6 +1238,46 @@ function cabeceraDigest(desafio, metodo, uri, usuario, clave) {
  * vehiculo. Es un pedido HTTP que no termina nunca: la camara va empujando bloques
  * XML a medida que pasan cosas. Si se corta, se reintenta.
  */
+/**
+ * Escucha el flujo de avisos de la camara.
+ *
+ * ── QUE ESTABA MAL: UNA CADENA DE REINTENTOS POR REENGANCHE ─────────────────────────
+ *
+ * El reintento vivia en un `let reintentando` DENTRO de esta funcion. O sea: una guarda
+ * por cada llamada a `escucharCamara`, no por camara. Y `vigilarDisparo` la vuelve a
+ * llamar cada vez que reengancha el flujo, destruyendo el `req` anterior pero **sin
+ * detener su temporizador de reintento**. Esa cadena vieja seguia viva para siempre
+ * (`est.retirada` solo se marca al apagar el proceso) y abria su propia conexion cada
+ * diez segundos, en paralelo con la nueva.
+ *
+ * Medido sobre cinco dias de log: **160 reenganches**, **53.675 `socket hang up`** —el
+ * 79% de las lineas del log— y un tramo de TRECE HORAS el 23 de setiembre con 1.080
+ * cortes por hora y **cero** reconexiones exitosas. 1.080/h son 18 por minuto; con dos
+ * camaras y una espera de 10 s deberian ser 12. Los 6 de mas son las cadenas huerfanas.
+ *
+ * Y se retroalimenta: las Hikvision limitan las conexiones simultaneas de `alertStream`,
+ * asi que mas cadenas -> mas rechazos -> `vigilarDisparo` reengancha -> una cadena mas.
+ * Por eso no se recuperaba solo y por eso un reinicio lo arreglaba: el reinicio no
+ * arreglaba la camara, mataba las cadenas.
+ *
+ * ── COMO QUEDA ──────────────────────────────────────────────────────────────────────
+ *
+ * El estado del reintento vive en `est`, no en la clausura, asi que hay UNO por camara.
+ * Cada intento se sella con un numero de generacion: al empezar uno nuevo, el anterior
+ * queda invalidado y sus callbacks tardios no hacen nada, aunque lleguen. Es la unica
+ * forma de que un `close` que llega tarde no dispare una cadena paralela.
+ *
+ * La espera crece (5 s, 10, 20, 40, hasta 60) y se reinicia al conectar. Martillar una
+ * camara que esta rechazando conexiones cada 10 s es exactamente lo que la hace rechazar
+ * mas.
+ *
+ * Y se deja de escribir la misma linea 53.675 veces: se dice el primer fallo, y despues
+ * solo cuando cambia el escalon de espera o cada tanto con el total acumulado. Un log
+ * donde el 79% es un mismo mensaje no es un log, es ruido que tapa todo lo demas.
+ */
+const ESCUCHA_ESPERA_MIN_MS = Number(process.env.TRACKING_STREAM_RETRY_MS || 5000);
+const ESCUCHA_ESPERA_MAX_MS = Number(process.env.TRACKING_STREAM_RETRY_MAX_MS || 60000);
+
 function escucharCamara(est) {
     const cam = est.cam;
     if (!cam.ip || !cam.usuario || !cam.clave) {
@@ -1220,11 +1287,47 @@ function escucharCamara(est) {
     const uri = "/ISAPI/Event/notification/alertStream";
     const host = String(cam.ip).replace(/^https?:\/\//, "").split("/")[0].split(":")[0];
 
+    /* Cancela la cadena anterior de ESTA camara, si habia una. Lo que faltaba. */
+    detenerEscucha(est);
+
+    est.generacionEscucha = (est.generacionEscucha || 0) + 1;
+    const mia = est.generacionEscucha;
+    /** ¿Sigo siendo la cadena vigente? Si no, callarse y morir. */
+    const vigente = () => !est.retirada && est.generacionEscucha === mia;
+
+    if (est.esperaEscucha == null) est.esperaEscucha = ESCUCHA_ESPERA_MIN_MS;
+
+    const reintentar = (motivo) => {
+        if (!vigente() || est.timerEscucha) return;
+
+        est.fallosEscucha = (est.fallosEscucha || 0) + 1;
+        const espera = est.esperaEscucha;
+        /* Se habla cuando hay algo nuevo que decir: el primer fallo, y cada vez que la
+           espera sube de escalon. En el medio, un recuento cada 50 para que no se pierda
+           del todo que la camara sigue sin conectar. */
+        if (est.fallosEscucha === 1 || est.ultimaEspera !== espera) {
+            log(`${cam.name}: no se pudo abrir el flujo de eventos (${motivo}); `
+                + `se reintenta en ${Math.round(espera / 1000)} s`);
+        } else if (est.fallosEscucha % 50 === 0) {
+            log(`${cam.name}: ${est.fallosEscucha} intentos seguidos sin poder escuchar avisos `
+                + `(ultimo: ${motivo}). La camara no esta disparando nada.`);
+        }
+        est.ultimaEspera = espera;
+        est.esperaEscucha = Math.min(ESCUCHA_ESPERA_MAX_MS, espera * 2);
+
+        est.timerEscucha = setTimeout(() => {
+            est.timerEscucha = null;
+            if (vigente()) abrir(null);
+        }, espera);
+    };
+
     const abrir = (autorizacion) => {
-        if (est.retirada) return;
+        if (!vigente()) return;
         const req = http.request(
             { host, port: 80, path: uri, method: "GET", headers: autorizacion ? { Authorization: autorizacion } : {} },
             (res) => {
+                if (!vigente()) { res.resume(); try { req.destroy(); } catch { } return; }
+
                 if (res.statusCode === 401 && !autorizacion) {
                     const desafio = res.headers["www-authenticate"] || "";
                     res.resume();
@@ -1234,16 +1337,28 @@ function escucharCamara(est) {
                 }
                 if (res.statusCode !== 200) {
                     res.resume();
-                    log(`${cam.name}: flujo de eventos HTTP ${res.statusCode}`);
-                    return reintentar();
+                    return reintentar(`HTTP ${res.statusCode}`);
                 }
-                log(`${cam.name}: escuchando avisos de la camara`);
+
+                /* Conecto: se dice solo si venia fallando, y se reinicia la espera. */
+                if (est.fallosEscucha) {
+                    log(`${cam.name}: escuchando avisos de la camara otra vez, despues de ${est.fallosEscucha} intentos`);
+                } else {
+                    log(`${cam.name}: escuchando avisos de la camara`);
+                }
+                est.fallosEscucha = 0;
+                est.ultimaEspera = null;
+                est.esperaEscucha = ESCUCHA_ESPERA_MIN_MS;
+                cuenta(cam, "reconexiones");
                 est.escucha = req;
+                est.escuchaDesde = Date.now();
+
                 // El flujo viene en multipart y cada aviso puede traer su JPEG adjunto, asi
                 // que se trabaja sobre bytes: interpretarlo como texto rompe la imagen y,
                 // con ella, el limite del siguiente bloque.
                 let cola = Buffer.alloc(0);
                 res.on("data", (t) => {
+                    if (!vigente()) return;
                     cola = Buffer.concat([cola, t]);
                     for (;;) {
                         const ini = cola.indexOf(INICIO_AVISO);
@@ -1258,23 +1373,27 @@ function escucharCamara(est) {
                     // uno que ya procesamos: se descarta todo menos la cola reciente.
                     if (cola.length > 4 * 1024 * 1024) cola = cola.subarray(cola.length - 64 * 1024);
                 });
-                res.on("end", reintentar);
-                res.on("close", reintentar);
+                /* `end` y `close` llegan los dos por el mismo cierre. La guarda de
+                   `est.timerEscucha` en `reintentar` hace que el segundo no programe una
+                   cadena aparte — que era la otra mitad de la multiplicacion. */
+                res.on("end", () => reintentar("el flujo se cerro"));
+                res.on("close", () => reintentar("el flujo se cerro"));
             }
         );
-        req.on("error", (e) => { log(`${cam.name}: flujo de eventos cortado: ${e.message}`); reintentar(); });
+        req.on("error", (e) => reintentar(e.message));
         req.end();
     };
 
-    let reintentando = false;
-    const reintentar = () => {
-        if (reintentando || est.retirada) return;
-        reintentando = true;
-        est.escucha = null;
-        setTimeout(() => { reintentando = false; abrir(null); }, 10000);
-    };
-
     abrir(null);
+}
+
+/** Corta la escucha de una camara y su reintento. Lo que faltaba al reenganchar. */
+function detenerEscucha(est) {
+    if (est.timerEscucha) { clearTimeout(est.timerEscucha); est.timerEscucha = null; }
+    /* Bumpear la generacion invalida a la cadena vieja aunque tenga callbacks en vuelo. */
+    est.generacionEscucha = (est.generacionEscucha || 0) + 1;
+    try { est.escucha && est.escucha.destroy(); } catch { }
+    est.escucha = null;
 }
 
 /**
@@ -1385,8 +1504,9 @@ function vigilarDisparo() {
             log(`${est.cam.name}: ${min} min sin un aviso util`
                 + (flujoVivo ? " (pero el flujo sigue entregando otros: parece una conexion cansada)" : " ni de ningun otro tipo")
                 + ". Se reengancha el flujo de eventos antes de dar la regla por mal puesta.");
-            try { est.escucha && est.escucha.destroy(); } catch { }
-            est.escucha = null;
+            /* `escucharCamara` ya corta la cadena anterior. Antes acá se destruía el
+               `req` a mano y el TEMPORIZADOR de reintento de esa cadena quedaba vivo:
+               ésa es la línea exacta por la que se multiplicaban los bucles. */
             escucharCamara(est);
             continue;
         }
@@ -1616,17 +1736,44 @@ async function muestrear() {
         // veinte idas y vueltas por minuto para escribir seis numeros cada una.
         if (porCamara.size) {
             try {
-                await prisma.trackingCamaraMuestra.createMany({
-                    data: [...porCamara.entries()].map(([deviceId, c]) => ({
-                        deviceId,
-                        nombre: c.nombre,
+                /*
+                 * Ahora entran TODAS las camaras vivas, no solo las que tuvieron actividad.
+                 *
+                 * Antes se salteaban las de cero disparos porque "un minuto con cero
+                 * disparos aporta 0/0 a cualquier promedio, asi que una fila de ceros seria
+                 * peso muerto". Con la columna `modo` eso deja de ser cierto: una fila con
+                 * cero disparos y modo "escena" no es peso muerto, es EXACTAMENTE el dato
+                 * que faltaba — una camara que se ve en linea y no esta mirando.
+                 *
+                 * El promedio de la tasa sigue sano porque se calcula sobre `disparos`, que
+                 * en esas filas es cero y no suma al denominador.
+                 */
+                const filas = new Map();
+                for (const [, est] of camarasVivas) {
+                    const id = est.cam?.deviceId || est.cam?.id;
+                    if (!id) continue;
+                    filas.set(id, {
+                        deviceId: id,
+                        nombre: est.cam.name || null,
+                        disparos: 0, lecturas: 0, descartes: 0, fueraDeLinea: 0, frenados: 0,
+                        reconexiones: 0,
+                        modo: porAviso(est.modoEfectivo) ? "camara" : "escena",
+                    });
+                }
+                for (const [deviceId, c] of porCamara.entries()) {
+                    const f = filas.get(deviceId) || { deviceId, modo: null };
+                    filas.set(deviceId, {
+                        ...f,
+                        nombre: c.nombre ?? f.nombre ?? null,
                         disparos: c.disparos,
                         lecturas: c.lecturas,
                         descartes: c.descartes,
                         fueraDeLinea: c.fueraDeLinea,
                         frenados: c.frenados,
-                    })),
-                });
+                        reconexiones: c.reconexiones || 0,
+                    });
+                }
+                await prisma.trackingCamaraMuestra.createMany({ data: [...filas.values()] });
             } catch (e) {
                 // No se tira la vuelta por esto: la muestra es una estadistica, y perder
                 // un minuto de estadistica no justifica dejar de leer matriculas.
@@ -1665,7 +1812,7 @@ async function sincronizar() {
         if (!nombres.has(nombre)) {
             est.retirada = true;
             try { est.ffmpeg && est.ffmpeg.kill("SIGKILL"); } catch { }
-            try { est.escucha && est.escucha.destroy(); } catch { }
+            detenerEscucha(est);
             camarasVivas.delete(nombre);
             log(`camara quitada: ${nombre}`);
         }
@@ -1732,7 +1879,7 @@ process.on("SIGTERM", () => {
     for (const [, est] of camarasVivas) {
         est.retirada = true;
         try { est.ffmpeg && est.ffmpeg.kill("SIGKILL"); } catch { }
-        try { est.escucha && est.escucha.destroy(); } catch { }
+        detenerEscucha(est);
     }
     process.exit(0);
 });

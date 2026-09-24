@@ -741,6 +741,14 @@ model TrackingCamaraMuestra {
   /// Disparos que no se hicieron por falta de cuota. Explican una tasa que no baja pero
   /// un conteo que si.
   frenados     Int      @default(0)
+  /// Con que se disparo la camara ese minuto: "camara" (la camara avisa) o "escena"
+  /// (respaldo). Una camara en respaldo se ve EN LINEA y lee casi nada: medido, el 20%
+  /// del tiempo en respaldo produjo el 2% de las lecturas. Sin esta columna eso solo se
+  /// podia descubrir leyendo el log.
+  modo         String?
+  /// Reaperturas del flujo de avisos en el minuto. Si sube y no baja, la camara esta
+  /// rechazando la suscripcion.
+  reconexiones Int      @default(0)
 
   @@index([momento])
   @@index([deviceId, momento])
