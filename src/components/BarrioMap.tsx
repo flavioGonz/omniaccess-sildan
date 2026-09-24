@@ -676,7 +676,24 @@ export default function BarrioMap() {
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
 
-    if (!data) return <div className="h-full w-full flex items-center justify-center text-muted-foreground"><Loader2 className="animate-spin mr-2" size={18} /> Cargando mapa…</div>;
+    /*
+     * El «cargando» ESTABA ACÁ, y acá rompía.
+     *
+     * React exige que cada render llame a los mismos hooks en el mismo orden. Un `return`
+     * temprano corta el render, así que todo hook que quede abajo sólo se ejecuta cuando
+     * la condición no se cumple. Mientras lo de abajo eran funciones sueltas daba igual;
+     * al memoizarlas para arreglar el rendimiento del mapa pasaron a ser DIEZ hooks
+     * debajo del corte. Primer render sin datos: N hooks. Segundo, con datos: N+10.
+     * Error #310, «Rendered more hooks than during the previous render», y la pantalla
+     * entera en blanco.
+     *
+     * Ya había mordido antes en este archivo (ver `BurbujasVivo`) y volvió a morder por el
+     * mismo descuido: medir un problema de rendimiento y meter la solución sin mirar qué
+     * había arriba en el cuerpo del componente.
+     *
+     * La corrección es la de manual: **los hooks primero, el corte después**. El guard
+     * ahora está justo antes del JSX, donde ya no hay ningún hook debajo.
+     */
 
     const onMapClick = (ll: LL) => {
         if (!editing) return;
@@ -703,7 +720,7 @@ export default function BarrioMap() {
 
     const commitPerimeter = () => { if (draftPerimeter.length >= 3) cambiar((d) => ({ ...d, perimeter: draftPerimeter })); setDraftPerimeter([]); setTool("select"); };
     const commitStreet = () => { if (draftStreet.length >= 2) cambiar((d) => ({ ...d, streets: [...d.streets, { id: `s_${Date.now()}`, points: draftStreet }] })); setDraftStreet([]); setTool("select"); };
-    const lotes = data.lots || [];
+    const lotes = data?.lots || [];   // `data?` — este cuerpo ahora también corre sin datos
     /** Un lote nuevo con nombre automático: «Lote 4». Se renombra desde su panel. */
     const nuevoLote = (d: BarrioMapData, puntos: LL[]) => ({
         id: `l_${Date.now()}`,
@@ -831,7 +848,12 @@ export default function BarrioMap() {
          * encadenar varios sin salir de la herramienta; lo que ya no hace falta es
          * acordarse de él.
          */
-        let conBorradores = data;
+        /* Sin mapa no hay nada que guardar. El botón sólo existe con el mapa en
+           pantalla, así que esto no pasa — pero antes lo garantizaba un `return` de
+           arriba, y ahora que el corte está abajo hay que decirlo acá. Un `!` habría
+           callado al compilador sin dejar rastro de por qué era seguro. */
+        if (!data) return;
+        let conBorradores: BarrioMapData = data;
         if (draftLote.length >= 3) {
             conBorradores = { ...conBorradores, lots: [...(conBorradores.lots || []), nuevoLote(conBorradores, draftLote)] };
         }
@@ -909,7 +931,7 @@ export default function BarrioMap() {
     // ── Controles del mapa ──────────────────────────────────────────────
     const acercar = (d: number) => { const m = mapRef.current; if (m) m.setZoom(m.getZoom() + d); };
     const centrarBarrio = () => {
-        const m = mapRef.current; if (!m) return;
+        const m = mapRef.current; if (!m || !data) return;
         if (data.perimeter.length >= 3) m.fitBounds(L.latLngBounds(data.perimeter as any), { padding: [60, 60] });
         else m.setView(data.center as any, data.zoom);
     };
@@ -923,7 +945,9 @@ export default function BarrioMap() {
     // saltar a una cámara o a una calle.
     const lugares = (() => {
         const q = (rec.plate || "").trim().toLowerCase();
-        if (q.length < 2) return [] as Lugar[];
+        /* Este cálculo corre en cada render, incluido el primero sin datos: no hay dónde
+           buscar todavía, y eso es una lista vacía, no un error. */
+        if (!data || q.length < 2) return [] as Lugar[];
         const cams = data.cameras
             .map((c) => ({ tipo: "camara" as const, id: c.deviceId, nombre: devById[c.deviceId]?.name || "Cámara", lat: c.lat, lng: c.lng }))
             .filter((c) => c.nombre.toLowerCase().includes(q));
@@ -959,6 +983,15 @@ export default function BarrioMap() {
         { id: "camera", icon: Video, label: "Soltar cámara" },
         { id: "lote", icon: Pentagon, label: "Dibujar casa / lote" },
     ];
+
+    /* Recién acá, con todos los hooks ya ejecutados, se puede cortar. */
+    if (!data) {
+        return (
+            <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                <Loader2 className="mr-2 animate-spin" size={18} /> Cargando mapa…
+            </div>
+        );
+    }
 
     return (
         <TooltipProvider delayDuration={150}>

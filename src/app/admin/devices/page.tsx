@@ -12,7 +12,12 @@ import {
     getCameraUserCounts
 } from "@/app/actions/devices";
 import { getAccessGroups } from "@/app/actions/groups";
-import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
+/* `ModuleId` sale de donde vive, no del archivo de acciones.
+   `actions/modules.ts` lo IMPORTA pero nunca lo reexportó, así que esta línea era un
+   error de tipos real — de los 22 que `ignoreBuildErrors: true` deja pasar a producción
+   sin avisar. Queda uno menos. */
+import { getEnabledModules } from "@/app/actions/modules";
+import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import { Button } from "@/components/ui/button";
 import {
     Table,
@@ -249,11 +254,20 @@ export default function DevicesPage() {
     const [alerts, setAlerts] = useState<any[]>([]);
     const [healthHistory, setHealthHistory] = useState<any>(null);
     const [showReadRate, setShowReadRate] = useState(false);
-    const [modules, setModules] = useState<Record<ModuleId, boolean>>({
-        MODULE_LPR: true,
-        MODULE_FACE: true,
-        MODULE_QUEUE: false,
-    });
+    /*
+     * El estado inicial sale de las definiciones, no de una lista escrita a mano.
+     *
+     * Estaba enumerado acá con tres módulos, y faltaba MODULE_GUARD — el tipo lo exigía,
+     * pero nadie se enteró porque `ModuleId` llegaba como `any` (la importación estaba
+     * rota, ver arriba). Un tipo que no se puede resolver no verifica nada: el error que
+     * tenía que avisar de esto quedó tapado por otro error.
+     *
+     * Derivado de MODULE_DEFINITIONS no se puede volver a desincronizar: el módulo que se
+     * agregue mañana entra solo, con su propio valor por defecto.
+     */
+    const [modules, setModules] = useState<Record<ModuleId, boolean>>(
+        () => Object.fromEntries(MODULE_DEFINITIONS.map((m) => [m.id, m.defaultEnabled])) as Record<ModuleId, boolean>,
+    );
 
     const typeFilter = searchParams.get('type');
 
@@ -437,11 +451,30 @@ export default function DevicesPage() {
 
     async function handleSyncPlates(id: string) {
         setTriggeringRelay(id); // Use same state for loading feedback or add a new one
-        const result = await syncPlatesToDevice(id);
-        if (result.success) {
-            await loadData();
+        try {
+            const result = await syncPlatesToDevice(id);
+            /*
+             * El fallo se dice. Antes, si `success` era false, esta función no hacía NADA:
+             * ni aviso, ni error, ni recarga. El operador apretaba «sincronizar», la
+             * animación terminaba, y no aparecía nada — que se lee como "salió bien".
+             *
+             * Y el peor caso de esa acción es que la cámara quede vacía, porque la
+             * sincronización borra la lista antes de cargarla. O sea que la pantalla se
+             * quedaba muda justo en el caso en que más hay que hablar.
+             */
+            if (result.success) {
+                toast.success("Matrículas sincronizadas", { description: result.message });
+                await loadData();
+            } else if ((result as any).critico) {
+                toast.error("La cámara quedó vacía", { description: result.message });
+            } else {
+                toast.warning("La sincronización no quedó completa", { description: result.message });
+            }
+        } catch (e: any) {
+            toast.error("No se pudo sincronizar", { description: e?.message || "Error de conexión" });
+        } finally {
+            setTriggeringRelay(null);
         }
-        setTriggeringRelay(null);
     }
 
     const setFilter = (type?: string) => {

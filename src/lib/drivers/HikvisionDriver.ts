@@ -100,15 +100,42 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
         };
     }
 
+    /**
+     * Carga una matrícula en la cámara.
+     *
+     * ── QUÉ ESTABA MAL: EL `catch` QUE NO RELANZABA ──────────────────────────────────
+     *
+     * Este método atrapaba el error de `addPlateToCamera`, lo escribía en la consola del
+     * servidor y **devolvía normalmente**. Para quien lo llama, fallar y funcionar se
+     * veían exactamente igual.
+     *
+     * Eso no era un detalle de registro. Tenía dos consecuencias caras:
+     *
+     * 1. **`syncPlatesToDevice` borra la lista de la cámara ANTES de cargarla**, para
+     *    dejarla igual a la base. Si después fallaban todas las cargas y ninguna lo
+     *    decía, el resultado era: cámara VACÍA y el tablero informando
+     *    «412 exitosas, 0 fallidas». Nadie entra por matrícula y la pantalla dice que
+     *    está todo bien. De los defectos de este proyecto es el que más rápido se nota
+     *    en la calle, y el que más tarda en entenderse.
+     *
+     * 2. **`liveSync` tiene un reintento con espera creciente que NUNCA se ejecutaba.**
+     *    Está escrito para reintentar ante una excepción, y acá no había ninguna. Un
+     *    mecanismo de tolerancia a fallos completo, probado en el papel, desactivado por
+     *    un `catch` a tres archivos de distancia.
+     *
+     * Todos los que llaman a este método ya lo envuelven en `try/catch` — estaban
+     * esperando el error que no llegaba nunca. Así que relanzar no rompe a nadie:
+     * reactiva lo que ya estaba escrito.
+     */
     async upsertCredential(credential: Credential, device: Device): Promise<void> {
-        if (credential.type === CredentialType.PLATE) {
-            try {
-                process.stdout.write(`Syncing plate ${credential.value} to ${device.ip}... `);
-                await this.addPlateToCamera(device, credential.value);
-                process.stdout.write("DONE\n");
-            } catch (e: any) {
-                console.error(`FAILED: ${e.message}`);
-            }
+        if (credential.type !== CredentialType.PLATE) return;
+        try {
+            await this.addPlateToCamera(device, credential.value);
+        } catch (e: any) {
+            /* Se relanza con contexto: qué chapa y a qué equipo. El mensaje crudo de
+               ISAPI no dice ninguna de las dos cosas, y sin eso el error que llega
+               arriba no alcanza para saber a qué cámara hay que ir. */
+            throw new Error(`No se pudo cargar la matrícula ${credential.value} en ${device.ip}: ${e?.message || e}`);
         }
     }
 

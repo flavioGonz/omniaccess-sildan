@@ -266,7 +266,14 @@ export function DevicePlateListDialog({ device, open, onOpenChange }: DevicePlat
             stopStaged();
             if (result.success) {
                 setSyncProgress(100);
-                setOv({ mode: "up", phase: "done", count: localPlates.length, msg: result.message });
+                /* El número que se muestra es el que reportó LA CÁMARA, no el que tenemos
+                   nosotros. Eran lo mismo mientras nada fallaba; el día que difieran, el
+                   que importa es el del equipo. */
+                setOv({
+                    mode: "up", phase: "done",
+                    count: (result as any).enElEquipo ?? localPlates.length,
+                    msg: result.message,
+                });
                 loadPlates();
             } else {
                 setOv({ mode: "up", phase: "error", err: result.message });

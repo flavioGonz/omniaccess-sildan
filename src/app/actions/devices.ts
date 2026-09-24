@@ -342,6 +342,34 @@ export async function getDeviceStats(id: string) {
     }
 }
 
+/**
+ * Deja la cámara igual a la base: borra su lista y la vuelve a cargar.
+ *
+ * ── QUÉ ESTABA MAL: EL TABLERO CONTABA INTENTOS, NO RESULTADOS ───────────────────────
+ *
+ * Decía siempre «N exitosas, 0 fallidas». Siempre, pasara lo que pasara. Por dos razones
+ * encadenadas:
+ *
+ * 1. `upsertCredential` se tragaba el error y devolvía normalmente (ya arreglado, ver el
+ *    comentario en HikvisionDriver), así que el `catch` de este bucle no se ejecutaba
+ *    nunca y `failCount` valía cero por construcción.
+ * 2. Aunque hubiera fallado, `successCount++` cuenta **llamadas que volvieron**, no
+ *    matrículas que quedaron en la cámara. Son dos cosas distintas y sólo una le importa
+ *    al operador.
+ *
+ * Y lo peligroso es el orden: la lista se borra PRIMERO. Cámara vacía + todas las cargas
+ * fallando + «412 exitosas, 0 fallidas» es un barrio entero sin acceso por matrícula, con
+ * la pantalla diciendo que salió bien.
+ *
+ * ── CÓMO QUEDA: SE PREGUNTA A LA CÁMARA ──────────────────────────────────────────────
+ *
+ * Al terminar se le vuelve a leer la lista al equipo. Eso convierte el informe de «lo que
+ * creo que hice» en «lo que el equipo tiene», que es lo único que se puede afirmar. Si esa
+ * lectura tampoco se puede hacer, se dice — no se rellena con el conteo optimista.
+ *
+ * Y el caso catastrófico —se borró y no entró nada— tiene su propio mensaje, porque no es
+ * «una sincronización con errores»: es una cámara que quedó vacía y hay que atender ya.
+ */
 export async function syncPlatesToDevice(deviceId: string) {
     try {
         const device = await prisma.device.findUnique({ where: { id: deviceId } });
@@ -349,35 +377,85 @@ export async function syncPlatesToDevice(deviceId: string) {
             return { success: false, message: "Dispositivo no compatible para sincronización LPR" };
         }
 
-        const plates = await prisma.credential.findMany({
-            where: { type: "PLATE" }
-        });
-
+        const plates = await prisma.credential.findMany({ where: { type: "PLATE" } });
         const driver = new HikvisionDriver();
 
-        // 1. Wipe the camera first for a TRUE mirror (Forzar Sincro)
+        /* Si el borrado falla, la cámara conserva lo que tenía y esto pasa a ser un
+           agregado, no un espejo. Cambia lo que se puede afirmar después, así que se
+           recuerda en vez de sólo escribirlo en la consola. */
+        let vaciada = true;
+        let motivoVaciado = "";
         try {
             await driver.clearWhiteList(device);
-        } catch (wipeError) {
-            console.warn(`[Sync] Could not wipe camera, will attempt to append:`, wipeError);
+        } catch (e: any) {
+            vaciada = false;
+            motivoVaciado = e?.message || String(e);
         }
 
-        let successCount = 0;
-        let failCount = 0;
+        const fallidas: { plate: string; error: string }[] = [];
+        let enviadas = 0;
 
         for (const plate of plates) {
             try {
                 await driver.upsertCredential(plate, device);
-                successCount++;
-            } catch (err) {
-                failCount++;
+                enviadas++;
+            } catch (err: any) {
+                fallidas.push({ plate: plate.value, error: err?.message || String(err) });
             }
         }
 
+        /* La verificación: qué tiene la cámara AHORA. */
+        let enElEquipo: number | null = null;
+        try {
+            enElEquipo = (await driver.getPlatesFromCamera(device)).length;
+        } catch {
+            enElEquipo = null;
+        }
+
         revalidatePath("/admin/devices");
+
+        const total = plates.length;
+        const vacia = enElEquipo === 0 && total > 0;
+
+        /* El peor caso primero, y nombrado por lo que es. */
+        if (vaciada && vacia) {
+            return {
+                success: false,
+                critico: true,
+                message: `LA CÁMARA QUEDÓ VACÍA. Se borró su lista y no entró ninguna de las ${total} matrículas`
+                    + `${fallidas[0] ? ` (${fallidas[0].error})` : ""}. Nadie puede entrar por matrícula por esta cámara.`,
+                total, enviadas, fallidas: fallidas.length, enElEquipo,
+            };
+        }
+
+        if (fallidas.length) {
+            const muestra = fallidas.slice(0, 3).map((f) => f.plate).join(", ");
+            return {
+                success: false,
+                message: `${fallidas.length} de ${total} matrículas no entraron (${muestra}${fallidas.length > 3 ? "…" : ""}). `
+                    + (enElEquipo != null ? `La cámara tiene ${enElEquipo}.` : "No se pudo leer la lista de la cámara para verificar.")
+                    + (vaciada ? "" : ` Además no se pudo borrar la lista previa (${motivoVaciado}), así que puede haber matrículas viejas.`),
+                total, enviadas, fallidas: fallidas.length, enElEquipo,
+            };
+        }
+
+        /* Sin fallas, pero la verificación puede contradecir igual: si la cámara reporta
+           menos de lo enviado, algo se perdió en silencio del otro lado. */
+        if (enElEquipo != null && enElEquipo < total) {
+            return {
+                success: false,
+                message: `Se enviaron ${total} matrículas sin error, pero la cámara reporta ${enElEquipo}. `
+                    + `Faltan ${total - enElEquipo} y el equipo no avisó de ninguna.`,
+                total, enviadas, fallidas: 0, enElEquipo,
+            };
+        }
+
         return {
             success: true,
-            message: `Sincronización completada: ${successCount} exitosas, ${failCount} fallidas.`
+            message: enElEquipo != null
+                ? `${enElEquipo} matrículas en la cámara.`
+                : `${total} matrículas enviadas sin error (no se pudo leer la lista para verificar).`,
+            total, enviadas, fallidas: 0, enElEquipo,
         };
     } catch (error: any) {
         return { success: false, message: error.message };
