@@ -1788,7 +1788,22 @@ async function muestrear() {
         // Las muestras por camara, en un solo viaje. createMany y no una insercion por
         // camara porque esto corre cada minuto para siempre: con veinte camaras serian
         // veinte idas y vueltas por minuto para escribir seis numeros cada una.
-        if (porCamara.size) {
+        /*
+         * Se escribe si hay algo que decir: actividad, o una camara degradada.
+         *
+         * Acá había `if (porCamara.size)` a secas, y cuando agregué la columna `modo` lo
+         * dejé puesto — así que seguía sin escribirse nada en los minutos sin actividad,
+         * que son EXACTAMENTE los que hacía falta ver. Medido: 7,5 horas corridas y sólo
+         * 105 minutos de filas. Cambié el contenido del bloque y me olvidé de la
+         * condición que decide si el bloque corre.
+         *
+         * Tampoco se escribe una fila por camara por minuto para siempre: con treinta
+         * camaras eso son 43.000 filas por dia para decir treinta veces "no paso nada".
+         * Entra lo que tuvo actividad, y lo que está en respaldo aunque no la haya tenido
+         * — una camara degradada y quieta es el dato, no el ruido.
+         */
+        const degradada = (est) => !porAviso(est.modoEfectivo);
+        if (porCamara.size || [...camarasVivas.values()].some(degradada)) {
             try {
                 /*
                  * Ahora entran TODAS las camaras vivas, no solo las que tuvieron actividad.
@@ -1827,7 +1842,10 @@ async function muestrear() {
                         reconexiones: c.reconexiones || 0,
                     });
                 }
-                await prisma.trackingCamaraMuestra.createMany({ data: [...filas.values()] });
+                /* Sólo las que tienen algo que contar: actividad o degradación. */
+                const utiles = [...filas.values()].filter((f) =>
+                    porCamara.has(f.deviceId) || f.modo === "escena");
+                if (utiles.length) await prisma.trackingCamaraMuestra.createMany({ data: utiles });
             } catch (e) {
                 // No se tira la vuelta por esto: la muestra es una estadistica, y perder
                 // un minuto de estadistica no justifica dejar de leer matriculas.

@@ -8,12 +8,17 @@ import React from "react";
  * pantallas al lado -- y ese es justamente el problema, que la inconsistencia solo
  * aparece cuando alguien compara, que es cuando ya quedo mal.
  */
-import { Outfit } from "next/font/google";
+import localFont from "next/font/local";
 
-const outfit = Outfit({
-    subsets: ["latin"],
-    weight: ["300", "400", "500", "600", "700", "800", "900"],
+/* Misma fuente local que el layout raíz — ver el comentario largo allá. Acá además se
+   pedían siete pesos sueltos; la variable los trae todos en un solo archivo. */
+const outfit = localFont({
     variable: "--font-outfit",
+    display: "swap",
+    src: [
+        { path: "../fuentes/outfit-latin.woff2", style: "normal", weight: "100 900" },
+        { path: "../fuentes/outfit-latin-ext.woff2", style: "normal", weight: "100 900" },
+    ],
 });
 
 import { PushNotificationManager } from "@/components/PushNotificationManager";

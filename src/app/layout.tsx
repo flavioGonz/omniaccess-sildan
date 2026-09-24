@@ -1,10 +1,25 @@
 import type { Metadata } from "next";
-import { Outfit } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-const outfit = Outfit({
+/*
+ * La fuente se sirve desde el repo, no desde Google.
+ *
+ * `next/font/google` la DESCARGA durante el build. El 24 de setiembre un hipo de red en
+ * ese minuto dejó el CSS generado roto, el build terminó en error y `omniaccess-web`
+ * quedó en `errored`: el sitio abajo. Un despliegue no puede depender de que internet
+ * conteste — y menos en un barrio, donde se despliega justamente cuando la red anda mal.
+ *
+ * Es la variable (100–900 en un archivo), así que cubre todos los pesos. Ver
+ * `src/app/fuentes/LEEME.md` para la licencia y cómo actualizarla.
+ */
+const outfit = localFont({
   variable: "--font-outfit",
-  subsets: ["latin"],
+  display: "swap",
+  src: [
+    { path: "./fuentes/outfit-latin.woff2", style: "normal", weight: "100 900" },
+    { path: "./fuentes/outfit-latin-ext.woff2", style: "normal", weight: "100 900" },
+  ],
 });
 
 // Force dynamic rendering for the entire application to avoid build-time DB access
