@@ -347,7 +347,11 @@ export default function BarrioMap() {
                         <TileLayer key="osm" attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={19} maxZoom={21} />
                     )}
                     {base === "Híbrido" && (
-                        <TileLayer key="labels" attribution="&copy; CARTO" url="https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png" subdomains="abcd" maxNativeZoom={20} maxZoom={21} />
+                        <>
+                            {/* Rótulos/calles sobre el satélite — capas de referencia de Esri (gratis, sin API key) */}
+                            <TileLayer key="hyb-transp" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
+                            <TileLayer key="hyb-places" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
+                        </>
                     )}
 
                     {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
