@@ -4,7 +4,7 @@ import {
     createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { Minus, Pin, PinOff, Radio, Square, X } from "lucide-react";
+import { Minus, Pin, PinOff, Radio, RotateCw, Square, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { montarVivo } from "@/lib/vivo";
 
@@ -134,6 +134,7 @@ function Ventana({ f, mover, soltar }: {
     const caja = useRef<HTMLDivElement | null>(null);
     const gesto = useRef<{ clase: "mover" | "medir"; x: number; y: number; px: number; py: number; pa: number } | null>(null);
     const [activo, setActivo] = useState(false);
+    const [recarga, setRecarga] = useState(0);
 
     /**
      * El flujo se monta UNA vez, por `deviceId`.
@@ -146,7 +147,7 @@ function Ventana({ f, mover, soltar }: {
         const v = video.current;
         if (!v) return;
         return montarVivo(v, f.deviceId);
-    }, [f.deviceId]);
+    }, [f.deviceId, recarga]);
 
     // Al volver de otra pantalla o de otra pestaña, algunos navegadores dejan el video
     // pausado. Se lo vuelve a pedir, que es gratis si ya está andando.
@@ -231,6 +232,11 @@ function Ventana({ f, mover, soltar }: {
                         <Radio size={10} className="text-red-400 shrink-0 animate-pulse" />
                         <span className="text-[11px] font-bold text-white truncate">{f.nombre}</span>
                     </div>
+                    <button onClick={() => setRecarga((n) => n + 1)}
+                        title="Refrescar video"
+                        className="w-6 h-6 rounded text-white/70 hover:text-white hover:bg-white/15 flex items-center justify-center shrink-0 transition-colors">
+                        <RotateCw size={11} />
+                    </button>
                     <button onClick={() => mover(f.deviceId, { minimizada: !f.minimizada })}
                         title={f.minimizada ? "Mostrar la imagen" : "Plegar a la barra de título"}
                         className="w-6 h-6 rounded text-white/70 hover:text-white hover:bg-white/15 flex items-center justify-center shrink-0 transition-colors">
