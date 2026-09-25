@@ -29,11 +29,11 @@ const nextConfig = {
     return [
       {
         source: "/io/:path*",
-        destination: "http://localhost:10000/:path*",
+        destination: "http://127.0.0.1:10000/:path*",
       },
       {
         source: "/go2rtc/:path*",
-        destination: "http://localhost:1984/:path*",
+        destination: "http://127.0.0.1:1984/:path*",
       },
     ];
   },

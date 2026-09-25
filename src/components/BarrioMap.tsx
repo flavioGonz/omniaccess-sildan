@@ -7,7 +7,7 @@ import L from "leaflet";
 import {
     MousePointer2, Hexagon, Video, Trash2, Save, Pencil, X, Check,
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
-    Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move,
+    Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -69,8 +69,17 @@ function ClickHandler({ onClick }: { onClick: (ll: LL) => void }) {
 
 function LiveMp4({ deviceId, className }: { deviceId: string; className?: string }) {
     const ref = useRef<HTMLVideoElement>(null);
-    useEffect(() => { const v = ref.current; if (!v) return; return montarVivo(v, deviceId); }, [deviceId]);
-    return <video ref={ref} muted autoPlay playsInline className={className || "block w-full h-full object-cover bg-black"} />;
+    const [nonce, setNonce] = useState(0);
+    useEffect(() => { const v = ref.current; if (!v) return; return montarVivo(v, deviceId); }, [deviceId, nonce]);
+    return (
+        <div className={cn("relative block group/vid", className || "w-full h-full")}>
+            <video ref={ref} muted autoPlay playsInline className="block w-full h-full object-cover bg-black" />
+            <button onClick={(e) => { e.stopPropagation(); setNonce((n) => n + 1); }} title="Refrescar video"
+                className="absolute top-1 right-1 z-[10] h-6 w-6 rounded-md bg-black/55 text-white/85 hover:bg-black/85 hover:text-white flex items-center justify-center opacity-0 group-hover/vid:opacity-100 transition-opacity">
+                <RotateCw size={12} />
+            </button>
+        </div>
+    );
 }
 
 /* ── Burbujas de video en vivo, cada una sobre su cámara en el mapa (clon de San Nicolás) ──
@@ -236,12 +245,18 @@ export default function BarrioMap() {
     const deleteSelected = () => { if (!selected) return; if (selected.type === "camera") removeCamera(selected.id); else if (selected.type === "street") removeStreet(selected.id); else removeLote(selected.id); setSelected(null); };
 
     // Guarda TODO el mapa (incluye lotes) en la DB al instante — sobrevive el reload.
+    // Usa una API route (POST JSON) en vez de server action: los server actions daban
+    // "unexpected response" a través del proxy; un POST normal pasa sin problemas.
     const persistNow = async (next: BarrioMapData, okMsg = "Guardado") => {
         const m = mapRef.current;
         const payload: BarrioMapData = { ...next, center: m ? [m.getCenter().lat, m.getCenter().lng] : next.center, zoom: m ? m.getZoom() : next.zoom };
         setData(payload);
-        try { const r = await saveBarrioMap(payload); if (r.ok) toast.success({ title: okMsg }); else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" }); }
-        catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); }
+        try {
+            const r = await fetch("/api/barriomap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            const j = await r.json().catch(() => ({}));
+            if (r.ok && j.ok) toast.success({ title: okMsg });
+            else toast.error({ title: "Error al guardar", description: j.error || `HTTP ${r.status}` });
+        } catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); }
     };
 
     const saveLoteModal = async () => {
