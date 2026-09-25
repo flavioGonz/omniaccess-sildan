@@ -9,25 +9,36 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
-import { getBarrioMap, saveBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
+import { getBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
 import { getParkingSlots } from "@/app/actions/parking";
 import { io } from "socket.io-client";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
 import { LogIn, LogOut } from "lucide-react";
 import { getDevices } from "@/app/actions/devices";
 import { createPortal } from "react-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { montarVivo } from "@/lib/vivo";
 import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
+import { useRouter } from "next/navigation";
 
-type Tool = "select" | "perimeter" | "camera" | "lote";
+type Tool = "select" | "perimeter" | "camera" | "lote" | "division";
 type LL = [number, number];
 type Base = "Híbrido" | "Táctico" | "Satélite" | "Calles";
 type SelKind = "street" | "camera" | "lote";
+type CtxKind = "street" | "camera" | "lote" | "guard" | "division";
+type DivTipo = "pared" | "tejido" | "alambrado";
+
+// Estilo de cada tipo de división (línea)
+const DIV_STYLE: Record<DivTipo, { color: string; weight: number; dashArray?: string; label: string }> = {
+    pared: { color: "#a8a29e", weight: 5, label: "Pared" },
+    tejido: { color: "#93c5fd", weight: 3, dashArray: "10 6", label: "Tejido" },
+    alambrado: { color: "#fcd34d", weight: 2, dashArray: "2 7", label: "Alambrado" },
+};
 
 const camSvg = `
 <div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)">
@@ -66,6 +77,11 @@ function ClickHandler({ onClick }: { onClick: (ll: LL) => void }) {
     useMapEvents({ click(e) { onClick([e.latlng.lat, e.latlng.lng]); } });
     return null;
 }
+function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
+    const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) });
+    useEffect(() => { onZoom(map.getZoom()); /* eslint-disable-next-line */ }, []);
+    return null;
+}
 
 function LiveMp4({ deviceId, className }: { deviceId: string; className?: string }) {
     const ref = useRef<HTMLVideoElement>(null);
@@ -82,11 +98,121 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
     );
 }
 
-/* ── Burbujas de video en vivo, cada una sobre su cámara en el mapa (clon de San Nicolás) ──
- * No son marcadores de Leaflet: el <video> se monta una sola vez y en cada movimiento del
- * mapa se recalcula solo su posición vía transform (sin re-render de React ni recortar el
- * stream). "Fijar" (BotonFijar) la saca del mapa y la deja como ventana flotante que
- * sobrevive al cambio de página. */
+/* ── Capa de lotes memoizada: no se re-renderiza cuando se actualizan guardias/flujo,
+ *    solo cuando cambian los lotes, la selección, el zoom o el lote localizado.
+ *    Las etiquetas de nombre se muestran solo con zoom alto (rendimiento con muchos lotes). */
+const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, zoom, locatedId, onSelect, onEdit, onCtx }: {
+    lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
+    selectedId: string | null; showNames: boolean; zoom: number; locatedId: string | null;
+    onSelect: (id: string) => void; onEdit: (id: string) => void; onCtx: (e: any, id: string) => void;
+}) {
+    const verNombres = showNames && zoom >= 17;
+    return (
+        <>
+            {lotes.map((lo) => (
+                <Polygon key={lo.id} positions={lo.points}
+                    pathOptions={{
+                        className: locatedId === lo.id ? "lote-blink" : undefined,
+                        color: selectedId === lo.id ? "#f59e0b" : lo.parkingSlotId ? "#22c55e" : "#a855f7",
+                        weight: selectedId === lo.id ? 3 : 1.5,
+                        fillColor: lo.parkingSlotId ? "#22c55e" : "#a855f7",
+                        fillOpacity: selectedId === lo.id ? 0.3 : 0.14,
+                    }}
+                    eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }}>
+                    {lo.name && verNombres && <LTooltip permanent direction="center" className="lote-tip">{lo.name}</LTooltip>}
+                </Polygon>
+            ))}
+        </>
+    );
+});
+
+/* ── Bloque colapsable del drawer (a nivel de módulo para no remontar el input) ── */
+function DrawerBlock({ open, onToggle, icon: Icon, titulo, children }: { open: boolean; onToggle: () => void; icon: any; titulo: string; children: React.ReactNode }) {
+    return (
+        <div className="rounded-xl border border-border bg-background/40 overflow-hidden">
+            <button onClick={onToggle} className="w-full flex items-center gap-2 px-3 h-10 text-left hover:bg-accent/50 transition-colors">
+                <Icon size={14} className="text-purple-500 shrink-0" />
+                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground flex-1">{titulo}</span>
+                <ChevronDown size={14} className={cn("text-muted-foreground transition-transform", open && "rotate-180")} />
+            </button>
+            <AnimatePresence initial={false}>
+                {open && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }}>
+                        <div className="px-3 pb-3 pt-1">{children}</div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+/* ── Drawer de edición de lote: SVG animado, bloques separados y colapsables, adaptable light/dark ── */
+function LoteDrawer({ value, slots, onChange, onSave, onClose, onDelete }: {
+    value: { mode: "create" | "edit"; id?: string; name: string; parkingSlotId: string; points: LL[] };
+    slots: any[];
+    onChange: (patch: Partial<{ name: string; parkingSlotId: string }>) => void;
+    onSave: () => void; onClose: () => void; onDelete?: () => void;
+}) {
+    const [abre, setAbre] = useState({ datos: true, plaza: true });
+    const slot = slots.find((s: any) => s.id === value.parkingSlotId);
+    return (
+        <div className="fixed inset-0 z-[620] flex justify-end" onClick={onClose}>
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+            <motion.div initial={{ x: 380, opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 380, opacity: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative h-full w-[360px] max-w-[92vw] bg-card border-l border-border shadow-2xl flex flex-col">
+                {/* Header con SVG animado */}
+                <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
+                    <span className="relative h-10 w-10 flex items-center justify-center shrink-0">
+                        <span className="absolute inset-0 rounded-2xl bg-purple-500/15 animate-ping" />
+                        <span className="relative h-10 w-10 rounded-2xl bg-purple-500/15 flex items-center justify-center"><LandPlot size={20} className="text-purple-500" /></span>
+                    </span>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-foreground leading-tight">{value.mode === "create" ? "Nuevo lote" : "Editar lote"}</p>
+                        <p className="text-[11px] text-muted-foreground leading-tight truncate">{value.name || "Sin nombre"}{slot ? ` · ${slot.label}` : ""}</p>
+                    </div>
+                    <button onClick={onClose} className="h-8 w-8 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground shrink-0"><X size={16} /></button>
+                </div>
+
+                {/* Cuerpo */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+                    <DrawerBlock open={abre.datos} onToggle={() => setAbre((a) => ({ ...a, datos: !a.datos }))} icon={Tag} titulo="Identificación">
+                        <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Nombre / número</label>
+                        <input autoFocus value={value.name} onChange={(e) => onChange({ name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") onSave(); }}
+                            placeholder="Ej: Lote 12" className="mt-1 w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500 transition-colors" />
+                    </DrawerBlock>
+
+                    <DrawerBlock open={abre.plaza} onToggle={() => setAbre((a) => ({ ...a, plaza: !a.plaza }))} icon={SquareParking} titulo="Plaza de parking">
+                        <select value={value.parkingSlotId} onChange={(e) => onChange({ parkingSlotId: e.target.value })}
+                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500 transition-colors">
+                            <option value="">— Sin vincular —</option>
+                            {slots.map((s: any) => <option key={s.id} value={s.id}>{s.label}{s.user?.name ? ` · ${s.user.name}` : ""}</option>)}
+                        </select>
+                        {slot ? (
+                            <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-2">
+                                <UserIcon size={13} className="text-emerald-500 shrink-0" />
+                                <span className="text-[12px] text-foreground/90 truncate">{slot.user?.name ? slot.user.name : "Plaza sin residente asignado"}</span>
+                            </div>
+                        ) : (
+                            <p className="mt-1.5 text-[10px] text-muted-foreground">Vinculá el lote a una plaza para reflejar ocupación y residente.</p>
+                        )}
+                    </DrawerBlock>
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center gap-2 px-3 py-3 border-t border-border">
+                    {value.mode === "edit" && onDelete && (
+                        <button onClick={onDelete} className="h-9 w-9 rounded-lg text-red-500 hover:bg-red-500/10 flex items-center justify-center shrink-0" title="Borrar lote"><Trash2 size={16} /></button>
+                    )}
+                    <button onClick={onClose} className="flex-1 h-9 rounded-lg text-xs font-bold text-muted-foreground hover:bg-accent transition-colors">Cancelar</button>
+                    <button onClick={onSave} className="flex-1 h-9 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center gap-1.5 transition-colors"><Check size={14} /> Guardar</button>
+                </div>
+            </motion.div>
+        </div>
+    );
+}
+
+/* ── Burbujas de video en vivo, cada una sobre su cámara en el mapa (clon de San Nicolás) ── */
 const BURBUJA_MEDIO = 118;
 const BURBUJA_ALTO = 168;
 const BURBUJA_SUBE = 34;
@@ -156,6 +282,7 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
 }
 
 export default function BarrioMap() {
+    const router = useRouter();
     const [data, setData] = useState<BarrioMapData | null>(null);
     const [devices, setDevices] = useState<any[]>([]);
     const [slots, setSlots] = useState<any[]>([]);
@@ -163,25 +290,28 @@ export default function BarrioMap() {
     const [tool, setTool] = useState<Tool>("select");
     const [draftPerimeter, setDraftPerimeter] = useState<LL[]>([]);
     const [draftLote, setDraftLote] = useState<LL[]>([]);
+    const [draftDivision, setDraftDivision] = useState<LL[]>([]);
+    const [divTipo, setDivTipo] = useState<DivTipo>("pared");
     const [pendingCam, setPendingCam] = useState<string>("");
     const [selected, setSelected] = useState<{ type: SelKind; id: string } | null>(null);
     const [saving, setSaving] = useState(false);
-    const [ctx, setCtx] = useState<{ x: number; y: number; type: SelKind; id: string } | null>(null);
+    const [ctx, setCtx] = useState<{ x: number; y: number; type: CtxKind; id: string } | null>(null);
     const mapRef = useRef<L.Map | null>(null);
     const wrapRef = useRef<HTMLDivElement | null>(null);
     const [guards, setGuards] = useState<any[]>([]);
     const [liveSocket, setLiveSocket] = useState<any>(null);
 
-    // Chrome (estilo San Nicolás)
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
-    const [show, setShow] = useState({ cameras: true, lotes: true, perimeter: true, guards: true, names: true });
+    const [show, setShow] = useState({ cameras: true, lotes: true, divisions: true, perimeter: true, guards: true, names: true });
     const [pantalla, setPantalla] = useState(false);
     const [q, setQ] = useState("");
+    const [zoom, setZoom] = useState(16);
+    const [movingCam, setMovingCam] = useState<string | null>(null);
+    const [located, setLocated] = useState<{ type: "lote" | "camera"; id: string } | null>(null);
+    const locateTimer = useRef<any>(null);
 
-    // Modal de lote (crear / editar)
     const [loteModal, setLoteModal] = useState<{ mode: "create" | "edit"; id?: string; name: string; parkingSlotId: string; points: LL[] } | null>(null);
-    // Video en vivo de todas las cámaras (burbujas sobre cada cámara, estilo San Nicolás)
     const [vivoTodas, setVivoTodas] = useState(false);
     const [ocultas, setOcultas] = useState<string[]>([]);
     const oscura = base !== "Calles";
@@ -196,7 +326,7 @@ export default function BarrioMap() {
     }, []);
 
     useEffect(() => {
-        getBarrioMap().then(setData).catch(() => setData(null));
+        getBarrioMap().then((d) => { setData(d); setZoom(d.zoom || 16); }).catch(() => setData(null));
         getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => { });
         getParkingSlots().then((s: any) => setSlots(s || [])).catch(() => { });
     }, []);
@@ -212,20 +342,60 @@ export default function BarrioMap() {
     }, []);
 
     const devById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices]);
-    const slotById = useMemo(() => Object.fromEntries(slots.map((s: any) => [s.id, s])), [slots]);
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
     const flow = useFlow(data?.streets || [], camsNamed, liveSocket);
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
+
+    // Guarda TODO el mapa (API route POST — pasa el proxy sin problema)
+    const persistNow = useCallback(async (next: BarrioMapData, okMsg = "Guardado") => {
+        const m = mapRef.current;
+        const payload: BarrioMapData = { ...next, center: m ? [m.getCenter().lat, m.getCenter().lng] : next.center, zoom: m ? m.getZoom() : next.zoom };
+        setData(payload);
+        try {
+            const r = await fetch("/api/barriomap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            const j = await r.json().catch(() => ({}));
+            if (r.ok && j.ok) toast.success({ title: okMsg });
+            else toast.error({ title: "Error al guardar", description: j.error || `HTTP ${r.status}` });
+        } catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); }
+    }, []);
+
+    const editLote = useCallback((id: string) => {
+        setData((cur) => {
+            const l = (cur?.lotes || []).find((x) => x.id === id);
+            if (l) setLoteModal({ mode: "edit", id, name: l.name || "", parkingSlotId: l.parkingSlotId || "", points: l.points });
+            return cur;
+        });
+    }, []);
+    const onSelectLote = useCallback((id: string) => { setSelected({ type: "lote", id }); }, []);
+    const openCtx = useCallback((e: any, type: CtxKind, id: string) => {
+        const oe = e.originalEvent || e; oe.preventDefault?.(); oe.stopPropagation?.();
+        setCtx({ x: oe.clientX, y: oe.clientY, type, id });
+    }, []);
+    const onCtxLote = useCallback((e: any, id: string) => openCtx(e, "lote", id), [openCtx]);
+
+    const localizar = useCallback((type: "lote" | "camera", id: string) => {
+        setLocated({ type, id });
+        if (locateTimer.current) clearTimeout(locateTimer.current);
+        locateTimer.current = setTimeout(() => setLocated(null), 6000);
+    }, []);
 
     if (!data) return <div className="h-full w-full flex items-center justify-center text-muted-foreground"><Loader2 className="animate-spin mr-2" size={18} /> Cargando mapa…</div>;
 
     const lotes = data.lotes || [];
 
     const onMapClick = (ll: LL) => {
+        // Mover cámara (menú contextual → editar posición) — funciona aún fuera de edición
+        if (movingCam) {
+            const next = { ...data, cameras: data.cameras.map((c) => c.deviceId === movingCam ? { ...c, lat: ll[0], lng: ll[1] } : c) };
+            setMovingCam(null);
+            persistNow(next, "Posición actualizada");
+            return;
+        }
         if (!editing) return;
         if (tool === "perimeter") setDraftPerimeter((p) => [...p, ll]);
         else if (tool === "lote") setDraftLote((p) => [...p, ll]);
+        else if (tool === "division") setDraftDivision((p) => [...p, ll]);
         else if (tool === "camera") {
             if (!pendingCam) { toast.error({ title: "Elegí una cámara primero" }); return; }
             setData((d) => d ? { ...d, cameras: [...d.cameras.filter((c) => c.deviceId !== pendingCam), { deviceId: pendingCam, lat: ll[0], lng: ll[1] }] } : d);
@@ -237,27 +407,17 @@ export default function BarrioMap() {
         if (draftLote.length >= 3) setLoteModal({ mode: "create", name: "", parkingSlotId: "", points: draftLote });
         setDraftLote([]); setTool("select");
     };
+    const commitDivision = () => {
+        if (draftDivision.length >= 2) setData((d) => d ? { ...d, divisions: [...((d as any).divisions || []), { id: `d_${Date.now()}`, tipo: divTipo, points: draftDivision }] } as any : d);
+        setDraftDivision([]); setTool("select");
+    };
+    const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
     const removeCamera = (id: string) => setData((d) => d ? { ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) } : d);
+    const removeCameraPersist = (id: string) => persistNow({ ...data, cameras: data.cameras.filter((c) => c.deviceId !== id) }, "Cámara quitada del mapa");
     const removeStreet = (id: string) => setData((d) => d ? { ...d, streets: d.streets.filter((s) => s.id !== id) } : d);
     const removeLote = async (id: string) => { const next = { ...data, lotes: (data.lotes || []).filter((l) => l.id !== id) }; await persistNow(next, "Lote eliminado"); };
     const renameStreet = (id: string) => { const n = window.prompt("Nombre de la calle:"); if (n != null) setData((d) => d ? { ...d, streets: d.streets.map((s) => s.id === id ? { ...s, name: n } : s) } : d); };
-    const editLote = (id: string) => { const l = lotes.find((x) => x.id === id); if (l) setLoteModal({ mode: "edit", id, name: l.name || "", parkingSlotId: l.parkingSlotId || "", points: l.points }); };
     const deleteSelected = () => { if (!selected) return; if (selected.type === "camera") removeCamera(selected.id); else if (selected.type === "street") removeStreet(selected.id); else removeLote(selected.id); setSelected(null); };
-
-    // Guarda TODO el mapa (incluye lotes) en la DB al instante — sobrevive el reload.
-    // Usa una API route (POST JSON) en vez de server action: los server actions daban
-    // "unexpected response" a través del proxy; un POST normal pasa sin problemas.
-    const persistNow = async (next: BarrioMapData, okMsg = "Guardado") => {
-        const m = mapRef.current;
-        const payload: BarrioMapData = { ...next, center: m ? [m.getCenter().lat, m.getCenter().lng] : next.center, zoom: m ? m.getZoom() : next.zoom };
-        setData(payload);
-        try {
-            const r = await fetch("/api/barriomap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-            const j = await r.json().catch(() => ({}));
-            if (r.ok && j.ok) toast.success({ title: okMsg });
-            else toast.error({ title: "Error al guardar", description: j.error || `HTTP ${r.status}` });
-        } catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); }
-    };
 
     const saveLoteModal = async () => {
         if (!loteModal) return;
@@ -279,11 +439,6 @@ export default function BarrioMap() {
         setSaving(false); setEditing(false); setTool("select");
     };
 
-    const openCtx = (e: any, type: SelKind, id: string) => {
-        const oe = e.originalEvent || e; oe.preventDefault?.(); oe.stopPropagation?.();
-        setCtx({ x: oe.clientX, y: oe.clientY, type, id });
-    };
-
     const acercar = (d: number) => { const m = mapRef.current; if (m) m.setZoom(m.getZoom() + d); };
     const centrar = () => { const m = mapRef.current; if (m) m.setView(data.center, data.zoom); };
     const alternarPantalla = () => {
@@ -294,18 +449,19 @@ export default function BarrioMap() {
     const toggleVivo = () => { setOcultas([]); setVivoTodas((v) => !v); };
     const buscar = () => {
         const s = q.trim().toUpperCase(); if (!s || !mapRef.current) return;
-        const cam = data.cameras.find((c) => (devById[c.deviceId]?.name || "").toUpperCase().includes(s));
-        if (cam) { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); return; }
         const lo = lotes.find((l) => (l.name || "").toUpperCase().includes(s));
-        if (lo && lo.points.length) { mapRef.current.setView(centroid(lo.points), 19); return; }
+        if (lo && lo.points.length) { mapRef.current.setView(centroid(lo.points), Math.max(mapRef.current.getZoom(), 19)); localizar("lote", lo.id); return; }
+        const cam = data.cameras.find((c) => (devById[c.deviceId]?.name || "").toUpperCase().includes(s));
+        if (cam) { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); localizar("camera", cam.deviceId); return; }
         const st = data.streets.find((x) => (x.name || "").toUpperCase().includes(s));
         if (st && st.points.length) { mapRef.current.setView(st.points[Math.floor(st.points.length / 2)] as any, 18); return; }
-        toast.error({ title: "Sin coincidencias", description: "No encontré esa cámara, lote o calle." });
+        toast.error({ title: "Sin coincidencias", description: "No encontré ese lote, cámara o calle." });
     };
 
     const tools: { id: Tool; icon: any; label: string }[] = [
         { id: "select", icon: MousePointer2, label: "Seleccionar" },
         { id: "lote", icon: LandPlot, label: "Dibujar lote" },
+        { id: "division", icon: Fence, label: "Dibujar división (pared/tejido/alambrado)" },
         { id: "perimeter", icon: Hexagon, label: "Dibujar perímetro" },
         { id: "camera", icon: Video, label: "Soltar cámara" },
     ];
@@ -313,11 +469,13 @@ export default function BarrioMap() {
     const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
         { key: "cameras", label: "Cámaras", Icon: CamIco },
         { key: "lotes", label: "Lotes", Icon: LoteIco },
+        { key: "divisions", label: "Divisiones", Icon: Fence },
         { key: "perimeter", label: "Perímetro", Icon: PerimIco },
         { key: "guards", label: "Guardias", Icon: GuardIco },
         { key: "names", label: "Nombres", Icon: TypeIco },
     ];
     const gbtn = "h-9 w-9 flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors disabled:opacity-30";
+    const locatedLoteId = located?.type === "lote" ? located.id : null;
 
     return (
         <TooltipProvider delayDuration={150}>
@@ -330,16 +488,22 @@ export default function BarrioMap() {
                 .cam-name-tip:before{display:none}
                 .lote-tip{background:rgba(168,85,247,.92);color:#fff;border:0;box-shadow:none;font-size:10px;font-weight:800;padding:1px 6px;border-radius:6px}
                 .lote-tip:before{display:none}
+                @keyframes loteBlink{0%,100%{stroke-opacity:1;fill-opacity:.15;stroke-width:2}50%{stroke-opacity:.25;fill-opacity:.5;stroke-width:5}}
+                .lote-blink{stroke:#f59e0b !important;fill:#f59e0b !important;animation:loteBlink 0.9s ease-in-out infinite}
+                .cam-locate .cam-glyph{animation:loteBlink 0.9s ease-in-out infinite}
                 .map-tactico .leaflet-tile-pane{filter:grayscale(.65) contrast(1.05) brightness(.72)}
+                /* Cursor flecha (no manito) mientras se dibuja en el mapa */
+                .map-draw .leaflet-grab,.map-draw.leaflet-dragging .leaflet-grab{cursor:default !important}
+                .map-draw .leaflet-container{cursor:default !important}
                 .omni-reticula{position:absolute;inset:0;pointer-events:none;z-index:400;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:44px 44px}
                 .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;box-shadow:inset 0 0 200px 40px rgba(0,0,0,.55)}
             `}</style>
-            <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico")}>
+            <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam) && "map-draw")}>
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
-                    {editing && tool !== "select" && <ClickHandler onClick={onMapClick} />}
+                    <ZoomTracker onZoom={setZoom} />
+                    {(movingCam || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
 
-                    {/* Fondos */}
                     {(base === "Satélite" || base === "Híbrido") && (
                         <TileLayer key="esri" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
                     )}
@@ -348,27 +512,21 @@ export default function BarrioMap() {
                     )}
                     {base === "Híbrido" && (
                         <>
-                            {/* Rótulos/calles sobre el satélite — capas de referencia de Esri (gratis, sin API key) */}
+                            {/* Calles internas con nombre (OSM tiene la cartografía del barrio) sobre el satélite.
+                                Semi-transparente para que se lea el nombre de la calle sin tapar la imagen. */}
+                            <TileLayer key="hyb-osm" attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" opacity={0.55} className="omni-hyb-osm" maxNativeZoom={19} maxZoom={21} />
+                            {/* Rótulos de referencia de Esri encima (localidades) — gratis, sin key */}
                             <TileLayer key="hyb-transp" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
-                            <TileLayer key="hyb-places" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
                         </>
                     )}
 
                     {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
-                    {/* Lotes */}
-                    {show.lotes && lotes.map((lo) => (
-                        <Polygon key={lo.id} positions={lo.points}
-                            pathOptions={{ color: selected?.id === lo.id ? "#f59e0b" : lo.parkingSlotId ? "#22c55e" : "#a855f7", weight: selected?.id === lo.id ? 3 : 1.5, fillColor: lo.parkingSlotId ? "#22c55e" : "#a855f7", fillOpacity: selected?.id === lo.id ? 0.3 : 0.14 }}
-                            eventHandlers={{
-                                click: () => editing && tool === "select" && setSelected({ type: "lote", id: lo.id }),
-                                dblclick: () => editing && editLote(lo.id),
-                                contextmenu: (e) => openCtx(e, "lote", lo.id),
-                            }}>
-                            {lo.name && show.names && <LTooltip permanent direction="center" className="lote-tip">{lo.name}</LTooltip>}
-                        </Polygon>
-                    ))}
+                    {show.lotes && (
+                        <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.names} zoom={zoom}
+                            locatedId={locatedLoteId} onSelect={onSelectLote} onEdit={editLote} onCtx={onCtxLote} />
+                    )}
                     {draftLote.length > 0 && <Polygon positions={draftLote} pathOptions={{ color: "#a855f7", weight: 2, dashArray: "6 6", fillOpacity: 0.1 }} />}
 
                     {data.streets.map((s) => (
@@ -382,9 +540,23 @@ export default function BarrioMap() {
                         </Polyline>
                     ))}
 
+                    {/* Divisiones (pared / tejido / alambrado) */}
+                    {show.divisions && ((data as any).divisions || []).map((dv: any) => {
+                        const st = DIV_STYLE[(dv.tipo as DivTipo)] || DIV_STYLE.pared;
+                        return (
+                            <Polyline key={dv.id} positions={dv.points}
+                                pathOptions={{ color: st.color, weight: st.weight, dashArray: st.dashArray, opacity: 0.95, lineCap: "round" }}
+                                eventHandlers={{ contextmenu: (e) => openCtx(e, "division", dv.id) }}>
+                                {show.names && <LTooltip sticky className="cam-name-tip">{st.label}</LTooltip>}
+                            </Polyline>
+                        );
+                    })}
+                    {draftDivision.length > 0 && <Polyline positions={draftDivision} pathOptions={{ color: DIV_STYLE[divTipo].color, weight: DIV_STYLE[divTipo].weight, dashArray: DIV_STYLE[divTipo].dashArray || "4 4", opacity: 0.8 }} />}
+
                     {show.guards && guards.map((g) => (
                         <Marker key={"g" + g.id} position={[g.lat, g.lng]}
-                            icon={L.divIcon({ className: "bg-transparent border-0", html: guardIconHtml(g.guardName || g.name || "Guardia", g.heading), iconSize: [60, 52], iconAnchor: [30, 44] })}>
+                            icon={L.divIcon({ className: "bg-transparent border-0", html: guardIconHtml(g.guardName || g.name || "Guardia", g.heading), iconSize: [60, 52], iconAnchor: [30, 44] })}
+                            eventHandlers={{ contextmenu: (e) => openCtx(e, "guard", String(g.id)) }}>
                             <Popup>
                                 <div style={{ minWidth: 140 }}>
                                     <b>{g.guardName || "Guardia"}</b><br />
@@ -404,13 +576,16 @@ export default function BarrioMap() {
                     ))}
 
                     {show.cameras && data.cameras.map((c) => (
-                        <Marker key={c.deviceId} position={[c.lat, c.lng]} icon={camIcon}
+                        <Marker key={c.deviceId} position={[c.lat, c.lng]}
+                            icon={located?.type === "camera" && located.id === c.deviceId
+                                ? L.divIcon({ className: "bg-transparent border-0 cam-locate", html: camSvg, iconSize: [30, 30], iconAnchor: [15, 22], popupAnchor: [0, -20] })
+                                : camIcon}
                             eventHandlers={{
                                 click: () => { if (editing && tool === "select") setSelected({ type: "camera", id: c.deviceId }); },
                                 contextmenu: (e) => openCtx(e, "camera", c.deviceId),
                             }}>
                             {show.names && <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>}
-                            {!editing && (
+                            {!editing && !movingCam && (
                                 <Popup className="cam-live-popup" maxWidth={280} minWidth={260}>
                                     <div className="rounded-lg overflow-hidden">
                                         <LiveMp4 deviceId={c.deviceId} className="block w-[260px] h-[150px] object-cover bg-black" />
@@ -422,7 +597,6 @@ export default function BarrioMap() {
                     ))}
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
 
-                    {/* Burbujas de video en vivo sobre cada cámara (fijables/desacoplables) */}
                     {vivoTodas && !editing && (
                         <BurbujasVivo
                             camaras={data.cameras.filter((c) => !ocultas.includes(c.deviceId))}
@@ -434,6 +608,14 @@ export default function BarrioMap() {
 
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
 
+                {/* Aviso de mover cámara */}
+                {movingCam && (
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-blue-600 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
+                        <Move size={14} /> Hacé clic en la nueva posición de la cámara
+                        <button onClick={() => setMovingCam(null)} className="ml-1 hover:bg-white/20 rounded p-0.5"><X size={13} /></button>
+                    </div>
+                )}
+
                 {/* Columnas de flujo en vivo */}
                 {!editing && (
                     <>
@@ -442,10 +624,9 @@ export default function BarrioMap() {
                     </>
                 )}
 
-                {/* ── Barra superior glass (estilo San Nicolás) ── */}
+                {/* ── Barra superior glass ── */}
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] flex flex-col items-center">
                     <div className="flex items-center gap-1 bg-card/90 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl p-1.5">
-                        {/* Capas */}
                         <button onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
                             className={cn("h-9 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold transition-colors", menuCapas ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/10")}>
                             <Layers3 size={15} /> {base} <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
@@ -462,7 +643,7 @@ export default function BarrioMap() {
                                 <div className="w-px h-6 bg-border mx-0.5" />
                                 <Tooltip><TooltipTrigger asChild><button onClick={deleteSelected} disabled={!selected} className={cn(gbtn, selected && "text-red-400 hover:text-red-300 hover:bg-red-500/10")}><Trash2 size={16} /></button></TooltipTrigger><TooltipContent>Borrar seleccionado</TooltipContent></Tooltip>
                                 <button onClick={save} disabled={saving} className="h-9 px-3.5 ml-0.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</button>
-                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setSelected(null); getBarrioMap().then(setData); }} className={gbtn}><X size={16} /></button>
+                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setDraftDivision([]); setSelected(null); getBarrioMap().then(setData); }} className={gbtn}><X size={16} /></button>
                             </>
                         ) : (
                             <>
@@ -477,7 +658,6 @@ export default function BarrioMap() {
                         )}
                     </div>
 
-                    {/* Menú de capas colgado de la barra */}
                     {menuCapas && (
                         <div onClick={(e) => e.stopPropagation()} className="mt-2 w-[220px] p-2 rounded-2xl bg-card/95 backdrop-blur-2xl border border-border shadow-2xl">
                             <p className="px-2 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground/70">Mapa de fondo</p>
@@ -511,19 +691,31 @@ export default function BarrioMap() {
                         <div className="flex items-center gap-2 bg-card/90 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl px-3 h-12">
                             <Search size={16} className="text-muted-foreground shrink-0" />
                             <input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === "Enter") buscar(); }}
-                                placeholder="Cámara, lote o calle…" className="flex-1 bg-transparent outline-none text-sm font-medium placeholder:text-muted-foreground/60" />
-                            {q && <button onClick={() => setQ("")} className="text-muted-foreground hover:text-foreground"><X size={15} /></button>}
+                                placeholder="Lote, cámara o calle…" className="flex-1 bg-transparent outline-none text-sm font-medium placeholder:text-muted-foreground/60" />
+                            {q && <button onClick={() => { setQ(""); setLocated(null); }} className="text-muted-foreground hover:text-foreground"><X size={15} /></button>}
+                            <button onClick={buscar} className="h-8 px-2.5 rounded-lg bg-blue-600 text-white flex items-center gap-1 text-xs font-bold hover:bg-blue-500 transition-colors"><LocateFixed size={14} /></button>
                         </div>
                     </div>
                 )}
 
-                {/* Contextual editing panel */}
+                {/* Panel contextual de edición */}
                 {editing && (
                     <div className="absolute bottom-4 left-4 z-[500] bg-card/95 backdrop-blur border border-border rounded-xl shadow-lg p-3 w-64 text-xs space-y-2">
                         {tool === "lote" && (<>
                             <p className="font-bold flex items-center gap-1.5"><LandPlot size={13} className="text-purple-400" /> Lote</p>
                             <p className="text-muted-foreground">Clic en el mapa para marcar las esquinas del lote ({draftLote.length}). Al cerrar te pido el nombre y la plaza.</p>
                             <div className="flex gap-2"><button onClick={commitLote} disabled={draftLote.length < 3} className="flex-1 py-1.5 rounded-md bg-purple-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Cerrar lote</button><button onClick={() => setDraftLote((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
+                        </>)}
+                        {tool === "division" && (<>
+                            <p className="font-bold flex items-center gap-1.5"><Fence size={13} className="text-stone-400" /> División</p>
+                            <div className="flex gap-1">
+                                {(["pared", "tejido", "alambrado"] as DivTipo[]).map((tp) => (
+                                    <button key={tp} onClick={() => setDivTipo(tp)}
+                                        className={cn("flex-1 py-1 rounded-md text-[11px] font-bold border transition-colors", divTipo === tp ? "bg-blue-600 text-white border-blue-600" : "bg-background border-border text-muted-foreground hover:text-foreground")}>{DIV_STYLE[tp].label}</button>
+                                ))}
+                            </div>
+                            <p className="text-muted-foreground">Clic para trazar la línea ({draftDivision.length} puntos).</p>
+                            <div className="flex gap-2"><button onClick={commitDivision} disabled={draftDivision.length < 2} className="flex-1 py-1.5 rounded-md bg-blue-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Finalizar</button><button onClick={() => setDraftDivision((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
                         </>)}
                         {tool === "perimeter" && (<>
                             <p className="font-bold flex items-center gap-1.5"><Hexagon size={13} className="text-emerald-400" /> Perímetro</p>
@@ -542,15 +734,22 @@ export default function BarrioMap() {
                     </div>
                 )}
 
-                {/* Context menu */}
+                {/* Menú contextual */}
                 {ctx && (
-                    <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[170px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
+                    <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[180px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
                         {ctx.type === "camera" ? (<>
                             <button onClick={() => { const cam = data.cameras.find((c) => c.deviceId === ctx.id); if (cam && mapRef.current) mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Radio size={13} className="text-red-400" /> Centrar / ver</button>
-                            {editing && <button onClick={() => { removeCamera(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Quitar del mapa</button>}
+                            <button onClick={() => { setMovingCam(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Move size={13} className="text-blue-400" /> Editar posición</button>
+                            <button onClick={() => { removeCameraPersist(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Eliminar del mapa</button>
+                        </>) : ctx.type === "guard" ? (<>
+                            <button onClick={() => { const g = guards.find((x) => String(x.id) === ctx.id); router.push("/admin/bitacora" + (g?.guardName ? `?guardia=${encodeURIComponent(g.guardName)}` : "")); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><BookText size={13} className="text-emerald-500" /> Bitácora</button>
+                            <button onClick={() => { const g = guards.find((x) => String(x.id) === ctx.id); if (g && mapRef.current) mapRef.current.setView([g.lat, g.lng], Math.max(mapRef.current.getZoom(), 18)); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Crosshair size={13} /> Centrar en el guardia</button>
                         </>) : ctx.type === "lote" ? (<>
                             <button onClick={() => { editLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Editar lote / plaza</button>
+                            <button onClick={() => { const lo = lotes.find((l) => l.id === ctx.id); if (lo && mapRef.current) { mapRef.current.setView(centroid(lo.points), Math.max(mapRef.current.getZoom(), 19)); localizar("lote", lo.id); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><LocateFixed size={13} className="text-amber-500" /> Localizar</button>
                             <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar lote</button>
+                        </>) : ctx.type === "division" ? (<>
+                            <button onClick={() => { removeDivision(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar división</button>
                         </>) : (<>
                             <button onClick={() => { renameStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar calle</button>
                             {editing && <button onClick={() => { removeStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar calle</button>}
@@ -558,37 +757,17 @@ export default function BarrioMap() {
                     </div>
                 )}
 
-                {/* Modal de lote (nombre + vínculo a plaza de parking) */}
-                {loteModal && (
-                    <div className="fixed inset-0 z-[620] bg-black/60 backdrop-blur-sm flex items-center justify-center p-5" onClick={() => setLoteModal(null)}>
-                        <div className="bg-card border border-border rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-                                <div className="flex items-center gap-2"><LandPlot size={16} className="text-purple-400" /><span className="text-sm font-bold text-foreground">{loteModal.mode === "create" ? "Nuevo lote" : "Editar lote"}</span></div>
-                                <button onClick={() => setLoteModal(null)} className="h-8 w-8 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground"><X size={16} /></button>
-                            </div>
-                            <div className="p-4 space-y-3">
-                                <div>
-                                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">Nombre / número</label>
-                                    <input autoFocus value={loteModal.name} onChange={(e) => setLoteModal((m) => m ? { ...m, name: e.target.value } : m)} onKeyDown={(e) => { if (e.key === "Enter") saveLoteModal(); }}
-                                        placeholder="Ej: Lote 12" className="mt-1 w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><SquareParking size={13} /> Plaza de parking</label>
-                                    <select value={loteModal.parkingSlotId} onChange={(e) => setLoteModal((m) => m ? { ...m, parkingSlotId: e.target.value } : m)}
-                                        className="mt-1 w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500">
-                                        <option value="">— Sin vincular —</option>
-                                        {slots.map((s: any) => <option key={s.id} value={s.id}>{s.label}{s.user?.name ? ` · ${s.user.name}` : ""}</option>)}
-                                    </select>
-                                    <p className="mt-1 text-[10px] text-muted-foreground">Vinculá el lote a una plaza para reflejar ocupación y residente.</p>
-                                </div>
-                            </div>
-                            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border">
-                                <button onClick={() => setLoteModal(null)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-muted-foreground hover:bg-accent">Cancelar</button>
-                                <button onClick={saveLoteModal} className="px-4 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 flex items-center gap-1.5"><Check size={14} /> Guardar</button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                {/* Drawer de lote */}
+                <AnimatePresence>
+                    {loteModal && (
+                        <LoteDrawer value={loteModal} slots={slots}
+                            onChange={(patch) => setLoteModal((m) => m ? { ...m, ...patch } : m)}
+                            onSave={saveLoteModal}
+                            onClose={() => setLoteModal(null)}
+                            onDelete={loteModal.mode === "edit" && loteModal.id ? () => { const id = loteModal.id!; setLoteModal(null); removeLote(id); } : undefined}
+                        />
+                    )}
+                </AnimatePresence>
             </div>
         </TooltipProvider>
     );

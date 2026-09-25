@@ -9,6 +9,7 @@ export interface BarrioMapData {
     streets: { id: string; name?: string; points: [number, number][] }[];
     cameras: { deviceId: string; lat: number; lng: number }[];
     lotes: { id: string; name?: string; points: [number, number][]; parkingSlotId?: string }[];
+    divisions: { id: string; tipo: string; points: [number, number][] }[];
 }
 
 const DEFAULT: BarrioMapData = {
@@ -18,6 +19,7 @@ const DEFAULT: BarrioMapData = {
     streets: [],
     cameras: [],
     lotes: [],
+    divisions: [],
 };
 
 export async function getBarrioMap(): Promise<BarrioMapData> {
@@ -32,6 +34,7 @@ export async function getBarrioMap(): Promise<BarrioMapData> {
             streets: Array.isArray(d.streets) ? d.streets : [],
             cameras: Array.isArray(d.cameras) ? d.cameras : [],
             lotes: Array.isArray(d.lotes) ? d.lotes : [],
+            divisions: Array.isArray(d.divisions) ? d.divisions : [],
         };
     } catch {
         return DEFAULT;
