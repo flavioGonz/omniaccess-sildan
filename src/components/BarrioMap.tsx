@@ -9,13 +9,15 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { getBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
 import { getParkingSlots } from "@/app/actions/parking";
+import { getSlotDetail, type SlotDetail } from "@/app/actions/plazas";
+import { getBitacoraPage } from "@/app/actions/bitacora";
 import { io } from "socket.io-client";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
 import { LogIn, LogOut } from "lucide-react";
@@ -212,6 +214,32 @@ function LoteDrawer({ value, slots, onChange, onSave, onClose, onDelete }: {
     );
 }
 
+/* ── Shell de drawer genérico del mapa (ficha de lote, bitácora), adaptable light/dark ── */
+function MapDrawer({ title, subtitle, icon: Icon, accent = "blue", onClose, children }: {
+    title: string; subtitle?: string; icon: any; accent?: "blue" | "emerald" | "purple"; onClose: () => void; children: React.ReactNode;
+}) {
+    const accentCls = accent === "emerald" ? "text-emerald-500 bg-emerald-500/15" : accent === "purple" ? "text-purple-500 bg-purple-500/15" : "text-blue-500 bg-blue-500/15";
+    return (
+        <div className="fixed inset-0 z-[625] flex justify-end" onClick={onClose}>
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+            <motion.div initial={{ x: 400, opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 400, opacity: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                onClick={(e) => e.stopPropagation()} className="relative h-full w-[380px] max-w-[94vw] bg-card border-l border-border shadow-2xl flex flex-col">
+                <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
+                    <span className={cn("h-10 w-10 rounded-2xl flex items-center justify-center shrink-0", accentCls)}><Icon size={20} /></span>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-foreground leading-tight truncate">{title}</p>
+                        {subtitle && <p className="text-[11px] text-muted-foreground leading-tight truncate">{subtitle}</p>}
+                    </div>
+                    <button onClick={onClose} className="h-8 w-8 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground shrink-0"><X size={16} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">{children}</div>
+            </motion.div>
+        </div>
+    );
+}
+
+const fechaHora = (iso: string) => { try { return new Date(iso).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }); } catch { return ""; } };
+
 /* ── Burbujas de video en vivo, cada una sobre su cámara en el mapa (clon de San Nicolás) ── */
 const BURBUJA_MEDIO = 118;
 const BURBUJA_ALTO = 168;
@@ -312,9 +340,13 @@ export default function BarrioMap() {
     const locateTimer = useRef<any>(null);
 
     const [loteModal, setLoteModal] = useState<{ mode: "create" | "edit"; id?: string; name: string; parkingSlotId: string; points: LL[] } | null>(null);
+    const [loteDetail, setLoteDetail] = useState<{ lote: any; loading: boolean; data: SlotDetail | null } | null>(null);
+    const [bitacora, setBitacora] = useState<{ guardName: string; loading: boolean; entries: any[] } | null>(null);
     const [vivoTodas, setVivoTodas] = useState(false);
     const [ocultas, setOcultas] = useState<string[]>([]);
     const oscura = base !== "Calles";
+    const editingRef = useRef(editing); editingRef.current = editing;
+    const lotesRef = useRef<any[]>([]);
 
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
@@ -367,7 +399,28 @@ export default function BarrioMap() {
             return cur;
         });
     }, []);
-    const onSelectLote = useCallback((id: string) => { setSelected({ type: "lote", id }); }, []);
+    const abrirLoteDetalle = useCallback((id: string) => {
+        const lo = lotesRef.current.find((x: any) => x.id === id);
+        if (!lo) return;
+        setLoteDetail({ lote: lo, loading: !!lo.parkingSlotId, data: null });
+        if (lo.parkingSlotId) {
+            getSlotDetail(lo.parkingSlotId)
+                .then((d) => setLoteDetail((cur) => cur && cur.lote.id === id ? { ...cur, loading: false, data: d } : cur))
+                .catch(() => setLoteDetail((cur) => cur && cur.lote.id === id ? { ...cur, loading: false } : cur));
+        }
+    }, []);
+    const abrirBitacora = useCallback(async (guardName: string) => {
+        setBitacora({ guardName, loading: true, entries: [] });
+        try {
+            const r: any = await getBitacoraPage(0, 40, "", guardName);
+            const entries = Array.isArray(r) ? r : (r?.entries || []);
+            setBitacora({ guardName, loading: false, entries });
+        } catch { setBitacora({ guardName, loading: false, entries: [] }); }
+    }, []);
+    const onSelectLote = useCallback((id: string) => {
+        if (editingRef.current) setSelected({ type: "lote", id });
+        else abrirLoteDetalle(id);
+    }, [abrirLoteDetalle]);
     const openCtx = useCallback((e: any, type: CtxKind, id: string) => {
         const oe = e.originalEvent || e; oe.preventDefault?.(); oe.stopPropagation?.();
         setCtx({ x: oe.clientX, y: oe.clientY, type, id });
@@ -383,6 +436,7 @@ export default function BarrioMap() {
     if (!data) return <div className="h-full w-full flex items-center justify-center text-muted-foreground"><Loader2 className="animate-spin mr-2" size={18} /> Cargando mapa…</div>;
 
     const lotes = data.lotes || [];
+    lotesRef.current = lotes;
 
     const onMapClick = (ll: LL) => {
         // Mover cámara (menú contextual → editar posición) — funciona aún fuera de edición
@@ -512,11 +566,10 @@ export default function BarrioMap() {
                     )}
                     {base === "Híbrido" && (
                         <>
-                            {/* Calles internas con nombre (OSM tiene la cartografía del barrio) sobre el satélite.
-                                Semi-transparente para que se lea el nombre de la calle sin tapar la imagen. */}
-                            <TileLayer key="hyb-osm" attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" opacity={0.55} className="omni-hyb-osm" maxNativeZoom={19} maxZoom={21} />
-                            {/* Rótulos de referencia de Esri encima (localidades) — gratis, sin key */}
+                            {/* Híbrido limpio: satélite realista + capas de REFERENCIA transparentes de Esri
+                                (calles y rótulos), sin superponer un segundo mapa. Gratis, sin API key. */}
                             <TileLayer key="hyb-transp" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
+                            <TileLayer key="hyb-places" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
                         </>
                     )}
 
@@ -742,7 +795,7 @@ export default function BarrioMap() {
                             <button onClick={() => { setMovingCam(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Move size={13} className="text-blue-400" /> Editar posición</button>
                             <button onClick={() => { removeCameraPersist(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Eliminar del mapa</button>
                         </>) : ctx.type === "guard" ? (<>
-                            <button onClick={() => { const g = guards.find((x) => String(x.id) === ctx.id); router.push("/admin/bitacora" + (g?.guardName ? `?guardia=${encodeURIComponent(g.guardName)}` : "")); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><BookText size={13} className="text-emerald-500" /> Bitácora</button>
+                            <button onClick={() => { const g = guards.find((x) => String(x.id) === ctx.id); abrirBitacora(g?.guardName || ""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><BookText size={13} className="text-emerald-500" /> Bitácora</button>
                             <button onClick={() => { const g = guards.find((x) => String(x.id) === ctx.id); if (g && mapRef.current) mapRef.current.setView([g.lat, g.lng], Math.max(mapRef.current.getZoom(), 18)); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Crosshair size={13} /> Centrar en el guardia</button>
                         </>) : ctx.type === "lote" ? (<>
                             <button onClick={() => { editLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Editar lote / plaza</button>
@@ -757,7 +810,7 @@ export default function BarrioMap() {
                     </div>
                 )}
 
-                {/* Drawer de lote */}
+                {/* Drawer de lote (edición) */}
                 <AnimatePresence>
                     {loteModal && (
                         <LoteDrawer value={loteModal} slots={slots}
@@ -766,6 +819,94 @@ export default function BarrioMap() {
                             onClose={() => setLoteModal(null)}
                             onDelete={loteModal.mode === "edit" && loteModal.id ? () => { const id = loteModal.id!; setLoteModal(null); removeLote(id); } : undefined}
                         />
+                    )}
+                </AnimatePresence>
+
+                {/* Drawer de ficha del lote (clic en el lote) */}
+                <AnimatePresence>
+                    {loteDetail && (
+                        <MapDrawer title={loteDetail.lote.name || "Lote"} icon={LandPlot} accent="purple"
+                            subtitle={loteDetail.data?.sector ? `Sector ${loteDetail.data.sector}${loteDetail.data.unidad ? ` · ${loteDetail.data.unidad}` : ""}` : (loteDetail.lote.parkingSlotId ? "Plaza vinculada" : "Sin plaza vinculada")}
+                            onClose={() => setLoteDetail(null)}>
+                            {loteDetail.loading ? (
+                                <div className="flex items-center justify-center py-10 text-muted-foreground"><Loader2 size={18} className="animate-spin mr-2" /> Cargando ficha…</div>
+                            ) : !loteDetail.lote.parkingSlotId ? (
+                                <div className="rounded-xl border border-border bg-background/40 p-4 text-center space-y-3">
+                                    <SquareParking size={22} className="mx-auto text-muted-foreground" />
+                                    <p className="text-xs text-muted-foreground">Este lote no está vinculado a una plaza de parking. Vinculalo para ver residentes, matrículas y movimientos.</p>
+                                    <button onClick={() => { const l = loteDetail.lote; setLoteDetail(null); setLoteModal({ mode: "edit", id: l.id, name: l.name || "", parkingSlotId: l.parkingSlotId || "", points: l.points }); }}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500">Vincular a plaza</button>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Residentes y matrículas */}
+                                    <div className="rounded-xl border border-border bg-background/40 overflow-hidden">
+                                        <div className="flex items-center gap-2 px-3 h-9 border-b border-border"><UserIcon size={13} className="text-blue-500" /><span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Residentes</span></div>
+                                        <div className="p-2 space-y-2">
+                                            {(loteDetail.data?.residentes || []).length ? (loteDetail.data!.residentes.map((r) => (
+                                                <div key={r.id} className="px-2 py-1.5 rounded-lg hover:bg-accent/40">
+                                                    <p className="text-[13px] font-semibold text-foreground">{r.nombre}</p>
+                                                    <div className="flex flex-wrap gap-1 mt-1">
+                                                        {r.matriculas.length ? r.matriculas.map((m) => (
+                                                            <span key={m} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300 text-[11px] font-mono font-bold"><Car size={10} /> {m}</span>
+                                                        )) : <span className="text-[11px] text-muted-foreground">Sin matrículas</span>}
+                                                    </div>
+                                                </div>
+                                            ))) : <p className="px-2 py-3 text-[12px] text-muted-foreground text-center">Sin residentes asignados</p>}
+                                        </div>
+                                    </div>
+
+                                    {/* Últimos movimientos */}
+                                    <div className="rounded-xl border border-border bg-background/40 overflow-hidden">
+                                        <div className="flex items-center gap-2 px-3 h-9 border-b border-border"><Clock size={13} className="text-emerald-500" /><span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Últimos movimientos</span></div>
+                                        <div className="p-1.5 space-y-0.5">
+                                            {(loteDetail.data?.movimientos || []).length ? (loteDetail.data!.movimientos.map((m) => {
+                                                const ent = m.dir === "ENTRY";
+                                                return (
+                                                    <div key={m.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent/40">
+                                                        {ent ? <LogIn size={14} className="text-emerald-500 shrink-0" /> : <LogOut size={14} className="text-orange-500 shrink-0" />}
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-[12px] font-mono font-bold text-foreground truncate">{m.plate || "S/L"}</p>
+                                                            <p className="text-[10px] text-muted-foreground truncate">{m.camara || ""}</p>
+                                                        </div>
+                                                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{fechaHora(m.ts)}</span>
+                                                    </div>
+                                                );
+                                            })) : <p className="px-2 py-3 text-[12px] text-muted-foreground text-center">Sin movimientos recientes</p>}
+                                        </div>
+                                    </div>
+
+                                    <button onClick={() => { const l = loteDetail.lote; setLoteDetail(null); setLoteModal({ mode: "edit", id: l.id, name: l.name || "", parkingSlotId: l.parkingSlotId || "", points: l.points }); }}
+                                        className="w-full h-9 rounded-lg text-xs font-bold text-muted-foreground border border-border hover:bg-accent flex items-center justify-center gap-1.5"><PencilIcon size={13} /> Editar lote</button>
+                                </>
+                            )}
+                        </MapDrawer>
+                    )}
+                </AnimatePresence>
+
+                {/* Drawer de bitácora (clic derecho en tablet → Bitácora) */}
+                <AnimatePresence>
+                    {bitacora && (
+                        <MapDrawer title="Bitácora" subtitle={bitacora.guardName || "Todas"} icon={BookText} accent="emerald" onClose={() => setBitacora(null)}>
+                            {bitacora.loading ? (
+                                <div className="flex items-center justify-center py-10 text-muted-foreground"><Loader2 size={18} className="animate-spin mr-2" /> Cargando bitácora…</div>
+                            ) : bitacora.entries.length ? (
+                                bitacora.entries.map((e: any) => (
+                                    <div key={e.id} className="rounded-xl border border-border bg-background/40 p-2.5">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 text-[10px] font-black uppercase tracking-wide">{e.type || "NOTA"}</span>
+                                            {e.plate && <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300 text-[11px] font-mono font-bold">{e.plate}</span>}
+                                            <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{fechaHora(e.timestamp)}</span>
+                                        </div>
+                                        {e.name && <p className="text-[12px] font-semibold text-foreground">{e.name}{e.company ? ` · ${e.company}` : ""}</p>}
+                                        {e.destination && <p className="text-[11px] text-muted-foreground">→ {e.destination}</p>}
+                                        {e.notes && <p className="text-[11px] text-muted-foreground mt-0.5 flex items-start gap-1"><StickyNote size={11} className="mt-0.5 shrink-0" /> {e.notes}</p>}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground/60"><BookText size={22} /><span className="text-xs">Sin registros de esta tablet</span></div>
+                            )}
+                        </MapDrawer>
                     )}
                 </AnimatePresence>
             </div>
