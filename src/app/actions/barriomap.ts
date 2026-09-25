@@ -1,7 +1,6 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { revalidatePath } from "next/cache";
 
 export interface BarrioMapData {
     center: [number, number];
@@ -46,7 +45,6 @@ export async function saveBarrioMap(data: BarrioMapData): Promise<{ ok: boolean;
             update: { value: JSON.stringify(data) },
             create: { key: "BARRIO_MAP", value: JSON.stringify(data) },
         });
-        revalidatePath("/admin/consolas");
         return { ok: true };
     } catch (e: any) {
         console.error("[saveBarrioMap] fallo:", e);
