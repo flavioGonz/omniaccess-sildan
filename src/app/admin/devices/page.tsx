@@ -80,6 +80,7 @@ import { DevicePlateListDialog } from "@/components/DevicePlateListDialog";
 import { AkuvoxActionUrlDialog } from "@/components/AkuvoxActionUrlDialog";
 import { DRIVER_MODELS, DEVICE_MODELS } from "@/lib/driver-models";
 import { CameraCalibrator } from "@/components/CameraCalibrator";
+import { ProvisionButton } from "@/components/ProvisionButton";
 import { HealthHistoryDialog } from "@/components/HealthHistoryDialog";
 import { ReadRateDialog } from "@/components/ReadRateDialog";
 
@@ -923,6 +924,10 @@ export default function DevicesPage() {
                                                     <TooltipContent><p>Calibrar ANPR</p></TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
+                                            )}
+
+                                            {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
+                                                <ProvisionButton deviceId={dev.id} deviceName={dev.name} onDone={() => handleRefreshStats(dev.id)} />
                                             )}
 
                                             {dev.deviceType !== 'NVR' && (

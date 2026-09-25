@@ -84,7 +84,8 @@ import dynamic from 'next/dynamic';
 const LiveGuardMap = dynamic(() => import('@/components/LiveGuardMap'), { ssr: false });
 const GuardParkingView = dynamic(() => import('@/components/GuardParkingView'), { ssr: false });
 const GuardNativeLayer = dynamic(() => import('@/components/GuardNativeLayer'), { ssr: false });
-const NvrTimeMachine = dynamic(() => import('@/components/dashboard/NvrTimeMachine').then(m => ({ default: m.NvrTimeMachine })), { ssr: false });
+// Reproductor de grabación liviano, exclusivo de la tablet (clip corto, sin timeline).
+const GuardClipViewer = dynamic(() => import('@/components/guard/GuardClipViewer'), { ssr: false });
 const SimplePhotoCapture = dynamic(() => import('@/components/SimplePhotoCapture'), { ssr: false });
 const FaceScannerOverlay = dynamic(() => import('@/components/FaceScannerOverlay'), { ssr: false });
 
@@ -158,6 +159,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     const [lprSearch, setLprSearch] = useState("");
     const [lprDate, setLprDate] = useState("");
     const [lprDirection, setLprDirection] = useState<"ALL" | "ENTRY" | "EXIT">("ALL");
+    const [lprCameras, setLprCameras] = useState<string[]>([]); // filtro por cámara (persistente por usuario)
 
     // Alerts History state
     const [alertsSearch, setAlertsSearch] = useState("");
@@ -284,11 +286,28 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     const lprSearchRef = useRef(lprSearch);
     const lprDateRef = useRef(lprDate);
     const lprDirectionRef = useRef(lprDirection);
+    const lprCamerasRef = useRef<string[]>([]);
     const activeTabRef = useRef(activeTab);
 
     useEffect(() => { lprSearchRef.current = lprSearch; }, [lprSearch]);
     useEffect(() => { lprDateRef.current = lprDate; }, [lprDate]);
     useEffect(() => { lprDirectionRef.current = lprDirection; }, [lprDirection]);
+    useEffect(() => { lprCamerasRef.current = lprCameras; }, [lprCameras]);
+    // Cargar el filtro de cámaras guardado por este guardia (localStorage por usuario).
+    useEffect(() => {
+        try {
+            const key = "oa_lpr_cams_" + (guardName || localStorage.getItem("guard_name") || "default");
+            const raw = localStorage.getItem(key);
+            setLprCameras(raw ? JSON.parse(raw) : []);
+        } catch { setLprCameras([]); }
+    }, [guardName]);
+    const toggleLprCamera = (id: string) => {
+        setLprCameras((prev) => {
+            const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+            try { localStorage.setItem("oa_lpr_cams_" + (guardName || localStorage.getItem("guard_name") || "default"), JSON.stringify(next)); } catch { }
+            return next;
+        });
+    };
     useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
 
     // MAP & GPS STATES
@@ -528,8 +547,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
             const dirFilter = lprDirectionRef.current;
             const matchesDirection = dirFilter === "ALL" || event.direction === dirFilter;
+            const camFilter = lprCamerasRef.current;
+            const matchesCamera = !camFilter.length || camFilter.includes(event.device?.id);
 
-            if (isSameDate && matchesSearch && matchesDirection && (event.accessType === "PLATE" || event.plateDetected)) {
+            if (isSameDate && matchesSearch && matchesDirection && matchesCamera && (event.accessType === "PLATE" || event.plateDetected)) {
                 setLprEntries(prev => {
                     if (prev.find(e => e.id === event.id)) return prev;
                     return [event, ...prev];
@@ -1053,6 +1074,17 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         const timer = setTimeout(fetchLPR, 500);
         return () => clearTimeout(timer);
     }, [activeTab, lprSearch, lprDate, lprDirection, resyncTick]);
+
+    // Filtro por cámara (persistente por usuario): si el guardia eligió cámaras, sólo esas;
+    // si no eligió ninguna, ve TODAS las capturas.
+    const lprVisible = lprCameras.length ? lprEntries.filter((e: any) => lprCameras.includes(e.device?.id)) : lprEntries;
+
+    // Cargar la lista de cámaras (para el filtro LPR) al entrar al tab, si aún no está.
+    useEffect(() => {
+        if (activeTab === "lpr" && !quickCreateData) {
+            getQuickCreateData().then(setQuickCreateData).catch(() => { });
+        }
+    }, [activeTab, quickCreateData]);
 
     // MERODEO + PLAZAS: indicadores para las capturas LPR
     useEffect(() => {
@@ -2417,6 +2449,28 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                                 ))}
                                                             </div>
                                                         </div>
+                                                        <div className="space-y-2">
+                                                            <div className="flex items-center justify-between">
+                                                                <label className="text-[10px] font-bold uppercase text-black/40 tracking-widest">Cámaras</label>
+                                                                <span className="text-[9px] font-bold uppercase text-black/30 tracking-widest">{lprCameras.length ? `${lprCameras.length} seleccionada(s)` : "Todas"}</span>
+                                                            </div>
+                                                            <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto custom-scrollbar">
+                                                                <button onClick={() => { setLprCameras([]); try { localStorage.setItem("oa_lpr_cams_" + (guardName || localStorage.getItem("guard_name") || "default"), "[]"); } catch { } }}
+                                                                    className={cn("px-3 h-11 rounded-2xl font-bold text-xs uppercase tracking-wider transition-all border", lprCameras.length === 0 ? "bg-[#B20D30] text-white border-[#B20D30]" : "bg-slate-50 text-black/40 border-slate-200 hover:border-slate-300")}>
+                                                                    Todas
+                                                                </button>
+                                                                {(quickCreateData?.devices || []).filter((d: any) => d.deviceType === "LPR_CAMERA").map((cam: any) => {
+                                                                    const on = lprCameras.includes(cam.id);
+                                                                    return (
+                                                                        <button key={cam.id} onClick={() => toggleLprCamera(cam.id)}
+                                                                            className={cn("px-3 h-11 rounded-2xl font-bold text-xs uppercase tracking-wide transition-all border flex items-center gap-1.5", on ? "bg-emerald-500 text-white border-emerald-500" : "bg-slate-50 text-black/50 border-slate-200 hover:border-slate-300")}>
+                                                                            <Video size={13} /> {cam.name}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                            <p className="text-[9px] text-black/30 font-bold uppercase tracking-widest">Tu selección se guarda para este usuario.</p>
+                                                        </div>
                                                     </div>
                                                     <Button onClick={() => setShowLprFilterModal(false)} className="w-full h-14 rounded-2xl bg-[#B20D30] hover:bg-[#910a28] text-white font-bold uppercase tracking-widest">Aplicar</Button>
                                                 </motion.div>
@@ -2426,8 +2480,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     <div className="space-y-4">
                                         {isLprLoading ? (
                                             <div className="py-32 flex flex-col items-center gap-6 opacity-20"><Loader2 className="animate-spin" size={60} /><p className="text-xl font-bold uppercase tracking-[0.5em]">Cargando Eventos LPR...</p></div>
-                                        ) : lprEntries.length > 0 ? (
-                                            lprEntries.map((event) => {
+                                        ) : lprVisible.length > 0 ? (
+                                            lprVisible.map((event: any) => {
                                                 const vehicle = event.user?.vehicles?.find((v: any) => v.plate?.replace(/[^A-Z0-9]/gi, '') === (event.plateDetected || "").replace(/[^A-Z0-9]/gi, ''));
                                                 const cleanP = (event.plateDetected || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
                                                 const isMerodeo = merodeoSet.has(cleanP);
@@ -2851,15 +2905,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
                 {/* GRABACIÓN NVR del evento LPR */}
                 {recEvent && (
-                    <NvrTimeMachine
-                        open={!!recEvent}
-                        onClose={() => setRecEvent(null)}
-                        deviceId={recEvent?.device?.id}
-                        eventTimeMs={recEvent ? new Date(recEvent.timestamp).getTime() : 0}
-                        deviceName={recEvent?.device?.name}
-                        evidenceUrl={recEvent?.snapshotPath || undefined}
-                        plate={recEvent?.plateDetected}
-                    />
+                    <GuardClipViewer event={recEvent} onClose={() => setRecEvent(null)} />
                 )}
 
                 {/* NOTIFICATION OVERLAY SCREEN */}

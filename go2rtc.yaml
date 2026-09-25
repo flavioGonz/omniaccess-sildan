@@ -1,16 +1,12 @@
 streams:
   lpr_cmthl34ul0000prxh5nnrfzrg:
     - rtsp://admin:Sildan.1329@172.16.2.220:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmthl34ul0000prxh5nnrfzrg#video=h264
   lpr_cmthl34ul0000prxh5nnrfzrg_hd:
     - rtsp://admin:Sildan.1329@172.16.2.220:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmthl34ul0000prxh5nnrfzrg_hd#video=h264
   lpr_cmthl3mbb0001prxhxm0xfcjn:
     - rtsp://admin:Sildan.1329@172.16.2.221:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmthl3mbb0001prxhxm0xfcjn#video=h264
   lpr_cmthl3mbb0001prxhxm0xfcjn_hd:
     - rtsp://admin:Sildan.1329@172.16.2.221:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmthl3mbb0001prxhxm0xfcjn_hd#video=h264
   lpr_cmt92d49z0000n6do835o3j7l:
     - rtsp://admin:Sildan.1329@172.16.2.176:554/Streaming/Channels/102
     - ffmpeg:lpr_cmt92d49z0000n6do835o3j7l#video=h264
@@ -19,38 +15,52 @@ streams:
     - ffmpeg:lpr_cmt92d49z0000n6do835o3j7l_hd#video=h264
   lpr_cmt91ol2v0006vpe3lcdwrf69:
     - rtsp://admin:Sildan.1329@172.16.2.204:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmt91ol2v0006vpe3lcdwrf69#video=h264
   lpr_cmt91ol2v0006vpe3lcdwrf69_hd:
     - rtsp://admin:Sildan.1329@172.16.2.204:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmt91ol2v0006vpe3lcdwrf69_hd#video=h264
   lpr_cmtamsl7b0000gsbp4nlwmwce:
     - rtsp://admin:Sildan.1329@172.16.2.205:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmtamsl7b0000gsbp4nlwmwce#video=h264
   lpr_cmtamsl7b0000gsbp4nlwmwce_hd:
     - rtsp://admin:Sildan.1329@172.16.2.205:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmtamsl7b0000gsbp4nlwmwce_hd#video=h264
   lpr_cmt91pgmu0008vpe3vdli25pc:
     - rtsp://admin:Sildan.1329@172.16.2.206:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmt91pgmu0008vpe3vdli25pc#video=h264
   lpr_cmt91pgmu0008vpe3vdli25pc_hd:
     - rtsp://admin:Sildan.1329@172.16.2.206:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmt91pgmu0008vpe3vdli25pc_hd#video=h264
   lpr_cmt91n4i30005vpe3xwyxrd2b:
     - rtsp://admin:Sildan.1329@172.16.2.202:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmt91n4i30005vpe3xwyxrd2b#video=h264
   lpr_cmt91n4i30005vpe3xwyxrd2b_hd:
     - rtsp://admin:Sildan.1329@172.16.2.202:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmt91n4i30005vpe3xwyxrd2b_hd#video=h264
   lpr_cmt91pwjx0009vpe3xllsjgv8:
     - rtsp://admin:Sildan.1329@172.16.2.207:554/Streaming/Channels/102
   lpr_cmt91pwjx0009vpe3xllsjgv8_hd:
     - rtsp://admin:Sildan.1329@172.16.2.207:554/Streaming/Channels/101
   lpr_cmtagrxk80000vfbjjfrty0un:
     - rtsp://admin:Sildan.1329@172.16.2.208:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmtagrxk80000vfbjjfrty0un#video=h264
   lpr_cmtagrxk80000vfbjjfrty0un_hd:
     - rtsp://admin:Sildan.1329@172.16.2.208:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmtagrxk80000vfbjjfrty0un_hd#video=h264
+  lpr_cmufsz9ka02i5izf52h1i2r5i:
+    - rtsp://admin:Sildan.1329@172.16.2.72:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmufsz9ka02i5izf52h1i2r5i#video=h264
+  lpr_cmufsz9ka02i5izf52h1i2r5i_hd:
+    - rtsp://admin:Sildan.1329@172.16.2.72:554/Streaming/Channels/101
+    - ffmpeg:lpr_cmufsz9ka02i5izf52h1i2r5i_hd#video=h264
+  lpr_cmufszeft02i6izf53wykq88y:
+    - rtsp://admin:Sildan.1329@172.16.2.73:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmufszeft02i6izf53wykq88y#video=h264
+  lpr_cmufszeft02i6izf53wykq88y_hd:
+    - rtsp://admin:Sildan.1329@172.16.2.73:554/Streaming/Channels/101
+    - ffmpeg:lpr_cmufszeft02i6izf53wykq88y_hd#video=h264
+  lpr_cmufszf8002i7izf5c5z6uqu8:
+    - rtsp://admin:Sildan.1329@172.16.2.74:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmufszf8002i7izf5c5z6uqu8#video=h264
+  lpr_cmufszf8002i7izf5c5z6uqu8_hd:
+    - rtsp://admin:Sildan.1329@172.16.2.74:554/Streaming/Channels/101
+    - ffmpeg:lpr_cmufszf8002i7izf5c5z6uqu8_hd#video=h264
+  lpr_cmufszh2802i8izf5gsq24gop:
+    - rtsp://admin:Sildan.1329@172.16.2.75:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmufszh2802i8izf5gsq24gop#video=h264
+  lpr_cmufszh2802i8izf5gsq24gop_hd:
+    - rtsp://admin:Sildan.1329@172.16.2.75:554/Streaming/Channels/101
+    - ffmpeg:lpr_cmufszh2802i8izf5gsq24gop_hd#video=h264
 api:
   listen: ':1984'
   origin: '*'

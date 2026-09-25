@@ -1,7 +1,7 @@
 "use client";
 
 // Capa de "Flujo en vivo" para el mapa del barrio: columnas de ENTRADAS/SALIDAS
-// (overlay glass colapsable) + autitos animados recorriendo la red de calles.
+// (overlay glass colapsable, adaptable a light/dark) + autitos animados por las calles.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Marker, Polyline, useMap } from "react-leaflet";
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { buildStreetGraph, attachPoint, route, walkInward, pathLengthM, pointAlong, type Graph, type LL } from "@/lib/street-graph";
 import { getAccessEvents } from "@/app/actions/history";
 
-const glass = "bg-[#0a0d12]/85 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/40";
+const glass = "bg-card/90 backdrop-blur-2xl border border-border shadow-2xl shadow-black/25";
 
 interface FlowEvent {
     id: string;
@@ -66,15 +66,15 @@ function FeedCard({ ev, accent, onClick }: { ev: FlowEvent; accent: "emerald" | 
     const ok = ev.decision === "GRANT";
     const t = new Date(ev.timestamp);
     return (
-        <button onClick={onClick} className={cn("w-full text-left px-2.5 py-2 rounded-xl transition-colors hover:bg-white/10 group", "flex items-center gap-2")}>
+        <button onClick={onClick} className={cn("w-full text-left px-2.5 py-2 rounded-xl transition-colors hover:bg-accent group", "flex items-center gap-2")}>
             <span className={cn("w-1.5 h-8 rounded-full shrink-0", accent === "emerald" ? "bg-emerald-400" : "bg-orange-400", !ok && "bg-red-400")} />
             <div className="min-w-0 flex-1">
-                <p className="text-[12px] font-bold font-mono tracking-wider text-white truncate">{ev.plateDetected || "S/L"}</p>
-                <p className="text-[9px] text-white/45 truncate">{ev.device?.name || ""}</p>
+                <p className="text-[12px] font-bold font-mono tracking-wider text-foreground truncate">{ev.plateDetected || "S/L"}</p>
+                <p className="text-[9px] text-muted-foreground truncate">{ev.device?.name || ""}</p>
             </div>
             <div className="text-right shrink-0">
-                <p className="text-[10px] font-mono text-white/70 tabular-nums">{t.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}</p>
-                <p className={cn("text-[8px] font-bold", ok ? "text-emerald-400" : "text-red-400")}>{ok ? "OK" : "DENY"}</p>
+                <p className="text-[10px] font-mono text-muted-foreground tabular-nums">{t.toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}</p>
+                <p className={cn("text-[8px] font-bold", ok ? "text-emerald-500" : "text-red-500")}>{ok ? "OK" : "DENY"}</p>
             </div>
         </button>
     );
@@ -217,7 +217,7 @@ export function useFlow(streets: any[], cameras: { deviceId: string; lat: number
     return { entries, exits, anims, pulses, animateEvent, onDone, graphReady: !!graph };
 }
 
-// Columna overlay colapsable
+// Columna overlay colapsable (adaptable a light/dark)
 export function FlowColumn({ side, title, icon: Icon, accent, events, onPick, }: {
     side: "left" | "right"; title: string; icon: any; accent: "emerald" | "orange";
     events: FlowEvent[]; onPick: (ev: FlowEvent) => void;
@@ -227,24 +227,24 @@ export function FlowColumn({ side, title, icon: Icon, accent, events, onPick, }:
         <div className={cn("absolute top-16 bottom-4 z-[500] flex items-start pointer-events-none", side === "left" ? "left-3" : "right-3")}>
             {!open ? (
                 <button onClick={() => setOpen(true)}
-                    className={cn("mt-1 flex flex-col items-center gap-1.5 px-2 py-3 rounded-2xl text-white/80 pointer-events-auto", glass)}>
-                    <Icon size={15} className={accent === "emerald" ? "text-emerald-400" : "text-orange-400"} />
+                    className={cn("mt-1 flex flex-col items-center gap-1.5 px-2 py-3 rounded-2xl text-foreground/80 pointer-events-auto", glass)}>
+                    <Icon size={15} className={accent === "emerald" ? "text-emerald-500" : "text-orange-500"} />
                     <span className="text-[10px] font-bold [writing-mode:vertical-rl] tracking-widest uppercase">{title}</span>
-                    <span className={cn("text-[10px] font-bold px-1.5 rounded-full", accent === "emerald" ? "bg-emerald-500/30 text-emerald-300" : "bg-orange-500/30 text-orange-300")}>{events.length}</span>
+                    <span className={cn("text-[10px] font-bold px-1.5 rounded-full", accent === "emerald" ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-300" : "bg-orange-500/20 text-orange-600 dark:text-orange-300")}>{events.length}</span>
                 </button>
             ) : (
                 <div className={cn("w-[212px] max-h-full flex flex-col rounded-2xl overflow-hidden pointer-events-auto", glass)}>
-                    <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.06] shrink-0">
-                        <Icon size={13} className={accent === "emerald" ? "text-emerald-400" : "text-orange-400"} />
-                        <span className="text-[10px] font-bold text-white/80 uppercase tracking-[0.15em]">{title}</span>
-                        <span className="ml-auto text-[9px] text-white/40 font-bold">{events.length}</span>
-                        <button onClick={() => setOpen(false)} className="p-0.5 rounded hover:bg-white/10 text-white/60">
+                    <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border shrink-0">
+                        <Icon size={13} className={accent === "emerald" ? "text-emerald-500" : "text-orange-500"} />
+                        <span className="text-[10px] font-bold text-foreground/80 uppercase tracking-[0.15em]">{title}</span>
+                        <span className="ml-auto text-[9px] text-muted-foreground font-bold">{events.length}</span>
+                        <button onClick={() => setOpen(false)} className="p-0.5 rounded hover:bg-accent text-muted-foreground">
                             {side === "left" ? <ChevronLeft size={13} /> : <ChevronRight size={13} />}
                         </button>
                     </div>
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-1.5 space-y-0.5">
                         {events.length === 0 ? (
-                            <div className="flex flex-col items-center gap-1.5 py-8 text-white/30"><Car size={20} /><span className="text-[10px]">Sin capturas</span></div>
+                            <div className="flex flex-col items-center gap-1.5 py-8 text-muted-foreground/50"><Car size={20} /><span className="text-[10px]">Sin capturas</span></div>
                         ) : events.map((ev) => <FeedCard key={ev.id} ev={ev} accent={accent} onClick={() => onPick(ev)} />)}
                     </div>
                 </div>
