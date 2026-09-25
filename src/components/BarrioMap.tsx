@@ -19,6 +19,10 @@ import { io } from "socket.io-client";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
 import { LogIn, LogOut } from "lucide-react";
 import { getDevices } from "@/app/actions/devices";
+import { createPortal } from "react-dom";
+import { motion } from "framer-motion";
+import { montarVivo } from "@/lib/vivo";
+import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 
 type Tool = "select" | "perimeter" | "camera" | "lote";
 type LL = [number, number];
@@ -65,35 +69,80 @@ function ClickHandler({ onClick }: { onClick: (ll: LL) => void }) {
 
 function LiveMp4({ deviceId, className }: { deviceId: string; className?: string }) {
     const ref = useRef<HTMLVideoElement>(null);
-    const tries = useRef(0);
-    const src = `/go2rtc/api/stream.mp4?src=lpr_${deviceId}_hd&video=h264`;
-    useEffect(() => {
-        const v = ref.current; if (!v) return; tries.current = 0;
-        v.src = src; v.play().catch(() => { });
-        const onErr = () => { tries.current++; if (tries.current > 4) return; setTimeout(() => { if (ref.current) { ref.current.src = src; ref.current.play().catch(() => { }); } }, 1400); };
-        v.addEventListener("error", onErr);
-        return () => { v.removeEventListener("error", onErr); try { v.pause(); v.removeAttribute("src"); v.load(); } catch { } };
-    }, [deviceId]);
-    return <video ref={ref} muted autoPlay playsInline className={className || "block w-[260px] h-[150px] object-cover rounded-lg bg-black"} />;
+    useEffect(() => { const v = ref.current; if (!v) return; return montarVivo(v, deviceId); }, [deviceId]);
+    return <video ref={ref} muted autoPlay playsInline className={className || "block w-full h-full object-cover bg-black"} />;
 }
 
-// Ventana de video en vivo flotante, desacoplable y arrastrable (posición fija en pantalla)
-function LiveWindow({ deviceId, name, initial, onClose }: { deviceId: string; name: string; initial: { x: number; y: number }; onClose: () => void }) {
-    const [pos, setPos] = useState(initial);
-    const drag = useRef<{ dx: number; dy: number } | null>(null);
-    const onDown = (e: React.PointerEvent) => { drag.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }; (e.currentTarget as any).setPointerCapture?.(e.pointerId); };
-    const onMove = (e: React.PointerEvent) => { if (!drag.current) return; setPos({ x: Math.max(4, e.clientX - drag.current.dx), y: Math.max(4, e.clientY - drag.current.dy) }); };
-    const onUp = () => { drag.current = null; };
-    return (
-        <div style={{ left: pos.x, top: pos.y }} className="fixed z-[560] w-[262px] rounded-xl overflow-hidden border border-border bg-card shadow-2xl">
-            <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} className="flex items-center gap-1.5 px-2 h-8 bg-black/85 cursor-move select-none touch-none">
-                <Move size={11} className="text-white/40 shrink-0" />
-                <Radio size={11} className="text-red-400 shrink-0" />
-                <span className="text-[11px] font-bold text-white truncate flex-1">{name}</span>
-                <button onClick={onClose} className="text-white/70 hover:text-white shrink-0"><X size={13} /></button>
-            </div>
-            <LiveMp4 deviceId={deviceId} className="block w-[262px] h-[150px] object-cover bg-black" />
-        </div>
+/* ── Burbujas de video en vivo, cada una sobre su cámara en el mapa (clon de San Nicolás) ──
+ * No son marcadores de Leaflet: el <video> se monta una sola vez y en cada movimiento del
+ * mapa se recalcula solo su posición vía transform (sin re-render de React ni recortar el
+ * stream). "Fijar" (BotonFijar) la saca del mapa y la deja como ventana flotante que
+ * sobrevive al cambio de página. */
+const BURBUJA_MEDIO = 118;
+const BURBUJA_ALTO = 168;
+const BURBUJA_SUBE = 34;
+const PICO_TOLERANCIA = 2;
+
+function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
+    camaras: { deviceId: string; lat: number; lng: number }[];
+    nombre: (id: string) => string;
+    onCerrarUna: (id: string) => void;
+}) {
+    const map = useMap();
+    const { esFija } = useVivo();
+    const nodos = useRef(new Map<string, HTMLDivElement>());
+    const picos = useRef(new Map<string, HTMLSpanElement>());
+    const lista = useRef<{ deviceId: string; lat: number; lng: number }[]>([]);
+
+    const ubicar = useCallback(() => {
+        const tam = map.getSize();
+        for (const c of lista.current) {
+            const el = nodos.current.get(c.deviceId);
+            if (!el) continue;
+            let p: L.Point;
+            try { p = map.latLngToContainerPoint([c.lat, c.lng]); } catch { continue; }
+            const x = Math.max(BURBUJA_MEDIO + 6, Math.min(tam.x - BURBUJA_MEDIO - 6, p.x));
+            const y = Math.max(BURBUJA_ALTO + 6, p.y - BURBUJA_SUBE);
+            el.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
+            const pico = picos.current.get(c.deviceId);
+            if (pico) pico.style.visibility = Math.abs(x - p.x) < PICO_TOLERANCIA ? "visible" : "hidden";
+        }
+    }, [map]);
+
+    useMapEvents({ move: ubicar, zoom: ubicar, resize: ubicar });
+
+    const utiles = camaras.filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng) && !esFija(c.deviceId));
+    lista.current = utiles;
+
+    useEffect(() => { ubicar(); });
+    if (!utiles.length) return null;
+
+    return createPortal(
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 640 }}>
+            {utiles.map((c) => (
+                <div key={c.deviceId}
+                    ref={(el) => { if (el) nodos.current.set(c.deviceId, el); else { nodos.current.delete(c.deviceId); picos.current.delete(c.deviceId); } }}
+                    className="absolute left-0 top-0 pointer-events-auto" style={{ willChange: "transform" }}>
+                    <motion.div initial={{ opacity: 0, scale: 0.9, y: 6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ type: "spring", stiffness: 420, damping: 32 }}>
+                        <div className="rounded-xl overflow-hidden border border-white/15 shadow-2xl shadow-black/70 bg-[#0a0d12]">
+                            <div className="relative w-[224px] h-[126px]"><LiveMp4 deviceId={c.deviceId} /></div>
+                            <div className="px-2 py-1 bg-black/85 flex items-center gap-1.5">
+                                <Radio size={10} className="text-red-400 shrink-0 animate-pulse" />
+                                <span className="text-[11px] font-bold text-white truncate">{nombre(c.deviceId)}</span>
+                                <span className="ml-auto flex items-center gap-0.5 shrink-0">
+                                    <BotonFijar deviceId={c.deviceId} nombre={nombre(c.deviceId)} />
+                                    <button onClick={() => onCerrarUna(c.deviceId)} title="Ocultar esta cámara"
+                                        className="w-5 h-5 rounded text-white/45 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors"><X size={11} /></button>
+                                </span>
+                            </div>
+                        </div>
+                        <span ref={(el) => { if (el) picos.current.set(c.deviceId, el); }}
+                            className="block mx-auto w-2 h-2 rotate-45 -mt-1 bg-black/85 border-r border-b border-white/15" />
+                    </motion.div>
+                </div>
+            ))}
+        </div>,
+        map.getContainer(),
     );
 }
 
@@ -123,9 +172,9 @@ export default function BarrioMap() {
 
     // Modal de lote (crear / editar)
     const [loteModal, setLoteModal] = useState<{ mode: "create" | "edit"; id?: string; name: string; parkingSlotId: string; points: LL[] } | null>(null);
-    // Video en vivo de todas las cámaras (ventanas flotantes)
-    const [vivoOpen, setVivoOpen] = useState(false);
-    const [vivoClosed, setVivoClosed] = useState<Set<string>>(new Set());
+    // Video en vivo de todas las cámaras (burbujas sobre cada cámara, estilo San Nicolás)
+    const [vivoTodas, setVivoTodas] = useState(false);
+    const [ocultas, setOcultas] = useState<string[]>([]);
     const oscura = base !== "Calles";
 
     useEffect(() => {
@@ -227,7 +276,7 @@ export default function BarrioMap() {
         if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
         else el.requestFullscreen?.().catch(() => { });
     };
-    const toggleVivo = () => { setVivoClosed(new Set()); setVivoOpen((v) => !v); };
+    const toggleVivo = () => { setOcultas([]); setVivoTodas((v) => !v); };
     const buscar = () => {
         const s = q.trim().toUpperCase(); if (!s || !mapRef.current) return;
         const cam = data.cameras.find((c) => (devById[c.deviceId]?.name || "").toUpperCase().includes(s));
@@ -345,7 +394,7 @@ export default function BarrioMap() {
                             {!editing && (
                                 <Popup className="cam-live-popup" maxWidth={280} minWidth={260}>
                                     <div className="rounded-lg overflow-hidden">
-                                        <LiveMp4 deviceId={c.deviceId} />
+                                        <LiveMp4 deviceId={c.deviceId} className="block w-[260px] h-[150px] object-cover bg-black" />
                                         <div className="px-2 py-1 bg-black/80 text-white text-[11px] font-bold flex items-center gap-1.5"><Radio size={11} className="text-red-400" /> {devById[c.deviceId]?.name || "Cámara"}</div>
                                     </div>
                                 </Popup>
@@ -353,6 +402,15 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
                     <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
+
+                    {/* Burbujas de video en vivo sobre cada cámara (fijables/desacoplables) */}
+                    {vivoTodas && !editing && (
+                        <BurbujasVivo
+                            camaras={data.cameras.filter((c) => !ocultas.includes(c.deviceId))}
+                            nombre={(id) => devById[id]?.name || "Cámara"}
+                            onCerrarUna={(id) => setOcultas((o) => [...o, id])}
+                        />
+                    )}
                 </MapContainer>
 
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
@@ -392,10 +450,10 @@ export default function BarrioMap() {
                                 <Tooltip><TooltipTrigger asChild><button onClick={() => acercar(1)} className={gbtn}><Plus size={16} /></button></TooltipTrigger><TooltipContent>Acercar</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><button onClick={() => acercar(-1)} className={gbtn}><Minus size={16} /></button></TooltipTrigger><TooltipContent>Alejar</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><button onClick={centrar} className={gbtn}><Crosshair size={16} /></button></TooltipTrigger><TooltipContent>Centrar en el barrio</TooltipContent></Tooltip>
-                                <Tooltip><TooltipTrigger asChild><button onClick={toggleVivo} disabled={!data.cameras.length} className={cn(gbtn, vivoOpen && "bg-red-600 text-white hover:bg-red-500 hover:text-white")}>{vivoOpen ? <EyeOff size={16} /> : <Eye size={16} />}</button></TooltipTrigger><TooltipContent>{vivoOpen ? "Cerrar cámaras en vivo" : "Ver todas las cámaras en vivo"}</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><button onClick={toggleVivo} disabled={!data.cameras.length} className={cn(gbtn, vivoTodas && "bg-red-600 text-white hover:bg-red-500 hover:text-white")}>{vivoTodas ? <EyeOff size={16} /> : <Eye size={16} />}</button></TooltipTrigger><TooltipContent>{vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo"}</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><button onClick={alternarPantalla} className={gbtn}>{pantalla ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></TooltipTrigger><TooltipContent>{pantalla ? "Salir de pantalla completa" : "Pantalla completa"}</TooltipContent></Tooltip>
                                 <div className="w-px h-6 bg-border mx-0.5" />
-                                <button onClick={() => { setMenuCapas(false); setVivoOpen(false); setEditing(true); }} className="h-9 px-3.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
+                                <button onClick={() => { setMenuCapas(false); setVivoTodas(false); setEditing(true); }} className="h-9 px-3.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
                             </>
                         )}
                     </div>
@@ -439,13 +497,6 @@ export default function BarrioMap() {
                         </div>
                     </div>
                 )}
-
-                {/* Ventanas de video en vivo (todas las cámaras) */}
-                {vivoOpen && data.cameras.filter((c) => !vivoClosed.has(c.deviceId)).map((c, i) => (
-                    <LiveWindow key={c.deviceId} deviceId={c.deviceId} name={devById[c.deviceId]?.name || "Cámara"}
-                        initial={{ x: 90 + (i % 4) * 274, y: 92 + Math.floor(i / 4) * 196 }}
-                        onClose={() => setVivoClosed((s) => new Set(s).add(c.deviceId))} />
-                ))}
 
                 {/* Contextual editing panel */}
                 {editing && (

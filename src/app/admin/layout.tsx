@@ -46,6 +46,7 @@ import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
 import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
+import { VivoProvider } from "@/components/vivo/PanelVivo";
 
 interface SidebarItemProps {
     icon: React.ReactNode;
@@ -123,6 +124,7 @@ export default function AdminLayout({
     };
 
     return (
+        <VivoProvider>
         <div className="flex min-h-screen bg-background text-foreground font-sans">
             {/* Sidebar */}
             <aside
@@ -313,5 +315,6 @@ export default function AdminLayout({
                 }
             `}</style>
         </div>
+        </VivoProvider>
     );
 }
