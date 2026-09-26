@@ -638,6 +638,30 @@ export default function BarrioMap() {
         setSaving(false); setEditing(false); setTool("select");
     };
 
+    // Trae la red de calles REAL del barrio desde OpenStreetMap (Overpass) para la vista
+    // actual del mapa y la guarda como grafo de ruteo. Reemplaza el dibujo manual de calles.
+    const [importingOsm, setImportingOsm] = useState(false);
+    const importOsmStreets = async () => {
+        const m = mapRef.current; if (!m) return;
+        const b = m.getBounds();
+        const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
+        const ql = `[out:json][timeout:25];(way["highway"~"^(residential|living_street|service|unclassified|tertiary|tertiary_link|secondary|secondary_link|primary|road|track)$"](${bbox}););out geom;`;
+        setImportingOsm(true);
+        toast.info({ title: "Importando calles…", description: "Consultando OpenStreetMap para esta vista." });
+        try {
+            const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: ql });
+            if (!r.ok) throw new Error(`Overpass HTTP ${r.status}`);
+            const d = await r.json();
+            const streets = (d.elements || [])
+                .filter((e: any) => e.type === "way" && Array.isArray(e.geometry) && e.geometry.length >= 2)
+                .map((e: any) => ({ id: `osm_${e.id}`, name: e.tags?.name || "", points: e.geometry.map((g: any) => [g.lat, g.lon] as LL) }));
+            if (!streets.length) { toast.error({ title: "Sin calles", description: "OSM no devolvió calles en esta vista. Acercá o centrá el barrio y reintentá." }); return; }
+            await persistNow({ ...data, streets }, `Calles importadas de OSM (${streets.length})`);
+        } catch (e: any) {
+            toast.error({ title: "No se pudieron importar", description: String(e?.message || e) });
+        } finally { setImportingOsm(false); }
+    };
+
     const acercar = (d: number) => { const m = mapRef.current; if (m) m.setZoom(m.getZoom() + d); };
     const centrar = () => { const m = mapRef.current; if (m) m.setView(data.center, data.zoom); };
     const alternarPantalla = () => {
@@ -661,7 +685,6 @@ export default function BarrioMap() {
         { id: "select", icon: MousePointer2, label: "Seleccionar" },
         { id: "lote", icon: LandPlot, label: "Dibujar lote" },
         { id: "division", icon: Fence, label: "Dibujar división (pared/tejido/alambrado)" },
-        { id: "street", icon: Route, label: "Dibujar calle (la ruta de las matrículas la sigue)" },
         { id: "perimeter", icon: Hexagon, label: "Dibujar perímetro" },
         { id: "camera", icon: Video, label: "Soltar cámara" },
     ];
@@ -730,11 +753,14 @@ export default function BarrioMap() {
                     )}
                     {draftLote.length > 0 && <Polygon positions={draftLote} pathOptions={{ color: "#a855f7", weight: 2, dashArray: "6 6", fillOpacity: 0.1 }} />}
 
-                    {data.streets.map((s) => (
+                    {/* Calles: son la red de ruteo (OSM). NO se dibujan en la vista normal;
+                        solo se muestran tenues al editar, como referencia del grafo por donde
+                        se calculan las rutas de las matrículas. */}
+                    {editing && data.streets.map((s) => (
                         <Polyline key={s.id} positions={s.points}
-                            pathOptions={{ color: selected?.id === s.id ? "#f59e0b" : "#38bdf8", weight: selected?.id === s.id ? 6 : 4, opacity: 0.9 }}
+                            pathOptions={{ color: selected?.id === s.id ? "#f59e0b" : "#38bdf8", weight: selected?.id === s.id ? 5 : 2, opacity: selected?.id === s.id ? 0.9 : 0.45, dashArray: selected?.id === s.id ? undefined : "3 7" }}
                             eventHandlers={{
-                                click: () => editing && tool === "select" && setSelected({ type: "street", id: s.id }),
+                                click: () => tool === "select" && setSelected({ type: "street", id: s.id }),
                                 contextmenu: (e) => openCtx(e, "street", s.id),
                             }}>
                             {s.name && show.names && <LTooltip sticky className="cam-name-tip">{s.name}</LTooltip>}
@@ -855,6 +881,8 @@ export default function BarrioMap() {
                                         <button onClick={() => { setTool(t.id); setSelected(null); }} className={cn(gbtn, tool === t.id && "bg-blue-600 text-white hover:bg-blue-500 hover:text-white")}><t.icon size={16} /></button>
                                     </TooltipTrigger><TooltipContent>{t.label}</TooltipContent></Tooltip>
                                 ))}
+                                <div className="w-px h-6 bg-border mx-0.5" />
+                                <Tooltip><TooltipTrigger asChild><button onClick={importOsmStreets} disabled={importingOsm} className={cn(gbtn, "text-sky-400 hover:text-sky-300 hover:bg-sky-500/10")}>{importingOsm ? <Loader2 size={16} className="animate-spin" /> : <Route size={16} />}</button></TooltipTrigger><TooltipContent>Importar calles reales del barrio (OpenStreetMap) para el ruteo</TooltipContent></Tooltip>
                                 <div className="w-px h-6 bg-border mx-0.5" />
                                 <Tooltip><TooltipTrigger asChild><button onClick={deleteSelected} disabled={!selected} className={cn(gbtn, selected && "text-red-400 hover:text-red-300 hover:bg-red-500/10")}><Trash2 size={16} /></button></TooltipTrigger><TooltipContent>Borrar seleccionado</TooltipContent></Tooltip>
                                 <button onClick={save} disabled={saving} className="h-9 px-3.5 ml-0.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</button>
