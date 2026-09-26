@@ -7,9 +7,9 @@ export interface BarrioMapData {
     zoom: number;
     perimeter: [number, number][];
     streets: { id: string; name?: string; points: [number, number][] }[];
-    cameras: { deviceId: string; lat: number; lng: number }[];
+    cameras: { deviceId: string; lat: number; lng: number; rumbo?: number | null; size?: number; color?: string }[];
     lotes: { id: string; name?: string; points: [number, number][]; parkingSlotId?: string }[];
-    divisions: { id: string; tipo: string; points: [number, number][] }[];
+    divisions: { id: string; tipo: string; points: [number, number][]; color?: string; weight?: number }[];
 }
 
 const DEFAULT: BarrioMapData = {

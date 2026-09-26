@@ -9,7 +9,7 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -42,13 +42,26 @@ const DIV_STYLE: Record<DivTipo, { color: string; weight: number; dashArray?: st
     alambrado: { color: "#fcd34d", weight: 2, dashArray: "2 7", label: "Alambrado" },
 };
 
-const camSvg = `
-<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-4px)">
-  <span class="cam-glyph" style="width:30px;height:30px;border-radius:8px;background:#2563eb;border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 6px rgba(0,0,0,.4)">
-    <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
-  </span>
-</div>`;
-const camIcon = L.divIcon({ className: "bg-transparent border-0", html: camSvg, iconSize: [30, 30], iconAnchor: [15, 22], popupAnchor: [0, -20] });
+const CAM_COLORS = ["#2563eb", "#ef4444", "#22c55e", "#f59e0b", "#a855f7", "#06b6d4", "#e5e7eb", "#111827"];
+const camGlyph = (size: number, color: string) => `
+  <span class="cam-glyph" style="width:${size}px;height:${size}px;border-radius:${Math.round(size * 0.27)}px;background:${color};border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 6px rgba(0,0,0,.4)">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(size * 0.57)}" height="${Math.round(size * 0.57)}" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
+  </span>`;
+// Flecha de dirección (hacia dónde apunta) orbitando el ícono según el rumbo (0 = norte).
+const camArrow = (size: number, color: string, rumbo?: number | null) => rumbo == null ? "" : `
+  <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(${Math.round(rumbo)}deg);pointer-events:none">
+    <span style="display:block;transform:translateY(-${Math.round(size * 0.62 + 9)}px)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="${color}" stroke="#fff" stroke-width="1.5"><path d="M12 2 L19 21 L12 17 L5 21 Z"/></svg>
+    </span>
+  </span>`;
+const camHtml = (o?: { rumbo?: number | null; size?: number; color?: string }) => {
+    const size = o?.size || 30, color = o?.color || "#2563eb";
+    return `<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translateY(-4px)">${camArrow(size, color, o?.rumbo)}${camGlyph(size, color)}</div>`;
+};
+const camIconDe = (o?: { rumbo?: number | null; size?: number; color?: string }, extra = "") => {
+    const size = o?.size || 30;
+    return L.divIcon({ className: "bg-transparent border-0 " + extra, html: camHtml(o), iconSize: [size, size], iconAnchor: [size / 2, Math.round(size * 0.73)], popupAnchor: [0, -Math.round(size * 0.66)] });
+};
 
 const guardIconHtml = (name: string, heading?: number | null) => `
 <div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-2px)">
@@ -342,6 +355,9 @@ export default function BarrioMap() {
     const [loteModal, setLoteModal] = useState<{ mode: "create" | "edit"; id?: string; name: string; parkingSlotId: string; points: LL[] } | null>(null);
     const [loteDetail, setLoteDetail] = useState<{ lote: any; loading: boolean; data: SlotDetail | null } | null>(null);
     const [bitacora, setBitacora] = useState<{ guardName: string; loading: boolean; entries: any[] } | null>(null);
+    const [camCustom, setCamCustom] = useState<{ deviceId: string; rumbo: number; size: number; color: string } | null>(null);
+    const [divCustom, setDivCustom] = useState<{ id: string; tipo: DivTipo; color: string; weight: number } | null>(null);
+    const [extendDiv, setExtendDiv] = useState<string | null>(null);
     const [vivoTodas, setVivoTodas] = useState(false);
     const [ocultas, setOcultas] = useState<string[]>([]);
     const oscura = base !== "Calles";
@@ -444,6 +460,10 @@ export default function BarrioMap() {
             const next = { ...data, cameras: data.cameras.map((c) => c.deviceId === movingCam ? { ...c, lat: ll[0], lng: ll[1] } : c) };
             setMovingCam(null);
             persistNow(next, "Posición actualizada");
+            return;
+        }
+        if (extendDiv) {
+            setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === extendDiv ? { ...x, points: [...x.points, ll] } : x) }) as any : d);
             return;
         }
         if (!editing) return;
@@ -552,11 +572,11 @@ export default function BarrioMap() {
                 .omni-reticula{position:absolute;inset:0;pointer-events:none;z-index:400;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:44px 44px}
                 .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;box-shadow:inset 0 0 200px 40px rgba(0,0,0,.55)}
             `}</style>
-            <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam) && "map-draw")}>
+            <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv) && "map-draw")}>
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
                     <ZoomTracker onZoom={setZoom} />
-                    {(movingCam || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
+                    {(movingCam || extendDiv || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
 
                     {(base === "Satélite" || base === "Híbrido") && (
                         <TileLayer key="esri" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
@@ -596,9 +616,10 @@ export default function BarrioMap() {
                     {/* Divisiones (pared / tejido / alambrado) */}
                     {show.divisions && ((data as any).divisions || []).map((dv: any) => {
                         const st = DIV_STYLE[(dv.tipo as DivTipo)] || DIV_STYLE.pared;
+                        const color = dv.color || st.color; const weight = dv.weight || st.weight;
                         return (
-                            <Polyline key={dv.id} positions={dv.points}
-                                pathOptions={{ color: st.color, weight: st.weight, dashArray: st.dashArray, opacity: 0.95, lineCap: "round" }}
+                            <Polyline key={`${dv.id}_${color}_${weight}_${dv.points.length}`} positions={dv.points}
+                                pathOptions={{ color, weight, dashArray: st.dashArray, opacity: 0.95, lineCap: "round" }}
                                 eventHandlers={{ contextmenu: (e) => openCtx(e, "division", dv.id) }}>
                                 {show.names && <LTooltip sticky className="cam-name-tip">{st.label}</LTooltip>}
                             </Polyline>
@@ -629,10 +650,8 @@ export default function BarrioMap() {
                     ))}
 
                     {show.cameras && data.cameras.map((c) => (
-                        <Marker key={c.deviceId} position={[c.lat, c.lng]}
-                            icon={located?.type === "camera" && located.id === c.deviceId
-                                ? L.divIcon({ className: "bg-transparent border-0 cam-locate", html: camSvg, iconSize: [30, 30], iconAnchor: [15, 22], popupAnchor: [0, -20] })
-                                : camIcon}
+                        <Marker key={`${c.deviceId}_${(c as any).rumbo ?? "n"}_${(c as any).size ?? 30}_${(c as any).color ?? "d"}`} position={[c.lat, c.lng]}
+                            icon={camIconDe({ rumbo: (c as any).rumbo, size: (c as any).size, color: (c as any).color }, located?.type === "camera" && located.id === c.deviceId ? "cam-locate" : "")}
                             eventHandlers={{
                                 click: () => { if (editing && tool === "select") setSelected({ type: "camera", id: c.deviceId }); },
                                 contextmenu: (e) => openCtx(e, "camera", c.deviceId),
@@ -666,6 +685,13 @@ export default function BarrioMap() {
                     <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-blue-600 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
                         <Move size={14} /> Hacé clic en la nueva posición de la cámara
                         <button onClick={() => setMovingCam(null)} className="ml-1 hover:bg-white/20 rounded p-0.5"><X size={13} /></button>
+                    </div>
+                )}
+                {/* Aviso de extender línea */}
+                {extendDiv && (
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-blue-600 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
+                        <Plus size={14} /> Clic para agregar puntos a la línea
+                        <button onClick={() => { const d = data; setExtendDiv(null); persistNow(d, "Línea actualizada"); }} className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30">Listo</button>
                     </div>
                 )}
 
@@ -793,6 +819,7 @@ export default function BarrioMap() {
                         {ctx.type === "camera" ? (<>
                             <button onClick={() => { const cam = data.cameras.find((c) => c.deviceId === ctx.id); if (cam && mapRef.current) mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Radio size={13} className="text-red-400" /> Centrar / ver</button>
                             <button onClick={() => { setMovingCam(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Move size={13} className="text-blue-400" /> Editar posición</button>
+                            <button onClick={() => { const c = data.cameras.find((x) => x.deviceId === ctx.id); if (c) setCamCustom({ deviceId: c.deviceId, rumbo: (c as any).rumbo ?? 0, size: (c as any).size ?? 30, color: (c as any).color ?? "#2563eb" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Compass size={13} className="text-purple-400" /> Dirección / tamaño / color</button>
                             <button onClick={() => { removeCameraPersist(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Eliminar del mapa</button>
                         </>) : ctx.type === "guard" ? (<>
                             <button onClick={() => { const g = guards.find((x) => String(x.id) === ctx.id); abrirBitacora(g?.guardName || ""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><BookText size={13} className="text-emerald-500" /> Bitácora</button>
@@ -802,6 +829,8 @@ export default function BarrioMap() {
                             <button onClick={() => { const lo = lotes.find((l) => l.id === ctx.id); if (lo && mapRef.current) { mapRef.current.setView(centroid(lo.points), Math.max(mapRef.current.getZoom(), 19)); localizar("lote", lo.id); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><LocateFixed size={13} className="text-amber-500" /> Localizar</button>
                             <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar lote</button>
                         </>) : ctx.type === "division" ? (<>
+                            <button onClick={() => { setExtendDiv(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Plus size={13} className="text-blue-400" /> Seguir agregando puntos</button>
+                            <button onClick={() => { const dv = ((data as any).divisions || []).find((x: any) => x.id === ctx.id); if (dv) { const st = DIV_STYLE[dv.tipo as DivTipo] || DIV_STYLE.pared; setDivCustom({ id: dv.id, tipo: dv.tipo, color: dv.color || st.color, weight: dv.weight || st.weight }); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Palette size={13} className="text-purple-400" /> Color y grosor</button>
                             <button onClick={() => { removeDivision(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar división</button>
                         </>) : (<>
                             <button onClick={() => { renameStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar calle</button>
@@ -908,6 +937,83 @@ export default function BarrioMap() {
                             )}
                         </MapDrawer>
                     )}
+                </AnimatePresence>
+
+                {/* Drawer: personalizar cámara (dirección / tamaño / color) */}
+                <AnimatePresence>
+                    {camCustom && (() => {
+                        const cc = camCustom;
+                        const setCam = (patch: Partial<{ rumbo: number; size: number; color: string }>) => {
+                            const next = { ...cc, ...patch };
+                            setCamCustom(next);
+                            setData((d) => d ? { ...d, cameras: d.cameras.map((x) => x.deviceId === cc.deviceId ? { ...x, rumbo: next.rumbo, size: next.size, color: next.color } : x) } : d);
+                        };
+                        const guardarCam = () => {
+                            const next = { ...data, cameras: data.cameras.map((x) => x.deviceId === cc.deviceId ? { ...x, rumbo: cc.rumbo, size: cc.size, color: cc.color } : x) };
+                            setCamCustom(null); persistNow(next, "Cámara personalizada");
+                        };
+                        const dirs: [string, number][] = [["N", 0], ["NE", 45], ["E", 90], ["SE", 135], ["S", 180], ["SO", 225], ["O", 270], ["NO", 315]];
+                        return (
+                            <MapDrawer title="Cámara" subtitle={devById[cc.deviceId]?.name || "Ícono"} icon={Compass} accent="purple" onClose={() => setCamCustom(null)}>
+                                <div className="flex items-center justify-center py-6 rounded-xl border border-border bg-background/40" dangerouslySetInnerHTML={{ __html: `<div style="position:relative">${camHtml({ rumbo: cc.rumbo, size: cc.size, color: cc.color })}</div>` }} />
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Dirección (hacia dónde apunta)</p>
+                                    <div className="grid grid-cols-4 gap-1">{dirs.map(([l, d]) => <button key={l} onClick={() => setCam({ rumbo: d })} className={cn("h-8 rounded-lg text-[11px] font-bold transition-colors", Math.round(cc.rumbo) === d ? "bg-blue-600 text-white" : "bg-background border border-border text-muted-foreground hover:text-foreground")}>{l}</button>)}</div>
+                                    <input type="range" min={0} max={359} value={cc.rumbo} onChange={(e) => setCam({ rumbo: +e.target.value })} className="w-full accent-blue-600" />
+                                    <p className="text-[11px] text-muted-foreground text-center tabular-nums">{Math.round(cc.rumbo)}°</p>
+                                </div>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tamaño</p>
+                                    <input type="range" min={22} max={54} value={cc.size} onChange={(e) => setCam({ size: +e.target.value })} className="w-full accent-blue-600" />
+                                </div>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Color</p>
+                                    <div className="flex flex-wrap gap-2">{CAM_COLORS.map((c) => <button key={c} onClick={() => setCam({ color: c })} style={{ background: c }} className={cn("h-7 w-7 rounded-full border-2 transition-all", cc.color === c ? "border-blue-500 ring-2 ring-blue-500/40 scale-110" : "border-white/40")} />)}</div>
+                                </div>
+                                <div className="flex gap-2 pt-1">
+                                    <button onClick={() => setCamCustom(null)} className="flex-1 h-9 rounded-lg text-xs font-bold text-muted-foreground hover:bg-accent">Cerrar</button>
+                                    <button onClick={guardarCam} className="flex-1 h-9 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center gap-1.5"><Check size={14} /> Guardar</button>
+                                </div>
+                            </MapDrawer>
+                        );
+                    })()}
+                </AnimatePresence>
+
+                {/* Drawer: color / grosor de la línea de división */}
+                <AnimatePresence>
+                    {divCustom && (() => {
+                        const dc = divCustom;
+                        const setDiv = (patch: Partial<{ tipo: DivTipo; color: string; weight: number }>) => {
+                            const next = { ...dc, ...patch };
+                            setDivCustom(next);
+                            setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === dc.id ? { ...x, tipo: next.tipo, color: next.color, weight: next.weight } : x) }) as any : d);
+                        };
+                        const guardarDiv = () => {
+                            const next = { ...data, divisions: ((data as any).divisions || []).map((x: any) => x.id === dc.id ? { ...x, tipo: dc.tipo, color: dc.color, weight: dc.weight } : x) } as any;
+                            setDivCustom(null); persistNow(next, "Línea actualizada");
+                        };
+                        return (
+                            <MapDrawer title="División" subtitle={DIV_STYLE[dc.tipo].label} icon={Fence} accent="blue" onClose={() => setDivCustom(null)}>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tipo</p>
+                                    <div className="flex gap-1">{(["pared", "tejido", "alambrado"] as DivTipo[]).map((tp) => <button key={tp} onClick={() => setDiv({ tipo: tp, color: DIV_STYLE[tp].color, weight: DIV_STYLE[tp].weight })} className={cn("flex-1 h-8 rounded-lg text-[11px] font-bold border transition-colors", dc.tipo === tp ? "bg-blue-600 text-white border-blue-600" : "bg-background border-border text-muted-foreground hover:text-foreground")}>{DIV_STYLE[tp].label}</button>)}</div>
+                                </div>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Color</p>
+                                    <div className="flex flex-wrap gap-2">{CAM_COLORS.map((c) => <button key={c} onClick={() => setDiv({ color: c })} style={{ background: c }} className={cn("h-7 w-7 rounded-full border-2 transition-all", dc.color === c ? "border-blue-500 ring-2 ring-blue-500/40 scale-110" : "border-white/40")} />)}</div>
+                                </div>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Grosor · {dc.weight}px</p>
+                                    <input type="range" min={1} max={12} value={dc.weight} onChange={(e) => setDiv({ weight: +e.target.value })} className="w-full accent-blue-600" />
+                                </div>
+                                <button onClick={() => { setDivCustom(null); setExtendDiv(dc.id); }} className="w-full h-9 rounded-lg text-xs font-bold border border-border hover:bg-accent flex items-center justify-center gap-1.5"><Plus size={13} /> Seguir agregando puntos</button>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setDivCustom(null)} className="flex-1 h-9 rounded-lg text-xs font-bold text-muted-foreground hover:bg-accent">Cerrar</button>
+                                    <button onClick={guardarDiv} className="flex-1 h-9 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center gap-1.5"><Check size={14} /> Guardar</button>
+                                </div>
+                            </MapDrawer>
+                        );
+                    })()}
                 </AnimatePresence>
             </div>
         </TooltipProvider>
