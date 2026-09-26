@@ -33,15 +33,19 @@ function parseMarca(details?: string | null): string {
 }
 const brandSlug = (marca: string) => marca.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
-// Logo de la marca: usa /brand-logos/<slug>.(png|svg) si existe; si no, monograma prolijo.
+// Conjunto de logos disponibles en /public/brand-logos (slugs). Vacío por ahora: sin él
+// mostramos el monograma y NO hacemos requests (evita el diluvio de 404 en consola).
+// Cuando se suba el pack de logos, listar acá los slugs (o cargar un manifest) y aparecen solos.
+const BRAND_LOGOS: Record<string, "png" | "svg"> = {};
+
+// Logo de la marca si está en el pack; si no, monograma prolijo (sin pedir imágenes que 404ean).
 function BrandBadge({ marca }: { marca?: string | null }) {
-    const [step, setStep] = React.useState(0); // 0=png, 1=svg, 2=monograma
     if (!marca) return null;
     const slug = brandSlug(marca);
-    if (step < 2) {
-        const src = `/brand-logos/${slug}.${step === 0 ? "png" : "svg"}`;
+    const ext = BRAND_LOGOS[slug];
+    if (ext) {
         return (
-            <img src={src} alt={marca} title={marca} onError={() => setStep((s) => s + 1)}
+            <img src={`/brand-logos/${slug}.${ext}`} alt={marca} title={marca}
                 className="w-6 h-6 rounded-md object-contain bg-white shrink-0 p-0.5 shadow-sm" />
         );
     }
