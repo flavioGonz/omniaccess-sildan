@@ -437,6 +437,7 @@ export default function BarrioMap() {
     autoRef.current = autoResaltar;
     const [ruta, setRuta] = useState<{ path: LL[]; key: number } | null>(null);
     const [draftStreet, setDraftStreet] = useState<LL[]>([]);
+    const [importingOsm, setImportingOsm] = useState(false);
 
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
@@ -640,7 +641,6 @@ export default function BarrioMap() {
 
     // Trae la red de calles REAL del barrio desde OpenStreetMap (Overpass) para la vista
     // actual del mapa y la guarda como grafo de ruteo. Reemplaza el dibujo manual de calles.
-    const [importingOsm, setImportingOsm] = useState(false);
     const importOsmStreets = async () => {
         const m = mapRef.current; if (!m) return;
         const b = m.getBounds();
