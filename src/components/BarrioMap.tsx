@@ -396,20 +396,6 @@ export default function BarrioMap() {
         document.addEventListener("fullscreenchange", onFs);
         return () => document.removeEventListener("fullscreenchange", onFs);
     }, []);
-    // Resaltado automático: al entrar una matrícula por LPR, resalta el lote + ruta (si el toggle está activo)
-    useEffect(() => {
-        if (!liveSocket) return;
-        const onEv = (raw: any) => {
-            if (!autoRef.current) return;
-            if (raw?.accessType !== "PLATE" || raw?.direction !== "ENTRY") return;
-            const plate = (raw.plateDetected || "").toUpperCase();
-            if (!plate || plate === "NO_LEIDA" || plate.startsWith("DOOR_")) return;
-            if (!plateMapRef.current[plate]) return; // solo residentes con lote
-            onPlate(raw);
-        };
-        liveSocket.on("access_event", onEv);
-        return () => liveSocket.off("access_event", onEv);
-    }, [liveSocket, onPlate]);
 
     const devById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices]);
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
@@ -493,6 +479,21 @@ export default function BarrioMap() {
             mapRef.current.setView(to, Math.max(mapRef.current.getZoom(), 18));
         }
     }, [localizar]);
+
+    // Resaltado automático: al entrar una matrícula de residente por LPR (si el toggle está activo)
+    useEffect(() => {
+        if (!liveSocket) return;
+        const onEv = (raw: any) => {
+            if (!autoRef.current) return;
+            if (raw?.accessType !== "PLATE" || raw?.direction !== "ENTRY") return;
+            const plate = (raw.plateDetected || "").toUpperCase();
+            if (!plate || plate === "NO_LEIDA" || plate.startsWith("DOOR_")) return;
+            if (!plateMapRef.current[plate]) return;
+            onPlate(raw);
+        };
+        liveSocket.on("access_event", onEv);
+        return () => liveSocket.off("access_event", onEv);
+    }, [liveSocket, onPlate]);
 
     if (!data) return <div className="h-full w-full flex items-center justify-center text-muted-foreground"><Loader2 className="animate-spin mr-2" size={18} /> Cargando mapa…</div>;
 
