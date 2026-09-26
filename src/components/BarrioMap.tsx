@@ -9,7 +9,7 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,7 @@ import { montarVivo } from "@/lib/vivo";
 import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { useRouter } from "next/navigation";
 
-type Tool = "select" | "perimeter" | "camera" | "lote" | "division";
+type Tool = "select" | "perimeter" | "camera" | "lote" | "division" | "street";
 type LL = [number, number];
 type Base = "Híbrido" | "Táctico" | "Satélite" | "Calles";
 type SelKind = "street" | "camera" | "lote";
@@ -82,6 +82,71 @@ const centroid = (pts: LL[]): LL => {
     if (Math.abs(a) < 1e-12) { const s = pts.reduce((p, c) => [p[0] + c[0], p[1] + c[1]], [0, 0]); return [s[0] / pts.length, s[1] / pts.length]; }
     a *= 0.5; return [cx / (6 * a), cy / (6 * a)];
 };
+
+// ── Ruteo por calles ──────────────────────────────────────────────────────
+// Distancia métrica aproximada (haversine) entre dos coordenadas.
+const RAD = Math.PI / 180;
+function hav(a: LL, b: LL): number {
+    const R = 6371000;
+    const dLat = (b[0] - a[0]) * RAD, dLng = (b[1] - a[1]) * RAD;
+    const la1 = a[0] * RAD, la2 = b[0] * RAD;
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
+}
+// Proyección de un punto p sobre el segmento a-b (planar a escala de barrio).
+function projSeg(p: LL, a: LL, b: LL): LL {
+    const ay = a[0], ax = a[1], by = b[0], bx = b[1], py = p[0], px = p[1];
+    const dx = bx - ax, dy = by - ay; const L2 = dx * dx + dy * dy;
+    let t = L2 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+    return [ay + t * dy, ax + t * dx];
+}
+type Street = { id: string; name?: string; points: LL[] };
+// Calcula la ruta cámara→casa siguiendo la red de calles (Dijkstra). Si no hay
+// calles dibujadas o no hay camino, cae a la recta directa (comportamiento previo).
+function routeOnStreets(streets: Street[] | undefined, from: LL, to: LL): LL[] {
+    const list = (streets || []).filter((s) => (s.points || []).length >= 2);
+    if (!list.length) return [from, to];
+    const key = (ll: LL) => `${ll[0].toFixed(5)},${ll[1].toFixed(5)}`;
+    const coords = new Map<string, LL>();
+    const adj = new Map<string, [string, number][]>();
+    const node = (ll: LL) => { const k = key(ll); if (!coords.has(k)) { coords.set(k, ll); adj.set(k, []); } return k; };
+    const edge = (k1: string, k2: string, w: number) => { if (k1 === k2) return; adj.get(k1)!.push([k2, w]); adj.get(k2)!.push([k1, w]); };
+    const segs: [LL, LL][] = [];
+    for (const s of list) {
+        const pts = s.points; let prev: string | null = null;
+        for (const pt of pts) { const k = node(pt); if (prev) edge(prev, k, hav(coords.get(prev)!, pt)); prev = k; }
+        for (let i = 0; i + 1 < pts.length; i++) segs.push([pts[i], pts[i + 1]]);
+    }
+    // Conectar nodos muy cercanos (cruces de calles distintas aunque no coincidan exacto).
+    const ks = [...coords.keys()];
+    for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) {
+        const d = hav(coords.get(ks[i])!, coords.get(ks[j])!); if (d > 0 && d < 8) edge(ks[i], ks[j], d);
+    }
+    // Punto de acceso: proyecta from/to sobre la calle más cercana y lo enchufa a sus extremos.
+    const access = (p: LL, name: string): string => {
+        let best: { d: number; a: LL; b: LL; point: LL } | null = null;
+        for (const [a, b] of segs) { const point = projSeg(p, a, b); const d = hav(p, point); if (!best || d < best.d) best = { d, a, b, point }; }
+        if (!best) return node(p);
+        coords.set(name, best.point); adj.set(name, []);
+        edge(name, key(best.a), hav(best.point, best.a));
+        edge(name, key(best.b), hav(best.point, best.b));
+        return name;
+    };
+    const kf = access(from, "__from"), kt = access(to, "__to");
+    const dist = new Map<string, number>(), prev = new Map<string, string | null>(), seen = new Set<string>();
+    for (const k of adj.keys()) dist.set(k, Infinity);
+    dist.set(kf, 0); prev.set(kf, null);
+    while (true) {
+        let u: string | null = null, ud = Infinity;
+        for (const [k, dv] of dist) if (!seen.has(k) && dv < ud) { ud = dv; u = k; }
+        if (u == null || u === kt) break; seen.add(u);
+        for (const [v, w] of adj.get(u) || []) { if (seen.has(v)) continue; const nd = ud + w; if (nd < (dist.get(v) ?? Infinity)) { dist.set(v, nd); prev.set(v, u); } }
+    }
+    if ((dist.get(kt) ?? Infinity) === Infinity) return [from, to];
+    const mid: LL[] = []; let c: string | null = kt;
+    while (c != null) { const cc = coords.get(c); if (cc) mid.unshift(cc); c = prev.get(c) ?? null; }
+    return [from, ...mid, to];
+}
 
 function MapRefGrabber({ onMap }: { onMap: (m: L.Map) => void }) {
     const map = useMap();
@@ -365,11 +430,13 @@ export default function BarrioMap() {
     const lotesRef = useRef<any[]>([]);
     const camerasRef = useRef<any[]>([]);
     const plateMapRef = useRef<Record<string, string>>({});
+    const streetsRef = useRef<Street[]>([]);
     const autoRef = useRef(false);
     const rutaTimer = useRef<any>(null);
     const [autoResaltar, setAutoResaltar] = useState(false);
     autoRef.current = autoResaltar;
-    const [ruta, setRuta] = useState<{ from: LL; to: LL; key: number } | null>(null);
+    const [ruta, setRuta] = useState<{ path: LL[]; key: number } | null>(null);
+    const [draftStreet, setDraftStreet] = useState<LL[]>([]);
 
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
@@ -471,10 +538,11 @@ export default function BarrioMap() {
         const from = cam ? ([cam.lat, cam.lng] as LL) : null;
         localizar("lote", lote.id);
         if (from) {
-            setRuta({ from, to, key: Date.now() });
+            const path = routeOnStreets(streetsRef.current, from, to); // sigue las calles si están dibujadas
+            setRuta({ path, key: Date.now() });
             if (rutaTimer.current) clearTimeout(rutaTimer.current);
             rutaTimer.current = setTimeout(() => setRuta(null), 9000);
-            if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds([from, to]), { padding: [90, 90], maxZoom: 19 }); } catch { } }
+            if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
         } else if (mapRef.current) {
             mapRef.current.setView(to, Math.max(mapRef.current.getZoom(), 18));
         }
@@ -500,6 +568,7 @@ export default function BarrioMap() {
     const lotes = data.lotes || [];
     lotesRef.current = lotes;
     camerasRef.current = data.cameras;
+    streetsRef.current = data.streets;
 
     const onMapClick = (ll: LL) => {
         // Mover cámara (menú contextual → editar posición) — funciona aún fuera de edición
@@ -517,6 +586,7 @@ export default function BarrioMap() {
         if (tool === "perimeter") setDraftPerimeter((p) => [...p, ll]);
         else if (tool === "lote") setDraftLote((p) => [...p, ll]);
         else if (tool === "division") setDraftDivision((p) => [...p, ll]);
+        else if (tool === "street") setDraftStreet((p) => [...p, ll]);
         else if (tool === "camera") {
             if (!pendingCam) { toast.error({ title: "Elegí una cámara primero" }); return; }
             setData((d) => d ? { ...d, cameras: [...d.cameras.filter((c) => c.deviceId !== pendingCam), { deviceId: pendingCam, lat: ll[0], lng: ll[1] }] } : d);
@@ -531,6 +601,10 @@ export default function BarrioMap() {
     const commitDivision = () => {
         if (draftDivision.length >= 2) setData((d) => d ? { ...d, divisions: [...((d as any).divisions || []), { id: `d_${Date.now()}`, tipo: divTipo, points: draftDivision }] } as any : d);
         setDraftDivision([]); setTool("select");
+    };
+    const commitStreet = () => {
+        if (draftStreet.length >= 2) setData((d) => d ? { ...d, streets: [...d.streets, { id: `st_${Date.now()}`, name: "", points: draftStreet }] } : d);
+        setDraftStreet([]); setTool("select");
     };
     const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
     const removeCamera = (id: string) => setData((d) => d ? { ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) } : d);
@@ -583,6 +657,7 @@ export default function BarrioMap() {
         { id: "select", icon: MousePointer2, label: "Seleccionar" },
         { id: "lote", icon: LandPlot, label: "Dibujar lote" },
         { id: "division", icon: Fence, label: "Dibujar división (pared/tejido/alambrado)" },
+        { id: "street", icon: Route, label: "Dibujar calle (la ruta de las matrículas la sigue)" },
         { id: "perimeter", icon: Hexagon, label: "Dibujar perímetro" },
         { id: "camera", icon: Video, label: "Soltar cámara" },
     ];
@@ -675,6 +750,7 @@ export default function BarrioMap() {
                         );
                     })}
                     {draftDivision.length > 0 && <Polyline positions={draftDivision} pathOptions={{ color: DIV_STYLE[divTipo].color, weight: DIV_STYLE[divTipo].weight, dashArray: DIV_STYLE[divTipo].dashArray || "4 4", opacity: 0.8 }} />}
+                    {draftStreet.length > 0 && <Polyline positions={draftStreet} pathOptions={{ color: "#38bdf8", weight: 4, dashArray: "6 6", opacity: 0.85, lineCap: "round" }} />}
 
                     {show.guards && guards.map((g) => (
                         <Marker key={"g" + g.id} position={[g.lat, g.lng]}
@@ -717,11 +793,11 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
-                    {ruta && (
+                    {ruta && ruta.path.length >= 2 && (
                         <>
-                            <Polyline key={`rw${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.9, lineCap: "round" }} />
-                            <Polyline key={`rb${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#2563eb", weight: 5, opacity: 1, lineCap: "round" }} />
-                            <Polyline key={`ra${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#ffffff", weight: 2.5, opacity: 0.95, dashArray: "1 16", lineCap: "round", className: "ruta-anim" }} />
+                            <Polyline key={`rw${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.9, lineCap: "round", lineJoin: "round" }} />
+                            <Polyline key={`rb${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#2563eb", weight: 5, opacity: 1, lineCap: "round", lineJoin: "round" }} />
+                            <Polyline key={`ra${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#ffffff", weight: 2.5, opacity: 0.95, dashArray: "1 16", lineCap: "round", lineJoin: "round", className: "ruta-anim" }} />
                         </>
                     )}
 
@@ -778,7 +854,7 @@ export default function BarrioMap() {
                                 <div className="w-px h-6 bg-border mx-0.5" />
                                 <Tooltip><TooltipTrigger asChild><button onClick={deleteSelected} disabled={!selected} className={cn(gbtn, selected && "text-red-400 hover:text-red-300 hover:bg-red-500/10")}><Trash2 size={16} /></button></TooltipTrigger><TooltipContent>Borrar seleccionado</TooltipContent></Tooltip>
                                 <button onClick={save} disabled={saving} className="h-9 px-3.5 ml-0.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</button>
-                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setDraftDivision([]); setSelected(null); getBarrioMap().then(setData); }} className={gbtn}><X size={16} /></button>
+                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setDraftDivision([]); setDraftStreet([]); setSelected(null); getBarrioMap().then(setData); }} className={gbtn}><X size={16} /></button>
                             </>
                         ) : (
                             <>
@@ -852,6 +928,11 @@ export default function BarrioMap() {
                             </div>
                             <p className="text-muted-foreground">Clic para trazar la línea ({draftDivision.length} puntos).</p>
                             <div className="flex gap-2"><button onClick={commitDivision} disabled={draftDivision.length < 2} className="flex-1 py-1.5 rounded-md bg-blue-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Finalizar</button><button onClick={() => setDraftDivision((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
+                        </>)}
+                        {tool === "street" && (<>
+                            <p className="font-bold flex items-center gap-1.5"><Route size={13} className="text-sky-400" /> Calle</p>
+                            <p className="text-muted-foreground">Trazá el eje de la calle con clics ({draftStreet.length} puntos). La ruta de las matrículas va a seguir estas calles. En los cruces, tocá sobre otra calle para que queden conectadas.</p>
+                            <div className="flex gap-2"><button onClick={commitStreet} disabled={draftStreet.length < 2} className="flex-1 py-1.5 rounded-md bg-sky-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Finalizar calle</button><button onClick={() => setDraftStreet((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
                         </>)}
                         {tool === "perimeter" && (<>
                             <p className="font-bold flex items-center gap-1.5"><Hexagon size={13} className="text-emerald-400" /> Perímetro</p>
