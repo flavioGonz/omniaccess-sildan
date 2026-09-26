@@ -9,13 +9,13 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { getBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
-import { getParkingSlots } from "@/app/actions/parking";
+import { getParkingSlots, getPlateSlotMap } from "@/app/actions/parking";
 import { getSlotDetail, type SlotDetail } from "@/app/actions/plazas";
 import { getBitacoraPage } from "@/app/actions/bitacora";
 import { io } from "socket.io-client";
@@ -363,6 +363,13 @@ export default function BarrioMap() {
     const oscura = base !== "Calles";
     const editingRef = useRef(editing); editingRef.current = editing;
     const lotesRef = useRef<any[]>([]);
+    const camerasRef = useRef<any[]>([]);
+    const plateMapRef = useRef<Record<string, string>>({});
+    const autoRef = useRef(false);
+    const rutaTimer = useRef<any>(null);
+    const [autoResaltar, setAutoResaltar] = useState(false);
+    autoRef.current = autoResaltar;
+    const [ruta, setRuta] = useState<{ from: LL; to: LL; key: number } | null>(null);
 
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
@@ -377,6 +384,7 @@ export default function BarrioMap() {
         getBarrioMap().then((d) => { setData(d); setZoom(d.zoom || 16); }).catch(() => setData(null));
         getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => { });
         getParkingSlots().then((s: any) => setSlots(s || [])).catch(() => { });
+        getPlateSlotMap().then((m: any) => { plateMapRef.current = m || {}; }).catch(() => { });
     }, []);
     useEffect(() => {
         const close = () => setCtx(null);
@@ -388,6 +396,20 @@ export default function BarrioMap() {
         document.addEventListener("fullscreenchange", onFs);
         return () => document.removeEventListener("fullscreenchange", onFs);
     }, []);
+    // Resaltado automático: al entrar una matrícula por LPR, resalta el lote + ruta (si el toggle está activo)
+    useEffect(() => {
+        if (!liveSocket) return;
+        const onEv = (raw: any) => {
+            if (!autoRef.current) return;
+            if (raw?.accessType !== "PLATE" || raw?.direction !== "ENTRY") return;
+            const plate = (raw.plateDetected || "").toUpperCase();
+            if (!plate || plate === "NO_LEIDA" || plate.startsWith("DOOR_")) return;
+            if (!plateMapRef.current[plate]) return; // solo residentes con lote
+            onPlate(raw);
+        };
+        liveSocket.on("access_event", onEv);
+        return () => liveSocket.off("access_event", onEv);
+    }, [liveSocket, onPlate]);
 
     const devById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices]);
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
@@ -449,10 +471,34 @@ export default function BarrioMap() {
         locateTimer.current = setTimeout(() => setLocated(null), 6000);
     }, []);
 
+    // Al tocar/detectar una matrícula: resalta el lote del residente y anima la ruta cámara→casa.
+    const onPlate = useCallback((ev: any) => {
+        const plate = (ev?.plateDetected || "").toUpperCase();
+        if (!plate) return;
+        const slotId = plateMapRef.current[plate];
+        if (!slotId) { toast.error({ title: "Sin lote", description: `${plate} no está asociada a un lote.` }); return; }
+        const lote = lotesRef.current.find((l: any) => l.parkingSlotId === slotId);
+        if (!lote || !lote.points?.length) { toast.error({ title: "Lote no dibujado", description: `El lote de ${plate} no está en el mapa.` }); return; }
+        const to = centroid(lote.points);
+        const devId = ev?.device?.id || ev?.deviceId;
+        const cam = devId ? camerasRef.current.find((c: any) => c.deviceId === devId) : null;
+        const from = cam ? ([cam.lat, cam.lng] as LL) : null;
+        localizar("lote", lote.id);
+        if (from) {
+            setRuta({ from, to, key: Date.now() });
+            if (rutaTimer.current) clearTimeout(rutaTimer.current);
+            rutaTimer.current = setTimeout(() => setRuta(null), 9000);
+            if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds([from, to]), { padding: [90, 90], maxZoom: 19 }); } catch { } }
+        } else if (mapRef.current) {
+            mapRef.current.setView(to, Math.max(mapRef.current.getZoom(), 18));
+        }
+    }, [localizar]);
+
     if (!data) return <div className="h-full w-full flex items-center justify-center text-muted-foreground"><Loader2 className="animate-spin mr-2" size={18} /> Cargando mapa…</div>;
 
     const lotes = data.lotes || [];
     lotesRef.current = lotes;
+    camerasRef.current = data.cameras;
 
     const onMapClick = (ll: LL) => {
         // Mover cámara (menú contextual → editar posición) — funciona aún fuera de edición
@@ -564,6 +610,8 @@ export default function BarrioMap() {
                 .lote-tip:before{display:none}
                 @keyframes loteBlink{0%,100%{stroke-opacity:1;fill-opacity:.15;stroke-width:2}50%{stroke-opacity:.25;fill-opacity:.5;stroke-width:5}}
                 .lote-blink{stroke:#f59e0b !important;fill:#f59e0b !important;animation:loteBlink 0.9s ease-in-out infinite}
+                @keyframes rutaDash{to{stroke-dashoffset:-34}}
+                .ruta-anim{animation:rutaDash 0.9s linear infinite}
                 .cam-locate .cam-glyph{animation:loteBlink 0.9s ease-in-out infinite}
                 .map-tactico .leaflet-tile-pane{filter:grayscale(.65) contrast(1.05) brightness(.72)}
                 /* Cursor flecha (no manito) mientras se dibuja en el mapa */
@@ -667,7 +715,14 @@ export default function BarrioMap() {
                             )}
                         </Marker>
                     ))}
-                    <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
+                    {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
+                    {ruta && (
+                        <>
+                            <Polyline key={`rw${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.9, lineCap: "round" }} />
+                            <Polyline key={`rb${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#2563eb", weight: 5, opacity: 1, lineCap: "round" }} />
+                            <Polyline key={`ra${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#ffffff", weight: 2.5, opacity: 0.95, dashArray: "1 16", lineCap: "round", className: "ruta-anim" }} />
+                        </>
+                    )}
 
                     {vivoTodas && !editing && (
                         <BurbujasVivo
@@ -698,8 +753,8 @@ export default function BarrioMap() {
                 {/* Columnas de flujo en vivo */}
                 {!editing && (
                     <>
-                        <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} onPick={(ev) => flow.animateEvent(ev)} />
-                        <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => flow.animateEvent(ev)} />
+                        <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} onPick={(ev) => onPlate(ev)} />
+                        <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => onPlate(ev)} />
                     </>
                 )}
 
@@ -730,6 +785,7 @@ export default function BarrioMap() {
                                 <Tooltip><TooltipTrigger asChild><button onClick={() => acercar(-1)} className={gbtn}><Minus size={16} /></button></TooltipTrigger><TooltipContent>Alejar</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><button onClick={centrar} className={gbtn}><Crosshair size={16} /></button></TooltipTrigger><TooltipContent>Centrar en el barrio</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><button onClick={toggleVivo} disabled={!data.cameras.length} className={cn(gbtn, vivoTodas && "bg-red-600 text-white hover:bg-red-500 hover:text-white")}>{vivoTodas ? <EyeOff size={16} /> : <Eye size={16} />}</button></TooltipTrigger><TooltipContent>{vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo"}</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><button onClick={() => setAutoResaltar((v) => !v)} className={cn(gbtn, autoResaltar && "bg-emerald-600 text-white hover:bg-emerald-500 hover:text-white")}><Home size={16} /></button></TooltipTrigger><TooltipContent>{autoResaltar ? "Auto: resalta la casa al detectar matrícula (ON)" : "Resaltar la casa automáticamente al detectar matrícula"}</TooltipContent></Tooltip>
                                 <Tooltip><TooltipTrigger asChild><button onClick={alternarPantalla} className={gbtn}>{pantalla ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></TooltipTrigger><TooltipContent>{pantalla ? "Salir de pantalla completa" : "Pantalla completa"}</TooltipContent></Tooltip>
                                 <div className="w-px h-6 bg-border mx-0.5" />
                                 <button onClick={() => { setMenuCapas(false); setVivoTodas(false); setEditing(true); }} className="h-9 px-3.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>

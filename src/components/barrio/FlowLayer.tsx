@@ -206,7 +206,7 @@ export function useFlow(streets: any[], cameras: { deviceId: string; lat: number
             const ev = raw.device?.name ? raw : { ...raw, device: { id: devId, name: (camById[devId] as any)?.name || "" } };
             if (ev.direction === "ENTRY") setEntries((prev) => [ev, ...prev.filter((p) => p.id !== ev.id)].slice(0, 25));
             else setExits((prev) => [ev, ...prev.filter((p) => p.id !== ev.id)].slice(0, 25));
-            animateEvent(ev); // automático en vivo
+            // (Se retiró la animación de autitos por evento; el resaltado del lote lo maneja BarrioMap)
         };
         socket.on("access_event", onEvent);
         return () => { socket.off("access_event", onEvent); };

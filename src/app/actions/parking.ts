@@ -53,3 +53,32 @@ export async function getPlatesWithParking(): Promise<string[]> {
         return [...plates];
     } catch (e) { console.error("[getPlatesWithParking]", e); return []; }
 }
+
+
+/** Mapa matrícula(MAYÚS) -> parkingSlotId, resolviendo por asignación directa o por unidad.
+ *  Se usa en el mapa para resaltar el lote/casa del residente al detectar su matrícula. */
+export async function getPlateSlotMap(): Promise<Record<string, string>> {
+    const map: Record<string, string> = {};
+    try {
+        // Asignación directa: usuario con parkingSlotId
+        const direct = await prisma.user.findMany({
+            where: { parkingSlotId: { not: null } },
+            select: { parkingSlotId: true, vehicles: { select: { plate: true } } },
+        });
+        for (const u of direct) for (const v of u.vehicles) if (v.plate && u.parkingSlotId) map[v.plate.toUpperCase()] = u.parkingSlotId;
+
+        // Vía unidad: plaza con unitId -> usuarios de esa unidad
+        const slots = await prisma.parkingSlot.findMany({ where: { unitId: { not: null } }, select: { id: true, unitId: true } });
+        const byUnit: Record<string, string> = {};
+        for (const sl of slots) if (sl.unitId && !byUnit[sl.unitId]) byUnit[sl.unitId] = sl.id;
+        const unitIds = Object.keys(byUnit);
+        if (unitIds.length) {
+            const uu = await prisma.user.findMany({ where: { unitId: { in: unitIds } }, select: { unitId: true, vehicles: { select: { plate: true } } } });
+            for (const u of uu) for (const v of u.vehicles) {
+                const P = v.plate?.toUpperCase();
+                if (P && u.unitId && byUnit[u.unitId] && !map[P]) map[P] = byUnit[u.unitId];
+            }
+        }
+    } catch (e) { console.error("[getPlateSlotMap]", e); }
+    return map;
+}
