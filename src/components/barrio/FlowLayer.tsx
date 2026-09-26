@@ -249,8 +249,10 @@ export function useFlow(streets: any[], cameras: { deviceId: string; lat: number
     }, [socket, animateEvent, camById]);
 
     const onDone = useCallback((k: string) => setAnims((prev) => prev.filter((a) => a.key !== k)), []);
+    // Limpia de golpe los autitos/pulsos animados (al seleccionar otra matrícula).
+    const clearAnims = useCallback(() => { setAnims([]); setPulses([]); }, []);
 
-    return { entries, exits, anims, pulses, animateEvent, onDone, graphReady: !!graph };
+    return { entries, exits, anims, pulses, animateEvent, clearAnims, onDone, graphReady: !!graph };
 }
 
 // Columna overlay colapsable (adaptable a light/dark)

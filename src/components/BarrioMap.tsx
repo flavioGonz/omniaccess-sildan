@@ -435,7 +435,10 @@ export default function BarrioMap() {
     const rutaTimer = useRef<any>(null);
     const [autoResaltar, setAutoResaltar] = useState(false);
     autoRef.current = autoResaltar;
-    const [ruta, setRuta] = useState<{ path: LL[]; key: number } | null>(null);
+    // Persistimos el toggle de auto-resaltado (botón casa) para que sobreviva al F5.
+    useEffect(() => { try { if (localStorage.getItem("olivos.autoResaltar") === "1") setAutoResaltar(true); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("olivos.autoResaltar", autoResaltar ? "1" : "0"); } catch { } }, [autoResaltar]);
+    const [ruta, setRuta] = useState<{ path: LL[]; key: number; dir?: string } | null>(null);
     const [draftStreet, setDraftStreet] = useState<LL[]>([]);
     const [importingOsm, setImportingOsm] = useState(false);
 
@@ -470,6 +473,8 @@ export default function BarrioMap() {
     const flow = useFlow(data?.streets || [], camsNamed, liveSocket);
     const animateRef = useRef<((ev: any) => void) | null>(null);
     animateRef.current = flow.animateEvent;
+    const clearRef = useRef<(() => void) | null>(null);
+    clearRef.current = flow.clearAnims;
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
 
@@ -531,25 +536,32 @@ export default function BarrioMap() {
     const onPlate = useCallback((ev: any) => {
         const plate = (ev?.plateDetected || "").toUpperCase();
         if (!plate) return;
+        // Al elegir otra matrícula, borramos el recorrido anterior de inmediato.
+        if (rutaTimer.current) clearTimeout(rutaTimer.current);
+        setRuta(null);
+        clearRef.current?.();
+        const dir = (ev?.direction || "").toUpperCase(); // ENTRY (entrada) | EXIT (salida)
         const slotId = plateMapRef.current[plate];
         // Matrícula desconocida (no es de un residente): reconstruimos su paso por las
         // cámaras (ingreso hacia adentro / egreso desde su entrada previa), siguiendo las calles.
         if (!slotId) { animateRef.current?.(ev); toast.info({ title: "Matrícula sin lote", description: `${plate}: reconstruyo el recorrido por las cámaras.` }); return; }
         const lote = lotesRef.current.find((l: any) => l.parkingSlotId === slotId);
         if (!lote || !lote.points?.length) { animateRef.current?.(ev); toast.info({ title: "Lote no dibujado", description: `${plate}: muestro el recorrido por cámaras.` }); return; }
-        const to = centroid(lote.points);
+        const house = centroid(lote.points);
         const devId = ev?.device?.id || ev?.deviceId;
         const cam = devId ? camerasRef.current.find((c: any) => c.deviceId === devId) : null;
-        const from = cam ? ([cam.lat, cam.lng] as LL) : null;
+        const gate = cam ? ([cam.lat, cam.lng] as LL) : null;
         localizar("lote", lote.id);
-        if (from) {
-            const path = routeOnStreets(streetsRef.current, from, to); // sigue las calles si están dibujadas
-            setRuta({ path, key: Date.now() });
-            if (rutaTimer.current) clearTimeout(rutaTimer.current);
+        if (gate) {
+            // ENTRADA: de la cámara de entrada → la casa. SALIDA: de la casa → la cámara de salida.
+            const from = dir === "EXIT" ? house : gate;
+            const to = dir === "EXIT" ? gate : house;
+            const path = routeOnStreets(streetsRef.current, from, to); // sigue las calles
+            setRuta({ path, key: Date.now(), dir });
             rutaTimer.current = setTimeout(() => setRuta(null), 9000);
             if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
         } else if (mapRef.current) {
-            mapRef.current.setView(to, Math.max(mapRef.current.getZoom(), 18));
+            mapRef.current.setView(house, Math.max(mapRef.current.getZoom(), 18));
         }
     }, [localizar]);
 
@@ -558,7 +570,9 @@ export default function BarrioMap() {
         if (!liveSocket) return;
         const onEv = (raw: any) => {
             if (!autoRef.current) return;
-            if (raw?.accessType !== "PLATE" || raw?.direction !== "ENTRY") return;
+            if (raw?.accessType !== "PLATE") return;
+            const d = (raw?.direction || "").toUpperCase();
+            if (d !== "ENTRY" && d !== "EXIT") return; // dibuja tanto entradas como salidas
             const plate = (raw.plateDetected || "").toUpperCase();
             if (!plate || plate === "NO_LEIDA" || plate.startsWith("DOOR_")) return;
             if (!plateMapRef.current[plate]) return;
@@ -714,7 +728,10 @@ export default function BarrioMap() {
                 @keyframes loteBlink{0%,100%{stroke-opacity:1;fill-opacity:.15;stroke-width:2}50%{stroke-opacity:.25;fill-opacity:.5;stroke-width:5}}
                 .lote-blink{stroke:#f59e0b !important;fill:#f59e0b !important;animation:loteBlink 0.9s ease-in-out infinite}
                 @keyframes rutaDash{to{stroke-dashoffset:-34}}
-                .ruta-anim{animation:rutaDash 0.9s linear infinite}
+                .ruta-anim{animation:rutaDash 0.9s linear 1.15s infinite}
+                /* La línea se dibuja de inicio a fin (reveal por stroke-dashoffset). */
+                @keyframes rutaDraw{from{stroke-dashoffset:6000}to{stroke-dashoffset:0}}
+                .ruta-draw{stroke-dasharray:6000 !important;stroke-dashoffset:6000;animation:rutaDraw 1.15s cubic-bezier(.4,0,.2,1) forwards}
                 .cam-locate .cam-glyph{animation:loteBlink 0.9s ease-in-out infinite}
                 .map-tactico .leaflet-tile-pane{filter:grayscale(.65) contrast(1.05) brightness(.72)}
                 /* Cursor flecha (no manito) mientras se dibuja en el mapa */
@@ -825,8 +842,10 @@ export default function BarrioMap() {
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
                     {ruta && ruta.path.length >= 2 && (
                         <>
-                            <Polyline key={`rw${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.9, lineCap: "round", lineJoin: "round" }} />
-                            <Polyline key={`rb${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#2563eb", weight: 5, opacity: 1, lineCap: "round", lineJoin: "round" }} />
+                            {/* Casing blanco + núcleo (azul=entrada, naranja=salida). Ambos se dibujan
+                                de inicio a fin; encima, guiones blancos que fluyen tras el trazado. */}
+                            <Polyline key={`rw${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.9, lineCap: "round", lineJoin: "round", className: "ruta-draw" }} />
+                            <Polyline key={`rb${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: ruta.dir === "EXIT" ? "#f97316" : "#2563eb", weight: 5, opacity: 1, lineCap: "round", lineJoin: "round", className: "ruta-draw" }} />
                             <Polyline key={`ra${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#ffffff", weight: 2.5, opacity: 0.95, dashArray: "1 16", lineCap: "round", lineJoin: "round", className: "ruta-anim" }} />
                         </>
                     )}
