@@ -467,6 +467,8 @@ export default function BarrioMap() {
     const devById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices]);
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
     const flow = useFlow(data?.streets || [], camsNamed, liveSocket);
+    const animateRef = useRef<((ev: any) => void) | null>(null);
+    animateRef.current = flow.animateEvent;
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
 
@@ -529,9 +531,11 @@ export default function BarrioMap() {
         const plate = (ev?.plateDetected || "").toUpperCase();
         if (!plate) return;
         const slotId = plateMapRef.current[plate];
-        if (!slotId) { toast.error({ title: "Sin lote", description: `${plate} no está asociada a un lote.` }); return; }
+        // Matrícula desconocida (no es de un residente): reconstruimos su paso por las
+        // cámaras (ingreso hacia adentro / egreso desde su entrada previa), siguiendo las calles.
+        if (!slotId) { animateRef.current?.(ev); toast.info({ title: "Matrícula sin lote", description: `${plate}: reconstruyo el recorrido por las cámaras.` }); return; }
         const lote = lotesRef.current.find((l: any) => l.parkingSlotId === slotId);
-        if (!lote || !lote.points?.length) { toast.error({ title: "Lote no dibujado", description: `El lote de ${plate} no está en el mapa.` }); return; }
+        if (!lote || !lote.points?.length) { animateRef.current?.(ev); toast.info({ title: "Lote no dibujado", description: `${plate}: muestro el recorrido por cámaras.` }); return; }
         const to = centroid(lote.points);
         const devId = ev?.device?.id || ev?.deviceId;
         const cam = devId ? camerasRef.current.find((c: any) => c.deviceId === devId) : null;

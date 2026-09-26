@@ -20,6 +20,36 @@ interface FlowEvent {
     direction?: string | null;
     timestamp: string;
     device?: { id: string; name?: string } | null;
+    details?: string | null;
+    marca?: string | null;
+}
+
+// Extrae la marca del vehículo del texto "details" del evento LPR (…Marca: X, Modelo:…)
+function parseMarca(details?: string | null): string {
+    if (!details) return "";
+    const m = /Marca:\s*([^,\n]+)/i.exec(details);
+    const v = (m?.[1] || "").trim();
+    return (!v || /unknown|desconocid|n\/?a/i.test(v)) ? "" : v;
+}
+const brandSlug = (marca: string) => marca.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+// Logo de la marca: usa /brand-logos/<slug>.(png|svg) si existe; si no, monograma prolijo.
+function BrandBadge({ marca }: { marca?: string | null }) {
+    const [step, setStep] = React.useState(0); // 0=png, 1=svg, 2=monograma
+    if (!marca) return null;
+    const slug = brandSlug(marca);
+    if (step < 2) {
+        const src = `/brand-logos/${slug}.${step === 0 ? "png" : "svg"}`;
+        return (
+            <img src={src} alt={marca} title={marca} onError={() => setStep((s) => s + 1)}
+                className="w-6 h-6 rounded-md object-contain bg-white shrink-0 p-0.5 shadow-sm" />
+        );
+    }
+    return (
+        <span title={marca} className="w-6 h-6 rounded-md shrink-0 bg-accent border border-border flex items-center justify-center text-[8px] font-black uppercase text-muted-foreground leading-none">
+            {marca.slice(0, 3)}
+        </span>
+    );
 }
 
 interface Anim {
@@ -68,6 +98,7 @@ function FeedCard({ ev, accent, onClick }: { ev: FlowEvent; accent: "emerald" | 
     return (
         <button onClick={onClick} className={cn("w-full text-left px-2.5 py-2 rounded-xl transition-colors hover:bg-accent group", "flex items-center gap-2")}>
             <span className={cn("w-1.5 h-8 rounded-full shrink-0", accent === "emerald" ? "bg-emerald-400" : "bg-orange-400", !ok && "bg-red-400")} />
+            <BrandBadge marca={ev.marca} />
             <div className="min-w-0 flex-1">
                 <p className="text-[12px] font-bold font-mono tracking-wider text-foreground truncate">{ev.plateDetected || "S/L"}</p>
                 <p className="text-[9px] text-muted-foreground truncate">{ev.device?.name || ""}</p>
@@ -188,7 +219,7 @@ export function useFlow(streets: any[], cameras: { deviceId: string; lat: number
             try {
                 const r: any = await getAccessEvents({ take: 40, type: "PLATE", omitEnrichment: true });
                 if (!alive) return;
-                const evs: FlowEvent[] = (r.events || []);
+                const evs: FlowEvent[] = (r.events || []).map((e: any) => ({ ...e, marca: parseMarca(e.details) }));
                 setEntries(evs.filter((e) => e.direction === "ENTRY").slice(0, 25));
                 setExits(evs.filter((e) => e.direction === "EXIT").slice(0, 25));
             } catch { }
@@ -203,7 +234,8 @@ export function useFlow(streets: any[], cameras: { deviceId: string; lat: number
             const plate = (raw.plateDetected || "").toUpperCase();
             if (plate === "DOOR_OPEN" || plate === "DOOR_CLOSE") return;
             const devId = raw.device?.id || raw.deviceId;
-            const ev = raw.device?.name ? raw : { ...raw, device: { id: devId, name: (camById[devId] as any)?.name || "" } };
+            const base = raw.device?.name ? raw : { ...raw, device: { id: devId, name: (camById[devId] as any)?.name || "" } };
+            const ev = { ...base, marca: parseMarca(raw.details) };
             if (ev.direction === "ENTRY") setEntries((prev) => [ev, ...prev.filter((p) => p.id !== ev.id)].slice(0, 25));
             else setExits((prev) => [ev, ...prev.filter((p) => p.id !== ev.id)].slice(0, 25));
             // (Se retiró la animación de autitos por evento; el resaltado del lote lo maneja BarrioMap)
