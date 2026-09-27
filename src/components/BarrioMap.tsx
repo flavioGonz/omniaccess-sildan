@@ -162,6 +162,12 @@ function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
     useEffect(() => { onZoom(map.getZoom()); /* eslint-disable-next-line */ }, []);
     return null;
 }
+// Publica los límites visibles (con margen) para hacer culling de lotes fuera de pantalla.
+function BoundsTracker({ onBounds }: { onBounds: (b: L.LatLngBounds) => void }) {
+    const map = useMapEvents({ moveend: () => onBounds(map.getBounds().pad(0.25)), zoomend: () => onBounds(map.getBounds().pad(0.25)) });
+    useEffect(() => { onBounds(map.getBounds().pad(0.25)); /* eslint-disable-next-line */ }, []);
+    return null;
+}
 
 function LiveMp4({ deviceId, className }: { deviceId: string; className?: string }) {
     const ref = useRef<HTMLVideoElement>(null);
@@ -181,15 +187,30 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
 /* ── Capa de lotes memoizada: no se re-renderiza cuando se actualizan guardias/flujo,
  *    solo cuando cambian los lotes, la selección, el zoom o el lote localizado.
  *    Las etiquetas de nombre se muestran solo con zoom alto (rendimiento con muchos lotes). */
-const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, zoom, locatedId, onSelect, onEdit, onCtx }: {
+// Etiqueta de lote como marker liviano (mucho más barato que un polígono + tooltip).
+const loteLabelIcon = (name: string, cls: string) =>
+    L.divIcon({ className: "bg-transparent border-0", html: `<span class="lote-label ${cls}">${name || "·"}</span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
+
+const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
-    selectedId: string | null; showNames: boolean; zoom: number; locatedId: string | null;
+    selectedId: string | null; showNames: boolean; showPolys: boolean; zoom: number; bounds: L.LatLngBounds | null; locatedId: string | null;
     onSelect: (id: string) => void; onEdit: (id: string) => void; onCtx: (e: any, id: string) => void;
 }) {
-    const verNombres = showNames && zoom >= 17;
+    // Culling por viewport: solo procesamos los lotes visibles (clave con muchos lotes).
+    const items = useMemo(() => {
+        const out: { id: string; name?: string; points: LL[]; parkingSlotId?: string; c: LL }[] = [];
+        for (const lo of lotes) {
+            if (!lo.points || lo.points.length < 3) continue;
+            const c = centroid(lo.points);
+            if (bounds && !bounds.contains(c as any)) continue;
+            out.push({ ...lo, c });
+        }
+        return out;
+    }, [lotes, bounds]);
+    const verNombres = showNames && zoom >= 16;
     return (
         <>
-            {lotes.map((lo) => (
+            {showPolys && items.map((lo) => (
                 <Polygon key={lo.id} positions={lo.points}
                     pathOptions={{
                         className: locatedId === lo.id ? "lote-blink" : undefined,
@@ -198,9 +219,14 @@ const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames
                         fillColor: lo.parkingSlotId ? "#22c55e" : "#a855f7",
                         fillOpacity: selectedId === lo.id ? 0.3 : 0.14,
                     }}
-                    eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }}>
-                    {lo.name && verNombres && <LTooltip permanent direction="center" className="lote-tip">{lo.name}</LTooltip>}
-                </Polygon>
+                    eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }} />
+            ))}
+            {/* Etiquetas: markers livianos. En modo "solo nombres" (sin polígonos) siguen
+                siendo clicables y muestran la casa que parpadea al localizar. */}
+            {verNombres && items.map((lo) => (
+                <Marker key={`ln_${lo.id}`} position={lo.c} interactive
+                    icon={loteLabelIcon(lo.name || "", cn(selectedId === lo.id && "sel", locatedId === lo.id && "loc", lo.parkingSlotId ? "ok" : "na"))}
+                    eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }} />
             ))}
         </>
     );
@@ -409,7 +435,9 @@ export default function BarrioMap() {
 
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
-    const [show, setShow] = useState({ cameras: true, lotes: true, divisions: true, perimeter: true, guards: true, names: true });
+    // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
+    const [show, setShow] = useState({ cameras: true, lotes: false, divisions: true, perimeter: true, guards: true, names: true });
+    const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
     const [pantalla, setPantalla] = useState(false);
     const [q, setQ] = useState("");
     const [zoom, setZoom] = useState(16);
@@ -705,7 +733,7 @@ export default function BarrioMap() {
     const fondos: Base[] = ["Híbrido", "Táctico", "Satélite", "Calles"];
     const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
         { key: "cameras", label: "Cámaras", Icon: CamIco },
-        { key: "lotes", label: "Lotes", Icon: LoteIco },
+        { key: "lotes", label: "Lotes (polígonos)", Icon: LoteIco },
         { key: "divisions", label: "Divisiones", Icon: Fence },
         { key: "perimeter", label: "Perímetro", Icon: PerimIco },
         { key: "guards", label: "Guardias", Icon: GuardIco },
@@ -725,6 +753,13 @@ export default function BarrioMap() {
                 .cam-name-tip:before{display:none}
                 .lote-tip{background:rgba(168,85,247,.92);color:#fff;border:0;box-shadow:none;font-size:10px;font-weight:800;padding:1px 6px;border-radius:6px}
                 .lote-tip:before{display:none}
+                /* Etiqueta de lote liviana (marker). Centrada en el centroide. */
+                .lote-label{position:absolute;transform:translate(-50%,-50%);display:inline-block;white-space:nowrap;font-size:10px;font-weight:800;line-height:1;padding:2px 6px;border-radius:6px;color:#fff;background:rgba(168,85,247,.92);box-shadow:0 1px 3px rgba(0,0,0,.45);cursor:pointer}
+                .lote-label.ok{background:rgba(34,197,94,.92)}
+                .lote-label.na{background:rgba(168,85,247,.92)}
+                .lote-label.sel{outline:2px solid #f59e0b;outline-offset:1px}
+                @keyframes loteLabelBlink{0%,100%{transform:translate(-50%,-50%) scale(1);box-shadow:0 0 0 0 rgba(245,158,11,.6)}50%{transform:translate(-50%,-50%) scale(1.25);box-shadow:0 0 0 8px rgba(245,158,11,0)}}
+                .lote-label.loc{background:#f59e0b;animation:loteLabelBlink 0.9s ease-in-out infinite}
                 @keyframes loteBlink{0%,100%{stroke-opacity:1;fill-opacity:.15;stroke-width:2}50%{stroke-opacity:.25;fill-opacity:.5;stroke-width:5}}
                 .lote-blink{stroke:#f59e0b !important;fill:#f59e0b !important;animation:loteBlink 0.9s ease-in-out infinite}
                 @keyframes rutaDash{to{stroke-dashoffset:-34}}
@@ -744,6 +779,7 @@ export default function BarrioMap() {
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
                     <ZoomTracker onZoom={setZoom} />
+                    <BoundsTracker onBounds={setMapBounds} />
                     {(movingCam || extendDiv || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
 
                     {(base === "Satélite" || base === "Híbrido") && (
@@ -764,8 +800,8 @@ export default function BarrioMap() {
                     {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
-                    {show.lotes && (
-                        <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.names} zoom={zoom}
+                    {(show.lotes || show.names) && (
+                        <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.names} showPolys={show.lotes} zoom={zoom} bounds={mapBounds}
                             locatedId={locatedLoteId} onSelect={onSelectLote} onEdit={editLote} onCtx={onCtxLote} />
                     )}
                     {draftLote.length > 0 && <Polygon positions={draftLote} pathOptions={{ color: "#a855f7", weight: 2, dashArray: "6 6", fillOpacity: 0.1 }} />}
