@@ -30,7 +30,7 @@ import { useRouter } from "next/navigation";
 
 type Tool = "select" | "perimeter" | "camera" | "lote" | "division" | "street";
 type LL = [number, number];
-type Base = "Híbrido" | "Táctico" | "Satélite" | "Calles";
+type Base = "Táctico" | "Satélite" | "Calles";
 type SelKind = "street" | "camera" | "lote";
 type CtxKind = "street" | "camera" | "lote" | "guard" | "division";
 type DivTipo = "pared" | "tejido" | "alambrado";
@@ -436,7 +436,7 @@ export default function BarrioMap() {
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
     // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
-    const [show, setShow] = useState({ cameras: true, lotes: false, divisions: true, perimeter: true, guards: true, names: true });
+    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: true, divisions: true, perimeter: true, guards: true, names: true });
     const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
     const [pantalla, setPantalla] = useState(false);
     const [q, setQ] = useState("");
@@ -459,6 +459,7 @@ export default function BarrioMap() {
     const camerasRef = useRef<any[]>([]);
     const plateMapRef = useRef<Record<string, string>>({});
     const streetsRef = useRef<Street[]>([]);
+    const centerRef = useRef<LL>([-34.9, -56.1]);
     const autoRef = useRef(false);
     const rutaTimer = useRef<any>(null);
     const [autoResaltar, setAutoResaltar] = useState(false);
@@ -569,10 +570,27 @@ export default function BarrioMap() {
         setRuta(null);
         clearRef.current?.();
         const dir = (ev?.direction || "").toUpperCase(); // ENTRY (entrada) | EXIT (salida)
+        const devId0 = ev?.device?.id || ev?.deviceId;
+        const cam0 = devId0 ? camerasRef.current.find((c: any) => c.deviceId === devId0) : null;
+        const gate0 = cam0 ? ([cam0.lat, cam0.lng] as LL) : null;
         const slotId = plateMapRef.current[plate];
-        // Matrícula desconocida (no es de un residente): reconstruimos su paso por las
-        // cámaras (ingreso hacia adentro / egreso desde su entrada previa), siguiendo las calles.
-        if (!slotId) { animateRef.current?.(ev); toast.info({ title: "Matrícula sin lote", description: `${plate}: reconstruyo el recorrido por las cámaras.` }); return; }
+        // Matrícula desconocida (no es de un residente): igual dibujamos su recorrido de
+        // entrada/salida entre la cámara y el interior del barrio, siguiendo las calles.
+        if (!slotId) {
+            if (gate0) {
+                const inner = centerRef.current;
+                const from = dir === "EXIT" ? inner : gate0;
+                const to = dir === "EXIT" ? gate0 : inner;
+                const path = routeOnStreets(streetsRef.current, from, to);
+                setRuta({ path, key: Date.now(), dir });
+                rutaTimer.current = setTimeout(() => setRuta(null), 9000);
+                if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
+            } else {
+                animateRef.current?.(ev);
+            }
+            toast.info({ title: dir === "EXIT" ? "Salida" : "Entrada", description: `${plate}: recorrido ${dir === "EXIT" ? "de salida" : "de entrada"} por cámara.` });
+            return;
+        }
         const lote = lotesRef.current.find((l: any) => l.parkingSlotId === slotId);
         if (!lote || !lote.points?.length) { animateRef.current?.(ev); toast.info({ title: "Lote no dibujado", description: `${plate}: muestro el recorrido por cámaras.` }); return; }
         const house = centroid(lote.points);
@@ -603,7 +621,7 @@ export default function BarrioMap() {
             if (d !== "ENTRY" && d !== "EXIT") return; // dibuja tanto entradas como salidas
             const plate = (raw.plateDetected || "").toUpperCase();
             if (!plate || plate === "NO_LEIDA" || plate.startsWith("DOOR_")) return;
-            if (!plateMapRef.current[plate]) return;
+            // Dibuja el recorrido de TODA matrícula (residente → casa, desconocida → cámara↔interior).
             onPlate(raw);
         };
         liveSocket.on("access_event", onEv);
@@ -616,6 +634,7 @@ export default function BarrioMap() {
     lotesRef.current = lotes;
     camerasRef.current = data.cameras;
     streetsRef.current = data.streets;
+    centerRef.current = (data.perimeter && data.perimeter.length >= 3) ? centroid(data.perimeter) : (data.center as LL);
 
     const onMapClick = (ll: LL) => {
         // Mover cámara (menú contextual → editar posición) — funciona aún fuera de edición
@@ -730,10 +749,11 @@ export default function BarrioMap() {
         { id: "perimeter", icon: Hexagon, label: "Dibujar perímetro" },
         { id: "camera", icon: Video, label: "Soltar cámara" },
     ];
-    const fondos: Base[] = ["Híbrido", "Táctico", "Satélite", "Calles"];
+    const fondos: Base[] = ["Satélite", "Táctico", "Calles"];
     const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
         { key: "cameras", label: "Cámaras", Icon: CamIco },
         { key: "lotes", label: "Lotes (polígonos)", Icon: LoteIco },
+        { key: "loteNames", label: "Nombres de lotes", Icon: TypeIco },
         { key: "divisions", label: "Divisiones", Icon: Fence },
         { key: "perimeter", label: "Perímetro", Icon: PerimIco },
         { key: "guards", label: "Guardias", Icon: GuardIco },
@@ -782,26 +802,18 @@ export default function BarrioMap() {
                     <BoundsTracker onBounds={setMapBounds} />
                     {(movingCam || extendDiv || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
 
-                    {(base === "Satélite" || base === "Híbrido") && (
+                    {base === "Satélite" && (
                         <TileLayer key="esri" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
                     )}
                     {(base === "Calles" || base === "Táctico") && (
                         <TileLayer key="osm" attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={19} maxZoom={21} />
                     )}
-                    {base === "Híbrido" && (
-                        <>
-                            {/* Híbrido limpio: satélite realista + capas de REFERENCIA transparentes de Esri
-                                (calles y rótulos), sin superponer un segundo mapa. Gratis, sin API key. */}
-                            <TileLayer key="hyb-transp" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
-                            <TileLayer key="hyb-places" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
-                        </>
-                    )}
 
                     {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
-                    {(show.lotes || show.names) && (
-                        <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.names} showPolys={show.lotes} zoom={zoom} bounds={mapBounds}
+                    {(show.lotes || show.loteNames) && (
+                        <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.loteNames} showPolys={show.lotes} zoom={zoom} bounds={mapBounds}
                             locatedId={locatedLoteId} onSelect={onSelectLote} onEdit={editLote} onCtx={onCtxLote} />
                     )}
                     {draftLote.length > 0 && <Polygon positions={draftLote} pathOptions={{ color: "#a855f7", weight: 2, dashArray: "6 6", fillOpacity: 0.1 }} />}
