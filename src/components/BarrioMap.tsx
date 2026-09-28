@@ -187,9 +187,9 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
 /* ── Capa de lotes memoizada: no se re-renderiza cuando se actualizan guardias/flujo,
  *    solo cuando cambian los lotes, la selección, el zoom o el lote localizado.
  *    Las etiquetas de nombre se muestran solo con zoom alto (rendimiento con muchos lotes). */
-// Etiqueta de lote como marker liviano (mucho más barato que un polígono + tooltip).
-const loteLabelIcon = (name: string, cls: string) =>
-    L.divIcon({ className: "bg-transparent border-0", html: `<span class="lote-label ${cls}">${name || "·"}</span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
+// Ancla invisible: el nombre lo dibuja un Tooltip permanente (Leaflet lo mantiene pegado
+// al punto durante zoom/pan, sin el "salto" que tenían los divIcon con transform).
+const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", iconSize: [0, 0], iconAnchor: [0, 0] });
 
 const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
@@ -221,12 +221,14 @@ const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames
                     }}
                     eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }} />
             ))}
-            {/* Etiquetas: markers livianos. En modo "solo nombres" (sin polígonos) siguen
-                siendo clicables y muestran la casa que parpadea al localizar. */}
+            {/* Etiquetas: ancla invisible + Tooltip permanente (estable en zoom/pan). Clicable. */}
             {verNombres && items.map((lo) => (
-                <Marker key={`ln_${lo.id}`} position={lo.c} interactive
-                    icon={loteLabelIcon(lo.name || "", cn(selectedId === lo.id && "sel", locatedId === lo.id && "loc", lo.parkingSlotId ? "ok" : "na"))}
-                    eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }} />
+                <Marker key={`ln_${lo.id}`} position={lo.c} icon={emptyPin} interactive={false}>
+                    <LTooltip permanent interactive direction="center" offset={[0, 0]}
+                        className={cn("lote-lbl", selectedId === lo.id && "sel", locatedId === lo.id && "loc", lo.parkingSlotId ? "ok" : "na")}>
+                        <span onClick={() => onSelect(lo.id)} onDoubleClick={() => onEdit(lo.id)} onContextMenu={(e) => onCtx(e, lo.id)}>{lo.name || "·"}</span>
+                    </LTooltip>
+                </Marker>
             ))}
         </>
     );
@@ -773,13 +775,15 @@ export default function BarrioMap() {
                 .cam-name-tip:before{display:none}
                 .lote-tip{background:rgba(168,85,247,.92);color:#fff;border:0;box-shadow:none;font-size:10px;font-weight:800;padding:1px 6px;border-radius:6px}
                 .lote-tip:before{display:none}
-                /* Etiqueta de lote liviana (marker). Centrada en el centroide. */
-                .lote-label{position:absolute;transform:translate(-50%,-50%);display:inline-block;white-space:nowrap;font-size:10px;font-weight:800;line-height:1;padding:2px 6px;border-radius:6px;color:#fff;background:rgba(168,85,247,.92);box-shadow:0 1px 3px rgba(0,0,0,.45);cursor:pointer}
-                .lote-label.ok{background:rgba(34,197,94,.92)}
-                .lote-label.na{background:rgba(168,85,247,.92)}
-                .lote-label.sel{outline:2px solid #f59e0b;outline-offset:1px}
-                @keyframes loteLabelBlink{0%,100%{transform:translate(-50%,-50%) scale(1);box-shadow:0 0 0 0 rgba(245,158,11,.6)}50%{transform:translate(-50%,-50%) scale(1.25);box-shadow:0 0 0 8px rgba(245,158,11,0)}}
-                .lote-label.loc{background:#f59e0b;animation:loteLabelBlink 0.9s ease-in-out infinite}
+                /* Etiqueta de lote como tooltip permanente (estable en zoom, sin jitter). */
+                .lote-lbl{background:rgba(168,85,247,.92);color:#fff;border:0;box-shadow:0 1px 3px rgba(0,0,0,.45);font-size:10px;font-weight:800;line-height:1;padding:2px 6px;border-radius:6px;white-space:nowrap}
+                .lote-lbl:before{display:none !important}
+                .lote-lbl span{cursor:pointer;display:inline-block}
+                .lote-lbl.ok{background:rgba(34,197,94,.92)}
+                .lote-lbl.na{background:rgba(168,85,247,.92)}
+                .lote-lbl.sel{outline:2px solid #f59e0b;outline-offset:1px}
+                @keyframes loteLblBlink{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.6)}50%{box-shadow:0 0 0 8px rgba(245,158,11,0)}}
+                .lote-lbl.loc{background:#f59e0b;animation:loteLblBlink 0.9s ease-in-out infinite}
                 @keyframes loteBlink{0%,100%{stroke-opacity:1;fill-opacity:.15;stroke-width:2}50%{stroke-opacity:.25;fill-opacity:.5;stroke-width:5}}
                 .lote-blink{stroke:#f59e0b !important;fill:#f59e0b !important;animation:loteBlink 0.9s ease-in-out infinite}
                 @keyframes rutaDash{to{stroke-dashoffset:-34}}
