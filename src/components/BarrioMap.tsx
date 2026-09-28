@@ -145,7 +145,42 @@ function routeOnStreets(streets: Street[] | undefined, from: LL, to: LL): LL[] {
     if ((dist.get(kt) ?? Infinity) === Infinity) return [from, to];
     const mid: LL[] = []; let c: string | null = kt;
     while (c != null) { const cc = coords.get(c); if (cc) mid.unshift(cc); c = prev.get(c) ?? null; }
-    return [from, ...mid, to];
+    return cleanPath([from, ...mid, to]);
+}
+// Limpia la ruta: quita puntos casi repetidos y "espolones" (donde el camino se devuelve
+// sobre sí mismo formando una U/gancho), que son los errores visibles en la línea.
+function cleanPath(path: LL[]): LL[] {
+    const p: LL[] = [];
+    for (const pt of path) { if (!p.length || hav(p[p.length - 1], pt) > 1.5) p.push(pt); }
+    let changed = true;
+    while (changed && p.length > 2) {
+        changed = false;
+        for (let i = 1; i < p.length - 1; i++) {
+            const a = p[i - 1], b = p[i], c = p[i + 1];
+            const v1x = b[0] - a[0], v1y = b[1] - a[1], v2x = c[0] - b[0], v2y = c[1] - b[1];
+            const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+            if (m1 > 0 && m2 > 0) {
+                const cos = (v1x * v2x + v1y * v2y) / (m1 * m2);
+                if (cos < -0.6) { p.splice(i, 1); changed = true; break; } // gancho / reversa → quitar
+            }
+        }
+    }
+    return p;
+}
+// Recorta la ruta a los primeros `maxM` metros (para mostrar solo un tramo desde el origen).
+function headPath(path: LL[], maxM: number): LL[] {
+    if (path.length < 2) return path;
+    const out: LL[] = [path[0]]; let acc = 0;
+    for (let i = 1; i < path.length; i++) {
+        const d = hav(path[i - 1], path[i]);
+        if (acc + d >= maxM) { const t = (maxM - acc) / d; out.push([path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t]); return out; }
+        acc += d; out.push(path[i]);
+    }
+    return out;
+}
+// Recorta la ruta a los últimos `maxM` metros (termina en el destino).
+function tailPath(path: LL[], maxM: number): LL[] {
+    return headPath([...path].reverse(), maxM).reverse();
 }
 
 function MapRefGrabber({ onMap }: { onMap: (m: L.Map) => void }) {
@@ -584,9 +619,11 @@ export default function BarrioMap() {
         if (!slotId) {
             if (gate0) {
                 const inner = centerRef.current;
-                const from = dir === "EXIT" ? inner : gate0;
-                const to = dir === "EXIT" ? gate0 : inner;
-                const path = routeOnStreets(streetsRef.current, from, to);
+                // Recorrido corto y prolijo desde/hacia la cámara (no sabemos el destino exacto).
+                const full = dir === "EXIT"
+                    ? routeOnStreets(streetsRef.current, inner, gate0)  // interior → cámara de salida
+                    : routeOnStreets(streetsRef.current, gate0, inner); // cámara de entrada → interior
+                const path = dir === "EXIT" ? tailPath(full, 260) : headPath(full, 260);
                 setRuta({ path, key: Date.now(), dir });
                 rutaTimer.current = setTimeout(() => setRuta(null), 9000);
                 if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
