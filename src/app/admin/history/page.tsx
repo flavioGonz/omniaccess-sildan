@@ -110,6 +110,11 @@ export default function HistoryPage() {
     const [filterVehType, setFilterVehType] = useState<string>("ALL");
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
+    const [startTime, setStartTime] = useState(""); // filtro por horario (HH:MM)
+    const [endTime, setEndTime] = useState("");
+    // Combina fecha + hora en un rango datetime. Sin hora: desde 00:00 / hasta 23:59:59.
+    const fromDT = () => startDate ? new Date(`${startDate}T${startTime || "00:00"}:00`) : undefined;
+    const toDT = () => endDate ? new Date(`${endDate}T${endTime || "23:59"}:59`) : undefined;
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
     useEffect(() => { setLastUpdate(new Date()); }, []);
@@ -156,7 +161,7 @@ export default function HistoryPage() {
 
     const exportJson = async () => {
         try {
-            const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: filterDecision, type: filterType, direction: filterDirection, from: startDate ? new Date(startDate) : undefined, to: endDate ? new Date(endDate) : undefined });
+            const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: filterDecision, type: filterType, direction: filterDirection, from: fromDT(), to: toDT() });
             const evs = (resp.events || []).map((e: any) => ({ id: e.id, timestamp: e.timestamp, createdAt: e.createdAt, accessType: e.accessType, credentialId: e.credentialId, decision: e.decision, direction: e.direction, plateDetected: e.plateDetected, plateNumber: e.plateNumber, location: e.location, snapshotPath: e.snapshotPath, imagePath: e.imagePath, details: e.details, deviceName: e.device?.name || null }));
             const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), count: evs.length, events: evs }, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `omniaccess-historial-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
@@ -167,10 +172,10 @@ export default function HistoryPage() {
     const [hasMore, setHasMore] = useState(true);
     const ITEMS_PER_PAGE = 50;
 
-    const filtersRef = useRef({ searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page });
+    const filtersRef = useRef({ searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, startTime, endTime, page });
     useEffect(() => {
-        filtersRef.current = { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page };
-    }, [searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page]);
+        filtersRef.current = { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, startTime, endTime, page };
+    }, [searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, startTime, endTime, page]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -178,7 +183,7 @@ export default function HistoryPage() {
             loadData(0, true);
         }, 500);
         return () => clearTimeout(timer);
-    }, [searchTerm, filterDecision, filterType, filterDirection, startDate, endDate]);
+    }, [searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, startTime, endTime]);
 
     const observer = useRef<IntersectionObserver | null>(null);
     const lastElementRef = useCallback((node: HTMLTableRowElement) => {
@@ -206,8 +211,8 @@ export default function HistoryPage() {
                 decision: filterDecision,
                 type: filterType,
                 direction: filterDirection,
-                from: startDate ? new Date(startDate) : undefined,
-                to: endDate ? new Date(endDate) : undefined
+                from: fromDT(),
+                to: toDT()
             });
             // @ts-ignore
             const { events: newEvents, total } = response;
@@ -236,7 +241,7 @@ export default function HistoryPage() {
         const socket = io(socketUrl, { transports: ["websocket", "polling"] });
 
         socket.on("access_event", (event: FullAccessEvent) => {
-            const { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page } = filtersRef.current;
+            const { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, startTime, endTime, page } = filtersRef.current;
             const matchesSearch = !searchTerm ||
                 (event.plateDetected?.toLowerCase().includes(searchTerm.toLowerCase())) ||
                 (event.user?.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -245,8 +250,10 @@ export default function HistoryPage() {
             const matchesType = filterType === "ALL" || event.accessType === filterType;
             const matchesDirection = filterDirection === "ALL" || event.direction === filterDirection;
             const eventDate = new Date(event.timestamp);
-            const matchesStartDate = !startDate || eventDate >= new Date(startDate);
-            const matchesEndDate = !endDate || eventDate <= new Date(endDate);
+            const fromD = startDate ? new Date(`${startDate}T${startTime || "00:00"}:00`) : null;
+            const toD = endDate ? new Date(`${endDate}T${endTime || "23:59"}:59`) : null;
+            const matchesStartDate = !fromD || eventDate >= fromD;
+            const matchesEndDate = !toD || eventDate <= toD;
 
             if (matchesSearch && matchesDecision && matchesType && matchesDirection && matchesStartDate && matchesEndDate) {
                 setEvents(prev => {
@@ -295,14 +302,21 @@ export default function HistoryPage() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                    {/* Date filters */}
-                    <div className="flex items-center gap-2 bg-muted/60 border border-border/50 rounded-md px-3 py-2">
+                    {/* Filtros de fecha + horario */}
+                    <div className="flex items-center gap-1.5 bg-muted/60 border border-border/50 rounded-md px-3 py-2 flex-wrap">
                         <CalendarIcon className="w-4 h-4 text-muted-foreground" />
                         <input
                             type="date"
                             value={startDate}
                             onChange={(e) => setStartDate(e.target.value)}
                             className="bg-transparent border-none text-xs text-muted-foreground focus:outline-none w-28"
+                        />
+                        <input
+                            type="time"
+                            value={startTime}
+                            onChange={(e) => setStartTime(e.target.value)}
+                            title="Hora desde"
+                            className="bg-transparent border-none text-xs text-muted-foreground focus:outline-none w-16"
                         />
                         <span className="text-muted-foreground text-xs">—</span>
                         <input
@@ -311,6 +325,16 @@ export default function HistoryPage() {
                             onChange={(e) => setEndDate(e.target.value)}
                             className="bg-transparent border-none text-xs text-muted-foreground focus:outline-none w-28"
                         />
+                        <input
+                            type="time"
+                            value={endTime}
+                            onChange={(e) => setEndTime(e.target.value)}
+                            title="Hora hasta"
+                            className="bg-transparent border-none text-xs text-muted-foreground focus:outline-none w-16"
+                        />
+                        {(startDate || endDate || startTime || endTime) && (
+                            <button onClick={() => { setStartDate(""); setEndDate(""); setStartTime(""); setEndTime(""); }} title="Limpiar filtro de fecha/hora" className="text-muted-foreground hover:text-foreground ml-0.5"><X className="w-3.5 h-3.5" /></button>
+                        )}
                     </div>
 
                     {/* Export button */}
