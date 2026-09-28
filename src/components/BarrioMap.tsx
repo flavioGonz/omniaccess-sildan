@@ -190,6 +190,8 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
 // Ancla invisible: el nombre lo dibuja un Tooltip permanente (Leaflet lo mantiene pegado
 // al punto durante zoom/pan, sin el "salto" que tenían los divIcon con transform).
 const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", iconSize: [0, 0], iconAnchor: [0, 0] });
+// Manija (vértice) para editar los puntos de una división guardada.
+const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
 
 const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
@@ -453,6 +455,7 @@ export default function BarrioMap() {
     const [camCustom, setCamCustom] = useState<{ deviceId: string; rumbo: number; size: number; color: string } | null>(null);
     const [divCustom, setDivCustom] = useState<{ id: string; tipo: DivTipo; color: string; weight: number } | null>(null);
     const [extendDiv, setExtendDiv] = useState<string | null>(null);
+    const [editDivPts, setEditDivPts] = useState<string | null>(null); // id de la división cuyos vértices se editan
     const [vivoTodas, setVivoTodas] = useState(false);
     const [ocultas, setOcultas] = useState<string[]>([]);
     const oscura = base !== "Calles";
@@ -675,6 +678,9 @@ export default function BarrioMap() {
         setDraftStreet([]); setTool("select");
     };
     const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
+    // Edición de vértices de una división (tejido/pared/alambrado) ya guardada.
+    const setDivPoint = (divId: string, idx: number, ll: LL) => setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === divId ? { ...x, points: x.points.map((p: LL, i: number) => i === idx ? ll : p) } : x) }) as any : d);
+    const removeDivPoint = (divId: string, idx: number) => setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === divId ? { ...x, points: x.points.length > 2 ? x.points.filter((_: LL, i: number) => i !== idx) : x.points } : x) }) as any : d);
     const removeCamera = (id: string) => setData((d) => d ? { ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) } : d);
     const removeCameraPersist = (id: string) => persistNow({ ...data, cameras: data.cameras.filter((c) => c.deviceId !== id) }, "Cámara quitada del mapa");
     const removeStreet = (id: string) => setData((d) => d ? { ...d, streets: d.streets.filter((s) => s.id !== id) } : d);
@@ -848,6 +854,14 @@ export default function BarrioMap() {
                             </Polyline>
                         );
                     })}
+                    {/* Manijas para editar los vértices de una división guardada. */}
+                    {editDivPts && (((data as any).divisions || []).find((x: any) => x.id === editDivPts)?.points || []).map((p: LL, i: number) => (
+                        <Marker key={`dvp_${editDivPts}_${i}`} position={p} draggable icon={vertexIcon}
+                            eventHandlers={{
+                                drag: (e: any) => { const ll = e.target.getLatLng(); setDivPoint(editDivPts, i, [ll.lat, ll.lng]); },
+                                contextmenu: (e: any) => { e.originalEvent?.preventDefault?.(); e.originalEvent?.stopPropagation?.(); removeDivPoint(editDivPts, i); },
+                            }} />
+                    ))}
                     {draftDivision.length > 0 && <Polyline positions={draftDivision} pathOptions={{ color: DIV_STYLE[divTipo].color, weight: DIV_STYLE[divTipo].weight, dashArray: DIV_STYLE[divTipo].dashArray || "4 4", opacity: 0.8 }} />}
                     {draftStreet.length > 0 && <Polyline positions={draftStreet} pathOptions={{ color: "#38bdf8", weight: 4, dashArray: "6 6", opacity: 0.85, lineCap: "round" }} />}
 
@@ -925,6 +939,14 @@ export default function BarrioMap() {
                     <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-blue-600 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
                         <Plus size={14} /> Clic para agregar puntos a la línea
                         <button onClick={() => { const d = data; setExtendDiv(null); persistNow(d, "Línea actualizada"); }} className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30">Listo</button>
+                    </div>
+                )}
+                {/* Edición de vértices de una división */}
+                {editDivPts && (
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-amber-500 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
+                        <Move size={14} /> Arrastrá los puntos · clic derecho en un punto para quitarlo
+                        <button onClick={() => { const d = data; setEditDivPts(null); persistNow(d, "Línea actualizada"); }} className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30">Listo</button>
+                        <button onClick={() => { setEditDivPts(null); getBarrioMap().then(setData); }} className="px-2 py-0.5 rounded bg-black/20 hover:bg-black/30">Cancelar</button>
                     </div>
                 )}
 
@@ -1070,7 +1092,8 @@ export default function BarrioMap() {
                             <button onClick={() => { const lo = lotes.find((l) => l.id === ctx.id); if (lo && mapRef.current) { mapRef.current.setView(centroid(lo.points), Math.max(mapRef.current.getZoom(), 19)); localizar("lote", lo.id); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><LocateFixed size={13} className="text-amber-500" /> Localizar</button>
                             <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar lote</button>
                         </>) : ctx.type === "division" ? (<>
-                            <button onClick={() => { setExtendDiv(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Plus size={13} className="text-blue-400" /> Seguir agregando puntos</button>
+                            <button onClick={() => { setExtendDiv(null); setEditDivPts(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Move size={13} className="text-amber-400" /> Editar puntos (mover / quitar)</button>
+                            <button onClick={() => { setEditDivPts(null); setExtendDiv(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Plus size={13} className="text-blue-400" /> Seguir agregando puntos</button>
                             <button onClick={() => { const dv = ((data as any).divisions || []).find((x: any) => x.id === ctx.id); if (dv) { const st = DIV_STYLE[dv.tipo as DivTipo] || DIV_STYLE.pared; setDivCustom({ id: dv.id, tipo: dv.tipo, color: dv.color || st.color, weight: dv.weight || st.weight }); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Palette size={13} className="text-purple-400" /> Color y grosor</button>
                             <button onClick={() => { removeDivision(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar división</button>
                         </>) : (<>
