@@ -101,15 +101,15 @@ function projSeg(p: LL, a: LL, b: LL): LL {
     return [ay + t * dy, ax + t * dx];
 }
 type Street = { id: string; name?: string; points: LL[] };
-// Calcula la ruta cámara→casa siguiendo la red de calles (Dijkstra). Si no hay
-// calles dibujadas o no hay camino, cae a la recta directa (comportamiento previo).
-function routeOnStreets(streets: Street[] | undefined, from: LL, to: LL): LL[] {
-    const list = (streets || []).filter((s) => (s.points || []).length >= 2);
-    if (!list.length) return [from, to];
-    const key = (ll: LL) => `${ll[0].toFixed(5)},${ll[1].toFixed(5)}`;
+const gkey = (ll: LL) => `${ll[0].toFixed(5)},${ll[1].toFixed(5)}`;
+type GraphBase = { coords: Map<string, LL>; adj: Map<string, [string, number][]>; segs: [LL, LL][] };
+// El grafo base (nodos+aristas de las calles) es CARO de armar (fusión O(V²) de nodos cercanos).
+// Se cachea por firma de las calles y se reutiliza en cada ruteo (solo se agregan los accesos).
+let _gbSig = ""; let _gbBase: GraphBase | null = null;
+function buildBase(list: Street[]): GraphBase {
     const coords = new Map<string, LL>();
     const adj = new Map<string, [string, number][]>();
-    const node = (ll: LL) => { const k = key(ll); if (!coords.has(k)) { coords.set(k, ll); adj.set(k, []); } return k; };
+    const node = (ll: LL) => { const k = gkey(ll); if (!coords.has(k)) { coords.set(k, ll); adj.set(k, []); } return k; };
     const edge = (k1: string, k2: string, w: number) => { if (k1 === k2) return; adj.get(k1)!.push([k2, w]); adj.get(k2)!.push([k1, w]); };
     const segs: [LL, LL][] = [];
     for (const s of list) {
@@ -117,19 +117,31 @@ function routeOnStreets(streets: Street[] | undefined, from: LL, to: LL): LL[] {
         for (const pt of pts) { const k = node(pt); if (prev) edge(prev, k, hav(coords.get(prev)!, pt)); prev = k; }
         for (let i = 0; i + 1 < pts.length; i++) segs.push([pts[i], pts[i + 1]]);
     }
-    // Conectar nodos muy cercanos (cruces de calles distintas aunque no coincidan exacto).
     const ks = [...coords.keys()];
     for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) {
         const d = hav(coords.get(ks[i])!, coords.get(ks[j])!); if (d > 0 && d < 8) edge(ks[i], ks[j], d);
     }
-    // Punto de acceso: proyecta from/to sobre la calle más cercana y lo enchufa a sus extremos.
+    return { coords, adj, segs };
+}
+// Calcula la ruta siguiendo la red de calles (Dijkstra). Sin calles o sin camino → recta directa.
+function routeOnStreets(streets: Street[] | undefined, from: LL, to: LL): LL[] {
+    const list = (streets || []).filter((s) => (s.points || []).length >= 2);
+    if (!list.length) return [from, to];
+    const sig = list.length + ":" + list.reduce((a, s) => a + s.points.length, 0) + ":" + (list[0].id || "") + ":" + (list[list.length - 1].id || "");
+    if (_gbSig !== sig || !_gbBase) { _gbBase = buildBase(list); _gbSig = sig; }
+    const base = _gbBase;
+    // Copia liviana del grafo para insertar los nodos de acceso sin tocar la caché.
+    const coords = new Map(base.coords);
+    const adj = new Map<string, [string, number][]>();
+    for (const [k, v] of base.adj) adj.set(k, v.slice());
+    const edge = (k1: string, k2: string, w: number) => { if (!adj.has(k1)) adj.set(k1, []); if (!adj.has(k2)) adj.set(k2, []); adj.get(k1)!.push([k2, w]); adj.get(k2)!.push([k1, w]); };
     const access = (p: LL, name: string): string => {
         let best: { d: number; a: LL; b: LL; point: LL } | null = null;
-        for (const [a, b] of segs) { const point = projSeg(p, a, b); const d = hav(p, point); if (!best || d < best.d) best = { d, a, b, point }; }
-        if (!best) return node(p);
+        for (const [a, b] of base.segs) { const point = projSeg(p, a, b); const d = hav(p, point); if (!best || d < best.d) best = { d, a, b, point }; }
+        if (!best) { coords.set(name, p); adj.set(name, []); return name; }
         coords.set(name, best.point); adj.set(name, []);
-        edge(name, key(best.a), hav(best.point, best.a));
-        edge(name, key(best.b), hav(best.point, best.b));
+        edge(name, gkey(best.a), hav(best.point, best.a));
+        edge(name, gkey(best.b), hav(best.point, best.b));
         return name;
     };
     const kf = access(from, "__from"), kt = access(to, "__to");
@@ -477,6 +489,7 @@ export default function BarrioMap() {
     // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
     const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: true, divisions: true, perimeter: true, guards: true, names: true });
     const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+    const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
     const [pantalla, setPantalla] = useState(false);
     const [q, setQ] = useState("");
     const [zoom, setZoom] = useState(16);
@@ -501,6 +514,7 @@ export default function BarrioMap() {
     const streetsRef = useRef<Street[]>([]);
     const centerRef = useRef<LL>([-34.9, -56.1]);
     const autoRef = useRef(false);
+    const autoLastRef = useRef(0);
     const rutaTimer = useRef<any>(null);
     const [autoResaltar, setAutoResaltar] = useState(false);
     autoRef.current = autoResaltar;
@@ -602,7 +616,8 @@ export default function BarrioMap() {
     }, []);
 
     // Al tocar/detectar una matrícula: resalta el lote del residente y anima la ruta cámara→casa.
-    const onPlate = useCallback((ev: any) => {
+    // auto=true (evento LPR en vivo): NO reencuadra el mapa (evita el salto/lag continuo).
+    const onPlate = useCallback((ev: any, auto = false) => {
         const plate = (ev?.plateDetected || "").toUpperCase();
         if (!plate) return;
         // Al elegir otra matrícula, borramos el recorrido anterior de inmediato.
@@ -626,7 +641,7 @@ export default function BarrioMap() {
                 const path = dir === "EXIT" ? tailPath(full, 260) : headPath(full, 260);
                 setRuta({ path, key: Date.now(), dir });
                 rutaTimer.current = setTimeout(() => setRuta(null), 9000);
-                if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
+                if (!auto && mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
             } else {
                 animateRef.current?.(ev);
             }
@@ -647,8 +662,8 @@ export default function BarrioMap() {
             const path = routeOnStreets(streetsRef.current, from, to); // sigue las calles
             setRuta({ path, key: Date.now(), dir });
             rutaTimer.current = setTimeout(() => setRuta(null), 9000);
-            if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
-        } else if (mapRef.current) {
+            if (!auto && mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
+        } else if (!auto && mapRef.current) {
             mapRef.current.setView(house, Math.max(mapRef.current.getZoom(), 18));
         }
     }, [localizar]);
@@ -663,8 +678,13 @@ export default function BarrioMap() {
             if (d !== "ENTRY" && d !== "EXIT") return; // dibuja tanto entradas como salidas
             const plate = (raw.plateDetected || "").toUpperCase();
             if (!plate || plate === "NO_LEIDA" || plate.startsWith("DOOR_")) return;
+            // Throttle: como máximo un recorrido cada 2s (evita recalcular en ráfaga y lag).
+            const now = Date.now();
+            if (now - autoLastRef.current < 2000) return;
+            autoLastRef.current = now;
             // Dibuja el recorrido de TODA matrícula (residente → casa, desconocida → cámara↔interior).
-            onPlate(raw);
+            // auto=true → no reencuadra el mapa.
+            onPlate(raw, true);
         };
         liveSocket.on("access_event", onEv);
         return () => liveSocket.off("access_event", onEv);
@@ -930,12 +950,17 @@ export default function BarrioMap() {
                             eventHandlers={{
                                 click: () => { if (editing && tool === "select") setSelected({ type: "camera", id: c.deviceId }); },
                                 contextmenu: (e) => openCtx(e, "camera", c.deviceId),
+                                popupopen: () => setOpenCamPopup(c.deviceId),
+                                popupclose: () => setOpenCamPopup((v) => v === c.deviceId ? null : v),
                             }}>
                             {show.names && <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>}
                             {!editing && !movingCam && (
                                 <Popup className="cam-live-popup" maxWidth={280} minWidth={260}>
                                     <div className="rounded-lg overflow-hidden">
-                                        <LiveMp4 deviceId={c.deviceId} className="block w-[260px] h-[150px] object-cover bg-black" />
+                                        {/* El video se monta solo cuando este popup está abierto (evita 12 streams a la vez). */}
+                                        {openCamPopup === c.deviceId
+                                            ? <LiveMp4 deviceId={c.deviceId} className="block w-[260px] h-[150px] object-cover bg-black" />
+                                            : <div className="w-[260px] h-[150px] bg-black" />}
                                         <div className="px-2 py-1 bg-black/80 text-white text-[11px] font-bold flex items-center gap-1.5"><Radio size={11} className="text-red-400" /> {devById[c.deviceId]?.name || "Cámara"}</div>
                                     </div>
                                 </Popup>
