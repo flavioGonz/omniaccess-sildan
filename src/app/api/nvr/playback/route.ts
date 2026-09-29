@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
 import { spawn } from "child_process";
-import { prisma } from "@/lib/prisma";
+import { resolveNvrById } from "@/lib/nvr-resolve";
 
 // El NVR Hikvision (DS-7732NXI, Sildan) interpreta starttime/endtime como HORA LOCAL
 // del equipo aunque lleven sufijo Z (verificado: ContentMgmt/search devuelve los
@@ -30,15 +30,14 @@ export async function GET(req: NextRequest) {
     const dur = Math.min(180, Math.max(5, parseInt(sp.get("dur") || "40")));
     if (!ch || !/^\d+$/.test(ch) || !t) return new Response("missing ch/t", { status: 400 });
 
-    const rows = await prisma.setting.findMany({ where: { key: { in: ["NVR_HOST", "NVR_USER", "NVR_PASS", "NVR_PORT"] } } });
-    const cfg: any = {}; rows.forEach((r: any) => (cfg[r.key] = r.value));
-    if (!cfg.NVR_HOST) return new Response("NVR not configured", { status: 404 });
+    const conn = await resolveNvrById(sp.get("nvr"));
+    if (!conn) return new Response("NVR not configured", { status: 404 });
 
     const startMs = t - pre * 1000;
     const start = fmtNvr(startMs);
     const end = fmtNvr(startMs + dur * 1000);
-    const port = cfg.NVR_PORT || "554";
-    const url = `rtsp://${cfg.NVR_USER}:${cfg.NVR_PASS}@${cfg.NVR_HOST}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
+    const port = conn.rtspPort || "554";
+    const url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
 
     const ff = spawn("ffmpeg", [
         "-rtsp_transport", "tcp",

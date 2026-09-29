@@ -126,6 +126,7 @@ model Device {
   brandLogo       String?
   ip              String
   mac             String?
+  port            Int?             // NVR: puerto RTSP (554 por defecto)
   location        String?
   direction       DeviceDirection  @default(ENTRY)
   doorStatus      DoorStatus       @default(UNKNOWN)

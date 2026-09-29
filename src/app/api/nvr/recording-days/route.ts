@@ -2,8 +2,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { authenticatedRequest } from "@/lib/digest-auth";
+import { resolveNvrById } from "@/lib/nvr-resolve";
 import crypto from "crypto";
 
 // GET /api/nvr/recording-days?ch=12&year=2026&month=8 -> { days: [1,2,15,...] }
@@ -16,14 +16,13 @@ export async function GET(req: NextRequest) {
     const month = parseInt(sp.get("month") || "0"); // 1-12
     if (!ch || !/^\d+$/.test(ch) || !year || !month) return NextResponse.json({ days: [] });
 
-    const rows = await prisma.setting.findMany({ where: { key: { in: ["NVR_HOST", "NVR_USER", "NVR_PASS"] } } });
-    const cfg: any = {}; rows.forEach((r: any) => (cfg[r.key] = r.value));
-    if (!cfg.NVR_HOST) return NextResponse.json({ days: [] });
+    const conn = await resolveNvrById(sp.get("nvr"));
+    if (!conn) return NextResponse.json({ days: [] });
 
     const p2 = (n: number) => String(n).padStart(2, "0");
     const lastDay = new Date(year, month, 0).getDate();
     const days = new Set<number>();
-    const dev: any = { ip: cfg.NVR_HOST, username: cfg.NVR_USER || "admin", password: cfg.NVR_PASS || "", authType: "DIGEST" };
+    const dev: any = { ip: conn.ip, username: conn.user, password: conn.pass, authType: "DIGEST" };
 
     // Paginamos el search del mes (segmentos de ~1h => hasta ~744/mes; maxResults 100 por página)
     let pos = 0;
