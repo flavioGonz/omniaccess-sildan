@@ -101,13 +101,34 @@ export async function GET(req: NextRequest) {
 }
 
 function classify(text: string): { status: "REQUERIDA" | "NO" | "CAPTCHA" | "UNKNOWN"; excerpt: string } {
-  const t = text.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  const low = t.toLowerCase();
+  // Texto plano (la página SIEMPRE trae "Matrículas requeridas" en el título, así que
+  // no se puede decidir sobre toda la página: hay que aislar la frase de resultado).
+  const plain = text
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const low0 = plain.toLowerCase();
+
+  // Frase de resultado: "La matrícula: ABC1234 ... ." (verificado en campo)
+  const m = /la\s+matr[ií]cula\s*:?[^.]*\./i.exec(plain);
+  const sentence = m ? m[0] : "";
+  const low = (sentence || plain).toLowerCase();
+
+  // Negación robusta: "no está requerida", "no se encuentra requerida",
+  // "no registra requerimiento", "no figura", "sin requisitoria".
+  const neg = /\bno\b[^.]{0,30}(requerid|requisitoria|registr|requerimiento|solicit)|sin\s+requisitoria|no\s+figura|no\s+posee/.test(low);
+  const pos = /(requerid|requisitoria|requerimiento|solicitad|pedido\s+de\s+captura)/.test(low);
+
   let status: "REQUERIDA" | "NO" | "CAPTCHA" | "UNKNOWN" = "UNKNOWN";
-  if (/(captcha|verificador|c[oó]digo)[^.]{0,40}(incorrect|inv[aá]lid|err[oó]|no\s+coincide)/.test(low)) status = "CAPTCHA";
-  else if (/no\s+(se\s+encuentra\s+)?(requerid|registra|tiene\s+requisitoria)|sin\s+requisitoria|no\s+requerid|no\s+posee/.test(low)) status = "NO";
-  else if (/requerid|requisitoria|solicitad|pedido\s+de\s+captura|tiene\s+requerimiento|con\s+pedido/.test(low)) status = "REQUERIDA";
-  return { status, excerpt: t.slice(0, 700) };
+  if (m) {
+    status = neg ? "NO" : pos ? "REQUERIDA" : "UNKNOWN";
+  } else if (/(captcha|verificador|c[oó]digo)[^.]{0,40}(incorrect|inv[aá]lid|err[oó]|no\s+coincide|no\s+es\s+v[aá]lid)/.test(low0)) {
+    status = "CAPTCHA";
+  }
+  return { status, excerpt: (sentence || plain).slice(0, 700) };
 }
 
 export async function POST(req: NextRequest) {
