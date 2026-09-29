@@ -39,6 +39,43 @@ export async function GET(req: NextRequest) {
     const port = conn.rtspPort || "554";
     const url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
 
+    // Modo "clip completo": genera un MP4 completo (faststart) a un archivo temporal y lo sirve
+    // con Content-Length + soporte de rangos. Necesario para que el <video> reproduzca en el
+    // WebView de Android (el fMP4 por pipe queda sin reproducir → solo se ve el póster).
+    if (sp.get("whole") === "1") {
+        const os = await import("os");
+        const fs = await import("fs");
+        const path = await import("path");
+        const tmp = path.join(os.tmpdir(), `clip_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+        const ok = await new Promise<boolean>((resolve) => {
+            const ff2 = spawn("ffmpeg", [
+                "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+                "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", tmp,
+            ], { stdio: ["ignore", "ignore", "ignore"] });
+            const killer = setTimeout(() => { try { ff2.kill("SIGKILL"); } catch { } resolve(false); }, 45000);
+            ff2.on("close", (code) => { clearTimeout(killer); resolve(code === 0); });
+            ff2.on("error", () => { clearTimeout(killer); resolve(false); });
+        });
+        try {
+            if (!ok || !fs.existsSync(tmp)) { try { fs.unlinkSync(tmp); } catch { } return new Response("clip no disponible", { status: 502 }); }
+            const size = fs.statSync(tmp).size;
+            const buf = fs.readFileSync(tmp);
+            fs.unlink(tmp, () => { });
+            const range = req.headers.get("range");
+            if (range) {
+                const m = /bytes=(\d+)-(\d*)/.exec(range);
+                const s0 = m ? parseInt(m[1]) : 0;
+                const e0 = m && m[2] ? parseInt(m[2]) : size - 1;
+                const chunk = buf.subarray(s0, e0 + 1);
+                return new Response(chunk, { status: 206, headers: { "Content-Type": "video/mp4", "Content-Range": `bytes ${s0}-${e0}/${size}`, "Accept-Ranges": "bytes", "Content-Length": String(chunk.length), "Cache-Control": "no-store" } });
+            }
+            return new Response(buf, { headers: { "Content-Type": "video/mp4", "Content-Length": String(size), "Accept-Ranges": "bytes", "Cache-Control": "no-store" } });
+        } catch {
+            try { fs.unlinkSync(tmp); } catch { }
+            return new Response("clip error", { status: 502 });
+        }
+    }
+
     const ff = spawn("ffmpeg", [
         "-rtsp_transport", "tcp",
         "-i", url,

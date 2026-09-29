@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, Loader2, Video, Download } from "lucide-react";
+import { X, Loader2, Download, RotateCw } from "lucide-react";
 
-// Reproductor de grabación LIVIANO para la tablet de guardias: un clip corto (~14s)
-// centrado en el evento, sin timeline ni calendario. Pensado para rendimiento.
+// Reproductor de grabación LIVIANO para la tablet de guardias: clip corto (~14s) centrado en
+// el evento, SIN bordes — solo la hora y el video. Usa el MP4 completo (whole=1) para que
+// reproduzca en el WebView de Android.
 export default function GuardClipViewer({ event, onClose }: { event: any; onClose: () => void }) {
     const deviceId = event?.device?.id;
     const [channel, setChannel] = useState<number | null>(null);
     const [nvrId, setNvrId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
+    const [rk, setRk] = useState(0); // reintentar
 
     useEffect(() => {
         if (!event) return;
@@ -31,48 +33,62 @@ export default function GuardClipViewer({ event, onClose }: { event: any; onClos
     if (!event) return null;
     const t = new Date(event.timestamp).getTime();
     const nvrQ = nvrId ? `&nvr=${nvrId}` : "";
-    const src = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14${nvrQ}` : "";
+    const src = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14&whole=1${nvrQ}&rk=${rk}` : "";
     const dl = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14&download=1${nvrQ}` : "";
+    const hora = new Date(event.timestamp).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
     return (
-        <div className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-center justify-center p-5" onClick={onClose}>
-            <div className="bg-white rounded-3xl overflow-hidden w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0"><Video size={16} /></div>
-                        <div className="min-w-0">
-                            <p className="text-sm font-bold text-black uppercase tracking-tight leading-none truncate">{event.plateDetected || "Grabación"}</p>
-                            <p className="text-[10px] text-black/40 font-bold uppercase tracking-widest mt-1 truncate">
-                                {event.device?.name || "Cámara"} · {new Date(event.timestamp).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}
-                            </p>
-                        </div>
+        <div className="fixed inset-0 z-[300] bg-black/95 flex items-center justify-center" onClick={onClose}>
+            {/* Hora — arriba izquierda */}
+            <div className="absolute top-6 left-6 z-20 flex items-center gap-2 pointer-events-none">
+                <span className="text-white text-2xl font-bold tabular-nums tracking-tight drop-shadow">{hora}</span>
+                {event.plateDetected && event.plateDetected !== "NO_LEIDA" && (
+                    <span className="px-2.5 py-1 rounded-lg bg-white/15 text-white text-sm font-bold uppercase tracking-widest backdrop-blur">{event.plateDetected}</span>
+                )}
+            </div>
+
+            {/* Cerrar — arriba derecha */}
+            <button onClick={onClose} className="absolute top-6 right-6 z-20 w-12 h-12 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center active:scale-95 transition-all">
+                <X size={26} />
+            </button>
+
+            {/* Video a sangre, sin bordes */}
+            <div className="w-full h-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                {loading ? (
+                    <div className="flex flex-col items-center gap-3 text-white/70">
+                        <Loader2 size={30} className="animate-spin" />
+                        <span className="text-[11px] font-bold uppercase tracking-widest">Cargando clip…</span>
                     </div>
-                    <button onClick={onClose} className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center active:scale-95 shrink-0"><X size={18} /></button>
-                </div>
+                ) : err ? (
+                    <div className="flex flex-col items-center gap-3 text-white/70 px-8 text-center">
+                        {event.snapshotPath && <img src={event.snapshotPath} className="max-h-[70vh] rounded-2xl opacity-40" alt="" />}
+                        <span className="text-xs font-bold uppercase tracking-widest">{err}</span>
+                    </div>
+                ) : (
+                    <video
+                        key={src}
+                        src={src}
+                        className="max-w-full max-h-full"
+                        autoPlay
+                        muted
+                        playsInline
+                        controls
+                        poster={event.snapshotPath || undefined}
+                        onError={() => setErr("No se pudo reproducir el clip")}
+                    />
+                )}
+            </div>
 
-                <div className="relative bg-black aspect-video flex items-center justify-center">
-                    {loading ? (
-                        <div className="flex flex-col items-center gap-2 text-white/70">
-                            {event.snapshotPath && <img src={event.snapshotPath} className="absolute inset-0 w-full h-full object-cover opacity-25" alt="" />}
-                            <Loader2 size={26} className="animate-spin relative" />
-                            <span className="text-[10px] font-bold uppercase tracking-widest relative">Cargando clip…</span>
-                        </div>
-                    ) : err ? (
-                        <div className="flex flex-col items-center gap-2 text-white/70 px-6 text-center">
-                            {event.snapshotPath && <img src={event.snapshotPath} className="absolute inset-0 w-full h-full object-cover opacity-30" alt="" />}
-                            <span className="relative text-xs font-bold uppercase tracking-widest">{err}</span>
-                        </div>
-                    ) : (
-                        <video key={src} src={src} className="w-full h-full object-contain" autoPlay muted playsInline controls poster={event.snapshotPath || undefined} />
-                    )}
-                </div>
-
-                <div className="flex items-center justify-between px-5 py-3">
-                    <span className="text-[10px] font-bold text-black/30 uppercase tracking-widest">Clip de ~14 s</span>
-                    {channel != null && !err && (
-                        <a href={dl} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#B20D30] uppercase tracking-wider active:scale-95"><Download size={13} /> Descargar</a>
-                    )}
-                </div>
+            {/* Acciones — abajo */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
+                {err && channel != null && (
+                    <button onClick={() => { setErr(null); setLoading(false); setRk((x) => x + 1); }} className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold uppercase tracking-wider active:scale-95">
+                        <RotateCw size={15} /> Reintentar
+                    </button>
+                )}
+                {channel != null && (
+                    <a href={dl} className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold uppercase tracking-wider active:scale-95"><Download size={15} /> Descargar</a>
+                )}
             </div>
         </div>
     );
