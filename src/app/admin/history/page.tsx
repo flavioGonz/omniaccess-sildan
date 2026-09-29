@@ -56,6 +56,7 @@ import {
 import { AccessEvent, User, Device } from "@prisma/client";
 import Image from "next/image";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { cn } from "@/lib/utils";
 import { getCarLogo } from "@/lib/car-logos";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
@@ -606,11 +607,16 @@ export default function HistoryPage() {
                                                 )}
                                             </td>
                                             <td className="px-5 py-3 text-right">
-                                                <EventDetailsDialog event={evt}>
-                                                    <button className="text-muted-foreground hover:text-blue-400 transition-colors p-1.5 rounded-md hover:bg-blue-500/10">
-                                                        <MoreHorizontal size={16} />
-                                                    </button>
-                                                </EventDetailsDialog>
+                                                <div className="inline-flex items-center gap-1 justify-end">
+                                                    {evt.accessType === 'PLATE' && evt.plateDetected && evt.plateDetected !== 'NO_LEIDA' && (
+                                                        <MinInteriorButton plate={evt.plateDetected} className="!p-1.5 rounded-md" />
+                                                    )}
+                                                    <EventDetailsDialog event={evt}>
+                                                        <button className="text-muted-foreground hover:text-blue-400 transition-colors p-1.5 rounded-md hover:bg-blue-500/10">
+                                                            <MoreHorizontal size={16} />
+                                                        </button>
+                                                    </EventDetailsDialog>
+                                                </div>
                                             </td>
                                         </tr>
                                     );

@@ -7,6 +7,7 @@ import { Search, Edit, Trash2, History, Car, Filter, X, Loader2, Clock } from "l
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { VehicleDialog } from "./VehicleDialog";
+import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { getImagePath } from "@/lib/image-path";
 import { deleteVehicle, getVehicles, getVehicleHistory } from "@/app/actions/vehicles";
 import { cn } from "@/lib/utils";
@@ -261,6 +262,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                                     </Button>
                                                 }
                                             />
+                                            <MinInteriorButton plate={vehicle.plate} className="!h-8 !w-8 justify-center rounded-lg hover:bg-indigo-500/10" />
                                             <Button
                                                 size="icon"
                                                 variant="ghost"

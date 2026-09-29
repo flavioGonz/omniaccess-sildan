@@ -70,6 +70,7 @@ import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
 import { getQuickCreateData, getGuardsList, verifyGuardCredential } from "@/app/actions/users";
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { UserFormDialog } from "@/components/UserFormDialog";
+import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
@@ -3374,6 +3375,13 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                         <div className="text-4xl font-bold text-black uppercase tracking-[0.2em]">{viewerData.plate}</div>
                                                         <div className="text-[9px] font-bold text-[#B20D30] uppercase tracking-widest mt-1">Tocá para ver inteligencia</div>
                                                     </button>
+                                                )}
+                                                {viewerData.plate && (
+                                                    <MinInteriorButton
+                                                        plate={viewerData.plate}
+                                                        label
+                                                        className="!px-4 !py-2 !text-xs !bg-indigo-600/90 !text-white hover:!bg-indigo-600 shadow-lg backdrop-blur"
+                                                    />
                                                 )}
 
                                                 {/* Direction Badge */}

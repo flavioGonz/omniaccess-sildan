@@ -5,6 +5,7 @@ import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice } from "@/app/actions/history";
 import { getDevices, getAvailableStreams } from "@/app/actions/devices";
+import { MinInteriorButton } from "@/components/MinInteriorButton";
 import {
     Car,
     CheckCircle2,
@@ -302,6 +303,7 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
                     {plate && !anomalous && (
                         <div className="mt-2 flex gap-2">
                             <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(plate)}`); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
+                            <MinInteriorButton plate={plate} label className="!bg-white/15 hover:!bg-white/25 !text-white uppercase tracking-wide backdrop-blur" />
                             {!ok && <button onClick={(e) => { e.stopPropagation(); onRegister?.(plate); }} className="px-3 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide transition-colors">Registrar</button>}
                         </div>
                     )}
@@ -415,6 +417,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                     <div className="flex items-center gap-1 shrink-0 self-center">
                         {event.plateDetected && !isAnomalous && (<>
                             <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(event.plateDetected!)}`); }} title="Investigar" className="p-2 rounded-lg text-blue-500 hover:bg-blue-500/15 transition-colors"><Search size={17} /></button>
+                            <MinInteriorButton plate={event.plateDetected} className="!p-2 rounded-lg" />
                             {event.decision !== "GRANT" && <button onClick={(e) => { e.stopPropagation(); onRegister(event.plateDetected!); }} title="Registrar" className="p-2 rounded-lg text-emerald-500 hover:bg-emerald-500/15 transition-colors"><UserPlus size={17} /></button>}
                         </>)}
                         {nvrCh != null && <button onClick={(e) => { e.stopPropagation(); setShowVid(true); }} title="Ver grabación" className="p-2 rounded-lg text-cyan-400 hover:bg-cyan-500/15 transition-colors"><PlayCircle size={17} /></button>}
