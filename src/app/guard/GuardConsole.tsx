@@ -2816,7 +2816,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                         initial={{ opacity: 0, y: 20, scale: 0.9 }}
                                         animate={{ opacity: 1, y: -20, scale: 1 }}
                                         exit={{ opacity: 0, y: 20, scale: 0.9 }}
-                                        className="absolute bottom-full left-0 mb-4 w-64 bg-white/70 backdrop-blur-2xl rounded-3xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-white/70 overflow-hidden p-3 flex flex-col gap-2 z-30"
+                                        className="absolute bottom-full left-0 mb-4 w-64 bg-white rounded-3xl shadow-[0_12px_48px_rgba(0,0,0,0.28)] border border-slate-200 overflow-hidden p-3 flex flex-col gap-2 z-30"
                                     >
                                         <div className="p-3 bg-slate-50 rounded-2xl mb-2">
                                             <p className="text-xs font-bold uppercase text-slate-400">Sesión iniciada como</p>
@@ -2886,8 +2886,6 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                             </div>
                         </div>
                         <BottomTab icon={customIcons.lpr ? <Image src={customIcons.lpr} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <Car size={20} className="md:w-6 md:h-6" />} active={activeTab === "lpr"} onClick={() => handleTabChange("lpr")} label="LPR" alertActive={isAlertMode} />
-
-                        <BottomTab icon={customIcons.map ? <Image src={customIcons.map} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <SquareParking size={20} className="md:w-6 md:h-6" />} active={activeTab === "map"} onClick={() => handleTabChange("map")} label="Plazas" alertActive={isAlertMode} />
 
                         <BottomTab icon={<MapIcon size={20} className="md:w-6 md:h-6" />} active={activeTab === "guardmap"} onClick={() => handleTabChange("guardmap")} label="Mapa" alertActive={isAlertMode} />
                     </nav>
