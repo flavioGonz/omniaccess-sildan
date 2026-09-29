@@ -8,6 +8,7 @@ import { X, Loader2, Video, Download } from "lucide-react";
 export default function GuardClipViewer({ event, onClose }: { event: any; onClose: () => void }) {
     const deviceId = event?.device?.id;
     const [channel, setChannel] = useState<number | null>(null);
+    const [nvrId, setNvrId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState<string | null>(null);
 
@@ -21,7 +22,7 @@ export default function GuardClipViewer({ event, onClose }: { event: any; onClos
                 if (!alive) return;
                 const ch = d && d.channel != null ? Number(d.channel) : null;
                 if (ch == null) setErr("La cámara no tiene canal de grabación");
-                setChannel(ch); setLoading(false);
+                setChannel(ch); setNvrId(d && d.nvr ? String(d.nvr) : null); setLoading(false);
             })
             .catch(() => { if (alive) { setErr("No se pudo resolver la cámara"); setLoading(false); } });
         return () => { alive = false; };
@@ -29,8 +30,9 @@ export default function GuardClipViewer({ event, onClose }: { event: any; onClos
 
     if (!event) return null;
     const t = new Date(event.timestamp).getTime();
-    const src = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14` : "";
-    const dl = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14&download=1` : "";
+    const nvrQ = nvrId ? `&nvr=${nvrId}` : "";
+    const src = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14${nvrQ}` : "";
+    const dl = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14&download=1${nvrQ}` : "";
 
     return (
         <div className="fixed inset-0 z-[300] bg-black/70 backdrop-blur-sm flex items-center justify-center p-5" onClick={onClose}>

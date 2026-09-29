@@ -105,6 +105,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     const [expandImage, setExpandImage] = useState(false);
     const [tab, setTab] = useState<"perfil" | "historial" | "datos">("perfil");
     const [nvrChannel, setNvrChannel] = useState<number | null>(null);
+    const [nvrId, setNvrId] = useState<string | null>(null);
     const [showVideo, setShowVideo] = useState(false);
     const [stats, setStats] = useState<PlateStats | null>(null);
     const [watch, setWatch] = useState<{ id: string; category: string } | null>(null);
@@ -130,7 +131,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     useEffect(() => {
         const dev = (event as any).device;
         if (isOpen && dev?.id && (event.accessType === "PLATE" || event.plateDetected)) {
-            fetch(`/api/nvr/channel?deviceId=${dev.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => { const ch = (d && d.channel != null) ? Number(d.channel) : null; setNvrChannel(ch); if (autoRecording && ch) setShowVideo(true); }).catch(() => setNvrChannel(null));
+            fetch(`/api/nvr/channel?deviceId=${dev.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => { const ch = (d && d.channel != null) ? Number(d.channel) : null; setNvrChannel(ch); setNvrId(d && d.nvr ? String(d.nvr) : null); if (autoRecording && ch) setShowVideo(true); }).catch(() => { setNvrChannel(null); setNvrId(null); });
         }
     }, [isOpen]);
 
@@ -269,7 +270,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
             toast.success({ title: "Exportando evento", description: nvrChannel ? "Foto + clip de 30 s + datos en un ZIP." : "Foto + datos (sin clip: cámara sin canal NVR)." });
         } finally { setTimeout(() => setExporting(false), 2500); }
     }
-    const clipHref = nvrChannel ? `/api/nvr/playback?ch=${nvrChannel}&t=${eventMs}&pre=10&dur=30&download=1` : undefined;
+    const clipHref = nvrChannel ? `/api/nvr/playback?ch=${nvrChannel}&t=${eventMs}&pre=10&dur=30&download=1${nvrId ? `&nvr=${nvrId}` : ""}` : undefined;
 
     const maxDaily = Math.max(1, ...(stats?.daily.map(d => d.count) || [1]));
     const maxHour = Math.max(1, ...(stats?.hourly.entry || [0]), ...(stats?.hourly.exit || [0]));

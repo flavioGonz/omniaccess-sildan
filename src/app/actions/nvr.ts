@@ -101,6 +101,32 @@ export async function getNvrChannelMapFull(): Promise<Record<string, { nvr: stri
     return out;
 }
 
+// Guarda el mapeo de UN NVR (identificado por su IP): reemplaza solo las cámaras de ese NVR
+// y conserva las de los demás NVR. entries = { ipCámara: canal }.
+export async function saveNvrChannelMapForNvr(nvrIp: string, entries: Record<string, number | string>): Promise<{ ok: boolean; nvr: string | null }> {
+    try {
+        const nvr = await prisma.device.findFirst({ where: { deviceType: "NVR", ip: (nvrIp || "").trim() }, select: { id: true } });
+        const nvrId = nvr?.id ?? null;
+        const full = await getChannelMap(); // { ip: {nvrId, ch} }
+        const merged: Record<string, { nvr: string | null; ch: number }> = {};
+        // conservar entradas de OTROS NVR
+        for (const k of Object.keys(full)) {
+            if (full[k].nvrId !== nvrId) merged[k] = { nvr: full[k].nvrId, ch: full[k].ch };
+        }
+        // agregar/actualizar las de ESTE NVR
+        for (const k of Object.keys(entries || {})) {
+            const ch = Number(entries[k]);
+            if (k && !isNaN(ch) && ch > 0) merged[k] = { nvr: nvrId, ch };
+        }
+        await prisma.setting.upsert({
+            where: { key: "NVR_CHANNEL_MAP" },
+            update: { value: JSON.stringify(merged) },
+            create: { key: "NVR_CHANNEL_MAP", value: JSON.stringify(merged) },
+        });
+        return { ok: true, nvr: nvrId };
+    } catch { return { ok: false, nvr: null }; }
+}
+
 // Guarda el mapa. Acepta {ip: canal} (compat) o {ip: {nvr, ch}}; almacena normalizado {ip: {nvr, ch}}.
 export async function saveNvrChannelMap(
     map: Record<string, number | string | { nvr?: string | null; ch: number | string }>

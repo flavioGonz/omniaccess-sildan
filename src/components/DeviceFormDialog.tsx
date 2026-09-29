@@ -46,7 +46,7 @@ import Image from "next/image";
 import { BookOpen, ChevronDown, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { createDevice, updateDevice, probeDeviceInfo, getDevices } from "@/app/actions/devices";
-import { getNvrChannels, getNvrChannelMap, saveNvrChannelMap } from "@/app/actions/nvr";
+import { getNvrChannels, getNvrChannelMapFull, saveNvrChannelMapForNvr } from "@/app/actions/nvr";
 import { DRIVER_MODELS, type DeviceBrand as DriverDeviceBrand } from "@/lib/driver-models";
 import {
     Command,
@@ -171,6 +171,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
         username: device?.username || "admin",
         password: device?.password || "",
         authType: device?.authType || "BASIC",
+        port: (device as any)?.port ? String((device as any).port) : "",
     });
     const [modelPhotoFile, setModelPhotoFile] = useState<File | null>(null);
     const [brandLogoFile, setBrandLogoFile] = useState<File | null>(null);
@@ -189,11 +190,14 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
         username: device?.username || "admin",
         password: device?.password || "",
         authType: device?.authType || "BASIC",
+        port: (device as any)?.port ? String((device as any).port) : "",
     });
     const [detecting, setDetecting] = useState(false);
     const [detectInfo, setDetectInfo] = useState<any>(null);
     const [nvrCams, setNvrCams] = useState<any[]>([]);
     const [nvrMap, setNvrMap] = useState<Record<string, number>>({});
+    // id de ESTE NVR (para taggear el mapeo y las miniaturas); en edición es device.id
+    const thisNvrId = (device as any)?.id || null;
     const [nvrBusy, setNvrBusy] = useState(false);
     const [nvrMsg, setNvrMsg] = useState<string>("");
     const [nvrInfo, setNvrInfo] = useState<Record<string, { channel: number; name: string | null }>>({});
@@ -202,9 +206,16 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
         if (formData.deviceType !== "NVR") return;
         (async () => {
             try {
-                const [devs, map] = await Promise.all([getDevices(), getNvrChannelMap()]);
+                const [devs, full] = await Promise.all([getDevices(), getNvrChannelMapFull()]);
                 setNvrCams((devs || []).filter((d: any) => d.deviceType === "LPR_CAMERA"));
-                setNvrMap(map || {});
+                // Prefill: solo las cámaras que ya pertenecen a ESTE NVR (por id) o legacy sin nvr
+                const mine: Record<string, number> = {};
+                for (const ip of Object.keys(full || {})) {
+                    const e = (full as any)[ip];
+                    if (e && (e.nvr === thisNvrId || e.nvr == null)) mine[ip] = e.ch;
+                }
+                setNvrMap(mine);
+                const map = mine;
                 if (formData.ip) {
                     try {
                         const r: any = await getNvrChannels({ ip: formData.ip, username: formData.username, password: formData.password, authType: formData.authType });
@@ -234,7 +245,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
     };
     const saveNvrMap = async () => {
         setNvrBusy(true);
-        try { const r: any = await saveNvrChannelMap(nvrMap); setNvrMsg(r?.ok ? "Mapeo guardado ✓" : "Error al guardar"); }
+        try { const r: any = await saveNvrChannelMapForNvr(formData.ip, nvrMap); setNvrMsg(r?.ok ? "Mapeo guardado ✓" : "Error al guardar"); }
         catch { setNvrMsg("Error al guardar"); }
         finally { setNvrBusy(false); }
     };
@@ -542,6 +553,23 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                                 />
                                             </div>
                                         </div>
+                                        {formData.deviceType === "NVR" && (
+                                            <div className="grid grid-cols-2 gap-8">
+                                                <div className="space-y-2">
+                                                    <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
+                                                        <Network size={10} /> Puerto RTSP
+                                                    </Label>
+                                                    <Input
+                                                        name="port"
+                                                        value={formData.port}
+                                                        onChange={handleInputChange}
+                                                        placeholder="554"
+                                                        className="bg-card border-border h-12 rounded-lg text-lg font-mono font-bold"
+                                                    />
+                                                    <p className="text-[10px] text-muted-foreground">Puerto RTSP del NVR para reproducir grabaciones (por defecto 554).</p>
+                                                </div>
+                                            </div>
+                                        )}
                                         <div className="p-5 bg-foreground/[0.04] rounded-md border border-border flex items-center gap-4">
                                             <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
                                                 <Network size={18} />
@@ -660,7 +688,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                                                             return (
                                                                 <div key={ch.channel} className={cn("relative rounded-xl overflow-hidden border transition-all", assigned ? "border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.15)]" : "border-border hover:border-blue-500/40")}>
                                                                     <div className="relative aspect-video bg-black">
-                                                                        <img src={`/api/nvr/snapshot?ch=${ch.channel}`} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0"; }} />
+                                                                        <img src={`/api/nvr/snapshot?ch=${ch.channel}${thisNvrId ? `&nvr=${thisNvrId}` : ""}`} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0"; }} />
                                                                         <div className="absolute top-1.5 left-1.5 z-10 min-w-7 h-7 px-1.5 rounded-lg bg-black/80 border border-white/25 flex items-center justify-center text-white text-sm font-bold font-mono shadow">{ch.channel}</div>
                                                                         {assigned && (
                                                                             <div className="absolute top-1.5 right-1.5 z-10 px-1.5 py-0.5 rounded-md bg-emerald-600/95 text-white text-[9px] font-bold flex items-center gap-1 shadow"><BadgeCheck size={10} /> MAPEADA</div>
