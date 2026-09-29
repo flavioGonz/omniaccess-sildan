@@ -1040,6 +1040,35 @@ const handleWebhook = async (req, res, logPrefix) => {
                 return;
             }
 
+            // --- ANALÍTICAS / DETECCIONES GENERALES (cruce de línea, intrusión, región, movimiento) ---
+            try {
+                const etLower = (eventType || "").toLowerCase();
+                const MAP = { linedetection: "LINECROSS", fielddetection: "INTRUSION", regionentrance: "REGION_ENTER", regionexiting: "REGION_EXIT", vmd: "MOTION", motiondetection: "MOTION" };
+                let genType = null;
+                for (const k of Object.keys(MAP)) { if (etLower.includes(k)) { genType = MAP[k]; break; } }
+                if (genType) {
+                    if (genType === "MOTION") {
+                        global.__lastMotion = global.__lastMotion || {};
+                        const mkey = (macAddress || ipAddress || "x");
+                        const nowM = Date.now();
+                        if (global.__lastMotion[mkey] && (nowM - global.__lastMotion[mkey]) < 30000) {
+                            res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: "MOTION", throttled: true })); return;
+                        }
+                        global.__lastMotion[mkey] = nowM;
+                    }
+                    const cleanMac = macAddress ? macAddress.replace(/[:\-\s]/g, "").toUpperCase() : null;
+                    const orq = [];
+                    if (cleanMac) orq.push({ mac: { contains: cleanMac } });
+                    if (ipAddress) orq.push({ ip: ipAddress });
+                    const dev = orq.length ? await prisma.device.findFirst({ where: { OR: orq } }) : null;
+                    const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, timestamp: new Date() } });
+                    if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
+                    if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, timestamp: det.timestamp });
+                    console.log(logPrefix + " 🟣 [ANALYTIC] " + genType + " (" + eventType + ") dev=" + (dev ? dev.name : "?"));
+                    res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: genType })); return;
+                }
+            } catch (e) { console.error(logPrefix + " [ANALYTIC] err: " + (e && e.message)); }
+
             // If it's a known non-plate message, we still emit debug but don't log error
             addDebugLog({ ...debugData, status: 200, credentialValue: "NON-ANPR" });
 

@@ -581,3 +581,19 @@ model PlateWatch {
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
 }
+
+
+model Detection {
+  id           String   @id @default(cuid())
+  deviceId     String?
+  type         String   // LINECROSS | INTRUSION | REGION_ENTER | REGION_EXIT | MOTION | OTHER
+  eventType    String?
+  label        String?
+  snapshotPath String?
+  details      String?
+  timestamp    DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([deviceId, timestamp])
+  @@index([timestamp])
+}
