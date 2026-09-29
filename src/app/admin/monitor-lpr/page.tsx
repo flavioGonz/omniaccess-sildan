@@ -158,6 +158,7 @@ function ThumbImg({ src, className }: { src?: string; className?: string }) {
 }
 
 function CamTile({ dev, accent = "emerald", ev }: { dev: any; accent?: string; ev?: any }) {
+    const camRouter = useRouter();
     const [lit, setLit] = useState(false);
     const last = useRef<string | undefined>(undefined);
     const snap = useMemo(() => `/api/snapshot/${dev.id}?t=${Date.now()}`, [dev.id]);
@@ -196,9 +197,16 @@ function CamTile({ dev, accent = "emerald", ev }: { dev: any; accent?: string; e
         </div>
     );
     return ev ? (
-        <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
-            <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
-        </EventDetailsDialog>
+        <div className="relative group/cam">
+            <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
+                <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
+            </EventDetailsDialog>
+            {anomalous && ev.id && (
+                <div className="absolute top-1.5 right-1.5 z-30">
+                    <PlateManualButton eventId={ev.id} currentPlate={plate} onSaved={() => camRouter.refresh()} className="!bg-black/60 hover:!bg-black/80 !text-amber-300 rounded-md !p-1.5 shadow-lg" />
+                </div>
+            )}
+        </div>
     ) : inner;
 }
 
