@@ -11,7 +11,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2, RotateCw, ShieldAlert, ShieldCheck, ShieldQuestion, Search, ExternalLink } from "lucide-react";
-import { MI_LOGO } from "@/components/min-interior-logo";
 
 const normPlate = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 const MIN_INTERIOR_URL = "https://matriculas-requeridas.minterior.gub.uy/index.php";
@@ -130,10 +129,6 @@ export function MinInteriorDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
                 <DialogHeader>
-                    <div className="mx-auto mb-1 flex items-center justify-center rounded-lg bg-white px-3 py-1.5 shadow-sm ring-1 ring-black/5">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={MI_LOGO} alt="Ministerio del Interior" className="h-8 w-auto" />
-                    </div>
                     <DialogTitle className="flex items-center gap-2">
                         <ShieldAlert size={18} className="text-indigo-500" /> Matrículas requeridas — Min. Interior
                     </DialogTitle>
