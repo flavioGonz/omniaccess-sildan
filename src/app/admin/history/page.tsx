@@ -57,6 +57,7 @@ import { AccessEvent, User, Device } from "@prisma/client";
 import Image from "next/image";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
+import { PlateManualButton } from "@/components/PlateManualButton";
 import { cn } from "@/lib/utils";
 import { getCarLogo } from "@/lib/car-logos";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
@@ -608,6 +609,9 @@ export default function HistoryPage() {
                                             </td>
                                             <td className="px-5 py-3 text-right">
                                                 <div className="inline-flex items-center gap-1 justify-end">
+                                                    {(!evt.plateDetected || ['NO_LEIDA', 'unknown', 'S/P'].includes(evt.plateDetected)) && (
+                                                        <PlateManualButton eventId={evt.id} currentPlate={evt.plateDetected} onSaved={() => loadData(0, true)} className="!p-1.5 rounded-md" />
+                                                    )}
                                                     {evt.accessType === 'PLATE' && evt.plateDetected && evt.plateDetected !== 'NO_LEIDA' && (
                                                         <MinInteriorButton plate={evt.plateDetected} className="!p-1.5 rounded-md" />
                                                     )}

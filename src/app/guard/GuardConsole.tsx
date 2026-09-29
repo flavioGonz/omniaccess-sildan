@@ -71,6 +71,7 @@ import { getQuickCreateData, getGuardsList, verifyGuardCredential } from "@/app/
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
+import { PlateManualButton } from "@/components/PlateManualButton";
 import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
@@ -181,6 +182,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     // Image Viewer state
     const [viewerData, setViewerData] = useState<{
         url: string,
+        id?: string,
         plate?: string,
         name?: string,
         unit?: string,
@@ -2490,7 +2492,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                 const isUnknown = !event.user;
                                                 return (
                                                   <div key={event.id} className="flex items-stretch gap-2">
-                                                    <motion.button whileTap={{ scale: 0.98 }} onClick={() => setViewerData({ url: event.snapshotPath || "", plate: event.plateDetected, name: event.user?.name, unit: event.user?.unit?.name, direction: event.direction, confidence: event.confidence, timestamp: event.timestamp, deviceName: event.device?.name, vehicleBrand: vehicle?.brand, vehicleModel: vehicle?.model })} className={cn("flex-1 min-w-0 rounded-[1.5rem] border p-5 flex items-center gap-5 hover:shadow-xl transition-all text-left group active:scale-[0.99] backdrop-blur-xl", isMerodeo ? "bg-red-50/70 border-red-200/70 shadow-red-500/5" : "bg-white/70 border-white/80 shadow-sm")}>
+                                                    <motion.button whileTap={{ scale: 0.98 }} onClick={() => setViewerData({ url: event.snapshotPath || "", id: event.id, plate: event.plateDetected, name: event.user?.name, unit: event.user?.unit?.name, direction: event.direction, confidence: event.confidence, timestamp: event.timestamp, deviceName: event.device?.name, vehicleBrand: vehicle?.brand, vehicleModel: vehicle?.model })} className={cn("flex-1 min-w-0 rounded-[1.5rem] border p-5 flex items-center gap-5 hover:shadow-xl transition-all text-left group active:scale-[0.99] backdrop-blur-xl", isMerodeo ? "bg-red-50/70 border-red-200/70 shadow-red-500/5" : "bg-white/70 border-white/80 shadow-sm")}>
                                                         <div className="w-16 h-16 rounded-2xl bg-slate-100/80 overflow-hidden relative border border-black/5 shrink-0">
                                                             {event.snapshotPath ? (<Image src={event.snapshotPath} alt="LPR" fill className="object-cover" />) : (<div className="w-full h-full flex items-center justify-center text-slate-300"><ScanFace size={20} /></div>)}
                                                         </div>
@@ -3376,11 +3378,20 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                         <div className="text-[9px] font-bold text-[#B20D30] uppercase tracking-widest mt-1">Tocá para ver inteligencia</div>
                                                     </button>
                                                 )}
-                                                {viewerData.plate && (
+                                                {viewerData.plate && !['NO_LEIDA', 'unknown', 'S/P', '--- ---'].includes(viewerData.plate) && (
                                                     <MinInteriorButton
                                                         plate={viewerData.plate}
                                                         label
                                                         className="!px-4 !py-2 !text-xs !bg-indigo-600/90 !text-white hover:!bg-indigo-600 shadow-lg backdrop-blur"
+                                                    />
+                                                )}
+                                                {viewerData.id && (!viewerData.plate || ['NO_LEIDA', 'unknown', 'S/P', '--- ---'].includes(viewerData.plate)) && (
+                                                    <PlateManualButton
+                                                        eventId={viewerData.id}
+                                                        currentPlate={viewerData.plate}
+                                                        onSaved={(p) => setViewerData(v => v ? { ...v, plate: p } : v)}
+                                                        label
+                                                        className="!px-4 !py-2 !text-xs !bg-amber-500/90 !text-white hover:!bg-amber-500 shadow-lg backdrop-blur"
                                                     />
                                                 )}
 
