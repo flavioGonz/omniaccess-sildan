@@ -57,7 +57,8 @@ import {
     History,
     SquareParking,
     ScanSearch,
-    Video
+    Video,
+    ZoomIn
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,6 +73,7 @@ import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
+import { PinchZoom } from "@/components/PinchZoom";
 import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
@@ -3325,19 +3327,17 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     className="relative w-full h-full"
                                     onClick={(e) => e.stopPropagation()}
                                 >
-                                    <div className="relative w-full h-full group/viewer">
-                                        <Image
-                                            src={viewerImage}
-                                            alt="Full view"
-                                            fill
-                                            className="object-contain cursor-zoom-in"
-                                            priority
-                                            onClick={() => setZoomImage(viewerImage)}
-                                        />
+                                    <div className="relative w-full h-full">
+                                        <PinchZoom src={viewerImage} alt="Captura LPR" className="w-full h-full" />
 
-                                        {/* Report Button overlay on image */}
+                                        {/* Pista de zoom táctil */}
+                                        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-white/80 text-[11px] font-semibold uppercase tracking-wider">
+                                            <ZoomIn size={13} /> Pellizcá para hacer zoom
+                                        </div>
+
+                                        {/* Reporte histórico — siempre visible (tablet sin hover) */}
                                         {viewerData?.plate && viewerData.plate !== '--- ---' && (
-                                            <div className="absolute inset-0 flex items-center justify-center bg-black/10 opacity-0 group-hover/viewer:opacity-100 transition-opacity z-40">
+                                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40">
                                                 <button
                                                     onClick={async (e) => {
                                                         e.stopPropagation();
@@ -3346,10 +3346,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                         setPlateAnalysis(analysis);
                                                         setLoadingAnalysis(false);
                                                     }}
-                                                    className="bg-[#B20D30] text-white px-12 py-5 rounded-full font-bold uppercase text-lg tracking-widest shadow-lg flex items-center gap-4 active:scale-95 transition-all"
+                                                    className="bg-[#B20D30] text-white px-8 py-4 rounded-full font-bold uppercase text-sm tracking-widest shadow-2xl flex items-center gap-3 active:scale-95 transition-all"
                                                 >
-                                                    {loadingAnalysis ? <Loader2 size={24} className="animate-spin" /> : <Activity size={24} />}
-                                                    REPORTE HISTÓRICO PATENTE
+                                                    {loadingAnalysis ? <Loader2 size={22} className="animate-spin" /> : <Activity size={22} />}
+                                                    Reporte histórico
                                                 </button>
                                             </div>
                                         )}
