@@ -74,6 +74,7 @@ import { UserFormDialog } from "@/components/UserFormDialog";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { PinchZoom } from "@/components/PinchZoom";
+import { GuardRegistrationDialog } from "@/components/GuardRegistrationDialog";
 import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
@@ -2841,6 +2842,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                             onClick={() => { handleOpenGuardList(); setShowProfileMenu(false); }}>
                                             <Shield size={20} /> <span className="text-xs font-bold uppercase tracking-wider">Cambiar Guardia</span>
                                         </button>
+                                        <GuardRegistrationDialog guardName={guardName || "Guardia"} onOpen={() => setShowProfileMenu(false)} />
                                         <div className="h-px bg-slate-100 mx-2" />
                                         <button className="flex items-center gap-3 p-4 hover:bg-red-50 text-[#B20D30] rounded-2xl transition-colors"
                                             onClick={handleLogout}>
