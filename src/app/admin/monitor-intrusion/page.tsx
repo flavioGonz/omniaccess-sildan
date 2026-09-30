@@ -60,6 +60,17 @@ function CamTile({ cam, flash, last, geom, hasAnalytics, onCalibrate, onAlarm }:
                 className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-300", loaded ? "opacity-100" : "opacity-0")} />
             <GeomOverlay geom={geom} />
 
+            {/* Overlay de alerta parpadeante cuando el canal detecta */}
+            {flash && (
+                <div className="absolute inset-0 z-30 flex items-center justify-center pointer-events-none animate-pulse">
+                    <div className="absolute inset-0 bg-red-600/35" />
+                    <div className="absolute inset-0 ring-4 ring-inset ring-red-500/80 rounded-2xl" />
+                    <div className="relative px-3 py-1.5 rounded-lg bg-red-600/90 border border-red-200/50 shadow-[0_0_30px_rgba(239,68,68,0.9)]">
+                        <span className="text-white text-[12px] font-extrabold uppercase tracking-widest">{(m?.label || "Intrusión")} detectada</span>
+                    </div>
+                </div>
+            )}
+
             {/* Top: nombre + NVR·canal + controles (sin marcos) */}
             <div className="absolute top-0 inset-x-0 px-2.5 pt-2 pb-6 bg-gradient-to-b from-black/75 via-black/30 to-transparent flex items-start gap-2">
                 <div className="min-w-0 flex-1">
@@ -357,7 +368,7 @@ export default function MonitorIntrusion() {
                 if (filter === "ANALYTIC" && d.type === "MOTION") return;
                 const item: DetItem = { id: d.id, deviceId: d.deviceId, deviceName: d.deviceName, type: d.type, eventType: d.eventType, snapshotPath: null, timestamp: d.timestamp };
                 setDets((prev) => [item, ...prev.filter((x) => x.id !== d.id)].slice(0, 60));
-                if (d.deviceId) { setFlash((f) => ({ ...f, [d.deviceId]: Date.now() })); setTimeout(() => setFlash((f) => { const n = { ...f }; delete n[d.deviceId]; return n; }), 2200); }
+                if (d.deviceId) { setFlash((f) => ({ ...f, [d.deviceId]: Date.now() })); setTimeout(() => setFlash((f) => { const n = { ...f }; delete n[d.deviceId]; return n; }), 3500); }
                 if (d.type !== "MOTION") { setAlertItem(item); setTimeout(() => setAlertItem((a) => (a && a.id === item.id ? null : a)), 8000); }
             });
         } catch { }
