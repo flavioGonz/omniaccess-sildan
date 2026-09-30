@@ -2742,3 +2742,6 @@ async function notifyWatchTelegram(text) {
         });
     } catch (e) { console.error("[Watchlist] telegram error:", (e && e.message) || e); }
 }
+
+// #208 Ingesta de eventos de intrusión Dahua (attach)
+try { setTimeout(() => { try { require("./dahua-events").start(); } catch (e) { console.error("[dahua-events] require:", e.message); } }, 4000); } catch (e) {}
