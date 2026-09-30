@@ -326,6 +326,8 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
     // PROFILE MENU
     const [showProfileMenu, setShowProfileMenu] = useState(false);
+    const [apkVer, setApkVer] = useState<string>("");
+    useEffect(() => { fetch("/api/apk/version", { cache: "no-store" }).then(r => r.json()).then(d => setApkVer(d?.versionName || "")).catch(() => {}); }, []);
     const [showCameraModal, setShowCameraModal] = useState(false);
 
     // BACKUP REQUEST STATES
@@ -1570,9 +1572,9 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                             <LogIn size={24} /> Ingresar
                                         </button>
                                     </form>
-                                    <a href="/api/apk" download className="mt-5 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-widest text-slate-400 hover:text-[#B20D30] transition-colors">
-                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="M8 11l4 4 4-4" /><path d="M5 21h14" /></svg>
-                                        Descargar app para tablet
+                                    <a href="/api/apk" download className="mt-5 w-full flex items-center justify-center gap-2.5 h-14 rounded-2xl border-2 border-slate-200 bg-slate-50 hover:border-emerald-400 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 font-bold uppercase tracking-widest text-xs transition-all active:scale-95">
+                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.6 9.48l1.84-3.18a.38.38 0 10-.66-.38l-1.86 3.22a11.4 11.4 0 00-9.84 0L5.22 5.92a.38.38 0 10-.66.38L6.4 9.48A10.8 10.8 0 001 18h22a10.8 10.8 0 00-5.4-8.52zM7 15.25a1.06 1.06 0 110-2.12 1.06 1.06 0 010 2.12zm10 0a1.06 1.06 0 110-2.12 1.06 1.06 0 010 2.12z"/></svg>
+                                        Descargar app Android{apkVer ? ` · v${apkVer}` : ""}
                                     </a>
                                 </div>
                             </div>
@@ -2848,6 +2850,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                 <span className={cn("inline-block w-2 h-2 rounded-full", isConnected ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
                                                 <span className={cn("text-[10px] font-bold uppercase tracking-wider", isConnected ? "text-emerald-600" : "text-red-500")}>{isConnected ? "En línea" : "Sin conexión"}</span>
                                             </div>
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-1.5">App Android v{apkVer || "—"}</p>
                                         </div>
                                         <button className="flex items-center gap-3 p-4 hover:bg-slate-50 rounded-2xl transition-colors text-black"
                                             onClick={() => { setShowCameraModal(true); setShowProfileMenu(false); }}>

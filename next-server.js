@@ -44,6 +44,25 @@ app.prepare().then(() => {
             proxyReq.end();
             return;
         }
+        // Socket.IO path por defecto (/socket.io) usado por el panel admin: proxy WS -> 10000 (sin strip)
+        if (req.url && req.url.startsWith("/socket.io/")) {
+            const http2 = require("http");
+            const proxyReq = http2.request({ hostname: "127.0.0.1", port: SOCKETIO_PORT, path: req.url, method: "GET", headers: { ...req.headers, host: "127.0.0.1:" + SOCKETIO_PORT } });
+            proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
+                let raw = "HTTP/1.1 101 Switching Protocols\r\n";
+                const h = proxyRes.headers;
+                for (const k of Object.keys(h)) { const v = h[k]; if (Array.isArray(v)) v.forEach(x => raw += k + ": " + x + "\r\n"); else raw += k + ": " + v + "\r\n"; }
+                raw += "\r\n";
+                socket.write(raw);
+                if (proxyHead && proxyHead.length) proxySocket.unshift(proxyHead);
+                proxySocket.pipe(socket); socket.pipe(proxySocket);
+                proxySocket.on("error", () => socket.destroy()); socket.on("error", () => proxySocket.destroy());
+                proxySocket.on("close", () => socket.destroy()); socket.on("close", () => proxySocket.destroy());
+            });
+            proxyReq.on("error", () => socket.destroy());
+            proxyReq.end();
+            return;
+        }
         if (!req.url || !req.url.startsWith("/go2rtc/")) {
             // Let Next.js handle its own HMR WebSocket upgrades
             return;
