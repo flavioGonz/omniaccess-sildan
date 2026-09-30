@@ -7,6 +7,7 @@ import { getDevices } from "@/app/actions/devices";
 import { getRecentDetections, getDevicesWithAnalytics, type DetItem } from "@/app/actions/detections";
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, Filter, BellRing, Loader2, Check, PencilRuler } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 
 const META: Record<string, { label: string; cls: string; dot: string; Icon: any }> = {
     LINECROSS: { label: "Cruce de línea", cls: "text-red-300 border-red-500/40 bg-red-500/10", dot: "bg-red-500", Icon: Radar },
@@ -212,27 +213,8 @@ export default function MonitorIntrusion() {
                 </div>
             </div>
 
-            {/* Calibrador de líneas y zonas (shell — el editor sobre el video se habilita en #191) */}
-            {calibrateDev && (
-                <div className="fixed inset-0 z-[2000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setCalibrateDev(null)}>
-                    <div className="w-full max-w-lg rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
-                            <PencilRuler size={18} className="text-red-500" />
-                            <span className="font-bold">Calibrar líneas y zonas · {calibrateDev.name}</span>
-                            <button onClick={() => setCalibrateDev(null)} className="ml-auto text-muted-foreground hover:text-foreground text-xl leading-none">×</button>
-                        </div>
-                        <div className="p-5 space-y-3">
-                            <div className="relative rounded-lg overflow-hidden border border-border aspect-video bg-black">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={`/api/snapshot/${calibrateDev.id}?t=${Date.now()}`} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                                El editor para dibujar y ajustar la línea de cruce y las zonas de intrusión sobre el video se habilita en cámaras que soporten esas analíticas (AcuSense/DeepinView). Las cámaras ANPR actuales no las soportan.
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Calibrador de líneas y zonas (editor sobre el snapshot, lee/escribe por ISAPI) */}
+            {calibrateDev && <LineZoneCalibrator device={calibrateDev} onClose={() => setCalibrateDev(null)} />}
         </div>
     );
 }
