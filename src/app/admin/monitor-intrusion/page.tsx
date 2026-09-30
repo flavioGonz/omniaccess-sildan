@@ -260,8 +260,12 @@ function DetailDialog({ det, cam, onClose }: { det: any; cam?: IntrusionCam; onC
                         <Field label="Tipo técnico" value={det.eventType || "—"} />
                         <Field label="Cámara" value={det.deviceName || "—"} />
                         <Field label="NVR · Canal" value={`${nvr || "—"}${ch != null ? ` · CH ${ch}` : ""}`} />
-                        <Field label="Fecha y hora" value={new Date(det.timestamp).toLocaleString("es-UY")} />
+                        <Field label="Fecha y hora" value={new Date(det.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })} />
                         <Field label="Hace" value={ago(det.timestamp)} />
+                    </div>
+                    <div className="rounded-lg border border-border bg-background/50 px-3 py-2">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">ID del evento</div>
+                        <div className="text-[11px] font-mono text-foreground truncate select-all">{det.id}</div>
                     </div>
                 </div>
             </div>

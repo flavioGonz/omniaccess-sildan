@@ -36,11 +36,16 @@ export async function GET(
     try {
         const device = await prisma.device.findUnique({
             where: { id: deviceId },
-            select: { ip: true, username: true, password: true, brand: true, authType: true },
+            select: { ip: true, username: true, password: true, brand: true, authType: true, deviceType: true },
         });
 
         if (!device) {
             return NextResponse.json({ error: "Device not found" }, { status: 404 });
+        }
+
+        // NVR sin canal concreto (evento atribuido al NVR): no hay snapshot único -> 204 (evita 502 en consola)
+        if ((device as any).deviceType === "NVR") {
+            return new NextResponse(null, { status: 204 });
         }
 
         // HIKVISION: capturar por ISAPI con Digest/Basic automatico (driver)
@@ -67,7 +72,7 @@ export async function GET(
             case "BOSCH":
                 snapshotUrl = `https://${device.ip}/snap.jpg?JpegSize=L`; break;
             case "DAHUA":
-                snapshotUrl = `http://${device.ip}/cgi-bin/snapshot.cgi`; break;
+                snapshotUrl = `http://${device.ip}/cgi-bin/snapshot.cgi?channel=1`; break;
             default:
                 snapshotUrl = `http://${device.ip}/snap.jpg`;
         }
