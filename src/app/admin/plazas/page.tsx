@@ -373,6 +373,21 @@ export default function PlazasPage() {
     /** unidad → etiqueta de la plaza que ya la tiene (para no asignarla dos veces) */
     const plazaDeUnidad: Record<string, string> = {};
     for (const s of slots) if (s.unitId) plazaDeUnidad[s.unitId] = s.label;
+
+    // #152: buscador que ilumina el plano (por etiqueta, unidad, residente o matrícula)
+    const slotMatchesSearch = (slot: any): boolean => {
+        const q = plazaSearch.trim().toLowerCase();
+        if (!q) return true;
+        if ((slot.label || "").toLowerCase().includes(q)) return true;
+        const u = slot.unitId ? units.find((x: any) => x.id === slot.unitId) : null;
+        if (u) {
+            if ((u.number || "").toLowerCase().includes(q)) return true;
+            if ((u.name || "").toLowerCase().includes(q)) return true;
+            if ((u.users || []).some((us: any) => (us.name || "").toLowerCase().includes(q))) return true;
+            if (matriculasDe(u).some((pl: string) => pl.toLowerCase().includes(q))) return true;
+        }
+        return false;
+    };
     /** El sector son las letras del principio: "A-12" → "A", "A6" → "A", "101" → "#". */
     const sectorDeEtiqueta = (l: string) => {
         const m = String(l || "").trim().match(/^([A-Za-z]+)/);
@@ -605,7 +620,7 @@ export default function PlazasPage() {
                             </div>
                         </div>
                         <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1 bg-muted/40">
-                            {slots.filter(s => !plazaSearch || (s.label || "").toLowerCase().includes(plazaSearch.toLowerCase())).map(slot => {
+                            {slots.filter(s => slotMatchesSearch(s)).map(slot => {
                                 const unit = units.find(u => u.id === slot.unitId);
                                 const firstUser = unit?.users?.[0];
 
@@ -757,6 +772,8 @@ export default function PlazasPage() {
                                 const occKey = occ === "in" ? "in" : occ === "out" ? "out" : (slot.unitId ? "assigned" : "free");
                                 const occFill = OCC[occKey].fill;
                                 const occStroke = OCC[occKey].stroke;
+                                const searchActive = plazaSearch.trim().length > 0;
+                                const isMatch = slotMatchesSearch(slot);
 
                                 return (
                                     <g
@@ -771,19 +788,20 @@ export default function PlazasPage() {
                                         onMouseEnter={(e) => { setHoveredSlot(slot.id); const r = (e.currentTarget as SVGGElement).getBoundingClientRect(); setHoverCard({ slotId: slot.id, x: r.left + r.width / 2, y: r.top }); }}
                                         onMouseLeave={() => { setHoveredSlot(null); setHoverCard(null); }}
                                         className="cursor-pointer group pointer-events-auto"
+                                        style={{ opacity: searchActive && !isMatch ? 0.18 : 1, transition: "opacity 0.2s" }}
                                     >
                                                     <path
                                                         onMouseDown={(e) => { if (editSlotId !== slot.id) return; e.stopPropagation(); movingRef.current = { slotId: slot.id, sx: e.clientX, sy: e.clientY, orig: slot.points.map(p => ({ ...p })) }; setSelectedSlot(slot.id); }}
                                                         onDoubleClick={(e) => { if (editSlotId !== slot.id) return; e.stopPropagation(); addVertexAt(slot.id, e); }}
                                                         d={scaledPoints.map((p, i) => (i === 0 ? 'M' : 'L') + ' ' + p.x + ' ' + p.y).join(' ') + ' Z'}
                                                         fill={occFill}
-                                                        stroke={editSlotId === slot.id ? "#6366f1" : isSelected ? "#3b82f6" : occStroke}
-                                                        strokeWidth={editSlotId === slot.id ? 1.2 : isSelected ? 1 : 0.5}
+                                                        stroke={editSlotId === slot.id ? "#6366f1" : isSelected ? "#3b82f6" : (searchActive && isMatch ? "#fbbf24" : occStroke)}
+                                                        strokeWidth={editSlotId === slot.id ? 1.2 : isSelected ? 1 : (searchActive && isMatch ? 1.1 : 0.5)}
                                                         vectorEffect="non-scaling-stroke"
                                                         strokeLinejoin="round"
                                                         className="transition-all duration-300"
                                                         style={{
-                                                            filter: isSelected ? "drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))" : "drop-shadow(0 0 2px rgba(0,0,0,0.5))",
+                                                            filter: isSelected ? "drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))" : (searchActive && isMatch ? "drop-shadow(0 0 6px rgba(251,191,36,0.9))" : "drop-shadow(0 0 2px rgba(0,0,0,0.5))"),
                                                             animation: (isSelected || isHovered) ? "pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite" : undefined
                                                         }}
                                                     />
@@ -1123,6 +1141,61 @@ export default function PlazasPage() {
                     </div>
                 </div>
             ); })()}
+
+            {/* #152 Ficha del lote (solo lectura, modo Ver) */}
+            {selectedSlot && !showUnitSelector && !editMode && !editSlotId && plazaSel && (() => {
+                const u = plazaSel.unitId ? units.find((x: any) => x.id === plazaSel.unitId) : null;
+                const plates = u ? matriculasDe(u) : [];
+                const od = occupancy[plazaSel.id];
+                const st = od?.status;
+                const key = st === "in" ? "in" : st === "out" ? "out" : (plazaSel.unitId ? "assigned" : "free");
+                const info = OCC[key];
+                const inside = od?.inside || [];
+                const cerrar = () => setSelectedSlot(null);
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-md animate-in fade-in duration-200" onClick={cerrar}>
+                        <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-2xl bg-card/85 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                            <div className="relative px-5 pt-4 pb-3 border-b border-white/10 flex items-start gap-3">
+                                <div className="w-12 h-12 rounded-2xl grid place-items-center shrink-0 text-base font-bold text-white" style={{ background: info.css, border: `1px solid ${info.stroke}` }}>{sectorDeEtiqueta(plazaSel.label)}</div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-xl font-bold text-foreground tracking-tight truncate">{plazaSel.label}</div>
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-widest mt-1" style={{ background: `${info.stroke}22`, color: info.stroke }}>
+                                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: info.stroke }} /> {info.label}
+                                    </span>
+                                </div>
+                                <button onClick={cerrar} className="shrink-0 p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><X size={18} /></button>
+                            </div>
+                            <div className="p-5 space-y-4">
+                                {u ? (
+                                    <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.07] px-4 py-3">
+                                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-emerald-400/80"><Home size={13} /> Asignada a</div>
+                                        <div className="text-base font-bold text-foreground mt-1 truncate">{u.number || u.name}{u.name && u.number && u.name !== u.number ? <span className="ml-2 text-xs font-normal text-muted-foreground">{u.name}</span> : null}</div>
+                                        <div className="text-[11px] text-muted-foreground mt-0.5">{u.users?.length ? `${u.users.length} ${u.users.length === 1 ? "residente" : "residentes"}` : "sin residentes"}</div>
+                                        {plates.length > 0 && (
+                                            <div className="flex flex-wrap gap-1.5 mt-2">
+                                                {plates.slice(0, 8).map((pl: string, i: number) => (<span key={i} className="px-1.5 py-px rounded bg-emerald-500/15 font-mono text-[10px] text-emerald-200 tracking-wide">{pl}</span>))}
+                                                {plates.length > 8 && <span className="text-[10px] text-muted-foreground">+{plates.length - 8}</span>}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="rounded-xl border border-amber-500/25 bg-amber-500/[0.07] px-4 py-3 text-sm text-amber-300 flex items-center gap-2"><Info size={15} /> Plaza libre, sin unidad asignada.</div>
+                                )}
+                                {inside.length > 0 && (
+                                    <div>
+                                        <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5">Vehículos adentro</div>
+                                        <div className="flex flex-wrap gap-1.5">{inside.map((pl: string, i: number) => (<span key={i} className="px-2 py-0.5 rounded-md bg-foreground/[0.06] font-mono text-[11px] text-foreground">{pl}</span>))}</div>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="px-5 py-3 border-t border-white/10 bg-black/20 flex items-center justify-between gap-3">
+                                <span className="text-[10.5px] text-muted-foreground">Modo lectura. Para reasignar, entrá a <b className="text-foreground">Editar</b>.</span>
+                                <button onClick={() => { setEditMode(true); setTool("plaza"); setShowUnitSelector(true); }} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"><Edit3 size={13} /> Editar</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             <style jsx global>{`
                 .custom-scrollbar::-webkit-scrollbar {
