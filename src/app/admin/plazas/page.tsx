@@ -31,12 +31,14 @@ import {
     Move,
     Edit3,
     ChevronDown,
-    Video
+    Video,
+    Clock,
+    AlertTriangle
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getParkingSlots, saveParkingSlots, getParkingMap, uploadParkingMap, getParkingElements, saveParkingElements, getParkingOccupancy } from "@/app/actions/plazas";
+import { getParkingSlots, saveParkingSlots, getParkingMap, uploadParkingMap, getParkingElements, saveParkingElements, getParkingOccupancy, getPresenceInsights } from "@/app/actions/plazas";
 import { io } from "socket.io-client";
 import { getUnitsWithDetails } from "@/app/actions/units";
 import { getDevices } from "@/app/actions/devices";
@@ -77,6 +79,14 @@ export default function PlazasPage() {
     const movingRef = useRef<{ slotId: string; sx: number; sy: number; orig: { x: number; y: number }[] } | null>(null);
     const [listCollapsed, setListCollapsed] = useState(true);
     const [editMode, setEditMode] = useState(false); // #150: Ver (false) vs Editar (true)
+    const [timeCut, setTimeCut] = useState<string | null>(null);
+    const [sliderMin, setSliderMin] = useState(0);
+    const timeCutRef = useRef<string | null>(null);
+    const [insights, setInsights] = useState<any>(null);
+    const [showAnomalies, setShowAnomalies] = useState(false);
+    const fmtClock = (ms: number) => new Date(ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" });
+    const fmtAgo = (m: number) => m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? " " + (m % 60) + "m" : ""}`;
+    const anomCount = insights ? ((insights.adentroHaceMucho?.length || 0) + (insights.sinMovimiento?.length || 0) + (insights.noIdentificadosAdentro?.length || 0)) : 0;
     const [plazaSearch, setPlazaSearch] = useState("");
     const [editSlotId, setEditSlotId] = useState<string | null>(null);
     const [streetEditId, setStreetEditId] = useState<string | null>(null);
@@ -177,14 +187,24 @@ export default function PlazasPage() {
         };
         loadData();
         getParkingOccupancy().then(setOccupancy).catch(() => {});
+        getPresenceInsights().then(setInsights).catch(() => {});
         getDevices().then((d: any) => setCameras((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => {});
     }, []);
+
+    useEffect(() => {
+        timeCutRef.current = timeCut;
+        getParkingOccupancy(timeCut).then(setOccupancy).catch(() => {});
+    }, [timeCut]);
+
+    useEffect(() => {
+        if (showAnomalies) getPresenceInsights().then(setInsights).catch(() => {});
+    }, [showAnomalies]);
 
     // Ocupación en vivo por LPR (verde=adentro, rojo=afuera). Socket vía proxy /io.
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling", "websocket"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
         let t: any = null;
-        const refresh = () => { if (t) clearTimeout(t); t = setTimeout(() => { getParkingOccupancy().then(setOccupancy).catch(() => {}); }, 900); };
+        const refresh = () => { if (timeCutRef.current) return; if (t) clearTimeout(t); t = setTimeout(() => { getParkingOccupancy().then(setOccupancy).catch(() => {}); }, 900); };
         s.on("access_event", (ev: any) => { if (ev?.accessType === "PLATE") refresh(); });
         s.on("connect", () => refresh());
         const iv = setInterval(refresh, 60000);
@@ -716,6 +736,87 @@ export default function PlazasPage() {
                     <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: OCC.out.css, border: `1px solid ${OCC.out.stroke}` }} /> {OCC.out.label}</div>
                     <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: OCC.assigned.css, border: `1px solid ${OCC.assigned.stroke}` }} /> {OCC.assigned.label}</div>
                     <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: OCC.free.css, border: `1px solid ${OCC.free.stroke}` }} /> {OCC.free.label}</div>
+                </div>
+            )}
+
+            {/* #153 Deslizador de hora + acceso a anomalías */}
+            {mapImage && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 bg-card/60 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 rounded-full shadow-lg px-4 py-2">
+                    <Clock size={15} className={timeCut ? "text-amber-400" : "text-emerald-400"} />
+                    <input type="range" min={0} max={1440} step={5} value={1440 - sliderMin}
+                        onChange={(e) => { const minAgo = 1440 - Number(e.target.value); setSliderMin(minAgo); if (minAgo <= 0) setTimeCut(null); else setTimeCut(new Date(Date.now() - minAgo * 60000).toISOString()); }}
+                        className="w-56 accent-amber-500 cursor-pointer" title="Deslizá para ver la ocupación en un momento pasado (últimas 24 h)" />
+                    <span className="text-[11px] font-bold tabular-nums w-32 text-center select-none">
+                        {sliderMin <= 0 ? <span className="text-emerald-400">En vivo · ahora</span> : <span className="text-amber-300">hace {fmtAgo(sliderMin)} · {fmtClock(Date.now() - sliderMin * 60000)}</span>}
+                    </span>
+                    {sliderMin > 0 && (<button onClick={() => { setSliderMin(0); setTimeCut(null); }} className="text-[10px] font-bold uppercase tracking-widest text-emerald-400 hover:text-emerald-300 transition-colors">En vivo</button>)}
+                    <div className="w-px h-6 bg-border" />
+                    <button onClick={() => setShowAnomalies(true)} className="relative inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-colors">
+                        <AlertTriangle size={14} /> Anomalías
+                        {anomCount > 0 && <span className="ml-0.5 min-w-[16px] h-4 px-1 grid place-items-center rounded-full bg-amber-500 text-black text-[9px] font-bold tabular-nums">{anomCount}</span>}
+                    </button>
+                </div>
+            )}
+
+            {/* #153 Panel de anomalías */}
+            {showAnomalies && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-md animate-in fade-in duration-200" onClick={() => setShowAnomalies(false)}>
+                    <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg max-h-[82vh] flex flex-col rounded-2xl bg-card/85 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
+                            <AlertTriangle size={18} className="text-amber-400" />
+                            <span className="font-bold text-foreground">Anomalías de presencia</span>
+                            <button onClick={() => setShowAnomalies(false)} className="ml-auto p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><X size={18} /></button>
+                        </div>
+                        <div className="p-5 overflow-y-auto custom-scrollbar space-y-5">
+                            {!insights ? (
+                                <div className="py-12 text-center text-muted-foreground text-sm">Analizando presencia…</div>
+                            ) : anomCount === 0 ? (
+                                <div className="py-12 text-center"><CheckCircle2 size={26} className="mx-auto text-emerald-500 mb-2" /><p className="text-sm font-bold text-foreground">Todo en orden</p><p className="text-xs text-muted-foreground mt-1">No hay anomalías de presencia ahora.</p></div>
+                            ) : (
+                                <>
+                                    {insights.noIdentificadosAdentro?.length > 0 && (
+                                        <div>
+                                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-red-400 mb-2"><Car size={13} /> Autos no identificados adentro <span className="text-muted-foreground/60">({insights.noIdentificadosAdentro.length})</span></div>
+                                            <div className="space-y-1.5">
+                                                {insights.noIdentificadosAdentro.slice(0, 12).map((r: any, i: number) => (
+                                                    <div key={i} className="flex items-center gap-3 rounded-xl border border-red-500/25 bg-red-500/[0.06] px-3 py-2">
+                                                        <span className="font-mono text-sm font-bold text-red-200">{r.plate}</span>
+                                                        <span className="text-[11px] text-muted-foreground ml-auto">{r.camara || "—"} · hace {r.horas}h</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {insights.adentroHaceMucho?.length > 0 && (
+                                        <div>
+                                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-amber-400 mb-2"><Home size={13} /> Vehículo del barrio adentro hace mucho <span className="text-muted-foreground/60">({insights.adentroHaceMucho.length})</span></div>
+                                            <div className="space-y-1.5">
+                                                {insights.adentroHaceMucho.slice(0, 12).map((r: any, i: number) => (
+                                                    <button key={i} onClick={() => { setSelectedSlot(r.slotId); setShowAnomalies(false); }} className="w-full text-left flex items-center gap-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 hover:bg-amber-500/[0.12] transition-colors">
+                                                        <span className="font-bold text-foreground text-sm">{r.label}</span>
+                                                        <span className="font-mono text-[11px] text-amber-200">{r.plate}</span>
+                                                        <span className="text-[11px] text-muted-foreground ml-auto">hace {r.dias} d</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {insights.sinMovimiento?.length > 0 && (
+                                        <div>
+                                            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2"><Info size={13} /> Lotes sin movimiento (posible casa vacía) <span className="text-muted-foreground/60">({insights.sinMovimiento.length})</span></div>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {insights.sinMovimiento.slice(0, 30).map((r: any, i: number) => (
+                                                    <button key={i} onClick={() => { setSelectedSlot(r.slotId); setShowAnomalies(false); }} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-foreground/[0.05] px-2.5 py-1 text-xs font-bold text-foreground hover:bg-foreground/[0.1] transition-colors">
+                                                        {r.label}{r.dias != null && <span className="text-[10px] font-normal text-muted-foreground">{r.dias}d</span>}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
 
