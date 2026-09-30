@@ -48,6 +48,8 @@ export async function getDevicesWithAnalytics(): Promise<string[]> {
 
 
 import { getSmartSupport, readLine, readField } from "@/lib/isapi-analytics";
+import { resolveForCamera } from "@/lib/nvr-resolve";
+import { readDahuaIvs } from "@/lib/dahua-ivs";
 
 export type IntrusionCam = { id: string; name: string; brand: string; ip: string; nvrName: string | null; nvrId: string | null; ch: number | null };
 
@@ -78,6 +80,13 @@ export async function getAnalyticsGeometryBatch(ids: string[]): Promise<Record<s
     const devs = await prisma.device.findMany({ where: { id: { in: list } }, select: { id: true, ip: true, username: true, password: true, authType: true, brand: true } });
     const one = async (d: any) => {
         try {
+            // Canal detrás de una NVR Dahua: leer IVS por configManager (ya viene en 0–1000)
+            const cam = await resolveForCamera(d.id);
+            if (cam && String((cam.nvr as any).brand).toUpperCase() === "DAHUA") {
+                const r = await readDahuaIvs({ ip: cam.nvr.ip, user: cam.nvr.user, pass: cam.nvr.pass }, cam.ch);
+                if (r.line.length || r.field.length) out[d.id] = { supported: true, line: r.line.map(camToScreen), field: r.field.map(camToScreen) };
+                return;
+            }
             if (String(d.brand) !== "HIKVISION") { return; }
             const dev = { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" } as any;
             const sup = await getSmartSupport(dev);
