@@ -93,6 +93,8 @@ import {
     DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, DownloadCloud, UploadCloud, Info } from "lucide-react";
+import { Radar } from "lucide-react";
+import { getDevicesWithAnalytics } from "@/app/actions/detections";
 import {
     Tooltip,
     TooltipContent,
@@ -211,6 +213,8 @@ export default function DevicesPage() {
     const [managingMemory, setManagingMemory] = useState<any>(null);
     const [configActionUrl, setConfigActionUrl] = useState<any>(null);
     const [viewingLive, setViewingLive] = useState<any>(null);
+    const [analyticsIds, setAnalyticsIds] = useState<Set<string>>(new Set());
+    useEffect(() => { getDevicesWithAnalytics().then((ids) => setAnalyticsIds(new Set(ids))).catch(() => { }); }, []);
     const [managingPlates, setManagingPlates] = useState<any>(null);
     const [calibrating, setCalibrating] = useState<any>(null);
     const [health, setHealth] = useState<Record<string, any>>({});
@@ -602,8 +606,13 @@ export default function DevicesPage() {
                                             </div>
 
                                             <div className="space-y-1.5">
-                                                <div>
+                                                <div className="flex items-center gap-1.5">
                                                     <p className="font-semibold text-foreground text-sm leading-none">{dev.name}</p>
+                                                    {analyticsIds.has(dev.id) && (
+                                                        <span title="Con analíticas / alertas activas" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/30 text-[9px] font-bold uppercase tracking-wide">
+                                                            <Radar size={10} /> Analítica
+                                                        </span>
+                                                    )}
                                                 </div>
 
                                                     <div className="flex items-center gap-2 pt-0.5">
