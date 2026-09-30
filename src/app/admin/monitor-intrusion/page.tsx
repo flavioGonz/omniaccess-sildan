@@ -26,24 +26,11 @@ function ago(ts: string) {
     return new Date(ts).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" });
 }
 
-function CamTile({ dev, flash, last, onCalibrate }: { dev: any; flash: boolean; last?: DetItem; onCalibrate: (dev: any) => void }) {
+function CamTile({ dev, flash, last, onCalibrate, onAlarm }: { dev: any; flash: boolean; last?: DetItem; onCalibrate: (dev: any) => void; onAlarm: (dev: any) => void }) {
     const [rk, setRk] = useState(0);
-    const [alarm, setAlarm] = useState<"idle" | "loading" | "ok" | "already" | "err">("idle");
     useEffect(() => { const iv = setInterval(() => setRk((x) => x + 1), 3000); return () => clearInterval(iv); }, []);
     const src = `/api/snapshot/${dev.id}?t=${rk}`;
     const m = last ? (META[last.type] || META.OTHER) : null;
-
-    const configAlarm = async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        setAlarm("loading");
-        try {
-            const r = await fetch(`/api/devices/alarm-host?deviceId=${dev.id}`, { method: "POST" });
-            const d = await r.json();
-            setAlarm(d.ok ? (d.already ? "already" : "ok") : "err");
-        } catch { setAlarm("err"); }
-        setTimeout(() => setAlarm("idle"), 2600);
-    };
-
     return (
         <div className={cn("relative rounded-xl overflow-hidden border aspect-video bg-black transition-all duration-300 group/tile", flash ? "border-red-500 shadow-[0_0_28px_rgba(239,68,68,0.8)] ring-2 ring-red-500/60" : "border-neutral-800")}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -57,12 +44,9 @@ function CamTile({ dev, flash, last, onCalibrate }: { dev: any; flash: boolean; 
                 <button onClick={(e) => { e.stopPropagation(); onCalibrate(dev); }} title="Calibrar líneas y zonas" className="grid h-7 w-7 place-items-center rounded-md bg-black/60 hover:bg-black/80 border border-white/10 text-white/80 backdrop-blur-sm active:scale-95">
                     <PencilRuler size={13} />
                 </button>
-                <button onClick={configAlarm} title="Configurar servidor de alarma (envío de eventos a OmniAccess)"
-                    className={cn("inline-flex items-center gap-1 h-7 px-2 rounded-md border backdrop-blur-sm text-[10px] font-bold active:scale-95",
-                        alarm === "ok" || alarm === "already" ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-300" :
-                            alarm === "err" ? "bg-red-500/20 border-red-400/40 text-red-300" : "bg-black/60 hover:bg-black/80 border-white/10 text-white/80")}>
-                    {alarm === "loading" ? <Loader2 size={12} className="animate-spin" /> : (alarm === "ok" || alarm === "already") ? <Check size={12} /> : <BellRing size={12} />}
-                    {alarm === "ok" ? "Listo" : alarm === "already" ? "OK" : alarm === "err" ? "Error" : "Alarma"}
+                <button onClick={(e) => { e.stopPropagation(); onAlarm(dev); }} title="Configurar servidor de alarma (envío de eventos a OmniAccess)"
+                    className="inline-flex items-center gap-1 h-7 px-2 rounded-md border backdrop-blur-sm text-[10px] font-bold active:scale-95 bg-black/60 hover:bg-black/80 border-white/10 text-white/80">
+                    <BellRing size={12} /> Alarma
                 </button>
             </div>
             {m && (
@@ -84,6 +68,20 @@ export default function MonitorIntrusion() {
     const [flash, setFlash] = useState<Record<string, number>>({});
     const [calibrateDev, setCalibrateDev] = useState<any>(null);
     const [alert, setAlertItem] = useState<DetItem | null>(null);
+    const [alarmDev, setAlarmDev] = useState<any>(null);
+    const [alarmBusy, setAlarmBusy] = useState(false);
+    const [alarmMsg, setAlarmMsg] = useState("");
+
+    const applyAlarm = async () => {
+        if (!alarmDev) return;
+        setAlarmBusy(true); setAlarmMsg("");
+        try {
+            const r = await fetch(`/api/devices/alarm-host?deviceId=${alarmDev.id}`, { method: "POST" });
+            const d = await r.json();
+            setAlarmMsg(d.ok ? (d.already ? "Ya estaba configurado ✓" : "Configurado en el equipo ✓") : (d.error || "No se pudo configurar"));
+        } catch (e: any) { setAlarmMsg(e?.message || "Error"); }
+        finally { setAlarmBusy(false); }
+    };
 
     useEffect(() => {
         getDevices().then((d: any[]) => setDevices((d || []).filter((x) => x.deviceType !== "NVR"))).catch(() => { });
@@ -180,7 +178,7 @@ export default function MonitorIntrusion() {
                     ) : (
                         <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
                             {cams.map((dev) => (
-                                <CamTile key={dev.id} dev={dev} flash={!!flash[dev.id]} last={lastByDev[dev.id]} onCalibrate={setCalibrateDev} />
+                                <CamTile key={dev.id} dev={dev} flash={!!flash[dev.id]} last={lastByDev[dev.id]} onCalibrate={setCalibrateDev} onAlarm={(d) => { setAlarmMsg(""); setAlarmDev(d); }} />
                             ))}
                         </div>
                     )}
@@ -215,6 +213,39 @@ export default function MonitorIntrusion() {
 
             {/* Calibrador de líneas y zonas (editor sobre el snapshot, lee/escribe por ISAPI) */}
             {calibrateDev && <LineZoneCalibrator device={calibrateDev} onClose={() => setCalibrateDev(null)} />}
+
+            {/* Confirmación: configurar servidor de alarma en el equipo */}
+            {alarmDev && (
+                <div className="fixed inset-0 z-[2000] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => !alarmBusy && setAlarmDev(null)}>
+                    <div className="w-full max-w-md rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+                            <BellRing size={18} className="text-red-500" />
+                            <span className="font-bold">Servidor de alarma</span>
+                        </div>
+                        <div className="p-5 space-y-3">
+                            {!alarmMsg ? (
+                                <p className="text-sm text-muted-foreground">
+                                    Se va a <b className="text-foreground">aplicar la configuración en la cámara</b> <b className="text-foreground">{alarmDev.name}</b> para que envíe sus eventos a OmniAccess (servidor de alarma HTTP). Si ya está configurada, no se duplica. ¿Confirmás?
+                                </p>
+                            ) : (
+                                <p className={cn("text-sm font-semibold", alarmMsg.includes("✓") ? "text-emerald-500" : "text-red-500")}>{alarmMsg}</p>
+                            )}
+                            <div className="flex justify-end gap-2 pt-1">
+                                {!alarmMsg ? (
+                                    <>
+                                        <button onClick={() => setAlarmDev(null)} className="px-4 py-2 rounded-xl text-sm font-bold text-muted-foreground hover:bg-accent">Cancelar</button>
+                                        <button onClick={applyAlarm} disabled={alarmBusy} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold active:scale-95">
+                                            {alarmBusy ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Aplicar en el equipo
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button onClick={() => setAlarmDev(null)} className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold">Listo</button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
