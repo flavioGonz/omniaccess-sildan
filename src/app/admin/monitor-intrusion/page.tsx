@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
-import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, type DetItem, type IntrusionCam } from "@/app/actions/detections";
-import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw } from "lucide-react";
+import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
+import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 
@@ -210,6 +210,101 @@ function AlarmDialog({ cam, onClose }: { cam: IntrusionCam; onClose: () => void 
     );
 }
 
+function Field({ label, value }: { label: string; value: string }) {
+    return <div className="min-w-0"><div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</div><div className="text-sm font-semibold text-foreground truncate">{value}</div></div>;
+}
+
+function DetailDialog({ det, cam, onClose }: { det: any; cam?: IntrusionCam; onClose: () => void }) {
+    const m = META[det.type] || META.OTHER;
+    const [rk] = useState(Date.now());
+    const nvr = det.nvrName || cam?.nvrName; const ch = det.ch ?? cam?.ch;
+    const snap = det.snapshotPath ? det.snapshotPath : (det.deviceId ? `/api/snapshot/${det.deviceId}?t=${rk}` : null);
+    return (
+        <div className="fixed inset-0 z-[2100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6" onClick={onClose}>
+            <div className="w-full max-w-2xl rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className={cn("flex items-center gap-2.5 px-5 py-4 border-b border-border", m.cls)}>
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-black/25"><m.Icon size={18} /></span>
+                    <div className="min-w-0"><div className="font-bold leading-tight">{m.label}</div><div className="text-[11px] opacity-80 truncate">{det.deviceName || "Cámara"}</div></div>
+                    <button onClick={onClose} className="ml-auto w-8 h-8 grid place-items-center rounded-full hover:bg-black/25"><X size={18} /></button>
+                </div>
+                <div className="p-5 space-y-4">
+                    <div className="relative rounded-xl overflow-hidden border border-border aspect-video bg-black">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {snap ? <img src={snap} alt="" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-muted-foreground"><ImageOff size={28} /></div>}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <Field label="Evento" value={m.label} />
+                        <Field label="Tipo técnico" value={det.eventType || "—"} />
+                        <Field label="Cámara" value={det.deviceName || "—"} />
+                        <Field label="NVR · Canal" value={`${nvr || "—"}${ch != null ? ` · CH ${ch}` : ""}`} />
+                        <Field label="Fecha y hora" value={new Date(det.timestamp).toLocaleString("es-UY")} />
+                        <Field label="Hace" value={ago(det.timestamp)} />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function HistoryModal({ onClose, onOpen }: { onClose: () => void; onOpen: (d: DetHistItem) => void }) {
+    const [items, setItems] = useState<DetHistItem[]>([]);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(0);
+    const [type, setType] = useState<"ANALYTIC" | "ALL" | "MOTION" | "INTRUSION" | "LINECROSS">("ANALYTIC");
+    const [loading, setLoading] = useState(true);
+    const size = 40;
+    useEffect(() => { setLoading(true); getDetectionHistory({ page, pageSize: size, type }).then((r) => { setItems(r.items); setTotal(r.total); }).catch(() => { }).finally(() => setLoading(false)); }, [page, type]);
+    const pages = Math.max(1, Math.ceil(total / size));
+    return (
+        <div className="fixed inset-0 z-[2100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6" onClick={onClose}>
+            <div className="w-full max-w-4xl h-[86vh] flex flex-col rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border">
+                    <span className="grid h-8 w-8 place-items-center rounded-xl bg-red-500/15"><History size={16} className="text-red-500" /></span>
+                    <span className="font-bold">Historial de intrusión</span>
+                    <div className="ml-3 inline-flex rounded-xl border border-border p-0.5 bg-background">
+                        {(["ANALYTIC", "INTRUSION", "LINECROSS", "MOTION", "ALL"] as const).map((f) => (
+                            <button key={f} onClick={() => { setPage(0); setType(f); }} className={cn("px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-colors", type === f ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:text-foreground")}>
+                                {f === "ANALYTIC" ? "Intrusión+" : f === "INTRUSION" ? "Intrusión" : f === "LINECROSS" ? "Línea" : f === "MOTION" ? "Movim." : "Todo"}
+                            </button>
+                        ))}
+                    </div>
+                    <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{total} eventos</span>
+                    <button onClick={onClose} className="w-8 h-8 grid place-items-center rounded-full hover:bg-accent"><X size={18} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                    {loading ? (
+                        <div className="p-10 text-center text-muted-foreground"><Loader2 className="animate-spin inline mr-2" size={16} /> Cargando…</div>
+                    ) : items.length === 0 ? (
+                        <div className="p-10 text-center text-muted-foreground">Sin eventos</div>
+                    ) : (
+                        <table className="w-full text-sm">
+                            <thead className="sticky top-0 bg-card border-b border-border text-[10px] uppercase tracking-widest text-muted-foreground z-10">
+                                <tr><th className="text-left px-4 py-2.5 font-bold">Evento</th><th className="text-left px-4 py-2.5 font-bold">Cámara</th><th className="text-left px-4 py-2.5 font-bold">NVR · Canal</th><th className="text-left px-4 py-2.5 font-bold">Fecha</th></tr>
+                            </thead>
+                            <tbody>
+                                {items.map((d) => { const m = META[d.type] || META.OTHER; return (
+                                    <tr key={d.id} onClick={() => onOpen(d)} className="border-b border-border/40 hover:bg-accent/50 cursor-pointer">
+                                        <td className="px-4 py-2.5"><span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-bold", m.cls)}><m.Icon size={12} /> {m.label}</span></td>
+                                        <td className="px-4 py-2.5 text-foreground truncate max-w-[220px]">{d.deviceName || "—"}</td>
+                                        <td className="px-4 py-2.5 text-muted-foreground">{d.nvrName || "—"}{d.ch != null ? ` · CH ${d.ch}` : ""}</td>
+                                        <td className="px-4 py-2.5 text-muted-foreground tabular-nums">{new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
+                                    </tr>); })}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+                <div className="shrink-0 flex items-center justify-between px-5 py-3 border-t border-border">
+                    <span className="text-[11px] text-muted-foreground">Página {page + 1} de {pages}</span>
+                    <div className="flex gap-2">
+                        <button disabled={page <= 0} onClick={() => setPage((x) => Math.max(0, x - 1))} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs font-bold disabled:opacity-40 hover:bg-accent"><ChevronLeft size={14} /> Anterior</button>
+                        <button disabled={page >= pages - 1} onClick={() => setPage((x) => x + 1)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs font-bold disabled:opacity-40 hover:bg-accent">Siguiente <ChevronRight size={14} /></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function MonitorIntrusion() {
     const [cams, setCams] = useState<IntrusionCam[]>([]);
     const [loading, setLoading] = useState(true);
@@ -222,6 +317,8 @@ export default function MonitorIntrusion() {
     const [calibrateDev, setCalibrateDev] = useState<IntrusionCam | null>(null);
     const [alarmDev, setAlarmDev] = useState<IntrusionCam | null>(null);
     const [alert, setAlertItem] = useState<DetItem | null>(null);
+    const [detail, setDetail] = useState<any>(null);
+    const [showHistory, setShowHistory] = useState(false);
 
     useEffect(() => {
         setLoading(true);
@@ -260,6 +357,7 @@ export default function MonitorIntrusion() {
         for (const d of dets) { if (d.deviceId && !map[d.deviceId]) map[d.deviceId] = d; }
         return map;
     }, [dets]);
+    const camById = useMemo(() => { const mp: Record<string, IntrusionCam> = {}; cams.forEach((c) => (mp[c.id] = c)); return mp; }, [cams]);
 
     const shown = useMemo(() => {
         const term = q.trim().toLowerCase();
@@ -301,6 +399,7 @@ export default function MonitorIntrusion() {
                         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar canal…" className="h-8 w-40 pl-8 pr-2 rounded-lg bg-card border border-border text-xs focus:outline-none focus:ring-1 focus:ring-red-500/40" />
                     </div>
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-400"><Circle size={8} className="fill-emerald-500 text-emerald-500 animate-pulse" /> En vivo</span>
+                    <button onClick={() => setShowHistory(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><History size={13} /> Historial</button>
                     <div className="inline-flex rounded-xl border border-border p-0.5 bg-card">
                         {(["ANALYTIC", "MOTION", "ALL"] as const).map((f) => (
                             <button key={f} onClick={() => setFilter(f)} className={cn("px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-colors", filter === f ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:text-foreground")}>
@@ -359,7 +458,7 @@ export default function MonitorIntrusion() {
                         ) : shownDets.map((d) => {
                             const m = META[d.type] || META.OTHER;
                             return (
-                                <div key={d.id} className={cn("flex items-center gap-3 pl-2.5 pr-3 py-2.5 rounded-xl border bg-card/60", m.cls)}>
+                                <div key={d.id} onClick={() => setDetail(d)} className={cn("flex items-center gap-3 pl-2.5 pr-3 py-2.5 rounded-xl border bg-card/60 cursor-pointer hover:brightness-110 transition", m.cls)}>
                                     <span className={cn("grid h-9 w-9 place-items-center rounded-lg shrink-0", m.cls)}><m.Icon size={17} /></span>
                                     <div className="min-w-0 flex-1">
                                         <div className="text-[13px] font-bold leading-tight">{m.label}</div>
@@ -380,6 +479,8 @@ export default function MonitorIntrusion() {
                 setAnalyticsIds((s) => new Set(s).add(id));
             }} />}
             {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} />}
+            {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} onClose={() => setDetail(null)} />}
+            {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
         </div>
     );
 }

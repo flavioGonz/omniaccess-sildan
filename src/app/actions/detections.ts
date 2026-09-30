@@ -56,7 +56,7 @@ export type IntrusionCam = { id: string; name: string; brand: string; ip: string
 /** Cámaras para el monitor de intrusión, con su NVR y canal (del NVR_CHANNEL_MAP). */
 export async function getIntrusionCameras(): Promise<IntrusionCam[]> {
     const [devices, nvrs, mapRow] = await Promise.all([
-        prisma.device.findMany({ where: { deviceType: { in: ["CAMERA", "LPR_CAMERA"] as any } }, select: { id: true, name: true, brand: true, ip: true }, orderBy: { name: "asc" } }),
+        prisma.device.findMany({ where: { deviceType: "CAMERA" as any }, select: { id: true, name: true, brand: true, ip: true }, orderBy: { name: "asc" } }),
         prisma.device.findMany({ where: { deviceType: "NVR" }, select: { id: true, name: true } }),
         prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } }),
     ]);
@@ -99,4 +99,38 @@ export async function getAnalyticsGeometryBatch(ids: string[]): Promise<Record<s
     // concurrencia 6
     for (let i = 0; i < devs.length; i += 6) await Promise.all(devs.slice(i, i + 6).map(one));
     return out;
+}
+
+
+export type DetHistItem = { id: string; deviceId: string | null; deviceName: string | null; nvrName: string | null; ch: number | null; type: string; eventType: string | null; snapshotPath: string | null; timestamp: string };
+
+/** Historial paginado de detecciones (para la vista tipo /admin/history de intrusión). */
+export async function getDetectionHistory(opts: { page?: number; pageSize?: number; type?: string; deviceId?: string } = {}): Promise<{ items: DetHistItem[]; total: number; page: number; pageSize: number }> {
+    const page = Math.max(0, opts.page ?? 0);
+    const size = Math.min(100, opts.pageSize ?? 40);
+    const where: any = {};
+    if (opts.type && opts.type !== "ALL") {
+        if (opts.type === "ANALYTIC") where.type = { not: "MOTION" };
+        else where.type = opts.type;
+    }
+    if (opts.deviceId) where.deviceId = opts.deviceId;
+    const [rows, total] = await Promise.all([
+        prisma.detection.findMany({ where, orderBy: { timestamp: "desc" }, skip: page * size, take: size }),
+        prisma.detection.count({ where }),
+    ]);
+    const ids = [...new Set(rows.map((r) => r.deviceId).filter(Boolean))] as string[];
+    const [devs, nvrs, mapRow] = await Promise.all([
+        ids.length ? prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, ip: true } }) : Promise.resolve([] as any[]),
+        prisma.device.findMany({ where: { deviceType: "NVR" }, select: { id: true, name: true } }),
+        prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } }),
+    ]);
+    const dm: Record<string, { name: string; ip: string }> = {}; devs.forEach((d: any) => (dm[d.id] = { name: d.name, ip: d.ip }));
+    const nvrName: Record<string, string> = {}; nvrs.forEach((n) => (nvrName[n.id] = n.name));
+    let map: any = {}; try { map = mapRow ? JSON.parse(mapRow.value) : {}; } catch { }
+    const items = rows.map((r) => {
+        const d = r.deviceId ? dm[r.deviceId] : null;
+        const e = d ? map[d.ip] : null; const nid = e ? (e.nvr || e.nvrId || null) : null;
+        return { id: r.id, deviceId: r.deviceId, deviceName: d?.name || null, nvrName: nid ? (nvrName[nid] || null) : null, ch: e ? Number(e.ch) : null, type: r.type, eventType: r.eventType, snapshotPath: r.snapshotPath, timestamp: r.timestamp.toISOString() };
+    });
+    return { items, total, page, pageSize: size };
 }
