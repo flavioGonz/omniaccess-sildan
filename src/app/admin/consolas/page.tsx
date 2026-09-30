@@ -36,6 +36,7 @@ import GuardManagement from "@/components/bitacora/GuardManagement";
 import PanicButtonTab from "@/components/bitacora/PanicButtonTab";
 import { ExportBitacoraDialog } from "@/components/bitacora/ExportBitacoraDialog";
 import { getSocketUrl } from "@/lib/socket-config";
+import { forceGuardLogout } from "@/app/actions/users";
 import {
     Tooltip,
     TooltipContent,
@@ -62,6 +63,7 @@ const TABS = [
 export default function ConsolasAdminPage() {
     const [isAlertMode, setIsAlertMode] = useState(false);
     const [guardLocations, setGuardLocations] = useState<any[]>([]);
+    const [onlineGuards, setOnlineGuards] = useState<any[]>([]);
     const [showFullMap, setShowFullMap] = useState(false);
     const socketRef = React.useRef<any>(null);
     const [socketId, setSocketId] = useState<string | null>(null);
@@ -95,8 +97,10 @@ export default function ConsolasAdminPage() {
         const socket = io(socketUrl);
         socketRef.current = socket;
 
-        socket.on("connect", () => { setSocketId(socket.id || null); });
+        socket.on("connect", () => { setSocketId(socket.id || null); socket.emit("get_online_users"); });
         socket.on("guard_locations", (data: any[]) => { setGuardLocations(data); });
+        socket.on("online_users", (d: any) => { setOnlineGuards(Array.isArray(d?.guards) ? d.guards : []); });
+        socket.on("admin_force_logout_ok", (d: any) => { try { sileo.success({ title: `Sesión cerrada: ${d?.guardName || ""}` }); } catch { } socket.emit("get_online_users"); });
 
         socket.on("alert_status", (data: { active: boolean, triggeredBy?: string }) => {
             if (isFirstRun.current) { setIsAlertMode(data.active); isFirstRun.current = false; return; }
@@ -149,6 +153,15 @@ export default function ConsolasAdminPage() {
         });
         return () => { socketRef.current?.off("guard_presence"); };
     }, [socketRef.current]);
+
+    // #200 Cerrar sesión de un guardia en su tablet (persistente + empujón por socket)
+    const cerrarSesionGuardia = async (guardName: string) => {
+        if (!guardName) return;
+        if (typeof window !== "undefined" && !window.confirm(`¿Cerrar la sesión del guardia "${guardName}" en su tablet?`)) return;
+        try { await forceGuardLogout(guardName); } catch { }
+        try { socketRef.current?.emit("admin_force_logout", { guardName }); } catch { }
+        try { sileo.info({ title: `Cerrando sesión de ${guardName}…` }); } catch { }
+    };
 
     return (
         <div className="p-6 space-y-4 animate-in fade-in duration-500">
@@ -261,7 +274,36 @@ export default function ConsolasAdminPage() {
                     <ManualRegisterForm />
                 </TabsContent>
 
-                <TabsContent value="guards" className="mt-0 focus-visible:outline-none">
+                <TabsContent value="guards" className="mt-0 focus-visible:outline-none space-y-4">
+                    <div className="rounded-2xl border border-border bg-card/60 backdrop-blur-xl overflow-hidden">
+                        <div className="px-5 py-3 border-b border-border flex items-center gap-2">
+                            <Users size={16} className="text-emerald-500" />
+                            <span className="font-bold text-sm">Sesiones activas en tablets</span>
+                            <span className="ml-1 text-[11px] text-muted-foreground">({onlineGuards.length})</span>
+                            <button onClick={() => socketRef.current?.emit("get_online_users")} className="ml-auto p-1.5 rounded-lg text-muted-foreground hover:bg-accent transition-colors" title="Refrescar"><RefreshCcw size={14} /></button>
+                        </div>
+                        {onlineGuards.length === 0 ? (
+                            <div className="px-5 py-8 text-center text-sm text-muted-foreground">No hay guardias con sesión activa en este momento.</div>
+                        ) : (
+                            <div className="divide-y divide-border">
+                                {onlineGuards.map((g: any, i: number) => (
+                                    <div key={g.socketId || g.id || i} className="px-5 py-3 flex items-center gap-3">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px] shadow-emerald-500/60 shrink-0" />
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-sm font-bold text-foreground truncate">{g.name || g.guardName || "Guardia"}</div>
+                                            <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap">
+                                                <span className="inline-flex items-center gap-1"><MapPin size={11} /> {g.ip || "IP desconocida"}</span>
+                                                {g.since && <span>· desde {new Date(g.since).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}</span>}
+                                            </div>
+                                        </div>
+                                        <button onClick={() => cerrarSesionGuardia(g.name || g.guardName)} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors">
+                                            <UserX size={14} /> Cerrar sesión
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                     <GuardManagement />
                 </TabsContent>
 

@@ -853,3 +853,35 @@ export async function quickRegisterPlate(plate: string, name: string, unitName?:
         plate: normalizedPlate 
     };
 }
+
+
+/* ─────────── #197/#198 Cierre de sesión remoto de guardias ───────────
+ * No hay token/cookie de guardia: la identidad vive en localStorage y la
+ * presencia en memoria (server.js). Persistimos un "candado" por guardia en
+ * Setting (guard_revoked_<nombre> = epoch ms). El proceso de sockets lo recarga
+ * y expulsa; el cliente lo consulta en el auto-login para no re-entrar solo.
+ */
+const revokeKey = (name: string) => "guard_revoked_" + String(name || "").trim().toLowerCase();
+
+export async function forceGuardLogout(guardName: string) {
+    try {
+        const name = String(guardName || "").trim();
+        if (!name) return { ok: false, error: "Falta el nombre del guardia" };
+        const key = revokeKey(name);
+        const value = String(Date.now());
+        await prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } });
+        return { ok: true };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || "No se pudo cerrar la sesión" };
+    }
+}
+
+export async function isGuardRevoked(guardName: string, loginTs: number) {
+    try {
+        const s = await prisma.setting.findUnique({ where: { key: revokeKey(guardName) } });
+        const revokedAt = Number(s?.value) || 0;
+        return { revoked: revokedAt > 0 && revokedAt >= (Number(loginTs) || 0), revokedAt };
+    } catch {
+        return { revoked: false, revokedAt: 0 };
+    }
+}

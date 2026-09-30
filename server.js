@@ -2341,7 +2341,7 @@ function guardsArray() {
     const out = [];
     for (const [sid, g] of guardState) {
         if (now - g.ts > 120000) { guardState.delete(sid); continue; } // 2 min sin señal -> fuera
-        out.push({ id: sid, socketId: sid, guardName: g.guardName, name: g.guardName, lat: g.lat, lng: g.lng, accuracy: g.accuracy, ts: g.ts, guardPhoto: g.guardPhoto || null, deviceInfo: g.deviceInfo || null, battery: g.battery != null ? g.battery : null, signal: g.signal != null ? g.signal : null, heading: g.heading != null ? g.heading : null, steps: g.steps != null ? g.steps : null });
+        out.push({ id: sid, socketId: sid, guardName: g.guardName, name: g.guardName, lat: g.lat, lng: g.lng, accuracy: g.accuracy, ts: g.ts, ip: g.ip || null, since: g.since || g.ts, guardPhoto: g.guardPhoto || null, deviceInfo: g.deviceInfo || null, battery: g.battery != null ? g.battery : null, signal: g.signal != null ? g.signal : null, heading: g.heading != null ? g.heading : null, steps: g.steps != null ? g.steps : null });
     }
     return out;
 }
@@ -2359,12 +2359,52 @@ function onlineSnapshot() {
         if (now - p.ts > 70000) { panelState.delete(sid); continue; } // 70s sin ping -> fuera
         panel.push({ id: sid, name: p.name, role: p.role, ts: p.ts });
     }
-    const guards = guardsArray().map(g => ({ id: g.id, name: g.guardName || "Guardia", role: "GUARD", lat: g.lat, lng: g.lng, ts: g.ts }));
+    const guards = guardsArray().map(g => ({ id: g.id, socketId: g.socketId, name: g.guardName || "Guardia", role: "GUARD", ip: g.ip || null, lat: g.lat, lng: g.lng, ts: g.ts, since: g.since || g.ts }));
     return { panel, guards, total: panel.length + guards.length };
 }
 function broadcastOnline() { try { io.emit("online_users", onlineSnapshot()); } catch (e) { } }
 setInterval(broadcastOnline, 30000);
 setInterval(() => { const before = guardState.size; const arr = guardsArray(); if (arr.length !== before) broadcastGuards(); }, 30000);
+
+// #197 Cierre de sesión remoto de guardias: candado en memoria + persistencia en Setting
+const guardRevoke = new Map(); // guardNameLower -> revokedAtMs
+function forceGuardLogoutByName(name, revokedAt) {
+    const k = String(name || "").trim().toLowerCase();
+    if (!k) return 0;
+    const ts = revokedAt || Date.now();
+    guardRevoke.set(k, Math.max(ts, guardRevoke.get(k) || 0));
+    let n = 0;
+    for (const [sid, g] of guardState) {
+        if (String(g.guardName || "").toLowerCase() === k) {
+            try { io.to(sid).emit("force_logout", { reason: "admin" }); } catch (e) { }
+            guardState.delete(sid); n++;
+        }
+    }
+    try { broadcastGuards(); broadcastOnline(); } catch (e) { }
+    return n;
+}
+// Puente con el proceso web (server actions): las revocaciones se persisten en Setting
+// y se recargan periódicamente acá, expulsando a los sockets vivos que correspondan.
+async function reloadGuardRevokes(kick) {
+    try {
+        const rows = await prisma.setting.findMany({ where: { key: { startsWith: "guard_revoked_" } } });
+        for (const r of rows) {
+            const k = r.key.slice("guard_revoked_".length);
+            const ts = Number(r.value) || 0;
+            if (ts > (guardRevoke.get(k) || 0)) {
+                guardRevoke.set(k, ts);
+                if (kick) for (const [sid, g] of guardState) {
+                    if (String(g.guardName || "").toLowerCase() === k && (g.loginTs || 0) < ts) {
+                        try { io.to(sid).emit("force_logout", { reason: "admin" }); } catch (e) { }
+                        guardState.delete(sid);
+                    }
+                }
+            }
+        }
+    } catch (e) { }
+}
+reloadGuardRevokes(false);
+setInterval(() => reloadGuardRevokes(true), 12000);
 
 // ── MODULE_GUARD panic/backup relay ─────────────────────────────────────
 // El cliente /guard emite alert_toggle / request_backup / respond_backup /
@@ -2375,6 +2415,7 @@ let panicState = { active: false, triggeredBy: null, explanation: "", timestamp:
 
 io.on("connection", (socket) => {
     console.log(`Socket client connected: ${socket.id}`);
+    const guardIp = (String(socket.handshake.headers["x-forwarded-for"] || "").split(",")[0].trim()) || socket.handshake.address || "";
 
     // Send history to new connection
     if (debugLogsHistory.length > 0) {
@@ -2451,13 +2492,30 @@ io.on("connection", (socket) => {
 
     socket.on("guard_presence", (data) => {
         try {
+            const nameLower = String((data && data.guardName) || "").toLowerCase();
+            const loginTs = Number(data && data.loginTs) || 0;
+            const rv = guardRevoke.get(nameLower);
+            if (rv && loginTs && rv >= loginTs) { try { socket.emit("force_logout", { reason: "admin" }); } catch (e) { } guardState.delete(socket.id); return; }
             const prev = guardState.get(socket.id);
             if (prev) {
-                guardState.set(socket.id, { ...prev, guardName: (data && data.guardName) || prev.guardName, guardPhoto: (data && data.guardPhoto) || prev.guardPhoto, deviceInfo: (data && data.deviceInfo) || prev.deviceInfo, ts: Date.now() });
+                guardState.set(socket.id, { ...prev, guardName: (data && data.guardName) || prev.guardName, guardPhoto: (data && data.guardPhoto) || prev.guardPhoto, deviceInfo: (data && data.deviceInfo) || prev.deviceInfo, ip: guardIp || prev.ip, loginTs: loginTs || prev.loginTs, since: prev.since || Date.now(), ts: Date.now() });
             } else if (data && data.guardName) {
                 // presencia sin GPS todavía: registrar sin posición (no se emite hasta tener lat/lng)
-                guardState.set(socket.id, { guardName: data.guardName, guardPhoto: data.guardPhoto, deviceInfo: data.deviceInfo, lat: null, lng: null, ts: Date.now() });
+                guardState.set(socket.id, { guardName: data.guardName, guardPhoto: data.guardPhoto, deviceInfo: data.deviceInfo, ip: guardIp, loginTs, since: Date.now(), lat: null, lng: null, ts: Date.now() });
             }
+        } catch (e) { }
+    });
+
+    // #197 Cierre remoto desde el panel admin (emitido por /admin/consolas sobre su socket)
+    socket.on("admin_force_logout", async (data) => {
+        try {
+            const name = data && data.guardName;
+            if (!name) return;
+            const ts = Date.now();
+            const key = "guard_revoked_" + String(name).toLowerCase();
+            try { await prisma.setting.upsert({ where: { key }, update: { value: String(ts) }, create: { key, value: String(ts) } }); } catch (e) { }
+            const kicked = forceGuardLogoutByName(name, ts);
+            try { socket.emit("admin_force_logout_ok", { guardName: name, kicked }); } catch (e) { }
         } catch (e) { }
     });
 

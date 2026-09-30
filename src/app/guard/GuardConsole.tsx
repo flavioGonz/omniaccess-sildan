@@ -68,7 +68,7 @@ import { cn } from "@/lib/utils";
 import { createBitacoraEntry, deleteBitacoraEntry, getBitacoraPage, searchRecentBitacora } from "@/app/actions/bitacora";
 import { getAccessEvents, getPlateAnalysis } from "@/app/actions/history";
 import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
-import { getQuickCreateData, getGuardsList, verifyGuardCredential } from "@/app/actions/users";
+import { getQuickCreateData, getGuardsList, verifyGuardCredential, isGuardRevoked } from "@/app/actions/users";
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
@@ -448,12 +448,14 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         let hadSession = false;
         newSocket.on('connect', () => {
             setIsConnected(true);
-            newSocket.emit('guard_presence', { guardName: guardNameRef.current || localStorage.getItem("guard_name") || 'Invitado', status: 'online', timestamp: new Date().toISOString(), guardPhoto: guardPhotoRef.current || localStorage.getItem("guard_photo") });
+            newSocket.emit('guard_presence', { guardName: guardNameRef.current || localStorage.getItem("guard_name") || 'Invitado', status: 'online', timestamp: new Date().toISOString(), loginTs: Number(localStorage.getItem("guard_login_ts") || 0), guardPhoto: guardPhotoRef.current || localStorage.getItem("guard_photo") });
             if (hadSession) setResyncTick((t) => t + 1);
             hadSession = true;
         });
         newSocket.on('disconnect', () => setIsConnected(false));
         newSocket.on('connect_error', () => setIsConnected(false));
+        // #197 Cierre remoto desde el panel admin
+        newSocket.on('force_logout', () => { try { handleLogout(); } catch (e) { } });
 
         // Attempt to get Local IP via WebRTC
         let detectedLocalIp = '';
@@ -492,6 +494,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                     guardName: guardNameRef.current || localStorage.getItem("guard_name") || 'Invitado',
                     status: 'online',
                     timestamp: new Date().toISOString(),
+                    loginTs: Number(localStorage.getItem("guard_login_ts") || 0),
                     reportedIp: detectedLocalIp, // Send the IP we found
                     deviceInfo: deviceInfo,
                     guardPhoto: guardPhotoRef.current || localStorage.getItem("guard_photo")
@@ -915,6 +918,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             if (typeof window !== 'undefined') {
                 localStorage.setItem("bitacora_guard_name", guard.name);
                 localStorage.setItem("guard_name", guard.name);
+                localStorage.setItem("guard_login_ts", String(Date.now()));
                 setGuardName(guard.name); guardNameRef.current = guard.name;
                 if (photoUrl) localStorage.setItem("bitacora_guard_photo", photoUrl);
             }
@@ -939,6 +943,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             setGuardName(guard.name);
             setGuardPhoto(guard.cara);
             localStorage.setItem("bitacora_guard_name", guard.name);
+            localStorage.setItem("guard_login_ts", String(Date.now()));
             if (guard.cara) localStorage.setItem("bitacora_guard_photo", guard.cara);
             setShowIdentityOverlay(false); setIdentificado(true);
             setShowProfileMenu(false); // Ensure menu is closed
@@ -954,6 +959,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         localStorage.removeItem("bitacora_guard_name");
         localStorage.removeItem("guard_name");
         localStorage.removeItem("bitacora_guard_photo");
+        localStorage.removeItem("guard_login_ts");
         setShowIdentityOverlay(true); setIdentificado(false);
         showNotification("SESIÓN CERRADA", "Se ha finalizado la sesión del guardia exitosamente.", "info");
     };
@@ -985,16 +991,30 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     // Load guard name
     useEffect(() => {
         const savedGuard = localStorage.getItem("bitacora_guard_name");
-        if (savedGuard) {
+        if (!savedGuard) return;
+        const loginTs = Number(localStorage.getItem("guard_login_ts") || 0);
+        (async () => {
+            try {
+                const r = await isGuardRevoked(savedGuard, loginTs);
+                if (r?.revoked) {
+                    localStorage.removeItem("bitacora_guard_name");
+                    localStorage.removeItem("guard_name");
+                    localStorage.removeItem("bitacora_guard_photo");
+                    localStorage.removeItem("guard_login_ts");
+                    setShowIdentityOverlay(true); setIdentificado(false);
+                    return;
+                }
+            } catch (e) { }
             setGuardName(savedGuard);
             setShowIdentityOverlay(false); setIdentificado(true);
-        }
+        })();
     }, []);
 
     const saveGuardName = (val: string) => {
         setGuardName(val);
         localStorage.setItem("bitacora_guard_name", val);
         localStorage.setItem("guard_name", val);
+        localStorage.setItem("guard_login_ts", String(Date.now()));
     };
 
     // INFINITE SCROLL EFFECT
@@ -3655,6 +3675,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                     const pinCheck = prompt(`Ingrese PIN de seguridad para ${guard.name}:`);
                                                     if (pinCheck && (await verifyGuardCredential(guard.name, pinCheck)).ok) {
                                                         localStorage.setItem("guard_name", guard.name);
+                                                        localStorage.setItem("guard_login_ts", String(Date.now()));
                                                         setGuardName(guard.name);
                                                         setGuardPhoto(guard.cara); // Assuming 'cara' is the photo URL
                                                         if (guard.cara) localStorage.setItem("guard_photo", guard.cara);
