@@ -454,6 +454,14 @@ export default function PlazasPage() {
         { id: "pan", icon: Hand, label: "Mover / desplazar", active: "bg-violet-600 text-white" },
     ];
 
+    // #151: paleta única compartida por polígonos y leyenda (una sola fuente de verdad)
+    const OCC = {
+        in:       { fill: "rgba(16,185,129,0.55)",  stroke: "#10b981", css: "rgba(16,185,129,0.55)",  label: "Auto en casa" },
+        out:      { fill: "rgba(244,63,94,0.5)",    stroke: "#f43f5e", css: "rgba(244,63,94,0.5)",    label: "Auto afuera" },
+        assigned: { fill: "rgba(100,116,139,0.32)", stroke: "#94a3b8", css: "rgba(100,116,139,0.32)", label: "Asignada, sin lectura" },
+        free:     { fill: "url(#diagonalHatchOrange)", stroke: "#f59e0b", css: "repeating-linear-gradient(45deg,transparent,transparent 2px,#f59e0b 2px,#f59e0b 3px)", label: "Libre / sin asignar" },
+    } as const;
+
     return (
         <TooltipProvider delayDuration={150}>
         <div className="w-full h-full relative bg-background overflow-hidden animate-in fade-in duration-700 flex items-center justify-center">
@@ -688,10 +696,11 @@ export default function PlazasPage() {
             {/* Leyenda de presencia LPR */}
             {mapImage && (
                 <div className="absolute bottom-4 left-4 z-20 bg-card/50 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 rounded-xl px-3 py-2 shadow-lg text-[11px] space-y-1 pointer-events-none">
-                    <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(16,185,129,0.7)", border: "1px solid #34d399" }} /> Auto en casa <span className="ml-1">🚗</span></div>
-                    <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(239,68,68,0.7)", border: "1px solid #ef4444" }} /> Auto afuera</div>
-                    <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "rgba(16,185,129,0.35)", border: "1px solid #34d399" }} /> Asignada, sin vehículo</div>
-                    <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: "repeating-linear-gradient(45deg,transparent,transparent 2px,#f97316 2px,#f97316 3px)", border: "1px solid #f97316" }} /> Libre / sin asignar</div>
+                    <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground/70 pb-0.5">Presencia</div>
+                    <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: OCC.in.css, border: `1px solid ${OCC.in.stroke}` }} /> {OCC.in.label} <span className="ml-1">🚗</span></div>
+                    <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: OCC.out.css, border: `1px solid ${OCC.out.stroke}` }} /> {OCC.out.label}</div>
+                    <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: OCC.assigned.css, border: `1px solid ${OCC.assigned.stroke}` }} /> {OCC.assigned.label}</div>
+                    <div className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: OCC.free.css, border: `1px solid ${OCC.free.stroke}` }} /> {OCC.free.label}</div>
                 </div>
             )}
 
@@ -722,8 +731,8 @@ export default function PlazasPage() {
                         >
                             <defs>
                                 <pattern id="diagonalHatchOrange" patternUnits="userSpaceOnUse" width="2" height="2" patternTransform="rotate(45)">
-                                    <rect width="2" height="2" fill="rgba(249, 115, 22, 0.1)" />
-                                    <path d="M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2" stroke="rgba(249, 115, 22, 0.8)" strokeWidth="0.5" />
+                                    <rect width="2" height="2" fill="rgba(245, 158, 11, 0.1)" />
+                                    <path d="M-1,1 l2,-2 M0,4 l4,-4 M3,5 l2,-2" stroke="rgba(245, 158, 11, 0.85)" strokeWidth="0.5" />
                                 </pattern>
                             </defs>
 
@@ -745,8 +754,9 @@ export default function PlazasPage() {
                                 const occData = occupancy[slot.id];
                                 const occ = occData?.status; // "in" | "out" | "none" | undefined
                                 const insidePlates = occData?.inside || [];
-                                const occFill = occ === "in" ? "rgba(16, 185, 129, 0.55)" : occ === "out" ? "rgba(239, 68, 68, 0.55)" : (slot.unitId ? "rgba(16, 185, 129, 0.5)" : "url(#diagonalHatchOrange)");
-                                const occStroke = occ === "in" ? "#34d399" : occ === "out" ? "#ef4444" : (slot.unitId ? "#34d399" : "#f97316");
+                                const occKey = occ === "in" ? "in" : occ === "out" ? "out" : (slot.unitId ? "assigned" : "free");
+                                const occFill = OCC[occKey].fill;
+                                const occStroke = OCC[occKey].stroke;
 
                                 return (
                                     <g
@@ -755,7 +765,7 @@ export default function PlazasPage() {
                                             e.stopPropagation();
                                             if (editSlotId === slot.id) { setSelectedSlot(slot.id); return; }
                                             setSelectedSlot(slot.id);
-                                            setShowUnitSelector(true);
+                                            if (editMode) setShowUnitSelector(true);
                                         }}
                                         onContextMenu={(e) => openCtx(e, "slot", slot.id)}
                                         onMouseEnter={(e) => { setHoveredSlot(slot.id); const r = (e.currentTarget as SVGGElement).getBoundingClientRect(); setHoverCard({ slotId: slot.id, x: r.left + r.width / 2, y: r.top }); }}
