@@ -11,6 +11,16 @@ export async function GET(req: NextRequest) {
     if (!ch || !/^\d+$/.test(ch)) return new Response("bad ch", { status: 400 });
     const conn = await resolveNvrById(req.nextUrl.searchParams.get("nvr"));
     if (!conn) return new Response("no nvr", { status: 404 });
+    if (conn.brand === "DAHUA") {
+        for (const a of ["DIGEST", "BASIC"]) {
+            try {
+                const dev: any = { ip: conn.ip, username: conn.user, password: conn.pass, authType: a };
+                const buf = await authenticatedRequest("GET", `/cgi-bin/snapshot.cgi?channel=${ch}`, dev, { responseType: "arraybuffer", accept: "image/jpeg", timeout: 12000 });
+                return new Response(Buffer.from(buf), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-store" } });
+            } catch { /* next */ }
+        }
+        return new Response("err", { status: 502 });
+    }
     for (const a of ["DIGEST", "BASIC"]) {
         try {
             const dev: any = { ip: conn.ip, username: conn.user, password: conn.pass, authType: a };

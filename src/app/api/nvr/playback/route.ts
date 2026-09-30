@@ -19,6 +19,12 @@ function fmtNvr(ms: number): string {
     const hh = g("hour") === "24" ? "00" : g("hour");
     return `${g("year")}${g("month")}${g("day")}T${hh}${g("minute")}${g("second")}Z`;
 }
+function fmtDahua(ms: number): string {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: NVR_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date(ms));
+    const g = (t: string) => parts.find((p) => p.type === t)?.value || "00";
+    const hh = g("hour") === "24" ? "00" : g("hour");
+    return `${g("year")}_${g("month")}_${g("day")}_${hh}_${g("minute")}_${g("second")}`;
+}
 
 // GET /api/nvr/playback?ch=8&t=<epochMs>&pre=10&dur=40
 // Streams recorded video from a Hikvision NVR (RTSP time-based playback) as fragmented MP4.
@@ -34,10 +40,16 @@ export async function GET(req: NextRequest) {
     if (!conn) return new Response("NVR not configured", { status: 404 });
 
     const startMs = t - pre * 1000;
-    const start = fmtNvr(startMs);
-    const end = fmtNvr(startMs + dur * 1000);
     const port = conn.rtspPort || "554";
-    const url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
+    let url: string;
+    if (conn.brand === "DAHUA") {
+        const s = fmtDahua(startMs), e = fmtDahua(startMs + dur * 1000);
+        url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/cam/playback?channel=${ch}&starttime=${s}&endtime=${e}`;
+    } else {
+        const start = fmtNvr(startMs);
+        const end = fmtNvr(startMs + dur * 1000);
+        url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
+    }
 
     // Modo "clip completo": genera un MP4 completo (faststart) a un archivo temporal y lo sirve
     // con Content-Length + soporte de rangos. Necesario para que el <video> reproduzca en el

@@ -188,7 +188,7 @@ const DRIVERS = [
     { brand: "Akuvox", tech: "HTTP/Webhook", active: true, color: "blue", logo: "/logos/akuvox.png" },
     { brand: "Avicam", tech: "HTTP/Webhook", active: true, color: "rose", logo: "https://avicam.com.br/wp-content/uploads/2019/11/logo_avicam.png" },
     { brand: "Bosch", tech: "HTTP/Webhook", active: true, color: "blue" },
-    { brand: "Dahua", tech: "CGI/HTTP", active: false, color: "red" },
+    { brand: "Dahua", tech: "CGI/HTTP · RTSP", active: true, color: "red" },
     { brand: "ZKTeco", tech: "Push HTTP", active: false, color: "blue" },
     { brand: "Axis", tech: "Vapix API", active: false, color: "orange" },
     { brand: "Uniview", tech: "SDK Proxy", active: false, color: "blue" },

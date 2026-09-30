@@ -11,13 +11,13 @@ import { prisma } from "@/lib/prisma";
  * settings globales NVR_HOST/USER/PASS/PORT (instalaciones de un solo NVR previas).
  */
 
-export type NvrConn = { nvrId: string | null; ip: string; user: string; pass: string; rtspPort: string };
+export type NvrConn = { nvrId: string | null; ip: string; user: string; pass: string; rtspPort: string; brand: string };
 
 async function legacyDefault(): Promise<NvrConn | null> {
     const rows = await prisma.setting.findMany({ where: { key: { in: ["NVR_HOST", "NVR_USER", "NVR_PASS", "NVR_PORT"] } } });
     const cfg: any = {}; rows.forEach((r: any) => (cfg[r.key] = r.value));
     if (!cfg.NVR_HOST) return null;
-    return { nvrId: null, ip: cfg.NVR_HOST, user: cfg.NVR_USER || "admin", pass: cfg.NVR_PASS || "", rtspPort: cfg.NVR_PORT || "554" };
+    return { nvrId: null, ip: cfg.NVR_HOST, user: cfg.NVR_USER || "admin", pass: cfg.NVR_PASS || "", rtspPort: cfg.NVR_PORT || "554", brand: "HIKVISION" };
 }
 
 /** Devuelve el id del NVR por defecto (para normalizar mapas viejos). */
@@ -34,8 +34,8 @@ export async function defaultNvrId(): Promise<string | null> {
 /** Conexión de un NVR por su id (con fallback a settings globales). */
 export async function resolveNvrById(nvrId?: string | null): Promise<NvrConn | null> {
     if (nvrId) {
-        const d = await prisma.device.findUnique({ where: { id: nvrId }, select: { ip: true, username: true, password: true, port: true } });
-        if (d?.ip) return { nvrId, ip: d.ip, user: d.username || "admin", pass: d.password || "", rtspPort: d.port ? String(d.port) : "554" };
+        const d = await prisma.device.findUnique({ where: { id: nvrId }, select: { ip: true, username: true, password: true, port: true, brand: true } });
+        if (d?.ip) return { nvrId, ip: d.ip, user: d.username || "admin", pass: d.password || "", rtspPort: d.port ? String(d.port) : "554", brand: String(d.brand || "HIKVISION") };
     }
     return legacyDefault();
 }

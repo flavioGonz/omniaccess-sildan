@@ -18,6 +18,13 @@ export async function GET(req: NextRequest) {
 
     const conn = await resolveNvrById(sp.get("nvr"));
     if (!conn) return NextResponse.json({ days: [] });
+    if (conn.brand === "DAHUA") {
+        // Dahua no expone un search por día tan simple; devolvemos el mes hasta hoy (aprox).
+        const ld = new Date(year, month, 0).getDate();
+        const today = new Date();
+        const maxD = (today.getFullYear() === year && today.getMonth() + 1 === month) ? today.getDate() : ld;
+        return NextResponse.json({ days: Array.from({ length: maxD }, (_, i) => i + 1), approx: true }, { headers: { "Cache-Control": "private, max-age=120" } });
+    }
 
     const p2 = (n: number) => String(n).padStart(2, "0");
     const lastDay = new Date(year, month, 0).getDate();
