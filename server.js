@@ -2498,10 +2498,10 @@ io.on("connection", (socket) => {
             if (rv && loginTs && rv >= loginTs) { try { socket.emit("force_logout", { reason: "admin" }); } catch (e) { } guardState.delete(socket.id); return; }
             const prev = guardState.get(socket.id);
             if (prev) {
-                guardState.set(socket.id, { ...prev, guardName: (data && data.guardName) || prev.guardName, guardPhoto: (data && data.guardPhoto) || prev.guardPhoto, deviceInfo: (data && data.deviceInfo) || prev.deviceInfo, ip: guardIp || prev.ip, loginTs: loginTs || prev.loginTs, since: prev.since || Date.now(), ts: Date.now() });
+                guardState.set(socket.id, { ...prev, guardName: (data && data.guardName) || prev.guardName, guardPhoto: (data && data.guardPhoto) || prev.guardPhoto, deviceInfo: (data && data.deviceInfo) || prev.deviceInfo, ip: (data && data.reportedIp) || prev.ip || guardIp, loginTs: loginTs || prev.loginTs, since: prev.since || Date.now(), ts: Date.now() });
             } else if (data && data.guardName) {
                 // presencia sin GPS todavía: registrar sin posición (no se emite hasta tener lat/lng)
-                guardState.set(socket.id, { guardName: data.guardName, guardPhoto: data.guardPhoto, deviceInfo: data.deviceInfo, ip: guardIp, loginTs, since: Date.now(), lat: null, lng: null, ts: Date.now() });
+                guardState.set(socket.id, { guardName: data.guardName, guardPhoto: data.guardPhoto, deviceInfo: data.deviceInfo, ip: (data && data.reportedIp) || guardIp, loginTs, since: Date.now(), lat: null, lng: null, ts: Date.now() });
             }
         } catch (e) { }
     });
