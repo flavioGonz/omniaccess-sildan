@@ -7,6 +7,7 @@ import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDe
 import { getDevices, getAvailableStreams } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
+import { IntrusionPanel } from "@/components/IntrusionPanel";
 import {
     Car,
     CheckCircle2,
@@ -1195,6 +1196,7 @@ export default function MonitorLPR() {
                         <div className="shrink-0">
                             <CenterShot ev={filteredEvents[0]} onRegister={openRegister} />
                         </div>
+                        <IntrusionPanel />
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             <div className="px-4 pt-2 pb-2">
                                 <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
