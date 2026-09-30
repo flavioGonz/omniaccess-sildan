@@ -368,6 +368,7 @@ enum DayOfWeek {
 
 enum DeviceType {
   LPR_CAMERA
+  CAMERA
   NVR
   FACE_TERMINAL
   ACCESS_CONTROL

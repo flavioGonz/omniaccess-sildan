@@ -71,10 +71,8 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.74:554/Streaming/Channels/101
   lpr_cmufszh2802i8izf5gsq24gop:
     - rtsp://admin:Sildan.1329@172.16.2.75:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmufszh2802i8izf5gsq24gop#video=h264
   lpr_cmufszh2802i8izf5gsq24gop_hd:
     - rtsp://admin:Sildan.1329@172.16.2.75:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmufszh2802i8izf5gsq24gop_hd#video=h264
 api:
   listen: ':1984'
   origin: '*'
