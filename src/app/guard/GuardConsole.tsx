@@ -3332,29 +3332,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                     <div className="relative w-full h-full">
                                         <PinchZoom src={viewerImage} alt="Captura LPR" className="w-full h-full" />
 
-                                        {/* Pista de zoom táctil */}
-                                        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 pointer-events-none flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/50 backdrop-blur-sm text-white/80 text-[11px] font-semibold uppercase tracking-wider">
-                                            <ZoomIn size={13} /> Pellizcá para hacer zoom
+                                        {/* Pista de zoom táctil — discreta, abajo-izquierda, no tapa nada */}
+                                        <div className="absolute bottom-3 left-3 z-30 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/45 backdrop-blur-sm text-white/60 text-[10px] font-semibold uppercase tracking-wider">
+                                            <ZoomIn size={12} /> Pellizcá para zoom
                                         </div>
-
-                                        {/* Reporte histórico — siempre visible (tablet sin hover) */}
-                                        {viewerData?.plate && viewerData.plate !== '--- ---' && (
-                                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40">
-                                                <button
-                                                    onClick={async (e) => {
-                                                        e.stopPropagation();
-                                                        setLoadingAnalysis(true);
-                                                        const analysis = await getPlateAnalysis(viewerData.plate!);
-                                                        setPlateAnalysis(analysis);
-                                                        setLoadingAnalysis(false);
-                                                    }}
-                                                    className="bg-[#B20D30] text-white px-8 py-4 rounded-full font-bold uppercase text-sm tracking-widest shadow-2xl flex items-center gap-3 active:scale-95 transition-all"
-                                                >
-                                                    {loadingAnalysis ? <Loader2 size={22} className="animate-spin" /> : <Activity size={22} />}
-                                                    Reporte histórico
-                                                </button>
-                                            </div>
-                                        )}
                                     </div>
 
                                     {/* LPR Data Overlay - Only show if we have LPR data */}
@@ -3378,35 +3359,37 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                         <div className="text-[9px] font-bold text-[#B20D30] uppercase tracking-widest mt-1">Tocá para ver inteligencia</div>
                                                     </button>
                                                 )}
-                                                {viewerData.plate && !['NO_LEIDA', 'unknown', 'S/P', '--- ---'].includes(viewerData.plate) && (
-                                                    <MinInteriorButton
-                                                        plate={viewerData.plate}
-                                                        label
-                                                        className="!px-4 !py-2 !text-xs !bg-indigo-600/90 !text-white hover:!bg-indigo-600 shadow-lg backdrop-blur"
-                                                    />
-                                                )}
-                                                {viewerData.id && (!viewerData.plate || ['NO_LEIDA', 'unknown', 'S/P', '--- ---'].includes(viewerData.plate)) && (
-                                                    <PlateManualButton
-                                                        eventId={viewerData.id}
-                                                        currentPlate={viewerData.plate}
-                                                        onSaved={(p) => setViewerData(v => v ? { ...v, plate: p } : v)}
-                                                        label
-                                                        className="!px-4 !py-2 !text-xs !bg-amber-500/90 !text-white hover:!bg-amber-500 shadow-lg backdrop-blur"
-                                                    />
-                                                )}
-
-                                                {/* Direction Badge */}
-                                                {viewerData.direction && (
-                                                    <div className={cn(
-                                                        "inline-flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm uppercase tracking-wider shadow-lg",
-                                                        viewerData.direction === "ENTRY"
-                                                            ? "bg-emerald-500 text-white"
-                                                            : "bg-orange-500 text-white"
-                                                    )}>
-                                                        {viewerData.direction === "ENTRY" ? <LogIn size={18} /> : <LogOut size={18} />}
-                                                        {viewerData.direction === "ENTRY" ? "Entrada" : "Salida"}
-                                                    </div>
-                                                )}
+                                                {/* Fila de acciones — botones uniformes */}
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    {/* Dirección */}
+                                                    {viewerData.direction && (
+                                                        <span className={cn(
+                                                            "inline-flex items-center gap-1.5 h-10 px-3.5 rounded-xl font-bold text-xs uppercase tracking-wide shadow-lg",
+                                                            viewerData.direction === "ENTRY" ? "bg-emerald-500 text-white" : "bg-orange-500 text-white"
+                                                        )}>
+                                                            {viewerData.direction === "ENTRY" ? <LogIn size={16} /> : <LogOut size={16} />}
+                                                            {viewerData.direction === "ENTRY" ? "Entrada" : "Salida"}
+                                                        </span>
+                                                    )}
+                                                    {/* Min. Interior (matrícula legible) */}
+                                                    {viewerData.plate && !['NO_LEIDA', 'unknown', 'S/P', '--- ---'].includes(viewerData.plate) && (
+                                                        <MinInteriorButton
+                                                            plate={viewerData.plate}
+                                                            label
+                                                            className="!h-10 !px-3.5 !rounded-xl !text-xs !uppercase !tracking-wide !bg-indigo-600 !text-white hover:!bg-indigo-500 shadow-lg"
+                                                        />
+                                                    )}
+                                                    {/* Cargar matrícula (no leída) */}
+                                                    {viewerData.id && (!viewerData.plate || ['NO_LEIDA', 'unknown', 'S/P', '--- ---'].includes(viewerData.plate)) && (
+                                                        <PlateManualButton
+                                                            eventId={viewerData.id}
+                                                            currentPlate={viewerData.plate}
+                                                            onSaved={(p) => setViewerData(v => v ? { ...v, plate: p } : v)}
+                                                            label
+                                                            className="!h-10 !px-3.5 !rounded-xl !text-xs !uppercase !tracking-wide !bg-amber-500 !text-white hover:!bg-amber-400 shadow-lg"
+                                                        />
+                                                    )}
+                                                </div>
 
                                                 {/* Confidence Score */}
                                                 {viewerData.confidence !== undefined && (

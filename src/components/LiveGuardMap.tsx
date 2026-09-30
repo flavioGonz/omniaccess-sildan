@@ -57,6 +57,16 @@ function ZoomWatcher({ onZoom }: { onZoom: (z: number) => void }) {
     return null;
 }
 
+// Publica los límites visibles para hacer culling de lotes fuera de pantalla (clave con muchos lotes).
+function BoundsTracker({ onBounds }: { onBounds: (b: any) => void }) {
+    const map = useMap();
+    const t = useRef<any>(null);
+    const emit = () => { if (t.current) clearTimeout(t.current); t.current = setTimeout(() => { try { onBounds(map.getBounds().pad(0.25)); } catch { } }, 120); };
+    useMapEvents({ moveend: emit, zoomend: emit });
+    useEffect(() => { try { onBounds(map.getBounds().pad(0.25)); } catch { } }, [map]);
+    return null;
+}
+
 function UserLocationControl({ myLocation }: { myLocation: { lat: number; lng: number } | null }) {
     const map = useMap();
     return (
@@ -73,13 +83,18 @@ function UserLocationControl({ myLocation }: { myLocation: { lat: number; lng: n
 }
 
 // ── Capa de lotes memoizada (read-only): polígonos + etiquetas (por zoom) ──
-const LotesLayer = memo(function LotesLayer({ lotes, zoom, selectedId, onSelect }: {
-    lotes: BarrioMapData["lotes"]; zoom: number; selectedId: string | null; onSelect: (lote: BarrioMapData["lotes"][number]) => void;
+const LotesLayer = memo(function LotesLayer({ lotes, zoom, selectedId, bounds, onSelect }: {
+    lotes: BarrioMapData["lotes"]; zoom: number; selectedId: string | null; bounds: any; onSelect: (lote: BarrioMapData["lotes"][number]) => void;
 }) {
     const showNames = zoom >= 17;
+    // Culling por viewport: solo dibujamos los lotes visibles (clave con muchos lotes).
+    const visible = useMemo(() => {
+        if (!bounds) return lotes;
+        return lotes.filter((lo) => lo.points && lo.points.some((p) => bounds.contains(p as any)));
+    }, [lotes, bounds]);
     return (
         <>
-            {lotes.map((lo) => {
+            {visible.map((lo) => {
                 if (!lo.points || lo.points.length < 3) return null;
                 const sel = lo.id === selectedId;
                 return (
@@ -122,6 +137,7 @@ export default function LiveGuardMap({ myLocation, guards, socketId, onLongPress
 
     const [barrio, setBarrio] = useState<BarrioMapData | null>(null);
     const [zoom, setZoom] = useState(15);
+    const [bounds, setBounds] = useState<any>(null);
     const [selected, setSelected] = useState<BarrioMapData["lotes"][number] | null>(null);
     const [detail, setDetail] = useState<SlotDetail | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
@@ -154,6 +170,7 @@ export default function LiveGuardMap({ myLocation, guards, socketId, onLongPress
                 <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" attribution="&copy; Esri" maxZoom={21} maxNativeZoom={19} />
 
                 <ZoomWatcher onZoom={setZoom} />
+                <BoundsTracker onBounds={setBounds} />
                 {!mySafeLoc && barrioCenter && <SetBarrioView center={barrioCenter} zoom={barrio!.zoom} />}
                 <UserLocationControl myLocation={mySafeLoc} />
                 <AutoFitBounds guards={validGuards} myLocation={mySafeLoc} barrioReady={!!barrioCenter} />
@@ -167,7 +184,7 @@ export default function LiveGuardMap({ myLocation, guards, socketId, onLongPress
                     <Polyline key={d.id} positions={d.points as any} pathOptions={{ color: d.color || "#f59e0b", weight: d.weight || 2, opacity: 0.7 }} />
                 ))}
                 {/* Lotes */}
-                {barrio && <LotesLayer lotes={barrio.lotes} zoom={zoom} selectedId={selected?.id || null} onSelect={openLote} />}
+                {barrio && <LotesLayer lotes={barrio.lotes} zoom={zoom} selectedId={selected?.id || null} bounds={bounds} onSelect={openLote} />}
 
                 {/* Yo */}
                 {mySafeLoc && (
