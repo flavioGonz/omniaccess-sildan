@@ -22,7 +22,8 @@ async function get(c: DahuaConn, name: string): Promise<string> {
     return authenticatedRequest("GET", `/cgi-bin/configManager.cgi?action=getConfig&name=${name}`, dev(c), { responseType: "text", timeout: 9000 });
 }
 async function setCfg(c: DahuaConn, query: string): Promise<string> {
-    return authenticatedRequest("GET", `/cgi-bin/configManager.cgi?action=setConfig&${query}`, dev(c), { responseType: "text", timeout: 9000 });
+    const enc = query.replace(/\[/g, "%5B").replace(/\]/g, "%5D"); // Dahua exige corchetes URL-encodeados
+    return authenticatedRequest("GET", `/cgi-bin/configManager.cgi?action=setConfig&${enc}`, dev(c), { responseType: "text", timeout: 9000 });
 }
 
 /** Parsea el bloque de reglas de un canal (0-based) y extrae línea/zona. */
@@ -56,6 +57,12 @@ function findRule(rules: ReturnType<typeof parseChannel>, type: string): number 
 function ptsFrom(obj: Record<number, Pt>): Pt[] {
     return Object.keys(obj).map(Number).sort((a, b) => a - b).map((k) => obj[k]);
 }
+function cleanPts(pts: Pt[]): Pt[] {
+    const out: Pt[] = [];
+    for (const p of pts) { const l = out[out.length - 1]; if (!l || l.x !== p.x || l.y !== p.y) out.push(p); }
+    if (out.length > 1) { const a = out[0], b = out[out.length - 1]; if (a.x === b.x && a.y === b.y) out.pop(); }
+    return out;
+}
 
 export async function readDahuaIvs(c: DahuaConn, channel: number): Promise<{ support: { line: boolean; field: boolean }; line: Pt[]; field: Pt[] }> {
     const chIdx = channel - 1;
@@ -64,8 +71,8 @@ export async function readDahuaIvs(c: DahuaConn, channel: number): Promise<{ sup
     const rules = parseChannel(txt, chIdx);
     const rLine = findRule(rules, "CrossLineDetection");
     const rField = findRule(rules, "CrossRegionDetection");
-    const line = rLine != null ? ptsFrom(rules[rLine].line).map((p) => toApi(p.x, p.y)) : [];
-    const field = rField != null ? ptsFrom(rules[rField].region).map((p) => toApi(p.x, p.y)) : [];
+    const line = rLine != null ? cleanPts(ptsFrom(rules[rLine].line).map((p) => toApi(p.x, p.y))) : [];
+    const field = rField != null ? cleanPts(ptsFrom(rules[rField].region).map((p) => toApi(p.x, p.y))) : [];
     return { support: { line: rLine != null, field: rField != null }, line, field };
 }
 
@@ -76,13 +83,15 @@ export async function writeDahuaField(c: DahuaConn, channel: number, points: Pt[
     const rules = parseChannel(txt, chIdx);
     let r = findRule(rules, "CrossRegionDetection");
     if (r == null) r = 0; // sin regla: usar índice 0 (Olivos ya trae una por canal)
+    const oldN = rules[r] ? Object.keys(rules[r].region).length : 0;
     const dpts = points.map(toDahua);
+    const targetN = Math.max(dpts.length, oldN); // Dahua no borra índices: padeamos con el último punto
     const parts: string[] = [];
-    dpts.forEach((p, k) => {
-        parts.push(`VideoAnalyseRule[${chIdx}][${r}].Config.DetectRegion[${k}][0]=${p.x}`);
-        parts.push(`VideoAnalyseRule[${chIdx}][${r}].Config.DetectRegion[${k}][1]=${p.y}`);
-    });
-    parts.push(`VideoAnalyseRule[${chIdx}][${r}].Config.DetectRegion[${dpts.length}]=`); // trunca extras
+    for (let k = 0; k < targetN; k++) {
+        const pt = dpts[Math.min(k, dpts.length - 1)];
+        parts.push(`VideoAnalyseRule[${chIdx}][${r}].Config.DetectRegion[${k}][0]=${pt.x}`);
+        parts.push(`VideoAnalyseRule[${chIdx}][${r}].Config.DetectRegion[${k}][1]=${pt.y}`);
+    }
     await setCfg(c, parts.join("&"));
 }
 
