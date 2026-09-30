@@ -181,14 +181,21 @@ export function MinInteriorDialog({
                     {badge()}
 
                     <div className="flex items-center justify-between pt-1">
-                        <a
-                            href={MIN_INTERIOR_URL}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        <button
+                            type="button"
+                            onClick={() => {
+                                try {
+                                    const w = window.open(MIN_INTERIOR_URL, "_blank", "noopener,noreferrer");
+                                    if (!w) { navigator.clipboard?.writeText(MIN_INTERIOR_URL).catch(() => {}); }
+                                } catch {
+                                    try { navigator.clipboard?.writeText(MIN_INTERIOR_URL).catch(() => {}); } catch {}
+                                }
+                            }}
                             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-indigo-500"
+                            title="Abrir el sitio oficial (o copiar el enlace si el visor lo bloquea)"
                         >
                             <ExternalLink size={12} /> Abrir sitio oficial
-                        </a>
+                        </button>
                         <div className="flex items-center gap-2">
                             {result && (
                                 <Button type="button" variant="outline" onClick={startCaptcha}>Nueva consulta</Button>

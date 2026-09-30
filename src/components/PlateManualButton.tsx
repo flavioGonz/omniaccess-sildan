@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
     Dialog,
     DialogContent,
@@ -26,7 +26,8 @@ type SaveResult = {
 };
 
 /** Botón para cargar/corregir a mano la matrícula de una detección NO_LEIDA.
- * Al guardar, re-evalúa el acceso (residente / decisión / watchlist) en el servidor. */
+ * Al guardar, re-evalúa el acceso (residente / decisión / watchlist) en el servidor.
+ * Endurecido para WebView (APK): el foco/teclado se fuerza tras abrir el modal. */
 export function PlateManualButton({
     eventId,
     currentPlate,
@@ -45,10 +46,21 @@ export function PlateManualButton({
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
     const [result, setResult] = useState<SaveResult | null>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     const openDialog = (e: React.MouseEvent) => {
         e.stopPropagation(); e.preventDefault();
         setPlate(""); setError(""); setResult(null); setOpen(true);
+    };
+
+    // En el WebView de Android el autoFocus de Radix no siempre levanta el teclado:
+    // forzamos el foco (y un click) un instante después de montar el contenido.
+    const forceFocus = () => {
+        for (const d of [60, 220, 500]) {
+            setTimeout(() => {
+                try { inputRef.current?.focus({ preventScroll: true }); } catch { }
+            }, d);
+        }
     };
 
     const save = async () => {
@@ -70,6 +82,7 @@ export function PlateManualButton({
     return (
         <>
             <button
+                type="button"
                 onClick={openDialog}
                 title="Cargar matrícula a mano"
                 className={cn(
@@ -85,7 +98,11 @@ export function PlateManualButton({
             </button>
 
             <Dialog open={open} onOpenChange={setOpen}>
-                <DialogContent className="sm:max-w-sm" onClick={(e) => e.stopPropagation()}>
+                <DialogContent
+                    className="sm:max-w-sm"
+                    onClick={(e) => e.stopPropagation()}
+                    onOpenAutoFocus={(e) => { e.preventDefault(); forceFocus(); }}
+                >
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <Keyboard size={18} className="text-amber-500" /> Cargar matrícula
@@ -98,12 +115,19 @@ export function PlateManualButton({
                     {!result ? (
                         <div className="space-y-4">
                             <Input
+                                ref={inputRef}
                                 value={plate}
                                 onChange={(e) => setPlate(normPlate(e.target.value))}
                                 onKeyDown={(e) => { if (e.key === "Enter") save(); }}
+                                onClick={() => { try { inputRef.current?.focus(); } catch { } }}
                                 className="h-12 text-center text-2xl font-bold uppercase tracking-[0.3em]"
                                 placeholder="ABC1234"
-                                autoFocus
+                                inputMode="text"
+                                enterKeyHint="done"
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="characters"
+                                spellCheck={false}
                             />
                             {error && <p className="text-sm text-red-500">{error}</p>}
                             <div className="flex justify-end gap-2">
