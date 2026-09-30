@@ -76,6 +76,7 @@ export default function PlazasPage() {
     const [tool, setTool] = useState<"plaza" | "entrada" | "salida" | "calle" | "pan">("plaza");
     const movingRef = useRef<{ slotId: string; sx: number; sy: number; orig: { x: number; y: number }[] } | null>(null);
     const [listCollapsed, setListCollapsed] = useState(true);
+    const [editMode, setEditMode] = useState(false); // #150: Ver (false) vs Editar (true)
     const [plazaSearch, setPlazaSearch] = useState("");
     const [editSlotId, setEditSlotId] = useState<string | null>(null);
     const [streetEditId, setStreetEditId] = useState<string | null>(null);
@@ -87,7 +88,7 @@ export default function PlazasPage() {
         setElements(prev => { const key = pendingElement!.kind === "entrada" ? "entradas" : "salidas"; const arr = (prev as any)[key]; return { ...prev, [key]: [...arr, { id: Math.random().toString(36).slice(2, 9), x: pendingElement!.x, y: pendingElement!.y, label: (pendingElement!.kind === "entrada" ? "E" : "S") + (arr.length + 1), cameraId: cam?.id || null, cameraName: cam?.name || null }] }; });
         setPendingElement(null);
     };
-    const openCtx = (e: React.MouseEvent, type: "slot" | "calle" | "entrada" | "salida", id: string) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, type, id }); };
+    const openCtx = (e: React.MouseEvent, type: "slot" | "calle" | "entrada" | "salida", id: string) => { e.preventDefault(); e.stopPropagation(); if (!editMode) return; setCtxMenu({ x: e.clientX, y: e.clientY, type, id }); };
     const renameElement = (kind: "entradas" | "salidas", id: string) => { const v = window.prompt("Etiqueta:"); if (v != null) setElements(prev => ({ ...prev, [kind]: (prev as any)[kind].map((el: any) => el.id === id ? { ...el, label: v } : el) })); };
     const [zoom, setZoom] = useState(1);
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -240,7 +241,7 @@ export default function PlazasPage() {
 
     const handleMouseDown = (e: React.MouseEvent) => {
         if (!mapWrapperRef.current || !mapImage) return;
-        if (tool === "pan" && e.button === 0) { panRef.current = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y, nx: pan.x, ny: pan.y }; if (mapWrapperRef.current) mapWrapperRef.current.style.transition = "none"; return; }
+        if ((!editMode || tool === "pan") && e.button === 0) { panRef.current = { sx: e.clientX, sy: e.clientY, ox: pan.x, oy: pan.y, nx: pan.x, ny: pan.y }; if (mapWrapperRef.current) mapWrapperRef.current.style.transition = "none"; return; }
         if (e.button === 0) { // Left click
             const rect = mapWrapperRef.current.getBoundingClientRect();
             // Store as percentage (0-1) relative to the map wrapper
@@ -285,6 +286,7 @@ export default function PlazasPage() {
 
     const startEditingVertex = (slotId: string, pointIndex: number, e: React.MouseEvent) => {
         e.stopPropagation();
+        if (!editMode) return;
         setEditingVertex({ slotId, pointIndex });
     };
 
@@ -458,12 +460,14 @@ export default function PlazasPage() {
             {/* Barra central de acciones (estilo /admin/mapa) */}
             {mapImage && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 bg-card/50 backdrop-blur-2xl border border-white/10 ring-1 ring-white/5 rounded-full shadow-lg px-1.5 py-1.5">
+                    {editMode && (<>
                     {TOOLS.map((t) => (
                         <Tooltip key={t.id}><TooltipTrigger asChild>
                             <button type="button" onClick={() => { setTool(t.id); setCurrentPoints([]); setCurrentLine([]); }} className={cn("p-2 rounded-full transition-all", tool === t.id ? cn(t.active, "shadow-md ring-1 ring-white/25 scale-105") : "text-muted-foreground hover:bg-accent hover:scale-105")}><t.icon size={16} /></button>
                         </TooltipTrigger><TooltipContent>{t.label}</TooltipContent></Tooltip>
                     ))}
                     <div className="w-px h-6 bg-border mx-0.5" />
+                    </>)}
                     <Tooltip><TooltipTrigger asChild>
                         <button type="button" onClick={() => setZoom((z) => Math.max(1, +(z - 0.3).toFixed(2)))} className="p-2 rounded-full text-muted-foreground hover:bg-accent transition-colors"><ZoomOut size={16} /></button>
                     </TooltipTrigger><TooltipContent>Alejar</TooltipContent></Tooltip>
@@ -474,6 +478,7 @@ export default function PlazasPage() {
                     <Tooltip><TooltipTrigger asChild>
                         <button type="button" onClick={fitView} className="p-2 rounded-full text-muted-foreground hover:bg-accent transition-colors"><Maximize2 size={16} /></button>
                     </TooltipTrigger><TooltipContent>Ajustar a pantalla</TooltipContent></Tooltip>
+                    {editMode && (<>
                     <div className="w-px h-6 bg-border mx-0.5" />
                     <Tooltip><TooltipTrigger asChild>
                         <button type="button" onClick={() => { if (window.confirm("¿Quitar el plano y borrar plazas/calles/entradas dibujadas de la vista? (No se guarda hasta que uses Guardar)")) { setMapImage(null); setSlots([]); setImageDimensions({ width: 0, height: 0 }); setElements({ entradas: [], salidas: [], calles: [] }); setCurrentLine([]); setCurrentPoints([]); } }} className="p-2 rounded-full text-muted-foreground hover:bg-red-500/15 hover:text-red-400 transition-colors"><Trash2 size={16} /></button>
@@ -481,6 +486,11 @@ export default function PlazasPage() {
                     <Tooltip><TooltipTrigger asChild>
                         <button type="button" onClick={handleSave} disabled={isSaving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-500 transition-colors disabled:opacity-50">{isSaving ? <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : <Save size={14} />} Guardar</button>
                     </TooltipTrigger><TooltipContent>Guardar cambios</TooltipContent></Tooltip>
+                    </>)}
+                    <div className="w-px h-6 bg-border mx-0.5" />
+                    <Tooltip><TooltipTrigger asChild>
+                        <button type="button" onClick={() => { const next = !editMode; setEditMode(next); if (!next) { setTool("pan"); setCurrentPoints([]); setCurrentLine([]); setPendingElement(null); setEditSlotId(null); setStreetEditId(null); setCtxMenu(null); } else { setTool("plaza"); } }} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-colors", editMode ? "bg-amber-500 text-black hover:bg-amber-400" : "bg-indigo-600 text-white hover:bg-indigo-500")}>{editMode ? <><CheckCircle2 size={14} /> Listo</> : <><Edit3 size={14} /> Editar</>}</button>
+                    </TooltipTrigger><TooltipContent>{editMode ? "Salir del modo edición" : "Entrar al modo edición"}</TooltipContent></Tooltip>
                 </div>
             )}
             {/* Floating Controls - Top Left */}
@@ -638,7 +648,7 @@ export default function PlazasPage() {
                                                 )}
                                             </div>
                                         </div>
-                                        {selectedSlot === slot.id && (
+                                        {editMode && selectedSlot === slot.id && (
                                             <div
                                                 className="h-6 w-6 flex items-center justify-center rounded-md text-blue-400 hover:text-foreground hover:bg-blue-500/20 transition-colors"
                                                 onClick={(e) => {
@@ -655,7 +665,8 @@ export default function PlazasPage() {
                             })}
                         </div>
 
-                        {/* Integrated Save Button */}
+                        {/* Integrated Save Button (solo en modo Editar) */}
+                        {editMode && (
                         <div className="p-4 border-t border-white/10 bg-card/40 backdrop-blur-xl">
                             <Button
                                 onClick={handleSave}
@@ -666,6 +677,7 @@ export default function PlazasPage() {
                                 {isSaving ? "Guardando..." : "Guardar"}
                             </Button>
                         </div>
+                        )}
                         </>)}
                     </div>
                 </div>
@@ -686,7 +698,7 @@ export default function PlazasPage() {
             {/* Map Canvas */}
             <div
                 ref={containerRef}
-                className={cn("absolute inset-0 bg-transparent border-none overflow-hidden transition-all duration-300 flex items-center justify-center p-2 select-none", tool === "pan" ? (panRef.current ? "cursor-grabbing" : "cursor-grab") : "cursor-crosshair")}
+                className={cn("absolute inset-0 bg-transparent border-none overflow-hidden transition-all duration-300 flex items-center justify-center p-2 select-none", (!editMode || tool === "pan") ? (panRef.current ? "cursor-grabbing" : "cursor-grab") : "cursor-crosshair")}
                 onMouseDown={handleMouseDown}
                 onDragStart={(e) => e.preventDefault()}
                 style={{ WebkitUserSelect: "none", userSelect: "none" }}
