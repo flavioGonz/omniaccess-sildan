@@ -74,3 +74,21 @@ export async function ensureAlarmHost(d: CamDev): Promise<{ ok: boolean; already
         return { ok: false, error: e?.message || "ISAPI PUT error" };
     }
 }
+
+
+/** Dispara el test de notificación del equipo hacia el host OmniAccess (ISAPI .../test). */
+export async function testAlarmHost(d: CamDev): Promise<{ ok: boolean; reporting?: boolean; error?: string }> {
+    const t = await getEventTarget();
+    if (!t) return { ok: false, error: "Falta EVENT_HOST_IP" };
+    const cur = await readAlarmHosts(d);
+    if (!cur.ok) return { ok: false, error: cur.error };
+    const host = cur.hosts.find((h) => h.ip === t.ip && String(h.port) === String(t.port));
+    if (!host) return { ok: false, error: "OmniAccess no está configurado como servidor de alarma" };
+    try {
+        const xml: string = await authenticatedRequest("POST", `${LIST}/${host.id}/test`, dev(d), { responseType: "text", accept: "application/xml", timeout: 9000 });
+        const ok = /statusString>\s*OK|<statusCode>\s*1/i.test(String(xml || ""));
+        return { ok: true, reporting: ok };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || "El equipo no aceptó el test" };
+    }
+}

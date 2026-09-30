@@ -99,7 +99,7 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
 
     return (
         <div className="fixed inset-0 z-[2000] bg-black/85 backdrop-blur-sm flex items-center justify-center p-6" onClick={onClose}>
-            <div className="w-full max-w-2xl rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="w-full max-w-4xl rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border bg-gradient-to-r from-red-500/[0.07] to-transparent">
                     <span className="w-8 h-8 rounded-xl bg-red-500/15 grid place-items-center"><Radar size={17} className="text-red-500" /></span>

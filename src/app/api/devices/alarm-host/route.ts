@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { readAlarmHosts, ensureAlarmHost } from "@/lib/isapi-alarmhost";
+import { readAlarmHosts, ensureAlarmHost, testAlarmHost } from "@/lib/isapi-alarmhost";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +28,10 @@ export async function POST(req: NextRequest) {
     if (!id) return NextResponse.json({ ok: false, error: "deviceId requerido" }, { status: 400 });
     const d = await load(id);
     if (!d) return NextResponse.json({ ok: false, error: "device no existe" }, { status: 404 });
+    if (req.nextUrl.searchParams.get("action") === "test") {
+        const t = await testAlarmHost(d as any);
+        return NextResponse.json(t, { status: t.ok ? 200 : 502 });
+    }
     const r = await ensureAlarmHost(d as any);
     return NextResponse.json(r, { status: r.ok ? 200 : 502 });
 }
