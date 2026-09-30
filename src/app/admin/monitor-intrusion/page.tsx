@@ -210,6 +210,18 @@ function AlarmDialog({ cam, onClose }: { cam: IntrusionCam; onClose: () => void 
     );
 }
 
+function DetThumb({ d }: { d: DetItem | DetHistItem }) {
+    const [ok, setOk] = useState(true);
+    const src = (d as any).snapshotPath ? (d as any).snapshotPath : (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
+    return (
+        <div className="relative w-16 h-11 rounded-lg overflow-hidden bg-black shrink-0 ring-1 ring-white/10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {src && ok ? <img src={src} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={() => setOk(false)} />
+                : <div className="absolute inset-0 grid place-items-center text-white/25"><Camera size={16} /></div>}
+        </div>
+    );
+}
+
 function Field({ label, value }: { label: string; value: string }) {
     return <div className="min-w-0"><div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</div><div className="text-sm font-semibold text-foreground truncate">{value}</div></div>;
 }
@@ -458,13 +470,13 @@ export default function MonitorIntrusion() {
                         ) : shownDets.map((d) => {
                             const m = META[d.type] || META.OTHER;
                             return (
-                                <div key={d.id} onClick={() => setDetail(d)} className={cn("flex items-center gap-3 pl-2.5 pr-3 py-2.5 rounded-xl border bg-card/60 cursor-pointer hover:brightness-110 transition", m.cls)}>
-                                    <span className={cn("grid h-9 w-9 place-items-center rounded-lg shrink-0", m.cls)}><m.Icon size={17} /></span>
+                                <div key={d.id} onClick={() => setDetail(d)} className={cn("flex items-center gap-2.5 p-2 rounded-xl border bg-card/60 cursor-pointer hover:brightness-110 transition", m.cls)}>
+                                    <DetThumb d={d} />
                                     <div className="min-w-0 flex-1">
-                                        <div className="text-[13px] font-bold leading-tight">{m.label}</div>
+                                        <div className="flex items-center gap-1.5"><m.Icon size={13} className="shrink-0" /><span className="text-[12.5px] font-bold leading-tight truncate">{m.label}</span></div>
                                         <div className="text-[11px] text-white/55 truncate mt-0.5">{d.deviceName || "Cámara"}</div>
                                     </div>
-                                    <span className="text-[10px] text-white/45 shrink-0 tabular-nums">{ago(d.timestamp)}</span>
+                                    <span className="text-[10px] text-white/45 shrink-0 tabular-nums self-start mt-0.5">{ago(d.timestamp)}</span>
                                 </div>
                             );
                         })}
