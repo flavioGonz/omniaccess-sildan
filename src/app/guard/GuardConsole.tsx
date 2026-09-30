@@ -69,6 +69,7 @@ import { createBitacoraEntry, deleteBitacoraEntry, getBitacoraPage, searchRecent
 import { getAccessEvents, getPlateAnalysis } from "@/app/actions/history";
 import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
 import { getQuickCreateData, getGuardsList, verifyGuardCredential, isGuardRevoked } from "@/app/actions/users";
+import { native } from "@/lib/guard-native";
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { UserFormDialog } from "@/components/UserFormDialog";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
@@ -327,7 +328,20 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     // PROFILE MENU
     const [showProfileMenu, setShowProfileMenu] = useState(false);
     const [apkVer, setApkVer] = useState<string>("");
-    useEffect(() => { fetch("/api/apk/version", { cache: "no-store" }).then(r => r.json()).then(d => setApkVer(d?.versionName || "")).catch(() => {}); }, []);
+    const [apkUpd, setApkUpd] = useState<{ name: string; url: string } | null>(null);
+    useEffect(() => {
+        fetch("/api/apk/version", { cache: "no-store" }).then(r => r.json()).then((d: any) => {
+            setApkVer(d?.versionName || "");
+            try {
+                if (native.isNative() && native.canInstallUpdate()) {
+                    const code = native.getVersionCode();
+                    if (typeof d?.versionCode === "number" && code > 0 && d.versionCode > code) {
+                        setApkUpd({ name: d.versionName || "", url: d.url || "/api/apk" });
+                    }
+                }
+            } catch { }
+        }).catch(() => { });
+    }, []);
     const [showCameraModal, setShowCameraModal] = useState(false);
 
     // BACKUP REQUEST STATES
@@ -2851,6 +2865,11 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                                 <span className={cn("text-[10px] font-bold uppercase tracking-wider", isConnected ? "text-emerald-600" : "text-red-500")}>{isConnected ? "En línea" : "Sin conexión"}</span>
                                             </div>
                                             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-1.5">App Android v{apkVer || "—"}</p>
+                                            {apkUpd && (
+                                                <button onClick={() => { native.installUpdate(apkUpd.url); }} className="mt-2 w-full h-9 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-widest flex items-center justify-center gap-1.5 active:scale-95 transition-transform">
+                                                    <Download size={13} /> Actualizar app a v{apkUpd.name}
+                                                </button>
+                                            )}
                                         </div>
                                         <button className="flex items-center gap-3 p-4 hover:bg-slate-50 rounded-2xl transition-colors text-black"
                                             onClick={() => { setShowCameraModal(true); setShowProfileMenu(false); }}>
