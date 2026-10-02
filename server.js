@@ -30,6 +30,8 @@ const crypto = require("crypto");
 const { uploadToS3 } = require("./lib-s3");
 const { getVehicleColorName, getVehicleBrandName } = require("./hikvision-codes");
 const { handleWahaWebhook } = require("./waha-handler");
+// Intrusión (capa transversal): cruce de línea / zona de las cámaras AcuSense.
+const { handleIntrusionEvent, esEventoIntrusion } = require("./handlers/intrusion-handler");
 
 // Configure axios defaults for device communication
 const agent = new https.Agent({
@@ -1029,6 +1031,16 @@ const handleWebhook = async (req, res, logPrefix) => {
 
         // Check for ANPR Data presence to determine if it's a vehicle event despite missing plate
         const hasAnprData = xmlData.ANPR || eventAlert.ANPR || xmlData.EventNotificationAlert?.ANPR || eventAlert.vehicleInfo;
+
+        // Intrusión: cruce de línea / entrada-salida de zona. Sin esta rama caían en el
+        // descarte "sin patente". La detección corre a bordo de la cámara AcuSense.
+        if (esEventoIntrusion(eventType)) {
+            await handleIntrusionEvent({
+                xmlData, eventAlert, eventType, macAddress, ipAddress, images, req, res, logPrefix,
+                deps: { prisma, io: global.io, fetchCameraSnapshot },
+            });
+            return;
+        }
 
         if (!plateNumber && !hasAnprData) {
             if (isHeartbeat) {

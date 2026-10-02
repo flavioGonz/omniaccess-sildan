@@ -168,9 +168,14 @@ model Device {
   trackLine       String?
   trackMinConf    Float?
   trackFps        Float?
+  // Intrusión: capa transversal (cruce de línea / zona AcuSense). La geometría se guarda
+  // como String JSON (0..1), mismo criterio que trackLine, y se escribe en la cámara por ISAPI.
+  intrusionEnabled  Boolean        @default(false)
+  intrusionGeometry String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
   accessEvents    AccessEvent[]
+  intrusionEvents IntrusionEvent[]
   callEvents      CallEvent[]
   floorPlan       FloorPlan?       @relation(fields: [floorPlanId], references: [id])
   hardwareMirrors HardwareMirror[]
@@ -203,6 +208,23 @@ model AccessEvent {
 
   // La presencia por lote y el historial de una matrícula consultan por estos campos.
   @@index([plateDetected, timestamp])
+  @@index([timestamp])
+}
+
+// Cruce de línea / entrada-salida de zona (Intrusión). No es una matrícula: tabla propia.
+model IntrusionEvent {
+  id           String   @id @default(cuid())
+  deviceId     String?
+  type         String
+  regionId     String?
+  direction    String?
+  timestamp    DateTime
+  snapshotPath String?
+  details      String?
+  createdAt    DateTime @default(now())
+  device       Device?  @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, timestamp])
   @@index([timestamp])
 }
 

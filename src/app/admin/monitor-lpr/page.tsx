@@ -679,6 +679,7 @@ function CriticalAlerts({ items, onDismiss, onClear, onRegister }: { items: any[
             <div className="flex flex-col gap-2 pointer-events-auto">
                 {items.slice(0, 4).map((ev) => {
                     const isMer = ev.kind === "merodeo";
+                    const isIntr = ev.kind === "intrusion";
                     const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
                     return (
                         <div key={ev.id} className="relative rounded-xl border-2 border-red-500/70 bg-card overflow-hidden" style={{ animation: "oaPeligro 1.1s ease-in-out infinite" }}>
@@ -697,6 +698,20 @@ function CriticalAlerts({ items, onDismiss, onClear, onRegister }: { items: any[
                                         <div className="mt-0.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} /></div>
                                     </div>
                                 </button>
+                            ) : isIntr ? (
+                                <div className="w-full text-left flex gap-2.5 p-2.5">
+                                    <div className="w-12 h-12 rounded-lg bg-red-500/15 border border-red-500/40 flex items-center justify-center shrink-0">
+                                        <ShieldAlert size={22} className="text-red-400" style={{ animation: "oaLatir 1s ease-in-out infinite" }} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="text-[10px] font-black uppercase tracking-wider text-red-400">Intrusión</span>
+                                            <span className="font-mono text-sm font-bold tracking-wider text-foreground truncate">{ev.deviceName || ev.device?.name || "Cámara"}</span>
+                                        </div>
+                                        <div className="mt-0.5 text-[10px] text-muted-foreground truncate">{ev.details || (ev.type === "line" ? "Cruce de línea" : "Zona")}</div>
+                                        <div className="mt-0.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} /></div>
+                                    </div>
+                                </div>
                             ) : (
                                 <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
                                     <div className="flex gap-2.5 p-2.5 cursor-pointer">
@@ -920,6 +935,13 @@ export default function MonitorLPR() {
         newSocket.on("merodeo_alert", (a: any) => {
             const id = `mer_${(a.plate || "?")}_${Date.now()}`;
             setCriticals((prev) => [{ id, kind: "merodeo", timestamp: new Date().toISOString(), ...a }, ...prev].slice(0, 24));
+            if (soundOnRef.current) beep(true);
+        });
+        // Intrusión: cruce de línea / zona del perímetro. Entra al mismo stream de alertas
+        // críticas que merodeo/lista negra, con kind "intrusion" para que se pinte distinto.
+        newSocket.on("intrusion_alert", (a: any) => {
+            const id = a?.id || `intr_${Date.now()}`;
+            setCriticals((prev) => [{ id, kind: "intrusion", timestamp: a?.timestamp || new Date().toISOString(), ...a }, ...prev].slice(0, 24));
             if (soundOnRef.current) beep(true);
         });
         setSocket(newSocket);
