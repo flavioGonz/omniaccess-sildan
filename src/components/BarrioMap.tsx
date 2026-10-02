@@ -1,185 +1,86 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
-import dynamic from "next/dynamic";
-const Mapa3D = dynamic(() => import("@/components/mapa/Mapa3D"), { ssr: false });
-/* El cajon de la unidad trae su propio plano adentro. Entra recien cuando se abre: cargarlo
-   con la pagina seria pagar dos veces Leaflet para mirar un mapa. */
-const CajonUnidad = dynamic(
-    () => import("@/components/units/CajonUnidad").then((m) => m.CajonUnidad), { ssr: false });
-/* La ficha del equipo, igual: entra cuando alguien la pide. Trae adentro el descubridor,
-   el vivo y el mapeo de canales de un grabador — nada de eso hace falta para mirar el
-   plano. */
-const CajonDispositivo = dynamic(
-    () => import("@/components/devices/CajonDispositivo").then((m) => m.CajonDispositivo), { ssr: false });
-import { motion } from "framer-motion";
-import { CapaRecorrido, PanelRecorrido, useRecorrido, type Lugar, type Punto } from "@/components/mapa/Recorrido";
-import { CapaEstacionados, type SeñalSinRumbo, type SeñalAuto } from "@/components/mapa/CapaEstacionados";
-import { useEstacionados, type AutoParado } from "@/components/mapa/estacionados";
-import { conoDeVision, correr } from "@/lib/escena";
-import { VisorCuadro } from "@/components/VisorCuadro";
-import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, Pane, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Polygon, Polyline, Marker, Popup, Tooltip as LTooltip, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import {
-    MousePointer2, Hexagon, Spline, Video, Trash2, Save, Pencil, X, Check,
-    Loader2, MapPin, Undo2, Map as MapIco, Radio, Pencil as PencilIcon,
-    Plus, Minus, Crosshair, Maximize2, Minimize2, Eye, EyeOff, ShieldCheck, Route as RouteIco,
-    Layers3, ChevronDown, Pentagon, Home, Search, SquareParking, AlertTriangle, Type, Compass,
+    MousePointer2, Hexagon, Video, Trash2, Save, Pencil, X, Check,
+    Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
+    Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
+    Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home,
 } from "lucide-react";
-import { AnimatePresence } from "framer-motion";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Pista } from "@/components/ui/pista";
-import { guardIconHtml } from "@/lib/iconos-mapa";
 import { cn } from "@/lib/utils";
-import { getImagePath } from "@/lib/image-path";
-import { IconBar } from "@/components/ui/icon-bar";
-import { CSS_AUTO } from "@/lib/auto-svg";
-import { montarVivo } from "@/lib/vivo";
-import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { sileo as toast } from "sileo";
-import { getBarrioMap, saveBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
-import { getParkingSlots } from "@/app/actions/plazas";
-import { funcionActiva } from "@/app/actions/funciones";
+import { getBarrioMap, type BarrioMapData } from "@/app/actions/barriomap";
+import { getParkingSlots, getPlateSlotMap } from "@/app/actions/parking";
+import { getSlotDetail, type SlotDetail } from "@/app/actions/plazas";
+import { getBitacoraPage } from "@/app/actions/bitacora";
 import { io } from "socket.io-client";
-import { getSocketUrl } from "@/lib/socket-config";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
 import { LogIn, LogOut } from "lucide-react";
 import { getDevices } from "@/app/actions/devices";
-import { getUnits } from "@/app/actions/units";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { montarVivo } from "@/lib/vivo";
+import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
+import { useRouter } from "next/navigation";
 
-type Tool = "select" | "perimeter" | "street" | "camera" | "lote";
+type Tool = "select" | "perimeter" | "camera" | "lote" | "division";
 type LL = [number, number];
+type Base = "Híbrido" | "Táctico" | "Satélite" | "Calles";
+type SelKind = "street" | "camera" | "lote";
+type CtxKind = "street" | "camera" | "lote" | "guard" | "division";
+type DivTipo = "pared" | "tejido" | "alambrado";
 
-/**
- * La cámara en el plano: chica, y apuntando a donde mira.
- *
- * Se achicó de 30 a 22 px por una razón que no es estética. Ahora los autos parados se
- * dibujan DENTRO del cono de cada cámara, así que el ícono dejó de ser lo que hay que
- * mirar en esa parte del plano y pasó a ser el vértice de una escena. Un marcador grande
- * en el vértice tapa justo lo que interesa, que es lo que la cámara ve.
- *
- * La muesca sale del rumbo. Sin rumbo no se dibuja: una punta apuntando al norte por
- * defecto diría que la cámara mira al norte, y no lo sabemos.
- */
-const camSvg = (rumbo?: number | null) => `
-<div style="position:relative;display:flex;align-items:center;justify-content:center;width:22px;height:22px">
-  ${rumbo != null ? `<span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(${Math.round(rumbo)}deg)">
-    <svg width="34" height="34" viewBox="0 0 34 34" fill="none"><path d="M17 0 L21 8 L13 8 Z" fill="#38bdf8" opacity=".95"/></svg>
-  </span>` : ``}
-  <span class="cam-glyph" style="position:relative;width:22px;height:22px;border-radius:7px;background:#2563eb;border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 5px rgba(0,0,0,.45)">
-    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
-  </span>
-</div>`;
-const camIconDe = (rumbo?: number | null) => L.divIcon({
-    className: "bg-transparent border-0", html: camSvg(rumbo),
-    iconSize: [22, 22], iconAnchor: [11, 11], popupAnchor: [0, -14],
-});
-
-/** Manija de vértice: arrastrar mueve, clic derecho lo quita. */
-const verticeHtml = `<span style="display:block;width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid #f59e0b;box-shadow:0 1px 4px rgba(0,0,0,.6)"></span>`;
-
-/**
- * Un lote. En `memo`, y con TODO lo que Leaflet compara por referencia memoizado adentro.
- *
- * ── POR QUÉ SE TRANCABA EL MAPA ───────────────────────────────────────────────────────
- *
- * El lote se dibujaba inline adentro del `.map()` de `BarrioMap`, y eso significa que
- * `pathOptions`, `eventHandlers` y los hijos del tooltip eran objetos NUEVOS en cada
- * render del mapa entero. Los tres se comparan por referencia río abajo, así que cada
- * render de `BarrioMap` disparaba, POR LOTE:
- *
- * 1. `Tooltip.update()` — porque `props.children` era un array nuevo. Y `update()` de
- *    Leaflet escribe `style.width=''`, lee `offsetWidth`, escribe, lee `offsetHeight`:
- *    lectura y escritura intercaladas, o sea **layout sincrónico forzado**. Dos o tres
- *    por lote. Con trescientos lotes son entre 600 y 900 reflows forzados por render.
- *    Es, de lejos, el costo dominante, y crece lineal con los lotes — que es exactamente
- *    el síntoma: "con muchos lotes se tranca".
- * 2. `Path.setStyle()` — porque `pathOptions` era literal. Son diez `setAttribute` sobre
- *    el `<path>` más un `_updateBounds()` por el `weight`. Unas 3.000 escrituras de
- *    atributo SVG con trescientos lotes.
- * 3. `off()` + `on()` de los cinco manejadores — porque `eventHandlers` era literal.
- *    Otras 3.000 operaciones sobre las listas de eventos de Leaflet.
- *
- * Y todo eso corría en CADA render del mapa, incluido el que dispara mover el mouse por
- * encima de un lote (ver `posHover` en `BarrioMap`) y cada cuadro de una reproducción de
- * recorrido. Mover el puntero por el barrio pedía sesenta veces por segundo un trabajo
- * que es lineal en la cantidad de lotes.
- *
- * ── LO QUE NO ERA EL PROBLEMA ─────────────────────────────────────────────────────────
- *
- * Vale anotarlo porque es lo primero que uno toca: los vértices NO se reproyectan por
- * render. `Polygon` sólo llama `setLatLngs` si `positions` cambió de referencia, y
- * `lo.points` viene del mismo objeto `data`, así que es estable. Tampoco hay
- * `removeLayer`/`addLayer` por render: el ciclo de vida de la capa depende sólo del
- * contexto y del elemento. Lo caro era el chrome alrededor del polígono, no el polígono.
- */
-type LotePintado = {
-    id: string; points: LL[]; label: string; conUnidad: boolean; nombreUnidad: string | null;
-    sel: boolean; señalado: boolean; rotulo: boolean; editando: boolean;
-    onElegir: (id: string) => void;
-    onMenu: (e: any, id: string) => void;
-    onEntrar: (id: string, e: any) => void;
-    onMover: (id: string, e: any) => void;
-    onSalir: (id: string) => void;
-    onVertice: (id: string, i: number, ll: LL) => void;
-    onQuitarVertice: (id: string, i: number) => void;
+// Estilo de cada tipo de división (línea)
+const DIV_STYLE: Record<DivTipo, { color: string; weight: number; dashArray?: string; label: string }> = {
+    pared: { color: "#a8a29e", weight: 5, label: "Pared" },
+    tejido: { color: "#93c5fd", weight: 3, dashArray: "10 6", label: "Tejido" },
+    alambrado: { color: "#fcd34d", weight: 2, dashArray: "2 7", label: "Alambrado" },
 };
 
-const Lote = React.memo(function Lote(p: LotePintado) {
-    const estilo = useMemo(() => ({
-        /* Señalado y seleccionado son dos cosas distintas y se ven distinto: señalar es
-           pasar por encima, seleccionar es haber elegido. El hover sólo sube el relleno. */
-        color: p.sel ? "#f59e0b" : p.conUnidad ? "#38bdf8" : "#94a3b8",
-        weight: p.sel ? 3 : p.señalado ? 3 : 2,
-        fillColor: p.sel ? "#f59e0b" : p.conUnidad ? "#38bdf8" : "#94a3b8",
-        fillOpacity: p.sel ? 0.28 : p.señalado ? 0.26 : 0.14,
-    }), [p.sel, p.señalado, p.conUnidad]);
+const CAM_COLORS = ["#2563eb", "#ef4444", "#22c55e", "#f59e0b", "#a855f7", "#06b6d4", "#e5e7eb", "#111827"];
+const camGlyph = (size: number, color: string) => `
+  <span class="cam-glyph" style="width:${size}px;height:${size}px;border-radius:${Math.round(size * 0.27)}px;background:${color};border:2px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 6px rgba(0,0,0,.4)">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(size * 0.57)}" height="${Math.round(size * 0.57)}" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg>
+  </span>`;
+// Flecha de dirección (hacia dónde apunta) orbitando el ícono según el rumbo (0 = norte).
+const camArrow = (size: number, color: string, rumbo?: number | null) => rumbo == null ? "" : `
+  <span style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(${Math.round(rumbo)}deg);pointer-events:none">
+    <span style="display:block;transform:translateY(-${Math.round(size * 0.62 + 9)}px)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="${color}" stroke="#fff" stroke-width="1.5"><path d="M12 2 L19 21 L12 17 L5 21 Z"/></svg>
+    </span>
+  </span>`;
+const camHtml = (o?: { rumbo?: number | null; size?: number; color?: string }) => {
+    const size = o?.size || 30, color = o?.color || "#2563eb";
+    return `<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translateY(-4px)">${camArrow(size, color, o?.rumbo)}${camGlyph(size, color)}</div>`;
+};
+const camIconDe = (o?: { rumbo?: number | null; size?: number; color?: string }, extra = "") => {
+    const size = o?.size || 30;
+    return L.divIcon({ className: "bg-transparent border-0 " + extra, html: camHtml(o), iconSize: [size, size], iconAnchor: [size / 2, Math.round(size * 0.73)], popupAnchor: [0, -Math.round(size * 0.66)] });
+};
 
-    const manejadores = useMemo(() => ({
-        click: () => p.onElegir(p.id),
-        contextmenu: (e: any) => p.onMenu(e, p.id),
-        mouseover: (e: any) => p.onEntrar(p.id, e),
-        mousemove: (e: any) => p.onMover(p.id, e),
-        mouseout: () => p.onSalir(p.id),
-    }), [p.id, p.onElegir, p.onMenu, p.onEntrar, p.onMover, p.onSalir]);
+const guardIconHtml = (name: string, heading?: number | null) => `
+<div style="display:flex;flex-direction:column;align-items:center;transform:translateY(-2px)">
+  <span style="margin-bottom:2px;padding:1px 6px;border-radius:6px;background:rgba(16,185,129,.95);color:#fff;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.4)">${name}</span>
+  <span style="position:relative;width:30px;height:30px;border-radius:50%;background:#10b981;border:3px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,.45)">
+    ${heading != null ? `<span style="position:absolute;top:-9px;left:50%;transform:translateX(-50%) rotate(${Math.round(heading)}deg);transform-origin:50% 24px"><svg width="14" height="14" viewBox="0 0 24 24" fill="#10b981" stroke="#fff" stroke-width="1.5"><path d="M12 2 L19 21 L12 17 L5 21 Z"/></svg></span>` : ``}
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+  </span>
+</div>`;
 
-    /* UNA string, no dos hijos.
-       Dos hijos JSX son un array nuevo en cada render y eso es lo que gatilla el
-       `update()` del punto 1 de arriba. Una string idéntica es `===` a la anterior, así
-       que el efecto no vuelve a correr. El texto que se ve es el mismo. */
-    const texto = p.nombreUnidad ? `${p.label} · ${p.nombreUnidad}` : p.label;
-
-    return (
-        <>
-            <Polygon positions={p.points} pathOptions={estilo} eventHandlers={manejadores}>
-                {/* El nombre clavado encima tapa la foto cuando hay muchos lotes. Apagando
-                    "Nombres" el contorno queda y el nombre vuelve al pasar el mouse. */}
-                {p.rotulo && (
-                    <LTooltip direction="center" permanent className="cam-name-tip">{texto}</LTooltip>
-                )}
-            </Polygon>
-            {p.editando && p.sel && p.points.map((pt, i) => (
-                <Marker key={i} position={pt} draggable
-                    icon={L.divIcon({ className: "bg-transparent border-0", html: verticeHtml, iconSize: [12, 12], iconAnchor: [6, 6] })}
-                    eventHandlers={{
-                        drag: (e: any) => { const ll = e.target.getLatLng(); p.onVertice(p.id, i, [ll.lat, ll.lng]); },
-                        contextmenu: (e: any) => { e.originalEvent?.preventDefault?.(); p.onQuitarVertice(p.id, i); },
-                    }} />
-            ))}
-        </>
-    );
-});
-
-/** Cuánto lleva parado, en palabras cortas. */
-const lapsoCorto = (desde: string | null) => {
-    if (!desde) return "—";
-    const min = Math.max(0, Math.round((Date.now() - new Date(desde).getTime()) / 60000));
-    if (min < 60) return `${min} min`;
-    const h = Math.floor(min / 60);
-    return `${h} h ${min % 60} min`;
+const centroid = (pts: LL[]): LL => {
+    if (!pts.length) return [0, 0];
+    let a = 0, cx = 0, cy = 0;
+    for (let i = 0; i < pts.length; i++) {
+        const [x1, y1] = pts[i], [x2, y2] = pts[(i + 1) % pts.length];
+        const f = x1 * y2 - x2 * y1; a += f; cx += (x1 + x2) * f; cy += (y1 + y2) * f;
+    }
+    if (Math.abs(a) < 1e-12) { const s = pts.reduce((p, c) => [p[0] + c[0], p[1] + c[1]], [0, 0]); return [s[0] / pts.length, s[1] / pts.length]; }
+    a *= 0.5; return [cx / (6 * a), cy / (6 * a)];
 };
 
 function MapRefGrabber({ onMap }: { onMap: (m: L.Map) => void }) {
@@ -191,56 +92,171 @@ function ClickHandler({ onClick }: { onClick: (ll: LL) => void }) {
     useMapEvents({ click(e) { onClick([e.latlng.lat, e.latlng.lng]); } });
     return null;
 }
-
-function LiveMp4({ deviceId }: { deviceId: string }) {
-    const ref = useRef<HTMLVideoElement>(null);
-    useEffect(() => {
-        const v = ref.current;
-        if (!v) return;
-        return montarVivo(v, deviceId);
-    }, [deviceId]);
-    return <video ref={ref} muted autoPlay playsInline className="block w-full h-full object-cover bg-black" />;
+function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
+    const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) });
+    useEffect(() => { onZoom(map.getZoom()); /* eslint-disable-next-line */ }, []);
+    return null;
 }
 
-/**
- * Todas las cámaras en vivo, cada una sobre su lugar del mapa.
- *
- * La gracia es ver qué pasa Y dónde al mismo tiempo: un mosaico aparte muestra lo
- * primero pero pierde lo segundo, que en un barrio es la mitad de la información.
- *
- * Las burbujas no son marcadores de Leaflet. Un marcador lleva su contenido a un icono
- * y ahí adentro un <video> se comporta mal; además Leaflet recrea el icono en cada
- * cambio de vista, lo que cortaría el flujo en cada paneo. Acá el video se monta una
- * sola vez y en cada movimiento del mapa se recalcula únicamente su posición.
- *
- * ## Por qué el mapa se trababa al panear, y qué cambió
- *
- * La intención de arriba estaba bien; el mecanismo era el caro. La versión anterior hacía
- * `useMapEvents({ move: redibujar })` contra un `useReducer`, o sea **un render de React
- * entero por cada evento `move`** — y Leaflet los emite a ritmo de cuadro mientras se
- * arrastra. En cada uno de esos renders se volvía a montar el árbol de cada burbuja, con
- * su `motion.div` recalculando animación, y se reposicionaba con `left` y `top`.
- *
- * `left`/`top` son la parte peor: obligan al navegador a **recalcular el layout** de la
- * página en cada cuadro. `transform` no — el compositor mueve la capa y listo. Y adentro
- * de cada burbuja hay un `<video>` reproduciendo en vivo, que es lo más caro que se puede
- * pedir que se re-maquete sesenta veces por segundo.
- *
- * Ahora React sólo dibuja cuando cambia la LISTA de cámaras. El movimiento no pasa por
- * React: se escribe `transform` directo sobre el nodo, que es lo que de verdad hacía falta
- * cuando el comentario decía "se recalcula únicamente su posición".
- *
- * Por eso hay dos divs anidados y no uno: el de afuera lo posiciona este código con
- * `transform`, y el de adentro es el de framer-motion, que usa `transform` para su propia
- * animación de entrada. Compartir la propiedad haría que se pisen.
- */
-/** Media anchura y alto de la burbuja, en pixeles. Se usan para que no quede cortada
- *  contra el borde del mapa, que es justo cuando mas falta hace verla entera. */
+function LiveMp4({ deviceId, className }: { deviceId: string; className?: string }) {
+    const ref = useRef<HTMLVideoElement>(null);
+    const [nonce, setNonce] = useState(0);
+    useEffect(() => { const v = ref.current; if (!v) return; return montarVivo(v, deviceId); }, [deviceId, nonce]);
+    return (
+        <div className={cn("relative block group/vid", className || "w-full h-full")}>
+            <video ref={ref} muted autoPlay playsInline className="block w-full h-full object-cover bg-black" />
+            <button onClick={(e) => { e.stopPropagation(); setNonce((n) => n + 1); }} title="Refrescar video"
+                className="absolute top-1 right-1 z-[10] h-6 w-6 rounded-md bg-black/55 text-white/85 hover:bg-black/85 hover:text-white flex items-center justify-center opacity-0 group-hover/vid:opacity-100 transition-opacity">
+                <RotateCw size={12} />
+            </button>
+        </div>
+    );
+}
+
+/* ── Capa de lotes memoizada: no se re-renderiza cuando se actualizan guardias/flujo,
+ *    solo cuando cambian los lotes, la selección, el zoom o el lote localizado.
+ *    Las etiquetas de nombre se muestran solo con zoom alto (rendimiento con muchos lotes). */
+const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, zoom, locatedId, onSelect, onEdit, onCtx }: {
+    lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
+    selectedId: string | null; showNames: boolean; zoom: number; locatedId: string | null;
+    onSelect: (id: string) => void; onEdit: (id: string) => void; onCtx: (e: any, id: string) => void;
+}) {
+    const verNombres = showNames && zoom >= 17;
+    return (
+        <>
+            {lotes.map((lo) => (
+                <Polygon key={lo.id} positions={lo.points}
+                    pathOptions={{
+                        className: locatedId === lo.id ? "lote-blink" : undefined,
+                        color: selectedId === lo.id ? "#f59e0b" : lo.parkingSlotId ? "#22c55e" : "#a855f7",
+                        weight: selectedId === lo.id ? 3 : 1.5,
+                        fillColor: lo.parkingSlotId ? "#22c55e" : "#a855f7",
+                        fillOpacity: selectedId === lo.id ? 0.3 : 0.14,
+                    }}
+                    eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }}>
+                    {lo.name && verNombres && <LTooltip permanent direction="center" className="lote-tip">{lo.name}</LTooltip>}
+                </Polygon>
+            ))}
+        </>
+    );
+});
+
+/* ── Bloque colapsable del drawer (a nivel de módulo para no remontar el input) ── */
+function DrawerBlock({ open, onToggle, icon: Icon, titulo, children }: { open: boolean; onToggle: () => void; icon: any; titulo: string; children: React.ReactNode }) {
+    return (
+        <div className="rounded-xl border border-border bg-background/40 overflow-hidden">
+            <button onClick={onToggle} className="w-full flex items-center gap-2 px-3 h-10 text-left hover:bg-accent/50 transition-colors">
+                <Icon size={14} className="text-purple-500 shrink-0" />
+                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground flex-1">{titulo}</span>
+                <ChevronDown size={14} className={cn("text-muted-foreground transition-transform", open && "rotate-180")} />
+            </button>
+            <AnimatePresence initial={false}>
+                {open && (
+                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }}>
+                        <div className="px-3 pb-3 pt-1">{children}</div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+}
+
+/* ── Drawer de edición de lote: SVG animado, bloques separados y colapsables, adaptable light/dark ── */
+function LoteDrawer({ value, slots, onChange, onSave, onClose, onDelete }: {
+    value: { mode: "create" | "edit"; id?: string; name: string; parkingSlotId: string; points: LL[] };
+    slots: any[];
+    onChange: (patch: Partial<{ name: string; parkingSlotId: string }>) => void;
+    onSave: () => void; onClose: () => void; onDelete?: () => void;
+}) {
+    const [abre, setAbre] = useState({ datos: true, plaza: true });
+    const slot = slots.find((s: any) => s.id === value.parkingSlotId);
+    return (
+        <div className="fixed inset-0 z-[620] flex justify-end" onClick={onClose}>
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+            <motion.div initial={{ x: 380, opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 380, opacity: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                onClick={(e) => e.stopPropagation()}
+                className="relative h-full w-[360px] max-w-[92vw] bg-card border-l border-border shadow-2xl flex flex-col">
+                {/* Header con SVG animado */}
+                <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
+                    <span className="relative h-10 w-10 flex items-center justify-center shrink-0">
+                        <span className="absolute inset-0 rounded-2xl bg-purple-500/15 animate-ping" />
+                        <span className="relative h-10 w-10 rounded-2xl bg-purple-500/15 flex items-center justify-center"><LandPlot size={20} className="text-purple-500" /></span>
+                    </span>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-foreground leading-tight">{value.mode === "create" ? "Nuevo lote" : "Editar lote"}</p>
+                        <p className="text-[11px] text-muted-foreground leading-tight truncate">{value.name || "Sin nombre"}{slot ? ` · ${slot.label}` : ""}</p>
+                    </div>
+                    <button onClick={onClose} className="h-8 w-8 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground shrink-0"><X size={16} /></button>
+                </div>
+
+                {/* Cuerpo */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+                    <DrawerBlock open={abre.datos} onToggle={() => setAbre((a) => ({ ...a, datos: !a.datos }))} icon={Tag} titulo="Identificación">
+                        <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Nombre / número</label>
+                        <input autoFocus value={value.name} onChange={(e) => onChange({ name: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") onSave(); }}
+                            placeholder="Ej: Lote 12" className="mt-1 w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500 transition-colors" />
+                    </DrawerBlock>
+
+                    <DrawerBlock open={abre.plaza} onToggle={() => setAbre((a) => ({ ...a, plaza: !a.plaza }))} icon={SquareParking} titulo="Plaza de parking">
+                        <select value={value.parkingSlotId} onChange={(e) => onChange({ parkingSlotId: e.target.value })}
+                            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-purple-500 transition-colors">
+                            <option value="">— Sin vincular —</option>
+                            {slots.map((s: any) => <option key={s.id} value={s.id}>{s.label}{s.user?.name ? ` · ${s.user.name}` : ""}</option>)}
+                        </select>
+                        {slot ? (
+                            <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-2">
+                                <UserIcon size={13} className="text-emerald-500 shrink-0" />
+                                <span className="text-[12px] text-foreground/90 truncate">{slot.user?.name ? slot.user.name : "Plaza sin residente asignado"}</span>
+                            </div>
+                        ) : (
+                            <p className="mt-1.5 text-[10px] text-muted-foreground">Vinculá el lote a una plaza para reflejar ocupación y residente.</p>
+                        )}
+                    </DrawerBlock>
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center gap-2 px-3 py-3 border-t border-border">
+                    {value.mode === "edit" && onDelete && (
+                        <button onClick={onDelete} className="h-9 w-9 rounded-lg text-red-500 hover:bg-red-500/10 flex items-center justify-center shrink-0" title="Borrar lote"><Trash2 size={16} /></button>
+                    )}
+                    <button onClick={onClose} className="flex-1 h-9 rounded-lg text-xs font-bold text-muted-foreground hover:bg-accent transition-colors">Cancelar</button>
+                    <button onClick={onSave} className="flex-1 h-9 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center gap-1.5 transition-colors"><Check size={14} /> Guardar</button>
+                </div>
+            </motion.div>
+        </div>
+    );
+}
+
+/* ── Shell de drawer genérico del mapa (ficha de lote, bitácora), adaptable light/dark ── */
+function MapDrawer({ title, subtitle, icon: Icon, accent = "blue", onClose, children }: {
+    title: string; subtitle?: string; icon: any; accent?: "blue" | "emerald" | "purple"; onClose: () => void; children: React.ReactNode;
+}) {
+    const accentCls = accent === "emerald" ? "text-emerald-500 bg-emerald-500/15" : accent === "purple" ? "text-purple-500 bg-purple-500/15" : "text-blue-500 bg-blue-500/15";
+    return (
+        <div className="fixed inset-0 z-[625] flex justify-end" onClick={onClose}>
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+            <motion.div initial={{ x: 400, opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 400, opacity: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                onClick={(e) => e.stopPropagation()} className="relative h-full w-[380px] max-w-[94vw] bg-card border-l border-border shadow-2xl flex flex-col">
+                <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
+                    <span className={cn("h-10 w-10 rounded-2xl flex items-center justify-center shrink-0", accentCls)}><Icon size={20} /></span>
+                    <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold text-foreground leading-tight truncate">{title}</p>
+                        {subtitle && <p className="text-[11px] text-muted-foreground leading-tight truncate">{subtitle}</p>}
+                    </div>
+                    <button onClick={onClose} className="h-8 w-8 rounded-lg hover:bg-accent flex items-center justify-center text-muted-foreground shrink-0"><X size={16} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">{children}</div>
+            </motion.div>
+        </div>
+    );
+}
+
+const fechaHora = (iso: string) => { try { return new Date(iso).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }); } catch { return ""; } };
+
+/* ── Burbujas de video en vivo, cada una sobre su cámara en el mapa (clon de San Nicolás) ── */
 const BURBUJA_MEDIO = 118;
 const BURBUJA_ALTO = 168;
-/** Cuanto se levanta la burbuja sobre el distintivo de la camara, para no taparlo. */
 const BURBUJA_SUBE = 34;
-/** Si hubo que correrla para que entrara, el pico apuntaria a cualquier lado: se esconde. */
 const PICO_TOLERANCIA = 2;
 
 function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
@@ -250,9 +266,6 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
 }) {
     const map = useMap();
     const { esFija } = useVivo();
-
-    /* Los nodos que este codigo mueve a mano, y la lista vigente. Van en refs porque el
-       posicionador corre en cada cuadro de un arrastre y no puede depender de un render. */
     const nodos = useRef(new Map<string, HTMLDivElement>());
     const picos = useRef(new Map<string, HTMLSpanElement>());
     const lista = useRef<{ deviceId: string; lat: number; lng: number }[]>([]);
@@ -266,7 +279,6 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
             try { p = map.latLngToContainerPoint([c.lat, c.lng]); } catch { continue; }
             const x = Math.max(BURBUJA_MEDIO + 6, Math.min(tam.x - BURBUJA_MEDIO - 6, p.x));
             const y = Math.max(BURBUJA_ALTO + 6, p.y - BURBUJA_SUBE);
-            // translate3d y no left/top: el compositor mueve la capa sin recalcular layout.
             el.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
             const pico = picos.current.get(c.deviceId);
             if (pico) pico.style.visibility = Math.abs(x - p.x) < PICO_TOLERANCIA ? "visible" : "hidden";
@@ -275,225 +287,92 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
 
     useMapEvents({ move: ubicar, zoom: ubicar, resize: ubicar });
 
-    /*
-     * Una cámara fijada NO sigue colgando del mapa.
-     *
-     * Fijar es mover, no duplicar: si la burbuja se quedara además de la ventana flotante
-     * habría dos flujos RTSP de la misma cámara andando a la vez — el doble de ancho de
-     * banda y el doble de carga en go2rtc, por ver dos veces lo mismo. Y en pantalla serían
-     * dos imágenes iguales, una tapando a la otra, sin manera de saber cuál es cuál.
-     */
-    const utiles = camaras.filter((c) =>
-        Number.isFinite(c.lat) && Number.isFinite(c.lng) && !esFija(c.deviceId));
+    const utiles = camaras.filter((c) => Number.isFinite(c.lat) && Number.isFinite(c.lng) && !esFija(c.deviceId));
     lista.current = utiles;
 
-    /* La primera colocacion. Sin esto una burbuja recien abierta aparece en 0,0 hasta que
-       el operador mueva el mapa — y si no lo mueve, se queda ahi. */
     useEffect(() => { ubicar(); });
     if (!utiles.length) return null;
 
     return createPortal(
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 640 }}>
-            {utiles.map((c) => {
-                /* Dos divs, y cada uno con su dueño del `transform`:
-                   el de afuera lo mueve `ubicar()` en cada cuadro; el de adentro es de
-                   framer-motion, que usa transform para la animación de entrada. */
-                return (
-                    <div
-                        key={c.deviceId}
-                        ref={(el) => {
-                            if (el) nodos.current.set(c.deviceId, el);
-                            else { nodos.current.delete(c.deviceId); picos.current.delete(c.deviceId); }
-                        }}
-                        className="absolute left-0 top-0 pointer-events-auto"
-                        style={{ willChange: "transform" }}
-                    >
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.9, y: 6 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        transition={{ type: "spring", stiffness: 420, damping: 32 }}
-                    >
+            {utiles.map((c) => (
+                <div key={c.deviceId}
+                    ref={(el) => { if (el) nodos.current.set(c.deviceId, el); else { nodos.current.delete(c.deviceId); picos.current.delete(c.deviceId); } }}
+                    className="absolute left-0 top-0 pointer-events-auto" style={{ willChange: "transform" }}>
+                    <motion.div initial={{ opacity: 0, scale: 0.9, y: 6 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ type: "spring", stiffness: 420, damping: 32 }}>
                         <div className="rounded-xl overflow-hidden border border-white/15 shadow-2xl shadow-black/70 bg-[#0a0d12]">
-                            <div className="relative w-[224px] h-[126px]">
-                                <LiveMp4 deviceId={c.deviceId} />
-                            </div>
+                            <div className="relative w-[224px] h-[126px]"><LiveMp4 deviceId={c.deviceId} /></div>
                             <div className="px-2 py-1 bg-black/85 flex items-center gap-1.5">
                                 <Radio size={10} className="text-red-400 shrink-0 animate-pulse" />
                                 <span className="text-[11px] font-bold text-white truncate">{nombre(c.deviceId)}</span>
-                                {/* Fijar: la saca del mapa y la deja en pantalla, abierta,
-                                    aunque se cambie de página. Es la diferencia entre mirar
-                                    dónde pasa algo y dejar una cámara puesta mientras se
-                                    trabaja en otra cosa. */}
                                 <span className="ml-auto flex items-center gap-0.5 shrink-0">
                                     <BotonFijar deviceId={c.deviceId} nombre={nombre(c.deviceId)} />
-                                    <button onClick={() => onCerrarUna(c.deviceId)}
-                                        title="Ocultar esta cámara"
-                                        className="w-5 h-5 rounded text-white/45 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors">
-                                        <X size={11} />
-                                    </button>
+                                    <button onClick={() => onCerrarUna(c.deviceId)} title="Ocultar esta cámara"
+                                        className="w-5 h-5 rounded text-white/45 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors"><X size={11} /></button>
                                 </span>
                             </div>
                         </div>
-                        {/* Pico que la ata al marcador de abajo. Se dibuja siempre y se
-                            muestra u oculta desde `ubicar()`: si se montara y desmontara
-                            con la posición, volveríamos a necesitar un render por cuadro. */}
-                        <span
-                            ref={(el) => { if (el) picos.current.set(c.deviceId, el); }}
-                            className="block mx-auto w-2 h-2 rotate-45 -mt-1 bg-black/85 border-r border-b border-white/15"
-                        />
+                        <span ref={(el) => { if (el) picos.current.set(c.deviceId, el); }}
+                            className="block mx-auto w-2 h-2 rotate-45 -mt-1 bg-black/85 border-r border-b border-white/15" />
                     </motion.div>
-                    </div>
-                );
-            })}
+                </div>
+            ))}
         </div>,
         map.getContainer(),
     );
 }
 
 export default function BarrioMap() {
+    const router = useRouter();
     const [data, setData] = useState<BarrioMapData | null>(null);
-    // Capa base elegida: define el tratamiento de color del mapa.
-    const [base, setBase] = useState<string>("Híbrido");
-    const [vista3D, setVista3D] = useState(false);
-    /*
-     * Inclinada o plana, con el MISMO motor.
-     *
-     * El pedido fue "poder girar el mapa, no sólo en vista 3D", y la respuesta no era una
-     * función nueva: la vista plana es Leaflet, y **Leaflet no puede rotar** — no tiene
-     * rumbo ni inclinación, y los plugins que lo simulan rompen los popups, el arrastre y
-     * la posición de las capas propias.
-     *
-     * MapLibre —el motor de la vista 3D— sí rota, y con la inclinación en CERO es un mapa
-     * plano común. O sea que "plano" y "giratorio" nunca fueron incompatibles: estaban
-     * escondidos detrás de un interruptor que decía 3D y obligaba a inclinar para girar.
-     *
-     * Acá sólo se elige con qué inclinación entra la cámara. El giro ya estaba y funciona
-     * en las dos.
-     */
-    const [inclinada, setInclinada] = useState(true);
-    const rec = useRecorrido();
-    const [cuadroRecorrido, setCuadroRecorrido] = useState<Punto | null>(null);
     const [devices, setDevices] = useState<any[]>([]);
+    const [slots, setSlots] = useState<any[]>([]);
     const [editing, setEditing] = useState(false);
     const [tool, setTool] = useState<Tool>("select");
     const [draftPerimeter, setDraftPerimeter] = useState<LL[]>([]);
-    const [draftStreet, setDraftStreet] = useState<LL[]>([]);
     const [draftLote, setDraftLote] = useState<LL[]>([]);
-    const [asignando, setAsignando] = useState<{ id: string; que: "unidad" | "plaza" } | null>(null);
-    /**
-     * La ficha de la unidad, abierta sobre el plano.
-     *
-     * Antes "Ver la unidad" era un `router.push` a /admin/units con un texto de busqueda:
-     * se salia del mapa, se buscaba de nuevo lo que ya se habia senalado con el dedo, y
-     * para volver al lugar del plano habia que volver a encontrarlo. La pregunta "de quien
-     * es esta casa" se contesta donde se hizo, encima del contorno que la origino.
-     *
-     * `unidad` en null con un lote puesto es un alta: el contorno todavia no tiene dueno.
-     */
-    const [cajonUnidad, setCajonUnidad] = useState<{ unidad: any | null; lote: string | null } | null>(null);
-    const [unidades, setUnidades] = useState<any[]>([]);
-    const [plazas, setPlazas] = useState<any[]>([]);
-    /**
-     * Si hay dibujo sin guardar.
-     *
-     * Acá estaba el problema que hacía perder lotes. Cerrar un contorno lo agregaba al
-     * estado local y lo dibujaba en el mapa — o sea: en pantalla ya estaba, y el botón
-     * decía "Cerrar", que suena a terminado. Pero el mapa entero se guarda de una sola vez
-     * en un ajuste, y eso pasa recién al apretar "Guardar". El operador dibujaba, veía su
-     * lote, y se iba. Nada le decía que faltaba un paso.
-     *
-     * No se autoguarda: el mapa es un todo — perímetro, calles, cámaras, lotes y vista —
-     * y guardar solo porque se cerró un polígono subiría también lo que quedó a medias.
-     * Lo que faltaba no era guardar solo: era AVISAR.
-     */
-    const [sinGuardar, setSinGuardar] = useState(false);
-    const router = useRouter();
-    /**
-     * El lote bajo el puntero.
-     *
-     * Se guarda con la posición del mouse porque la ficha se dibuja al lado del cursor y
-     * no en una esquina fija: en un mapa la pregunta es siempre "¿de quién es ESTA casa?",
-     * y una ficha lejos del polígono obliga a mirar dos lugares y recordar cuál se estaba
-     * señalando.
-     */
-    /*
-     * El hover guarda SÓLO el id. La posición va a un ref.
-     *
-     * Estaba `{ id, x, y }` en estado, y el `mousemove` de Leaflet lo escribía con un
-     * objeto nuevo en cada evento — o sea a ritmo de puntero, unas sesenta veces por
-     * segundo. Cada una de esas era un render completo de este componente: los N
-     * polígonos, los N rótulos, las calles, los guardias y los estacionados. Pasar el
-     * mouse por el barrio era pedir sesenta veces por segundo un trabajo lineal en la
-     * cantidad de lotes.
-     *
-     * La identidad cambia poco (una vez por lote que se pisa) y merece estado. La
-     * posición cambia siempre y no cambia NADA de lo que React dibuja: sólo mueve una
-     * tarjeta. Eso se escribe directo sobre el nodo, que es el mismo patrón que ya está
-     * resuelto en `BurbujasVivo` acá abajo.
-     */
-    const [hoverLote, setHoverLote] = useState<{ id: string } | null>(null);
-    const posHover = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-    const tarjetaHover = useRef<HTMLDivElement | null>(null);
-
-    /* Que no se salga de la pantalla: pegada al borde queda cortada justo cuando el lote
-       está en la orilla del mapa. */
-    const ANCHO_FICHA = 260, ALTO_FICHA = 190;
-    const ubicarTarjeta = useCallback(() => {
-        const n = tarjetaHover.current;
-        if (!n) return;
-        const { x, y } = posHover.current;
-        const iz = Math.min(x + 16, window.innerWidth - ANCHO_FICHA - 12);
-        const ar = Math.min(y + 16, window.innerHeight - ALTO_FICHA - 12);
-        n.style.transform = `translate3d(${iz}px, ${ar}px, 0)`;
-    }, []);
-    const [autoParado, setAutoParado] = useState<AutoParado | null>(null);
-    /* Las cámaras que ven autos parados pero todavía no dicen hacia dónde miran. La tarjeta
-       se dibuja acá y no en un tooltip de Leaflet porque tiene un botón adentro. */
-    const [sinRumbo, setSinRumbo] = useState<SeñalSinRumbo>(null);
-    const [autoSeñalado, setAutoSeñalado] = useState<SeñalAuto>(null);
-    const [buscaUnidad, setBuscaUnidad] = useState("");
+    const [draftDivision, setDraftDivision] = useState<LL[]>([]);
+    const [divTipo, setDivTipo] = useState<DivTipo>("pared");
     const [pendingCam, setPendingCam] = useState<string>("");
-    const [selected, setSelected] = useState<{ type: "street" | "camera" | "lote"; id: string } | null>(null);
+    const [selected, setSelected] = useState<{ type: SelKind; id: string } | null>(null);
     const [saving, setSaving] = useState(false);
-    const [ctx, setCtx] = useState<{ x: number; y: number; type: "street" | "camera" | "lote"; id: string } | null>(null);
-    /**
-     * La ficha del equipo, abierta sobre el plano.
-     *
-     * Antes "Ver la ficha del equipo" era un `router.push` a /admin/devices con el nombre
-     * como texto de búsqueda. Eso es irse de la pantalla: se pierde el encuadre, el zoom y
-     * el recorrido que se estaba mirando, y para volver hay que rehacerlos. Y lo que se
-     * quiere saber de una cámara desde el plano —si está en línea, qué está viendo ahora,
-     * dónde le quedó la línea de paso— es exactamente lo que la ficha muestra arriba.
-     */
-    const [fichaEquipo, setFichaEquipo] = useState<any>(null);
-    /*
-     * Si este barrio sigue estadías o no.
-     *
-     * Empieza en false y no en true: mientras la respuesta viaja, mostrar la capa para
-     * después sacarla es un parpadeo, y en una instalación que la tiene apagada sería un
-     * parpadeo de algo que ahí no existe.
-     */
-    const [estadiasOn, setEstadiasOn] = useState(false);
-    useEffect(() => { funcionActiva("LPR_ESTADIAS").then(setEstadiasOn).catch(() => { }); }, []);
+    const [ctx, setCtx] = useState<{ x: number; y: number; type: CtxKind; id: string } | null>(null);
     const mapRef = useRef<L.Map | null>(null);
+    const wrapRef = useRef<HTMLDivElement | null>(null);
     const [guards, setGuards] = useState<any[]>([]);
-    // Usabilidad: capas que se pueden apagar y pantalla completa.
-    const [verCapa, setVerCapa] = useState({ camaras: true, calles: true, lotes: true, perimetro: true, guardias: true, rotulos: true, estacionados: true });
-    // Vivo de todas las cámaras a la vez. `ocultas` deja apagar una sin apagar el resto.
-    const [vivoTodas, setVivoTodas] = useState(false);
-    // Cómo quedó la vista 3D. En un ref y no en estado: cambia en cada paneo y solo
-    // se lee al guardar, así que no hace falta redibujar por esto.
-    const vista3DRef = useRef<{ center: [number, number]; zoom: number; pitch: number; bearing: number } | null>(null);
-    const [ocultas, setOcultas] = useState<string[]>([]);
-    const [menuCapas, setMenuCapas] = useState(false);
-    const [pantallaCompleta, setPantallaCompleta] = useState(false);
-    const contenedorRef = useRef<HTMLDivElement | null>(null);
     const [liveSocket, setLiveSocket] = useState<any>(null);
 
-    // GPS de guardias en vivo (tablets PWA /guard) via socket
+    const [base, setBase] = useState<Base>("Satélite");
+    const [menuCapas, setMenuCapas] = useState(false);
+    const [show, setShow] = useState({ cameras: true, lotes: true, divisions: true, perimeter: true, guards: true, names: true });
+    const [pantalla, setPantalla] = useState(false);
+    const [q, setQ] = useState("");
+    const [zoom, setZoom] = useState(16);
+    const [movingCam, setMovingCam] = useState<string | null>(null);
+    const [located, setLocated] = useState<{ type: "lote" | "camera"; id: string } | null>(null);
+    const locateTimer = useRef<any>(null);
+
+    const [loteModal, setLoteModal] = useState<{ mode: "create" | "edit"; id?: string; name: string; parkingSlotId: string; points: LL[] } | null>(null);
+    const [loteDetail, setLoteDetail] = useState<{ lote: any; loading: boolean; data: SlotDetail | null } | null>(null);
+    const [bitacora, setBitacora] = useState<{ guardName: string; loading: boolean; entries: any[] } | null>(null);
+    const [camCustom, setCamCustom] = useState<{ deviceId: string; rumbo: number; size: number; color: string } | null>(null);
+    const [divCustom, setDivCustom] = useState<{ id: string; tipo: DivTipo; color: string; weight: number } | null>(null);
+    const [extendDiv, setExtendDiv] = useState<string | null>(null);
+    const [vivoTodas, setVivoTodas] = useState(false);
+    const [ocultas, setOcultas] = useState<string[]>([]);
+    const oscura = base !== "Calles";
+    const editingRef = useRef(editing); editingRef.current = editing;
+    const lotesRef = useRef<any[]>([]);
+    const camerasRef = useRef<any[]>([]);
+    const plateMapRef = useRef<Record<string, string>>({});
+    const autoRef = useRef(false);
+    const rutaTimer = useRef<any>(null);
+    const [autoResaltar, setAutoResaltar] = useState(false);
+    autoRef.current = autoResaltar;
+    const [ruta, setRuta] = useState<{ from: LL; to: LL; key: number } | null>(null);
+
     useEffect(() => {
-        const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
+        const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
         s.on("guard_locations", (data: any[]) => setGuards(Array.isArray(data) ? data.filter((g) => g.lat != null) : []));
         s.on("connect", () => s.emit("get_guard_locations"));
         setLiveSocket(s);
@@ -502,496 +381,222 @@ export default function BarrioMap() {
     }, []);
 
     useEffect(() => {
-        getBarrioMap().then(setData).catch(() => setData(null));
-        getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA" || x.deviceType === "LPR_INTERIOR"))).catch(() => {});
-        getUnits().then((u: any) => setUnidades(u || [])).catch(() => { });
-        getParkingSlots().then((p: any) => setPlazas(p || [])).catch(() => { });
+        getBarrioMap().then((d) => { setData(d); setZoom(d.zoom || 16); }).catch(() => setData(null));
+        getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => { });
+        getParkingSlots().then((s: any) => setSlots(s || [])).catch(() => { });
+        getPlateSlotMap().then((m: any) => { plateMapRef.current = m || {}; }).catch(() => { });
     }, []);
-    /**
-     * Avisar antes de cerrar la pestaña con dibujo sin guardar.
-     *
-     * El navegador sólo deja mostrar su propio cartel — no se puede escribir el texto —,
-     * pero alcanza: lo que hacía falta era que alguien PREGUNTE. Un lote dibujado y no
-     * guardado se perdía sin una sola señal.
-     */
     useEffect(() => {
-        if (!sinGuardar) return;
-        const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
-        window.addEventListener("beforeunload", avisar);
-        return () => window.removeEventListener("beforeunload", avisar);
-    }, [sinGuardar]);
-
-    useEffect(() => {
-        const close = () => { setCtx(null); setMenuCapas(false); };
+        const close = () => setCtx(null);
         window.addEventListener("click", close);
         return () => window.removeEventListener("click", close);
     }, []);
-
-    // La capa se recuerda: primero la guardada en el mapa (vale para todos),
-    // y si no hay, la ultima que eligio este navegador.
-    //
-    // La vista 3D se restaura UNA sola vez, al llegar el mapa. Si se volviera a aplicar en
-    // cada cambio de `data` — y `data` cambia al guardar — el operador no podría salir de
-    // la 3D: la sacaría y el efecto se la volvería a poner.
-    const restaurada = useRef(false);
     useEffect(() => {
-        if (!data) return;
-        const guardada = (data as any).base;
-        if (guardada) setBase(guardada);
-        else { try { const g = localStorage.getItem("omni-mapa-capa"); if (g) setBase(g); } catch { } }
-        if (!restaurada.current) {
-            restaurada.current = true;
-            // La elección de este navegador manda sobre la del mapa guardado.
-            //
-            // Mirar en 3D o en plano es una preferencia de quien mira, no una propiedad
-            // del barrio, y además "Editar mapa" apaga la 3D a propósito (el dibujo se
-            // hace en la vista plana). Si solo se recordara al guardar, la única manera de
-            // dejar el mapa en 3D sería entrar a editar, volver a ponerla y guardar — que
-            // es exactamente lo que no funcionaba. El mapa guardado queda como el valor
-            // por defecto, para quien nunca eligió.
-            let local: string | null = null;
-            let localInc: string | null = null;
-            try {
-                local = localStorage.getItem("omni-mapa-3d");
-                localInc = localStorage.getItem("omni-mapa-inclinada");
-            } catch { }
-            setVista3D(local != null ? local === "1" : (data as any).tresD === true);
-            /* Sin preferencia guardada, inclinada: es como venia funcionando y no conviene
-               cambiarle la vista a quien ya la tenia puesta. */
-            setInclinada(localInc != null ? localInc === "1" : true);
-        }
-    }, [data]);
-    useEffect(() => {
-        try { localStorage.setItem("omni-mapa-capa", base); } catch { }
-    }, [base]);
-    useEffect(() => {
-        if (!restaurada.current) return;   // no pisar antes de haber restaurado
-        try {
-            localStorage.setItem("omni-mapa-3d", vista3D ? "1" : "0");
-            localStorage.setItem("omni-mapa-inclinada", inclinada ? "1" : "0");
-        } catch { }
-    }, [vista3D, inclinada]);
-
-    // Atajos: "/" o Ctrl/Cmd+K enfocan el buscador de abajo (hay uno solo);
-    // Esc cierra el menú de capas y el menú contextual.
-    useEffect(() => {
-        const onKey = (e: KeyboardEvent) => {
-            const enCampo = ["INPUT", "TEXTAREA", "SELECT"].includes((e.target as HTMLElement)?.tagName || "");
-            if ((e.key === "/" && !enCampo) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
-                e.preventDefault();
-                const campo = contenedorRef.current?.querySelector<HTMLInputElement>('input[placeholder^="Matrícula"]');
-                campo?.focus();
-            }
-            if (e.key === "Escape") { setMenuCapas(false); setCtx(null); }
-        };
-        window.addEventListener("keydown", onKey);
-        return () => window.removeEventListener("keydown", onKey);
-    }, []);
-
-
-    useEffect(() => {
-        const onFs = () => setPantallaCompleta(!!document.fullscreenElement);
+        const onFs = () => setPantalla(!!document.fullscreenElement);
         document.addEventListener("fullscreenchange", onFs);
         return () => document.removeEventListener("fullscreenchange", onFs);
     }, []);
 
     const devById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices]);
-    // Flujo en vivo (columnas + autitos) — hooks siempre antes del early-return
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
-
-    /*
-     * Las cámaras que recibe la vista 3D, memoizadas — y esto NO era cosmético.
-     *
-     * Se armaban con un `.map()` inline en el JSX, o sea un array nuevo en cada render de
-     * este componente. En `Mapa3D` ese array es dependencia de dos efectos, y el de las
-     * burbujas en vivo tiene función de limpieza: **destruía y volvía a crear todos los
-     * marcadores de cámara, cortando y remontando cada flujo de video**, en cada render
-     * del mapa. Con "Ver todas" prendido y el mouse moviéndose sobre un lote, eso era
-     * sesenta remontajes de video por segundo.
-     *
-     * Y de paso se va el `devices.find(...)` de adentro del bucle: `devById` ya existe.
-     */
-    const cams3D = useMemo(
-        () => (verCapa.camaras ? (data?.cameras || []) : []).map((c: any) => ({
-            ...c, nombre: (devById as any)[c.deviceId]?.name,
-        })),
-        [verCapa.camaras, data, devById],
-    );
-    const nombreDeCamara = useCallback((id: string) => devById[id]?.name || "Cámara", [devById]);
     const flow = useFlow(data?.streets || [], camsNamed, liveSocket);
-    /*
-     * Los autos parados salen de acá y no de la capa de Leaflet.
-     *
-     * La vista plana y la 3D dibujan los mismos autos, y antes sólo la plana los tenía
-     * porque el pedido y el socket vivían adentro de su capa. Con el cálculo afuera las
-     * dos miran la misma lista y el mismo lugar: un auto no puede estar en un punto
-     * distinto según si el plano está inclinado o no.
-     */
-    const estacionados = useEstacionados((data?.cameras || []) as any, liveSocket, estadiasOn && verCapa.estacionados);
-
-    /**
-     * Las últimas pasadas que ofrece el buscador con el campo vacío.
-     *
-     * No sale de ninguna consulta nueva: son las mismas lecturas que ya alimentan las
-     * columnas de entradas y salidas, fusionadas y ordenadas por hora.
-     *
-     * Va ACÁ, antes del `return` de "Cargando mapa…", y no junto al resto de los cálculos
-     * de abajo. Ahí estaba, y rompía la pantalla con un React #310: mientras `data` era
-     * null el componente salía temprano con N ganchos, y al llegar los datos renderizaba
-     * N+1. Un gancho después de un `return` condicional no es un gancho, es una bomba de
-     * tiempo que explota justo cuando la pantalla empieza a funcionar.
-     */
-    const ultimasPasadas = useMemo(() => {
-        const todas = [...flow.entries, ...flow.exits];
-        return todas
-            .filter((e: any) => e.plateDetected)
-            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-            .slice(0, 10)
-            .map((e: any) => ({
-                id: e.id,
-                plate: String(e.plateDetected).toUpperCase(),
-                camara: e.device?.name || null,
-                cuando: e.timestamp,
-                sentido: e.direction as any,
-            }));
-    }, [flow.entries, flow.exits]);
-    /**
-     * Un clic en cualquier otra parte del plano cierra la ficha del auto.
-     *
-     * Va ACÁ ARRIBA, con el resto de los hooks, y no donde se lee más natural: abajo hay
-     * un `if (!data) return` mientras el mapa carga, y un hook después de ese return se
-     * ejecuta en unos renders y en otros no. React cuenta los hooks por orden y explota
-     * con "rendered more hooks than during the previous render" apenas llegan los datos.
-     * Lo rompí así y la pantalla quedó en blanco.
-     */
-    useEffect(() => {
-        if (!autoSeñalado) return;
-        const m = mapRef.current;
-        if (!m) return;
-        const cerrar = () => setAutoSeñalado(null);
-        m.on("click", cerrar);
-        return () => { m.off("click", cerrar); };
-    }, [autoSeñalado]);
-
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
 
-    /*
-     * El «cargando» ESTABA ACÁ, y acá rompía.
-     *
-     * React exige que cada render llame a los mismos hooks en el mismo orden. Un `return`
-     * temprano corta el render, así que todo hook que quede abajo sólo se ejecuta cuando
-     * la condición no se cumple. Mientras lo de abajo eran funciones sueltas daba igual;
-     * al memoizarlas para arreglar el rendimiento del mapa pasaron a ser DIEZ hooks
-     * debajo del corte. Primer render sin datos: N hooks. Segundo, con datos: N+10.
-     * Error #310, «Rendered more hooks than during the previous render», y la pantalla
-     * entera en blanco.
-     *
-     * Ya había mordido antes en este archivo (ver `BurbujasVivo`) y volvió a morder por el
-     * mismo descuido: medir un problema de rendimiento y meter la solución sin mirar qué
-     * había arriba en el cuerpo del componente.
-     *
-     * La corrección es la de manual: **los hooks primero, el corte después**. El guard
-     * ahora está justo antes del JSX, donde ya no hay ningún hook debajo.
-     */
-
-    const onMapClick = (ll: LL) => {
-        if (!editing) return;
-        if (tool === "perimeter") setDraftPerimeter((p) => [...p, ll]);
-        else if (tool === "street") setDraftStreet((p) => [...p, ll]);
-        else if (tool === "lote") setDraftLote((p) => [...p, ll]);
-        else if (tool === "camera") {
-            if (!pendingCam) { toast.error({ title: "Elegí una cámara primero" }); return; }
-            cambiar((d) => ({ ...d, cameras: [...d.cameras.filter((c) => c.deviceId !== pendingCam), { deviceId: pendingCam, lat: ll[0], lng: ll[1] }] }));
-            setPendingCam(""); setTool("select");
-        }
-    };
-    /**
-     * Cambiar el mapa es marcarlo como sucio, siempre.
-     *
-     * Va por acá y no en cada lugar: había once puntos que tocaban `data`, y alcanzaba con
-     * olvidarse de uno para que el aviso mintiera — y un aviso que a veces no aparece es
-     * peor que ninguno, porque enseña a confiar en él.
-     */
-    const cambiar = (fn: (d: BarrioMapData) => BarrioMapData) => {
-        setSinGuardar(true);
-        setData((d) => d ? fn(d) : d);
-    };
-
-    const commitPerimeter = () => { if (draftPerimeter.length >= 3) cambiar((d) => ({ ...d, perimeter: draftPerimeter })); setDraftPerimeter([]); setTool("select"); };
-    const commitStreet = () => { if (draftStreet.length >= 2) cambiar((d) => ({ ...d, streets: [...d.streets, { id: `s_${Date.now()}`, points: draftStreet }] })); setDraftStreet([]); setTool("select"); };
-    const lotes = data?.lots || [];   // `data?` — este cuerpo ahora también corre sin datos
-    /** Un lote nuevo con nombre automático: «Lote 4». Se renombra desde su panel. */
-    const nuevoLote = (d: BarrioMapData, puntos: LL[]) => ({
-        id: `l_${Date.now()}`,
-        label: `Lote ${(d.lots || []).length + 1}`,
-        unitId: null as string | null,
-        parkingSlotId: null as string | null,
-        points: puntos,
-    });
-    const commitLote = () => {
-        if (draftLote.length >= 3) {
-            /* Se nombra solo. Pedir el nombre con un `prompt()` del navegador interrumpía
-               el dibujo con un cartel del sistema, y encima no hacía falta: el nombre se
-               cambia después desde el panel del lote, que ya existe, y casi siempre el que
-               importa es el de la unidad que se le asigna. */
-            cambiar((d) => ({ ...d, lots: [...(d.lots || []), nuevoLote(d, draftLote)] }));
-        }
-        setDraftLote([]); setTool("select");
-        /*
-         * Decirlo en el momento, no al final.
-         *
-         * "Cerrar" cierra el contorno; el lote todavía vive sólo en la pantalla. El
-         * operador acaba de ver aparecer su polígono y da por hecho que quedó — es lo
-         * razonable. Este aviso es el que faltaba, y va acá y no en una ayuda general
-         * porque el único instante en que sirve es este.
-         */
-        toast.info({
-            title: "Lote dibujado",
-            description: "Todavía no está guardado: tocá «Guardar» para que quede en el mapa del barrio.",
-        });
-    };
-    const removeLote = (id: string) => cambiar((d) => ({ ...d, lots: (d.lots || []).filter((l) => l.id !== id) }));
-    const renameLote = (id: string) => {
-        const actual = lotes.find((l) => l.id === id);
-        const n = window.prompt("Nombre de la casa o lote:", actual?.label || "");
-        if (n != null) cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === id ? { ...l, label: n.trim() } : l) }));
-    };
-    /**
-     * La plaza de estacionamiento del lote.
-     *
-     * Es otra cosa que la unidad y por eso va aparte: una casa puede tener su cochera del
-     * otro lado del barrio, y una plaza puede estar asignada a alguien sin que nadie haya
-     * dibujado todavía su lote. Atarlas en un solo campo obligaría a inventar una de las
-     * dos cada vez que falta la otra.
-     */
-    const asignarPlaza = (loteId: string, parkingSlotId: string | null) => {
-        cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, parkingSlotId } : l) }));
-        setAsignando(null); setBuscaUnidad("");
-    };
-    const plazaDe = (id?: string | null) => plazas.find((p: any) => p.id === id);
-    /** Las matrículas de quienes viven en ese lote, para poder saltar a su historial. */
-    const chapasDelLote = (lo?: any): string[] => {
-        const uni = unidadDe(lo?.unitId);
-        return (uni?.users || []).flatMap((r: any) => (r.vehicles || []).map((v: any) => v.plate)).filter(Boolean);
-    };
-
-    const asignarUnidad = (loteId: string, unitId: string | null) => {
-        cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, unitId } : l) }));
-        setAsignando(null); setBuscaUnidad("");
-    };
-    const moverVertice = useCallback((loteId: string, idx: number, ll: LL) => {
-        cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId ? { ...l, points: l.points.map((p, i) => i === idx ? ll : p) } : l) }));
-    }, []);
-    const quitarVertice = useCallback((loteId: string, idx: number) => {
-        cambiar((d) => ({ ...d, lots: (d.lots || []).map((l) => l.id === loteId && l.points.length > 3 ? { ...l, points: l.points.filter((_, i) => i !== idx) } : l) }));
-    }, []);
-    /** Unidad asignada a un lote, para el cartel y el panel. */
-    /*
-     * Un índice, no un `find`.
-     *
-     * `unidades.find(...)` se llamaba DENTRO del bucle de lotes, así que era
-     * O(lotes × unidades): con trescientos de cada uno, noventa mil comparaciones por
-     * render — y había un render por cada movimiento del mouse. Es el mismo `devById`
-     * que ya existe unas líneas más arriba para los dispositivos.
-     */
-    const uniPorId = useMemo(
-        () => new Map<string, any>((unidades || []).map((u: any) => [u.id, u])),
-        [unidades],
-    );
-    const unidadDe = useCallback(
-        (unitId?: string | null) => (unitId ? uniPorId.get(unitId) : undefined),
-        [uniPorId],
-    );
-
-    const removeCamera = (id: string) => cambiar((d) => ({ ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) }));
-    const removeStreet = (id: string) => cambiar((d) => ({ ...d, streets: d.streets.filter((s) => s.id !== id) }));
-    const renameStreet = (id: string) => { const n = window.prompt("Nombre de la calle:"); if (n != null) cambiar((d) => ({ ...d, streets: d.streets.map((s) => s.id === id ? { ...s, name: n } : s) })); };
-
-    const deleteSelected = () => {
-        if (!selected) return;
-        if (selected.type === "camera") removeCamera(selected.id);
-        else if (selected.type === "lote") removeLote(selected.id);
-        else removeStreet(selected.id);
-        setSelected(null);
-    };
-
-    const FILTROS: Record<string, string> = {
-        "Táctico": "invert(1) hue-rotate(180deg) saturate(0.55) brightness(0.92) contrast(1.06)",
-        "Híbrido": "saturate(0.45) contrast(1.22) brightness(0.82)",
-        "Satélite": "saturate(0.72) contrast(1.08) brightness(0.94)",
-        "Calles": "saturate(0.85)",
-    };
-    const oscura = base === "Táctico" || base === "Híbrido";
-
-    const save = async () => {
-        setSaving(true);
+    // Guarda TODO el mapa (API route POST — pasa el proxy sin problema)
+    const persistNow = useCallback(async (next: BarrioMapData, okMsg = "Guardado") => {
         const m = mapRef.current;
-        // Guardamos tambien la capa elegida: al volver, el mapa abre igual a
-        // como lo dejo el operador.
-        // En 3D el mapa de Leaflet no está montado, así que el centro y el zoom salen de
-        // lo que informó la vista 3D. Antes se caía al valor viejo y "Guardar" en 3D
-        // parecía no hacer nada.
-        const v3 = vista3D ? vista3DRef.current : null;
-
-        /*
-         * Guardar cierra lo que esté a medio dibujar. Acá estaba el defecto de verdad.
-         *
-         * Marcar las esquinas ya dibuja el polígono en el mapa — punteado, pero dibujado —
-         * y a esa altura el operador ve su lote y aprieta «Guardar». Es lo razonable: el
-         * lote está ahí. Pero el contorno todavía vivía en un borrador aparte, y sólo
-         * pasaba a ser un lote al apretar «Cerrar»; «Guardar» guardaba el mapa SIN él, y
-         * encima dejaba el punteado en pantalla, así que parecía que había quedado.
-         *
-         * Exigir ese clic extra no protegía de nada: un contorno de tres o más esquinas es
-         * un lote que alguien dibujó a propósito. «Cerrar» sigue estando para quien quiera
-         * encadenar varios sin salir de la herramienta; lo que ya no hace falta es
-         * acordarse de él.
-         */
-        /* Sin mapa no hay nada que guardar. El botón sólo existe con el mapa en
-           pantalla, así que esto no pasa — pero antes lo garantizaba un `return` de
-           arriba, y ahora que el corte está abajo hay que decirlo acá. Un `!` habría
-           callado al compilador sin dejar rastro de por qué era seguro. */
-        if (!data) return;
-        let conBorradores: BarrioMapData = data;
-        if (draftLote.length >= 3) {
-            conBorradores = { ...conBorradores, lots: [...(conBorradores.lots || []), nuevoLote(conBorradores, draftLote)] };
-        }
-        if (draftPerimeter.length >= 3) {
-            conBorradores = { ...conBorradores, perimeter: draftPerimeter };
-        }
-        if (draftStreet.length >= 2) {
-            conBorradores = { ...conBorradores, streets: [...conBorradores.streets, { id: `s_${Date.now()}`, points: draftStreet }] };
-        }
-
-        const payload: BarrioMapData = {
-            ...conBorradores,
-            center: v3 ? v3.center : m ? [m.getCenter().lat, m.getCenter().lng] : data.center,
-            zoom: v3 ? v3.zoom : m ? m.getZoom() : data.zoom,
-            base,
-            tresD: vista3D,
-            ...(v3 ? { pitch: v3.pitch, bearing: v3.bearing } : {}),
-        } as BarrioMapData;
+        const payload: BarrioMapData = { ...next, center: m ? [m.getCenter().lat, m.getCenter().lng] : next.center, zoom: m ? m.getZoom() : next.zoom };
+        setData(payload);
         try {
-            const r = await saveBarrioMap(payload);
-            if (r.ok) {
-                /*
-                 * El aviso dice QUÉ quedó guardado, no que la escritura no falló.
-                 *
-                 * "Mapa guardado" a secas confirma lo segundo, que es mucho menos de lo que
-                 * el operador entiende. Si el dibujo no llegó al servidor, ese cartel
-                 * mentía sin querer y el problema se descubría dos días después, al abrir
-                 * el mapa. La cuenta viene del servidor, de lo que realmente se serializó.
-                 */
-                const g = r.guardado;
-                const detalle = g
-                    ? [g.lotes && `${g.lotes} lote${g.lotes === 1 ? "" : "s"}`,
-                       g.calles && `${g.calles} calle${g.calles === 1 ? "" : "s"}`,
-                       g.camaras && `${g.camaras} cámara${g.camaras === 1 ? "" : "s"}`,
-                       g.perimetro && "perímetro"].filter(Boolean).join(" · ") || "sin dibujo todavía"
-                    : (vista3D
-                        ? (inclinada ? "Abre en vista 3D, con este giro e inclinación" : "Abre en vista plana, con este giro")
-                        : `Vista, zoom y capa ${base}`);
-                toast.success({ title: "Mapa guardado", description: detalle });
-                setData(payload); setSinGuardar(false); setEditing(false); setTool("select");
-                /* Sin esto, el punteado del borrador seguía dibujado sobre el mapa después
-                   de guardar: un contorno que ya es un lote y además se ve como si no lo
-                   fuera. Era la mitad de por qué esto engañaba. */
-                setDraftLote([]); setDraftPerimeter([]); setDraftStreet([]);
-            } else toast.error({ title: "Error al guardar", description: r.error || "sin detalle" });
+            const r = await fetch("/api/barriomap", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            const j = await r.json().catch(() => ({}));
+            if (r.ok && j.ok) toast.success({ title: okMsg });
+            else toast.error({ title: "Error al guardar", description: j.error || `HTTP ${r.status}` });
+        } catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); }
+    }, []);
+
+    const editLote = useCallback((id: string) => {
+        setData((cur) => {
+            const l = (cur?.lotes || []).find((x) => x.id === id);
+            if (l) setLoteModal({ mode: "edit", id, name: l.name || "", parkingSlotId: l.parkingSlotId || "", points: l.points });
+            return cur;
+        });
+    }, []);
+    const abrirLoteDetalle = useCallback((id: string) => {
+        const lo = lotesRef.current.find((x: any) => x.id === id);
+        if (!lo) return;
+        setLoteDetail({ lote: lo, loading: !!lo.parkingSlotId, data: null });
+        if (lo.parkingSlotId) {
+            getSlotDetail(lo.parkingSlotId)
+                .then((d) => setLoteDetail((cur) => cur && cur.lote.id === id ? { ...cur, loading: false, data: d } : cur))
+                .catch(() => setLoteDetail((cur) => cur && cur.lote.id === id ? { ...cur, loading: false } : cur));
         }
-        catch (e: any) { toast.error({ title: "Error al guardar", description: String(e?.message || e) }); } finally { setSaving(false); }
-    };
-
-    /* Los manejadores del lote, estables. Si cambiaran de referencia, el `memo` del
-       componente no serviría de nada: cada render volvería a pasarle props nuevas. */
-    const loteElegir = useCallback((id: string) => setSelected({ type: "lote", id }), []);
-    const loteEntrar = useCallback((id: string, e: any) => {
-        const oe = e?.originalEvent;
-        posHover.current = { x: oe?.clientX ?? 0, y: oe?.clientY ?? 0 };
-        setHoverLote((h) => (h?.id === id ? h : { id }));
-        ubicarTarjeta();
-    }, [ubicarTarjeta]);
-    const loteMover = useCallback((_id: string, e: any) => {
-        const oe = e?.originalEvent;
-        if (!oe) return;
-        // Sin `setState`: se mueve el nodo y listo. Esta es la línea que costaba un
-        // render completo del mapa por cada píxel que se movía el puntero.
-        posHover.current = { x: oe.clientX, y: oe.clientY };
-        ubicarTarjeta();
-    }, [ubicarTarjeta]);
-    const loteSalir = useCallback((id: string) => setHoverLote((h) => (h?.id === id ? null : h)), []);
-
-    const openCtx = useCallback((e: any, type: "street" | "camera" | "lote", id: string) => {
+    }, []);
+    const abrirBitacora = useCallback(async (guardName: string) => {
+        setBitacora({ guardName, loading: true, entries: [] });
+        try {
+            const r: any = await getBitacoraPage(0, 40, "", guardName);
+            const entries = Array.isArray(r) ? r : (r?.entries || []);
+            setBitacora({ guardName, loading: false, entries });
+        } catch { setBitacora({ guardName, loading: false, entries: [] }); }
+    }, []);
+    const onSelectLote = useCallback((id: string) => {
+        if (editingRef.current) setSelected({ type: "lote", id });
+        else abrirLoteDetalle(id);
+    }, [abrirLoteDetalle]);
+    const openCtx = useCallback((e: any, type: CtxKind, id: string) => {
         const oe = e.originalEvent || e; oe.preventDefault?.(); oe.stopPropagation?.();
         setCtx({ x: oe.clientX, y: oe.clientY, type, id });
     }, []);
-    const loteMenu = useCallback((e: any, id: string) => openCtx(e, "lote", id), [openCtx]);
+    const onCtxLote = useCallback((e: any, id: string) => openCtx(e, "lote", id), [openCtx]);
 
-    // ── Controles del mapa ──────────────────────────────────────────────
+    const localizar = useCallback((type: "lote" | "camera", id: string) => {
+        setLocated({ type, id });
+        if (locateTimer.current) clearTimeout(locateTimer.current);
+        locateTimer.current = setTimeout(() => setLocated(null), 6000);
+    }, []);
+
+    // Al tocar/detectar una matrícula: resalta el lote del residente y anima la ruta cámara→casa.
+    const onPlate = useCallback((ev: any) => {
+        const plate = (ev?.plateDetected || "").toUpperCase();
+        if (!plate) return;
+        const slotId = plateMapRef.current[plate];
+        if (!slotId) { toast.error({ title: "Sin lote", description: `${plate} no está asociada a un lote.` }); return; }
+        const lote = lotesRef.current.find((l: any) => l.parkingSlotId === slotId);
+        if (!lote || !lote.points?.length) { toast.error({ title: "Lote no dibujado", description: `El lote de ${plate} no está en el mapa.` }); return; }
+        const to = centroid(lote.points);
+        const devId = ev?.device?.id || ev?.deviceId;
+        const cam = devId ? camerasRef.current.find((c: any) => c.deviceId === devId) : null;
+        const from = cam ? ([cam.lat, cam.lng] as LL) : null;
+        localizar("lote", lote.id);
+        if (from) {
+            setRuta({ from, to, key: Date.now() });
+            if (rutaTimer.current) clearTimeout(rutaTimer.current);
+            rutaTimer.current = setTimeout(() => setRuta(null), 9000);
+            if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds([from, to]), { padding: [90, 90], maxZoom: 19 }); } catch { } }
+        } else if (mapRef.current) {
+            mapRef.current.setView(to, Math.max(mapRef.current.getZoom(), 18));
+        }
+    }, [localizar]);
+
+    // Resaltado automático: al entrar una matrícula de residente por LPR (si el toggle está activo)
+    useEffect(() => {
+        if (!liveSocket) return;
+        const onEv = (raw: any) => {
+            if (!autoRef.current) return;
+            if (raw?.accessType !== "PLATE" || raw?.direction !== "ENTRY") return;
+            const plate = (raw.plateDetected || "").toUpperCase();
+            if (!plate || plate === "NO_LEIDA" || plate.startsWith("DOOR_")) return;
+            if (!plateMapRef.current[plate]) return;
+            onPlate(raw);
+        };
+        liveSocket.on("access_event", onEv);
+        return () => liveSocket.off("access_event", onEv);
+    }, [liveSocket, onPlate]);
+
+    if (!data) return <div className="h-full w-full flex items-center justify-center text-muted-foreground"><Loader2 className="animate-spin mr-2" size={18} /> Cargando mapa…</div>;
+
+    const lotes = data.lotes || [];
+    lotesRef.current = lotes;
+    camerasRef.current = data.cameras;
+
+    const onMapClick = (ll: LL) => {
+        // Mover cámara (menú contextual → editar posición) — funciona aún fuera de edición
+        if (movingCam) {
+            const next = { ...data, cameras: data.cameras.map((c) => c.deviceId === movingCam ? { ...c, lat: ll[0], lng: ll[1] } : c) };
+            setMovingCam(null);
+            persistNow(next, "Posición actualizada");
+            return;
+        }
+        if (extendDiv) {
+            setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === extendDiv ? { ...x, points: [...x.points, ll] } : x) }) as any : d);
+            return;
+        }
+        if (!editing) return;
+        if (tool === "perimeter") setDraftPerimeter((p) => [...p, ll]);
+        else if (tool === "lote") setDraftLote((p) => [...p, ll]);
+        else if (tool === "division") setDraftDivision((p) => [...p, ll]);
+        else if (tool === "camera") {
+            if (!pendingCam) { toast.error({ title: "Elegí una cámara primero" }); return; }
+            setData((d) => d ? { ...d, cameras: [...d.cameras.filter((c) => c.deviceId !== pendingCam), { deviceId: pendingCam, lat: ll[0], lng: ll[1] }] } : d);
+            setPendingCam(""); setTool("select");
+        }
+    };
+    const commitPerimeter = () => { if (draftPerimeter.length >= 3) setData((d) => d ? { ...d, perimeter: draftPerimeter } : d); setDraftPerimeter([]); setTool("select"); };
+    const commitLote = () => {
+        if (draftLote.length >= 3) setLoteModal({ mode: "create", name: "", parkingSlotId: "", points: draftLote });
+        setDraftLote([]); setTool("select");
+    };
+    const commitDivision = () => {
+        if (draftDivision.length >= 2) setData((d) => d ? { ...d, divisions: [...((d as any).divisions || []), { id: `d_${Date.now()}`, tipo: divTipo, points: draftDivision }] } as any : d);
+        setDraftDivision([]); setTool("select");
+    };
+    const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
+    const removeCamera = (id: string) => setData((d) => d ? { ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) } : d);
+    const removeCameraPersist = (id: string) => persistNow({ ...data, cameras: data.cameras.filter((c) => c.deviceId !== id) }, "Cámara quitada del mapa");
+    const removeStreet = (id: string) => setData((d) => d ? { ...d, streets: d.streets.filter((s) => s.id !== id) } : d);
+    const removeLote = async (id: string) => { const next = { ...data, lotes: (data.lotes || []).filter((l) => l.id !== id) }; await persistNow(next, "Lote eliminado"); };
+    const renameStreet = (id: string) => { const n = window.prompt("Nombre de la calle:"); if (n != null) setData((d) => d ? { ...d, streets: d.streets.map((s) => s.id === id ? { ...s, name: n } : s) } : d); };
+    const deleteSelected = () => { if (!selected) return; if (selected.type === "camera") removeCamera(selected.id); else if (selected.type === "street") removeStreet(selected.id); else removeLote(selected.id); setSelected(null); };
+
+    const saveLoteModal = async () => {
+        if (!loteModal) return;
+        const nm = loteModal.name.trim();
+        const psid = loteModal.parkingSlotId || undefined;
+        let next: BarrioMapData;
+        if (loteModal.mode === "create") {
+            next = { ...data, lotes: [...(data.lotes || []), { id: `l_${Date.now()}`, name: nm, points: loteModal.points, parkingSlotId: psid }] };
+        } else {
+            next = { ...data, lotes: (data.lotes || []).map((l) => l.id === loteModal.id ? { ...l, name: nm, parkingSlotId: psid } : l) };
+        }
+        setLoteModal(null);
+        await persistNow(next, loteModal.mode === "create" ? "Lote creado" : "Lote actualizado");
+    };
+
+    const save = async () => {
+        setSaving(true);
+        await persistNow(data, "Mapa guardado");
+        setSaving(false); setEditing(false); setTool("select");
+    };
+
     const acercar = (d: number) => { const m = mapRef.current; if (m) m.setZoom(m.getZoom() + d); };
-    const centrarBarrio = () => {
-        const m = mapRef.current; if (!m || !data) return;
-        if (data.perimeter.length >= 3) m.fitBounds(L.latLngBounds(data.perimeter as any), { padding: [60, 60] });
-        else m.setView(data.center as any, data.zoom);
+    const centrar = () => { const m = mapRef.current; if (m) m.setView(data.center, data.zoom); };
+    const alternarPantalla = () => {
+        const el = wrapRef.current; if (!el) return;
+        if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
+        else el.requestFullscreen?.().catch(() => { });
     };
-    const alternarPantalla = async () => {
-        try {
-            if (document.fullscreenElement) await document.exitFullscreen();
-            else await contenedorRef.current?.requestFullscreen();
-        } catch { }
+    const toggleVivo = () => { setOcultas([]); setVivoTodas((v) => !v); };
+    const buscar = () => {
+        const s = q.trim().toUpperCase(); if (!s || !mapRef.current) return;
+        const lo = lotes.find((l) => (l.name || "").toUpperCase().includes(s));
+        if (lo && lo.points.length) { mapRef.current.setView(centroid(lo.points), Math.max(mapRef.current.getZoom(), 19)); localizar("lote", lo.id); return; }
+        const cam = data.cameras.find((c) => (devById[c.deviceId]?.name || "").toUpperCase().includes(s));
+        if (cam) { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); localizar("camera", cam.deviceId); return; }
+        const st = data.streets.find((x) => (x.name || "").toUpperCase().includes(s));
+        if (st && st.points.length) { mapRef.current.setView(st.points[Math.floor(st.points.length / 2)] as any, 18); return; }
+        toast.error({ title: "Sin coincidencias", description: "No encontré ese lote, cámara o calle." });
     };
-    // Un solo buscador: lo que se escribe abajo sirve para matrículas y para
-    // saltar a una cámara o a una calle.
-    const lugares = (() => {
-        const q = (rec.plate || "").trim().toLowerCase();
-        /* Este cálculo corre en cada render, incluido el primero sin datos: no hay dónde
-           buscar todavía, y eso es una lista vacía, no un error. */
-        if (!data || q.length < 2) return [] as Lugar[];
-        const cams = data.cameras
-            .map((c) => ({ tipo: "camara" as const, id: c.deviceId, nombre: devById[c.deviceId]?.name || "Cámara", lat: c.lat, lng: c.lng }))
-            .filter((c) => c.nombre.toLowerCase().includes(q));
-        const calles = data.streets
-            .filter((st) => (st.name || "").toLowerCase().includes(q) && st.points.length)
-            .map((st) => ({ tipo: "calle" as const, id: st.id, nombre: st.name || "Calle", lat: st.points[Math.floor(st.points.length / 2)][0], lng: st.points[Math.floor(st.points.length / 2)][1] }));
-        return [...cams, ...calles].slice(0, 6);
-    })();
-
-    const irALugar = (l: Lugar) => {
-        setVista3D(false);
-        mapRef.current?.flyTo([l.lat, l.lng], l.tipo === "camara" ? 19 : 18, { duration: 0.9 });
-        rec.setPlate("");
-    };
-
-    const capas: { k: keyof typeof verCapa; label: string; icon: any }[] = [
-        { k: "camaras", label: "Cámaras", icon: Video },
-        { k: "calles", label: "Calles", icon: RouteIco },
-        { k: "lotes", label: "Lotes", icon: Pentagon },
-        { k: "perimetro", label: "Perímetro", icon: Hexagon },
-        { k: "guardias", label: "Guardias", icon: ShieldCheck },
-        /* Sin la función de estadías no hay autos parados que mostrar, así que tampoco hay
-           nada que prender y apagar: un interruptor que no cambia nada es peor que no
-           tenerlo, porque invita a probarlo y a dudar de si anda. */
-        ...(estadiasOn ? [{ k: "estacionados" as const, label: "Estacionados", icon: SquareParking }] : []),
-        { k: "rotulos", label: "Nombres", icon: Type },
-    ];
 
     const tools: { id: Tool; icon: any; label: string }[] = [
         { id: "select", icon: MousePointer2, label: "Seleccionar" },
+        { id: "lote", icon: LandPlot, label: "Dibujar lote" },
+        { id: "division", icon: Fence, label: "Dibujar división (pared/tejido/alambrado)" },
         { id: "perimeter", icon: Hexagon, label: "Dibujar perímetro" },
-        { id: "street", icon: Spline, label: "Dibujar calle" },
         { id: "camera", icon: Video, label: "Soltar cámara" },
-        { id: "lote", icon: Pentagon, label: "Dibujar casa / lote" },
     ];
-
-    /* Recién acá, con todos los hooks ya ejecutados, se puede cortar. */
-    if (!data) {
-        return (
-            <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                <Loader2 className="mr-2 animate-spin" size={18} /> Cargando mapa…
-            </div>
-        );
-    }
+    const fondos: Base[] = ["Híbrido", "Táctico", "Satélite", "Calles"];
+    const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
+        { key: "cameras", label: "Cámaras", Icon: CamIco },
+        { key: "lotes", label: "Lotes", Icon: LoteIco },
+        { key: "divisions", label: "Divisiones", Icon: Fence },
+        { key: "perimeter", label: "Perímetro", Icon: PerimIco },
+        { key: "guards", label: "Guardias", Icon: GuardIco },
+        { key: "names", label: "Nombres", Icon: TypeIco },
+    ];
+    const gbtn = "h-9 w-9 flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors disabled:opacity-30";
+    const locatedLoteId = located?.type === "lote" ? located.id : null;
 
     return (
         <TooltipProvider delayDuration={150}>
@@ -1002,150 +607,79 @@ export default function BarrioMap() {
                 .cam-live-popup a.leaflet-popup-close-button{color:#fff;top:4px;right:6px}
                 .cam-name-tip{background:rgba(17,17,17,.85);color:#fff;border:0;box-shadow:none;font-size:10px;font-weight:700;padding:1px 6px;border-radius:6px}
                 .cam-name-tip:before{display:none}
-
-                /* ── Mapa táctico ── */
-                .omni-barrio .leaflet-tile-pane{filter:${FILTROS[base] || 'none'};transition:filter .25s ease}
-                .omni-barrio .leaflet-pane.omni-rotulos{filter:none !important;opacity:.95}
-                .omni-barrio .leaflet-control-attribution{background:rgba(8,9,11,.6)!important;color:#8b8b93!important;font-size:9px}
-                .omni-barrio .leaflet-control-attribution a{color:#9aa4b2!important}
-                .omni-barrio .leaflet-control-layers{background:rgba(14,16,20,.92)!important;color:#e5e7eb!important;
-                    border:1px solid rgba(148,163,184,.22)!important;border-radius:12px!important;
-                    box-shadow:0 12px 30px -12px rgba(0,0,0,.8)!important;backdrop-filter:blur(10px)}
-                .omni-barrio .leaflet-control-layers-toggle{background-color:rgba(14,16,20,.92)!important;border-radius:12px!important}
-                .omni-barrio .leaflet-control-layers label{font-size:12px;font-weight:600;padding:3px 2px}
-                .omni-barrio .leaflet-control-layers-separator{border-color:rgba(148,163,184,.2)}
-                .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;
-                    box-shadow:inset 0 0 170px 45px rgba(0,0,0,.55)}
-                .omni-vehiculo{filter:drop-shadow(0 0 10px rgba(251,191,36,.9))}
-                /* El halo late aparte del auto: la rotacion cambia en cada cuadro y no
-                   puede reiniciar la animacion del pulso. */
-${CSS_AUTO}
-                /* Un destello corto que corre por el camino ya hecho.
-                   La linea de abajo queda solida: lo que se mueve es la luz, no el
-                   camino. Un punteado en movimiento se lee como "ruta estimada", y esto
-                   no es una estimacion: por ahi paso el vehiculo. */
-                .omni-destello{stroke-dasharray:26 1400;stroke-linecap:round;
-                    animation:omniDestello 2.6s linear infinite}
-                @keyframes omniDestello{from{stroke-dashoffset:26}to{stroke-dashoffset:-1400}}
-                .omni-punto-actual{filter:drop-shadow(0 0 7px rgba(251,191,36,.85));animation:omniLatido 1.8s ease-in-out infinite}
-                @keyframes omniLatido{0%,100%{opacity:1}50%{opacity:.55}}
-                .omni-sin-barra::-webkit-scrollbar{display:none}
-                .omni-sin-barra{scrollbar-width:none}
-                .omni-barrio .custom-scrollbar::-webkit-scrollbar{height:4px;width:4px}
-                .omni-barrio .custom-scrollbar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:4px}
-                .omni-reticula{position:absolute;inset:0;pointer-events:none;z-index:399;opacity:.14;
-                    background-image:linear-gradient(rgba(148,163,184,.6) 1px,transparent 1px),
-                                     linear-gradient(90deg,rgba(148,163,184,.6) 1px,transparent 1px);
-                    background-size:130px 130px}
+                .lote-tip{background:rgba(168,85,247,.92);color:#fff;border:0;box-shadow:none;font-size:10px;font-weight:800;padding:1px 6px;border-radius:6px}
+                .lote-tip:before{display:none}
+                @keyframes loteBlink{0%,100%{stroke-opacity:1;fill-opacity:.15;stroke-width:2}50%{stroke-opacity:.25;fill-opacity:.5;stroke-width:5}}
+                .lote-blink{stroke:#f59e0b !important;fill:#f59e0b !important;animation:loteBlink 0.9s ease-in-out infinite}
+                @keyframes rutaDash{to{stroke-dashoffset:-34}}
+                .ruta-anim{animation:rutaDash 0.9s linear infinite}
+                .cam-locate .cam-glyph{animation:loteBlink 0.9s ease-in-out infinite}
+                .map-tactico .leaflet-tile-pane{filter:grayscale(.65) contrast(1.05) brightness(.72)}
+                /* Cursor flecha (no manito) mientras se dibuja en el mapa */
+                .map-draw .leaflet-grab,.map-draw.leaflet-dragging .leaflet-grab{cursor:default !important}
+                .map-draw .leaflet-container{cursor:default !important}
+                .omni-reticula{position:absolute;inset:0;pointer-events:none;z-index:400;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:44px 44px}
+                .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;box-shadow:inset 0 0 200px 40px rgba(0,0,0,.55)}
             `}</style>
-            <div ref={contenedorRef} className="relative h-full w-full bg-[#07080a]">
-                {vista3D ? (
-                    <Mapa3D
-                        center={data.center as [number, number]}
-                        zoom={data.zoom}
-                        /* Plana es inclinación cero; el rumbo se conserva en las dos, que es
-                           justamente lo que se pidió. El `|| 55` existe porque si lo último
-                           guardado fue una vista plana, `data.pitch` es 0 y "Vista 3D"
-                           entraría sin inclinar — el botón no haría nada visible. */
-                        pitch={inclinada ? (data.pitch || 55) : 0}
-                        bearing={data.bearing}
-                        onVista={(v) => { vista3DRef.current = v; }}
-                        vivo={vivoTodas}
-                        ocultas={ocultas}
-                        nombre={nombreDeCamara}
-                        /* Los interruptores de "Mostrar" valen en las dos vistas.
-                           Antes esta vista recibia el perimetro, las calles y las camaras
-                           SIEMPRE, y los guardias no le llegaban: por eso el menu escondia
-                           el grupo entero en vez de ofrecer controles que no hacian nada. */
-                        perimeter={(verCapa.perimetro ? data.perimeter : []) as [number, number][]}
-                        streets={(verCapa.calles ? data.streets : []) as any}
-                        guardias={verCapa.guardias ? guards : []}
-                        /* Los lotes nunca habían llegado acá. En un barrio sin perímetro ni
-                           calles dibujadas —que es éste— eso dejaba la vista 3D con dos
-                           cámaras y nada más: el plano entero desaparecía al inclinarlo. */
-                        lots={(verCapa.lotes ? (data.lots || []) : []) as any}
-                        rotulos={verCapa.rotulos}
-                        estacionados={estadiasOn && verCapa.estacionados ? estacionados.ubicados : []}
-                        pendientes={estadiasOn && verCapa.estacionados ? estacionados.pendientes : []}
-                        flujos={flow.anims}
-                        pulsos={flow.pulses}
-                        cameras={cams3D as any}
-                        puntos={rec.puntos}
-                        traza={rec.traza}
-                        avance={rec.avance}
-                        indice={rec.indice}
-                    />
-                ) : (
-                <MapContainer center={data.center} zoom={data.zoom} maxZoom={21} className="h-full w-full z-0 omni-barrio" style={{ background: "#07080a" }} zoomControl={false} scrollWheelZoom>
-                    <Pane name="omni-rotulos" style={{ zIndex: 350 }} />
-                    {/* Capas: se eligen con el selector flotante, no con el control de Leaflet */}
-                    {(base === "Táctico" || base === "Calles") && (
-                        <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={19} maxZoom={21} />
+            <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv) && "map-draw")}>
+                <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
+                    <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
+                    <ZoomTracker onZoom={setZoom} />
+                    {(movingCam || extendDiv || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
+
+                    {(base === "Satélite" || base === "Híbrido") && (
+                        <TileLayer key="esri" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
                     )}
-                    {(base === "Híbrido" || base === "Satélite") && (
-                        <TileLayer attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
+                    {(base === "Calles" || base === "Táctico") && (
+                        <TileLayer key="osm" attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={19} maxZoom={21} />
                     )}
                     {base === "Híbrido" && (
                         <>
-                            {/* Nombres de calles sobre la foto satelital. Las capas de
-                                referencia de Esri no traen calles de barrio a este zoom,
-                                asi que los rotulos salen de CARTO (OpenStreetMap). */}
-                            <TileLayer pane="omni-rotulos"
-                                attribution="&copy; OpenStreetMap &copy; CARTO"
-                                url="https://{s}.basemaps.cartocdn.com/rastertiles/dark_only_labels/{z}/{x}/{y}{r}.png"
-                                subdomains="abcd" maxNativeZoom={18} maxZoom={21} />
+                            {/* Híbrido limpio: satélite realista + capas de REFERENCIA transparentes de Esri
+                                (calles y rótulos), sin superponer un segundo mapa. Gratis, sin API key. */}
+                            <TileLayer key="hyb-transp" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
+                            <TileLayer key="hyb-places" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
                         </>
                     )}
 
-                    <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
-                    {editing && tool !== "select" && <ClickHandler onClick={onMapClick} />}
-
-                    {verCapa.perimetro && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
+                    {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
-                    {/* Casas / lotes: polígono, nombre y vértices arrastrables al editar.
-                        El cuerpo salió a `<Lote>` en `memo` — ver el comentario largo en su
-                        definición, arriba, que explica por qué esto trancaba el mapa. */}
-                    {(verCapa.lotes ? lotes : []).map((lo) => (
-                        <Lote
-                            key={lo.id}
-                            id={lo.id}
-                            points={lo.points}
-                            label={lo.label}
-                            conUnidad={!!lo.unitId}
-                            nombreUnidad={unidadDe(lo.unitId)?.name ?? null}
-                            sel={selected?.type === "lote" && selected.id === lo.id}
-                            señalado={hoverLote?.id === lo.id}
-                            rotulo={!!verCapa.rotulos}
-                            editando={!!editing}
-                            onElegir={loteElegir}
-                            onMenu={loteMenu}
-                            onEntrar={loteEntrar}
-                            onMover={loteMover}
-                            onSalir={loteSalir}
-                            onVertice={moverVertice}
-                            onQuitarVertice={quitarVertice}
-                        />
-                    ))}
-                    {draftLote.length > 0 && (
-                        <Polygon positions={draftLote} pathOptions={{ color: "#38bdf8", weight: 2, dashArray: "6 6", fillOpacity: 0.12 }} />
+                    {show.lotes && (
+                        <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.names} zoom={zoom}
+                            locatedId={locatedLoteId} onSelect={onSelectLote} onEdit={editLote} onCtx={onCtxLote} />
                     )}
+                    {draftLote.length > 0 && <Polygon positions={draftLote} pathOptions={{ color: "#a855f7", weight: 2, dashArray: "6 6", fillOpacity: 0.1 }} />}
 
-                    {(verCapa.calles ? data.streets : []).map((s) => (
+                    {data.streets.map((s) => (
                         <Polyline key={s.id} positions={s.points}
                             pathOptions={{ color: selected?.id === s.id ? "#f59e0b" : "#38bdf8", weight: selected?.id === s.id ? 6 : 4, opacity: 0.9 }}
                             eventHandlers={{
                                 click: () => editing && tool === "select" && setSelected({ type: "street", id: s.id }),
                                 contextmenu: (e) => openCtx(e, "street", s.id),
                             }}>
-                            {s.name && <LTooltip sticky className="cam-name-tip">{s.name}</LTooltip>}
+                            {s.name && show.names && <LTooltip sticky className="cam-name-tip">{s.name}</LTooltip>}
                         </Polyline>
                     ))}
-                    {draftStreet.length > 0 && <Polyline positions={draftStreet} pathOptions={{ color: "#38bdf8", weight: 4, dashArray: "6 6" }} />}
 
-                    {(verCapa.guardias ? guards : []).map((g) => (
+                    {/* Divisiones (pared / tejido / alambrado) */}
+                    {show.divisions && ((data as any).divisions || []).map((dv: any) => {
+                        const st = DIV_STYLE[(dv.tipo as DivTipo)] || DIV_STYLE.pared;
+                        const color = dv.color || st.color; const weight = dv.weight || st.weight;
+                        return (
+                            <Polyline key={`${dv.id}_${color}_${weight}_${dv.points.length}`} positions={dv.points}
+                                pathOptions={{ color, weight, dashArray: st.dashArray, opacity: 0.95, lineCap: "round" }}
+                                eventHandlers={{ contextmenu: (e) => openCtx(e, "division", dv.id) }}>
+                                {show.names && <LTooltip sticky className="cam-name-tip">{st.label}</LTooltip>}
+                            </Polyline>
+                        );
+                    })}
+                    {draftDivision.length > 0 && <Polyline positions={draftDivision} pathOptions={{ color: DIV_STYLE[divTipo].color, weight: DIV_STYLE[divTipo].weight, dashArray: DIV_STYLE[divTipo].dashArray || "4 4", opacity: 0.8 }} />}
+
+                    {show.guards && guards.map((g) => (
                         <Marker key={"g" + g.id} position={[g.lat, g.lng]}
-                            icon={L.divIcon({ className: "bg-transparent border-0", html: guardIconHtml(g.guardName || g.name || "Guardia", g.heading), iconSize: [60, 52], iconAnchor: [30, 44] })}>
+                            icon={L.divIcon({ className: "bg-transparent border-0", html: guardIconHtml(g.guardName || g.name || "Guardia", g.heading), iconSize: [60, 52], iconAnchor: [30, 44] })}
+                            eventHandlers={{ contextmenu: (e) => openCtx(e, "guard", String(g.id)) }}>
                             <Popup>
                                 <div style={{ minWidth: 140 }}>
                                     <b>{g.guardName || "Guardia"}</b><br />
@@ -1164,345 +698,165 @@ ${CSS_AUTO}
                         </Marker>
                     ))}
 
-                    {/*
-                      * Girar la cámara: sólo en edición, arrastrando la manija.
-                      *
-                      * El rumbo existe para poder dibujar los autos parados donde de verdad
-                      * pueden estar. Sin él, una estadía sólo puede poner el auto encima del
-                      * equipo, que es falso: la fila guarda la posición de la CÁMARA.
-                      */}
-                    {editing && verCapa.camaras && data.cameras.map((c: any) => {
-                        if (selected?.type !== "camera" || selected.id !== c.deviceId) return null;
-                        const manija = correr(c.lat, c.lng, 30, c.rumbo ?? 0);
-                        return (
-                            <React.Fragment key={`girar-${c.deviceId}`}>
-                                <Polygon positions={conoDeVision(c, 34)}
-                                    pathOptions={{ color: "#38bdf8", weight: 1, fillColor: "#38bdf8", fillOpacity: 0.12 }} />
-                                <Polyline positions={[[c.lat, c.lng], manija]}
-                                    pathOptions={{ color: "#38bdf8", weight: 2, dashArray: "4 4" }} />
-                                <Marker position={manija} draggable
-                                    icon={L.divIcon({
-                                        className: "bg-transparent border-0",
-                                        html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#38bdf8;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.6);cursor:grab"></span>`,
-                                        iconSize: [14, 14], iconAnchor: [7, 7],
-                                    })}
-                                    eventHandlers={{
-                                        drag: (e: any) => {
-                                            const ll = e.target.getLatLng();
-                                            // Rumbo desde el norte. El coseno de la latitud corrige que
-                                            // un grado de longitud mide menos cuanto más lejos del ecuador.
-                                            const dy = ll.lat - c.lat;
-                                            const dx = (ll.lng - c.lng) * Math.cos((c.lat * Math.PI) / 180);
-                                            const rumbo = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
-                                            cambiar((d) => ({
-                                                ...d,
-                                                cameras: d.cameras.map((x: any) =>
-                                                    x.deviceId === c.deviceId ? { ...x, rumbo: Math.round(rumbo) } : x),
-                                            }));
-                                        },
-                                    }} />
-                            </React.Fragment>
-                        );
-                    })}
-
-                    {(verCapa.camaras ? data.cameras : []).map((c: any) => (
-                        /*
-                         * Se arrastra sólo si está SELECCIONADA y en edición.
-                         *
-                         * Draggable siempre sería peor que no serlo: en un plano con siete
-                         * cámaras, cualquier intento de mover el mapa agarrando cerca de una
-                         * la corre de lugar, y el error no se nota hasta que alguien mira el
-                         * recorrido y no entiende por qué da la vuelta. Seleccionar primero
-                         * es un paso más y es el que convierte moverla en algo deliberado.
-                         */
-                        <Marker key={c.deviceId} position={[c.lat, c.lng]} icon={camIconDe(c.rumbo)}
-                            draggable={editing && selected?.type === "camera" && selected.id === c.deviceId}
+                    {show.cameras && data.cameras.map((c) => (
+                        <Marker key={`${c.deviceId}_${(c as any).rumbo ?? "n"}_${(c as any).size ?? 30}_${(c as any).color ?? "d"}`} position={[c.lat, c.lng]}
+                            icon={camIconDe({ rumbo: (c as any).rumbo, size: (c as any).size, color: (c as any).color }, located?.type === "camera" && located.id === c.deviceId ? "cam-locate" : "")}
                             eventHandlers={{
                                 click: () => { if (editing && tool === "select") setSelected({ type: "camera", id: c.deviceId }); },
                                 contextmenu: (e) => openCtx(e, "camera", c.deviceId),
-                                dragend: (e: any) => {
-                                    const ll = e.target.getLatLng();
-                                    cambiar((d) => ({
-                                        ...d,
-                                        cameras: d.cameras.map((x: any) => x.deviceId === c.deviceId
-                                            ? { ...x, lat: ll.lat, lng: ll.lng } : x),
-                                    }));
-                                },
                             }}>
-                            <LTooltip permanent={verCapa.rotulos} direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>
-                            {!editing && (
+                            {show.names && <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>}
+                            {!editing && !movingCam && (
                                 <Popup className="cam-live-popup" maxWidth={280} minWidth={260}>
                                     <div className="rounded-lg overflow-hidden">
-                                        <LiveMp4 deviceId={c.deviceId} />
+                                        <LiveMp4 deviceId={c.deviceId} className="block w-[260px] h-[150px] object-cover bg-black" />
                                         <div className="px-2 py-1 bg-black/80 text-white text-[11px] font-bold flex items-center gap-1.5"><Radio size={11} className="text-red-400" /> {devById[c.deviceId]?.name || "Cámara"}</div>
                                     </div>
                                 </Popup>
                             )}
                         </Marker>
                     ))}
-                    {/* Los autos parados, adentro de lo que mira cada cámara. Sólo fuera de
-                        edición: dibujando el plano, lo que importa es el plano. */}
-                    {!editing && (
-                        <CapaEstacionados
-                            ubicados={estacionados.ubicados}
-                            pendientes={estacionados.pendientes}
-                            visible={estadiasOn && verCapa.estacionados}
-                            alTocar={(a) => setAutoParado(a)}
-                            alSeñalar={setSinRumbo}
-                            alSeñalarAuto={setAutoSeñalado}
-                            alGirar={(deviceId) => {
-                                /* Hacerlo, no explicarlo: entra a edición, selecciona la
-                                   cámara y la centra, que son los tres pasos que el aviso
-                                   anterior pedía hacer a mano. */
-                                const cam: any = data.cameras.find((c: any) => c.deviceId === deviceId);
-                                setSinRumbo(null);
-                                setEditing(true);
-                                setTool("select");
-                                setSelected({ type: "camera", id: deviceId });
-                                if (cam && mapRef.current) {
-                                    mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 19));
-                                }
-                            }}
-                        />
+                    {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
+                    {ruta && (
+                        <>
+                            <Polyline key={`rw${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.9, lineCap: "round" }} />
+                            <Polyline key={`rb${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#2563eb", weight: 5, opacity: 1, lineCap: "round" }} />
+                            <Polyline key={`ra${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#ffffff", weight: 2.5, opacity: 0.95, dashArray: "1 16", lineCap: "round", className: "ruta-anim" }} />
+                        </>
                     )}
 
-                    <FlowAnims anims={flow.anims} pulses={flow.pulses} onDone={flow.onDone} />
                     {vivoTodas && !editing && (
                         <BurbujasVivo
-                            camaras={data.cameras.filter((c: any) => !ocultas.includes(c.deviceId))}
+                            camaras={data.cameras.filter((c) => !ocultas.includes(c.deviceId))}
                             nombre={(id) => devById[id]?.name || "Cámara"}
                             onCerrarUna={(id) => setOcultas((o) => [...o, id])}
                         />
                     )}
-                    <CapaRecorrido puntos={rec.puntos} estacionados={rec.estacionados} traza={rec.traza} avance={rec.avance} indice={rec.indice}
-                        onElegir={(i) => { rec.setReproduciendo(false); rec.setAvance(i); }} />
                 </MapContainer>
-                )}
-                {!vista3D && oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
-                <PanelRecorrido {...rec} lugares={lugares} onIrA={irALugar} onVerCuadro={setCuadroRecorrido}
-                    ultimas={ultimasPasadas} onUltima={(u) => flow.animateEvent({ id: u.id } as any)} />
 
-                {cuadroRecorrido && (
-                    <VisorCuadro
-                        fila={{
-                            plate: cuadroRecorrido.plate,
-                            cameraName: cuadroRecorrido.cameraName,
-                            timestamp: cuadroRecorrido.timestamp,
-                            confidence: cuadroRecorrido.confidence,
-                            snapshotUrl: cuadroRecorrido.snapshotUrl,
-                        }}
-                        onCerrar={() => setCuadroRecorrido(null)}
-                    />
+                {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
+
+                {/* Aviso de mover cámara */}
+                {movingCam && (
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-blue-600 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
+                        <Move size={14} /> Hacé clic en la nueva posición de la cámara
+                        <button onClick={() => setMovingCam(null)} className="ml-1 hover:bg-white/20 rounded p-0.5"><X size={13} /></button>
+                    </div>
+                )}
+                {/* Aviso de extender línea */}
+                {extendDiv && (
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-blue-600 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
+                        <Plus size={14} /> Clic para agregar puntos a la línea
+                        <button onClick={() => { const d = data; setExtendDiv(null); persistNow(d, "Línea actualizada"); }} className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30">Listo</button>
+                    </div>
                 )}
 
                 {/* Columnas de flujo en vivo */}
                 {!editing && (
                     <>
-                        <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} cargando={flow.cargando} onPick={(ev) => flow.animateEvent(ev)} />
-                        <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} cargando={flow.cargando} onPick={(ev) => flow.animateEvent(ev)} />
+                        <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} onPick={(ev) => onPlate(ev)} />
+                        <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => onPlate(ev)} />
                     </>
                 )}
 
-                {/* ── LA BARRA ──────────────────────────────────────────────────────
-                    Es el bloque "Icon bar" de Bencho (bencho.dev, MIT). Lo que aporta no
-                    es el vidrio sino el INDICADOR DE DOS FASES: al cambiar de herramienta
-                    la píldora primero se estira hasta cubrir la que deja y la que toma, y
-                    recién después se contrae sobre el destino pasándose un poco. Se lee
-                    como un objeto que se mueve, no como un fondo que se teletransporta.
+                {/* ── Barra superior glass ── */}
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] flex flex-col items-center">
+                    <div className="flex items-center gap-1 bg-card/90 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl p-1.5">
+                        <button onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
+                            className={cn("h-9 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold transition-colors", menuCapas ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/10")}>
+                            <Layers3 size={15} /> {base} <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
+                        </button>
+                        <div className="w-px h-6 bg-border mx-0.5" />
 
-                    Por eso las herramientas de dibujo van como `items` — son una sola
-                    selección, que es lo que el indicador sabe representar — y acercar,
-                    alejar, centrar, vivo y pantalla completa van como `acciones`: no
-                    tienen estado donde quedarse, así que no se llevan el indicador. El
-                    menú de capas y el botón principal van adentro de la misma barra y no
-                    al lado, porque tres píldoras separadas no se leen como una barra de
-                    herramientas sino como tres cosas alineadas por casualidad. */}
-                <motion.div layout transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                    className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] max-w-[calc(100%-1.5rem)] flex flex-col items-start">
-                    <IconBar
-                        superficie="imagen"
-                        className="sombra-flotante max-w-full"
-                        corner={26}
-                        glyph={15}
-                        items={editing ? tools.map((t) => ({ key: t.id, label: t.label, Icon: t.icon })) : []}
-                        value={editing ? tool : undefined}
-                        onChange={(k) => { setTool(k as Tool); setSelected(null); }}
-                        acciones={[
-                            { key: "mas", label: "Acercar", Icon: Plus, onClick: () => acercar(1), off: vista3D },
-                            { key: "menos", label: "Alejar", Icon: Minus, onClick: () => acercar(-1), off: vista3D },
-                            { key: "centrar", label: "Centrar en el barrio", Icon: Crosshair, onClick: centrarBarrio, off: vista3D },
-                            {
-                                key: "vivo",
-                                label: vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo",
-                                Icon: vivoTodas ? EyeOff : Eye,
-                                onClick: () => { setOcultas([]); setVivoTodas((v) => !v); },
-                                activa: vivoTodas,
-                                tono: "alerta" as const,
-                            },
-                            {
-                                key: "pantalla",
-                                label: pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa",
-                                Icon: pantallaCompleta ? Minimize2 : Maximize2,
-                                onClick: alternarPantalla,
-                            },
-                            ...(editing ? [{
-                                key: "borrar", label: "Borrar seleccionado", Icon: Trash2,
-                                onClick: deleteSelected, off: !selected,
-                            }] : []),
-                        ]}
-                        antes={
-                            /* Sólo el botón. El desplegable vive AFUERA de la barra: un
-                               menú absoluto no puede salir de un contenedor que recorta, y
-                               la barra recorta para poder desplazarse en pantallas
-                               angostas. Dos requisitos que no conviven adentro del mismo
-                               elemento, así que se separan. */
-                            <button type="button" data-abierto={menuCapas || undefined}
-                                onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
-                                className="gnav-ancho">
-                                <Layers3 size={14} />
-                                {vista3D ? (inclinada ? "3D" : "Girado") : base}
-                                <ChevronDown size={12} className={cn("transition-transform", menuCapas && "rotate-180")} />
-                            </button>
-                        }
-                        despues={
-                            /* La acción principal, siempre en la misma punta de la barra. */
-                            !editing ? (
-                                <button type="button" data-principal="editar" className="gnav-ancho"
-                                    title="Dibujar perímetro, calles y cámaras"
-                                    onClick={() => { setVista3D(false); setEditing(true); setMenuCapas(false); }}>
-                                    <Pencil size={14} /> Editar mapa
-                                </button>
-                            ) : (
-                                <>
-                                    <button type="button" data-principal="guardar" className="gnav-ancho"
-                                        onClick={save} disabled={saving}
-                                        title="Guarda el dibujo, la vista y la capa elegida">
-                                        {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                                        Guardar
-                                        {sinGuardar && !saving && (
-                                            /* El punto no es adorno: es la única señal de que lo
-                                               que se ve en el mapa todavía no está en la base. */
-                                            <span className="ml-1 w-1.5 h-1.5 rounded-full bg-[var(--aviso)] animate-pulse" />
-                                        )}
-                                    </button>
-                                    <button type="button" className="gnav-item" title="Salir sin guardar"
-                                        onClick={() => {
-                                            if (sinGuardar && !window.confirm("Hay dibujo sin guardar. ¿Salir y perder los cambios?")) return;
-                                            setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftStreet([]); setDraftLote([]);
-                                            setSelected(null); setAsignando(null); setSinGuardar(false); getBarrioMap().then(setData);
-                                        }}>
-                                        <X size={15} />
-                                    </button>
-                                </>
-                            )
-                        }
-                    />
-
-                    {/* El menú de capas, colgado de la barra y por fuera de ella. */}
-                    <AnimatePresence>
-                        {menuCapas && (
-                            <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                                transition={{ type: "spring", stiffness: 460, damping: 34 }} onClick={(e) => e.stopPropagation()}
-                                className="mt-2 w-[188px] p-1.5 rounded-2xl bg-card/95 backdrop-blur-2xl border border-border sombra-flotante origin-top">
-                                {/*
-                                  * Dos preguntas, dos grupos.
-                                  *
-                                  * Antes estaban juntos bajo "Mapa de fondo": las cuatro capas en una
-                                  * grilla de dos columnas y, pegadas debajo, dos botones de ancho
-                                  * completo con la vista. Se leia como dos capas mas, agregadas
-                                  * despues — porque eso es exactamente lo que parecian.
-                                  *
-                                  * Son cosas distintas: la capa es QUE IMAGEN se ve; la vista es DESDE
-                                  * DONDE se mira. Cada una con su rotulo y su fila propia.
-                                  *
-                                  * Y los rotulos dicen la opcion, no el gesto. "Plano · girar" explicaba
-                                  * como se usa; un menu nombra lo que se elige y el resto se descubre
-                                  * usandolo.
-                                  */}
-                                <p className="px-2 pt-1 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Vista</p>
-                                <div className="grid grid-cols-3 gap-0.5">
-                                    {([
-                                        { id: "plano", rotulo: "Plano", pista: "Mapa plano, norte arriba. Es la única donde se puede dibujar el mapa." },
-                                        { id: "girado", rotulo: "Girado", pista: "Plano, pero se puede girar: arrastrá con el botón derecho." },
-                                        { id: "3d", rotulo: "3D", pista: "Girar e inclinar, para ver el relieve y la altura de las cosas." },
-                                    ] as const).map(({ id, rotulo, pista }) => {
-                                        const activa = id === "plano" ? !vista3D : vista3D && (id === "3d") === inclinada;
-                                        return (
-                                            <Pista key={id} titulo={rotulo} texto={pista} lado="abajo" ancho={230}>
-                                                <button
-                                                    onClick={() => { setVista3D(id !== "plano"); if (id !== "plano") setInclinada(id === "3d"); }}
-                                                    className="relative w-full h-7 rounded-lg text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors">
-                                                    {activa && (
-                                                        <motion.span layoutId="vista-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                            className="absolute inset-0 rounded-lg bg-foreground/[0.12]" />
-                                                    )}
-                                                    <span className={cn("relative", activa && "text-foreground")}>{rotulo}</span>
-                                                </button>
-                                            </Pista>
-                                        );
-                                    })}
-                                </div>
-
-                                <span className="block h-px bg-border mx-1 my-1.5" />
-                                <p className="px-2 pb-1.5 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mapa de fondo</p>
-                                <div className="grid grid-cols-2 gap-0.5">
-                                    {["Híbrido", "Táctico", "Satélite", "Calles"].map((nb) => (
-                                        <button key={nb} onClick={() => { setBase(nb); setVista3D(false); }}
-                                            className="relative h-7 rounded-lg text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-colors">
-                                            {base === nb && !vista3D && (
-                                                <motion.span layoutId="capa-activa" transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                                    className="absolute inset-0 rounded-lg bg-foreground/[0.12]" />
-                                            )}
-                                            <span className={cn("relative", base === nb && !vista3D && "text-foreground")}>{nb}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                                {/* Girado y 3D traen su propia imagen satelital: elegir una capa con
-                                    nombre vuelve a la vista Plano. Decirlo evita que el operador piense
-                                    que la capa no hizo nada. */}
-                                {vista3D && (
-                                    <p className="px-2 pt-1.5 text-[10px] leading-snug text-muted-foreground/70">
-                                        Girado y 3D usan su propia imagen. Elegir una capa vuelve a Plano.
-                                    </p>
-                                )}
-                                
-                                {/* "Mostrar" va en las TRES vistas. Se escondia en las de MapLibre
-                                    porque cuatro de los siete interruptores no estaban conectados ahi;
-                                    ahora lo estan, asi que esconderlo seria quitarle al operador
-                                    controles que funcionan. */}
-                                {(<>
-                                    <span className="block h-px bg-border mx-1 my-1.5" />
-                                    <p className="px-2 pb-1 text-[9px] font-bold uppercase tracking-[0.18em] text-muted-foreground/70">Mostrar</p>
-                                    {capas.map(({ k, label, icon: Ic }) => {
-                                        const on = verCapa[k];
-                                        return (
-                                            <button key={k} onClick={() => setVerCapa((v) => ({ ...v, [k]: !v[k] }))}
-                                                className={cn("w-full flex items-center gap-2 h-7 px-2 rounded-lg text-[11px] font-semibold transition-colors",
-                                                    on ? "text-foreground hover:bg-accent" : "text-muted-foreground/60 hover:text-foreground")}>
-                                                <Ic size={12} />
-                                                <span className="flex-1 text-left">{label}</span>
-                                                {on ? <Eye size={11} className="opacity-60" /> : <EyeOff size={11} className="opacity-60" />}
-                                            </button>
-                                        );
-                                    })}
-                                </>)}
-                            </motion.div>
+                        {editing ? (
+                            <>
+                                {tools.map((t) => (
+                                    <Tooltip key={t.id}><TooltipTrigger asChild>
+                                        <button onClick={() => { setTool(t.id); setSelected(null); }} className={cn(gbtn, tool === t.id && "bg-blue-600 text-white hover:bg-blue-500 hover:text-white")}><t.icon size={16} /></button>
+                                    </TooltipTrigger><TooltipContent>{t.label}</TooltipContent></Tooltip>
+                                ))}
+                                <div className="w-px h-6 bg-border mx-0.5" />
+                                <Tooltip><TooltipTrigger asChild><button onClick={deleteSelected} disabled={!selected} className={cn(gbtn, selected && "text-red-400 hover:text-red-300 hover:bg-red-500/10")}><Trash2 size={16} /></button></TooltipTrigger><TooltipContent>Borrar seleccionado</TooltipContent></Tooltip>
+                                <button onClick={save} disabled={saving} className="h-9 px-3.5 ml-0.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</button>
+                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setDraftDivision([]); setSelected(null); getBarrioMap().then(setData); }} className={gbtn}><X size={16} /></button>
+                            </>
+                        ) : (
+                            <>
+                                <Tooltip><TooltipTrigger asChild><button onClick={() => acercar(1)} className={gbtn}><Plus size={16} /></button></TooltipTrigger><TooltipContent>Acercar</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><button onClick={() => acercar(-1)} className={gbtn}><Minus size={16} /></button></TooltipTrigger><TooltipContent>Alejar</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><button onClick={centrar} className={gbtn}><Crosshair size={16} /></button></TooltipTrigger><TooltipContent>Centrar en el barrio</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><button onClick={toggleVivo} disabled={!data.cameras.length} className={cn(gbtn, vivoTodas && "bg-red-600 text-white hover:bg-red-500 hover:text-white")}>{vivoTodas ? <EyeOff size={16} /> : <Eye size={16} />}</button></TooltipTrigger><TooltipContent>{vivoTodas ? "Apagar las cámaras en vivo" : "Ver todas las cámaras en vivo"}</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><button onClick={() => setAutoResaltar((v) => !v)} className={cn(gbtn, autoResaltar && "bg-emerald-600 text-white hover:bg-emerald-500 hover:text-white")}><Home size={16} /></button></TooltipTrigger><TooltipContent>{autoResaltar ? "Auto: resalta la casa al detectar matrícula (ON)" : "Resaltar la casa automáticamente al detectar matrícula"}</TooltipContent></Tooltip>
+                                <Tooltip><TooltipTrigger asChild><button onClick={alternarPantalla} className={gbtn}>{pantalla ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></TooltipTrigger><TooltipContent>{pantalla ? "Salir de pantalla completa" : "Pantalla completa"}</TooltipContent></Tooltip>
+                                <div className="w-px h-6 bg-border mx-0.5" />
+                                <button onClick={() => { setMenuCapas(false); setVivoTodas(false); setEditing(true); }} className="h-9 px-3.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors"><Pencil size={14} /> Editar mapa</button>
+                            </>
                         )}
-                    </AnimatePresence>
-                </motion.div>
+                    </div>
 
-                {/* Contextual editing panel */}
+                    {menuCapas && (
+                        <div onClick={(e) => e.stopPropagation()} className="mt-2 w-[220px] p-2 rounded-2xl bg-card/95 backdrop-blur-2xl border border-border shadow-2xl">
+                            <p className="px-2 pt-1 pb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground/70">Mapa de fondo</p>
+                            <div className="grid grid-cols-2 gap-1">
+                                {fondos.map((f) => (
+                                    <button key={f} onClick={() => setBase(f)}
+                                        className={cn("h-9 rounded-xl text-[11px] font-bold transition-colors", base === f ? "bg-blue-600 text-white" : "bg-background/40 text-muted-foreground hover:text-foreground hover:bg-white/10")}>{f}</button>
+                                ))}
+                            </div>
+                            <div className="h-px bg-border my-2" />
+                            <p className="px-2 pb-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground/70">Mostrar</p>
+                            <div className="space-y-0.5">
+                                {capas.map(({ key, label, Icon }) => (
+                                    <button key={key} onClick={() => setShow((s) => ({ ...s, [key]: !s[key] }))}
+                                        className="w-full flex items-center gap-2.5 px-2 h-9 rounded-xl hover:bg-white/10 transition-colors text-left">
+                                        <Icon size={14} className={show[key] ? "text-blue-400" : "text-muted-foreground/50"} />
+                                        <span className={cn("text-xs font-semibold flex-1", show[key] ? "text-foreground" : "text-muted-foreground/60")}>{label}</span>
+                                        <span className={cn("relative inline-flex h-4 w-7 items-center rounded-full transition-colors", show[key] ? "bg-blue-500" : "bg-muted-foreground/25")}>
+                                            <span className={cn("inline-block h-3 w-3 rounded-full bg-white transition-transform", show[key] ? "translate-x-3.5" : "translate-x-0.5")} />
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Buscador inferior glass */}
+                {!editing && (
+                    <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-[520] w-[min(520px,calc(100%-2rem))]">
+                        <div className="flex items-center gap-2 bg-card/90 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl px-3 h-12">
+                            <Search size={16} className="text-muted-foreground shrink-0" />
+                            <input value={q} onChange={(e) => setQ(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === "Enter") buscar(); }}
+                                placeholder="Lote, cámara o calle…" className="flex-1 bg-transparent outline-none text-sm font-medium placeholder:text-muted-foreground/60" />
+                            {q && <button onClick={() => { setQ(""); setLocated(null); }} className="text-muted-foreground hover:text-foreground"><X size={15} /></button>}
+                            <button onClick={buscar} className="h-8 px-2.5 rounded-lg bg-blue-600 text-white flex items-center gap-1 text-xs font-bold hover:bg-blue-500 transition-colors"><LocateFixed size={14} /></button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Panel contextual de edición */}
                 {editing && (
                     <div className="absolute bottom-4 left-4 z-[500] bg-card/95 backdrop-blur border border-border rounded-xl shadow-lg p-3 w-64 text-xs space-y-2">
+                        {tool === "lote" && (<>
+                            <p className="font-bold flex items-center gap-1.5"><LandPlot size={13} className="text-purple-400" /> Lote</p>
+                            <p className="text-muted-foreground">Clic en el mapa para marcar las esquinas del lote ({draftLote.length}). Al cerrar te pido el nombre y la plaza.</p>
+                            <div className="flex gap-2"><button onClick={commitLote} disabled={draftLote.length < 3} className="flex-1 py-1.5 rounded-md bg-purple-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Cerrar lote</button><button onClick={() => setDraftLote((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
+                        </>)}
+                        {tool === "division" && (<>
+                            <p className="font-bold flex items-center gap-1.5"><Fence size={13} className="text-stone-400" /> División</p>
+                            <div className="flex gap-1">
+                                {(["pared", "tejido", "alambrado"] as DivTipo[]).map((tp) => (
+                                    <button key={tp} onClick={() => setDivTipo(tp)}
+                                        className={cn("flex-1 py-1 rounded-md text-[11px] font-bold border transition-colors", divTipo === tp ? "bg-blue-600 text-white border-blue-600" : "bg-background border-border text-muted-foreground hover:text-foreground")}>{DIV_STYLE[tp].label}</button>
+                                ))}
+                            </div>
+                            <p className="text-muted-foreground">Clic para trazar la línea ({draftDivision.length} puntos).</p>
+                            <div className="flex gap-2"><button onClick={commitDivision} disabled={draftDivision.length < 2} className="flex-1 py-1.5 rounded-md bg-blue-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Finalizar</button><button onClick={() => setDraftDivision((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
+                        </>)}
                         {tool === "perimeter" && (<>
                             <p className="font-bold flex items-center gap-1.5"><Hexagon size={13} className="text-emerald-400" /> Perímetro</p>
                             <p className="text-muted-foreground">Clic en el mapa para agregar vértices ({draftPerimeter.length}).</p>
                             <div className="flex gap-2"><button onClick={commitPerimeter} disabled={draftPerimeter.length < 3} className="flex-1 py-1.5 rounded-md bg-emerald-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Cerrar</button><button onClick={() => setDraftPerimeter((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
-                        </>)}
-                        {tool === "street" && (<>
-                            <p className="font-bold flex items-center gap-1.5"><Spline size={13} className="text-sky-400" /> Calle</p>
-                            <p className="text-muted-foreground">Clic para trazar ({draftStreet.length} puntos).</p>
-                            <div className="flex gap-2"><button onClick={commitStreet} disabled={draftStreet.length < 2} className="flex-1 py-1.5 rounded-md bg-sky-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Finalizar</button><button onClick={() => setDraftStreet((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
                         </>)}
                         {tool === "camera" && (<>
                             <p className="font-bold flex items-center gap-1.5"><Video size={13} className="text-blue-400" /> Soltar cámara</p>
@@ -1512,539 +866,213 @@ ${CSS_AUTO}
                             </select>
                             <p className="text-muted-foreground">{pendingCam ? "Clic en el mapa para ubicarla." : `Ubicadas: ${placedIds.size}`}</p>
                         </>)}
-                        {tool === "lote" && (<>
-                            <p className="font-bold flex items-center gap-1.5"><Pentagon size={13} className="text-sky-400" /> Casa / lote</p>
-                            <p className="text-muted-foreground">Clic en el mapa para marcar las esquinas ({draftLote.length}). Con 3 o más, cerrá el contorno.</p>
-                            <div className="flex gap-2"><button onClick={commitLote} disabled={draftLote.length < 3} className="flex-1 py-1.5 rounded-md bg-sky-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Cerrar</button><button onClick={() => setDraftLote((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
-                        </>)}
-                        {tool === "select" && selected?.type === "lote" && (() => {
-                            const lo = lotes.find((l) => l.id === selected.id);
-                            const uni = unidadDe(lo?.unitId);
-                            return (<>
-                                <p className="font-bold flex items-center gap-1.5"><Pentagon size={13} className="text-amber-400" /> {lo?.label}</p>
-                                <p className="text-muted-foreground">{uni ? `Unidad: ${uni.name}` : "Sin unidad asignada."}</p>
-                                <p className="text-muted-foreground">
-                                    {plazaDe(lo?.parkingSlotId)
-                                        ? `Plaza: ${plazaDe(lo?.parkingSlotId)?.label}`
-                                        : "Sin plaza de estacionamiento."}
-                                </p>
-                                <p className="text-muted-foreground">Arrastrá los puntos blancos para ajustar el contorno; clic derecho sobre uno lo quita.</p>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setAsignando({ id: lo!.id, que: "unidad" })} className="flex-1 py-1.5 rounded-md accion font-bold flex items-center justify-center gap-1"><Home size={13} /> {uni ? "Cambiar unidad" : "Asignar unidad"}</button>
-                                    <button onClick={() => renameLote(lo!.id)} className="px-2 py-1.5 rounded-md bg-accent"><PencilIcon size={13} /></button>
-                                </div>
-                                <button onClick={() => setAsignando({ id: lo!.id, que: "plaza" })}
-                                    className="w-full py-1.5 rounded-md bg-accent font-bold flex items-center justify-center gap-1">
-                                    <SquareParking size={13} /> {plazaDe(lo?.parkingSlotId) ? "Cambiar plaza" : "Asignar plaza"}
-                                </button>
-                            </>);
-                        })()}
-                        {tool === "select" && selected?.type !== "lote" && (<p className="text-muted-foreground flex items-center gap-1.5"><MapPin size={13} /> {selected ? `Seleccionado: ${selected.type === "camera" ? (devById[selected.id]?.name || "cámara") : "calle"}` : "Tocá una casa, calle o cámara (o clic derecho para menú)."}</p>)}
+                        {tool === "select" && (<p className="text-muted-foreground flex items-center gap-1.5"><MapPin size={13} /> {selected ? `Seleccionado: ${selected.type === "camera" ? (devById[selected.id]?.name || "cámara") : selected.type === "lote" ? (lotes.find((l) => l.id === selected.id)?.name || "lote") : "calle"}` : "Tocá un lote (doble clic para editar) o cámara · clic derecho para menú."}</p>)}
                     </div>
                 )}
 
-                {/*
-                  * La ficha del lote, al lado del puntero.
-                  *
-                  * Aparece al señalar y se va sola. No lleva ningún botón a propósito: si
-                  * tuviera, habría que poder llegar hasta ella con el mouse, y entonces
-                  * dejaría de poder desaparecer al salir del polígono — que es lo que la
-                  * hace liviana. Para actuar están el clic y el menú del botón derecho.
-                  *
-                  * Muestra lo que hay y dice qué falta, en vez de esconder los campos
-                  * vacíos: un lote sin unidad asignada no es un lote sin datos, es un lote
-                  * al que le falta el dato más importante.
-                  */}
-                <AnimatePresence>
-                    {/*
-                      * La ficha del auto parado, con su última captura.
-                      *
-                      * La foto es el punto. En un plano satelital todos los autos son manchas
-                      * grises de dos metros: la chapa dice cuál es, pero la captura dice si es
-                      * el que uno está buscando, de qué color, si tiene a alguien adentro.
-                      * Antes esto era el tooltip de Leaflet, que sólo sabe mostrar texto.
-                      */}
-                    <AnimatePresence>
-                        {autoSeñalado && (() => {
-                            const a = autoSeñalado.auto;
-                            const ANCHO = 236;
-                            const x = Math.min(autoSeñalado.x + 16, (typeof window !== "undefined" ? window.innerWidth : 1200) - ANCHO - 12);
-                            const y = Math.min(autoSeñalado.y + 16, (typeof window !== "undefined" ? window.innerHeight : 800) - 250);
-                            const donde = autoSeñalado.desvio < -4 ? "a la izquierda"
-                                : autoSeñalado.desvio > 4 ? "a la derecha" : "al frente";
-                            return (
-                                <motion.div
-                                    initial={{ opacity: 0, scale: 0.94, y: 6 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    exit={{ opacity: 0, scale: 0.96, y: 4 }}
-                                    transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.6 }}
-                                    style={{ left: x, top: y, width: ANCHO }}
-                                    className="fixed z-[580] rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
-
-                                    {/* Se cierra a propósito. Abierta por un clic, no puede
-                                        irse sola con el puntero: quien la abrió la está
-                                        mirando, y mirar una foto lleva más de un segundo. */}
-                                    <button type="button" onClick={() => setAutoSeñalado(null)}
-                                        aria-label="Cerrar"
-                                        className="absolute top-1.5 right-1.5 z-[2] w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur text-white/70 hover:text-white transition-colors flex items-center justify-center">
-                                        <X size={13} />
-                                    </button>
-
-                                    {a.foto ? (
-                                        <div className="relative w-full aspect-video bg-black">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img src={getImagePath(a.foto) || ""} alt="" className="absolute inset-0 w-full h-full object-cover"
-                                                onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0"; }} />
-                                            <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/85 to-transparent" />
-                                            <div className="absolute left-2 bottom-1.5 flex items-center gap-1.5">
-                                                <span className={cn("w-1.5 h-1.5 rounded-full", a.conocida ? "bg-emerald-400" : "bg-slate-400")} />
-                                                <span className="text-[13px] font-bold tracking-[0.1em] text-white">{a.plate}</span>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
-                                            <span className={cn("w-1.5 h-1.5 rounded-full", a.conocida ? "bg-emerald-400" : "bg-slate-400")} />
-                                            <span className="text-[13px] font-bold tracking-[0.1em] text-white">{a.plate}</span>
-                                        </div>
-                                    )}
-
-                                    <div className="px-3 py-2.5 space-y-1.5">
-                                        {a.persona ? (
-                                            <p className="text-[12px] text-white/90 font-semibold truncate">{a.persona}</p>
-                                        ) : (
-                                            <p className="text-[11.5px] text-white/35 italic">no está en el padrón</p>
-                                        )}
-                                        <div className="flex items-baseline gap-1.5">
-                                            <span className="text-[9px] uppercase tracking-[0.14em] text-white/35">parado hace</span>
-                                            <span className="text-[13px] font-bold text-white tabular-nums">{lapsoCorto(a.desde)}</span>
-                                        </div>
-                                        <p className="text-[10.5px] text-white/45 leading-snug">
-                                            Lo ve {a.camara} · a unos {Math.round(autoSeñalado.metros)} m, {donde} de la escena
-                                        </p>
-                                    </div>
-                                </motion.div>
-                            );
-                        })()}
-                    </AnimatePresence>
-
-                    {/* Autos parados que no se pueden ubicar todavía. */}
-                    <AnimatePresence>
-                        {sinRumbo && (() => {
-                            const ANCHO = 250;
-                            const x = Math.min(sinRumbo.x + 16, (typeof window !== "undefined" ? window.innerWidth : 1200) - ANCHO - 12);
-                            const y = Math.min(sinRumbo.y + 16, (typeof window !== "undefined" ? window.innerHeight : 800) - 210);
-                            return (
-                                <motion.div
-                                    initial={{ opacity: 0, scale: 0.94, y: 6 }}
-                                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                                    exit={{ opacity: 0, scale: 0.96, y: 4 }}
-                                    transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.6 }}
-                                    style={{ left: x, top: y, width: ANCHO }}
-                                    onMouseEnter={() => setSinRumbo(sinRumbo)}
-                                    onMouseLeave={() => setSinRumbo(null)}
-                                    className="fixed z-[580] rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
-
-                                    <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
-                                        <SquareParking size={13} className="text-sky-400 shrink-0" />
-                                        <span className="text-[12.5px] font-bold text-white truncate">
-                                            {sinRumbo.autos.length} {sinRumbo.autos.length === 1 ? "auto parado" : "autos parados"}
-                                        </span>
-                                        <span className="text-[10.5px] text-white/40 truncate ml-auto">{sinRumbo.camara}</span>
-                                    </div>
-
-                                    <div className="px-3 py-2.5 space-y-2.5">
-                                        <div className="flex flex-wrap gap-1">
-                                            {sinRumbo.autos.slice(0, 6).map((a) => (
-                                                <span key={a.id} className="px-1.5 py-0.5 rounded bg-white/[0.07] border border-white/10 text-[10.5px] font-bold tracking-[0.06em] text-white/90">
-                                                    {a.plate}
-                                                </span>
-                                            ))}
-                                            {sinRumbo.autos.length > 6 && (
-                                                <span className="px-1.5 py-0.5 text-[10.5px] text-white/40">+{sinRumbo.autos.length - 6}</span>
-                                            )}
-                                        </div>
-
-                                        <p className="text-[11px] text-white/50 leading-snug">
-                                            No se pueden dibujar en el plano hasta saber hacia dónde mira esta cámara.
-                                        </p>
-
-                                        <button type="button"
-                                            onClick={() => {
-                                                const id = sinRumbo.deviceId;
-                                                const cam: any = data.cameras.find((c: any) => c.deviceId === id);
-                                                setSinRumbo(null);
-                                                setEditing(true);
-                                                setTool("select");
-                                                setSelected({ type: "camera", id });
-                                                if (cam && mapRef.current) {
-                                                    mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 19));
-                                                }
-                                            }}
-                                            className="w-full h-8 rounded-lg bg-sky-500 hover:bg-sky-400 transition-colors text-white text-[11.5px] font-bold flex items-center justify-center gap-1.5">
-                                            <Compass size={13} /> Girar la cámara
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            );
-                        })()}
-                    </AnimatePresence>
-
-                    {hoverLote && (() => {
-                        const lo = lotes.find((l) => l.id === hoverLote.id);
-                        if (!lo) return null;
-                        const uni = unidadDe(lo.unitId);
-                        const pl = plazaDe(lo.parkingSlotId);
-                        const gente: any[] = uni?.users || [];
-                        const chapas = gente.flatMap((r: any) => (r.vehicles || []).map((v: any) => v.plate)).filter(Boolean);
-                        return (
-                            /*
-                             * Dos divs anidados a propósito, y no uno.
-                             *
-                             * El de afuera lo posiciona `ubicarTarjeta` escribiendo
-                             * `transform` directo sobre el nodo, sin pasar por React. El de
-                             * adentro es el de framer-motion, que también anima `transform`.
-                             * Si fueran el mismo nodo se pisarían: la animación de entrada
-                             * le ganaría a la posición y la ficha aparecería en la esquina.
-                             * Es la misma lección que está anotada en `BurbujasVivo`.
-                             */
-                            <div
-                                ref={(n) => { tarjetaHover.current = n; if (n) ubicarTarjeta(); }}
-                                style={{ width: ANCHO_FICHA }}
-                                className="fixed left-0 top-0 z-[580] pointer-events-none will-change-transform">
-                            <motion.div
-                                initial={{ opacity: 0, scale: 0.94, y: 6 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.96, y: 4 }}
-                                transition={{ type: "spring", stiffness: 520, damping: 34, mass: 0.6 }}
-                                className="rounded-2xl bg-[#0a0d12]/94 backdrop-blur-2xl border border-white/[0.1] shadow-2xl shadow-black/70 overflow-hidden">
-
-                                <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
-                                    <Pentagon size={13} className="text-amber-400 shrink-0" />
-                                    <span className="text-[12.5px] font-bold text-white truncate">{lo.label}</span>
-                                </div>
-
-                                <div className="px-3 py-2.5 space-y-2">
-                                    <div>
-                                        <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">Unidad</p>
-                                        <p className={cn("text-[12px] truncate", uni ? "text-white/90 font-semibold" : "text-white/35 italic")}>
-                                            {uni ? uni.name : "sin asignar"}
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <p className="text-[9px] uppercase tracking-[0.14em] text-white/35">Residentes</p>
-                                        {gente.length ? (
-                                            <p className="text-[12px] text-white/85 truncate">
-                                                {gente.slice(0, 2).map((r: any) => r.name).join(", ")}
-                                                {gente.length > 2 && <span className="text-white/40"> y {gente.length - 2} más</span>}
-                                            </p>
-                                        ) : (
-                                            <p className="text-[12px] text-white/35 italic">nadie cargado</p>
-                                        )}
-                                    </div>
-
-                                    {chapas.length > 0 && (
-                                        <div className="flex flex-wrap gap-1">
-                                            {chapas.slice(0, 4).map((c: string, i: number) => (
-                                                <span key={i} className="px-1.5 py-0.5 rounded bg-white/10 border border-white/15 text-[10.5px] font-bold tabular-nums tracking-[0.1em] text-white/90">
-                                                    {c}
-                                                </span>
-                                            ))}
-                                            {chapas.length > 4 && <span className="text-[10px] text-white/40 self-center">+{chapas.length - 4}</span>}
-                                        </div>
-                                    )}
-
-                                    <div className="flex items-center gap-1.5 pt-0.5 border-t border-white/[0.07]">
-                                        <SquareParking size={12} className="text-white/40 shrink-0" />
-                                        {pl ? (
-                                            <>
-                                                <span className="text-[11.5px] text-white/85">{pl.label}</span>
-                                                <span className="text-[10px]" style={{ color: pl.isOccupied ? "var(--quieto)" : "var(--muted-foreground)" }}>
-                                                    · {pl.isOccupied ? "ocupada" : "libre"}
-                                                </span>
-                                            </>
-                                        ) : (
-                                            <span className="text-[11.5px] text-white/35 italic">sin plaza</span>
-                                        )}
-                                    </div>
-                                </div>
-                            </motion.div>
-                            </div>
-                        );
-                    })()}
-                </AnimatePresence>
-
-                {/* Lo que todavía no está en la base. Va arriba y al centro, sobre el mapa:
-                    el punto del botón se puede no mirar, una franja no. */}
-                {editing && sinGuardar && (
-                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[560] pointer-events-none">
-                        <span className="flex items-center gap-2 px-3.5 py-2 rounded-full bg-[#0a0d12]/92 backdrop-blur-xl border text-[12px] font-semibold text-white shadow-lg"
-                            style={{ borderColor: "color-mix(in oklab, var(--aviso) 45%, transparent)" }}>
-                            <AlertTriangle size={13} style={{ color: "var(--aviso)" }} />
-                            Cambios sin guardar
-                        </span>
-                    </div>
-                )}
-
-                {/* Asignar una unidad o una plaza al lote */}
-                <AnimatePresence>
-                    {asignando && (() => {
-                        const lo = lotes.find((l) => l.id === asignando.id);
-                        const q = buscaUnidad.trim().toLowerCase();
-                        const usadas: Record<string, string> = {};
-                        for (const l of lotes) if (l.unitId && l.id !== asignando.id) usadas[l.unitId] = l.label;
-                        const lista = unidades
-                            .filter((u: any) => !q || `${u.name} ${u.number || ""} ${u.lot || ""} ${u.houseNumber || ""}`.toLowerCase().includes(q))
-                            .slice(0, 60);
-                        const plazaUsada: Record<string, string> = {};
-                        for (const l of lotes) if (l.parkingSlotId && l.id !== asignando.id) plazaUsada[l.parkingSlotId] = l.label;
-                        const listaPlazas = plazas
-                            .filter((pl: any) => !q || String(pl.label || "").toLowerCase().includes(q))
-                            .slice(0, 60);
-                        return (
-                            <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}
-                                transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                                className="absolute bottom-4 left-4 z-[560] w-72 rounded-2xl bg-[#0a0d12]/92 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/60 overflow-hidden">
-                                <div className="flex items-center gap-2 px-3 h-11 border-b border-white/[0.07]">
-                                    {asignando.que === "plaza"
-                                        ? <SquareParking size={14} className="text-white/60 shrink-0" />
-                                        : <Home size={14} className="text-white/60 shrink-0" />}
-                                    <span className="text-[12px] font-bold text-white truncate flex-1">
-                                        {lo?.label} · {asignando.que === "plaza" ? "plaza" : "unidad"}
-                                    </span>
-                                    <button onClick={() => { setAsignando(null); setBuscaUnidad(""); }} className="text-white/40 hover:text-white"><X size={13} /></button>
-                                </div>
-                                <div className="flex items-center gap-2 px-3 h-10 border-b border-white/[0.07]">
-                                    <Search size={13} className="text-white/35 shrink-0" />
-                                    <input autoFocus value={buscaUnidad} onChange={(e) => setBuscaUnidad(e.target.value)}
-                                        placeholder={asignando.que === "plaza" ? "Buscar plaza…" : "Buscar unidad…"}
-                                        className="flex-1 bg-transparent text-[12px] text-white placeholder:text-white/30 focus:outline-none" />
-                                </div>
-                                <div className="max-h-64 overflow-y-auto custom-scrollbar">
-                                    {asignando.que === "plaza" ? (<>
-                                        {lo?.parkingSlotId && (
-                                            <button onClick={() => asignarPlaza(lo.id, null)}
-                                                className="w-full text-left px-3 py-2 text-[11.5px] text-[var(--mal-texto)] hover:bg-white/[0.08]">
-                                                Quitar la plaza asignada
-                                            </button>
-                                        )}
-                                        {listaPlazas.length === 0 ? (
-                                            <p className="px-3 py-4 text-[11px] text-white/40">
-                                                {plazas.length ? "No hay plazas con ese nombre." : "Todavía no hay plazas dibujadas en el plano de estacionamiento."}
-                                            </p>
-                                        ) : listaPlazas.map((pl: any) => {
-                                            /* Una plaza tomada por OTRO lote se muestra igual, con su aviso: a
-                                               veces hay que corregir justamente eso, y esconderla obligaría a
-                                               ir a buscar cuál era. */
-                                            const enOtro = plazaUsada[pl.id];
-                                            return (
-                                                <button key={pl.id} onClick={() => asignarPlaza(asignando.id, pl.id)}
-                                                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.08] transition-colors">
-                                                    <span className="flex-1 min-w-0">
-                                                        <span className="block text-[12px] text-white/90 truncate">{pl.label}</span>
-                                                        <span className="block text-[10px] text-white/35 truncate">
-                                                            {pl.isOccupied ? "ocupada ahora" : "libre"}
-                                                        </span>
-                                                    </span>
-                                                    {enOtro && <span className="text-[9px] text-amber-300/80 shrink-0">ya en {enOtro}</span>}
-                                                    {lo?.parkingSlotId === pl.id && <Check size={13} className="text-emerald-400 shrink-0" />}
-                                                </button>
-                                            );
-                                        })}
-                                    </>) : (<>
-                                        {lo?.unitId && (
-                                            <button onClick={() => asignarUnidad(lo.id, null)}
-                                                className="w-full text-left px-3 py-2 text-[11.5px] text-[var(--mal-texto)] hover:bg-white/[0.08]">
-                                                Quitar la unidad asignada
-                                            </button>
-                                        )}
-                                        {lista.length === 0 ? (
-                                            <p className="px-3 py-4 text-[11px] text-white/40">No hay unidades con ese nombre.</p>
-                                        ) : lista.map((u: any) => {
-                                            const ocupada = usadas[u.id];
-                                            return (
-                                                <button key={u.id} onClick={() => asignarUnidad(asignando.id, u.id)}
-                                                    className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.08] transition-colors">
-                                                    <span className="flex-1 min-w-0">
-                                                        <span className="block text-[12px] text-white/90 truncate">{u.name}</span>
-                                                        {(u.lot || u.houseNumber || u.address) && (
-                                                            <span className="block text-[10px] text-white/35 truncate">{[u.lot, u.houseNumber, u.address].filter(Boolean).join(" · ")}</span>
-                                                        )}
-                                                    </span>
-                                                    {ocupada && <span className="text-[9px] text-amber-300/80 shrink-0">ya en {ocupada}</span>}
-                                                    {lo?.unitId === u.id && <Check size={13} className="text-emerald-400 shrink-0" />}
-                                                </button>
-                                            );
-                                        })}
-                                    </>)}
-                                </div>
-                            </motion.div>
-                        );
-                    })()}
-                </AnimatePresence>
-
-                {/* La ficha de la unidad, sobre el plano. */}
-                {cajonUnidad && (
-                    <CajonUnidad
-                        abierto
-                        alCerrar={() => setCajonUnidad(null)}
-                        unidad={cajonUnidad.unidad}
-                        unidades={unidades}
-                        lotes={lotes}
-                        lotePorDefecto={cajonUnidad.lote}
-                        alGuardar={() => {
-                            getUnits().then((u: any) => setUnidades(u || [])).catch(() => { });
-                            /* El lote vive en el mapa, asi que guardarlo lo reescribio del
-                               lado del servidor y hay que releerlo. Salvo que haya dibujo
-                               sin guardar: ahi releer pisaria lo que el operador tiene a
-                               medias, y eso es justo lo que rompia antes. */
-                            if (!sinGuardar) getBarrioMap().then(setData).catch(() => { });
-                        }}
-                    />
-                )}
-
-                {/* La ficha del equipo, sobre el plano. */}
-                {fichaEquipo && (
-                    <CajonDispositivo
-                        key={fichaEquipo.id}
-                        device={fichaEquipo}
-                        open
-                        onOpenChange={(v: boolean) => { if (!v) setFichaEquipo(null); }}
-                        onSuccess={() => {
-                            /* Puede haberle cambiado el nombre, y el nombre se dibuja en el
-                               plano. Se releen los equipos, no el plano: el dibujo no se
-                               tocó, y releerlo pisaría lo que haya a medias. */
-                            getDevices()
-                                .then((d: any) => setDevices((d || []).filter((x: any) =>
-                                    x.deviceType === "LPR_CAMERA" || x.deviceType === "LPR_INTERIOR")))
-                                .catch(() => { });
-                        }}
-                    />
-                )}
-
-                {/* Context menu */}
+                {/* Menú contextual */}
                 {ctx && (
-                    <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[160px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
-                        {ctx.type === "lote" ? (() => {
-                            /*
-                             * El menú cambia según se esté editando o mirando.
-                             *
-                             * Antes ofrecía siempre lo mismo — asignar, renombrar, borrar —
-                             * incluso fuera del modo edición, donde esos cambios quedaban en
-                             * el aire: no hay botón de Guardar fuera de edición, así que
-                             * tocarlos dejaba el mapa sucio sin manera de guardarlo.
-                             *
-                             * Mirando, lo que se quiere es ir a los datos de esa casa. Por eso
-                             * las opciones son de lectura, y la última ofrece entrar a editar.
-                             */
-                            const lo = lotes.find((l) => l.id === ctx.id);
-                            const uni = unidadDe(lo?.unitId);
-                            if (!editing) return (<>
-                                <div className="px-3 py-1.5 text-[11px] font-bold text-foreground truncate border-b border-border mb-1">
-                                    {lo?.label}
-                                </div>
-                                <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setCtx(null); }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
-                                    <Pentagon size={13} /> Seleccionar
-                                </button>
-                                {uni ? (
-                                    <button onClick={() => { setCajonUnidad({ unidad: uni, lote: ctx.id }); setCtx(null); }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
-                                        <Home size={13} /> Ver la unidad {uni.name}
-                                    </button>
-                                ) : (
-                                    <button onClick={() => { setCajonUnidad({ unidad: null, lote: ctx.id }); setCtx(null); }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
-                                        <Home size={13} /> Crearle la unidad
-                                    </button>
-                                )}
-                                {chapasDelLote(lo).length > 0 && (
-                                    <button onClick={() => { router.push(`/admin/history?search=${encodeURIComponent(chapasDelLote(lo)[0])}`); }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
-                                        <RouteIco size={13} /> Pasadas de {chapasDelLote(lo)[0]}
-                                    </button>
-                                )}
-                                {lo?.parkingSlotId && (
-                                    <button onClick={() => { router.push("/admin/plazas"); }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
-                                        <SquareParking size={13} /> Ver la plaza
-                                    </button>
-                                )}
-                                <button onClick={() => { setEditing(true); setSelected({ type: "lote", id: ctx.id }); setCtx(null); }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 border-t border-border mt-1">
-                                    <Pencil size={13} /> Editar el mapa
-                                </button>
-                            </>);
-                            return (<>
-                                <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando({ id: ctx.id, que: "unidad" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Home size={13} /> Asignar unidad</button>
-                                <button onClick={() => { setSelected({ type: "lote", id: ctx.id }); setAsignando({ id: ctx.id, que: "plaza" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><SquareParking size={13} /> Asignar plaza</button>
-                                <button onClick={() => { renameLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar</button>
-                                <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-[var(--mal-texto)]"><Trash2 size={13} /> Borrar casa</button>
-                            </>);
-                        })() : ctx.type === "camera" ? (() => {
-                            /*
-                             * El menú de la cámara cambia según se esté mirando o editando,
-                             * por el mismo motivo que el de los lotes: fuera de edición no hay
-                             * botón de Guardar, así que ofrecer "mover" ahí deja el cambio en
-                             * el aire. Las acciones que tocan el plano entran a edición solas
-                             * en vez de estar apagadas sin decir por qué.
-                             */
-                            const cam: any = data.cameras.find((c: any) => c.deviceId === ctx.id);
-                            const centrar = () => {
-                                if (cam && mapRef.current) mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 19));
-                            };
-                            return (<>
-                                <div className="px-3 py-1.5 text-[11px] font-bold text-foreground truncate border-b border-border mb-1">
-                                    {devById[ctx.id]?.name || "Cámara"}
-                                </div>
-                                <button onClick={() => { centrar(); setCtx(null); }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
-                                    <Crosshair size={13} /> Centrar acá
-                                </button>
-                                <button onClick={() => { setEditing(true); setTool("select"); setSelected({ type: "camera", id: ctx.id }); centrar(); setCtx(null); }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
-                                    <MousePointer2 size={13} /> Mover de lugar
-                                </button>
-                                <button onClick={() => { setEditing(true); setTool("select"); setSelected({ type: "camera", id: ctx.id }); centrar(); setCtx(null); }}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2">
-                                    <Compass size={13} /> {cam?.rumbo != null ? "Cambiar a dónde mira" : "Decir a dónde mira"}
-                                </button>
-                                <button onClick={() => { setFichaEquipo(devById[ctx.id] || null); setCtx(null); }}
-                                    disabled={!devById[ctx.id]}
-                                    className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 disabled:opacity-40">
-                                    <Video size={13} /> Ver la ficha del equipo
-                                </button>
-                                {editing && (
-                                    <button onClick={() => { removeCamera(ctx.id); setCtx(null); }}
-                                        className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-[var(--mal-texto)] border-t border-border mt-1">
-                                        <Trash2 size={13} /> Sacarla del plano
-                                    </button>
-                                )}
-                            </>);
-                        })() : (<>
+                    <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[180px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
+                        {ctx.type === "camera" ? (<>
+                            <button onClick={() => { const cam = data.cameras.find((c) => c.deviceId === ctx.id); if (cam && mapRef.current) mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Radio size={13} className="text-red-400" /> Centrar / ver</button>
+                            <button onClick={() => { setMovingCam(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Move size={13} className="text-blue-400" /> Editar posición</button>
+                            <button onClick={() => { const c = data.cameras.find((x) => x.deviceId === ctx.id); if (c) setCamCustom({ deviceId: c.deviceId, rumbo: (c as any).rumbo ?? 0, size: (c as any).size ?? 30, color: (c as any).color ?? "#2563eb" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Compass size={13} className="text-purple-400" /> Dirección / tamaño / color</button>
+                            <button onClick={() => { removeCameraPersist(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Eliminar del mapa</button>
+                        </>) : ctx.type === "guard" ? (<>
+                            <button onClick={() => { const g = guards.find((x) => String(x.id) === ctx.id); abrirBitacora(g?.guardName || ""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><BookText size={13} className="text-emerald-500" /> Bitácora</button>
+                            <button onClick={() => { const g = guards.find((x) => String(x.id) === ctx.id); if (g && mapRef.current) mapRef.current.setView([g.lat, g.lng], Math.max(mapRef.current.getZoom(), 18)); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Crosshair size={13} /> Centrar en el guardia</button>
+                        </>) : ctx.type === "lote" ? (<>
+                            <button onClick={() => { editLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Editar lote / plaza</button>
+                            <button onClick={() => { const lo = lotes.find((l) => l.id === ctx.id); if (lo && mapRef.current) { mapRef.current.setView(centroid(lo.points), Math.max(mapRef.current.getZoom(), 19)); localizar("lote", lo.id); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><LocateFixed size={13} className="text-amber-500" /> Localizar</button>
+                            <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar lote</button>
+                        </>) : ctx.type === "division" ? (<>
+                            <button onClick={() => { setExtendDiv(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Plus size={13} className="text-blue-400" /> Seguir agregando puntos</button>
+                            <button onClick={() => { const dv = ((data as any).divisions || []).find((x: any) => x.id === ctx.id); if (dv) { const st = DIV_STYLE[dv.tipo as DivTipo] || DIV_STYLE.pared; setDivCustom({ id: dv.id, tipo: dv.tipo, color: dv.color || st.color, weight: dv.weight || st.weight }); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Palette size={13} className="text-purple-400" /> Color y grosor</button>
+                            <button onClick={() => { removeDivision(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar división</button>
+                        </>) : (<>
                             <button onClick={() => { renameStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar calle</button>
-                            <button onClick={() => { removeStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar calle</button>
+                            {editing && <button onClick={() => { removeStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar calle</button>}
                         </>)}
                     </div>
                 )}
 
-                {/* El chip "Mapa del barrio" estaba acá. Se retiró: decía el nombre de la
-                    pantalla en la que uno ya está, y el recuento de cámaras, calles y casas
-                    es de la clase de dato que se mira una vez en la vida y después estorba
-                    todos los días, justo en la esquina donde arranca la lectura. Lo que sí
-                    importa de ahí — cuántos guardias hay — se ve en el mapa mismo. */}
+                {/* Drawer de lote (edición) */}
+                <AnimatePresence>
+                    {loteModal && (
+                        <LoteDrawer value={loteModal} slots={slots}
+                            onChange={(patch) => setLoteModal((m) => m ? { ...m, ...patch } : m)}
+                            onSave={saveLoteModal}
+                            onClose={() => setLoteModal(null)}
+                            onDelete={loteModal.mode === "edit" && loteModal.id ? () => { const id = loteModal.id!; setLoteModal(null); removeLote(id); } : undefined}
+                        />
+                    )}
+                </AnimatePresence>
 
-                {vista3D && (
-                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                        className="absolute bottom-[104px] left-3 z-[520] rounded-2xl px-3 py-2 text-[10px] leading-relaxed text-white/60 bg-[#0a0d12]/80 backdrop-blur-2xl border border-white/[0.08] shadow-2xl shadow-black/50">
-                        <b className="text-white/80">Vista 3D</b><br />
-                        Arrastrar: mover · Ctrl + arrastrar: girar e inclinar<br />
-                        Rueda: acercar · La edición se hace en la vista plana
-                    </motion.div>
-                )}
+                {/* Drawer de ficha del lote (clic en el lote) */}
+                <AnimatePresence>
+                    {loteDetail && (
+                        <MapDrawer title={loteDetail.lote.name || "Lote"} icon={LandPlot} accent="purple"
+                            subtitle={loteDetail.data?.sector ? `Sector ${loteDetail.data.sector}${loteDetail.data.unidad ? ` · ${loteDetail.data.unidad}` : ""}` : (loteDetail.lote.parkingSlotId ? "Plaza vinculada" : "Sin plaza vinculada")}
+                            onClose={() => setLoteDetail(null)}>
+                            {loteDetail.loading ? (
+                                <div className="flex items-center justify-center py-10 text-muted-foreground"><Loader2 size={18} className="animate-spin mr-2" /> Cargando ficha…</div>
+                            ) : !loteDetail.lote.parkingSlotId ? (
+                                <div className="rounded-xl border border-border bg-background/40 p-4 text-center space-y-3">
+                                    <SquareParking size={22} className="mx-auto text-muted-foreground" />
+                                    <p className="text-xs text-muted-foreground">Este lote no está vinculado a una plaza de parking. Vinculalo para ver residentes, matrículas y movimientos.</p>
+                                    <button onClick={() => { const l = loteDetail.lote; setLoteDetail(null); setLoteModal({ mode: "edit", id: l.id, name: l.name || "", parkingSlotId: l.parkingSlotId || "", points: l.points }); }}
+                                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500">Vincular a plaza</button>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Residentes y matrículas */}
+                                    <div className="rounded-xl border border-border bg-background/40 overflow-hidden">
+                                        <div className="flex items-center gap-2 px-3 h-9 border-b border-border"><UserIcon size={13} className="text-blue-500" /><span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Residentes</span></div>
+                                        <div className="p-2 space-y-2">
+                                            {(loteDetail.data?.residentes || []).length ? (loteDetail.data!.residentes.map((r) => (
+                                                <div key={r.id} className="px-2 py-1.5 rounded-lg hover:bg-accent/40">
+                                                    <p className="text-[13px] font-semibold text-foreground">{r.nombre}</p>
+                                                    <div className="flex flex-wrap gap-1 mt-1">
+                                                        {r.matriculas.length ? r.matriculas.map((m) => (
+                                                            <span key={m} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300 text-[11px] font-mono font-bold"><Car size={10} /> {m}</span>
+                                                        )) : <span className="text-[11px] text-muted-foreground">Sin matrículas</span>}
+                                                    </div>
+                                                </div>
+                                            ))) : <p className="px-2 py-3 text-[12px] text-muted-foreground text-center">Sin residentes asignados</p>}
+                                        </div>
+                                    </div>
+
+                                    {/* Últimos movimientos */}
+                                    <div className="rounded-xl border border-border bg-background/40 overflow-hidden">
+                                        <div className="flex items-center gap-2 px-3 h-9 border-b border-border"><Clock size={13} className="text-emerald-500" /><span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Últimos movimientos</span></div>
+                                        <div className="p-1.5 space-y-0.5">
+                                            {(loteDetail.data?.movimientos || []).length ? (loteDetail.data!.movimientos.map((m) => {
+                                                const ent = m.dir === "ENTRY";
+                                                return (
+                                                    <div key={m.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent/40">
+                                                        {ent ? <LogIn size={14} className="text-emerald-500 shrink-0" /> : <LogOut size={14} className="text-orange-500 shrink-0" />}
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-[12px] font-mono font-bold text-foreground truncate">{m.plate || "S/L"}</p>
+                                                            <p className="text-[10px] text-muted-foreground truncate">{m.camara || ""}</p>
+                                                        </div>
+                                                        <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{fechaHora(m.ts)}</span>
+                                                    </div>
+                                                );
+                                            })) : <p className="px-2 py-3 text-[12px] text-muted-foreground text-center">Sin movimientos recientes</p>}
+                                        </div>
+                                    </div>
+
+                                    <button onClick={() => { const l = loteDetail.lote; setLoteDetail(null); setLoteModal({ mode: "edit", id: l.id, name: l.name || "", parkingSlotId: l.parkingSlotId || "", points: l.points }); }}
+                                        className="w-full h-9 rounded-lg text-xs font-bold text-muted-foreground border border-border hover:bg-accent flex items-center justify-center gap-1.5"><PencilIcon size={13} /> Editar lote</button>
+                                </>
+                            )}
+                        </MapDrawer>
+                    )}
+                </AnimatePresence>
+
+                {/* Drawer de bitácora (clic derecho en tablet → Bitácora) */}
+                <AnimatePresence>
+                    {bitacora && (
+                        <MapDrawer title="Bitácora" subtitle={bitacora.guardName || "Todas"} icon={BookText} accent="emerald" onClose={() => setBitacora(null)}>
+                            {bitacora.loading ? (
+                                <div className="flex items-center justify-center py-10 text-muted-foreground"><Loader2 size={18} className="animate-spin mr-2" /> Cargando bitácora…</div>
+                            ) : bitacora.entries.length ? (
+                                bitacora.entries.map((e: any) => (
+                                    <div key={e.id} className="rounded-xl border border-border bg-background/40 p-2.5">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 text-[10px] font-black uppercase tracking-wide">{e.type || "NOTA"}</span>
+                                            {e.plate && <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-300 text-[11px] font-mono font-bold">{e.plate}</span>}
+                                            <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{fechaHora(e.timestamp)}</span>
+                                        </div>
+                                        {e.name && <p className="text-[12px] font-semibold text-foreground">{e.name}{e.company ? ` · ${e.company}` : ""}</p>}
+                                        {e.destination && <p className="text-[11px] text-muted-foreground">→ {e.destination}</p>}
+                                        {e.notes && <p className="text-[11px] text-muted-foreground mt-0.5 flex items-start gap-1"><StickyNote size={11} className="mt-0.5 shrink-0" /> {e.notes}</p>}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground/60"><BookText size={22} /><span className="text-xs">Sin registros de esta tablet</span></div>
+                            )}
+                        </MapDrawer>
+                    )}
+                </AnimatePresence>
+
+                {/* Drawer: personalizar cámara (dirección / tamaño / color) */}
+                <AnimatePresence>
+                    {camCustom && (() => {
+                        const cc = camCustom;
+                        const setCam = (patch: Partial<{ rumbo: number; size: number; color: string }>) => {
+                            const next = { ...cc, ...patch };
+                            setCamCustom(next);
+                            setData((d) => d ? { ...d, cameras: d.cameras.map((x) => x.deviceId === cc.deviceId ? { ...x, rumbo: next.rumbo, size: next.size, color: next.color } : x) } : d);
+                        };
+                        const guardarCam = () => {
+                            const next = { ...data, cameras: data.cameras.map((x) => x.deviceId === cc.deviceId ? { ...x, rumbo: cc.rumbo, size: cc.size, color: cc.color } : x) };
+                            setCamCustom(null); persistNow(next, "Cámara personalizada");
+                        };
+                        const dirs: [string, number][] = [["N", 0], ["NE", 45], ["E", 90], ["SE", 135], ["S", 180], ["SO", 225], ["O", 270], ["NO", 315]];
+                        return (
+                            <MapDrawer title="Cámara" subtitle={devById[cc.deviceId]?.name || "Ícono"} icon={Compass} accent="purple" onClose={() => setCamCustom(null)}>
+                                <div className="flex items-center justify-center py-6 rounded-xl border border-border bg-background/40" dangerouslySetInnerHTML={{ __html: `<div style="position:relative">${camHtml({ rumbo: cc.rumbo, size: cc.size, color: cc.color })}</div>` }} />
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Dirección (hacia dónde apunta)</p>
+                                    <div className="grid grid-cols-4 gap-1">{dirs.map(([l, d]) => <button key={l} onClick={() => setCam({ rumbo: d })} className={cn("h-8 rounded-lg text-[11px] font-bold transition-colors", Math.round(cc.rumbo) === d ? "bg-blue-600 text-white" : "bg-background border border-border text-muted-foreground hover:text-foreground")}>{l}</button>)}</div>
+                                    <input type="range" min={0} max={359} value={cc.rumbo} onChange={(e) => setCam({ rumbo: +e.target.value })} className="w-full accent-blue-600" />
+                                    <p className="text-[11px] text-muted-foreground text-center tabular-nums">{Math.round(cc.rumbo)}°</p>
+                                </div>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tamaño</p>
+                                    <input type="range" min={22} max={54} value={cc.size} onChange={(e) => setCam({ size: +e.target.value })} className="w-full accent-blue-600" />
+                                </div>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Color</p>
+                                    <div className="flex flex-wrap gap-2">{CAM_COLORS.map((c) => <button key={c} onClick={() => setCam({ color: c })} style={{ background: c }} className={cn("h-7 w-7 rounded-full border-2 transition-all", cc.color === c ? "border-blue-500 ring-2 ring-blue-500/40 scale-110" : "border-white/40")} />)}</div>
+                                </div>
+                                <div className="flex gap-2 pt-1">
+                                    <button onClick={() => setCamCustom(null)} className="flex-1 h-9 rounded-lg text-xs font-bold text-muted-foreground hover:bg-accent">Cerrar</button>
+                                    <button onClick={guardarCam} className="flex-1 h-9 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center gap-1.5"><Check size={14} /> Guardar</button>
+                                </div>
+                            </MapDrawer>
+                        );
+                    })()}
+                </AnimatePresence>
+
+                {/* Drawer: color / grosor de la línea de división */}
+                <AnimatePresence>
+                    {divCustom && (() => {
+                        const dc = divCustom;
+                        const setDiv = (patch: Partial<{ tipo: DivTipo; color: string; weight: number }>) => {
+                            const next = { ...dc, ...patch };
+                            setDivCustom(next);
+                            setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === dc.id ? { ...x, tipo: next.tipo, color: next.color, weight: next.weight } : x) }) as any : d);
+                        };
+                        const guardarDiv = () => {
+                            const next = { ...data, divisions: ((data as any).divisions || []).map((x: any) => x.id === dc.id ? { ...x, tipo: dc.tipo, color: dc.color, weight: dc.weight } : x) } as any;
+                            setDivCustom(null); persistNow(next, "Línea actualizada");
+                        };
+                        return (
+                            <MapDrawer title="División" subtitle={DIV_STYLE[dc.tipo].label} icon={Fence} accent="blue" onClose={() => setDivCustom(null)}>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tipo</p>
+                                    <div className="flex gap-1">{(["pared", "tejido", "alambrado"] as DivTipo[]).map((tp) => <button key={tp} onClick={() => setDiv({ tipo: tp, color: DIV_STYLE[tp].color, weight: DIV_STYLE[tp].weight })} className={cn("flex-1 h-8 rounded-lg text-[11px] font-bold border transition-colors", dc.tipo === tp ? "bg-blue-600 text-white border-blue-600" : "bg-background border-border text-muted-foreground hover:text-foreground")}>{DIV_STYLE[tp].label}</button>)}</div>
+                                </div>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Color</p>
+                                    <div className="flex flex-wrap gap-2">{CAM_COLORS.map((c) => <button key={c} onClick={() => setDiv({ color: c })} style={{ background: c }} className={cn("h-7 w-7 rounded-full border-2 transition-all", dc.color === c ? "border-blue-500 ring-2 ring-blue-500/40 scale-110" : "border-white/40")} />)}</div>
+                                </div>
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Grosor · {dc.weight}px</p>
+                                    <input type="range" min={1} max={12} value={dc.weight} onChange={(e) => setDiv({ weight: +e.target.value })} className="w-full accent-blue-600" />
+                                </div>
+                                <button onClick={() => { setDivCustom(null); setExtendDiv(dc.id); }} className="w-full h-9 rounded-lg text-xs font-bold border border-border hover:bg-accent flex items-center justify-center gap-1.5"><Plus size={13} /> Seguir agregando puntos</button>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setDivCustom(null)} className="flex-1 h-9 rounded-lg text-xs font-bold text-muted-foreground hover:bg-accent">Cerrar</button>
+                                    <button onClick={guardarDiv} className="flex-1 h-9 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center gap-1.5"><Check size={14} /> Guardar</button>
+                                </div>
+                            </MapDrawer>
+                        );
+                    })()}
+                </AnimatePresence>
             </div>
         </TooltipProvider>
     );
 }
-
-

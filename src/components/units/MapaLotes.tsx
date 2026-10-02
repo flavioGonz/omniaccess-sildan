@@ -90,7 +90,7 @@ export function MapaLotes({ unidadId, loteElegido, alElegir, nombreDeUnidad, alt
         return () => { vivo = false; };
     }, []);
 
-    const lotes = useMemo<LoteDelMapa[]>(() => (mapa?.lots || []) as LoteDelMapa[], [mapa]);
+    const lotes = useMemo<LoteDelMapa[]>(() => (mapa?.lotes || []) as LoteDelMapa[], [mapa]);
 
     useEffect(() => { if (lotes.length) alCargar?.(lotes); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [lotes]);
 

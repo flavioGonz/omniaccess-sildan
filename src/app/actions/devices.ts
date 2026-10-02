@@ -128,6 +128,13 @@ export async function createDevice(formData: FormData) {
         console.error("go2rtc sync failed on create:", err);
     }
 
+    // Puesta a punto automatica (config rapida): hora, HTTP host->server, ANPR, codec H264, stream.
+    // Las matriculas NO aca (puede tardar): se cargan con el boton "Poner a punto".
+    if (newDevice.brand === "HIKVISION" && (newDevice.deviceType as any) === "LPR_CAMERA") {
+        try { const { provisionLprDevice } = await import("@/app/actions/provision"); await provisionLprDevice(newDevice.id, false); }
+        catch (err) { console.error("auto-provision failed on create:", err); }
+    }
+
     revalidatePath("/admin/devices");
     /* El id vuelve porque el alta no termina al guardar: termina cuando alguien vio el
        equipo contestar. Y el video sale de go2rtc, que lo conoce por el id recién creado. */

@@ -87,6 +87,7 @@ import { hora, horaSeg } from "@/lib/fechas";
 import { DRIVER_MODELS, DEVICE_MODELS } from "@/lib/driver-models";
 import { CameraCalibrator } from "@/components/CameraCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
+import { ProvisionButton } from "@/components/ProvisionButton";
 import { HealthHistoryDialog } from "@/components/HealthHistoryDialog";
 import { ReadRateDialog } from "@/components/ReadRateDialog";
 
@@ -1012,6 +1013,11 @@ export default function DevicesPage() {
                                                     <TooltipContent><p>Calibrar ANPR</p></TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
+                                            )}
+
+                                            {/* Poner a punto (portado de Olivos): deja lista la cámara LPR de una. */}
+                                            {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
+                                                <ProvisionButton deviceId={dev.id} deviceName={dev.name} onDone={() => handleRefreshStats(dev.id)} />
                                             )}
 
                                             {/* El ojo abre el vivo pelado. En una cámara de seguimiento eso es el
