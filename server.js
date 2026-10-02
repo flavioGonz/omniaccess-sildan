@@ -27,6 +27,7 @@ const axios = require("axios");
 const https = require("https");
 const crypto = require("crypto");
 const { uploadToS3 } = require("./lib-s3");
+const { captureForDevice: captureIntrusion } = require("./lib-intrusion-capture");
 const { getVehicleColorName, getVehicleBrandName } = require("./hikvision-codes");
 const { handleWahaWebhook } = require("./waha-handler");
 
@@ -1065,6 +1066,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                     if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
                     if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, timestamp: det.timestamp });
                     console.log(logPrefix + " 🟣 [ANALYTIC] " + genType + " (" + eventType + ") dev=" + (dev ? dev.name : "?"));
+                    if (dev && dev.ip && genType !== "MOTION") { captureIntrusion(dev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}); }
                     res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: genType })); return;
                 }
             } catch (e) { console.error(logPrefix + " [ANALYTIC] err: " + (e && e.message)); }
@@ -1462,6 +1464,26 @@ const handleWebhook = async (req, res, logPrefix) => {
             }
         } catch (e) { console.error(`${logPrefix} Watchlist check error:`, (e && e.message) || e); }
 
+        // ---- INVITADOS / visitas temporales — LPR (precedencia: lista negra SIEMPRE gana) ----
+        let guestHit = null;
+        try {
+            const isBlack = watchHit && (watchHit.category === 'BLACKLISTED' || watchHit.category === 'negra');
+            if (!isUnknown && !isBlack) {
+                const gm = await matchInvitedPlate(finalPlate);
+                if (gm) {
+                    const direction = event.direction || 'ENTRY';
+                    const ge = await prisma.guestEntry.create({ data: {
+                        guestId: gm.guestId, invitationId: gm.invitationId, accessEventId: event.id,
+                        gate: device ? device.id : null, direction, method: 'LPR', plate: finalPlate
+                    }});
+                    guestHit = { guestId: gm.guestId, invitationId: gm.invitationId, name: gm.name, hostName: gm.hostName, hostLabel: gm.hostLabel, title: gm.title, validTo: gm.validTo, direction };
+                    if (global.io) global.io.emit('guest_entry', { ...guestHit, entryId: ge.id, device: device ? { id: device.id, name: device.name } : null, plate: finalPlate, timestamp: new Date().toISOString() });
+                    console.log(`${logPrefix} [INVITADO] ${finalPlate} -> ${gm.name} (${gm.hostLabel})`);
+                    notifyHostGuest(gm, finalPlate, device, direction).catch(() => {});
+                }
+            }
+        } catch (e) { console.error(`${logPrefix} Invitados check error:`, (e && e.message) || e); }
+
         // Notify UI
         if (global.io) {
             console.log(`${logPrefix} [SOCKET] Emitting access_event for plate: ${cleanPlate}`);
@@ -1470,7 +1492,8 @@ const handleWebhook = async (req, res, logPrefix) => {
                 device,
                 user: credential ? credential.user : null,
                 direction: event.direction, // Ensure direction is explicitly sent
-                watch: watchHit
+                watch: watchHit,
+                guest: guestHit
             });
             // Emit webhook event for topology animation
             global.io.emit("webhook-event", {
@@ -2306,7 +2329,7 @@ const requestHandler = async (req, res) => {
     // WAHA (WhatsApp Chatbot)
     if (url.includes('/api/waha/webhook')) {
         console.log(`${logPrefix} 💬 Match: WAHA WhatsApp Webhook`);
-        await handleWahaWebhook(req, res, logPrefix);
+        await handleWahaWebhook(req, res, logPrefix, prisma);
         return;
     }
 
@@ -2325,6 +2348,7 @@ const httpServer = http.createServer(requestHandler);
 // NOTA: Unificamos Socket.IO en el mismo puerto 10000
 const io = new Server(httpServer, {
     addTrailingSlash: false,
+    perMessageDeflate: false, // #WS evita frames comprimidos (RSV1) que rompen el upgrade via proxy
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
@@ -2675,6 +2699,44 @@ async function getMerodeoConfig() {
     };
     global.__merodeoCfg = cfg; global.__merodeoCfgAt = now;
     return cfg;
+}
+
+// ── Invitados / visitas temporales: match tolerante de patente (LPR lee con errores) ──
+function normPlateJS(x){ return String(x||"").toUpperCase().replace(/[^A-Z0-9]/g,""); }
+function editDistLEJS(a,b,max){ if(Math.abs(a.length-b.length)>max) return false; const dp=Array.from({length:a.length+1},(_,i)=>i); for(let j=1;j<=b.length;j++){ let prev=dp[0]; dp[0]=j; let best=dp[0]; for(let i=1;i<=a.length;i++){ const tmp=dp[i]; dp[i]=Math.min(dp[i]+1,dp[i-1]+1,prev+(a[i-1]===b[j-1]?0:1)); prev=tmp; if(dp[i]<best) best=dp[i]; } if(best>max) return false; } return dp[a.length]<=max; }
+function platesCloseJS(a,b){ const x=normPlateJS(a),y=normPlateJS(b); if(!x||!y) return false; if(x===y) return true; const max=x.length>=6?2:1; return editDistLEJS(x,y,max); }
+async function matchInvitedPlate(plate){
+    const np=normPlateJS(plate); if(!np) return null;
+    const now=new Date();
+    const rows=await prisma.guestPlate.findMany({
+        where:{ guest:{ status:{ not:"DENIED" }, invitation:{ status:"ACTIVE", validFrom:{ lte:now }, validTo:{ gte:now } } } },
+        include:{ guest:{ include:{ invitation:true } } }
+    });
+    let best=null;
+    for(const r of rows){ if(platesCloseJS(r.plate,np)){ const exact=normPlateJS(r.plate)===np; if(exact){ best={r,exact:true}; break; } if(!best) best={r,exact:false}; } }
+    if(!best) return null;
+    const g=best.r.guest, inv=g.invitation;
+    return { guestId:g.id, invitationId:inv.id, name:g.name, hostName:inv.hostName, hostLabel:inv.hostLabel, title:inv.title, validTo:inv.validTo, hostUserId:inv.hostUserId };
+}
+async function notifyHostGuest(gm, plate, device, direction){
+    try{
+        if(!gm || !gm.hostUserId) return;
+        const inv=await prisma.invitation.findUnique({ where:{ id:gm.invitationId }, select:{ notify:true } });
+        if(inv && inv.notify===false) return;
+        const u=await prisma.user.findUnique({ where:{ id:gm.hostUserId }, select:{ phone:true } });
+        const phone=((u&&u.phone)||"").replace(/\D/g,""); if(!phone) return;
+        const [wu,wk,ws]=await Promise.all([
+            prisma.setting.findUnique({ where:{ key:"WAHA_URL" } }),
+            prisma.setting.findUnique({ where:{ key:"WAHA_API_KEY" } }),
+            prisma.setting.findUnique({ where:{ key:"OPENWA_SESSION" } }),
+        ]);
+        const url=((wu&&wu.value)||"http://192.168.99.22:2785").replace(/\/+$/,"");
+        const headers={ "Content-Type":"application/json" }; if(wk&&wk.value) headers["X-Api-Key"]=wk.value;
+        const dir=direction==="EXIT"?"salió":"entró";
+        const hora=new Date().toLocaleTimeString("es-UY",{ hour:"2-digit", minute:"2-digit" });
+        const text=`✅ Tu invitado ${gm.name||plate} ${dir} ${hora} por ${(device&&device.name)||"un acceso"} (${plate}).`;
+        await fetch(`${url}/api/sendText`, { method:"POST", headers, body:JSON.stringify({ session:(ws&&ws.value)||"default", chatId:`${phone}@c.us`, text }) }).catch(()=>{});
+    }catch(e){}
 }
 
 async function checkMerodeo(plate, device, event, logPrefix) {

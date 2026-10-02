@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import https from "https";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
+import { resolveForCamera } from "@/lib/nvr-resolve";
+import { authenticatedRequest } from "@/lib/digest-auth";
 
 const httpsAgent = new https.Agent({ rejectUnauthorized: false });
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
@@ -18,6 +20,25 @@ async function go2rtcFrame(deviceId: string): Promise<Buffer | null> {
         if (!res.ok) return null;
         const ab = await res.arrayBuffer();
         const buf = Buffer.from(ab);
+        return buf.length > 1000 ? buf : null;
+    } catch { return null; }
+}
+
+/** Snapshot del canal a través del NVR (digest). Para cámaras colgadas de un NVR
+ * que no son alcanzables directo. */
+async function nvrSnapshot(deviceId: string): Promise<Buffer | null> {
+    try {
+        const r = await resolveForCamera(deviceId);
+        if (!r) return null;
+        const { nvr, ch } = r;
+        const isDahua = String(nvr.brand).toUpperCase() === "DAHUA";
+        const path = isDahua
+            ? `/cgi-bin/snapshot.cgi?channel=${ch}`
+            : `/ISAPI/Streaming/channels/${ch}01/picture`;
+        const data = await authenticatedRequest("GET", path,
+            { ip: nvr.ip, username: nvr.user, password: nvr.pass, authType: "DIGEST" } as any,
+            { responseType: "arraybuffer", timeout: 6000 });
+        const buf = Buffer.from(data as any);
         return buf.length > 1000 ? buf : null;
     } catch { return null; }
 }
@@ -51,6 +72,7 @@ export async function GET(
         // HIKVISION: capturar por ISAPI con Digest/Basic automatico (driver)
         if (device.brand === "HIKVISION") {
             let buf = await new HikvisionDriver().captureSnapshot(device as any);
+            if (!buf) buf = await nvrSnapshot(deviceId);
             if (!buf) buf = await go2rtcFrame(deviceId);
             if (!buf) return new NextResponse("No snapshot available", { status: 502 });
             return new NextResponse(buf as any, {
@@ -77,6 +99,7 @@ export async function GET(
                 snapshotUrl = `http://${device.ip}/snap.jpg`;
         }
         let imageBuffer = await fetchSnapshot(snapshotUrl, headers);
+        if (!imageBuffer) imageBuffer = await nvrSnapshot(deviceId);
         if (!imageBuffer) imageBuffer = await go2rtcFrame(deviceId);
         if (!imageBuffer) return new NextResponse("No snapshot available", { status: 502 });
         return new NextResponse(imageBuffer, {

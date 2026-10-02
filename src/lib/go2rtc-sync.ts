@@ -1,7 +1,22 @@
 import fs from "fs";
+import net from "net";
 import yaml from "js-yaml";
 import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById } from "@/lib/nvr-resolve";
+
+/** ¿Responde el puerto RTSP de este host? (para decidir directo-a-cámara vs NVR). */
+function tcpReachable(ip: string, port = 554, ms = 1500): Promise<boolean> {
+    return new Promise((resolve) => {
+        const s = new net.Socket();
+        let done = false;
+        const finish = (ok: boolean) => { if (done) return; done = true; try { s.destroy(); } catch { } resolve(ok); };
+        s.setTimeout(ms);
+        s.once("connect", () => finish(true));
+        s.once("timeout", () => finish(false));
+        s.once("error", () => finish(false));
+        try { s.connect(port, ip); } catch { finish(false); }
+    });
+}
 
 const CONFIG = process.env.GO2RTC_CONFIG || "/opt/OmniAccess/go2rtc.yaml";
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
@@ -44,20 +59,23 @@ async function writeStreams(name: string, nameHd: string, sd: string, hd: string
         let doc: any = {};
         if (fs.existsSync(CONFIG)) doc = (yaml.load(fs.readFileSync(CONFIG, "utf8")) as any) || {};
         if (!doc.streams || typeof doc.streams !== "object") doc.streams = {};
-        doc.streams[name] = [sd, `ffmpeg:${name}#video=h264`];
-        doc.streams[nameHd] = [hd, `ffmpeg:${nameHd}#video=h264`];
+        doc.streams[name] = [sd, `ffmpeg:${name}#video=h264#hardware=vaapi`];
+        doc.streams[nameHd] = [hd, `ffmpeg:${nameHd}#video=h264#hardware=vaapi`];
         try { fs.copyFileSync(CONFIG, `${CONFIG}.bak.auto.${Date.now()}`); } catch { }
         fs.writeFileSync(CONFIG, yaml.dump(doc, { lineWidth: 400 }), "utf8");
     } catch (e) { console.error("[go2rtc-sync] yaml:", (e as any)?.message); }
-    // 2) En caliente por la API
-    const put = async (n: string, src: string) => {
+    // 2) En caliente por la API — registrar RTSP crudo + productor ffmpeg de transcode a H264
+    //    (sin el transcode, los canales H265 devuelven 500 a stream.mp4?video=h264 y el navegador no reproduce)
+    const put = async (n: string, ...srcs: string[]) => {
         try {
             const c = new AbortController(); const t = setTimeout(() => c.abort(), 5000);
-            await fetch(`${GO2RTC}/api/streams?name=${enc(n)}&src=${enc(src)}`, { method: "PUT", signal: c.signal });
+            const qs = srcs.map((x) => `src=${enc(x)}`).join("&"); // go2rtc: un solo PUT fija TODAS las fuentes
+            await fetch(`${GO2RTC}/api/streams?name=${enc(n)}&${qs}`, { method: "PUT", signal: c.signal });
             clearTimeout(t);
         } catch { }
     };
-    await put(name, sd); await put(nameHd, hd);
+    await put(name, sd, `ffmpeg:${name}#video=h264#hardware=vaapi`);
+    await put(nameHd, hd, `ffmpeg:${nameHd}#video=h264#hardware=vaapi`);
 }
 
 /**
@@ -81,7 +99,13 @@ export async function syncLprStream(dev: Dev): Promise<void> {
                 if (entry && entry.ch) {
                     const nvr = await resolveNvrById(entry.nvrId);
                     if (nvr) {
-                        await writeStreams(name, nameHd, rtspViaNvr(nvr, entry.ch, false), rtspViaNvr(nvr, entry.ch, true));
+                        // VIVO SD: directo a la cámara si su RTSP responde (menos latencia + descarga al NVR);
+                        //          si no responde (cámara aislada detrás del NVR), cae al NVR.
+                        // VIVO HD: siempre por el NVR (el main es H265 y se transcodifica igual).
+                        const direct = await tcpReachable(dev.ip, 554, 1500);
+                        const sd = direct ? rtspDirect(dev, "102") : rtspViaNvr(nvr, entry.ch, false);
+                        console.log(`[go2rtc-sync] ${dev.ip} SD=${direct ? "directo-cámara" : "vía-NVR"}`);
+                        await writeStreams(name, nameHd, sd, rtspViaNvr(nvr, entry.ch, true));
                         return;
                     }
                 }

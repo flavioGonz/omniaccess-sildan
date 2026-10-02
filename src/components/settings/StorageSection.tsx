@@ -32,19 +32,22 @@ export default function StorageSection() {
         secretKey: "",
         bucketLpr: "lpr",
         bucketFace: "face",
-        bucketQueue: "lpr"
+        bucketQueue: "lpr",
+        bucketIntrusion: "intrusion"
     });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [testing, setTesting] = useState(false);
     const [lifecycles, setLifecycles] = useState({
         lpr: 0,
-        face: 0
+        face: 0,
+        intrusion: 0
     });
     const [savingLifecycle, setSavingLifecycle] = useState(false);
     const [stats, setStats] = useState({
         lpr: { size: 0, count: 0, loading: true },
-        face: { size: 0, count: 0, loading: true }
+        face: { size: 0, count: 0, loading: true },
+        intrusion: { size: 0, count: 0, loading: true }
     });
     const [importingConfig, setImportingConfig] = useState(false);
     const [modules, setModules] = useState<any>({ MODULE_LPR: true, MODULE_FACE: false, MODULE_QUEUE: false });
@@ -67,13 +70,16 @@ export default function StorageSection() {
                 secretKey: sk?.value || "",
                 bucketLpr: bl?.value || "lpr",
                 bucketFace: bf?.value || "face",
-                bucketQueue: ((await getSetting("S3_BUCKET_QUEUE"))?.value) || bl?.value || "lpr"
+                bucketQueue: ((await getSetting("S3_BUCKET_QUEUE"))?.value) || bl?.value || "lpr",
+                bucketIntrusion: ((await getSetting("S3_BUCKET_INTRUSION"))?.value) || "intrusion"
             });
 
             // Load stats
-            const [statsLpr, statsFace] = await Promise.all([
+            const bi2 = (await getSetting("S3_BUCKET_INTRUSION"))?.value || "intrusion";
+            const [statsLpr, statsFace, statsIntr] = await Promise.all([
                 getBucketStats(bl?.value || "lpr"),
-                getBucketStats(bf?.value || "face")
+                getBucketStats(bf?.value || "face"),
+                getBucketStats(bi2)
             ]);
 
             setStats({
@@ -86,6 +92,11 @@ export default function StorageSection() {
                     size: statsFace.success ? (statsFace.size ?? 0) : 0,
                     count: statsFace.success ? (statsFace.count ?? 0) : 0,
                     loading: false
+                },
+                intrusion: {
+                    size: statsIntr.success ? (statsIntr.size ?? 0) : 0,
+                    count: statsIntr.success ? (statsIntr.count ?? 0) : 0,
+                    loading: false
                 }
             });
         } catch (err) {
@@ -97,14 +108,16 @@ export default function StorageSection() {
 
     const loadLifecycles = async () => {
         try {
-            const [lcLpr, lcFace] = await Promise.all([
+            const [lcLpr, lcFace, lcIntr] = await Promise.all([
                 getBucketLifecycle(config.bucketLpr || "lpr"),
-                getBucketLifecycle(config.bucketFace || "face")
+                getBucketLifecycle(config.bucketFace || "face"),
+                getBucketLifecycle(config.bucketIntrusion || "intrusion")
             ]);
 
             setLifecycles({
                 lpr: lcLpr.success ? lcLpr.days || 0 : 0,
-                face: lcFace.success ? lcFace.days || 0 : 0
+                face: lcFace.success ? lcFace.days || 0 : 0,
+                intrusion: lcIntr.success ? lcIntr.days || 0 : 0
             });
         } catch (err) {
             console.error("Error loading S3 lifecycles:", err);
@@ -201,7 +214,8 @@ export default function StorageSection() {
                 updateSetting("S3_SECRET_KEY", config.secretKey),
                 updateSetting("S3_BUCKET_LPR", config.bucketLpr),
                 updateSetting("S3_BUCKET_FACE", config.bucketFace),
-                updateSetting("S3_BUCKET_QUEUE", config.bucketQueue)
+                updateSetting("S3_BUCKET_QUEUE", config.bucketQueue),
+                updateSetting("S3_BUCKET_INTRUSION", config.bucketIntrusion)
             ]);
             toast.success({ title: "Configuración de almacenamiento guardada" });
         } catch (err) {
@@ -235,6 +249,7 @@ export default function StorageSection() {
         try {
             const resLpr = await updateBucketLifecycle(config.bucketLpr, lifecycles.lpr);
             const resFace = await updateBucketLifecycle(config.bucketFace, lifecycles.face);
+            await updateBucketLifecycle(config.bucketIntrusion || "intrusion", lifecycles.intrusion);
 
             if (resLpr.success && resFace.success) {
                 toast.success({ title: "Políticas de retención actualizadas correctamente" });
@@ -292,7 +307,28 @@ export default function StorageSection() {
                             <h3 className="text-lg font-bold text-foreground">Políticas de Retención</h3>
                         </div>
 
-                        {/* LPR Retention */}
+                        {/* Intrusión Retention (compartido en todos los modos) */}
+                        <div className="bg-background/40 border border-red-500/20 rounded-xl p-5 relative overflow-hidden group">
+                            <div className="flex items-center justify-between mb-3">
+                                <Label className="text-xs font-bold text-foreground uppercase tracking-tight">Bucket Intrusión</Label>
+                                <div className="px-2 py-0.5 bg-red-500/10 rounded text-[10px] font-bold text-red-400">
+                                    {lifecycles.intrusion === 0 ? "INFINITO" : `${lifecycles.intrusion} DÍAS`}
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-4 mb-4">
+                                <Input type="number" value={lifecycles.intrusion}
+                                    onChange={e => setLifecycles({ ...lifecycles, intrusion: parseInt(e.target.value) || 0 })}
+                                    className="bg-background border-border h-9 w-20 text-center font-bold text-red-400 text-sm" />
+                                <span className="text-[10px] text-muted-foreground leading-tight">Capturas de eventos de intrusión. (0 = nunca)</span>
+                            </div>
+                            <div className="pt-3 border-t border-border flex justify-between items-center text-[10px] text-muted-foreground font-mono">
+                                <span>{stats.intrusion.loading ? "..." : stats.intrusion.count.toLocaleString()} archivos</span>
+                                <span>{stats.intrusion.loading ? "..." : formatSize(stats.intrusion.size)}</span>
+                            </div>
+                        </div>
+
+                        {/* LPR Retention (sólo en modo LPR) */}
+                        {modules.MODULE_LPR && (
                         <div className="bg-background/40 border border-border rounded-xl p-5 relative overflow-hidden group">
                             <div className="flex items-center justify-between mb-3">
                                 <Label className="text-xs font-bold text-foreground uppercase tracking-tight">Bucket LPR</Label>
@@ -317,7 +353,10 @@ export default function StorageSection() {
                             </div>
                         </div>
 
+                        )}
+
                         {modules.MODULE_FACE && (
+                        <>
                         {/* FACE Retention */}
                         <div className="bg-background/40 border border-border rounded-xl p-5 relative overflow-hidden group">
                             <div className="flex items-center justify-between mb-3">
@@ -342,6 +381,7 @@ export default function StorageSection() {
                                 <span>{stats.face.loading ? "..." : formatSize(stats.face.size)}</span>
                             </div>
                         </div>
+                        </>
                         )}
 
                         <Button
@@ -418,6 +458,15 @@ export default function StorageSection() {
                                         value={config.bucketQueue}
                                         onChange={e => setConfig({ ...config, bucketQueue: e.target.value })}
                                         className="bg-background border-amber-500/20 h-10 text-sm font-mono"
+                                    />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-[10px] font-bold uppercase text-red-400/80 ml-1">Bucket Intrusión (compartido)</Label>
+                                    <Input
+                                        placeholder="intrusion"
+                                        value={config.bucketIntrusion}
+                                        onChange={e => setConfig({ ...config, bucketIntrusion: e.target.value })}
+                                        className="bg-background border-red-500/20 h-10 text-sm font-mono"
                                     />
                                 </div>
                             </div>

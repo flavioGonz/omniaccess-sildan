@@ -170,6 +170,7 @@ const webhookDrivers = [
     { id: 'webhook-hikvision', label: 'Hikvision', path: '/api/webhooks/hikvision', icon: Camera, color: '#3b82f6', image: '/logos/hikvision.png' },
     { id: 'webhook-avicam', label: 'Avicam', path: '/api/webhooks/avicam', icon: Camera, color: '#10b981', image: '/logos/avicam.png' },
     { id: 'webhook-akuvox', label: 'Akuvox', path: '/api/webhooks/akuvox', icon: Smartphone, color: '#3b82f6', image: '/logos/akuvox.png' },
+    { id: 'driver-dahua', label: 'Dahua', path: 'NVR · eventManager (pull)', icon: Camera, color: '#ef4444' },
     { id: 'webhook-bosch', label: 'Bosch ONVIF', path: '/onvif/notification', icon: Video, color: '#f59e0b' },
     { id: 'webhook-waha', label: 'OpenWA Bot', path: '/api/webhooks/whatsapp', icon: MessageSquare, color: '#25D366' },
 ];

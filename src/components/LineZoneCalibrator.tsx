@@ -1,25 +1,29 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Radar, ShieldAlert, Save, Trash2, X, Minus, Hexagon, MousePointer2, MoveRight } from "lucide-react";
+import { Loader2, Radar, ShieldAlert, Save, Trash2, X, Minus, Hexagon, MousePointer2, ArrowLeftRight, ArrowRight, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PtzControls } from "@/components/PtzControls";
 
 type P = { x: number; y: number }; // en % de pantalla (0–100), origen arriba-izquierda
-// Hik: 0–1000 origen abajo-izquierda. Conversión:
+// Hik/Dahua: 0–1000 origen abajo-izquierda. Conversión:
 const camToScreen = (p: { x: number; y: number }): P => ({ x: p.x / 10, y: (1000 - p.y) / 10 });
 const screenToCam = (p: P) => ({ x: Math.round(p.x * 10), y: Math.round(1000 - p.y * 10) });
 const SNAP = 1.5; // % de imán a los bordes
 const snap = (v: number) => (v < SNAP ? 0 : v > 100 - SNAP ? 100 : v);
 
+type Dir = "both" | "ab" | "ba";
+
 export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: () => void }) {
+    const isPtz = /ptz/i.test(device?.name || "");
     const [loading, setLoading] = useState(true);
     const [support, setSupport] = useState<{ line: boolean; field: boolean }>({ line: false, field: false });
     const [tab, setTab] = useState<"line" | "zone">("line");
     const [line, setLine] = useState<P[]>([]);
     const [zone, setZone] = useState<P[]>([]);
+    const [dir, setDir] = useState<Dir>("both");
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState("");
-    const [hint, setHint] = useState("");
     const svgRef = useRef<SVGSVGElement>(null);
     const drag = useRef<{ kind: "line" | "zone"; i: number } | null>(null);
     const [dragIdx, setDragIdx] = useState<number>(-1);
@@ -34,6 +38,7 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
                 setSupport(d.support || { line: false, field: false });
                 setLine((d.line?.points || []).map(camToScreen));
                 setZone((d.field?.points || []).map(camToScreen));
+                if (d.line?.direction) setDir(d.line.direction as Dir);
                 setTab(d.support?.line ? "line" : d.support?.field ? "zone" : "line");
                 setLoading(false);
             })
@@ -81,7 +86,7 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
         try {
             const r = await fetch(`/api/devices/analytics?deviceId=${device.id}`, {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ kind: kind === "line" ? "line" : "field", enabled: true, points: pts.map(screenToCam) }),
+                body: JSON.stringify({ kind: kind === "line" ? "line" : "field", enabled: true, points: pts.map(screenToCam), ...(kind === "line" ? { direction: dir } : {}) }),
             });
             const d = await r.json();
             setMsg(d.ok ? "Guardado en la cámara ✓" : (d.error || "No se pudo guardar"));
@@ -91,61 +96,78 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
 
     const noneSupported = !loading && !support.line && !support.field;
     const pts = tab === "line" ? line : zone;
-    const color = tab === "line" ? "#38bdf8" : "#f43f5e"; // línea celeste, zona rosa
-    const colorSoft = tab === "line" ? "rgba(56,189,248,0.18)" : "rgba(244,63,94,0.16)";
+    const color = tab === "line" ? "#38bdf8" : "#f43f5e";
+    const colorSoft = tab === "line" ? "rgba(56,189,248,0.16)" : "rgba(244,63,94,0.15)";
 
-    // punto medio + ángulo de la línea para la flecha de dirección
     const mid = line.length === 2 ? { x: (line[0].x + line[1].x) / 2, y: (line[0].y + line[1].y) / 2 } : null;
+    // vector normal unitario a la línea (para las flechas de sentido)
+    const normal = (() => {
+        if (line.length !== 2) return null;
+        const dx = line[1].x - line[0].x, dy = line[1].y - line[0].y;
+        const len = Math.hypot(dx, dy) || 1;
+        return { nx: -dy / len, ny: dx / len };
+    })();
+
+    // dibuja una flecha desde mid en el sentido (sign*normal)
+    const arrow = (sign: 1 | -1, key: string) => {
+        if (!mid || !normal) return null;
+        const L = 8, head = 2.6;
+        const ux = normal.nx * sign, uy = normal.ny * sign;
+        const tip = { x: mid.x + ux * L, y: mid.y + uy * L };
+        // perpendicular al eje de la flecha para las alas de la cabeza
+        const px = -uy, py = ux;
+        const w1 = { x: tip.x - ux * head + px * (head * 0.55), y: tip.y - uy * head + py * (head * 0.55) };
+        const w2 = { x: tip.x - ux * head - px * (head * 0.55), y: tip.y - uy * head - py * (head * 0.55) };
+        return (
+            <g key={key} vectorEffect="non-scaling-stroke">
+                <line x1={mid.x} y1={mid.y} x2={tip.x} y2={tip.y} stroke="#fbbf24" strokeWidth={1.6} strokeLinecap="round" vectorEffect="non-scaling-stroke" filter="url(#glow)" />
+                <polygon points={`${tip.x},${tip.y} ${w1.x},${w1.y} ${w2.x},${w2.y}`} fill="#fbbf24" vectorEffect="non-scaling-stroke" />
+            </g>
+        );
+    };
+
+    const dirBtns: { v: Dir; Icon: any; label: string }[] = [
+        { v: "ab", Icon: ArrowRight, label: "A→B" },
+        { v: "both", Icon: ArrowLeftRight, label: "Ambos" },
+        { v: "ba", Icon: ArrowLeft, label: "B→A" },
+    ];
 
     return (
-        <div className="fixed inset-0 z-[2000] bg-black/85 backdrop-blur-sm flex items-center justify-center p-6" onClick={onClose}>
-            <div className="w-full max-w-4xl rounded-2xl bg-card border border-border shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[2000] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6" onClick={onClose}>
+            <div className="w-full max-w-4xl rounded-2xl bg-neutral-950 border border-white/10 shadow-2xl overflow-hidden ring-1 ring-black/40" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
-                <div className="flex items-center gap-2.5 px-5 py-4 border-b border-border bg-gradient-to-r from-red-500/[0.07] to-transparent">
-                    <span className="w-8 h-8 rounded-xl bg-red-500/15 grid place-items-center"><Radar size={17} className="text-red-500" /></span>
+                <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-white/[0.06] bg-gradient-to-r from-red-500/[0.08] via-transparent to-transparent">
+                    <span className="w-8 h-8 rounded-xl bg-red-500/15 grid place-items-center ring-1 ring-red-500/20"><Radar size={16} className="text-red-500" /></span>
                     <div className="min-w-0">
-                        <div className="font-bold leading-tight truncate">Calibrar intrusión</div>
-                        <div className="text-[11px] text-muted-foreground truncate">{device.name}</div>
+                        <div className="font-bold text-[13.5px] leading-tight truncate text-white">Calibrar intrusión</div>
+                        <div className="text-[11px] text-white/45 truncate">{device.name}</div>
                     </div>
-                    <button onClick={onClose} className="ml-auto w-8 h-8 grid place-items-center rounded-full hover:bg-accent text-muted-foreground transition-colors"><X size={18} /></button>
+                    <button onClick={onClose} className="ml-auto w-8 h-8 grid place-items-center rounded-full hover:bg-white/10 text-white/50 hover:text-white transition-colors"><X size={17} /></button>
                 </div>
 
                 {loading ? (
-                    <div className="flex items-center gap-2 text-muted-foreground p-10 justify-center"><Loader2 size={18} className="animate-spin" /> Leyendo configuración de la cámara…</div>
+                    <div className="flex items-center gap-2 text-white/50 p-12 justify-center"><Loader2 size={18} className="animate-spin" /> Leyendo configuración de la cámara…</div>
                 ) : noneSupported ? (
-                    <div className="p-6 space-y-3">
-                        <div className="relative rounded-xl overflow-hidden border border-border aspect-video bg-black">
+                    <div className="p-5 space-y-3">
+                        <div className="relative rounded-xl overflow-hidden aspect-video bg-black">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={`/api/snapshot/${device.id}?t=${Date.now()}`} alt="" className="absolute inset-0 w-full h-full object-cover opacity-70" />
+                            {isPtz && <div className="absolute bottom-3 right-3 z-20"><PtzControls deviceId={device.id} config /></div>}
                         </div>
-                        <div className="flex items-start gap-2 text-sm text-amber-500"><ShieldAlert size={16} className="mt-0.5 shrink-0" /> Esta cámara no soporta cruce de línea ni intrusión (es ANPR/tráfico). El calibrador aplica a cámaras AcuSense/DeepinView o canales de NVR con analítica.</div>
+                        {isPtz ? (
+                            <div className="flex items-start gap-2 text-sm text-red-300/90"><Radar size={16} className="mt-0.5 shrink-0" /> Cámara PTZ: movela con el control, guardá presets en la posición actual e iniciá el crucero. (Esta cámara no usa cruce de línea / zona.)</div>
+                        ) : (
+                            <div className="flex items-start gap-2 text-sm text-amber-400/90"><ShieldAlert size={16} className="mt-0.5 shrink-0" /> Esta cámara no soporta cruce de línea ni intrusión (es ANPR/tráfico). El calibrador aplica a cámaras AcuSense/DeepinView o canales de NVR con analítica.</div>
+                        )}
                     </div>
                 ) : (
-                    <div className="p-5 space-y-3.5">
-                        {/* Tabs con icono */}
-                        <div className="flex items-center gap-2">
-                            <div className="inline-flex rounded-xl border border-border p-0.5 bg-background">
-                                <button disabled={!support.line} onClick={() => setTab("line")}
-                                    className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all disabled:opacity-30",
-                                        tab === "line" ? "bg-sky-500/20 text-sky-300 shadow-inner" : "text-muted-foreground hover:text-foreground")}>
-                                    <Minus size={14} /> Línea
-                                </button>
-                                <button disabled={!support.field} onClick={() => setTab("zone")}
-                                    className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wide transition-all disabled:opacity-30",
-                                        tab === "zone" ? "bg-rose-500/20 text-rose-300 shadow-inner" : "text-muted-foreground hover:text-foreground")}>
-                                    <Hexagon size={14} /> Zona
-                                </button>
-                            </div>
-                            <span className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                                <MousePointer2 size={13} /> {pts.length} {pts.length === 1 ? "punto" : "puntos"}
-                            </span>
-                        </div>
-
-                        {/* Editor */}
-                        <div className="relative rounded-xl overflow-hidden border border-border aspect-video bg-black select-none shadow-inner">
+                    <div className="p-4">
+                        {/* Editor con TODOS los controles como overlay (sin marcos) */}
+                        <div className="relative rounded-xl overflow-hidden aspect-video bg-black select-none">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={`/api/snapshot/${device.id}?t=${Date.now()}`} alt="" className="absolute inset-0 w-full h-full object-cover pointer-events-none" draggable={false} />
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent pointer-events-none" />
+                            {isPtz && <div className="absolute bottom-3 right-3 z-20"><PtzControls deviceId={device.id} config /></div>}
+
                             <svg ref={svgRef} viewBox="0 0 100 100" preserveAspectRatio="none"
                                 className="absolute inset-0 w-full h-full touch-none cursor-crosshair"
                                 onPointerDown={onCanvasClick} onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
@@ -153,8 +175,8 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
                                     <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
                                         <stop offset="0%" stopColor="#38bdf8" /><stop offset="100%" stopColor="#818cf8" />
                                     </linearGradient>
-                                    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                                        <feGaussianBlur stdDeviation="1.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+                                        <feGaussianBlur stdDeviation="0.9" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
                                     </filter>
                                 </defs>
 
@@ -162,25 +184,16 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
                                 {tab === "line" && line.length >= 2 && (
                                     <>
                                         <line x1={line[0].x} y1={line[0].y} x2={line[1].x} y2={line[1].y}
-                                            stroke="url(#lineGrad)" strokeWidth={3} strokeLinecap="round"
+                                            stroke="url(#lineGrad)" strokeWidth={2.4} strokeLinecap="round"
                                             vectorEffect="non-scaling-stroke" filter="url(#glow)" />
                                         <line x1={line[0].x} y1={line[0].y} x2={line[1].x} y2={line[1].y}
-                                            stroke="#fff" strokeWidth={1} strokeLinecap="round" strokeDasharray="4 6"
-                                            vectorEffect="non-scaling-stroke" opacity={0.55}>
-                                            <animate attributeName="stroke-dashoffset" from="10" to="0" dur="0.6s" repeatCount="indefinite" />
+                                            stroke="#fff" strokeWidth={0.8} strokeLinecap="round" strokeDasharray="3 6"
+                                            vectorEffect="non-scaling-stroke" opacity={0.5}>
+                                            <animate attributeName="stroke-dashoffset" from="9" to="0" dur="0.6s" repeatCount="indefinite" />
                                         </line>
-                                        {/* flecha de sentido de cruce (perpendicular) */}
-                                        {mid && (() => {
-                                            const dx = line[1].x - line[0].x, dy = line[1].y - line[0].y;
-                                            const len = Math.hypot(dx, dy) || 1; const nx = -dy / len, ny = dx / len;
-                                            const a = { x: mid.x, y: mid.y }, b = { x: mid.x + nx * 9, y: mid.y + ny * 9 };
-                                            return (
-                                                <g vectorEffect="non-scaling-stroke">
-                                                    <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#fbbf24" strokeWidth={2} vectorEffect="non-scaling-stroke" markerEnd="" />
-                                                    <circle cx={b.x} cy={b.y} r={1.4} fill="#fbbf24" vectorEffect="non-scaling-stroke" />
-                                                </g>
-                                            );
-                                        })()}
+                                        {/* flechas de sentido */}
+                                        {(dir === "both" || dir === "ab") && arrow(1, "a+")}
+                                        {(dir === "both" || dir === "ba") && arrow(-1, "a-")}
                                     </>
                                 )}
 
@@ -189,51 +202,87 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
                                     <>
                                         <polygon points={zone.map((p) => `${p.x},${p.y}`).join(" ")} fill={colorSoft} stroke="none" />
                                         <polygon points={zone.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke={color}
-                                            strokeWidth={2.5} strokeLinejoin="round" vectorEffect="non-scaling-stroke" filter="url(#glow)" />
+                                            strokeWidth={2} strokeLinejoin="round" vectorEffect="non-scaling-stroke" filter="url(#glow)" />
                                         <polygon points={zone.map((p) => `${p.x},${p.y}`).join(" ")} fill="none" stroke="#fff"
-                                            strokeWidth={0.8} strokeDasharray="3 5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity={0.5}>
-                                            <animate attributeName="stroke-dashoffset" from="8" to="0" dur="0.7s" repeatCount="indefinite" />
+                                            strokeWidth={0.6} strokeDasharray="2 5" strokeLinejoin="round" vectorEffect="non-scaling-stroke" opacity={0.45}>
+                                            <animate attributeName="stroke-dashoffset" from="7" to="0" dur="0.7s" repeatCount="indefinite" />
                                         </polygon>
                                     </>
                                 )}
 
-                                {/* Handles (vértices) */}
+                                {/* Handles delicados */}
                                 {pts.map((p, i) => (
                                     <g key={i}>
-                                        <circle cx={p.x} cy={p.y} r={dragIdx === i ? 3 : 2.2}
-                                            fill="#fff" stroke={color} vectorEffect="non-scaling-stroke"
-                                            style={{ strokeWidth: 2.5, cursor: "grab", transition: drag.current ? "none" : "r 0.12s" }}
+                                        <circle cx={p.x} cy={p.y} r={dragIdx === i ? 1.9 : 1.3}
+                                            fill={color} stroke="#fff" vectorEffect="non-scaling-stroke"
+                                            style={{ strokeWidth: 1.4, cursor: "grab", transition: drag.current ? "none" : "r 0.12s" }}
                                             filter="url(#glow)"
                                             onPointerDown={startDrag(tab, i)}
                                             onDoubleClick={delVertex(i)} />
-                                        <text x={p.x} y={p.y + 0.5} textAnchor="middle" fontSize="2.2" fontWeight="700"
-                                            fill={color} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none", userSelect: "none" }}>{i + 1}</text>
+                                        <text x={p.x} y={p.y - 2.4} textAnchor="middle" fontSize="1.9" fontWeight="800"
+                                            fill="#fff" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none", userSelect: "none", paintOrder: "stroke", stroke: "rgba(0,0,0,0.55)", strokeWidth: 0.5 }}>{i + 1}</text>
                                     </g>
                                 ))}
                             </svg>
-                        </div>
 
-                        {/* Ayuda */}
-                        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            {tab === "line" ? (
-                                <><MoveRight size={13} className="text-amber-400 shrink-0" /> Tocá para fijar los 2 extremos · arrastrá los puntos para ajustar · doble-clic para borrar. La flecha marca el sentido de cruce.</>
-                            ) : (
-                                <><Hexagon size={13} className="text-rose-400 shrink-0" /> Tocá para agregar vértices · arrastrá para ajustar · doble-clic borra (mín. 3).</>
+                            {/* Overlay TOP: tabs (izq) · sentido (centro) · puntos (der) */}
+                            <div className="absolute top-0 inset-x-0 p-2.5 flex items-start justify-between gap-2 pointer-events-none bg-gradient-to-b from-black/55 to-transparent">
+                                <div className="inline-flex rounded-full bg-black/45 backdrop-blur-md p-0.5 pointer-events-auto ring-1 ring-white/10">
+                                    <button disabled={!support.line} onClick={() => setTab("line")}
+                                        className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wide transition-all disabled:opacity-30",
+                                            tab === "line" ? "bg-sky-500/90 text-white shadow" : "text-white/60 hover:text-white")}>
+                                        <Minus size={13} /> Línea
+                                    </button>
+                                    <button disabled={!support.field} onClick={() => setTab("zone")}
+                                        className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wide transition-all disabled:opacity-30",
+                                            tab === "zone" ? "bg-rose-500/90 text-white shadow" : "text-white/60 hover:text-white")}>
+                                        <Hexagon size={13} /> Zona
+                                    </button>
+                                </div>
+
+                                {tab === "line" && (
+                                    <div className="inline-flex rounded-full bg-black/45 backdrop-blur-md p-0.5 pointer-events-auto ring-1 ring-white/10">
+                                        {dirBtns.map(({ v, Icon, label }) => (
+                                            <button key={v} onClick={() => setDir(v)} title={label === "Ambos" ? "Cruce en ambos sentidos" : `Solo ${label}`}
+                                                className={cn("inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10.5px] font-bold uppercase tracking-wide transition-all",
+                                                    dir === v ? "bg-amber-400 text-black shadow" : "text-white/60 hover:text-white")}>
+                                                <Icon size={13} /> {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-black/45 backdrop-blur-md text-[11px] font-semibold text-white/80 pointer-events-auto ring-1 ring-white/10">
+                                    <MousePointer2 size={12} /> {pts.length} {pts.length === 1 ? "punto" : "puntos"}
+                                </span>
+                            </div>
+
+                            {/* Overlay BOTTOM: ayuda (izq) · acciones (der) */}
+                            <div className="absolute bottom-0 inset-x-0 p-2.5 flex items-end justify-between gap-2 pointer-events-none bg-gradient-to-t from-black/65 to-transparent">
+                                <p className="text-[10.5px] text-white/65 max-w-[52%] leading-snug hidden sm:block">
+                                    {tab === "line"
+                                        ? "Tocá para fijar los 2 extremos · arrastrá para ajustar · doble-clic borra. Las flechas marcan el sentido de cruce."
+                                        : "Tocá para agregar vértices · arrastrá para ajustar · doble-clic borra (mín. 3)."}
+                                </p>
+                                <div className="flex items-center gap-2 ml-auto pointer-events-auto">
+                                    <button onClick={() => (tab === "line" ? setLine([]) : setZone([]))}
+                                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/45 backdrop-blur-md text-[11px] font-bold text-white/70 hover:text-red-300 hover:bg-red-500/20 uppercase tracking-wide transition-colors ring-1 ring-white/10">
+                                        <Trash2 size={13} /> Limpiar
+                                    </button>
+                                    <button onClick={() => save(tab)} disabled={saving}
+                                        className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 hover:bg-red-500 text-white text-[12px] font-bold active:scale-95 transition-all shadow-lg shadow-red-900/40 disabled:opacity-60 ring-1 ring-red-400/30">
+                                        {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Toast de resultado */}
+                            {msg && (
+                                <div className={cn("absolute left-1/2 -translate-x-1/2 bottom-14 px-3.5 py-1.5 rounded-full text-[12px] font-semibold backdrop-blur-md ring-1 shadow-lg pointer-events-none",
+                                    msg.includes("✓") ? "bg-emerald-500/20 text-emerald-200 ring-emerald-400/30" : "bg-red-500/25 text-red-100 ring-red-400/40")}>
+                                    {msg}
+                                </div>
                             )}
-                        </div>
-
-                        {msg && <p className={cn("text-sm font-medium flex items-center gap-1.5", msg.includes("✓") ? "text-emerald-500" : "text-red-500")}>{msg}</p>}
-
-                        {/* Acciones */}
-                        <div className="flex items-center justify-between pt-1">
-                            <button onClick={() => (tab === "line" ? setLine([]) : setZone([]))}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-muted-foreground hover:text-red-400 hover:bg-red-500/10 uppercase tracking-wide transition-colors">
-                                <Trash2 size={14} /> Limpiar
-                            </button>
-                            <button onClick={() => save(tab)} disabled={saving}
-                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-bold active:scale-95 transition-all shadow-lg shadow-red-900/30 disabled:opacity-60">
-                                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Guardar en la cámara
-                            </button>
                         </div>
                     </div>
                 )}

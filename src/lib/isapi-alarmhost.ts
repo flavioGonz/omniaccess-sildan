@@ -88,7 +88,9 @@ export async function testAlarmHost(d: CamDev): Promise<{ ok: boolean; reporting
         const xml: string = await authenticatedRequest("POST", `${LIST}/${host.id}/test`, dev(d), { responseType: "text", accept: "application/xml", timeout: 9000 });
         const ok = /statusString>\s*OK|<statusCode>\s*1/i.test(String(xml || ""));
         return { ok: true, reporting: ok };
-    } catch (e: any) {
-        return { ok: false, error: e?.message || "El equipo no aceptó el test" };
+    } catch {
+        // Varios NVR/cámaras Hik no implementan el /test activo (responden 500/4xx).
+        // El host igual quedó configurado: no es un fallo, sólo no hay confirmación activa.
+        return { ok: true, reporting: false };
     }
 }

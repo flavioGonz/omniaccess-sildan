@@ -13,13 +13,16 @@ async function getS3Config() {
             prisma.setting.findUnique({ where: { key: "S3_BUCKET_LPR" } }),
             prisma.setting.findUnique({ where: { key: "S3_BUCKET_FACE" } }),
         ]);
+        let bucketIntrusion = "intrusion";
+        try { const bi = await prisma.setting.findUnique({ where: { key: "S3_BUCKET_INTRUSION" } }); bucketIntrusion = bi?.value || process.env.S3_BUCKET_INTRUSION || "intrusion"; } catch {}
 
         return {
             endpoint: endpoint?.value || process.env.S3_ENDPOINT ,
             accessKey: accessKey?.value || process.env.S3_ACCESS_KEY,
             secretKey: secretKey?.value || process.env.S3_SECRET_KEY,
             bucketLpr: bucketLpr?.value || process.env.S3_BUCKET || "lpr-prod",
-            bucketFace: bucketFace?.value || "face"
+            bucketFace: bucketFace?.value || "face",
+            bucketIntrusion
         };
     } catch (e) {
         console.warn("[S3 Config] Error fetching from DB, using ENV:", e.message);
@@ -28,7 +31,8 @@ async function getS3Config() {
             accessKey: process.env.S3_ACCESS_KEY,
             secretKey: process.env.S3_SECRET_KEY,
             bucketLpr: process.env.S3_BUCKET || "lpr-prod",
-            bucketFace: "face"
+            bucketFace: "face",
+            bucketIntrusion: process.env.S3_BUCKET_INTRUSION || "intrusion"
         };
     }
 }
@@ -81,7 +85,7 @@ async function uploadToS3(fileBuffer, filename, mimeType, bucketType = "lpr") {
         forcePathStyle: true,
     });
 
-    const bucketName = bucketType === "lpr" ? config.bucketLpr : config.bucketFace;
+    const bucketName = bucketType === "lpr" ? config.bucketLpr : bucketType === "intrusion" ? config.bucketIntrusion : config.bucketFace;
 
     try {
         console.log(`[S3] Uploading: ${filename} to ${bucketName}`);

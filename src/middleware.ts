@@ -20,7 +20,9 @@ export async function middleware(request: NextRequest) {
         pathname === '/login' ||
         pathname === '/guard' ||
         pathname.startsWith('/guard-iphone') ||
-        pathname.startsWith('/pwa')
+        pathname.startsWith('/pwa') ||
+        pathname.startsWith('/invitado') ||
+        pathname.startsWith('/residente')
     ) {
         return NextResponse.next()
     }

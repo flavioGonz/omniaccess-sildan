@@ -4,6 +4,7 @@ const http = require("http");
 const crypto = require("crypto");
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
+const { captureForDevice } = require("./lib-intrusion-capture");
 
 const md5 = (s) => crypto.createHash("md5").update(s).digest("hex");
 function parseWWW(h) {
@@ -80,14 +81,14 @@ async function onEvent(nvr, code, gtype, idx) {
     const now = Date.now();
     if (lastEmit[key] && now - lastEmit[key] < 8000) return; // throttle
     lastEmit[key] = now;
-    let camId = null, camName = null;
+    let camId = null, camName = null, camDev = null;
     try {
         const map = await channelMap();
         for (const ip of Object.keys(map)) {
             const e = map[ip];
             if ((e.nvr || e.nvrId) === nvr.id && Number(e.ch) === ch) {
-                const cam = await prisma.device.findFirst({ where: { ip }, select: { id: true, name: true } });
-                if (cam) { camId = cam.id; camName = cam.name; }
+                const cam = await prisma.device.findFirst({ where: { ip }, select: { id: true, name: true, ip: true, brand: true, username: true, password: true } });
+                if (cam) { camId = cam.id; camName = cam.name; camDev = cam; }
                 break;
             }
         }
@@ -96,6 +97,7 @@ async function onEvent(nvr, code, gtype, idx) {
         const det = await prisma.detection.create({ data: { deviceId: camId || nvr.id, type: gtype, eventType: code, timestamp: new Date() } });
         if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: camName || nvr.name, type: gtype, eventType: code, timestamp: det.timestamp, source: "dahua", nvr: nvr.name, channel: ch });
         console.log(`[dahua-events] ${gtype} ${code} nvr=${nvr.name} ch=${ch} cam=${camName || "?"}`);
+        if (camDev) { captureForDevice(camDev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}); }
     } catch (e) { console.error("[dahua-events] create:", e.message); }
 }
 

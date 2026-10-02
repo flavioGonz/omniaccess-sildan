@@ -594,7 +594,106 @@ model Detection {
   details      String?
   timestamp    DateTime @default(now())
   createdAt    DateTime @default(now())
+  acknowledged Boolean  @default(false)
+  ackKind      String?
+  ackAt        DateTime?
 
   @@index([deviceId, timestamp])
+  @@index([acknowledged, timestamp])
   @@index([timestamp])
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  Invitaciones y visitas temporales (Los Olivos) — F1
+//  FKs a User/Unit/AccessEvent como String simple (sin back-relation).
+// ══════════════════════════════════════════════════════════════════
+model Invitation {
+  id         String           @id @default(cuid())
+  hostUserId String?          // residente que invita (User.id)
+  hostUnitId String?          // lote/unidad (Unit.id) redundante para reportes
+  hostName   String   @default("")  // nombre del residente (cacheado)
+  hostLabel  String   @default("")  // lote/etiqueta legible (cacheado)
+  kind       InvitationKind   @default(SINGLE)
+  title      String   @default("")
+  validFrom  DateTime
+  validTo    DateTime
+  reentry    Reentry          @default(MULTI)
+  maxGuests  Int?
+  status     InvitationStatus @default(ACTIVE)
+  token      String   @unique
+  createdVia String   @default("GUARD") // WHATSAPP | PORTAL | GUARD
+  notify     Boolean  @default(true)
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  guests     Guest[]
+
+  @@index([status, validTo])
+  @@index([hostUnitId])
+}
+
+model Guest {
+  id             String      @id @default(cuid())
+  invitationId   String
+  name           String   @default("")
+  doc            String?
+  qrToken        String   @unique
+  status         GuestStatus @default(APPROVED)
+  selfRegistered Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  invitation     Invitation  @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  plates         GuestPlate[]
+  entries        GuestEntry[]
+
+  @@index([invitationId])
+}
+
+model GuestPlate {
+  id      String @id @default(cuid())
+  guestId String
+  plate   String // normalizada (mayúsculas, sin espacios)
+  guest   Guest  @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([plate])
+  @@index([guestId])
+}
+
+model GuestEntry {
+  id            String   @id @default(cuid())
+  guestId       String
+  invitationId  String
+  accessEventId String?  // AccessEvent.id si vino por patente (LPR)
+  gate          String?  // acceso/garita (Device.id o nombre)
+  direction     String   @default("ENTRY") // ENTRY | EXIT
+  method        String   @default("LPR")   // LPR | QR | SEARCH | MANUAL
+  validatedBy   String?  // guardia (User.id / nombre)
+  plate         String?
+  timestamp     DateTime @default(now())
+  guest         Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
+
+  @@index([invitationId, timestamp])
+  @@index([guestId, timestamp])
+  @@index([timestamp])
+}
+
+enum InvitationKind {
+  SINGLE
+  EVENT
+}
+
+enum Reentry {
+  SINGLE_USE
+  MULTI
+}
+
+enum InvitationStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+enum GuestStatus {
+  PENDING
+  APPROVED
+  DENIED
 }

@@ -18,18 +18,27 @@ const D = 8192;
 const toApi = (xd: number, yd: number): Pt => ({ x: Math.round((xd / D) * 1000), y: Math.round(1000 - (yd / D) * 1000) });
 const toDahua = (p: Pt) => ({ x: Math.max(0, Math.min(D, Math.round((p.x / 1000) * D))), y: Math.max(0, Math.min(D, Math.round(((1000 - p.y) / 1000) * D))) });
 
+// Cache breve del getConfig por NVR+nombre: al dibujar la grilla se consultan muchos canales
+// de la misma NVR; así se hace UNA lectura de VideoAnalyseRule por NVR en vez de una por canal.
+const _cfgCache = new Map<string, { txt: string; ts: number }>();
 async function get(c: DahuaConn, name: string): Promise<string> {
-    return authenticatedRequest("GET", `/cgi-bin/configManager.cgi?action=getConfig&name=${name}`, dev(c), { responseType: "text", timeout: 9000 });
+    const key = `${c.ip}:${name}`;
+    const hit = _cfgCache.get(key);
+    if (hit && Date.now() - hit.ts < 20000) return hit.txt;
+    const txt = await authenticatedRequest("GET", `/cgi-bin/configManager.cgi?action=getConfig&name=${name}`, dev(c), { responseType: "text", timeout: 9000 });
+    _cfgCache.set(key, { txt, ts: Date.now() });
+    return txt;
 }
 async function setCfg(c: DahuaConn, query: string): Promise<string> {
+    _cfgCache.delete(`${c.ip}:VideoAnalyseRule`);
     const enc = query.replace(/\[/g, "%5B").replace(/\]/g, "%5D"); // Dahua exige corchetes URL-encodeados
     return authenticatedRequest("GET", `/cgi-bin/configManager.cgi?action=setConfig&${enc}`, dev(c), { responseType: "text", timeout: 9000 });
 }
 
 /** Parsea el bloque de reglas de un canal (0-based) y extrae línea/zona. */
 function parseChannel(txt: string, chIdx: number) {
-    const rules: Record<number, { type?: string; region: Record<number, Pt>; line: Record<number, Pt> }> = {};
-    const re = new RegExp(`VideoAnalyseRule\\[${chIdx}\\]\\[(\\d+)\\]\\.(Type|Config\\.DetectRegion\\[(\\d+)\\]\\[(\\d)\\]|Config\\.DetectLine\\[(\\d+)\\]\\[(\\d)\\])=([^\\r\\n]*)`, "g");
+    const rules: Record<number, { type?: string; dir?: string; region: Record<number, Pt>; line: Record<number, Pt> }> = {};
+    const re = new RegExp(`VideoAnalyseRule\\[${chIdx}\\]\\[(\\d+)\\]\\.(Type|Config\\.Direction|Config\\.DetectRegion\\[(\\d+)\\]\\[(\\d)\\]|Config\\.DetectLine\\[(\\d+)\\]\\[(\\d)\\])=([^\\r\\n]*)`, "g");
     let m: RegExpExecArray | null;
     while ((m = re.exec(txt))) {
         const r = parseInt(m[1], 10);
@@ -37,6 +46,7 @@ function parseChannel(txt: string, chIdx: number) {
         const field = m[2];
         const val = (m[7] || "").trim();
         if (field === "Type") rules[r].type = val;
+        else if (field === "Config.Direction") rules[r].dir = val;
         else if (field.startsWith("Config.DetectRegion")) {
             const k = parseInt(m[3], 10), axis = m[4];
             rules[r].region[k] ||= { x: 0, y: 0 };
@@ -64,16 +74,19 @@ function cleanPts(pts: Pt[]): Pt[] {
     return out;
 }
 
-export async function readDahuaIvs(c: DahuaConn, channel: number): Promise<{ support: { line: boolean; field: boolean }; line: Pt[]; field: Pt[] }> {
+const dahuaDirToUi = (v?: string): "both" | "ab" | "ba" => (v === "LeftToRight" ? "ab" : v === "RightToLeft" ? "ba" : "both");
+const uiDirToDahua = (v?: string): string => (v === "ab" ? "LeftToRight" : v === "ba" ? "RightToLeft" : "Both");
+
+export async function readDahuaIvs(c: DahuaConn, channel: number): Promise<{ support: { line: boolean; field: boolean }; line: Pt[]; field: Pt[]; lineDir: "both" | "ab" | "ba" }> {
     const chIdx = channel - 1;
     let txt = "";
-    try { txt = await get(c, "VideoAnalyseRule"); } catch { return { support: { line: false, field: false }, line: [], field: [] }; }
+    try { txt = await get(c, "VideoAnalyseRule"); } catch { return { support: { line: false, field: false }, line: [], field: [], lineDir: "both" }; }
     const rules = parseChannel(txt, chIdx);
     const rLine = findRule(rules, "CrossLineDetection");
     const rField = findRule(rules, "CrossRegionDetection");
     const line = rLine != null ? cleanPts(ptsFrom(rules[rLine].line).map((p) => toApi(p.x, p.y))) : [];
     const field = rField != null ? cleanPts(ptsFrom(rules[rField].region).map((p) => toApi(p.x, p.y))) : [];
-    return { support: { line: rLine != null, field: rField != null }, line, field };
+    return { support: { line: rLine != null, field: rField != null }, line, field, lineDir: dahuaDirToUi(rLine != null ? rules[rLine].dir : undefined) };
 }
 
 /** Escribe la zona (CrossRegionDetection) del canal. */
@@ -96,7 +109,7 @@ export async function writeDahuaField(c: DahuaConn, channel: number, points: Pt[
 }
 
 /** Escribe la línea (CrossLineDetection) del canal (2 puntos). */
-export async function writeDahuaLine(c: DahuaConn, channel: number, points: Pt[]): Promise<void> {
+export async function writeDahuaLine(c: DahuaConn, channel: number, points: Pt[], direction?: string): Promise<void> {
     const chIdx = channel - 1;
     const txt = await get(c, "VideoAnalyseRule");
     const rules = parseChannel(txt, chIdx);
@@ -108,5 +121,6 @@ export async function writeDahuaLine(c: DahuaConn, channel: number, points: Pt[]
         parts.push(`VideoAnalyseRule[${chIdx}][${r}].Config.DetectLine[${k}][0]=${p.x}`);
         parts.push(`VideoAnalyseRule[${chIdx}][${r}].Config.DetectLine[${k}][1]=${p.y}`);
     });
+    if (direction) parts.push(`VideoAnalyseRule[${chIdx}][${r}].Config.Direction=${uiDirToDahua(direction)}`);
     await setCfg(c, parts.join("&"));
 }

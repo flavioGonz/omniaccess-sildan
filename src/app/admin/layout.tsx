@@ -40,6 +40,7 @@ import {
     Building2,
     Map as MapIcon,
     Sparkles,
+    Ticket,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -168,6 +169,9 @@ export default function AdminLayout({
                     )}
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         <SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />
+                    )}
+                    {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
+                        <SidebarItem icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />
                     )}
                     {modules.MODULE_QUEUE ? (
                         <SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />

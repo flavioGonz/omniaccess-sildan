@@ -80,11 +80,11 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/2401
     - ffmpeg:lpr_cmuofv5vt001jwbvdgdodsrm6_hd#video=h264
   lpr_cmuofv5ut0000wbvd0fnulb37:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/102
-    - ffmpeg:lpr_cmuofv5ut0000wbvd0fnulb37#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.63:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5ut0000wbvd0fnulb37#video=h264#hardware=vaapi
   lpr_cmuofv5ut0000wbvd0fnulb37_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/101
-    - ffmpeg:lpr_cmuofv5ut0000wbvd0fnulb37_hd#video=h264
+    - ffmpeg:lpr_cmuofv5ut0000wbvd0fnulb37_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vw001qwbvd1q5j8xxc:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/3102
     - ffmpeg:lpr_cmuofv5vw001qwbvd1q5j8xxc#video=h264
@@ -98,11 +98,11 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/3201
     - ffmpeg:lpr_cmuofv5vx001rwbvdl7kfc2ni_hd#video=h264
   lpr_cmuofv5uy0001wbvdqhslkt1n:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/202
-    - ffmpeg:lpr_cmuofv5uy0001wbvdqhslkt1n#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.95:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5uy0001wbvdqhslkt1n#video=h264#hardware=vaapi
   lpr_cmuofv5uy0001wbvdqhslkt1n_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/201
-    - ffmpeg:lpr_cmuofv5uy0001wbvdqhslkt1n_hd#video=h264
+    - ffmpeg:lpr_cmuofv5uy0001wbvdqhslkt1n_hd#video=h264#hardware=vaapi
   lpr_cmuofv5uz0002wbvd49knrgso:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/302
     - ffmpeg:lpr_cmuofv5uz0002wbvd49knrgso#video=h264
@@ -116,11 +116,11 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/401
     - ffmpeg:lpr_cmuofv5uz0003wbvd29duu1r5_hd#video=h264
   lpr_cmuofv5v00004wbvdy9wmis1h:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/502
-    - ffmpeg:lpr_cmuofv5v00004wbvdy9wmis1h#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.210:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5v00004wbvdy9wmis1h#video=h264#hardware=vaapi
   lpr_cmuofv5v00004wbvdy9wmis1h_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/501
-    - ffmpeg:lpr_cmuofv5v00004wbvdy9wmis1h_hd#video=h264
+    - ffmpeg:lpr_cmuofv5v00004wbvdy9wmis1h_hd#video=h264#hardware=vaapi
   lpr_cmuofv5v10005wbvd757fj9l1:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/602
     - ffmpeg:lpr_cmuofv5v10005wbvd757fj9l1#video=h264
@@ -128,11 +128,11 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/601
     - ffmpeg:lpr_cmuofv5v10005wbvd757fj9l1_hd#video=h264
   lpr_cmuofv5v20006wbvdj5es6h52:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/702
-    - ffmpeg:lpr_cmuofv5v20006wbvdj5es6h52#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.222:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5v20006wbvdj5es6h52#video=h264#hardware=vaapi
   lpr_cmuofv5v20006wbvdj5es6h52_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/701
-    - ffmpeg:lpr_cmuofv5v20006wbvdj5es6h52_hd#video=h264
+    - ffmpeg:lpr_cmuofv5v20006wbvdj5es6h52_hd#video=h264#hardware=vaapi
   lpr_cmuofv5v30007wbvdd0mg2k6c:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/802
     - ffmpeg:lpr_cmuofv5v30007wbvdd0mg2k6c#video=h264
@@ -146,17 +146,17 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/901
     - ffmpeg:lpr_cmuofv5v30008wbvd3he6sit2_hd#video=h264
   lpr_cmuofv5v40009wbvdltdrkjkv:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1002
-    - ffmpeg:lpr_cmuofv5v40009wbvdltdrkjkv#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.212:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5v40009wbvdltdrkjkv#video=h264#hardware=vaapi
   lpr_cmuofv5v40009wbvdltdrkjkv_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1001
-    - ffmpeg:lpr_cmuofv5v40009wbvdltdrkjkv_hd#video=h264
+    - ffmpeg:lpr_cmuofv5v40009wbvdltdrkjkv_hd#video=h264#hardware=vaapi
   lpr_cmuofv5v5000awbvdj5mfo57t:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1102
-    - ffmpeg:lpr_cmuofv5v5000awbvdj5mfo57t#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.179:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5v5000awbvdj5mfo57t#video=h264#hardware=vaapi
   lpr_cmuofv5v5000awbvdj5mfo57t_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1101
-    - ffmpeg:lpr_cmuofv5v5000awbvdj5mfo57t_hd#video=h264
+    - ffmpeg:lpr_cmuofv5v5000awbvdj5mfo57t_hd#video=h264#hardware=vaapi
   lpr_cmuofv5v5000bwbvd3f7kqpkk:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1202
     - ffmpeg:lpr_cmuofv5v5000bwbvd3f7kqpkk#video=h264
@@ -164,29 +164,29 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1201
     - ffmpeg:lpr_cmuofv5v5000bwbvd3f7kqpkk_hd#video=h264
   lpr_cmuofv5v6000cwbvd0sfwlapd:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1302
-    - ffmpeg:lpr_cmuofv5v6000cwbvd0sfwlapd#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.172:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5v6000cwbvd0sfwlapd#video=h264#hardware=vaapi
   lpr_cmuofv5v6000cwbvd0sfwlapd_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1301
-    - ffmpeg:lpr_cmuofv5v6000cwbvd0sfwlapd_hd#video=h264
+    - ffmpeg:lpr_cmuofv5v6000cwbvd0sfwlapd_hd#video=h264#hardware=vaapi
   lpr_cmuofv5v6000dwbvdj0d4swj0:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1402
-    - ffmpeg:lpr_cmuofv5v6000dwbvdj0d4swj0#video=h264
+    - ffmpeg:lpr_cmuofv5v6000dwbvdj0d4swj0#video=h264#hardware=vaapi
   lpr_cmuofv5v6000dwbvdj0d4swj0_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1401
-    - ffmpeg:lpr_cmuofv5v6000dwbvdj0d4swj0_hd#video=h264
+    - ffmpeg:lpr_cmuofv5v6000dwbvdj0d4swj0_hd#video=h264#hardware=vaapi
   lpr_cmuofv5v7000ewbvdzruny6jd:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1502
-    - ffmpeg:lpr_cmuofv5v7000ewbvdzruny6jd#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.173:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5v7000ewbvdzruny6jd#video=h264#hardware=vaapi
   lpr_cmuofv5v7000ewbvdzruny6jd_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1501
-    - ffmpeg:lpr_cmuofv5v7000ewbvdzruny6jd_hd#video=h264
+    - ffmpeg:lpr_cmuofv5v7000ewbvdzruny6jd_hd#video=h264#hardware=vaapi
   lpr_cmuofv5v8000fwbvdjn7qv29u:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1602
-    - ffmpeg:lpr_cmuofv5v8000fwbvdjn7qv29u#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.215:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5v8000fwbvdjn7qv29u#video=h264#hardware=vaapi
   lpr_cmuofv5v8000fwbvdjn7qv29u_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1601
-    - ffmpeg:lpr_cmuofv5v8000fwbvdjn7qv29u_hd#video=h264
+    - ffmpeg:lpr_cmuofv5v8000fwbvdjn7qv29u_hd#video=h264#hardware=vaapi
   lpr_cmuofv5v8000gwbvd0op40e58:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1702
     - ffmpeg:lpr_cmuofv5v8000gwbvd0op40e58#video=h264
@@ -207,16 +207,16 @@ streams:
     - ffmpeg:lpr_cmuofv5v9000iwbvdxlil111j_hd#video=h264
   lpr_cmuofv5va000jwbvd911e5la2:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2002
-    - ffmpeg:lpr_cmuofv5va000jwbvd911e5la2#video=h264
+    - ffmpeg:lpr_cmuofv5va000jwbvd911e5la2#video=h264#hardware=vaapi
   lpr_cmuofv5va000jwbvd911e5la2_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2001
-    - ffmpeg:lpr_cmuofv5va000jwbvd911e5la2_hd#video=h264
+    - ffmpeg:lpr_cmuofv5va000jwbvd911e5la2_hd#video=h264#hardware=vaapi
   lpr_cmuofv5va000kwbvdgcqu99q4:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2102
-    - ffmpeg:lpr_cmuofv5va000kwbvdgcqu99q4#video=h264
+    - ffmpeg:lpr_cmuofv5va000kwbvdgcqu99q4#video=h264#hardware=vaapi
   lpr_cmuofv5va000kwbvdgcqu99q4_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2101
-    - ffmpeg:lpr_cmuofv5va000kwbvdgcqu99q4_hd#video=h264
+    - ffmpeg:lpr_cmuofv5va000kwbvdgcqu99q4_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vb000lwbvdqp9w7uv6:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2202
     - ffmpeg:lpr_cmuofv5vb000lwbvdqp9w7uv6#video=h264
@@ -236,17 +236,17 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2401
     - ffmpeg:lpr_cmuofv5vc000nwbvditpjlxnp_hd#video=h264
   lpr_cmuofv5vd000owbvdjj840h2w:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2502
-    - ffmpeg:lpr_cmuofv5vd000owbvdjj840h2w#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.186:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vd000owbvdjj840h2w#video=h264#hardware=vaapi
   lpr_cmuofv5vd000owbvdjj840h2w_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2501
-    - ffmpeg:lpr_cmuofv5vd000owbvdjj840h2w_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vd000owbvdjj840h2w_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vd000pwbvdhiatqell:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2602
-    - ffmpeg:lpr_cmuofv5vd000pwbvdhiatqell#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.187:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vd000pwbvdhiatqell#video=h264#hardware=vaapi
   lpr_cmuofv5vd000pwbvdhiatqell_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2601
-    - ffmpeg:lpr_cmuofv5vd000pwbvdhiatqell_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vd000pwbvdhiatqell_hd#video=h264#hardware=vaapi
   lpr_cmuofv5ve000qwbvdz5vvptgo:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2702
     - ffmpeg:lpr_cmuofv5ve000qwbvdz5vvptgo#video=h264
@@ -254,17 +254,17 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2701
     - ffmpeg:lpr_cmuofv5ve000qwbvdz5vvptgo_hd#video=h264
   lpr_cmuofv5ve000rwbvdq517mmt2:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2802
-    - ffmpeg:lpr_cmuofv5ve000rwbvdq517mmt2#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.213:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5ve000rwbvdq517mmt2#video=h264#hardware=vaapi
   lpr_cmuofv5ve000rwbvdq517mmt2_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2801
-    - ffmpeg:lpr_cmuofv5ve000rwbvdq517mmt2_hd#video=h264
+    - ffmpeg:lpr_cmuofv5ve000rwbvdq517mmt2_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vf000swbvdc4jojfuc:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2902
-    - ffmpeg:lpr_cmuofv5vf000swbvdc4jojfuc#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.171:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vf000swbvdc4jojfuc#video=h264#hardware=vaapi
   lpr_cmuofv5vf000swbvdc4jojfuc_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2901
-    - ffmpeg:lpr_cmuofv5vf000swbvdc4jojfuc_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vf000swbvdc4jojfuc_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vf000twbvdb2jiu4iu:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/3002
     - ffmpeg:lpr_cmuofv5vf000twbvdb2jiu4iu#video=h264
@@ -308,11 +308,11 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/401
     - ffmpeg:lpr_cmuofv5vi000zwbvdlzet02r0_hd#video=h264
   lpr_cmuofv5vj0010wbvd9m5g6klq:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/502
-    - ffmpeg:lpr_cmuofv5vj0010wbvd9m5g6klq#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.168:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vj0010wbvd9m5g6klq#video=h264#hardware=vaapi
   lpr_cmuofv5vj0010wbvd9m5g6klq_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/501
-    - ffmpeg:lpr_cmuofv5vj0010wbvd9m5g6klq_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vj0010wbvd9m5g6klq_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vj0011wbvdlw69uubc:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/602
     - ffmpeg:lpr_cmuofv5vj0011wbvdlw69uubc#video=h264
@@ -327,28 +327,16 @@ streams:
     - ffmpeg:lpr_cmuofv5vk0012wbvdtlbskhdl_hd#video=h264
   lpr_cmuofv5vk0013wbvdk1pasb8h:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/802
-    - ffmpeg:lpr_cmuofv5vk0013wbvdk1pasb8h#video=h264
+    - ffmpeg:lpr_cmuofv5vk0013wbvdk1pasb8h#video=h264#hardware=vaapi
   lpr_cmuofv5vk0013wbvdk1pasb8h_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/801
-    - ffmpeg:lpr_cmuofv5vk0013wbvdk1pasb8h_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vk0013wbvdk1pasb8h_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vl0014wbvdoe5l8evp:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/902
     - ffmpeg:lpr_cmuofv5vl0014wbvdoe5l8evp#video=h264
   lpr_cmuofv5vl0014wbvdoe5l8evp_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/901
     - ffmpeg:lpr_cmuofv5vl0014wbvdoe5l8evp_hd#video=h264
-  lpr_cmuofv5vl0015wbvddot4wi6o:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1002
-    - ffmpeg:lpr_cmuofv5vl0015wbvddot4wi6o#video=h264
-  lpr_cmuofv5vl0015wbvddot4wi6o_hd:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1001
-    - ffmpeg:lpr_cmuofv5vl0015wbvddot4wi6o_hd#video=h264
-  lpr_cmuofv5vm0016wbvd2ssmrlsy:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1102
-    - ffmpeg:lpr_cmuofv5vm0016wbvd2ssmrlsy#video=h264
-  lpr_cmuofv5vm0016wbvd2ssmrlsy_hd:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1101
-    - ffmpeg:lpr_cmuofv5vm0016wbvd2ssmrlsy_hd#video=h264
   lpr_cmuofv5vn0017wbvdn28vvq8w:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1202
     - ffmpeg:lpr_cmuofv5vn0017wbvdn28vvq8w#video=h264
@@ -363,10 +351,10 @@ streams:
     - ffmpeg:lpr_cmuofv5vn0018wbvd6ouobv2e_hd#video=h264
   lpr_cmuofv5vn0019wbvdqz0j7395:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1402
-    - ffmpeg:lpr_cmuofv5vn0019wbvdqz0j7395#video=h264
+    - ffmpeg:lpr_cmuofv5vn0019wbvdqz0j7395#video=h264#hardware=vaapi
   lpr_cmuofv5vn0019wbvdqz0j7395_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1401
-    - ffmpeg:lpr_cmuofv5vn0019wbvdqz0j7395_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vn0019wbvdqz0j7395_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vo001awbvdfnc3zut8:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1502
     - ffmpeg:lpr_cmuofv5vo001awbvdfnc3zut8#video=h264
@@ -374,29 +362,29 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1501
     - ffmpeg:lpr_cmuofv5vo001awbvdfnc3zut8_hd#video=h264
   lpr_cmuofv5vp001bwbvdk3ayey8c:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1602
-    - ffmpeg:lpr_cmuofv5vp001bwbvdk3ayey8c#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.240:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vp001bwbvdk3ayey8c#video=h264#hardware=vaapi
   lpr_cmuofv5vp001bwbvdk3ayey8c_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1601
-    - ffmpeg:lpr_cmuofv5vp001bwbvdk3ayey8c_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vp001bwbvdk3ayey8c_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vp001cwbvdd7gwy74m:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1702
-    - ffmpeg:lpr_cmuofv5vp001cwbvdd7gwy74m#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.241:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vp001cwbvdd7gwy74m#video=h264#hardware=vaapi
   lpr_cmuofv5vp001cwbvdd7gwy74m_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1701
-    - ffmpeg:lpr_cmuofv5vp001cwbvdd7gwy74m_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vp001cwbvdd7gwy74m_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vq001dwbvd6ox4ft72:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1802
-    - ffmpeg:lpr_cmuofv5vq001dwbvd6ox4ft72#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.242:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vq001dwbvd6ox4ft72#video=h264#hardware=vaapi
   lpr_cmuofv5vq001dwbvd6ox4ft72_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1801
-    - ffmpeg:lpr_cmuofv5vq001dwbvd6ox4ft72_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vq001dwbvd6ox4ft72_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vq001ewbvdr5stmllz:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1902
-    - ffmpeg:lpr_cmuofv5vq001ewbvdr5stmllz#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.243:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vq001ewbvdr5stmllz#video=h264#hardware=vaapi
   lpr_cmuofv5vq001ewbvdr5stmllz_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1901
-    - ffmpeg:lpr_cmuofv5vq001ewbvdr5stmllz_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vq001ewbvdr5stmllz_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vr001fwbvdko0kw06g:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/2002
     - ffmpeg:lpr_cmuofv5vr001fwbvdko0kw06g#video=h264
@@ -416,11 +404,11 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/2201
     - ffmpeg:lpr_cmuofv5vs001hwbvdjyutwkeh_hd#video=h264
   lpr_cmuofv5vs001iwbvd7g302xal:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/2302
-    - ffmpeg:lpr_cmuofv5vs001iwbvd7g302xal#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.102:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vs001iwbvd7g302xal#video=h264#hardware=vaapi
   lpr_cmuofv5vs001iwbvd7g302xal_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/2301
-    - ffmpeg:lpr_cmuofv5vs001iwbvd7g302xal_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vs001iwbvd7g302xal_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vt001kwbvd44z9i16r:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/2502
     - ffmpeg:lpr_cmuofv5vt001kwbvd44z9i16r#video=h264
@@ -470,17 +458,17 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=3&subtype=0
     - ffmpeg:lpr_cmuofv5vy001twbvd96njihma_hd#video=h264
   lpr_cmuofv5vy001uwbvd9pnqr4bh:
-    - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=4&subtype=1
-    - ffmpeg:lpr_cmuofv5vy001uwbvd9pnqr4bh#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.86:554/cam/realmonitor?channel=1&subtype=1
+    - ffmpeg:lpr_cmuofv5vy001uwbvd9pnqr4bh#video=h264#hardware=vaapi
   lpr_cmuofv5vy001uwbvd9pnqr4bh_hd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=4&subtype=0
-    - ffmpeg:lpr_cmuofv5vy001uwbvd9pnqr4bh_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vy001uwbvd9pnqr4bh_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vz001vwbvdtud7l1is:
-    - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=7&subtype=1
-    - ffmpeg:lpr_cmuofv5vz001vwbvdtud7l1is#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.175:554/cam/realmonitor?channel=1&subtype=1
+    - ffmpeg:lpr_cmuofv5vz001vwbvdtud7l1is#video=h264#hardware=vaapi
   lpr_cmuofv5vz001vwbvdtud7l1is_hd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=7&subtype=0
-    - ffmpeg:lpr_cmuofv5vz001vwbvdtud7l1is_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vz001vwbvdtud7l1is_hd#video=h264#hardware=vaapi
   lpr_cmuofv5vz001wwbvdnwlijzcd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=20&subtype=1
     - ffmpeg:lpr_cmuofv5vz001wwbvdnwlijzcd#video=h264
@@ -501,10 +489,10 @@ streams:
     - ffmpeg:lpr_cmuofv5w0001ywbvd0scbd2oq_hd#video=h264
   lpr_cmuofv5w1001zwbvd0m51m0y5:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=23&subtype=1
-    - ffmpeg:lpr_cmuofv5w1001zwbvd0m51m0y5#video=h264
+    - ffmpeg:lpr_cmuofv5w1001zwbvd0m51m0y5#video=h264#hardware=vaapi
   lpr_cmuofv5w1001zwbvd0m51m0y5_hd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=23&subtype=0
-    - ffmpeg:lpr_cmuofv5w1001zwbvd0m51m0y5_hd#video=h264
+    - ffmpeg:lpr_cmuofv5w1001zwbvd0m51m0y5_hd#video=h264#hardware=vaapi
   lpr_cmuofv5w10020wbvd4kmzas87:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=24&subtype=1
     - ffmpeg:lpr_cmuofv5w10020wbvd4kmzas87#video=h264
@@ -512,17 +500,17 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=24&subtype=0
     - ffmpeg:lpr_cmuofv5w10020wbvd4kmzas87_hd#video=h264
   lpr_cmuofv5w20021wbvdkiwovdqx:
-    - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=25&subtype=1
-    - ffmpeg:lpr_cmuofv5w20021wbvdkiwovdqx#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.181:554/cam/realmonitor?channel=1&subtype=1
+    - ffmpeg:lpr_cmuofv5w20021wbvdkiwovdqx#video=h264#hardware=vaapi
   lpr_cmuofv5w20021wbvdkiwovdqx_hd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=25&subtype=0
-    - ffmpeg:lpr_cmuofv5w20021wbvdkiwovdqx_hd#video=h264
+    - ffmpeg:lpr_cmuofv5w20021wbvdkiwovdqx_hd#video=h264#hardware=vaapi
   lpr_cmuofv5w20022wbvd36k5jzeg:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=26&subtype=1
-    - ffmpeg:lpr_cmuofv5w20022wbvd36k5jzeg#video=h264
+    - ffmpeg:lpr_cmuofv5w20022wbvd36k5jzeg#video=h264#hardware=vaapi
   lpr_cmuofv5w20022wbvd36k5jzeg_hd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=26&subtype=0
-    - ffmpeg:lpr_cmuofv5w20022wbvd36k5jzeg_hd#video=h264
+    - ffmpeg:lpr_cmuofv5w20022wbvd36k5jzeg_hd#video=h264#hardware=vaapi
   lpr_cmuofv5w30023wbvdhyk5l8xl:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=27&subtype=1
     - ffmpeg:lpr_cmuofv5w30023wbvdhyk5l8xl#video=h264
@@ -531,10 +519,10 @@ streams:
     - ffmpeg:lpr_cmuofv5w30023wbvdhyk5l8xl_hd#video=h264
   lpr_cmuofv5w30024wbvdlz9iakfn:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=28&subtype=1
-    - ffmpeg:lpr_cmuofv5w30024wbvdlz9iakfn#video=h264
+    - ffmpeg:lpr_cmuofv5w30024wbvdlz9iakfn#video=h264#hardware=vaapi
   lpr_cmuofv5w30024wbvdlz9iakfn_hd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=28&subtype=0
-    - ffmpeg:lpr_cmuofv5w30024wbvdlz9iakfn_hd#video=h264
+    - ffmpeg:lpr_cmuofv5w30024wbvdlz9iakfn_hd#video=h264#hardware=vaapi
   lpr_cmuofv5w40025wbvd1z16h7q7:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=29&subtype=1
     - ffmpeg:lpr_cmuofv5w40025wbvd1z16h7q7#video=h264
@@ -542,11 +530,23 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=29&subtype=0
     - ffmpeg:lpr_cmuofv5w40025wbvd1z16h7q7_hd#video=h264
   lpr_cmuofv5w40026wbvddp8iybjq:
-    - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=30&subtype=1
-    - ffmpeg:lpr_cmuofv5w40026wbvddp8iybjq#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.200:554/cam/realmonitor?channel=1&subtype=1
+    - ffmpeg:lpr_cmuofv5w40026wbvddp8iybjq#video=h264#hardware=vaapi
   lpr_cmuofv5w40026wbvddp8iybjq_hd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=30&subtype=0
-    - ffmpeg:lpr_cmuofv5w40026wbvddp8iybjq_hd#video=h264
+    - ffmpeg:lpr_cmuofv5w40026wbvddp8iybjq_hd#video=h264#hardware=vaapi
+  lpr_cmuofv5vl0015wbvddot4wi6o:
+    - rtsp://admin:Sildan.1329@172.16.2.167:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vl0015wbvddot4wi6o#video=h264#hardware=vaapi
+  lpr_cmuofv5vl0015wbvddot4wi6o_hd:
+    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1001
+    - ffmpeg:lpr_cmuofv5vl0015wbvddot4wi6o_hd#video=h264#hardware=vaapi
+  lpr_cmuofv5vm0016wbvd2ssmrlsy:
+    - rtsp://admin:Sildan.1329@172.16.2.178:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vm0016wbvd2ssmrlsy#video=h264#hardware=vaapi
+  lpr_cmuofv5vm0016wbvd2ssmrlsy_hd:
+    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/1101
+    - ffmpeg:lpr_cmuofv5vm0016wbvd2ssmrlsy_hd#video=h264#hardware=vaapi
 api:
   listen: ':1984'
   origin: '*'

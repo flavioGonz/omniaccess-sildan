@@ -40,7 +40,10 @@ function parsePoints(block: string): Pt[] {
 }
 function isEnabled(xml: string): boolean { return /<enabled>\s*true/i.test(xml.split(/<\/?\w+RegionList/i)[0] || xml); }
 
-export type AnalyticRead = { supported: boolean; enabled: boolean; points: Pt[]; raw?: string };
+export type AnalyticRead = { supported: boolean; enabled: boolean; points: Pt[]; raw?: string; dir?: "both" | "ab" | "ba" };
+
+const hikDirToUi = (v?: string): "both" | "ab" | "ba" => (v === "left-right" ? "ab" : v === "right-left" ? "ba" : "both");
+const uiDirToHik = (v?: string): string => (v === "ab" ? "left-right" : v === "ba" ? "right-left" : "any");
 
 export async function readLine(d: CamDev, ch = 1): Promise<AnalyticRead> {
     try {
@@ -48,7 +51,8 @@ export async function readLine(d: CamDev, ch = 1): Promise<AnalyticRead> {
         if (/notSupport|Invalid Operation/i.test(xml)) return { supported: false, enabled: false, points: [] };
         // primera lista de coordenadas (la línea = 2 puntos)
         const list = xml.match(/<CoordinatesList[\s\S]*?<\/CoordinatesList>/i)?.[0] || xml;
-        return { supported: true, enabled: isEnabled(xml), points: parsePoints(list), raw: xml };
+        const dir = hikDirToUi(xml.match(/<directionSensitivity>\s*([\w-]+)\s*<\/directionSensitivity>/i)?.[1]);
+        return { supported: true, enabled: isEnabled(xml), points: parsePoints(list), raw: xml, dir };
     } catch { return { supported: false, enabled: false, points: [] }; }
 }
 
@@ -72,11 +76,14 @@ function replaceFirstCoords(xml: string, listTag: string, inner: string): string
 }
 
 /** Escribe la línea (2 puntos) por read-modify-write. */
-export async function writeLine(d: CamDev, ch: number, data: { enabled: boolean; points: Pt[] }): Promise<void> {
+export async function writeLine(d: CamDev, ch: number, data: { enabled: boolean; points: Pt[]; direction?: string }): Promise<void> {
     let xml = await get(d, pathLine(ch));
     xml = setEnabled(xml, data.enabled);
     const inner = data.points.map((p) => `<Coordinates><positionX>${clamp(p.x)}</positionX><positionY>${clamp(p.y)}</positionY></Coordinates>`).join("");
     xml = replaceFirstCoords(xml, "CoordinatesList", inner);
+    if (data.direction && /<directionSensitivity>/i.test(xml)) {
+        xml = xml.replace(/<directionSensitivity>\s*[\w-]+\s*<\/directionSensitivity>/i, `<directionSensitivity>${uiDirToHik(data.direction)}</directionSensitivity>`);
+    }
     await put(d, pathLine(ch), xml);
 }
 

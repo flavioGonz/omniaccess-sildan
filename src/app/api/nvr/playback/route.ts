@@ -61,8 +61,9 @@ export async function GET(req: NextRequest) {
         const tmp = path.join(os.tmpdir(), `clip_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
         const ok = await new Promise<boolean>((resolve) => {
             const ff2 = spawn("ffmpeg", [
-                "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
-                "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", tmp,
+                "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi",
+                "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+                "-an", "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp,
             ], { stdio: ["ignore", "ignore", "ignore"] });
             const killer = setTimeout(() => { try { ff2.kill("SIGKILL"); } catch { } resolve(false); }, 45000);
             ff2.on("close", (code) => { clearTimeout(killer); resolve(code === 0); });
@@ -88,12 +89,19 @@ export async function GET(req: NextRequest) {
         }
     }
 
+    // El track de grabación del NVR suele ser H.265/HEVC (p.ej. 2688x1520), que el navegador
+    // no decodifica en MP4 → el <video> quedaba negro y "Ajustando tiempo…" no terminaba nunca.
+    // Transcodificamos a H.264 por VAAPI (GPU) escalando a 720p para arranque rápido y fluido.
     const ff = spawn("ffmpeg", [
+        // -allowed_media_types video: NO negociar la pista de audio del NVR (ahorra ~2s en abrir la reproducción)
+        "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
+        "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi",
         "-rtsp_transport", "tcp",
         "-i", url,
         "-t", String(dur),
-        "-an", "-c:v", "copy",
-        "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+        "-an", "-vf", "scale_vaapi=w=-2:h=720", "-c:v", "h264_vaapi", "-qp", "24",
+        // fragmentos de 200ms → el navegador empieza a reproducir apenas llega el primer frame (no espera un GOP entero)
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
         "-f", "mp4", "pipe:1",
     ], { stdio: ["ignore", "pipe", "ignore"] });
 

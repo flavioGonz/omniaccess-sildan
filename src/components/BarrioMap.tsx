@@ -487,7 +487,7 @@ export default function BarrioMap() {
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
     // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
-    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: true, divisions: true, perimeter: true, guards: true, names: true });
+    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true });
     const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
     const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
     const [pantalla, setPantalla] = useState(false);
