@@ -93,8 +93,9 @@ export async function GET(req: NextRequest) {
     }
 
     // ¿El origen es H.264? → remux directo (copy). ¿HEVC? → transcode.
-    const srcCodec = await getCodec(conn, ch);
-    const canCopy = srcCodec === "h264";
+    const forceTx = sp.get("tx") === "1";
+    const srcCodec = forceTx ? null : await getCodec(conn, ch);
+    const canCopy = !forceTx && srcCodec === "h264";
 
     // Decode por codec (solo ruta transcode): Dahua = H.264 -> GPU (VAAPI);
     // Hik HEVC -> decode por SOFTWARE (el VAAPI de HEVC de estos NVR corrompe: verde/gris).

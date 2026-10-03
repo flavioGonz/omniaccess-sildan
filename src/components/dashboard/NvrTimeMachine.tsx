@@ -133,6 +133,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
     const [vidState, setVidState] = useState<"loading" | "ok" | "error">("loading");
     const [dragging, setDragging] = useState(false);
     const [videoCur, setVideoCur] = useState(0);
+    const [forceTx, setForceTx] = useState(false);
     const [openPanel, setOpenPanel] = useState<null | "calendar" | "time">(null);
     const panRef = useRef<{ startY: number; startAnchor: number; moved: boolean } | null>(null);
     const [panY, setPanY] = useState<number | null>(null); // % fijo del playhead durante drag-pan
@@ -189,6 +190,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
         setPlayheadMs(clamped);
         setCommittedMs(clamped);
         setVideoCur(0);
+        setForceTx(false);
         setVidState("loading");
         setPlaying(true);
         setTab("grabacion");
@@ -222,7 +224,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
         if (v.paused) { v.play().catch(() => {}); setPlaying(true); } else { v.pause(); setPlaying(false); }
     };
 
-    const playbackSrc = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=${PRE_SEC}&dur=120${nvrQ}` : "";
+    const playbackSrc = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=${PRE_SEC}&dur=120${nvrQ}${forceTx ? "&tx=1" : ""}` : "";
     const downloadHref = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=10&dur=60&download=1${nvrQ}` : "";
 
     const startWallMs = committedMs - PRE_SEC * 1000;
@@ -455,7 +457,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                                         onPause={() => setPlaying(false)}
                                         onPlay={() => setPlaying(true)}
                                         onTimeUpdate={(e) => setVideoCur((e.currentTarget as HTMLVideoElement).currentTime)}
-                                        onError={() => setVidState("error")}
+                                        onError={() => { if (!forceTx) { setForceTx(true); setVidState("loading"); } else { setVidState("error"); } }}
                                     />
                                     {vidState === "loading" && (
                                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white/70 pointer-events-none">
