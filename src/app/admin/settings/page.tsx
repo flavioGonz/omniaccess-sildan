@@ -1652,11 +1652,6 @@ function ModeConfiguration({ title, description, settingKey, options }: {
     );
 }
 
-
-
-
-// Add getWahaHistory to imports first (done separately? No, I must modify the whole file or assume imports are updated. I'll invoke this tool to update the import line first, or I can try to do it all if safe. The imports are at top of file. I will just update the component logic here and assume imports need update if function not found, but I can't edit 2 places easily. I will update component and then imports).
-
 type DrawerKey = null | "conn" | "cmds" | "allow" | "hist";
 
 function WhatsAppSection() {
@@ -1684,14 +1679,17 @@ function WhatsAppSection() {
     const loadConfig = async () => {
         setLoading(true);
         try {
-            const [url, apiKey, cmdConfig, allowEn, allowLs, cbEn] = await Promise.all([
-                getSetting("WAHA_URL"), getSetting("WAHA_API_KEY"), getSetting("WAHA_COMMANDS"),
+            // Fuente única: en San Nicolás la config vive en OPENWA_* (lo que prioriza
+            // getWhatsAppConfig()); se mantiene el respaldo a WAHA_* para no romper Olivos.
+            const [url, apiKey, cmdConfig, allowEn, allowLs, cbEn, wUrl, wKey] = await Promise.all([
+                getSetting("OPENWA_URL"), getSetting("OPENWA_API_KEY"), getSetting("WAHA_COMMANDS"),
                 getSetting("WHATSAPP_ALLOWLIST_ENABLED"), getSetting("WHATSAPP_ALLOWLIST"), getSetting("CHATBOT_ENABLED"),
+                getSetting("WAHA_URL"), getSetting("WAHA_API_KEY"),
             ]);
             setAllowEnabled(allowEn?.value === "true");
             setChatbotEnabled(cbEn?.value !== "false");
             try { const a = JSON.parse(allowLs?.value || "[]"); if (Array.isArray(a)) setAllowList(a); } catch { }
-            setConfig({ url: url?.value || "", apiKey: apiKey?.value || "" });
+            setConfig({ url: url?.value || wUrl?.value || "", apiKey: apiKey?.value || wKey?.value || "" });
             if (cmdConfig?.value) {
                 try {
                     const savedCommands = JSON.parse(cmdConfig.value);
@@ -1720,7 +1718,8 @@ function WhatsAppSection() {
         setSaving(true);
         try {
             const commandsConfig = JSON.stringify(commands.map(c => ({ id: c.id, active: c.active })));
-            await Promise.all([updateSetting("WAHA_URL", config.url), updateSetting("WAHA_API_KEY", config.apiKey), updateSetting("WAHA_COMMANDS", commandsConfig)]);
+            // Guardar en las claves canónicas OPENWA_* (lo que usa getWhatsAppConfig y el despacho).
+            await Promise.all([updateSetting("OPENWA_URL", config.url), updateSetting("OPENWA_API_KEY", config.apiKey), updateSetting("WAHA_COMMANDS", commandsConfig)]);
             toast.success({ title: "Configuración de WhatsApp guardada" });
         } catch (err) { toast.error({ title: "Error al guardar la configuración" }); } finally { setSaving(false); }
     };
