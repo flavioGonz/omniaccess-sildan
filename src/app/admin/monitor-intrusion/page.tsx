@@ -905,17 +905,24 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", onClose, onOpenE
                         {evi.length === 0 ? (
                             <div className="h-full grid place-items-center text-white/50 text-sm">Sin capturas de evidencia para este canal.</div>
                         ) : (
-                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                                 {evi.map((d) => {
                                     const m = META[d.type] || META.OTHER;
                                     const href = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
+                                    const loc = d.deviceName || cam.name;
+                                    const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
                                     return (
-                                        <button key={d.id} onClick={() => href && setEviBig(href)} className="group relative aspect-video rounded-lg overflow-hidden ring-1 ring-white/10 hover:ring-white/40 bg-neutral-900 transition text-left">
+                                        <button key={d.id} onClick={() => href && setEviBig(href)} className="group relative aspect-video rounded-2xl overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.02] transition-all duration-150 bg-neutral-900 text-left shadow-lg">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={16} /></div>}
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
-                                            <span className={cn("absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[7.5px] font-extrabold uppercase", m.cls)}><m.Icon size={8} /> {m.label}</span>
-                                            <span className="absolute bottom-1 inset-x-1.5 text-[8.5px] font-bold text-white/85">{ago(d.timestamp)}</span>
+                                            {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
+                                            <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
+                                            <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
+                                            <div className="absolute top-2.5 left-3 right-3">
+                                                <div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{loc}</div>
+                                                <div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow">{when}</div>
+                                            </div>
+                                            <span className={cn("absolute bottom-2.5 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm shadow", m.cls)}><m.Icon size={13} /> {m.label}</span>
+                                            <span className="absolute bottom-2.5 right-3 inline-flex items-center px-2 py-1 rounded-lg bg-black/55 backdrop-blur-sm text-[11px] font-bold text-white/90 tabular-nums">hace {ago(d.timestamp)}</span>
                                         </button>
                                     );
                                 })}
