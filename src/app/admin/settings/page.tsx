@@ -1672,6 +1672,7 @@ function WhatsAppSection() {
     const [newAllow, setNewAllow] = useState("");
     const [savingAllow, setSavingAllow] = useState(false);
     const [chatbotEnabled, setChatbotEnabled] = useState(true);
+    const [webhook, setWebhook] = useState("");
     const [drawer, setDrawer] = useState<DrawerKey>(null);
 
     useEffect(() => { loadConfig(); }, []);
@@ -1681,15 +1682,17 @@ function WhatsAppSection() {
         try {
             // Fuente única: en San Nicolás la config vive en OPENWA_* (lo que prioriza
             // getWhatsAppConfig()); se mantiene el respaldo a WAHA_* para no romper Olivos.
-            const [url, apiKey, cmdConfig, allowEn, allowLs, cbEn, wUrl, wKey] = await Promise.all([
+            const [url, apiKey, cmdConfig, allowEn, allowLs, cbEn, wUrl, wKey, hook, wHook] = await Promise.all([
                 getSetting("OPENWA_URL"), getSetting("OPENWA_API_KEY"), getSetting("WAHA_COMMANDS"),
                 getSetting("WHATSAPP_ALLOWLIST_ENABLED"), getSetting("WHATSAPP_ALLOWLIST"), getSetting("CHATBOT_ENABLED"),
                 getSetting("WAHA_URL"), getSetting("WAHA_API_KEY"),
+                getSetting("OPENWA_WEBHOOK_URL"), getSetting("WAHA_WEBHOOK_URL"),
             ]);
             setAllowEnabled(allowEn?.value === "true");
             setChatbotEnabled(cbEn?.value !== "false");
             try { const a = JSON.parse(allowLs?.value || "[]"); if (Array.isArray(a)) setAllowList(a); } catch { }
             setConfig({ url: url?.value || wUrl?.value || "", apiKey: apiKey?.value || wKey?.value || "" });
+            setWebhook(hook?.value || wHook?.value || "");
             if (cmdConfig?.value) {
                 try {
                     const savedCommands = JSON.parse(cmdConfig.value);
@@ -1777,8 +1780,9 @@ function WhatsAppSection() {
                 <Info className="text-blue-400 shrink-0 mt-0.5" size={16} />
                 <div className="min-w-0">
                     <h4 className="text-xs font-bold text-blue-100 uppercase mb-1">Webhook (automático)</h4>
-                    <p className="text-[11px] text-blue-200/60 mb-1.5">Se configura solo al vincular. Apunta a:</p>
-                    <code className="block bg-muted/50 rounded p-2 text-[10px] font-mono text-blue-300 break-all">http://172.16.2.71:10000/api/waha/webhook</code>
+                    <p className="text-[11px] text-blue-200/60 mb-1.5">Se configura al crear la sesión. Apunta a:</p>
+                    {/* Sale de Settings (OPENWA_WEBHOOK_URL). Antes era un IP fijo de otro barrio. */}
+                    <code className="block bg-muted/50 rounded p-2 text-[10px] font-mono text-blue-300 break-all">{webhook || "sin configurar — cargá OPENWA_WEBHOOK_URL en Ajustes"}</code>
                 </div>
             </div>
 

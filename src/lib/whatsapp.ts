@@ -9,17 +9,27 @@ import axios from "axios";
  * Auth header: X-API-Key. Config from Settings (OPENWA_* with WAHA_* fallback).
  */
 export async function getWhatsAppConfig() {
-    const [url, apiKey, session, wahaUrl, wahaKey] = await Promise.all([
+    const [url, apiKey, session, wahaUrl, wahaKey, hook, wahaHook, eventIp] = await Promise.all([
         getSetting("OPENWA_URL"),
         getSetting("OPENWA_API_KEY"),
         getSetting("OPENWA_SESSION"),
         getSetting("WAHA_URL"),
         getSetting("WAHA_API_KEY"),
+        getSetting("OPENWA_WEBHOOK_URL"),
+        getSetting("WAHA_WEBHOOK_URL"),
+        getSetting("EVENT_HOST_IP"),
     ]);
+    // A dónde tiene que avisar WAHA cuando llega un mensaje: el server de webhooks (:10000,
+    // ruta /api/waha/webhook en server.js). Antes era un texto fijo con el IP de Olivos
+    // dentro de la pantalla de Ajustes, que no configuraba nada y mentía en cada barrio.
+    // Sale de Settings; si no está, se deriva del host de eventos; si tampoco, queda vacío
+    // y la pantalla lo dice (no se inventa).
+    const derivedHook = eventIp?.value ? `http://${eventIp.value}:10000/api/waha/webhook` : "";
     return {
         url: (url?.value || wahaUrl?.value || process.env.OPENWA_URL || "http://192.168.99.22:2785").replace(/\/+$/, ""),
         apiKey: apiKey?.value || wahaKey?.value || process.env.OPENWA_API_KEY || "",
         session: session?.value || process.env.OPENWA_SESSION || "omniaccess",
+        webhookUrl: hook?.value || wahaHook?.value || process.env.OPENWA_WEBHOOK_URL || derivedHook,
     };
 }
 
