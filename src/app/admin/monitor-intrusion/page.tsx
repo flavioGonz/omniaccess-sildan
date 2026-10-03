@@ -599,12 +599,15 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
     const clearAll = () => { setQ(""); setDev(""); setType("ANALYTIC"); setAck("all"); setFrom(""); setTo(""); };
     const stats = useMemo(() => { const by: Record<string, number> = {}; let pend = 0, done = 0; for (const d of items) { by[d.type] = (by[d.type] || 0) + 1; if (d.acknowledged) done++; else pend++; } return { by, pend, done }; }, [items]);
     const [hoverId, setHoverId] = useState<string | null>(null);
+    const [playId, setPlayId] = useState<string | null>(null);
+    const [ready, setReady] = useState(false);
+    const [camOpen, setCamOpen] = useState(false);
     const hoverTimer = useRef<any>(null);
     const nvrRef = useRef<Record<string, string | null>>({});
     const [, setNvrTick] = useState(0);
     const resolveNvr = (deviceId: string) => { if (deviceId in nvrRef.current) return; fetch(`/api/nvr/channel?deviceId=${deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { nvrRef.current[deviceId] = j && j.nvr ? String(j.nvr) : null; setNvrTick((t) => t + 1); }).catch(() => { nvrRef.current[deviceId] = null; setNvrTick((t) => t + 1); }); };
-    const onCardEnter = (d: DetHistItem) => { clearTimeout(hoverTimer.current); if (d.deviceId) resolveNvr(d.deviceId); hoverTimer.current = setTimeout(() => setHoverId(d.id), 3000); };
-    const onCardLeave = () => { clearTimeout(hoverTimer.current); setHoverId(null); };
+    const onCardEnter = (d: DetHistItem) => { clearTimeout(hoverTimer.current); setHoverId(d.id); setReady(false); if (d.deviceId) resolveNvr(d.deviceId); hoverTimer.current = setTimeout(() => setPlayId(d.id), 3000); };
+    const onCardLeave = () => { clearTimeout(hoverTimer.current); setHoverId(null); setPlayId(null); setReady(false); };
     const geomRef = useRef<Record<string, Geom>>({});
     const [, setGeomTick] = useState(0);
     useEffect(() => { const ids = [...new Set(items.map((d) => d.deviceId).filter(Boolean))] as string[]; const missing = ids.filter((id) => !(id in geomRef.current)); if (!missing.length) return; getAnalyticsGeometryBatch(missing).then((g) => { geomRef.current = { ...geomRef.current, ...g }; setGeomTick((t) => t + 1); }).catch(() => { }); }, [items]);
@@ -627,7 +630,18 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
                     <Block icon={<Search size={15} />} title="Buscar"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cámara o NVR…" className={inp} /></Block>
                     <Block icon={<ShieldAlert size={15} />} title="Tipo de evento"><div className="grid grid-cols-2 gap-1.5">{TF.map((f) => (<button key={f.k} onClick={() => setType(f.k)} className={cn("inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[12px] font-bold transition-colors", type === f.k ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" : "bg-white/5 text-white/55 hover:bg-white/10")}><f.Icon size={13} /> {f.label}</button>))}</div></Block>
-                    <Block icon={<Camera size={15} />} title="Cámara"><select value={dev} onChange={(e) => setDev(e.target.value)} className={cn(inp, "px-2.5")}><option value="">Todas las cámaras</option>{cams.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Block>
+                    <Block icon={<Camera size={15} />} title="Cámara">
+                        <button type="button" onClick={() => setCamOpen((v) => !v)} className="w-full h-10 px-3 rounded-xl bg-white/5 ring-1 ring-white/10 text-[13px] text-white flex items-center justify-between hover:bg-white/10 transition">
+                            <span className="truncate">{dev ? (cams.find((c) => c.id === dev)?.name || "Cámara") : "Todas las cámaras"}</span>
+                            <ChevronDown size={15} className={cn("text-white/50 transition-transform shrink-0", camOpen && "rotate-180")} />
+                        </button>
+                        {camOpen && (
+                            <div className="mt-1.5 max-h-56 overflow-y-auto custom-scrollbar rounded-xl bg-neutral-800 ring-1 ring-white/15 shadow-xl divide-y divide-white/5">
+                                <button onClick={() => { setDev(""); setCamOpen(false); }} className={cn("w-full text-left px-3 py-2 text-[13px] transition hover:bg-white/10", dev === "" ? "text-red-300 font-bold" : "text-white/80")}>Todas las cámaras</button>
+                                {cams.map((cc) => (<button key={cc.id} onClick={() => { setDev(cc.id); setCamOpen(false); }} className={cn("w-full text-left px-3 py-2 text-[13px] truncate transition hover:bg-white/10", dev === cc.id ? "text-red-300 font-bold" : "text-white/80")}>{cc.name}</button>))}
+                            </div>
+                        )}
+                    </Block>
                     <Block icon={<Check size={15} />} title="Estado"><div className="flex gap-1.5">{([["all", "Todas"], ["pending", "Pendientes"], ["done", "Revisadas"]] as const).map(([k, lbl]) => (<button key={k} onClick={() => setAck(k)} className={cn("flex-1 px-1.5 py-2 rounded-xl text-[11px] font-bold transition-colors", ack === k ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" : "bg-white/5 text-white/55 hover:bg-white/10")}>{lbl}</button>))}</div></Block>
                     <Block icon={<CalIco size={15} />} title="Rango de fechas"><div className="space-y-2"><label className="block"><span className="text-[11px] font-bold text-white/40">Desde</span><input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className={cn(inp, "px-2.5 text-[12px]")} /></label><label className="block"><span className="text-[11px] font-bold text-white/40">Hasta</span><input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className={cn(inp, "px-2.5 text-[12px]")} /></label></div></Block>
                 </div>
@@ -656,17 +670,19 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                                     <button key={d.id} onClick={() => onOpen(d)} onMouseEnter={() => onCardEnter(d)} onMouseLeave={onCardLeave} className="group relative aspect-video rounded-2xl overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.02] transition-all duration-150 bg-neutral-900 text-left shadow-lg">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
-                                        {hoverId === d.id && d.deviceId && nvrRef.current[d.deviceId] && d.ch != null && (
+                                        {playId === d.id && d.deviceId && nvrRef.current[d.deviceId] && d.ch != null && (
                                             // eslint-disable-next-line jsx-a11y/media-has-caption
-                                            <video autoPlay muted loop playsInline src={`/api/nvr/playback?ch=${d.ch}&t=${Math.floor(new Date(d.timestamp).getTime())}&pre=3&dur=14&nvr=${nvrRef.current[d.deviceId]}`} className="absolute inset-0 w-full h-full object-cover z-[1] bg-black" />
+                                            <video autoPlay muted loop playsInline onPlaying={() => setReady(true)} onLoadedData={() => setReady(true)} src={`/api/nvr/playback?ch=${d.ch}&t=${Math.floor(new Date(d.timestamp).getTime())}&pre=3&dur=14&nvr=${nvrRef.current[d.deviceId]}`} className="absolute inset-0 w-full h-full object-cover z-[1] bg-black" />
                                         )}
-                                        {hoverId === d.id && d.deviceId && !(d.deviceId in nvrRef.current) && (<div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-[3] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/60 text-[9px] font-bold text-white/70"><Loader2 size={10} className="animate-spin" /> cargando…</div>)}
                                         <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
                                         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
                                         {d.deviceId && geomRef.current[d.deviceId] && <div className="absolute inset-0 z-[1] pointer-events-none"><GeomOverlay geom={geomRef.current[d.deviceId]} /></div>}
-                                        <div className="absolute inset-0 z-[2] grid place-items-center pointer-events-none">
-                                            <button onClick={(e) => { e.stopPropagation(); onPlay?.(d); }} data-tooltip-id="mi-tip" data-tooltip-content="Ver grabación del evento" className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-black/45 backdrop-blur-md ring-2 ring-white/70 text-white shadow-2xl opacity-0 group-hover:opacity-100 hover:bg-red-600/85 hover:ring-red-300 transition-all active:scale-90"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg></button>
-                                        </div>
+                                        {playId === d.id && !ready && (
+                                            <div className="absolute inset-0 z-[2] grid place-items-center pointer-events-none">
+                                                <div className="absolute inset-0 sk opacity-50" />
+                                                <span className="relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-sm text-white text-[12px] font-bold shadow"><Loader2 size={14} className="animate-spin" /> Cargando evento<Dots /></span>
+                                            </div>
+                                        )}
                                         {(() => { const st = !d.acknowledged ? { t: "Pendiente", c: "bg-amber-500/90" } : d.ackKind === "false" ? { t: "Falsa", c: "bg-slate-500/90" } : { t: "Real", c: "bg-red-600/90" }; return <span className={cn("absolute top-2.5 right-2.5 z-[1] inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide text-white shadow backdrop-blur-sm", st.c)}>{st.t}</span>; })()}
                                         <div className="absolute top-2.5 left-3 right-14"><div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div><div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? " · CH " + d.ch : "") + " · " : "") + when}</div></div>
                                         <span className={cn("absolute bottom-2.5 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm shadow", m.cls)}><m.Icon size={13} /> {m.label}</span>
