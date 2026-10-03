@@ -23,18 +23,37 @@ const DEFAULT: BarrioMapData = {
     divisions: [],
 };
 
+// Los lotes de San Nicolás se guardaron durante meses bajo `lots` (con `label` y `unitId`);
+// el mapa de Olivos los llama `lotes` (con `name` y `parkingSlotId`). El 3/10/2026 esta
+// función leía SOLO `lotes`, devolvió una lista vacía, y el siguiente guardado escribió esa
+// lista vacía encima: 81 lotes dibujados a mano desaparecieron (se recuperaron del dump de
+// la mudanza). De acá sale la regla: se acepta la clave vieja, y nunca se tira una clave
+// que esta función no conoce.
+function normalizarLotes(d: any): BarrioMapData["lotes"] {
+    const src = Array.isArray(d?.lotes) && d.lotes.length ? d.lotes : (Array.isArray(d?.lots) ? d.lots : []);
+    return src.map((l: any) => ({
+        ...l,
+        id: l.id,
+        name: l.name ?? l.label ?? l.id,
+        points: Array.isArray(l.points) ? l.points : [],
+    }));
+}
+
 export async function getBarrioMap(): Promise<BarrioMapData> {
     try {
         const row = await prisma.setting.findUnique({ where: { key: "BARRIO_MAP" } });
         if (!row?.value) return DEFAULT;
         const d = JSON.parse(row.value);
         return {
+            // Lo que esta función no modela (bearing, pitch, tresD, base…) viaja igual, para
+            // que el mapa lo use y el guardado lo devuelva intacto.
+            ...d,
             center: Array.isArray(d.center) ? d.center : DEFAULT.center,
             zoom: typeof d.zoom === "number" ? d.zoom : DEFAULT.zoom,
             perimeter: Array.isArray(d.perimeter) ? d.perimeter : [],
             streets: Array.isArray(d.streets) ? d.streets : [],
             cameras: Array.isArray(d.cameras) ? d.cameras : [],
-            lotes: Array.isArray(d.lotes) ? d.lotes : [],
+            lotes: normalizarLotes(d),
             divisions: Array.isArray(d.divisions) ? d.divisions : [],
         };
     } catch {
@@ -44,10 +63,19 @@ export async function getBarrioMap(): Promise<BarrioMapData> {
 
 export async function saveBarrioMap(data: BarrioMapData): Promise<{ ok: boolean; error?: string }> {
     try {
+        // Se guarda ENCIMA de lo que hay, no en reemplazo: una pantalla que conoce menos
+        // claves que la base no puede borrar las demás. `lots` sí se retira: como
+        // getBarrioMap ya los entrega como `lotes`, la pantalla siempre los ve, y lo que
+        // manda en `lotes` es la verdad (si viene vacío es porque el usuario los borró).
+        const row = await prisma.setting.findUnique({ where: { key: "BARRIO_MAP" } });
+        let previo: any = {};
+        try { previo = row?.value ? JSON.parse(row.value) : {}; } catch { previo = {}; }
+        const { lots: _lotsViejos, ...resto } = previo;
+        const fusionado = { ...resto, ...data };
         await prisma.setting.upsert({
             where: { key: "BARRIO_MAP" },
-            update: { value: JSON.stringify(data) },
-            create: { key: "BARRIO_MAP", value: JSON.stringify(data) },
+            update: { value: JSON.stringify(fusionado) },
+            create: { key: "BARRIO_MAP", value: JSON.stringify(fusionado) },
         });
         return { ok: true };
     } catch (e: any) {
