@@ -532,6 +532,101 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
     );
 }
 
+function EvidenceGallery({ cams, onClose, onOpen }: { cams: IntrusionCam[]; onClose: () => void; onOpen: (d: DetHistItem) => void }) {
+    const [items, setItems] = useState<DetHistItem[]>([]);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(0);
+    const [type, setType] = useState<"ANALYTIC" | "ALL" | "MOTION" | "INTRUSION" | "LINECROSS">("ANALYTIC");
+    const [dev, setDev] = useState<string>("");
+    const [q, setQ] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [more, setMore] = useState(true);
+    const size = 48;
+    useEffect(() => { setPage(0); setItems([]); setMore(true); }, [type, dev]);
+    useEffect(() => {
+        let on = true; setLoading(true);
+        getDetectionHistory({ page, pageSize: size, type, deviceId: dev || undefined }).then((r) => {
+            if (!on) return;
+            setTotal(r.total);
+            setItems((prev) => (page === 0 ? r.items : [...prev, ...r.items]));
+            setMore((page + 1) * size < r.total);
+        }).catch(() => { }).finally(() => { if (on) setLoading(false); });
+        return () => { on = false; };
+    }, [page, type, dev]);
+    const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; if (!loading && more && el.scrollTop + el.clientHeight >= el.scrollHeight - 400) setPage((p) => p + 1); };
+    const shown = q.trim() ? items.filter((d) => (d.deviceName || "").toLowerCase().includes(q.trim().toLowerCase()) || (d.nvrName || "").toLowerCase().includes(q.trim().toLowerCase())) : items;
+    const TF = [
+        { k: "ANALYTIC", label: "Intrusión+" }, { k: "INTRUSION", label: "Intrusión" }, { k: "LINECROSS", label: "Línea" }, { k: "MOTION", label: "Movimiento" }, { k: "ALL", label: "Todo" },
+    ] as const;
+    return (
+        <div className="fixed inset-0 z-[2090] bg-neutral-950/95 backdrop-blur-sm flex" onClick={onClose}>
+            <div className="w-64 shrink-0 h-full bg-neutral-900/80 border-r border-white/10 flex flex-col" onClick={(e) => e.stopPropagation()}>
+                <div className="px-4 py-4 flex items-center gap-2 border-b border-white/10">
+                    <span className="grid h-8 w-8 place-items-center rounded-lg bg-red-500/15"><Camera size={16} className="text-red-400" /></span>
+                    <span className="text-sm font-bold text-white">Evidencia</span>
+                </div>
+                <div className="p-3 space-y-4 overflow-y-auto custom-scrollbar">
+                    <div className="relative">
+                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
+                        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cámara…" className="w-full h-9 pl-8 pr-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-white/25" />
+                    </div>
+                    <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">Tipo de evento</div>
+                        <div className="flex flex-col gap-1">
+                            {TF.map((f) => (
+                                <button key={f.k} onClick={() => setType(f.k)} className={cn("text-left px-2.5 py-1.5 rounded-lg text-[12px] font-bold transition-colors", type === f.k ? "bg-red-500/20 text-red-300" : "text-white/60 hover:text-white hover:bg-white/5")}>{f.label}</button>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">Cámara</div>
+                        <select value={dev} onChange={(e) => setDev(e.target.value)} className="w-full h-9 px-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-[13px] text-white focus:outline-none [color-scheme:dark]">
+                            <option value="">Todas</option>
+                            {cams.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+                <div className="mt-auto px-4 py-3 border-t border-white/10 text-[11px] text-white/45">{total} eventos</div>
+            </div>
+            <div className="flex-1 h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
+                <div className="px-5 py-3.5 flex items-center gap-3 border-b border-white/10">
+                    <span className="text-sm font-bold text-white">Evidencia · {shown.length}{(q || dev) ? ` de ${total}` : ""}</span>
+                    {loading && <Loader2 size={15} className="animate-spin text-white/50" />}
+                    <button onClick={onClose} className="ml-auto w-9 h-9 grid place-items-center rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white transition"><X size={18} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-4" onScroll={onScroll}>
+                    {shown.length === 0 && !loading ? (
+                        <div className="h-full grid place-items-center text-white/40 text-sm">Sin evidencia para este filtro.</div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
+                            {shown.map((d) => {
+                                const m = META[d.type] || META.OTHER;
+                                const href = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
+                                const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+                                return (
+                                    <button key={d.id} onClick={() => onOpen(d)} className="group relative aspect-video rounded-2xl overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.02] transition-all duration-150 bg-neutral-900 text-left shadow-lg">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
+                                        <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
+                                        <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
+                                        <div className="absolute top-2.5 left-3 right-3">
+                                            <div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div>
+                                            <div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? " · CH " + d.ch : "") + " · " : "") + when}</div>
+                                        </div>
+                                        <span className={cn("absolute bottom-2.5 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm shadow", m.cls)}><m.Icon size={13} /> {m.label}</span>
+                                        <span className="absolute bottom-2.5 right-3 inline-flex items-center px-2 py-1 rounded-lg bg-black/55 backdrop-blur-sm text-[11px] font-bold text-white/90 tabular-nums">hace {ago(d.timestamp)}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {loading && items.length > 0 && <div className="flex items-center justify-center gap-2 py-5 text-[12px] text-white/45"><Loader2 size={14} className="animate-spin" /> Cargando más…</div>}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function HistoryModal({ onClose, onOpen }: { onClose: () => void; onOpen: (d: DetHistItem) => void }) {
     const [items, setItems] = useState<DetHistItem[]>([]);
     const [total, setTotal] = useState(0);
@@ -1102,6 +1197,7 @@ export default function MonitorIntrusion() {
     const [alarmDev, setAlarmDev] = useState<IntrusionCam | null>(null);
     const [detail, setDetail] = useState<any>(null);
     const [showHistory, setShowHistory] = useState(false);
+    const [showEvidence, setShowEvidence] = useState(false);
 
     // Reconstruir alarmas sin aceptar al cargar la página (overlays persistentes)
     useEffect(() => {
@@ -1246,6 +1342,7 @@ export default function MonitorIntrusion() {
                     </div>
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-400"><Circle size={8} className="fill-emerald-500 text-emerald-500 animate-pulse" /> En vivo</span>
                     <button onClick={() => setShowHistory(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><History size={13} /> Historial</button>
+                    <button onClick={() => setShowEvidence(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><Camera size={13} /> Evidencia</button>
                     <div className="inline-flex rounded-xl border border-border p-0.5 bg-card">
                         {(["ANALYTIC", "MOTION", "ALL"] as const).map((f) => (
                             <button key={f} onClick={() => setFilter(f)} className={cn("px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-colors", filter === f ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:text-foreground")}>
@@ -1358,6 +1455,7 @@ export default function MonitorIntrusion() {
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
                 hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
+            {showEvidence && <EvidenceGallery cams={cams} onClose={() => setShowEvidence(false)} onOpen={(d) => setDetail(d)} />}
             {liveDev && <LiveModal key={liveDev.id} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
             <RTooltip id="mi-tip" place="top" delayShow={100} className="!z-[9999] !rounded-md !bg-zinc-900 !text-white !text-[11px] !font-semibold !px-2 !py-1 !border !border-white/10 !shadow-xl !opacity-100" />
         </div>
