@@ -92,11 +92,11 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/3101
     - ffmpeg:lpr_cmuofv5vw001qwbvd1q5j8xxc_hd#video=h264
   lpr_cmuofv5vx001rwbvdl7kfc2ni:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/3202
-    - ffmpeg:lpr_cmuofv5vx001rwbvdl7kfc2ni#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.157:554/Streaming/Channels/102
+    - ffmpeg:lpr_cmuofv5vx001rwbvdl7kfc2ni#video=h264#hardware=vaapi
   lpr_cmuofv5vx001rwbvdl7kfc2ni_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/3201
-    - ffmpeg:lpr_cmuofv5vx001rwbvdl7kfc2ni_hd#video=h264
+    - ffmpeg:lpr_cmuofv5vx001rwbvdl7kfc2ni_hd#video=h264#hardware=vaapi
   lpr_cmuofv5uy0001wbvdqhslkt1n:
     - rtsp://admin:Sildan.1329@172.16.2.95:554/Streaming/Channels/102
     - ffmpeg:lpr_cmuofv5uy0001wbvdqhslkt1n#video=h264#hardware=vaapi
@@ -206,7 +206,7 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/1901
     - ffmpeg:lpr_cmuofv5v9000iwbvdxlil111j_hd#video=h264
   lpr_cmuofv5va000jwbvd911e5la2:
-    - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2002
+    - rtsp://admin:Sildan.1329@172.16.2.224:554/Streaming/Channels/102
     - ffmpeg:lpr_cmuofv5va000jwbvd911e5la2#video=h264#hardware=vaapi
   lpr_cmuofv5va000jwbvd911e5la2_hd:
     - rtsp://admin:Sildan.1329@172.16.2.248:554/Streaming/Channels/2001

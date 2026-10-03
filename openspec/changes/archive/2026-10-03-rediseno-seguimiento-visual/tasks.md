@@ -21,5 +21,5 @@
 
 ## 4. Verificación
 
-- [ ] 4.1 Build DONE_0 + monitor-intrusion 200 + probar el flujo de seguimiento de punta a punta
+- [x] 4.1 Build DONE_0 + monitor-intrusion 200 + probar el flujo de seguimiento de punta a punta
       (verificación: checklist en verde).

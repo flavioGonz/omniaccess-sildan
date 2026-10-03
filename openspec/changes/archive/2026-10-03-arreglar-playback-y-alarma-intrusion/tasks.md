@@ -5,7 +5,7 @@
 - [x] 1.1 Cambiar los ffmpeg de `/api/nvr/playback` (streaming, whole=1, download=1) a decode por
       software + `scale=-2:720,format=nv12,hwupload` + `h264_vaapi` (verificación: `ffmpeg` del
       clip exit 0 con frames reales en Dahua .2, Hik .248 y Hik .249).
-- [ ] 1.2 Verificar en el navegador que un clip reproduce en un canal HEVC y en Dahua
+- [x] 1.2 Verificar en el navegador que un clip reproduce en un canal HEVC y en Dahua
       (verificación: el `<video>` muestra imagen, no póster ni "Sin grabación").
 
 ## 2. PiP cerrable
@@ -25,5 +25,5 @@
 
 ## 4. Verificación integral
 
-- [ ] 4.1 Build DONE_0 + `/admin/monitor-intrusion` responde 200 + probar playback y el flujo de
+- [x] 4.1 Build DONE_0 + `/admin/monitor-intrusion` responde 200 + probar playback y el flujo de
       alarma de punta a punta (verificación: checklist en verde).
