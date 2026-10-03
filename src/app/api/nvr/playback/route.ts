@@ -37,25 +37,32 @@ const codecCache: Map<string, CodecHit> = (globalThis as any).__nvrCodec ?? new 
 (globalThis as any).__nvrCodec = codecCache;
 const CODEC_TTL = 30 * 60 * 1000;
 
-function probeCodec(url: string): Promise<string | null> {
+function isapiCodecHik(conn: any, ch: string): Promise<string | null> {
+    // Lee <videoCodecType> del canal por ISAPI (HTTP+Digest) ~200ms. Mucho mas barato
+    // que abrir un RTSP de playback solo para sondear el codec.
     return new Promise((resolve) => {
-        const p = spawn("ffprobe", [
-            "-v", "error", "-rtsp_transport", "tcp",
-            "-probesize", "400000", "-analyzeduration", "600000",
-            "-select_streams", "v:0", "-show_entries", "stream=codec_name",
-            "-of", "default=nw=1:nk=1", "-i", url,
+        const p = spawn("curl", [
+            "-s", "--digest", "-u", `${conn.user}:${conn.pass}`, "--max-time", "5",
+            `http://${conn.ip}/ISAPI/Streaming/channels/${ch}01`,
         ], { stdio: ["ignore", "pipe", "ignore"] });
         let out = "";
         const killer = setTimeout(() => { try { p.kill("SIGKILL"); } catch { } resolve(null); }, 6000);
         p.stdout.on("data", (d: Buffer) => { out += d.toString(); });
-        p.on("close", () => { clearTimeout(killer); resolve((out.trim().split(/\s+/)[0] || "").toLowerCase() || null); });
+        p.on("close", () => { clearTimeout(killer); const m = /<videoCodecType>([^<]+)</i.exec(out); resolve(m ? m[1] : null); });
         p.on("error", () => { clearTimeout(killer); resolve(null); });
     });
 }
-async function getCodec(key: string, url: string): Promise<string | null> {
+async function getCodec(conn: any, ch: string): Promise<string | null> {
+    const key = `${conn.ip}:${ch}`;
     const hit = codecCache.get(key);
     if (hit && Date.now() - hit.ts < CODEC_TTL) return hit.c;
-    const c = await probeCodec(url);
+    let c: string | null = null;
+    if (String(conn.brand || "").toUpperCase().includes("DAHUA")) {
+        c = "h264"; // los NVR Dahua de este sitio graban H.264
+    } else {
+        const raw = ((await isapiCodecHik(conn, ch)) || "").toUpperCase();
+        c = raw.includes("265") || raw.includes("HEVC") ? "hevc" : raw.includes("264") ? "h264" : null;
+    }
     if (c) codecCache.set(key, { c, ts: Date.now() });
     return c;
 }
@@ -86,8 +93,7 @@ export async function GET(req: NextRequest) {
     }
 
     // ¿El origen es H.264? → remux directo (copy). ¿HEVC? → transcode.
-    const codecKey = `${conn.ip}:${ch}`;
-    const srcCodec = await getCodec(codecKey, url);
+    const srcCodec = await getCodec(conn, ch);
     const canCopy = srcCodec === "h264";
 
     // Decode por codec (solo ruta transcode): Dahua = H.264 -> GPU (VAAPI);
