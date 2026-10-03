@@ -26,8 +26,42 @@ function fmtDahua(ms: number): string {
     return `${g("year")}_${g("month")}_${g("day")}_${hh}_${g("minute")}_${g("second")}`;
 }
 
+// ── Códec del canal (cacheado): si el origen ya es H.264, lo pasamos DIRECTO al
+// navegador con -c:v copy (remux puro, sin decode/scale/encode) → arranque casi
+// instantáneo y CERO carga de GPU. Solo HEVC/H.265 necesita transcode (el navegador
+// no lo reproduce en MP4). El códec de un canal es constante, así que cacheamos por
+// (ip:ch) por 30 min. (ffprobe verificado: el H.264+/SmartCodec de estos NVR decodifica
+// limpio; lo "corrupto" del restream RTSP de la lección de campo era de otra serie.)
+type CodecHit = { c: string; ts: number };
+const codecCache: Map<string, CodecHit> = (globalThis as any).__nvrCodec ?? new Map<string, CodecHit>();
+(globalThis as any).__nvrCodec = codecCache;
+const CODEC_TTL = 30 * 60 * 1000;
+
+function probeCodec(url: string): Promise<string | null> {
+    return new Promise((resolve) => {
+        const p = spawn("ffprobe", [
+            "-v", "error", "-rtsp_transport", "tcp",
+            "-probesize", "400000", "-analyzeduration", "600000",
+            "-select_streams", "v:0", "-show_entries", "stream=codec_name",
+            "-of", "default=nw=1:nk=1", "-i", url,
+        ], { stdio: ["ignore", "pipe", "ignore"] });
+        let out = "";
+        const killer = setTimeout(() => { try { p.kill("SIGKILL"); } catch { } resolve(null); }, 6000);
+        p.stdout.on("data", (d: Buffer) => { out += d.toString(); });
+        p.on("close", () => { clearTimeout(killer); resolve((out.trim().split(/\s+/)[0] || "").toLowerCase() || null); });
+        p.on("error", () => { clearTimeout(killer); resolve(null); });
+    });
+}
+async function getCodec(key: string, url: string): Promise<string | null> {
+    const hit = codecCache.get(key);
+    if (hit && Date.now() - hit.ts < CODEC_TTL) return hit.c;
+    const c = await probeCodec(url);
+    if (c) codecCache.set(key, { c, ts: Date.now() });
+    return c;
+}
+
 // GET /api/nvr/playback?ch=8&t=<epochMs>&pre=10&dur=40
-// Streams recorded video from a Hikvision NVR (RTSP time-based playback) as fragmented MP4.
+// Streams recorded video from an NVR (RTSP time-based playback) as fragmented MP4.
 export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;
     const ch = sp.get("ch");
@@ -51,8 +85,13 @@ export async function GET(req: NextRequest) {
         url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
     }
 
-    // Decode por codec: Dahua = H.264 -> decode por GPU (VAAPI, limpio y liviano);
-    // Hik = HEVC -> decode por SOFTWARE (el VAAPI de HEVC de estos NVR corrompe: verde/gris).
+    // ¿El origen es H.264? → remux directo (copy). ¿HEVC? → transcode.
+    const codecKey = `${conn.ip}:${ch}`;
+    const srcCodec = await getCodec(codecKey, url);
+    const canCopy = srcCodec === "h264";
+
+    // Decode por codec (solo ruta transcode): Dahua = H.264 -> GPU (VAAPI);
+    // Hik HEVC -> decode por SOFTWARE (el VAAPI de HEVC de estos NVR corrompe: verde/gris).
     const isDahua = String(conn.brand || "").toUpperCase().includes("DAHUA");
     const DEC = isDahua ? ["-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi"] : [];
     const SWUP = isDahua ? [] : ["-vaapi_device", "/dev/dri/renderD128"];
@@ -66,13 +105,13 @@ export async function GET(req: NextRequest) {
         const fs = await import("fs");
         const path = await import("path");
         const tmp = path.join(os.tmpdir(), `clip_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+        const args = canCopy
+            ? ["-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+               "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", tmp]
+            : [...DEC, "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+               "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp];
         const ok = await new Promise<boolean>((resolve) => {
-            const ff2 = spawn("ffmpeg", [
-                ...DEC,
-                "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
-                "-an", ...SWUP, "-vf", VF,
-                "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp,
-            ], { stdio: ["ignore", "ignore", "ignore"] });
+            const ff2 = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "ignore"] });
             const killer = setTimeout(() => { try { ff2.kill("SIGKILL"); } catch { } resolve(false); }, 45000);
             ff2.on("close", (code) => { clearTimeout(killer); resolve(code === 0); });
             ff2.on("error", () => { clearTimeout(killer); resolve(false); });
@@ -97,22 +136,28 @@ export async function GET(req: NextRequest) {
         }
     }
 
-    // El track de grabación del NVR suele ser H.265/HEVC (p.ej. 2688x1520), que el navegador
-    // no decodifica en MP4 → el <video> quedaba negro y "Ajustando tiempo…" no terminaba nunca.
-    // Transcodificamos a H.264 por VAAPI (GPU) escalando a 720p para arranque rápido y fluido.
-    const ff = spawn("ffmpeg", [
-        // -allowed_media_types video: NO negociar la pista de audio del NVR (ahorra ~2s en abrir la reproducción)
-        "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
-        "-probesize", "500000", "-analyzeduration", "500000",
-        ...DEC,
-        "-rtsp_transport", "tcp",
-        "-i", url,
-        "-t", String(dur),
-        "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "24",
-        // fragmentos de 200ms → el navegador empieza a reproducir apenas llega el primer frame (no espera un GOP entero)
-        "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
-        "-f", "mp4", "pipe:1",
-    ], { stdio: ["ignore", "pipe", "ignore"] });
+    // Streaming (fragmented MP4 por pipe):
+    //  • H.264  → -c:v copy  : SIN transcode. Arranca casi al instante y no toca la GPU.
+    //  • HEVC   → transcode a H.264 por VAAPI, escalado a 720p (el navegador no reproduce HEVC en MP4).
+    const streamArgs = canCopy
+        ? [
+            "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
+            "-probesize", "500000", "-analyzeduration", "500000",
+            "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+            "-an", "-c:v", "copy",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
+            "-f", "mp4", "pipe:1",
+        ]
+        : [
+            "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
+            "-probesize", "500000", "-analyzeduration", "500000",
+            ...DEC,
+            "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+            "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "24",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
+            "-f", "mp4", "pipe:1",
+        ];
+    const ff = spawn("ffmpeg", streamArgs, { stdio: ["ignore", "pipe", "ignore"] });
 
     const stream = new ReadableStream({
         start(controller) {
