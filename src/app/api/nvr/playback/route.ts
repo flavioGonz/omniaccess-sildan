@@ -61,9 +61,11 @@ export async function GET(req: NextRequest) {
         const tmp = path.join(os.tmpdir(), `clip_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
         const ok = await new Promise<boolean>((resolve) => {
             const ff2 = spawn("ffmpeg", [
-                "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi",
+                // Decode por SOFTWARE (el decode VAAPI de HEVC de los NVR falla: "hardware accelerator
+                // failed to decode picture"); subimos a GPU y encodeamos h264_vaapi.
                 "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
-                "-an", "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp,
+                "-an", "-vaapi_device", "/dev/dri/renderD128", "-vf", "scale=-2:720,format=nv12,hwupload",
+                "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp,
             ], { stdio: ["ignore", "ignore", "ignore"] });
             const killer = setTimeout(() => { try { ff2.kill("SIGKILL"); } catch { } resolve(false); }, 45000);
             ff2.on("close", (code) => { clearTimeout(killer); resolve(code === 0); });
@@ -95,11 +97,11 @@ export async function GET(req: NextRequest) {
     const ff = spawn("ffmpeg", [
         // -allowed_media_types video: NO negociar la pista de audio del NVR (ahorra ~2s en abrir la reproducción)
         "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
-        "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi",
+        // Decode por SOFTWARE + hwupload (el decode VAAPI de HEVC de los NVR falla); encode en GPU.
         "-rtsp_transport", "tcp",
         "-i", url,
         "-t", String(dur),
-        "-an", "-vf", "scale_vaapi=w=-2:h=720", "-c:v", "h264_vaapi", "-qp", "24",
+        "-an", "-vaapi_device", "/dev/dri/renderD128", "-vf", "scale=-2:720,format=nv12,hwupload", "-c:v", "h264_vaapi", "-qp", "24",
         // fragmentos de 200ms → el navegador empieza a reproducir apenas llega el primer frame (no espera un GOP entero)
         "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
         "-f", "mp4", "pipe:1",

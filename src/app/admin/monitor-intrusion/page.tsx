@@ -586,6 +586,7 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", onClose, onOpenE
         return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); held.forEach((d) => ptzSend("stop", { dir: d })); };
     }, [tab, isPtz, ptzSpeed, cam.id]);
     const [hd, setHd] = useState(false);
+    const [showPip, setShowPip] = useState(true);
     const streamName = hd ? `lpr_${cam.id}_hd` : `lpr_${cam.id}`;
     // ── Visual Track: enlaces a cámaras vecinas de la misma escena ──
     const stageRef = useRef<HTMLDivElement>(null);
@@ -830,13 +831,19 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", onClose, onOpenE
                         ) : (
                             <div className="absolute inset-0 z-[1] grid place-items-center text-white/50 text-sm">Sin NVR/canal para reproducir grabación.</div>
                         )}
-                        {/* mini PiP del vivo (siempre visible en grabación, flotante sin marcos) */}
-                        {recSeen && (
+                        {/* mini PiP del vivo sobre la grabación — cerrable */}
+                        {recSeen && showPip && (
                             <div className="absolute right-4 top-16 z-30 w-40 sm:w-52 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/15 bg-black/60">
                                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                                 <video key={`pip_${cam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${cam.id}`)}&video=h264`} className="w-full h-full object-cover" />
                                 <span className="absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8.5px] font-extrabold uppercase tracking-wide text-red-300"><Circle size={6} className="fill-red-500 text-red-500 animate-pulse" /> Vivo</span>
+                                <button onClick={() => setShowPip(false)} data-tooltip-id="mi-tip" data-tooltip-content="Cerrar ventana de vivo"
+                                    className="absolute top-1 right-1 w-6 h-6 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white/80 hover:text-white transition"><X size={13} /></button>
                             </div>
+                        )}
+                        {recSeen && !showPip && (
+                            <button onClick={() => setShowPip(true)} data-tooltip-id="mi-tip" data-tooltip-content="Mostrar ventana de vivo"
+                                className="absolute right-4 top-16 z-30 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/55 hover:bg-black/80 ring-1 ring-white/15 text-[9px] font-extrabold uppercase tracking-wide text-red-300 transition"><Circle size={6} className="fill-red-500 text-red-500 animate-pulse" /> Vivo</button>
                         )}
                         {/* aviso centrado mientras el NVR abre/ubica la grabación (no tapa los controles de abajo) */}
                         {recLoading && playbackUrl && scrub == null && !noRec && (

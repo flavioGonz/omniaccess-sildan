@@ -2,7 +2,7 @@
 
 ## 1. Playback robusto (HEVC/H.264, Hik+Dahua)
 
-- [ ] 1.1 Cambiar los ffmpeg de `/api/nvr/playback` (streaming, whole=1, download=1) a decode por
+- [x] 1.1 Cambiar los ffmpeg de `/api/nvr/playback` (streaming, whole=1, download=1) a decode por
       software + `scale=-2:720,format=nv12,hwupload` + `h264_vaapi` (verificación: `ffmpeg` del
       clip exit 0 con frames reales en Dahua .2, Hik .248 y Hik .249).
 - [ ] 1.2 Verificar en el navegador que un clip reproduce en un canal HEVC y en Dahua
@@ -10,7 +10,7 @@
 
 ## 2. PiP cerrable
 
-- [ ] 2.1 Agregar estado `showPip` + botón de cerrar a la mini-ventana de vivo sobre el playback
+- [x] 2.1 Agregar estado `showPip` + botón de cerrar a la mini-ventana de vivo sobre el playback
       (verificación: al cerrar desaparece; hay forma de volver a mostrarla).
 
 ## 3. Aceptar alarma en la ficha del evento
