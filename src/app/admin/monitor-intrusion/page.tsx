@@ -532,7 +532,39 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
     );
 }
 
-function EvidenceGallery({ cams, onClose, onOpen }: { cams: IntrusionCam[]; onClose: () => void; onOpen: (d: DetHistItem) => void }) {
+function EvidencePlayModal({ d, onClose }: { d: DetHistItem; onClose: () => void }) {
+    const [nvr, setNvr] = useState<string | null | undefined>(undefined);
+    useEffect(() => { let on = true; if (!d.deviceId) { setNvr(null); return; } fetch(`/api/nvr/channel?deviceId=${d.deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (on) setNvr(j && j.nvr ? String(j.nvr) : null); }).catch(() => { if (on) setNvr(null); }); return () => { on = false; }; }, [d.deviceId]);
+    const ms = Math.floor(new Date(d.timestamp).getTime());
+    const url = nvr && d.ch != null ? `/api/nvr/playback?ch=${d.ch}&t=${ms}&pre=6&dur=40&nvr=${nvr}` : null;
+    const snap = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : undefined);
+    const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const m = META[d.type] || META.OTHER;
+    return (
+        <div className="fixed inset-0 z-[2300] bg-black/92 backdrop-blur-sm grid place-items-center p-4 sm:p-8" onClick={onClose}>
+            <div className="relative w-full max-w-5xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                {url ? (
+                    // eslint-disable-next-line jsx-a11y/media-has-caption
+                    <video src={url} autoPlay controls playsInline poster={snap} className="absolute inset-0 w-full h-full object-contain" />
+                ) : nvr === undefined ? (
+                    <div className="absolute inset-0 grid place-items-center text-white/60"><Loader2 className="animate-spin" size={26} /></div>
+                ) : (
+                    <div className="absolute inset-0 grid place-items-center text-center text-white/50 text-sm px-6">Sin grabación disponible para este evento<br />(la cámara no tiene NVR/canal mapeado).</div>
+                )}
+                <div className="absolute top-0 inset-x-0 p-4 flex items-start gap-3 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
+                    <span className={cn("grid h-10 w-10 place-items-center rounded-xl backdrop-blur-md ring-1 ring-white/10 shrink-0", m.cls)}><m.Icon size={19} /></span>
+                    <div className="min-w-0">
+                        <div className="text-[15px] font-extrabold text-white truncate drop-shadow">{d.deviceName || "Cámara"} · {m.label}</div>
+                        <div className="text-[12px] text-white/70 truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? ` · CH ${d.ch}` : "") + " · " : "") + when}</div>
+                    </div>
+                    <button onClick={onClose} className="pointer-events-auto ml-auto w-10 h-10 grid place-items-center rounded-full bg-black/40 hover:bg-black/70 text-white/80 hover:text-white backdrop-blur-sm shrink-0"><X size={20} /></button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam[]; onClose: () => void; onOpen: (d: DetHistItem) => void; onPlay?: (d: DetHistItem) => void }) {
     const [items, setItems] = useState<DetHistItem[]>([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
@@ -607,6 +639,12 @@ function EvidenceGallery({ cams, onClose, onOpen }: { cams: IntrusionCam[]; onCl
                                         {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
                                         <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
                                         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
+                                        <div className="absolute inset-0 z-[2] grid place-items-center pointer-events-none">
+                                            <button onClick={(e) => { e.stopPropagation(); onPlay?.(d); }} data-tooltip-id="mi-tip" data-tooltip-content="Ver grabación del evento"
+                                                className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-black/45 backdrop-blur-md ring-2 ring-white/70 text-white shadow-2xl opacity-0 group-hover:opacity-100 hover:bg-red-600/85 hover:ring-red-300 transition-all active:scale-90">
+                                                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                                            </button>
+                                        </div>
                                         {(() => { const st = !d.acknowledged ? { t: "Pendiente", c: "bg-amber-500/90" } : d.ackKind === "false" ? { t: "Falsa", c: "bg-slate-500/90" } : { t: "Real", c: "bg-red-600/90" }; return <span className={cn("absolute top-2.5 right-2.5 z-[1] inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide text-white shadow backdrop-blur-sm", st.c)}>{st.t}</span>; })()}
                                         <div className="absolute top-2.5 left-3 right-14">
                                             <div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div>
@@ -1251,6 +1289,7 @@ export default function MonitorIntrusion() {
     const [detail, setDetail] = useState<any>(null);
     const [showHistory, setShowHistory] = useState(false);
     const [showEvidence, setShowEvidence] = useState(false);
+    const [playDet, setPlayDet] = useState<DetHistItem | null>(null);
 
     // Reconstruir alarmas sin aceptar al cargar la página (overlays persistentes)
     useEffect(() => {
@@ -1508,7 +1547,8 @@ export default function MonitorIntrusion() {
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
                 hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
-            {showEvidence && <EvidenceGallery cams={cams} onClose={() => setShowEvidence(false)} onOpen={(d) => setDetail(d)} />}
+            {showEvidence && <EvidenceGallery cams={cams} onClose={() => setShowEvidence(false)} onOpen={(d) => setDetail(d)} onPlay={(d) => setPlayDet(d)} />}
+            {playDet && <EvidencePlayModal d={playDet} onClose={() => setPlayDet(null)} />}
             {liveDev && <LiveModal key={liveDev.id} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
             <RTooltip id="mi-tip" place="top" delayShow={100} className="!z-[9999] !rounded-md !bg-zinc-900 !text-white !text-[11px] !font-semibold !px-2 !py-1 !border !border-white/10 !shadow-xl !opacity-100" />
         </div>
