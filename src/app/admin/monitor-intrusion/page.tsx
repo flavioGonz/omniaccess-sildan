@@ -406,7 +406,7 @@ function AlarmAckModal({ cam, alarms, onResolve, onClose }: { cam: IntrusionCam;
     return (
         <div className="fixed inset-0 z-[2300] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8" onClick={onClose}>
             {/* ventana grande, sin bordes, controles overlay sobre la captura */}
-            <div className="relative w-full max-w-[92vw] max-h-[88vh] aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="relative w-full max-w-6xl max-h-[85vh] aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={snap} alt="" className="absolute inset-0 w-full h-full object-contain" />
                 <div className="absolute inset-0 pointer-events-none ring-4 ring-inset ring-red-500/70 rounded-2xl animate-pulse" />
@@ -610,7 +610,7 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
     );
 }
 
-function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose, onOpenEvent, onSwitchCam, onDismissFrom }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; fromCam?: IntrusionCam | null; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void; onDismissFrom?: () => void }) {
+function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStatus, onClose, onOpenEvent, onSwitchCam, onDismissFrom }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; fromCam?: IntrusionCam | null; camStatus?: Record<string, { recent: boolean; alarm: boolean }>; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void; onDismissFrom?: () => void }) {
     const [tab, setTab] = useState<"live" | "rec" | "evi">(initialTab);
     const isPtz = /ptz/i.test(cam.name || "");
     const [showPtz, setShowPtz] = useState(true);
@@ -784,8 +784,8 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose
     // ticks cada 3h para etiquetas + cada 1h finos
 
     return (
-        <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
-            <div className="relative w-full max-w-[92vw] max-h-[88vh] aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6" onClick={onClose}>
+            <div className="relative w-full max-w-6xl max-h-[85vh] aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 {/* ── VIVO ── */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={snap} alt="" className={cn("absolute inset-0 w-full h-full object-contain transition-all duration-500", (!ready || tab !== "live") && "blur-[6px] scale-105 brightness-[0.5]")} />
@@ -817,7 +817,7 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose
                         onPointerMove={(e) => { if (!trackEdit || dragLink.current == null) return; const { x, y } = stageXY(e.clientX, e.clientY); setLinks((prev) => prev.map((l, i) => i === dragLink.current ? { ...l, x, y } : l)); }}
                         onPointerUp={() => { if (dragLink.current != null) { dragLink.current = null; saveLinks(links); } }}
                         onPointerLeave={() => { if (dragLink.current != null) { dragLink.current = null; saveLinks(links); } }}>
-                        {linkTargets.map(({ l, c }, i) => (
+                        {linkTargets.map(({ l, c }, i) => { const stt = camStatus?.[c!.id]; const hasEvents = !!stt?.alarm; const hasRecent = !!stt?.recent; return (
                             <div key={c!.id} style={{ left: `${l.x * 100}%`, top: `${l.y * 100}%` }} className="absolute -translate-x-1/2 -translate-y-1/2">
                                 {trackEdit ? (
                                     <div onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); dragLink.current = i; }}
@@ -829,10 +829,11 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose
                                     </div>
                                 ) : (
                                     <button onClick={() => onSwitchCam?.(c!)} onMouseEnter={() => setHoverLink(i)} onMouseLeave={() => setHoverLink((h) => (h === i ? null : h))}
-                                        data-tooltip-id="mi-tip" data-tooltip-content={`Seguir a ${c!.name}`}
-                                        className="pointer-events-auto relative grid place-items-center w-11 h-11 rounded-full bg-black/50 hover:bg-amber-500/90 text-white backdrop-blur-md ring-1 ring-white/25 hover:ring-white/80 shadow-xl transition-all active:scale-90">
-                                        <span className="absolute inset-0 rounded-full bg-amber-400/40 animate-ping" />
-                                        <Crosshair size={18} className="relative" />
+                                        data-tooltip-id="mi-tip" data-tooltip-content={hasEvents ? `${c!.name} · ¡eventos!` : `Seguir a ${c!.name}`}
+                                        className={cn("pointer-events-auto relative grid place-items-center w-11 h-11 rounded-full text-white backdrop-blur-md ring-1 shadow-xl transition-all active:scale-90", hasEvents ? "bg-red-600/90 ring-red-300/70 animate-bounce" : "bg-black/50 hover:bg-amber-500/90 ring-white/25 hover:ring-white/80")}>
+                                        <span className={cn("absolute inset-0 rounded-full animate-ping", hasEvents ? "bg-red-500/60" : "bg-amber-400/40")} />
+                                        <Camera size={18} className="relative" />
+                                        {hasRecent && <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 ring-2 ring-black/70 shadow animate-pulse" />}
                                         {hoverLink === i && (
                                             <div className={cn("absolute w-52 rounded-xl overflow-hidden bg-black/85 backdrop-blur-md ring-1 ring-white/20 shadow-2xl pointer-events-none z-10", l.y < 0.42 ? "top-full mt-2" : "bottom-full mb-2", l.x < 0.2 ? "left-0" : l.x > 0.8 ? "right-0" : "left-1/2 -translate-x-1/2")}>
                                                 <div className="relative aspect-video bg-black">
@@ -850,7 +851,7 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose
                                     </button>
                                 )}
                             </div>
-                        ))}
+                        ); })}
                         {/* panel de edición */}
                         {trackEdit && (
                             <div className="pointer-events-auto absolute top-16 left-1/2 -translate-x-1/2 w-[min(90%,420px)] rounded-2xl bg-black/70 backdrop-blur-xl ring-1 ring-white/15 shadow-2xl p-3">
@@ -1165,6 +1166,7 @@ export default function MonitorIntrusion() {
     const [liveTab, setLiveTab] = useState<"live" | "rec" | "evi">("live");
     const [prevCam, setPrevCam] = useState<IntrusionCam | null>(null);
     const openFicha = (c: IntrusionCam) => setDetail(lastByDev[c.id] ?? { id: `live-${c.id}`, deviceId: c.id, deviceName: c.name, type: "OTHER", eventType: null, snapshotPath: null, timestamp: new Date().toISOString() });
+    const trackStatus = useMemo(() => { const now = Date.now(); const o: Record<string, { recent: boolean; alarm: boolean }> = {}; cams.forEach((c) => { const l = lastByDev[c.id]; o[c.id] = { recent: !!(l && now - new Date(l.timestamp).getTime() < 15 * 60 * 1000), alarm: !!(alarms[c.id]?.length) }; }); return o; }, [cams, lastByDev, alarms]);
     // Aceptar alarma abre la MISMA ficha del sidebar (con los botones real/falsa adentro).
     const openAlarmFicha = (c: IntrusionCam) => {
         const a = alarms[c.id]?.[0];
@@ -1335,7 +1337,7 @@ export default function MonitorIntrusion() {
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
                 hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); setDetail(null); }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
-            {liveDev && <LiveModal key={liveDev.id} cam={liveDev} cams={cams} initialTab={liveTab} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
+            {liveDev && <LiveModal key={liveDev.id} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
             <RTooltip id="mi-tip" place="top" delayShow={100} className="!z-[9999] !rounded-md !bg-zinc-900 !text-white !text-[11px] !font-semibold !px-2 !py-1 !border !border-white/10 !shadow-xl !opacity-100" />
         </div>
     );
