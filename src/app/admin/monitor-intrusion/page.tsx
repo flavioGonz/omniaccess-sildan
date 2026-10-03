@@ -603,7 +603,7 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
     const nvrRef = useRef<Record<string, string | null>>({});
     const [, setNvrTick] = useState(0);
     const resolveNvr = (deviceId: string) => { if (deviceId in nvrRef.current) return; fetch(`/api/nvr/channel?deviceId=${deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { nvrRef.current[deviceId] = j && j.nvr ? String(j.nvr) : null; setNvrTick((t) => t + 1); }).catch(() => { nvrRef.current[deviceId] = null; setNvrTick((t) => t + 1); }); };
-    const onCardEnter = (d: DetHistItem) => { clearTimeout(hoverTimer.current); if (d.deviceId) resolveNvr(d.deviceId); hoverTimer.current = setTimeout(() => setHoverId(d.id), 350); };
+    const onCardEnter = (d: DetHistItem) => { clearTimeout(hoverTimer.current); if (d.deviceId) resolveNvr(d.deviceId); hoverTimer.current = setTimeout(() => setHoverId(d.id), 3000); };
     const onCardLeave = () => { clearTimeout(hoverTimer.current); setHoverId(null); };
     const geomRef = useRef<Record<string, Geom>>({});
     const [, setGeomTick] = useState(0);
