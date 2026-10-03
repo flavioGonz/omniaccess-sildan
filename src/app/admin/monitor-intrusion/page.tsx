@@ -460,6 +460,22 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
     const hasGeom = !!(geom && ((geom.line && geom.line.length === 2) || (geom.field && geom.field.length >= 3)));
     const hasPrev = idx >= 0 && idx < sibs.length - 1; // más viejo
     const hasNext = idx > 0;                            // más nuevo
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const t = e.target as HTMLElement | null;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+            if (e.key === "ArrowLeft") { e.preventDefault(); go(1); }
+            else if (e.key === "ArrowRight") { e.preventDefault(); go(-1); }
+            else if (e.key === "Escape") { e.preventDefault(); onClose(); }
+            else if (hasAlarm && cur.deviceId && onResolveAlarm) {
+                const k = e.key.toLowerCase();
+                if (k === "a" || e.key === "Enter") { e.preventDefault(); onResolveAlarm(cur.deviceId, "real"); }
+                else if (k === "f" || k === "r") { e.preventDefault(); onResolveAlarm(cur.deviceId, "false"); }
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [cur, idx, sibs, hasAlarm, onResolveAlarm, onClose]);
     return (
         <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-10" onClick={onClose}>
             {/* flechas AFUERA del modal, para pasar eventos del canal */}
@@ -471,6 +487,11 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
             <button onClick={(e) => { e.stopPropagation(); onClose(); }} data-tooltip-id="mi-tip" data-tooltip-content="Cerrar"
                 className="absolute right-3 top-3 sm:right-6 sm:top-6 z-[6] w-11 h-11 grid place-items-center rounded-full bg-white/10 hover:bg-white/25 text-white ring-1 ring-white/15 backdrop-blur-md transition active:scale-90"><X size={22} /></button>
             <div className="relative w-full max-w-6xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[7] flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-black/65 backdrop-blur-md ring-1 ring-white/10 text-[10px] font-bold text-white/70 pointer-events-none">
+                    <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">←</kbd><kbd className="px-1 rounded bg-white/15">→</kbd> eventos</span>
+                    {hasAlarm && cur.deviceId && onResolveAlarm && (<><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-red-500/40 text-red-100">A</kbd> aceptar</span><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-amber-500/40 text-amber-100">F</kbd> falsa</span></>)}
+                    <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">Esc</kbd> cerrar</span>
+                </div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 {snap ? <img src={snap} alt="" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><ImageOff size={32} /></div>}
                 <GeomOverlay geom={geom} alert />
@@ -492,9 +513,9 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
                     {hasAlarm && cur.deviceId && onResolveAlarm ? (
                         <div className="flex items-center gap-2">
                             <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "false"); }}
-                                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> Falsa alarma</button>
+                                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> Falsa alarma <kbd className="ml-1 px-1 rounded bg-black/30 text-[10px]">F</kbd></button>
                             <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "real"); }}
-                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Confirmar real</button>
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Confirmar real <kbd className="ml-1 px-1 rounded bg-black/25 text-[10px]">A</kbd></button>
                         </div>
                     ) : <span />}
                     {/* datos apilados a la derecha, sin chips */}
@@ -1335,7 +1356,7 @@ export default function MonitorIntrusion() {
             }} />}
             {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
-                hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); setDetail(null); }} />}
+                hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
             {liveDev && <LiveModal key={liveDev.id} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
             <RTooltip id="mi-tip" place="top" delayShow={100} className="!z-[9999] !rounded-md !bg-zinc-900 !text-white !text-[11px] !font-semibold !px-2 !py-1 !border !border-white/10 !shadow-xl !opacity-100" />
