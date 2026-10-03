@@ -576,8 +576,10 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
     const [from, setFrom] = useState("");
     const [to, setTo] = useState("");
     const [ack, setAck] = useState<"all" | "pending" | "done">("all");
+    const [qApplied, setQApplied] = useState("");
     const size = 48;
     useEffect(() => { setPage(0); setItems([]); setMore(true); }, [type, dev, from, to, ack]);
+    useEffect(() => { const t = setTimeout(() => setQApplied(q), 220); return () => clearTimeout(t); }, [q]);
     useEffect(() => {
         let on = true; setLoading(true);
         getDetectionHistory({ page, pageSize: size, type, deviceId: dev || undefined, from: from || undefined, to: to || undefined, ack }).then((r) => {
@@ -589,7 +591,7 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
         return () => { on = false; };
     }, [page, type, dev, from, to, ack]);
     const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; if (!loading && more && el.scrollTop + el.clientHeight >= el.scrollHeight - 400) setPage((p) => p + 1); };
-    const shown = q.trim() ? items.filter((d) => (d.deviceName || "").toLowerCase().includes(q.trim().toLowerCase()) || (d.nvrName || "").toLowerCase().includes(q.trim().toLowerCase())) : items;
+    const shown = useMemo(() => { const term = qApplied.trim().toLowerCase(); return term ? items.filter((d) => (d.deviceName || "").toLowerCase().includes(term) || (d.nvrName || "").toLowerCase().includes(term)) : items; }, [items, qApplied]);
     const TF = [
         { k: "ANALYTIC", label: "Intrusión+", Icon: ShieldAlert }, { k: "INTRUSION", label: "Intrusión", Icon: ShieldAlert }, { k: "LINECROSS", label: "Línea", Icon: Radar }, { k: "MOTION", label: "Movimiento", Icon: Activity }, { k: "ALL", label: "Todo", Icon: Camera },
     ] as const;
