@@ -576,7 +576,6 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
     const [from, setFrom] = useState("");
     const [to, setTo] = useState("");
     const [ack, setAck] = useState<"all" | "pending" | "done">("all");
-    const [drawer, setDrawer] = useState(false);
     const size = 48;
     useEffect(() => { setPage(0); setItems([]); setMore(true); }, [type, dev, from, to, ack]);
     useEffect(() => {
@@ -596,39 +595,46 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
     ] as const;
     const nActive = (q ? 1 : 0) + (dev ? 1 : 0) + (type !== "ANALYTIC" ? 1 : 0) + (ack !== "all" ? 1 : 0) + ((from || to) ? 1 : 0);
     const clearAll = () => { setQ(""); setDev(""); setType("ANALYTIC"); setAck("all"); setFrom(""); setTo(""); };
+    const stats = useMemo(() => { const by: Record<string, number> = {}; let pend = 0, done = 0; for (const d of items) { by[d.type] = (by[d.type] || 0) + 1; if (d.acknowledged) done++; else pend++; } return { by, pend, done }; }, [items]);
     const Block = ({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) => (
         <div className="rounded-2xl bg-white ring-1 ring-black/5 shadow-sm p-3.5">
-            <div className="flex items-center gap-2 mb-2.5">
-                <span className="grid h-7 w-7 place-items-center rounded-lg bg-red-500/10 text-red-500">{icon}</span>
-                <span className="text-[12px] font-extrabold uppercase tracking-wide text-neutral-500">{title}</span>
-            </div>
+            <div className="flex items-center gap-2 mb-2.5"><span className="grid h-7 w-7 place-items-center rounded-lg bg-red-500/10 text-red-500">{icon}</span><span className="text-[12px] font-extrabold uppercase tracking-wide text-neutral-500">{title}</span></div>
             {children}
         </div>
     );
     return (
-        <div className="fixed inset-0 z-[2090] bg-neutral-950/96 backdrop-blur-sm flex flex-col" onClick={onClose}>
-            <div className="h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
-                {/* header */}
+        <div className="fixed inset-0 z-[2090] bg-neutral-950/96 backdrop-blur-sm flex" onClick={onClose}>
+            {/* SIDEBAR IZQUIERDA — filtros */}
+            <aside onClick={(e) => e.stopPropagation()} className="hidden md:flex w-60 shrink-0 h-full bg-neutral-100 text-neutral-900 border-r border-black/10 flex-col">
+                <div className="px-4 py-4 flex items-center gap-2 border-b border-black/10 bg-white">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500"><path d="M3 5h18M6 12h12M10 19h4" /></svg>
+                    <span className="text-[15px] font-extrabold">Filtros</span>
+                    {nActive > 0 && <span className="grid place-items-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-extrabold">{nActive}</span>}
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+                    <Block icon={<Search size={15} />} title="Buscar"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cámara o NVR…" className="w-full h-10 px-3 rounded-xl bg-neutral-100 ring-1 ring-black/10 text-[13px] text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-red-400" /></Block>
+                    <Block icon={<ShieldAlert size={15} />} title="Tipo de evento"><div className="grid grid-cols-2 gap-1.5">{TF.map((f) => (<button key={f.k} onClick={() => setType(f.k)} className={cn("inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[12px] font-bold transition-colors", type === f.k ? "bg-red-500/15 text-red-600 ring-1 ring-red-500/30" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200")}><f.Icon size={13} /> {f.label}</button>))}</div></Block>
+                    <Block icon={<Camera size={15} />} title="Cámara"><select value={dev} onChange={(e) => setDev(e.target.value)} className="w-full h-10 px-2.5 rounded-xl bg-neutral-100 ring-1 ring-black/10 text-[13px] text-neutral-900 focus:outline-none focus:ring-red-400"><option value="">Todas las cámaras</option>{cams.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Block>
+                    <Block icon={<Check size={15} />} title="Estado"><div className="flex gap-1.5">{([["all", "Todas"], ["pending", "Pendientes"], ["done", "Revisadas"]] as const).map(([k, lbl]) => (<button key={k} onClick={() => setAck(k)} className={cn("flex-1 px-1.5 py-2 rounded-xl text-[11px] font-bold transition-colors", ack === k ? "bg-red-500/15 text-red-600 ring-1 ring-red-500/30" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200")}>{lbl}</button>))}</div></Block>
+                    <Block icon={<CalIco size={15} />} title="Rango de fechas"><div className="space-y-2"><label className="block"><span className="text-[11px] font-bold text-neutral-400">Desde</span><input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 w-full h-10 px-2.5 rounded-xl bg-neutral-100 ring-1 ring-black/10 text-[12px] text-neutral-900 focus:outline-none focus:ring-red-400" /></label><label className="block"><span className="text-[11px] font-bold text-neutral-400">Hasta</span><input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 w-full h-10 px-2.5 rounded-xl bg-neutral-100 ring-1 ring-black/10 text-[12px] text-neutral-900 focus:outline-none focus:ring-red-400" /></label></div></Block>
+                </div>
+                <div className="px-4 py-3 border-t border-black/10 bg-white flex items-center gap-2"><span className="text-[12px] font-bold text-neutral-500 tabular-nums">{total} eventos</span>{nActive > 0 && <button onClick={clearAll} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-[12px] font-bold text-neutral-600 transition">Limpiar</button>}</div>
+            </aside>
+
+            {/* CENTRO — grilla */}
+            <div onClick={(e) => e.stopPropagation()} className="flex-1 min-w-0 h-full flex flex-col">
                 <div className="px-5 py-3.5 flex items-center gap-3 border-b border-white/10">
                     <span className="grid h-8 w-8 place-items-center rounded-lg bg-red-500/15"><Camera size={16} className="text-red-400" /></span>
                     <span className="text-sm font-bold text-white">Evidencia</span>
-                    <span className="text-[12px] text-white/45 tabular-nums">· {shown.length}{(nActive > 0) ? ` de ${total}` : ` / ${total}`}</span>
+                    <span className="text-[12px] text-white/45 tabular-nums">· {shown.length} / {total}</span>
                     {loading && <Loader2 size={15} className="animate-spin text-white/50" />}
-                    <div className="ml-auto flex items-center gap-2">
-                        <button onClick={() => setDrawer(true)} className="relative inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 ring-1 ring-white/10 text-[12px] font-bold text-white/85 transition">
-                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18M6 12h12M10 19h4" /></svg>
-                            Filtros
-                            {nActive > 0 && <span className="grid place-items-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-extrabold">{nActive}</span>}
-                        </button>
-                        <button onClick={onClose} className="w-9 h-9 grid place-items-center rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white transition"><X size={18} /></button>
-                    </div>
+                    <button onClick={onClose} className="ml-auto w-9 h-9 grid place-items-center rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white transition"><X size={18} /></button>
                 </div>
-                {/* grilla */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-4" onScroll={onScroll}>
                     {shown.length === 0 && !loading ? (
                         <div className="h-full grid place-items-center text-white/40 text-sm">Sin evidencia para este filtro.</div>
                     ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                             {shown.map((d) => {
                                 const m = META[d.type] || META.OTHER;
                                 const href = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
@@ -640,16 +646,10 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                                         <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
                                         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
                                         <div className="absolute inset-0 z-[2] grid place-items-center pointer-events-none">
-                                            <button onClick={(e) => { e.stopPropagation(); onPlay?.(d); }} data-tooltip-id="mi-tip" data-tooltip-content="Ver grabación del evento"
-                                                className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-black/45 backdrop-blur-md ring-2 ring-white/70 text-white shadow-2xl opacity-0 group-hover:opacity-100 hover:bg-red-600/85 hover:ring-red-300 transition-all active:scale-90">
-                                                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                                            </button>
+                                            <button onClick={(e) => { e.stopPropagation(); onPlay?.(d); }} data-tooltip-id="mi-tip" data-tooltip-content="Ver grabación del evento" className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-black/45 backdrop-blur-md ring-2 ring-white/70 text-white shadow-2xl opacity-0 group-hover:opacity-100 hover:bg-red-600/85 hover:ring-red-300 transition-all active:scale-90"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg></button>
                                         </div>
                                         {(() => { const st = !d.acknowledged ? { t: "Pendiente", c: "bg-amber-500/90" } : d.ackKind === "false" ? { t: "Falsa", c: "bg-slate-500/90" } : { t: "Real", c: "bg-red-600/90" }; return <span className={cn("absolute top-2.5 right-2.5 z-[1] inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide text-white shadow backdrop-blur-sm", st.c)}>{st.t}</span>; })()}
-                                        <div className="absolute top-2.5 left-3 right-14">
-                                            <div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div>
-                                            <div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? " · CH " + d.ch : "") + " · " : "") + when}</div>
-                                        </div>
+                                        <div className="absolute top-2.5 left-3 right-14"><div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div><div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? " · CH " + d.ch : "") + " · " : "") + when}</div></div>
                                         <span className={cn("absolute bottom-2.5 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm shadow", m.cls)}><m.Icon size={13} /> {m.label}</span>
                                         <span className="absolute bottom-2.5 right-3 inline-flex items-center px-2 py-1 rounded-lg bg-black/55 backdrop-blur-sm text-[11px] font-bold text-white/90 tabular-nums">hace {ago(d.timestamp)}</span>
                                     </button>
@@ -661,59 +661,23 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                 </div>
             </div>
 
-            {/* backdrop del drawer */}
-            {drawer && <div className="absolute inset-0 z-10 bg-black/40" onClick={(e) => { e.stopPropagation(); setDrawer(false); }} />}
-            {/* DRAWER de filtros (derecha, bloques claros) */}
-            <div onClick={(e) => e.stopPropagation()} className={cn("absolute right-0 top-0 h-full w-80 max-w-[88vw] z-20 bg-neutral-100 text-neutral-900 border-l border-black/10 shadow-2xl flex flex-col transition-transform duration-300", drawer ? "translate-x-0" : "translate-x-full")}>
-                <div className="px-4 py-4 flex items-center gap-2 border-b border-black/10 bg-white">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-red-500"><path d="M3 5h18M6 12h12M10 19h4" /></svg>
-                    <span className="text-[15px] font-extrabold">Filtros</span>
-                    {nActive > 0 && <span className="grid place-items-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-extrabold">{nActive}</span>}
-                    <button onClick={() => setDrawer(false)} className="ml-auto w-9 h-9 grid place-items-center rounded-full hover:bg-black/5 text-neutral-500 hover:text-neutral-900 transition"><X size={18} /></button>
-                </div>
+            {/* SIDEBAR DERECHA — resumen */}
+            <aside onClick={(e) => e.stopPropagation()} className="hidden lg:flex w-60 shrink-0 h-full bg-neutral-100 text-neutral-900 border-l border-black/10 flex-col">
+                <div className="px-4 py-4 flex items-center gap-2 border-b border-black/10 bg-white"><span className="grid h-7 w-7 place-items-center rounded-lg bg-red-500/10 text-red-500"><Activity size={15} /></span><span className="text-[15px] font-extrabold">Resumen</span></div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
-                    <Block icon={<Search size={15} />} title="Buscar">
-                        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Nombre de cámara o NVR…" className="w-full h-10 px-3 rounded-xl bg-neutral-100 ring-1 ring-black/10 text-[13px] text-neutral-900 placeholder:text-neutral-400 focus:outline-none focus:ring-red-400" />
-                    </Block>
-                    <Block icon={<ShieldAlert size={15} />} title="Tipo de evento">
-                        <div className="grid grid-cols-2 gap-1.5">
-                            {TF.map((f) => (
-                                <button key={f.k} onClick={() => setType(f.k)} className={cn("inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[12px] font-bold transition-colors", type === f.k ? "bg-red-500/15 text-red-600 ring-1 ring-red-500/30" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200")}><f.Icon size={13} /> {f.label}</button>
-                            ))}
+                    <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl bg-white ring-1 ring-black/5 shadow-sm p-2.5 text-center"><div className="text-[20px] font-extrabold tabular-nums text-neutral-900">{total}</div><div className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Total</div></div>
+                        <div className="rounded-2xl bg-amber-50 ring-1 ring-amber-200 shadow-sm p-2.5 text-center"><div className="text-[20px] font-extrabold tabular-nums text-amber-600">{stats.pend}</div><div className="text-[10px] font-bold uppercase tracking-wide text-amber-500/80">Pend.</div></div>
+                        <div className="rounded-2xl bg-white ring-1 ring-black/5 shadow-sm p-2.5 text-center"><div className="text-[20px] font-extrabold tabular-nums text-neutral-900">{stats.done}</div><div className="text-[10px] font-bold uppercase tracking-wide text-neutral-400">Revis.</div></div>
+                    </div>
+                    <Block icon={<Radar size={15} />} title="Por tipo (en vista)">
+                        <div className="space-y-1.5">
+                            {Object.keys(stats.by).length === 0 ? <div className="text-[12px] text-neutral-400">Sin datos</div> : Object.entries(stats.by).sort((a, b) => b[1] - a[1]).map(([t, n]) => { const mm = META[t] || META.OTHER; return (<button key={t} onClick={() => setType(t === "MOTION" ? "MOTION" : t === "LINECROSS" ? "LINECROSS" : t === "INTRUSION" ? "INTRUSION" : "ALL")} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl bg-neutral-100 hover:bg-neutral-200 transition text-left"><span className={cn("grid h-7 w-7 place-items-center rounded-lg", mm.cls)}><mm.Icon size={13} /></span><span className="text-[12px] font-bold text-neutral-700 truncate flex-1">{mm.label}</span><span className="text-[13px] font-extrabold tabular-nums text-neutral-900">{n}</span></button>); })}
                         </div>
                     </Block>
-                    <Block icon={<Camera size={15} />} title="Cámara">
-                        <select value={dev} onChange={(e) => setDev(e.target.value)} className="w-full h-10 px-2.5 rounded-xl bg-neutral-100 ring-1 ring-black/10 text-[13px] text-neutral-900 focus:outline-none focus:ring-red-400">
-                            <option value="">Todas las cámaras</option>
-                            {cams.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                    </Block>
-                    <Block icon={<Check size={15} />} title="Estado">
-                        <div className="flex gap-1.5">
-                            {([["all", "Todas"], ["pending", "Pendientes"], ["done", "Revisadas"]] as const).map(([k, lbl]) => (
-                                <button key={k} onClick={() => setAck(k)} className={cn("flex-1 px-1.5 py-2 rounded-xl text-[11px] font-bold transition-colors", ack === k ? "bg-red-500/15 text-red-600 ring-1 ring-red-500/30" : "bg-neutral-100 text-neutral-500 hover:bg-neutral-200")}>{lbl}</button>
-                            ))}
-                        </div>
-                    </Block>
-                    <Block icon={<CalIco size={15} />} title="Rango de fechas">
-                        <div className="space-y-2">
-                            <label className="block">
-                                <span className="text-[11px] font-bold text-neutral-400">Desde</span>
-                                <input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 w-full h-10 px-2.5 rounded-xl bg-neutral-100 ring-1 ring-black/10 text-[12px] text-neutral-900 focus:outline-none focus:ring-red-400" />
-                            </label>
-                            <label className="block">
-                                <span className="text-[11px] font-bold text-neutral-400">Hasta</span>
-                                <input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 w-full h-10 px-2.5 rounded-xl bg-neutral-100 ring-1 ring-black/10 text-[12px] text-neutral-900 focus:outline-none focus:ring-red-400" />
-                            </label>
-                        </div>
-                    </Block>
+                    <div className="text-[11px] text-neutral-400 px-1 leading-snug">El desglose por tipo y estado es sobre los eventos cargados en pantalla; el total es global.</div>
                 </div>
-                <div className="px-4 py-3 border-t border-black/10 bg-white flex items-center gap-2">
-                    <span className="text-[12px] font-bold text-neutral-500 tabular-nums">{total} eventos</span>
-                    {nActive > 0 && <button onClick={clearAll} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 text-[12px] font-bold text-neutral-600 transition">Limpiar</button>}
-                    <button onClick={() => setDrawer(false)} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[12px] font-extrabold transition">Ver</button>
-                </div>
-            </div>
+            </aside>
         </div>
     );
 }
