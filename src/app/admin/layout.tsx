@@ -11,6 +11,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
     LayoutDashboard,
+    Radar,
     Users,
     Car,
     Settings,
@@ -40,6 +41,7 @@ import {
     Building2,
     Map as MapIcon,
     Sparkles,
+    Ticket,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import AlertBell from "@/components/AlertBell";
@@ -177,6 +179,12 @@ export default function AdminLayout({
                         <SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-face" active={pathname === "/admin/monitor-face"} collapsed={collapsed} />
                     ) : (
                         <SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />
+                    )}
+                    {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
+                        <SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />
+                    )}
+                    {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
+                        <SidebarItem icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />
                     )}
                     {modules.MODULE_QUEUE ? (
                         <SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />

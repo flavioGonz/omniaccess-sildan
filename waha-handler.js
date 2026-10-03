@@ -2,6 +2,7 @@ const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { Readable } = require("stream");
 const axios = require("axios");
 const crypto = require("crypto");
+let QRLIB=null; try{ QRLIB=require("qrcode"); }catch(e){}
 
 // Helper: Stream to Buffer
 async function streamToBuffer(stream) {
@@ -93,6 +94,32 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         const wahaApiKey = wahaApiKeySetting?.value;
         const serverBaseUrl = baseUrlSetting?.value || "http://192.168.99.99:10001";
 
+        // ── Resolver número real del remitente (WhatsApp manda @lid oculto) ──
+        let _senderTailCache = null;
+        const senderTail = async () => {
+            if (_senderTailCache !== null) return _senderTailCache;
+            let id = from || "";
+            if (id.endsWith('@lid')) {
+                try {
+                    const lid = id.replace('@lid','');
+                    const headers = {}; if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
+                    const r = await axios.get(`${wahaUrl}/api/${session || 'default'}/lids/${lid}`, { headers, timeout: 8000 });
+                    if (r.data && r.data.pn) id = r.data.pn;
+                } catch (e) { console.error('[WAHA] lid resolve error:', e.message); }
+            }
+            _senderTailCache = String(id).replace(/\D/g,'').slice(-8);
+            return _senderTailCache;
+        };
+        const isAdminSender = async () => {
+            const tail = await senderTail(); if (!tail) return false;
+            try {
+                const users = await prisma.user.findMany({ where:{ role:{ in:['ADMIN','STAFF','SECURITY','OPERATOR'] }, phone:{ not:null } }, select:{ phone:true } });
+                if (users.some(u => String(u.phone||'').replace(/\D/g,'').slice(-8) === tail)) return true;
+            } catch (e) {}
+            try { const r = await prisma.setting.findUnique({ where:{ key:'BOT_ADMIN_PHONES' } }); const arr = JSON.parse(r?.value||'[]'); if (arr.some(p => String((typeof p==='string'?p:p.phone)||'').replace(/\D/g,'').slice(-8) === tail)) return true; } catch (e) {}
+            return false;
+        };
+
         const sendText = async (text) => {
             const headers = {};
             if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
@@ -117,6 +144,11 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             console.log(`[WAHA-DEBUG] Sending image via URL: ${url}`);
             // Switching back to /api/sendImage but keeping the URL logic
             await axios.post(`${wahaUrl}/api/sendImage`, body, { headers });
+        };
+
+        const sendImageB64 = async (b64, caption) => {
+            const headers = {}; if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
+            await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId, file: { mimetype: 'image/png', filename: 'pase.png', data: b64 }, caption }, { headers });
         };
 
         // --- HIKVISION HELPERS (Internal JS version of HikvisionDriver) ---
@@ -227,7 +259,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         // TRIGGER: "agregar matricula"
         const addPlateRegex = /^(?:agregar|añadir|nuevo|nueva)\s+(?:matricula|matrícula|vehiculo|vehículo)/i;
-        if (addPlateRegex.test(lowerBody)) {
+        if (addPlateRegex.test(lowerBody) && await isAdminSender()) {
             await prisma.whatsAppSession.upsert({
                 where: { phoneNumber: from },
                 create: { phoneNumber: from, step: 'ADD_PLATE_PLATE' },
@@ -235,6 +267,41 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             });
 
             await sendText("🚗 *Agregar Matrícula*\n\nPor favor, ingresa la matrícula que deseas registrar:");
+            res.writeHead(200); res.end('OK'); return;
+        }
+
+        // --- INVITAR VISITA (residentes) ---
+        const inviteTokenGen = () => { const abc="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let x=""; for(let i=0;i<6;i++) x+=abc[Math.floor(Math.random()*abc.length)]; return x; };
+        const resolveHost = async () => {
+            const tail = await senderTail();
+            if(!tail) return null;
+            try {
+                const users = await prisma.user.findMany({ where:{ role:'RESIDENT', phone:{ not:null } }, select:{ id:true,name:true,unitId:true,phone:true,apartment:true } });
+                const u = users.find(x => String(x.phone||'').replace(/\D/g,'').slice(-8)===tail);
+                if(u){ let label=u.apartment||''; if(u.unitId){ const un=await prisma.unit.findUnique({ where:{id:u.unitId}, select:{name:true,lot:true,houseNumber:true} }); if(un) label=[un.name, un.lot?('Lote '+un.lot):un.houseNumber].filter(Boolean).join(' · ')||label; } return { userId:u.id, name:u.name, unitId:u.unitId, label }; }
+            } catch(e){}
+            try { const r=await prisma.setting.findUnique({ where:{ key:'INVITE_WA_ALLOWLIST' } }); const arr=JSON.parse(r?.value||'[]'); const hit=arr.find(e=>String((typeof e==='string'?e:e.phone)||'').replace(/\D/g,'').slice(-8)===tail); if(hit) return { userId:(hit.userId||null), name:(hit.name||'Residente'), unitId:(hit.unitId||null), label:(hit.label||'') }; } catch(e){}
+            return null;
+        };
+        const parseWhen = (text) => {
+            const t=(text||'').toLowerCase(); const now=new Date(); const base=new Date(now);
+            const wd={ 'domingo':0,'lunes':1,'martes':2,'miercoles':3,'miércoles':3,'jueves':4,'viernes':5,'sabado':6,'sábado':6 };
+            if(/\bma(ñ|n)ana\b/.test(t)){ base.setDate(base.getDate()+1); }
+            else { for(const k in wd){ if(t.includes(k)){ let d=(wd[k]-base.getDay()+7)%7; if(d===0) d=7; base.setDate(base.getDate()+d); break; } } }
+            const m=t.match(/(\d{1,2})(?:[:.](\d{2}))?\s*(?:a|hasta|al|-)\s*(\d{1,2})(?:[:.](\d{2}))?/);
+            let fromD, toD;
+            if(m){ const sh=+m[1], sm=+(m[2]||0), eh=+m[3], em=+(m[4]||0); fromD=new Date(base); fromD.setHours(sh,sm,0,0); toD=new Date(base); toD.setHours(eh,em,0,0); if(toD<=fromD) toD.setDate(toD.getDate()+1); }
+            else { const sameDay = base.toDateString()===now.toDateString(); fromD = sameDay ? new Date(now) : new Date(base.setHours(8,0,0,0)); toD = new Date(fromD.getTime()+12*3600*1000); }
+            if(fromD < new Date(now.getTime()-60000)) fromD = new Date(now);
+            return { from:fromD, to:toD };
+        };
+
+        const inviteTrigger = /^(?:invitar|invito|invitaci(o|ó)n|invitacion|visita|pase)\b/i;
+        if (inviteTrigger.test(lowerBody)) {
+            const host = await resolveHost();
+            if(!host){ await sendText("🔒 Este servicio es solo para residentes registrados. Si sos residente y no te reconoce, pedile al administrador que cargue tu número."); res.writeHead(200); res.end('OK'); return; }
+            await prisma.whatsAppSession.upsert({ where:{ phoneNumber:from }, create:{ phoneNumber:from, step:'INV_NAME', data:JSON.stringify(host) }, update:{ step:'INV_NAME', data:JSON.stringify(host) } });
+            await sendText(`👋 Hola ${host.name||''}. Vamos a crear un *pase de visita*.\n\n¿*Nombre* del invitado?`);
             res.writeHead(200); res.end('OK'); return;
         }
 
@@ -372,9 +439,68 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                 await prisma.whatsAppSession.delete({ where: { phoneNumber: from } });
                 res.writeHead(200); res.end('OK'); return;
             }
+
+            // STEP: INV_NAME
+            if (activeSession.step === 'INV_NAME') {
+                const name = body_text.trim();
+                if (name.length < 2) { await sendText("⚠️ Ingresá un nombre válido."); res.writeHead(200); res.end('OK'); return; }
+                const d = JSON.parse(activeSession.data || "{}"); d.guestName = name;
+                await prisma.whatsAppSession.update({ where:{ phoneNumber:from }, data:{ step:'INV_PLATE', data:JSON.stringify(d) } });
+                await sendText(`🚗 ¿*Patente* del invitado? (escribí *sin auto* si viene a pie)`);
+                res.writeHead(200); res.end('OK'); return;
+            }
+            // STEP: INV_PLATE
+            if (activeSession.step === 'INV_PLATE') {
+                const d = JSON.parse(activeSession.data || "{}");
+                const raw = body_text.trim();
+                d.plate = /sin\s*auto|no|a pie|ninguna/i.test(raw) ? "" : raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                await prisma.whatsAppSession.update({ where:{ phoneNumber:from }, data:{ step:'INV_WHEN', data:JSON.stringify(d) } });
+                await sendText(`📅 ¿*Para cuándo*? Ejemplos:\n• *hoy*\n• *sábado 20 a 02*\n• *mañana 10 a 14*`);
+                res.writeHead(200); res.end('OK'); return;
+            }
+            // STEP: INV_WHEN  → crea la invitación
+            if (activeSession.step === 'INV_WHEN') {
+                const d = JSON.parse(activeSession.data || "{}");
+                const win = parseWhen(body_text);
+                try {
+                    const inv = await prisma.invitation.create({ data:{
+                        hostUserId: d.userId || null, hostUnitId: d.unitId || null, hostName: d.name || "", hostLabel: d.label || "",
+                        kind:'SINGLE', title: d.guestName || "", validFrom: win.from, validTo: win.to, reentry:'MULTI',
+                        createdVia:'WHATSAPP', createdBy: from, notify:true, token: inviteTokenGen()
+                    }});
+                    const qrToken = crypto.randomBytes(18).toString('base64url');
+                    await prisma.guest.create({ data:{ invitationId: inv.id, name: d.guestName || "", qrToken, status:'APPROVED', plates: d.plate ? { create:[{ plate:d.plate }] } : undefined } });
+                    const fmt = (x)=> new Date(x).toLocaleString('es-UY',{ weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+                    const caption = `✅ *Pase creado*\n👤 ${d.guestName}${d.plate?(" ("+d.plate+")"):" (a pie)"}\n🕒 ${fmt(win.from)} → ${fmt(win.to)}\n🏠 Invita: ${d.name||""}${d.label?(" · "+d.label):""}\n\nReenviá este QR a tu invitado para que lo muestre en la garita.`;
+                    let imgSent = false;
+                    try {
+                        if (QRLIB) {
+                            const link = `${serverBaseUrl.replace(/\/+$/,'')}/invitado/${qrToken}`;
+                            const du = await QRLIB.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: 'M' });
+                            await sendImageB64(du.split(',')[1], caption);
+                            imgSent = true;
+                        }
+                    } catch (e) { console.error('[WAHA] QR image send error:', e.message); }
+                    if (!imgSent) await sendText(caption);
+                } catch (e) {
+                    console.error("Error creando invitación WA:", e);
+                    await sendText(`❌ No pude crear el pase: ${e.message}`);
+                }
+                await prisma.whatsAppSession.delete({ where:{ phoneNumber:from } });
+                res.writeHead(200); res.end('OK'); return;
+            }
         }
 
         // --- COMMAND LOGIC ---
+
+        // Sólo admins/personal usan el bot de consultas. Residentes → flujo de invitación; resto → aviso.
+        if (!(await isAdminSender())) {
+            const _host = await resolveHost();
+            await sendText(_host
+                ? "👋 Para generar un *pase de visita*, escribí *invitar*."
+                : "🔒 Este WhatsApp es del barrio (residentes y personal). Si sos residente y no te reconoce, pedile al administrador que cargue tu número.");
+            res.writeHead(200); res.end('OK'); return;
+        }
 
         // 1. NOTIFICATIONS
         if (lowerBody.includes('configurar alerta') || lowerBody.includes('activar notifica')) {

@@ -28,6 +28,7 @@ const axios = require("axios");
 const https = require("https");
 const crypto = require("crypto");
 const { uploadToS3 } = require("./lib-s3");
+const { captureForDevice: captureIntrusion } = require("./lib-intrusion-capture");
 const { getVehicleColorName, getVehicleBrandName } = require("./hikvision-codes");
 const { handleWahaWebhook } = require("./waha-handler");
 // Intrusión (capa transversal): cruce de línea / zona de las cámaras AcuSense.
@@ -1064,6 +1065,36 @@ const handleWebhook = async (req, res, logPrefix) => {
                 return;
             }
 
+            // --- ANALÍTICAS / DETECCIONES GENERALES (cruce de línea, intrusión, región, movimiento) ---
+            try {
+                const etLower = (eventType || "").toLowerCase();
+                const MAP = { linedetection: "LINECROSS", fielddetection: "INTRUSION", regionentrance: "REGION_ENTER", regionexiting: "REGION_EXIT", vmd: "MOTION", motiondetection: "MOTION" };
+                let genType = null;
+                for (const k of Object.keys(MAP)) { if (etLower.includes(k)) { genType = MAP[k]; break; } }
+                if (genType) {
+                    if (genType === "MOTION") {
+                        global.__lastMotion = global.__lastMotion || {};
+                        const mkey = (macAddress || ipAddress || "x");
+                        const nowM = Date.now();
+                        if (global.__lastMotion[mkey] && (nowM - global.__lastMotion[mkey]) < 30000) {
+                            res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: "MOTION", throttled: true })); return;
+                        }
+                        global.__lastMotion[mkey] = nowM;
+                    }
+                    const cleanMac = macAddress ? macAddress.replace(/[:\-\s]/g, "").toUpperCase() : null;
+                    const orq = [];
+                    if (cleanMac) orq.push({ mac: { contains: cleanMac } });
+                    if (ipAddress) orq.push({ ip: ipAddress });
+                    const dev = orq.length ? await prisma.device.findFirst({ where: { OR: orq } }) : null;
+                    const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, timestamp: new Date() } });
+                    if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
+                    if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, timestamp: det.timestamp });
+                    console.log(logPrefix + " 🟣 [ANALYTIC] " + genType + " (" + eventType + ") dev=" + (dev ? dev.name : "?"));
+                    if (dev && dev.ip && genType !== "MOTION") { captureIntrusion(dev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}); }
+                    res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: genType })); return;
+                }
+            } catch (e) { console.error(logPrefix + " [ANALYTIC] err: " + (e && e.message)); }
+
             // If it's a known non-plate message, we still emit debug but don't log error
             addDebugLog({ ...debugData, status: 200, credentialValue: "NON-ANPR" });
 
@@ -1491,6 +1522,26 @@ const handleWebhook = async (req, res, logPrefix) => {
             }
         } catch (e) { console.error(`${logPrefix} Watchlist check error:`, (e && e.message) || e); }
 
+        // ---- INVITADOS / visitas temporales — LPR (precedencia: lista negra SIEMPRE gana) ----
+        let guestHit = null;
+        try {
+            const isBlack = watchHit && (watchHit.category === 'BLACKLISTED' || watchHit.category === 'negra');
+            if (!isUnknown && !isBlack) {
+                const gm = await matchInvitedPlate(finalPlate);
+                if (gm) {
+                    const direction = event.direction || 'ENTRY';
+                    const ge = await prisma.guestEntry.create({ data: {
+                        guestId: gm.guestId, invitationId: gm.invitationId, accessEventId: event.id,
+                        gate: device ? device.id : null, direction, method: 'LPR', plate: finalPlate
+                    }});
+                    guestHit = { guestId: gm.guestId, invitationId: gm.invitationId, name: gm.name, hostName: gm.hostName, hostLabel: gm.hostLabel, title: gm.title, validTo: gm.validTo, direction };
+                    if (global.io) global.io.emit('guest_entry', { ...guestHit, entryId: ge.id, device: device ? { id: device.id, name: device.name } : null, plate: finalPlate, timestamp: new Date().toISOString() });
+                    console.log(`${logPrefix} [INVITADO] ${finalPlate} -> ${gm.name} (${gm.hostLabel})`);
+                    notifyHostGuest(gm, finalPlate, device, direction).catch(() => {});
+                }
+            }
+        } catch (e) { console.error(`${logPrefix} Invitados check error:`, (e && e.message) || e); }
+
         // Notify UI
         if (global.io) {
             console.log(`${logPrefix} [SOCKET] Emitting access_event for plate: ${cleanPlate}`);
@@ -1499,7 +1550,8 @@ const handleWebhook = async (req, res, logPrefix) => {
                 device,
                 user: credential ? credential.user : null,
                 direction: event.direction, // Ensure direction is explicitly sent
-                watch: watchHit
+                watch: watchHit,
+                guest: guestHit
             });
             // Emit webhook event for topology animation
             global.io.emit("webhook-event", {
@@ -2335,7 +2387,7 @@ const requestHandler = async (req, res) => {
     // WAHA (WhatsApp Chatbot)
     if (url.includes('/api/waha/webhook')) {
         console.log(`${logPrefix} 💬 Match: WAHA WhatsApp Webhook`);
-        await handleWahaWebhook(req, res, logPrefix);
+        await handleWahaWebhook(req, res, logPrefix, prisma);
         return;
     }
 
@@ -2354,6 +2406,7 @@ const httpServer = http.createServer(requestHandler);
 // NOTA: Unificamos Socket.IO en el mismo puerto 10000
 const io = new Server(httpServer, {
     addTrailingSlash: false,
+    perMessageDeflate: false, // #WS evita frames comprimidos (RSV1) que rompen el upgrade via proxy
     cors: {
         origin: "*",
         methods: ["GET", "POST"]
@@ -2370,7 +2423,7 @@ function guardsArray() {
     const out = [];
     for (const [sid, g] of guardState) {
         if (now - g.ts > 120000) { guardState.delete(sid); continue; } // 2 min sin señal -> fuera
-        out.push({ id: sid, socketId: sid, guardName: g.guardName, name: g.guardName, lat: g.lat, lng: g.lng, accuracy: g.accuracy, ts: g.ts, guardPhoto: g.guardPhoto || null, deviceInfo: g.deviceInfo || null, battery: g.battery != null ? g.battery : null, signal: g.signal != null ? g.signal : null, heading: g.heading != null ? g.heading : null, steps: g.steps != null ? g.steps : null });
+        out.push({ id: sid, socketId: sid, guardName: g.guardName, name: g.guardName, lat: g.lat, lng: g.lng, accuracy: g.accuracy, ts: g.ts, ip: g.ip || null, since: g.since || g.ts, guardPhoto: g.guardPhoto || null, deviceInfo: g.deviceInfo || null, battery: g.battery != null ? g.battery : null, signal: g.signal != null ? g.signal : null, heading: g.heading != null ? g.heading : null, steps: g.steps != null ? g.steps : null });
     }
     return out;
 }
@@ -2388,12 +2441,52 @@ function onlineSnapshot() {
         if (now - p.ts > 70000) { panelState.delete(sid); continue; } // 70s sin ping -> fuera
         panel.push({ id: sid, name: p.name, role: p.role, ts: p.ts });
     }
-    const guards = guardsArray().map(g => ({ id: g.id, name: g.guardName || "Guardia", role: "GUARD", lat: g.lat, lng: g.lng, ts: g.ts }));
+    const guards = guardsArray().map(g => ({ id: g.id, socketId: g.socketId, name: g.guardName || "Guardia", role: "GUARD", ip: g.ip || null, lat: g.lat, lng: g.lng, ts: g.ts, since: g.since || g.ts }));
     return { panel, guards, total: panel.length + guards.length };
 }
 function broadcastOnline() { try { io.emit("online_users", onlineSnapshot()); } catch (e) { } }
 setInterval(broadcastOnline, 30000);
 setInterval(() => { const before = guardState.size; const arr = guardsArray(); if (arr.length !== before) broadcastGuards(); }, 30000);
+
+// #197 Cierre de sesión remoto de guardias: candado en memoria + persistencia en Setting
+const guardRevoke = new Map(); // guardNameLower -> revokedAtMs
+function forceGuardLogoutByName(name, revokedAt) {
+    const k = String(name || "").trim().toLowerCase();
+    if (!k) return 0;
+    const ts = revokedAt || Date.now();
+    guardRevoke.set(k, Math.max(ts, guardRevoke.get(k) || 0));
+    let n = 0;
+    for (const [sid, g] of guardState) {
+        if (String(g.guardName || "").toLowerCase() === k) {
+            try { io.to(sid).emit("force_logout", { reason: "admin" }); } catch (e) { }
+            guardState.delete(sid); n++;
+        }
+    }
+    try { broadcastGuards(); broadcastOnline(); } catch (e) { }
+    return n;
+}
+// Puente con el proceso web (server actions): las revocaciones se persisten en Setting
+// y se recargan periódicamente acá, expulsando a los sockets vivos que correspondan.
+async function reloadGuardRevokes(kick) {
+    try {
+        const rows = await prisma.setting.findMany({ where: { key: { startsWith: "guard_revoked_" } } });
+        for (const r of rows) {
+            const k = r.key.slice("guard_revoked_".length);
+            const ts = Number(r.value) || 0;
+            if (ts > (guardRevoke.get(k) || 0)) {
+                guardRevoke.set(k, ts);
+                if (kick) for (const [sid, g] of guardState) {
+                    if (String(g.guardName || "").toLowerCase() === k && (g.loginTs || 0) < ts) {
+                        try { io.to(sid).emit("force_logout", { reason: "admin" }); } catch (e) { }
+                        guardState.delete(sid);
+                    }
+                }
+            }
+        }
+    } catch (e) { }
+}
+reloadGuardRevokes(false);
+setInterval(() => reloadGuardRevokes(true), 12000);
 
 // ── MODULE_GUARD panic/backup relay ─────────────────────────────────────
 // El cliente /guard emite alert_toggle / request_backup / respond_backup /
@@ -2404,6 +2497,7 @@ let panicState = { active: false, triggeredBy: null, explanation: "", timestamp:
 
 io.on("connection", (socket) => {
     console.log(`Socket client connected: ${socket.id}`);
+    const guardIp = (String(socket.handshake.headers["x-forwarded-for"] || "").split(",")[0].trim()) || socket.handshake.address || "";
 
     // Send history to new connection
     if (debugLogsHistory.length > 0) {
@@ -2480,13 +2574,30 @@ io.on("connection", (socket) => {
 
     socket.on("guard_presence", (data) => {
         try {
+            const nameLower = String((data && data.guardName) || "").toLowerCase();
+            const loginTs = Number(data && data.loginTs) || 0;
+            const rv = guardRevoke.get(nameLower);
+            if (rv && loginTs && rv >= loginTs) { try { socket.emit("force_logout", { reason: "admin" }); } catch (e) { } guardState.delete(socket.id); return; }
             const prev = guardState.get(socket.id);
             if (prev) {
-                guardState.set(socket.id, { ...prev, guardName: (data && data.guardName) || prev.guardName, guardPhoto: (data && data.guardPhoto) || prev.guardPhoto, deviceInfo: (data && data.deviceInfo) || prev.deviceInfo, ts: Date.now() });
+                guardState.set(socket.id, { ...prev, guardName: (data && data.guardName) || prev.guardName, guardPhoto: (data && data.guardPhoto) || prev.guardPhoto, deviceInfo: (data && data.deviceInfo) || prev.deviceInfo, ip: (data && data.reportedIp) || prev.ip || guardIp, loginTs: loginTs || prev.loginTs, since: prev.since || Date.now(), ts: Date.now() });
             } else if (data && data.guardName) {
                 // presencia sin GPS todavía: registrar sin posición (no se emite hasta tener lat/lng)
-                guardState.set(socket.id, { guardName: data.guardName, guardPhoto: data.guardPhoto, deviceInfo: data.deviceInfo, lat: null, lng: null, ts: Date.now() });
+                guardState.set(socket.id, { guardName: data.guardName, guardPhoto: data.guardPhoto, deviceInfo: data.deviceInfo, ip: (data && data.reportedIp) || guardIp, loginTs, since: Date.now(), lat: null, lng: null, ts: Date.now() });
             }
+        } catch (e) { }
+    });
+
+    // #197 Cierre remoto desde el panel admin (emitido por /admin/consolas sobre su socket)
+    socket.on("admin_force_logout", async (data) => {
+        try {
+            const name = data && data.guardName;
+            if (!name) return;
+            const ts = Date.now();
+            const key = "guard_revoked_" + String(name).toLowerCase();
+            try { await prisma.setting.upsert({ where: { key }, update: { value: String(ts) }, create: { key, value: String(ts) } }); } catch (e) { }
+            const kicked = forceGuardLogoutByName(name, ts);
+            try { socket.emit("admin_force_logout_ok", { guardName: name, kicked }); } catch (e) { }
         } catch (e) { }
     });
 
@@ -2656,6 +2767,44 @@ async function getMerodeoConfig() {
     return cfg;
 }
 
+// ── Invitados / visitas temporales: match tolerante de patente (LPR lee con errores) ──
+function normPlateJS(x){ return String(x||"").toUpperCase().replace(/[^A-Z0-9]/g,""); }
+function editDistLEJS(a,b,max){ if(Math.abs(a.length-b.length)>max) return false; const dp=Array.from({length:a.length+1},(_,i)=>i); for(let j=1;j<=b.length;j++){ let prev=dp[0]; dp[0]=j; let best=dp[0]; for(let i=1;i<=a.length;i++){ const tmp=dp[i]; dp[i]=Math.min(dp[i]+1,dp[i-1]+1,prev+(a[i-1]===b[j-1]?0:1)); prev=tmp; if(dp[i]<best) best=dp[i]; } if(best>max) return false; } return dp[a.length]<=max; }
+function platesCloseJS(a,b){ const x=normPlateJS(a),y=normPlateJS(b); if(!x||!y) return false; if(x===y) return true; const max=x.length>=6?2:1; return editDistLEJS(x,y,max); }
+async function matchInvitedPlate(plate){
+    const np=normPlateJS(plate); if(!np) return null;
+    const now=new Date();
+    const rows=await prisma.guestPlate.findMany({
+        where:{ guest:{ status:{ not:"DENIED" }, invitation:{ status:"ACTIVE", validFrom:{ lte:now }, validTo:{ gte:now } } } },
+        include:{ guest:{ include:{ invitation:true } } }
+    });
+    let best=null;
+    for(const r of rows){ if(platesCloseJS(r.plate,np)){ const exact=normPlateJS(r.plate)===np; if(exact){ best={r,exact:true}; break; } if(!best) best={r,exact:false}; } }
+    if(!best) return null;
+    const g=best.r.guest, inv=g.invitation;
+    return { guestId:g.id, invitationId:inv.id, name:g.name, hostName:inv.hostName, hostLabel:inv.hostLabel, title:inv.title, validTo:inv.validTo, hostUserId:inv.hostUserId };
+}
+async function notifyHostGuest(gm, plate, device, direction){
+    try{
+        if(!gm || !gm.hostUserId) return;
+        const inv=await prisma.invitation.findUnique({ where:{ id:gm.invitationId }, select:{ notify:true } });
+        if(inv && inv.notify===false) return;
+        const u=await prisma.user.findUnique({ where:{ id:gm.hostUserId }, select:{ phone:true } });
+        const phone=((u&&u.phone)||"").replace(/\D/g,""); if(!phone) return;
+        const [wu,wk,ws]=await Promise.all([
+            prisma.setting.findUnique({ where:{ key:"WAHA_URL" } }),
+            prisma.setting.findUnique({ where:{ key:"WAHA_API_KEY" } }),
+            prisma.setting.findUnique({ where:{ key:"OPENWA_SESSION" } }),
+        ]);
+        const url=((wu&&wu.value)||"http://192.168.99.22:2785").replace(/\/+$/,"");
+        const headers={ "Content-Type":"application/json" }; if(wk&&wk.value) headers["X-Api-Key"]=wk.value;
+        const dir=direction==="EXIT"?"salió":"entró";
+        const hora=new Date().toLocaleTimeString("es-UY",{ hour:"2-digit", minute:"2-digit" });
+        const text=`✅ Tu invitado ${gm.name||plate} ${dir} ${hora} por ${(device&&device.name)||"un acceso"} (${plate}).`;
+        await fetch(`${url}/api/sendText`, { method:"POST", headers, body:JSON.stringify({ session:(ws&&ws.value)||"default", chatId:`${phone}@c.us`, text }) }).catch(()=>{});
+    }catch(e){}
+}
+
 async function checkMerodeo(plate, device, event, logPrefix) {
     if (!plate) return;
     const clean = String(plate).toUpperCase().trim();
@@ -2746,3 +2895,6 @@ async function notifyWatchTelegram(text) {
         });
     } catch (e) { console.error("[Watchlist] telegram error:", (e && e.message) || e); }
 }
+
+// #208 Ingesta de eventos de intrusión Dahua (attach)
+try { setTimeout(() => { try { require("./dahua-events").start(); } catch (e) { console.error("[dahua-events] require:", e.message); } }, 4000); } catch (e) {}

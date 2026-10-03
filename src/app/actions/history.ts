@@ -402,3 +402,59 @@ export async function getLastEventPerDevice() {
         return map;
     } catch (e) { return {}; }
 }
+
+
+/**
+ * Carga/corrige a mano la matrícula de un evento (típicamente una detección NO_LEIDA)
+ * y RE-EVALÚA el acceso con la misma lógica que la ingesta en vivo:
+ *  - busca la matrícula en credenciales (residente) para vincular el usuario,
+ *  - decide GRANT/DENY según el modo MODE_LPR (WHITELIST por defecto),
+ *  - marca si está en la watchlist (PlateWatch activa).
+ */
+export async function setEventPlate(eventId: string, rawPlate: string) {
+    const plate = String(rawPlate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!eventId || !plate) return { ok: false as const, error: "Datos incompletos" };
+    try {
+        const credential = await prisma.credential.findFirst({
+            where: { type: "PLATE", value: plate },
+            include: { user: { include: { unit: true } } },
+        });
+        const modeSetting = await prisma.setting.findUnique({ where: { key: "MODE_LPR" } });
+        const mode = modeSetting?.value || "WHITELIST";
+        const decision: "GRANT" | "DENY" = credential ? (mode === "BLACKLIST" ? "DENY" : "GRANT") : "DENY";
+
+        let watch: { label: string; category: string } | null = null;
+        try {
+            const w = await prisma.plateWatch.findFirst({ where: { plate, active: true } });
+            if (w) watch = { label: w.label, category: w.category };
+        } catch { /* modelo puede no existir en instancias viejas */ }
+
+        const prev = await prisma.accessEvent.findUnique({ where: { id: eventId } });
+        const details = ((prev?.details || "") + ` | Matrícula cargada manualmente: ${plate}`).slice(0, 900);
+
+        await prisma.accessEvent.update({
+            where: { id: eventId },
+            data: {
+                plateDetected: plate,
+                plateNumber: plate,
+                accessType: "PLATE",
+                userId: credential?.userId ?? null,
+                credentialId: credential?.id ?? null,
+                decision,
+                details,
+            },
+        });
+
+        return {
+            ok: true as const,
+            plate,
+            decision,
+            user: credential
+                ? { name: credential.user?.name || "", unit: credential.user?.unit?.name || (credential.user?.unit as any)?.lot || "" }
+                : null,
+            watch,
+        };
+    } catch (e: any) {
+        return { ok: false as const, error: e?.message || String(e) };
+    }
+}

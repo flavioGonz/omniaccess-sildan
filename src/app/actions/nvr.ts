@@ -1,28 +1,49 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { authenticatedRequest } from "@/lib/digest-auth";
+import { getChannelMap } from "@/lib/nvr-resolve";
 
-// Resuelve el canal del NVR para un dispositivo (cámara) según el mapa IP->canal en Settings.
+// Canal del NVR para una cámara (compat: solo número).
 export async function getNvrChannel(deviceId?: string | null): Promise<number | null> {
     if (!deviceId) return null;
     try {
         const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { ip: true } });
         if (!dev?.ip) return null;
-        const row = await prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } });
-        if (!row?.value) return null;
-        const map = JSON.parse(row.value) as Record<string, number | string>;
-        const ch = map[dev.ip];
-        return ch != null ? Number(ch) : null;
+        const map = await getChannelMap();
+        const e = map[dev.ip];
+        return e?.ch != null ? Number(e.ch) : null;
     } catch {
         return null;
     }
 }
 
-import { authenticatedRequest } from "@/lib/digest-auth";
+// Canal + NVR para una cámara.
+export async function getNvrChannelInfo(deviceId?: string | null): Promise<{ ch: number; nvr: string | null } | null> {
+    if (!deviceId) return null;
+    try {
+        const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { ip: true } });
+        if (!dev?.ip) return null;
+        const map = await getChannelMap();
+        const e = map[dev.ip];
+        return e ? { ch: e.ch, nvr: e.nvrId } : null;
+    } catch {
+        return null;
+    }
+}
 
-// Lee los canales configurados del NVR vía ISAPI (InputProxy) -> [{channel, ip, name}]
+// Lista de NVR dados de alta (dispositivos tipo NVR).
+export async function getNvrList(): Promise<{ id: string; name: string; ip: string }[]> {
+    try {
+        const devs = await prisma.device.findMany({ where: { deviceType: "NVR" }, select: { id: true, name: true, ip: true }, orderBy: { createdAt: "asc" } });
+        return devs.map((d) => ({ id: d.id, name: d.name, ip: d.ip }));
+    } catch {
+        return [];
+    }
+}
+
+// Lee los canales configurados de un NVR vía ISAPI (InputProxy) -> [{channel, ip, name}]
 export async function getNvrChannels(input: { ip: string; username?: string; password?: string; authType?: string }) {
-    // Credenciales candidatas: primero las del form; luego las del NVR guardadas en Settings (probadas OK).
     const rows = await prisma.setting.findMany({ where: { key: { in: ["NVR_HOST", "NVR_USER", "NVR_PASS"] } } });
     const cfg: any = {}; rows.forEach((r: any) => (cfg[r.key] = r.value));
     const ip = (input.ip || cfg.NVR_HOST || "").trim();
@@ -64,23 +85,60 @@ function parseInputProxy(xml: string): { channel: number; ip: string | null; nam
     return out;
 }
 
+// Compat: mapa cámara->canal (solo número). Para el editor de mapeo con NVR usar getNvrChannelMapFull.
 export async function getNvrChannelMap(): Promise<Record<string, number>> {
-    try {
-        const row = await prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } });
-        if (!row?.value) return {};
-        const m = JSON.parse(row.value);
-        const out: Record<string, number> = {};
-        for (const k of Object.keys(m)) out[k] = Number(m[k]);
-        return out;
-    } catch { return {}; }
+    const m = await getChannelMap();
+    const out: Record<string, number> = {};
+    for (const k of Object.keys(m)) out[k] = m[k].ch;
+    return out;
 }
 
-export async function saveNvrChannelMap(map: Record<string, number | string>): Promise<{ ok: boolean }> {
+// Mapa completo cámara->{nvr,ch}.
+export async function getNvrChannelMapFull(): Promise<Record<string, { nvr: string | null; ch: number }>> {
+    const m = await getChannelMap();
+    const out: Record<string, { nvr: string | null; ch: number }> = {};
+    for (const k of Object.keys(m)) out[k] = { nvr: m[k].nvrId, ch: m[k].ch };
+    return out;
+}
+
+// Guarda el mapeo de UN NVR (identificado por su IP): reemplaza solo las cámaras de ese NVR
+// y conserva las de los demás NVR. entries = { ipCámara: canal }.
+export async function saveNvrChannelMapForNvr(nvrIp: string, entries: Record<string, number | string>): Promise<{ ok: boolean; nvr: string | null }> {
     try {
-        const clean: Record<string, number> = {};
+        const nvr = await prisma.device.findFirst({ where: { deviceType: "NVR", ip: (nvrIp || "").trim() }, select: { id: true } });
+        const nvrId = nvr?.id ?? null;
+        const full = await getChannelMap(); // { ip: {nvrId, ch} }
+        const merged: Record<string, { nvr: string | null; ch: number }> = {};
+        // conservar entradas de OTROS NVR
+        for (const k of Object.keys(full)) {
+            if (full[k].nvrId !== nvrId) merged[k] = { nvr: full[k].nvrId, ch: full[k].ch };
+        }
+        // agregar/actualizar las de ESTE NVR
+        for (const k of Object.keys(entries || {})) {
+            const ch = Number(entries[k]);
+            if (k && !isNaN(ch) && ch > 0) merged[k] = { nvr: nvrId, ch };
+        }
+        await prisma.setting.upsert({
+            where: { key: "NVR_CHANNEL_MAP" },
+            update: { value: JSON.stringify(merged) },
+            create: { key: "NVR_CHANNEL_MAP", value: JSON.stringify(merged) },
+        });
+        return { ok: true, nvr: nvrId };
+    } catch { return { ok: false, nvr: null }; }
+}
+
+// Guarda el mapa. Acepta {ip: canal} (compat) o {ip: {nvr, ch}}; almacena normalizado {ip: {nvr, ch}}.
+export async function saveNvrChannelMap(
+    map: Record<string, number | string | { nvr?: string | null; ch: number | string }>
+): Promise<{ ok: boolean }> {
+    try {
+        const clean: Record<string, { nvr: string | null; ch: number }> = {};
         for (const k of Object.keys(map || {})) {
-            const n = Number(map[k]);
-            if (k && !isNaN(n) && n > 0) clean[k] = n;
+            const v: any = map[k];
+            let ch: number; let nvr: string | null = null;
+            if (v && typeof v === "object") { ch = Number(v.ch); nvr = v.nvr ?? v.nvrId ?? null; }
+            else ch = Number(v);
+            if (k && !isNaN(ch) && ch > 0) clean[k] = { nvr, ch };
         }
         await prisma.setting.upsert({
             where: { key: "NVR_CHANNEL_MAP" },

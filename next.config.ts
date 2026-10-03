@@ -32,6 +32,10 @@ const nextConfig = {
         destination: "http://127.0.0.1:10000/:path*",
       },
       {
+        source: "/socket.io/:path*",
+        destination: "http://127.0.0.1:10000/socket.io/:path*",
+      },
+      {
         source: "/go2rtc/:path*",
         destination: "http://127.0.0.1:1984/:path*",
       },

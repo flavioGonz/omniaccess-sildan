@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
 import { spawn } from "child_process";
-import { prisma } from "@/lib/prisma";
+import { resolveNvrById } from "@/lib/nvr-resolve";
 
 // El NVR Hikvision (DS-7732NXI, Sildan) interpreta starttime/endtime como HORA LOCAL
 // del equipo aunque lleven sufijo Z (verificado: ContentMgmt/search devuelve los
@@ -19,6 +19,12 @@ function fmtNvr(ms: number): string {
     const hh = g("hour") === "24" ? "00" : g("hour");
     return `${g("year")}${g("month")}${g("day")}T${hh}${g("minute")}${g("second")}Z`;
 }
+function fmtDahua(ms: number): string {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: NVR_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date(ms));
+    const g = (t: string) => parts.find((p) => p.type === t)?.value || "00";
+    const hh = g("hour") === "24" ? "00" : g("hour");
+    return `${g("year")}_${g("month")}_${g("day")}_${hh}_${g("minute")}_${g("second")}`;
+}
 
 // GET /api/nvr/playback?ch=8&t=<epochMs>&pre=10&dur=40
 // Streams recorded video from a Hikvision NVR (RTSP time-based playback) as fragmented MP4.
@@ -30,22 +36,72 @@ export async function GET(req: NextRequest) {
     const dur = Math.min(180, Math.max(5, parseInt(sp.get("dur") || "40")));
     if (!ch || !/^\d+$/.test(ch) || !t) return new Response("missing ch/t", { status: 400 });
 
-    const rows = await prisma.setting.findMany({ where: { key: { in: ["NVR_HOST", "NVR_USER", "NVR_PASS", "NVR_PORT"] } } });
-    const cfg: any = {}; rows.forEach((r: any) => (cfg[r.key] = r.value));
-    if (!cfg.NVR_HOST) return new Response("NVR not configured", { status: 404 });
+    const conn = await resolveNvrById(sp.get("nvr"));
+    if (!conn) return new Response("NVR not configured", { status: 404 });
 
     const startMs = t - pre * 1000;
-    const start = fmtNvr(startMs);
-    const end = fmtNvr(startMs + dur * 1000);
-    const port = cfg.NVR_PORT || "554";
-    const url = `rtsp://${cfg.NVR_USER}:${cfg.NVR_PASS}@${cfg.NVR_HOST}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
+    const port = conn.rtspPort || "554";
+    let url: string;
+    if (conn.brand === "DAHUA") {
+        const s = fmtDahua(startMs), e = fmtDahua(startMs + dur * 1000);
+        url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/cam/playback?channel=${ch}&starttime=${s}&endtime=${e}`;
+    } else {
+        const start = fmtNvr(startMs);
+        const end = fmtNvr(startMs + dur * 1000);
+        url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
+    }
 
+    // Modo "clip completo": genera un MP4 completo (faststart) a un archivo temporal y lo sirve
+    // con Content-Length + soporte de rangos. Necesario para que el <video> reproduzca en el
+    // WebView de Android (el fMP4 por pipe queda sin reproducir → solo se ve el póster).
+    if (sp.get("whole") === "1") {
+        const os = await import("os");
+        const fs = await import("fs");
+        const path = await import("path");
+        const tmp = path.join(os.tmpdir(), `clip_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
+        const ok = await new Promise<boolean>((resolve) => {
+            const ff2 = spawn("ffmpeg", [
+                "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi",
+                "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+                "-an", "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp,
+            ], { stdio: ["ignore", "ignore", "ignore"] });
+            const killer = setTimeout(() => { try { ff2.kill("SIGKILL"); } catch { } resolve(false); }, 45000);
+            ff2.on("close", (code) => { clearTimeout(killer); resolve(code === 0); });
+            ff2.on("error", () => { clearTimeout(killer); resolve(false); });
+        });
+        try {
+            if (!ok || !fs.existsSync(tmp)) { try { fs.unlinkSync(tmp); } catch { } return new Response("clip no disponible", { status: 502 }); }
+            const size = fs.statSync(tmp).size;
+            const buf = fs.readFileSync(tmp);
+            fs.unlink(tmp, () => { });
+            const range = req.headers.get("range");
+            if (range) {
+                const m = /bytes=(\d+)-(\d*)/.exec(range);
+                const s0 = m ? parseInt(m[1]) : 0;
+                const e0 = m && m[2] ? parseInt(m[2]) : size - 1;
+                const chunk = buf.subarray(s0, e0 + 1);
+                return new Response(chunk, { status: 206, headers: { "Content-Type": "video/mp4", "Content-Range": `bytes ${s0}-${e0}/${size}`, "Accept-Ranges": "bytes", "Content-Length": String(chunk.length), "Cache-Control": "no-store" } });
+            }
+            return new Response(buf, { headers: { "Content-Type": "video/mp4", "Content-Length": String(size), "Accept-Ranges": "bytes", "Cache-Control": "no-store" } });
+        } catch {
+            try { fs.unlinkSync(tmp); } catch { }
+            return new Response("clip error", { status: 502 });
+        }
+    }
+
+    // El track de grabación del NVR suele ser H.265/HEVC (p.ej. 2688x1520), que el navegador
+    // no decodifica en MP4 → el <video> quedaba negro y "Ajustando tiempo…" no terminaba nunca.
+    // Transcodificamos a H.264 por VAAPI (GPU) escalando a 720p para arranque rápido y fluido.
     const ff = spawn("ffmpeg", [
+        // -allowed_media_types video: NO negociar la pista de audio del NVR (ahorra ~2s en abrir la reproducción)
+        "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
+        "-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi",
         "-rtsp_transport", "tcp",
         "-i", url,
         "-t", String(dur),
-        "-an", "-c:v", "copy",
-        "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+        "-an", "-vf", "scale_vaapi=w=-2:h=720", "-c:v", "h264_vaapi", "-qp", "24",
+        // fragmentos de 200ms → el navegador empieza a reproducir apenas llega el primer frame (no espera un GOP entero)
+        "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
         "-f", "mp4", "pipe:1",
     ], { stdio: ["ignore", "pipe", "ignore"] });
 

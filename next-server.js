@@ -24,24 +24,20 @@ app.prepare().then(() => {
 
     const SOCKETIO_PORT = 10000;
     server.on("upgrade", (req, socket, head) => {
-        // Socket.IO (guardias/eventos): proxy WS de /io/socket.io -> 10000 /socket.io
-        if (req.url && req.url.startsWith("/io/")) {
-            const targetPath = req.url.replace(/^\/io/, "");
-            const http2 = require("http");
-            const proxyReq = http2.request({ hostname: "127.0.0.1", port: SOCKETIO_PORT, path: targetPath, method: "GET", headers: { ...req.headers, host: "127.0.0.1:" + SOCKETIO_PORT } });
-            proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
-                let raw = "HTTP/1.1 101 Switching Protocols\r\n";
-                const h = proxyRes.headers;
-                for (const k of Object.keys(h)) { const v = h[k]; if (Array.isArray(v)) v.forEach(x => raw += k + ": " + x + "\r\n"); else raw += k + ": " + v + "\r\n"; }
-                raw += "\r\n";
-                socket.write(raw);
-                if (proxyHead && proxyHead.length) proxySocket.unshift(proxyHead);
-                proxySocket.pipe(socket); socket.pipe(proxySocket);
-                proxySocket.on("error", () => socket.destroy()); socket.on("error", () => proxySocket.destroy());
-                proxySocket.on("close", () => socket.destroy()); socket.on("close", () => proxySocket.destroy());
+        // Socket.IO WS (guardias/eventos + panel): proxy con la lib ws para frames válidos
+        if (req.url && (req.url.startsWith("/io/") || req.url.startsWith("/socket.io/"))) {
+            const targetPath = req.url.startsWith("/io/") ? req.url.replace(/^\/io/, "") : req.url;
+            wss.handleUpgrade(req, socket, head, (clientWs) => {
+                const upstream = new WebSocket(`ws://127.0.0.1:${SOCKETIO_PORT}${targetPath}`, { perMessageDeflate: false });
+                const pending = [];
+                clientWs.on("message", (data, isBinary) => { if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary }); else pending.push({ data, isBinary }); });
+                upstream.on("open", () => { for (const m of pending) upstream.send(m.data, { binary: m.isBinary }); pending.length = 0; });
+                upstream.on("message", (data, isBinary) => { if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary }); });
+                upstream.on("close", (code) => { try { if (clientWs.readyState === WebSocket.OPEN) clientWs.close(code >= 1000 && code <= 4999 ? code : 1000); } catch (e) {} });
+                upstream.on("error", () => { try { clientWs.close(1011); } catch (e) {} });
+                clientWs.on("close", () => { try { upstream.close(); } catch (e) {} });
+                clientWs.on("error", () => { try { upstream.close(); } catch (e) {} });
             });
-            proxyReq.on("error", () => socket.destroy());
-            proxyReq.end();
             return;
         }
         if (!req.url || !req.url.startsWith("/go2rtc/")) {

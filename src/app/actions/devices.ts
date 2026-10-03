@@ -79,6 +79,7 @@ export async function createDevice(formData: FormData) {
     const password = formData.get("password") as string;
     let authType = formData.get("authType") as AuthType;
     const mac = formData.get("mac") as string;
+    const portNum = parseInt(String(formData.get("port") || "")) || null;
     const groupId = formData.get("groupId") as string;
     // Hikvision LPR: por defecto DIGEST (evita snapshot 502 por Basic)
     if (brand === "HIKVISION" && (deviceType as any) === "LPR_CAMERA" && !authType) authType = "DIGEST" as AuthType;
@@ -102,6 +103,7 @@ export async function createDevice(formData: FormData) {
             password,
             authType,
             mac,
+            port: portNum,
             modelPhoto,
             brandLogo,
             deviceModel: formData.get("deviceModel") as string,
@@ -152,6 +154,7 @@ export async function updateDevice(id: string, formData: FormData) {
     const password = formData.get("password") as string;
     let authType = formData.get("authType") as AuthType;
     const mac = formData.get("mac") as string;
+    const portNum = parseInt(String(formData.get("port") || "")) || null;
     if (brand === "HIKVISION" && (deviceType as any) === "LPR_CAMERA" && !authType) authType = "DIGEST" as AuthType;
 
     // Custom images
@@ -176,6 +179,7 @@ export async function updateDevice(id: string, formData: FormData) {
             password,
             authType,
             mac,
+            port: portNum,
             deviceModel,
             ...camposSeguimiento(formData),
             ...(modelPhoto && { modelPhoto }),

@@ -5,6 +5,9 @@ import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice } from "@/app/actions/history";
 import { getDevices, getAvailableStreams } from "@/app/actions/devices";
+import { MinInteriorButton } from "@/components/MinInteriorButton";
+import { PlateManualButton } from "@/components/PlateManualButton";
+import { IntrusionPanel } from "@/components/IntrusionPanel";
 import {
     Car,
     CheckCircle2,
@@ -156,6 +159,7 @@ function ThumbImg({ src, className }: { src?: string; className?: string }) {
 }
 
 function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent?: string; ev?: any; onRegister?: (p?: string) => void }) {
+    const camRouter = useRouter();
     const [lit, setLit] = useState(false);
     const last = useRef<string | undefined>(undefined);
     const snap = useMemo(() => `/api/snapshot/${dev.id}?t=${Date.now()}`, [dev.id]);
@@ -194,9 +198,16 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
         </div>
     );
     return ev ? (
-        <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
-            <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
-        </EventDetailsDialog>
+        <div className="relative group/cam">
+            <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
+                <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
+            </EventDetailsDialog>
+            {anomalous && ev.id && (
+                <div className="absolute top-1.5 right-1.5 z-30">
+                    <PlateManualButton eventId={ev.id} currentPlate={plate} onSaved={() => camRouter.refresh()} className="!bg-black/60 hover:!bg-black/80 !text-amber-300 rounded-md !p-1.5 shadow-lg" />
+                </div>
+            )}
+        </div>
     ) : inner;
 }
 
@@ -290,7 +301,10 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
                 )}
                 <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-3 pt-14 flex flex-col items-center">
                     {anomalous ? (
-                        <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 rounded-lg border border-yellow-500/50"><AlertTriangle size={18} className="text-yellow-300" /><span className="text-lg font-bold text-yellow-300">SIN LECTURA</span></div>
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 rounded-lg border border-yellow-500/50"><AlertTriangle size={18} className="text-yellow-300" /><span className="text-lg font-bold text-yellow-300">SIN LECTURA</span></div>
+                            {ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
+                        </div>
                     ) : (
                         <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-3xl font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
                     )}
@@ -302,6 +316,7 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
                     {plate && !anomalous && (
                         <div className="mt-2 flex gap-2">
                             <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(plate)}`); }} className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold uppercase tracking-wide backdrop-blur transition-colors">Investigar</button>
+                            <MinInteriorButton plate={plate} label className="!bg-white/15 hover:!bg-white/25 !text-white uppercase tracking-wide backdrop-blur" />
                             {!ok && <button onClick={(e) => { e.stopPropagation(); onRegister?.(plate); }} className="px-3 py-1 rounded-md bg-emerald-500/80 hover:bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide transition-colors">Registrar</button>}
                         </div>
                     )}
@@ -415,6 +430,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                     <div className="flex items-center gap-1 shrink-0 self-center">
                         {event.plateDetected && !isAnomalous && (<>
                             <button onClick={(e) => { e.stopPropagation(); router.push(`/admin/history?search=${encodeURIComponent(event.plateDetected!)}`); }} title="Investigar" className="p-2 rounded-lg text-blue-500 hover:bg-blue-500/15 transition-colors"><Search size={17} /></button>
+                            <MinInteriorButton plate={event.plateDetected} className="!p-2 rounded-lg" />
                             {event.decision !== "GRANT" && <button onClick={(e) => { e.stopPropagation(); onRegister(event.plateDetected!); }} title="Registrar" className="p-2 rounded-lg text-emerald-500 hover:bg-emerald-500/15 transition-colors"><UserPlus size={17} /></button>}
                         </>)}
                         {nvrCh != null && <button onClick={(e) => { e.stopPropagation(); setShowVid(true); }} title="Ver grabación" className="p-2 rounded-lg text-cyan-400 hover:bg-cyan-500/15 transition-colors"><PlayCircle size={17} /></button>}
@@ -1202,6 +1218,7 @@ export default function MonitorLPR() {
                         <div className="shrink-0">
                             <CenterShot ev={filteredEvents[0]} onRegister={openRegister} />
                         </div>
+                        <IntrusionPanel />
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
                             <div className="px-4 pt-2 pb-2">
                                 <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>

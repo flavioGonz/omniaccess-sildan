@@ -64,6 +64,20 @@ export const native = {
         const n = parseInt(String(v));
         return isNaN(n) ? -1 : n;
     },
+    // OTA nativo: la APK expone estos métodos a partir de la versión con auto-update.
+    getVersionCode(): number {
+        const v = call("getVersionCode");
+        if (v == null) return -1;
+        const n = parseInt(String(v));
+        return isNaN(n) ? -1 : n;
+    },
+    canInstallUpdate(): boolean {
+        try { const b = bridge(); return !!(b && typeof b.installUpdate === "function"); } catch { return false; }
+    },
+    installUpdate(url: string): boolean {
+        try { const b = bridge(); if (b && typeof b.installUpdate === "function") { b.installUpdate(url); return true; } } catch { }
+        return false;
+    },
 };
 
 // Suscripción a eventos nativos (sensors, mandown, volumepanic, nfc, ready)

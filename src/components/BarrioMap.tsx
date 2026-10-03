@@ -9,7 +9,7 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -28,9 +28,9 @@ import { montarVivo } from "@/lib/vivo";
 import { BotonFijar, useVivo } from "@/components/vivo/PanelVivo";
 import { useRouter } from "next/navigation";
 
-type Tool = "select" | "perimeter" | "camera" | "lote" | "division";
+type Tool = "select" | "perimeter" | "camera" | "lote" | "division" | "street";
 type LL = [number, number];
-type Base = "Híbrido" | "Táctico" | "Satélite" | "Calles";
+type Base = "Táctico" | "Satélite" | "Calles";
 type SelKind = "street" | "camera" | "lote";
 type CtxKind = "street" | "camera" | "lote" | "guard" | "division";
 type DivTipo = "pared" | "tejido" | "alambrado";
@@ -83,6 +83,118 @@ const centroid = (pts: LL[]): LL => {
     a *= 0.5; return [cx / (6 * a), cy / (6 * a)];
 };
 
+// ── Ruteo por calles ──────────────────────────────────────────────────────
+// Distancia métrica aproximada (haversine) entre dos coordenadas.
+const RAD = Math.PI / 180;
+function hav(a: LL, b: LL): number {
+    const R = 6371000;
+    const dLat = (b[0] - a[0]) * RAD, dLng = (b[1] - a[1]) * RAD;
+    const la1 = a[0] * RAD, la2 = b[0] * RAD;
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
+}
+// Proyección de un punto p sobre el segmento a-b (planar a escala de barrio).
+function projSeg(p: LL, a: LL, b: LL): LL {
+    const ay = a[0], ax = a[1], by = b[0], bx = b[1], py = p[0], px = p[1];
+    const dx = bx - ax, dy = by - ay; const L2 = dx * dx + dy * dy;
+    let t = L2 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+    return [ay + t * dy, ax + t * dx];
+}
+type Street = { id: string; name?: string; points: LL[] };
+const gkey = (ll: LL) => `${ll[0].toFixed(5)},${ll[1].toFixed(5)}`;
+type GraphBase = { coords: Map<string, LL>; adj: Map<string, [string, number][]>; segs: [LL, LL][] };
+// El grafo base (nodos+aristas de las calles) es CARO de armar (fusión O(V²) de nodos cercanos).
+// Se cachea por firma de las calles y se reutiliza en cada ruteo (solo se agregan los accesos).
+let _gbSig = ""; let _gbBase: GraphBase | null = null;
+function buildBase(list: Street[]): GraphBase {
+    const coords = new Map<string, LL>();
+    const adj = new Map<string, [string, number][]>();
+    const node = (ll: LL) => { const k = gkey(ll); if (!coords.has(k)) { coords.set(k, ll); adj.set(k, []); } return k; };
+    const edge = (k1: string, k2: string, w: number) => { if (k1 === k2) return; adj.get(k1)!.push([k2, w]); adj.get(k2)!.push([k1, w]); };
+    const segs: [LL, LL][] = [];
+    for (const s of list) {
+        const pts = s.points; let prev: string | null = null;
+        for (const pt of pts) { const k = node(pt); if (prev) edge(prev, k, hav(coords.get(prev)!, pt)); prev = k; }
+        for (let i = 0; i + 1 < pts.length; i++) segs.push([pts[i], pts[i + 1]]);
+    }
+    const ks = [...coords.keys()];
+    for (let i = 0; i < ks.length; i++) for (let j = i + 1; j < ks.length; j++) {
+        const d = hav(coords.get(ks[i])!, coords.get(ks[j])!); if (d > 0 && d < 8) edge(ks[i], ks[j], d);
+    }
+    return { coords, adj, segs };
+}
+// Calcula la ruta siguiendo la red de calles (Dijkstra). Sin calles o sin camino → recta directa.
+function routeOnStreets(streets: Street[] | undefined, from: LL, to: LL): LL[] {
+    const list = (streets || []).filter((s) => (s.points || []).length >= 2);
+    if (!list.length) return [from, to];
+    const sig = list.length + ":" + list.reduce((a, s) => a + s.points.length, 0) + ":" + (list[0].id || "") + ":" + (list[list.length - 1].id || "");
+    if (_gbSig !== sig || !_gbBase) { _gbBase = buildBase(list); _gbSig = sig; }
+    const base = _gbBase;
+    // Copia liviana del grafo para insertar los nodos de acceso sin tocar la caché.
+    const coords = new Map(base.coords);
+    const adj = new Map<string, [string, number][]>();
+    for (const [k, v] of base.adj) adj.set(k, v.slice());
+    const edge = (k1: string, k2: string, w: number) => { if (!adj.has(k1)) adj.set(k1, []); if (!adj.has(k2)) adj.set(k2, []); adj.get(k1)!.push([k2, w]); adj.get(k2)!.push([k1, w]); };
+    const access = (p: LL, name: string): string => {
+        let best: { d: number; a: LL; b: LL; point: LL } | null = null;
+        for (const [a, b] of base.segs) { const point = projSeg(p, a, b); const d = hav(p, point); if (!best || d < best.d) best = { d, a, b, point }; }
+        if (!best) { coords.set(name, p); adj.set(name, []); return name; }
+        coords.set(name, best.point); adj.set(name, []);
+        edge(name, gkey(best.a), hav(best.point, best.a));
+        edge(name, gkey(best.b), hav(best.point, best.b));
+        return name;
+    };
+    const kf = access(from, "__from"), kt = access(to, "__to");
+    const dist = new Map<string, number>(), prev = new Map<string, string | null>(), seen = new Set<string>();
+    for (const k of adj.keys()) dist.set(k, Infinity);
+    dist.set(kf, 0); prev.set(kf, null);
+    while (true) {
+        let u: string | null = null, ud = Infinity;
+        for (const [k, dv] of dist) if (!seen.has(k) && dv < ud) { ud = dv; u = k; }
+        if (u == null || u === kt) break; seen.add(u);
+        for (const [v, w] of adj.get(u) || []) { if (seen.has(v)) continue; const nd = ud + w; if (nd < (dist.get(v) ?? Infinity)) { dist.set(v, nd); prev.set(v, u); } }
+    }
+    if ((dist.get(kt) ?? Infinity) === Infinity) return [from, to];
+    const mid: LL[] = []; let c: string | null = kt;
+    while (c != null) { const cc = coords.get(c); if (cc) mid.unshift(cc); c = prev.get(c) ?? null; }
+    return cleanPath([from, ...mid, to]);
+}
+// Limpia la ruta: quita puntos casi repetidos y "espolones" (donde el camino se devuelve
+// sobre sí mismo formando una U/gancho), que son los errores visibles en la línea.
+function cleanPath(path: LL[]): LL[] {
+    const p: LL[] = [];
+    for (const pt of path) { if (!p.length || hav(p[p.length - 1], pt) > 1.5) p.push(pt); }
+    let changed = true;
+    while (changed && p.length > 2) {
+        changed = false;
+        for (let i = 1; i < p.length - 1; i++) {
+            const a = p[i - 1], b = p[i], c = p[i + 1];
+            const v1x = b[0] - a[0], v1y = b[1] - a[1], v2x = c[0] - b[0], v2y = c[1] - b[1];
+            const m1 = Math.hypot(v1x, v1y), m2 = Math.hypot(v2x, v2y);
+            if (m1 > 0 && m2 > 0) {
+                const cos = (v1x * v2x + v1y * v2y) / (m1 * m2);
+                if (cos < -0.6) { p.splice(i, 1); changed = true; break; } // gancho / reversa → quitar
+            }
+        }
+    }
+    return p;
+}
+// Recorta la ruta a los primeros `maxM` metros (para mostrar solo un tramo desde el origen).
+function headPath(path: LL[], maxM: number): LL[] {
+    if (path.length < 2) return path;
+    const out: LL[] = [path[0]]; let acc = 0;
+    for (let i = 1; i < path.length; i++) {
+        const d = hav(path[i - 1], path[i]);
+        if (acc + d >= maxM) { const t = (maxM - acc) / d; out.push([path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t, path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t]); return out; }
+        acc += d; out.push(path[i]);
+    }
+    return out;
+}
+// Recorta la ruta a los últimos `maxM` metros (termina en el destino).
+function tailPath(path: LL[], maxM: number): LL[] {
+    return headPath([...path].reverse(), maxM).reverse();
+}
+
 function MapRefGrabber({ onMap }: { onMap: (m: L.Map) => void }) {
     const map = useMap();
     useEffect(() => { onMap(map); }, [map, onMap]);
@@ -95,6 +207,12 @@ function ClickHandler({ onClick }: { onClick: (ll: LL) => void }) {
 function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
     const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) });
     useEffect(() => { onZoom(map.getZoom()); /* eslint-disable-next-line */ }, []);
+    return null;
+}
+// Publica los límites visibles (con margen) para hacer culling de lotes fuera de pantalla.
+function BoundsTracker({ onBounds }: { onBounds: (b: L.LatLngBounds) => void }) {
+    const map = useMapEvents({ moveend: () => onBounds(map.getBounds().pad(0.25)), zoomend: () => onBounds(map.getBounds().pad(0.25)) });
+    useEffect(() => { onBounds(map.getBounds().pad(0.25)); /* eslint-disable-next-line */ }, []);
     return null;
 }
 
@@ -116,15 +234,32 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
 /* ── Capa de lotes memoizada: no se re-renderiza cuando se actualizan guardias/flujo,
  *    solo cuando cambian los lotes, la selección, el zoom o el lote localizado.
  *    Las etiquetas de nombre se muestran solo con zoom alto (rendimiento con muchos lotes). */
-const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, zoom, locatedId, onSelect, onEdit, onCtx }: {
+// Ancla invisible: el nombre lo dibuja un Tooltip permanente (Leaflet lo mantiene pegado
+// al punto durante zoom/pan, sin el "salto" que tenían los divIcon con transform).
+const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", iconSize: [0, 0], iconAnchor: [0, 0] });
+// Manija (vértice) para editar los puntos de una división guardada.
+const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
+
+const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
-    selectedId: string | null; showNames: boolean; zoom: number; locatedId: string | null;
+    selectedId: string | null; showNames: boolean; showPolys: boolean; zoom: number; bounds: L.LatLngBounds | null; locatedId: string | null;
     onSelect: (id: string) => void; onEdit: (id: string) => void; onCtx: (e: any, id: string) => void;
 }) {
-    const verNombres = showNames && zoom >= 17;
+    // Culling por viewport: solo procesamos los lotes visibles (clave con muchos lotes).
+    const items = useMemo(() => {
+        const out: { id: string; name?: string; points: LL[]; parkingSlotId?: string; c: LL }[] = [];
+        for (const lo of lotes) {
+            if (!lo.points || lo.points.length < 3) continue;
+            const c = centroid(lo.points);
+            if (bounds && !bounds.contains(c as any)) continue;
+            out.push({ ...lo, c });
+        }
+        return out;
+    }, [lotes, bounds]);
+    const verNombres = showNames && zoom >= 16;
     return (
         <>
-            {lotes.map((lo) => (
+            {showPolys && items.map((lo) => (
                 <Polygon key={lo.id} positions={lo.points}
                     pathOptions={{
                         className: locatedId === lo.id ? "lote-blink" : undefined,
@@ -133,9 +268,16 @@ const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames
                         fillColor: lo.parkingSlotId ? "#22c55e" : "#a855f7",
                         fillOpacity: selectedId === lo.id ? 0.3 : 0.14,
                     }}
-                    eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }}>
-                    {lo.name && verNombres && <LTooltip permanent direction="center" className="lote-tip">{lo.name}</LTooltip>}
-                </Polygon>
+                    eventHandlers={{ click: () => onSelect(lo.id), dblclick: () => onEdit(lo.id), contextmenu: (e) => onCtx(e, lo.id) }} />
+            ))}
+            {/* Etiquetas: ancla invisible + Tooltip permanente (estable en zoom/pan). Clicable. */}
+            {verNombres && items.map((lo) => (
+                <Marker key={`ln_${lo.id}`} position={lo.c} icon={emptyPin} interactive={false}>
+                    <LTooltip permanent interactive direction="center" offset={[0, 0]}
+                        className={cn("lote-lbl", selectedId === lo.id && "sel", locatedId === lo.id && "loc", lo.parkingSlotId ? "ok" : "na")}>
+                        <span onClick={() => onSelect(lo.id)} onDoubleClick={() => onEdit(lo.id)} onContextMenu={(e) => onCtx(e, lo.id)}>{lo.name || "·"}</span>
+                    </LTooltip>
+                </Marker>
             ))}
         </>
     );
@@ -344,7 +486,10 @@ export default function BarrioMap() {
 
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
-    const [show, setShow] = useState({ cameras: true, lotes: true, divisions: true, perimeter: true, guards: true, names: true });
+    // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
+    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true });
+    const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+    const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
     const [pantalla, setPantalla] = useState(false);
     const [q, setQ] = useState("");
     const [zoom, setZoom] = useState(16);
@@ -358,6 +503,7 @@ export default function BarrioMap() {
     const [camCustom, setCamCustom] = useState<{ deviceId: string; rumbo: number; size: number; color: string } | null>(null);
     const [divCustom, setDivCustom] = useState<{ id: string; tipo: DivTipo; color: string; weight: number } | null>(null);
     const [extendDiv, setExtendDiv] = useState<string | null>(null);
+    const [editDivPts, setEditDivPts] = useState<string | null>(null); // id de la división cuyos vértices se editan
     const [vivoTodas, setVivoTodas] = useState(false);
     const [ocultas, setOcultas] = useState<string[]>([]);
     const oscura = base !== "Calles";
@@ -365,11 +511,19 @@ export default function BarrioMap() {
     const lotesRef = useRef<any[]>([]);
     const camerasRef = useRef<any[]>([]);
     const plateMapRef = useRef<Record<string, string>>({});
+    const streetsRef = useRef<Street[]>([]);
+    const centerRef = useRef<LL>([-34.9, -56.1]);
     const autoRef = useRef(false);
+    const autoLastRef = useRef(0);
     const rutaTimer = useRef<any>(null);
     const [autoResaltar, setAutoResaltar] = useState(false);
     autoRef.current = autoResaltar;
-    const [ruta, setRuta] = useState<{ from: LL; to: LL; key: number } | null>(null);
+    // Persistimos el toggle de auto-resaltado (botón casa) para que sobreviva al F5.
+    useEffect(() => { try { if (localStorage.getItem("olivos.autoResaltar") === "1") setAutoResaltar(true); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("olivos.autoResaltar", autoResaltar ? "1" : "0"); } catch { } }, [autoResaltar]);
+    const [ruta, setRuta] = useState<{ path: LL[]; key: number; dir?: string } | null>(null);
+    const [draftStreet, setDraftStreet] = useState<LL[]>([]);
+    const [importingOsm, setImportingOsm] = useState(false);
 
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
@@ -400,6 +554,10 @@ export default function BarrioMap() {
     const devById = useMemo(() => Object.fromEntries(devices.map((d) => [d.id, d])), [devices]);
     const camsNamed = useMemo(() => (data?.cameras || []).map((c) => ({ ...c, name: (devById as any)[c.deviceId]?.name })), [data, devById]);
     const flow = useFlow(data?.streets || [], camsNamed, liveSocket);
+    const animateRef = useRef<((ev: any) => void) | null>(null);
+    animateRef.current = flow.animateEvent;
+    const clearRef = useRef<(() => void) | null>(null);
+    clearRef.current = flow.clearAnims;
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
 
@@ -458,25 +616,55 @@ export default function BarrioMap() {
     }, []);
 
     // Al tocar/detectar una matrícula: resalta el lote del residente y anima la ruta cámara→casa.
-    const onPlate = useCallback((ev: any) => {
+    // auto=true (evento LPR en vivo): NO reencuadra el mapa (evita el salto/lag continuo).
+    const onPlate = useCallback((ev: any, auto = false) => {
         const plate = (ev?.plateDetected || "").toUpperCase();
         if (!plate) return;
+        // Al elegir otra matrícula, borramos el recorrido anterior de inmediato.
+        if (rutaTimer.current) clearTimeout(rutaTimer.current);
+        setRuta(null);
+        clearRef.current?.();
+        const dir = (ev?.direction || "").toUpperCase(); // ENTRY (entrada) | EXIT (salida)
+        const devId0 = ev?.device?.id || ev?.deviceId;
+        const cam0 = devId0 ? camerasRef.current.find((c: any) => c.deviceId === devId0) : null;
+        const gate0 = cam0 ? ([cam0.lat, cam0.lng] as LL) : null;
         const slotId = plateMapRef.current[plate];
-        if (!slotId) { toast.error({ title: "Sin lote", description: `${plate} no está asociada a un lote.` }); return; }
+        // Matrícula desconocida (no es de un residente): igual dibujamos su recorrido de
+        // entrada/salida entre la cámara y el interior del barrio, siguiendo las calles.
+        if (!slotId) {
+            if (gate0) {
+                const inner = centerRef.current;
+                // Recorrido corto y prolijo desde/hacia la cámara (no sabemos el destino exacto).
+                const full = dir === "EXIT"
+                    ? routeOnStreets(streetsRef.current, inner, gate0)  // interior → cámara de salida
+                    : routeOnStreets(streetsRef.current, gate0, inner); // cámara de entrada → interior
+                const path = dir === "EXIT" ? tailPath(full, 260) : headPath(full, 260);
+                setRuta({ path, key: Date.now(), dir });
+                rutaTimer.current = setTimeout(() => setRuta(null), 9000);
+                if (!auto && mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
+            } else {
+                animateRef.current?.(ev);
+            }
+            toast.info({ title: dir === "EXIT" ? "Salida" : "Entrada", description: `${plate}: recorrido ${dir === "EXIT" ? "de salida" : "de entrada"} por cámara.` });
+            return;
+        }
         const lote = lotesRef.current.find((l: any) => l.parkingSlotId === slotId);
-        if (!lote || !lote.points?.length) { toast.error({ title: "Lote no dibujado", description: `El lote de ${plate} no está en el mapa.` }); return; }
-        const to = centroid(lote.points);
+        if (!lote || !lote.points?.length) { animateRef.current?.(ev); toast.info({ title: "Lote no dibujado", description: `${plate}: muestro el recorrido por cámaras.` }); return; }
+        const house = centroid(lote.points);
         const devId = ev?.device?.id || ev?.deviceId;
         const cam = devId ? camerasRef.current.find((c: any) => c.deviceId === devId) : null;
-        const from = cam ? ([cam.lat, cam.lng] as LL) : null;
+        const gate = cam ? ([cam.lat, cam.lng] as LL) : null;
         localizar("lote", lote.id);
-        if (from) {
-            setRuta({ from, to, key: Date.now() });
-            if (rutaTimer.current) clearTimeout(rutaTimer.current);
+        if (gate) {
+            // ENTRADA: de la cámara de entrada → la casa. SALIDA: de la casa → la cámara de salida.
+            const from = dir === "EXIT" ? house : gate;
+            const to = dir === "EXIT" ? gate : house;
+            const path = routeOnStreets(streetsRef.current, from, to); // sigue las calles
+            setRuta({ path, key: Date.now(), dir });
             rutaTimer.current = setTimeout(() => setRuta(null), 9000);
-            if (mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds([from, to]), { padding: [90, 90], maxZoom: 19 }); } catch { } }
-        } else if (mapRef.current) {
-            mapRef.current.setView(to, Math.max(mapRef.current.getZoom(), 18));
+            if (!auto && mapRef.current) { try { mapRef.current.fitBounds(L.latLngBounds(path as any), { padding: [90, 90], maxZoom: 19 }); } catch { } }
+        } else if (!auto && mapRef.current) {
+            mapRef.current.setView(house, Math.max(mapRef.current.getZoom(), 18));
         }
     }, [localizar]);
 
@@ -485,11 +673,18 @@ export default function BarrioMap() {
         if (!liveSocket) return;
         const onEv = (raw: any) => {
             if (!autoRef.current) return;
-            if (raw?.accessType !== "PLATE" || raw?.direction !== "ENTRY") return;
+            if (raw?.accessType !== "PLATE") return;
+            const d = (raw?.direction || "").toUpperCase();
+            if (d !== "ENTRY" && d !== "EXIT") return; // dibuja tanto entradas como salidas
             const plate = (raw.plateDetected || "").toUpperCase();
             if (!plate || plate === "NO_LEIDA" || plate.startsWith("DOOR_")) return;
-            if (!plateMapRef.current[plate]) return;
-            onPlate(raw);
+            // Throttle: como máximo un recorrido cada 2s (evita recalcular en ráfaga y lag).
+            const now = Date.now();
+            if (now - autoLastRef.current < 2000) return;
+            autoLastRef.current = now;
+            // Dibuja el recorrido de TODA matrícula (residente → casa, desconocida → cámara↔interior).
+            // auto=true → no reencuadra el mapa.
+            onPlate(raw, true);
         };
         liveSocket.on("access_event", onEv);
         return () => liveSocket.off("access_event", onEv);
@@ -500,6 +695,8 @@ export default function BarrioMap() {
     const lotes = data.lotes || [];
     lotesRef.current = lotes;
     camerasRef.current = data.cameras;
+    streetsRef.current = data.streets;
+    centerRef.current = (data.perimeter && data.perimeter.length >= 3) ? centroid(data.perimeter) : (data.center as LL);
 
     const onMapClick = (ll: LL) => {
         // Mover cámara (menú contextual → editar posición) — funciona aún fuera de edición
@@ -517,6 +714,7 @@ export default function BarrioMap() {
         if (tool === "perimeter") setDraftPerimeter((p) => [...p, ll]);
         else if (tool === "lote") setDraftLote((p) => [...p, ll]);
         else if (tool === "division") setDraftDivision((p) => [...p, ll]);
+        else if (tool === "street") setDraftStreet((p) => [...p, ll]);
         else if (tool === "camera") {
             if (!pendingCam) { toast.error({ title: "Elegí una cámara primero" }); return; }
             setData((d) => d ? { ...d, cameras: [...d.cameras.filter((c) => c.deviceId !== pendingCam), { deviceId: pendingCam, lat: ll[0], lng: ll[1] }] } : d);
@@ -532,7 +730,14 @@ export default function BarrioMap() {
         if (draftDivision.length >= 2) setData((d) => d ? { ...d, divisions: [...((d as any).divisions || []), { id: `d_${Date.now()}`, tipo: divTipo, points: draftDivision }] } as any : d);
         setDraftDivision([]); setTool("select");
     };
+    const commitStreet = () => {
+        if (draftStreet.length >= 2) setData((d) => d ? { ...d, streets: [...d.streets, { id: `st_${Date.now()}`, name: "", points: draftStreet }] } : d);
+        setDraftStreet([]); setTool("select");
+    };
     const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
+    // Edición de vértices de una división (tejido/pared/alambrado) ya guardada.
+    const setDivPoint = (divId: string, idx: number, ll: LL) => setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === divId ? { ...x, points: x.points.map((p: LL, i: number) => i === idx ? ll : p) } : x) }) as any : d);
+    const removeDivPoint = (divId: string, idx: number) => setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === divId ? { ...x, points: x.points.length > 2 ? x.points.filter((_: LL, i: number) => i !== idx) : x.points } : x) }) as any : d);
     const removeCamera = (id: string) => setData((d) => d ? { ...d, cameras: d.cameras.filter((c) => c.deviceId !== id) } : d);
     const removeCameraPersist = (id: string) => persistNow({ ...data, cameras: data.cameras.filter((c) => c.deviceId !== id) }, "Cámara quitada del mapa");
     const removeStreet = (id: string) => setData((d) => d ? { ...d, streets: d.streets.filter((s) => s.id !== id) } : d);
@@ -558,6 +763,29 @@ export default function BarrioMap() {
         setSaving(true);
         await persistNow(data, "Mapa guardado");
         setSaving(false); setEditing(false); setTool("select");
+    };
+
+    // Trae la red de calles REAL del barrio desde OpenStreetMap (Overpass) para la vista
+    // actual del mapa y la guarda como grafo de ruteo. Reemplaza el dibujo manual de calles.
+    const importOsmStreets = async () => {
+        const m = mapRef.current; if (!m) return;
+        const b = m.getBounds();
+        const bbox = `${b.getSouth()},${b.getWest()},${b.getNorth()},${b.getEast()}`;
+        const ql = `[out:json][timeout:25];(way["highway"~"^(residential|living_street|service|unclassified|tertiary|tertiary_link|secondary|secondary_link|primary|road|track)$"](${bbox}););out geom;`;
+        setImportingOsm(true);
+        toast.info({ title: "Importando calles…", description: "Consultando OpenStreetMap para esta vista." });
+        try {
+            const r = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: ql });
+            if (!r.ok) throw new Error(`Overpass HTTP ${r.status}`);
+            const d = await r.json();
+            const streets = (d.elements || [])
+                .filter((e: any) => e.type === "way" && Array.isArray(e.geometry) && e.geometry.length >= 2)
+                .map((e: any) => ({ id: `osm_${e.id}`, name: e.tags?.name || "", points: e.geometry.map((g: any) => [g.lat, g.lon] as LL) }));
+            if (!streets.length) { toast.error({ title: "Sin calles", description: "OSM no devolvió calles en esta vista. Acercá o centrá el barrio y reintentá." }); return; }
+            await persistNow({ ...data, streets }, `Calles importadas de OSM (${streets.length})`);
+        } catch (e: any) {
+            toast.error({ title: "No se pudieron importar", description: String(e?.message || e) });
+        } finally { setImportingOsm(false); }
     };
 
     const acercar = (d: number) => { const m = mapRef.current; if (m) m.setZoom(m.getZoom() + d); };
@@ -586,10 +814,11 @@ export default function BarrioMap() {
         { id: "perimeter", icon: Hexagon, label: "Dibujar perímetro" },
         { id: "camera", icon: Video, label: "Soltar cámara" },
     ];
-    const fondos: Base[] = ["Híbrido", "Táctico", "Satélite", "Calles"];
+    const fondos: Base[] = ["Satélite", "Táctico", "Calles"];
     const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
         { key: "cameras", label: "Cámaras", Icon: CamIco },
-        { key: "lotes", label: "Lotes", Icon: LoteIco },
+        { key: "lotes", label: "Lotes (polígonos)", Icon: LoteIco },
+        { key: "loteNames", label: "Nombres de lotes", Icon: TypeIco },
         { key: "divisions", label: "Divisiones", Icon: Fence },
         { key: "perimeter", label: "Perímetro", Icon: PerimIco },
         { key: "guards", label: "Guardias", Icon: GuardIco },
@@ -609,10 +838,22 @@ export default function BarrioMap() {
                 .cam-name-tip:before{display:none}
                 .lote-tip{background:rgba(168,85,247,.92);color:#fff;border:0;box-shadow:none;font-size:10px;font-weight:800;padding:1px 6px;border-radius:6px}
                 .lote-tip:before{display:none}
+                /* Etiqueta de lote como tooltip permanente (estable en zoom, sin jitter). */
+                .lote-lbl{background:rgba(168,85,247,.92);color:#fff;border:0;box-shadow:0 1px 3px rgba(0,0,0,.45);font-size:10px;font-weight:800;line-height:1;padding:2px 6px;border-radius:6px;white-space:nowrap}
+                .lote-lbl:before{display:none !important}
+                .lote-lbl span{cursor:pointer;display:inline-block}
+                .lote-lbl.ok{background:rgba(34,197,94,.92)}
+                .lote-lbl.na{background:rgba(168,85,247,.92)}
+                .lote-lbl.sel{outline:2px solid #f59e0b;outline-offset:1px}
+                @keyframes loteLblBlink{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.6)}50%{box-shadow:0 0 0 8px rgba(245,158,11,0)}}
+                .lote-lbl.loc{background:#f59e0b;animation:loteLblBlink 0.9s ease-in-out infinite}
                 @keyframes loteBlink{0%,100%{stroke-opacity:1;fill-opacity:.15;stroke-width:2}50%{stroke-opacity:.25;fill-opacity:.5;stroke-width:5}}
                 .lote-blink{stroke:#f59e0b !important;fill:#f59e0b !important;animation:loteBlink 0.9s ease-in-out infinite}
                 @keyframes rutaDash{to{stroke-dashoffset:-34}}
-                .ruta-anim{animation:rutaDash 0.9s linear infinite}
+                .ruta-anim{animation:rutaDash 0.9s linear 1.15s infinite}
+                /* La línea se dibuja de inicio a fin (reveal por stroke-dashoffset). */
+                @keyframes rutaDraw{from{stroke-dashoffset:6000}to{stroke-dashoffset:0}}
+                .ruta-draw{stroke-dasharray:6000 !important;stroke-dashoffset:6000;animation:rutaDraw 1.15s cubic-bezier(.4,0,.2,1) forwards}
                 .cam-locate .cam-glyph{animation:loteBlink 0.9s ease-in-out infinite}
                 .map-tactico .leaflet-tile-pane{filter:grayscale(.65) contrast(1.05) brightness(.72)}
                 /* Cursor flecha (no manito) mientras se dibuja en el mapa */
@@ -625,37 +866,33 @@ export default function BarrioMap() {
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
                     <ZoomTracker onZoom={setZoom} />
+                    <BoundsTracker onBounds={setMapBounds} />
                     {(movingCam || extendDiv || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
 
-                    {(base === "Satélite" || base === "Híbrido") && (
+                    {base === "Satélite" && (
                         <TileLayer key="esri" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
                     )}
                     {(base === "Calles" || base === "Táctico") && (
                         <TileLayer key="osm" attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={19} maxZoom={21} />
                     )}
-                    {base === "Híbrido" && (
-                        <>
-                            {/* Híbrido limpio: satélite realista + capas de REFERENCIA transparentes de Esri
-                                (calles y rótulos), sin superponer un segundo mapa. Gratis, sin API key. */}
-                            <TileLayer key="hyb-transp" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
-                            <TileLayer key="hyb-places" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
-                        </>
-                    )}
 
                     {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
-                    {show.lotes && (
-                        <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.names} zoom={zoom}
+                    {(show.lotes || show.loteNames) && (
+                        <LotesLayer lotes={lotes} selectedId={selected?.type === "lote" ? selected.id : null} showNames={show.loteNames} showPolys={show.lotes} zoom={zoom} bounds={mapBounds}
                             locatedId={locatedLoteId} onSelect={onSelectLote} onEdit={editLote} onCtx={onCtxLote} />
                     )}
                     {draftLote.length > 0 && <Polygon positions={draftLote} pathOptions={{ color: "#a855f7", weight: 2, dashArray: "6 6", fillOpacity: 0.1 }} />}
 
-                    {data.streets.map((s) => (
+                    {/* Calles: son la red de ruteo (OSM). NO se dibujan en la vista normal;
+                        solo se muestran tenues al editar, como referencia del grafo por donde
+                        se calculan las rutas de las matrículas. */}
+                    {editing && data.streets.map((s) => (
                         <Polyline key={s.id} positions={s.points}
-                            pathOptions={{ color: selected?.id === s.id ? "#f59e0b" : "#38bdf8", weight: selected?.id === s.id ? 6 : 4, opacity: 0.9 }}
+                            pathOptions={{ color: selected?.id === s.id ? "#f59e0b" : "#38bdf8", weight: selected?.id === s.id ? 5 : 2, opacity: selected?.id === s.id ? 0.9 : 0.45, dashArray: selected?.id === s.id ? undefined : "3 7" }}
                             eventHandlers={{
-                                click: () => editing && tool === "select" && setSelected({ type: "street", id: s.id }),
+                                click: () => tool === "select" && setSelected({ type: "street", id: s.id }),
                                 contextmenu: (e) => openCtx(e, "street", s.id),
                             }}>
                             {s.name && show.names && <LTooltip sticky className="cam-name-tip">{s.name}</LTooltip>}
@@ -674,7 +911,16 @@ export default function BarrioMap() {
                             </Polyline>
                         );
                     })}
+                    {/* Manijas para editar los vértices de una división guardada. */}
+                    {editDivPts && (((data as any).divisions || []).find((x: any) => x.id === editDivPts)?.points || []).map((p: LL, i: number) => (
+                        <Marker key={`dvp_${editDivPts}_${i}`} position={p} draggable icon={vertexIcon}
+                            eventHandlers={{
+                                drag: (e: any) => { const ll = e.target.getLatLng(); setDivPoint(editDivPts, i, [ll.lat, ll.lng]); },
+                                contextmenu: (e: any) => { e.originalEvent?.preventDefault?.(); e.originalEvent?.stopPropagation?.(); removeDivPoint(editDivPts, i); },
+                            }} />
+                    ))}
                     {draftDivision.length > 0 && <Polyline positions={draftDivision} pathOptions={{ color: DIV_STYLE[divTipo].color, weight: DIV_STYLE[divTipo].weight, dashArray: DIV_STYLE[divTipo].dashArray || "4 4", opacity: 0.8 }} />}
+                    {draftStreet.length > 0 && <Polyline positions={draftStreet} pathOptions={{ color: "#38bdf8", weight: 4, dashArray: "6 6", opacity: 0.85, lineCap: "round" }} />}
 
                     {show.guards && guards.map((g) => (
                         <Marker key={"g" + g.id} position={[g.lat, g.lng]}
@@ -704,12 +950,17 @@ export default function BarrioMap() {
                             eventHandlers={{
                                 click: () => { if (editing && tool === "select") setSelected({ type: "camera", id: c.deviceId }); },
                                 contextmenu: (e) => openCtx(e, "camera", c.deviceId),
+                                popupopen: () => setOpenCamPopup(c.deviceId),
+                                popupclose: () => setOpenCamPopup((v) => v === c.deviceId ? null : v),
                             }}>
                             {show.names && <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>}
                             {!editing && !movingCam && (
                                 <Popup className="cam-live-popup" maxWidth={280} minWidth={260}>
                                     <div className="rounded-lg overflow-hidden">
-                                        <LiveMp4 deviceId={c.deviceId} className="block w-[260px] h-[150px] object-cover bg-black" />
+                                        {/* El video se monta solo cuando este popup está abierto (evita 12 streams a la vez). */}
+                                        {openCamPopup === c.deviceId
+                                            ? <LiveMp4 deviceId={c.deviceId} className="block w-[260px] h-[150px] object-cover bg-black" />
+                                            : <div className="w-[260px] h-[150px] bg-black" />}
                                         <div className="px-2 py-1 bg-black/80 text-white text-[11px] font-bold flex items-center gap-1.5"><Radio size={11} className="text-red-400" /> {devById[c.deviceId]?.name || "Cámara"}</div>
                                     </div>
                                 </Popup>
@@ -717,11 +968,13 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
-                    {ruta && (
+                    {ruta && ruta.path.length >= 2 && (
                         <>
-                            <Polyline key={`rw${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.9, lineCap: "round" }} />
-                            <Polyline key={`rb${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#2563eb", weight: 5, opacity: 1, lineCap: "round" }} />
-                            <Polyline key={`ra${ruta.key}`} positions={[ruta.from, ruta.to]} interactive={false} pathOptions={{ color: "#ffffff", weight: 2.5, opacity: 0.95, dashArray: "1 16", lineCap: "round", className: "ruta-anim" }} />
+                            {/* Casing blanco + núcleo (azul=entrada, naranja=salida). Ambos se dibujan
+                                de inicio a fin; encima, guiones blancos que fluyen tras el trazado. */}
+                            <Polyline key={`rw${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#ffffff", weight: 8, opacity: 0.9, lineCap: "round", lineJoin: "round", className: "ruta-draw" }} />
+                            <Polyline key={`rb${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: ruta.dir === "EXIT" ? "#f97316" : "#2563eb", weight: 5, opacity: 1, lineCap: "round", lineJoin: "round", className: "ruta-draw" }} />
+                            <Polyline key={`ra${ruta.key}`} positions={ruta.path} interactive={false} pathOptions={{ color: "#ffffff", weight: 2.5, opacity: 0.95, dashArray: "1 16", lineCap: "round", lineJoin: "round", className: "ruta-anim" }} />
                         </>
                     )}
 
@@ -750,6 +1003,14 @@ export default function BarrioMap() {
                         <button onClick={() => { const d = data; setExtendDiv(null); persistNow(d, "Línea actualizada"); }} className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30">Listo</button>
                     </div>
                 )}
+                {/* Edición de vértices de una división */}
+                {editDivPts && (
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-amber-500 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
+                        <Move size={14} /> Arrastrá los puntos · clic derecho en un punto para quitarlo
+                        <button onClick={() => { const d = data; setEditDivPts(null); persistNow(d, "Línea actualizada"); }} className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30">Listo</button>
+                        <button onClick={() => { setEditDivPts(null); getBarrioMap().then(setData); }} className="px-2 py-0.5 rounded bg-black/20 hover:bg-black/30">Cancelar</button>
+                    </div>
+                )}
 
                 {/* Columnas de flujo en vivo */}
                 {!editing && (
@@ -776,9 +1037,11 @@ export default function BarrioMap() {
                                     </TooltipTrigger><TooltipContent>{t.label}</TooltipContent></Tooltip>
                                 ))}
                                 <div className="w-px h-6 bg-border mx-0.5" />
+                                <Tooltip><TooltipTrigger asChild><button onClick={importOsmStreets} disabled={importingOsm} className={cn(gbtn, "text-sky-400 hover:text-sky-300 hover:bg-sky-500/10")}>{importingOsm ? <Loader2 size={16} className="animate-spin" /> : <Route size={16} />}</button></TooltipTrigger><TooltipContent>Importar calles reales del barrio (OpenStreetMap) para el ruteo</TooltipContent></Tooltip>
+                                <div className="w-px h-6 bg-border mx-0.5" />
                                 <Tooltip><TooltipTrigger asChild><button onClick={deleteSelected} disabled={!selected} className={cn(gbtn, selected && "text-red-400 hover:text-red-300 hover:bg-red-500/10")}><Trash2 size={16} /></button></TooltipTrigger><TooltipContent>Borrar seleccionado</TooltipContent></Tooltip>
                                 <button onClick={save} disabled={saving} className="h-9 px-3.5 ml-0.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</button>
-                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setDraftDivision([]); setSelected(null); getBarrioMap().then(setData); }} className={gbtn}><X size={16} /></button>
+                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setDraftDivision([]); setDraftStreet([]); setSelected(null); getBarrioMap().then(setData); }} className={gbtn}><X size={16} /></button>
                             </>
                         ) : (
                             <>
@@ -853,6 +1116,11 @@ export default function BarrioMap() {
                             <p className="text-muted-foreground">Clic para trazar la línea ({draftDivision.length} puntos).</p>
                             <div className="flex gap-2"><button onClick={commitDivision} disabled={draftDivision.length < 2} className="flex-1 py-1.5 rounded-md bg-blue-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Finalizar</button><button onClick={() => setDraftDivision((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
                         </>)}
+                        {tool === "street" && (<>
+                            <p className="font-bold flex items-center gap-1.5"><Route size={13} className="text-sky-400" /> Calle</p>
+                            <p className="text-muted-foreground">Trazá el eje de la calle con clics ({draftStreet.length} puntos). La ruta de las matrículas va a seguir estas calles. En los cruces, tocá sobre otra calle para que queden conectadas.</p>
+                            <div className="flex gap-2"><button onClick={commitStreet} disabled={draftStreet.length < 2} className="flex-1 py-1.5 rounded-md bg-sky-600 text-white font-bold disabled:opacity-40 flex items-center justify-center gap-1"><Check size={13} /> Finalizar calle</button><button onClick={() => setDraftStreet((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button></div>
+                        </>)}
                         {tool === "perimeter" && (<>
                             <p className="font-bold flex items-center gap-1.5"><Hexagon size={13} className="text-emerald-400" /> Perímetro</p>
                             <p className="text-muted-foreground">Clic en el mapa para agregar vértices ({draftPerimeter.length}).</p>
@@ -886,7 +1154,8 @@ export default function BarrioMap() {
                             <button onClick={() => { const lo = lotes.find((l) => l.id === ctx.id); if (lo && mapRef.current) { mapRef.current.setView(centroid(lo.points), Math.max(mapRef.current.getZoom(), 19)); localizar("lote", lo.id); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><LocateFixed size={13} className="text-amber-500" /> Localizar</button>
                             <button onClick={() => { removeLote(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar lote</button>
                         </>) : ctx.type === "division" ? (<>
-                            <button onClick={() => { setExtendDiv(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Plus size={13} className="text-blue-400" /> Seguir agregando puntos</button>
+                            <button onClick={() => { setExtendDiv(null); setEditDivPts(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Move size={13} className="text-amber-400" /> Editar puntos (mover / quitar)</button>
+                            <button onClick={() => { setEditDivPts(null); setExtendDiv(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Plus size={13} className="text-blue-400" /> Seguir agregando puntos</button>
                             <button onClick={() => { const dv = ((data as any).divisions || []).find((x: any) => x.id === ctx.id); if (dv) { const st = DIV_STYLE[dv.tipo as DivTipo] || DIV_STYLE.pared; setDivCustom({ id: dv.id, tipo: dv.tipo, color: dv.color || st.color, weight: dv.weight || st.weight }); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Palette size={13} className="text-purple-400" /> Color y grosor</button>
                             <button onClick={() => { removeDivision(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar división</button>
                         </>) : (<>

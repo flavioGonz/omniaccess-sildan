@@ -45,15 +45,17 @@ export async function POST(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("deviceId");
     if (!id) return NextResponse.json({ ok: false, error: "deviceId requerido" }, { status: 400 });
     const body = await req.json().catch(() => ({}));
-    if (body.action !== "restart") return NextResponse.json({ ok: false, error: "action inválida" }, { status: 400 });
+    if (body.action !== "restart" && body.action !== "ensure") return NextResponse.json({ ok: false, error: "action inválida" }, { status: 400 });
 
     const dev = await prisma.device.findUnique({ where: { id }, select: { id: true, ip: true, username: true, password: true, authType: true, brand: true, deviceType: true, direction: true, name: true } });
     if (!dev) return NextResponse.json({ ok: false, error: "device no existe" }, { status: 404 });
 
     const names = [`lpr_${id}`, `lpr_${id}_hd`];
-    // 1) DELETE productores actuales para forzar reconexión
-    for (const n of names) {
-        try { await fetch(`${GO2RTC}/api/streams?src=${encodeURIComponent(n)}`, { method: "DELETE", signal: AbortSignal.timeout(4000) }); } catch { }
+    // 1) DELETE productores actuales para forzar reconexión (solo en "restart"; "ensure" sólo crea si falta)
+    if (body.action === "restart") {
+        for (const n of names) {
+            try { await fetch(`${GO2RTC}/api/streams?src=${encodeURIComponent(n)}`, { method: "DELETE", signal: AbortSignal.timeout(4000) }); } catch { }
+        }
     }
     // 2) re-sincronizar el stream (reescribe yaml + PUT en caliente)
     try {
@@ -66,7 +68,7 @@ export async function POST(req: NextRequest) {
     let frameOk = false; let ms: number | null = null;
     const t0 = Date.now();
     try {
-        const fr = await fetch(`${GO2RTC}/api/frame.jpeg?src=lpr_${id}`, { cache: "no-store", signal: AbortSignal.timeout(9000) });
+        const fr = await fetch(`${GO2RTC}/api/frame.jpeg?src=lpr_${id}&video=h264`, { cache: "no-store", signal: AbortSignal.timeout(9000) }); // &video=h264 pre-calienta el transcode HW
         if (fr.ok) { const b = await fr.arrayBuffer(); frameOk = b.byteLength > 1000; ms = Date.now() - t0; }
     } catch { }
     return NextResponse.json({ ok: true, restarted: true, frameOk, ms });

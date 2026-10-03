@@ -70,7 +70,7 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
     return <video ref={ref} className={cn("object-contain", className)} muted autoPlay playsInline controls />;
 }
 
-function MiniCalendar({ channel, valueMs, onPick }: { channel: number | null; valueMs: number; onPick: (ms: number) => void }) {
+function MiniCalendar({ channel, nvr, valueMs, onPick }: { channel: number | null; nvr?: string | null; valueMs: number; onPick: (ms: number) => void }) {
     const base = new Date(valueMs);
     const [view, setView] = useState({ y: base.getFullYear(), m: base.getMonth() }); // m: 0-11
     const [recDays, setRecDays] = useState<Set<number>>(new Set());
@@ -78,13 +78,13 @@ function MiniCalendar({ channel, valueMs, onPick }: { channel: number | null; va
     useEffect(() => {
         if (channel == null) return;
         let alive = true; setLoading(true);
-        fetch(`/api/nvr/recording-days?ch=${channel}&year=${view.y}&month=${view.m + 1}`)
+        fetch(`/api/nvr/recording-days?ch=${channel}&year=${view.y}&month=${view.m + 1}${nvr ? `&nvr=${nvr}` : ""}`)
             .then((r) => r.json())
             .then((d) => { if (alive) setRecDays(new Set(d.days || [])); })
             .catch(() => { if (alive) setRecDays(new Set()); })
             .finally(() => { if (alive) setLoading(false); });
         return () => { alive = false; };
-    }, [channel, view.y, view.m]);
+    }, [channel, nvr, view.y, view.m]);
 
     const first = new Date(view.y, view.m, 1);
     const startDow = (first.getDay() + 6) % 7; // lunes=0
@@ -124,18 +124,20 @@ function MiniCalendar({ channel, valueMs, onPick }: { channel: number | null; va
 }
 
 export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, eventTimeMs, deviceName, evidenceUrl, plate }: Props) {
-    // Fallback autosuficiente: si el prop llega null, resolvemos el canal contra la API.
+    // Fallback autosuficiente: resolvemos el canal (si el prop llega null) y SIEMPRE el NVR por deviceId.
     const [selfChannel, setSelfChannel] = useState<number | null>(null);
+    const [nvrId, setNvrId] = useState<string | null>(null);
     useEffect(() => {
-        if (!open || channelProp != null || !deviceId) return;
+        if (!open || !deviceId) return;
         let alive = true;
         fetch(`/api/nvr/channel?deviceId=${deviceId}`, { cache: "no-store" })
             .then((r) => r.json())
-            .then((d) => { if (alive) setSelfChannel(d && d.channel != null ? Number(d.channel) : null); })
-            .catch(() => { if (alive) setSelfChannel(null); });
+            .then((d) => { if (!alive) return; if (channelProp == null) setSelfChannel(d && d.channel != null ? Number(d.channel) : null); setNvrId(d && d.nvr ? String(d.nvr) : null); })
+            .catch(() => { if (alive) { setSelfChannel(null); setNvrId(null); } });
         return () => { alive = false; };
     }, [open, channelProp, deviceId]);
     const channel = channelProp != null ? channelProp : selfChannel;
+    const nvrQ = nvrId ? `&nvr=${nvrId}` : "";
 
     const [tab, setTab] = useState<Tab>("grabacion");
     const [winMin, setWinMin] = useState(60);
@@ -236,8 +238,8 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
         if (v.paused) { v.play().catch(() => {}); setPlaying(true); } else { v.pause(); setPlaying(false); }
     };
 
-    const playbackSrc = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=${PRE_SEC}&dur=120` : "";
-    const downloadHref = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=10&dur=60&download=1` : "";
+    const playbackSrc = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=${PRE_SEC}&dur=120${nvrQ}` : "";
+    const downloadHref = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=10&dur=60&download=1${nvrQ}` : "";
 
     const startWallMs = committedMs - PRE_SEC * 1000;
     const displayMs = (dragging || tab !== "grabacion") ? playheadMs : startWallMs + videoCur * 1000;
@@ -403,7 +405,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                         {/* Popover: calendario (hacia arriba) */}
                         {openPanel === "calendar" && (
                             <div className="absolute bottom-11 left-2 z-40 w-[210px] rounded-2xl bg-black/85 shadow-2xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200">
-                                <MiniCalendar channel={channel} valueMs={displayMs}
+                                <MiniCalendar channel={channel} nvr={nvrId} valueMs={displayMs}
                                     onPick={(ms) => { setWinMin(1440); setAnchorMs(ms + 12 * 3600000); commit(ms); setOpenPanel(null); }} />
                             </div>
                         )}
