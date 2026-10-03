@@ -119,10 +119,10 @@ export async function getAnalyticsGeometryBatch(ids: string[]): Promise<Record<s
 }
 
 
-export type DetHistItem = { id: string; deviceId: string | null; deviceName: string | null; nvrName: string | null; ch: number | null; type: string; eventType: string | null; snapshotPath: string | null; timestamp: string };
+export type DetHistItem = { id: string; deviceId: string | null; deviceName: string | null; nvrName: string | null; ch: number | null; type: string; eventType: string | null; snapshotPath: string | null; timestamp: string; acknowledged?: boolean; ackKind?: string | null; label?: string | null };
 
 /** Historial paginado de detecciones (para la vista tipo /admin/history de intrusión). */
-export async function getDetectionHistory(opts: { page?: number; pageSize?: number; type?: string; deviceId?: string } = {}): Promise<{ items: DetHistItem[]; total: number; page: number; pageSize: number }> {
+export async function getDetectionHistory(opts: { page?: number; pageSize?: number; type?: string; deviceId?: string; from?: string; to?: string; ack?: "pending" | "done" | "all" } = {}): Promise<{ items: DetHistItem[]; total: number; page: number; pageSize: number }> {
     const page = Math.max(0, opts.page ?? 0);
     const size = Math.min(100, opts.pageSize ?? 40);
     const where: any = {};
@@ -131,6 +131,12 @@ export async function getDetectionHistory(opts: { page?: number; pageSize?: numb
         else where.type = opts.type;
     }
     if (opts.deviceId) where.deviceId = opts.deviceId;
+    if (opts.ack === "pending") where.acknowledged = false;
+    else if (opts.ack === "done") where.acknowledged = true;
+    const _ts: any = {};
+    if (opts.from) { const f = new Date(opts.from); if (!isNaN(f.getTime())) _ts.gte = f; }
+    if (opts.to) { const t = new Date(opts.to); if (!isNaN(t.getTime())) _ts.lte = t; }
+    if (Object.keys(_ts).length) where.timestamp = _ts;
     const [rows, total] = await Promise.all([
         prisma.detection.findMany({ where, orderBy: { timestamp: "desc" }, skip: page * size, take: size }),
         prisma.detection.count({ where }),
@@ -147,7 +153,7 @@ export async function getDetectionHistory(opts: { page?: number; pageSize?: numb
     const items = rows.map((r) => {
         const d = r.deviceId ? dm[r.deviceId] : null;
         const e = d ? map[d.ip] : null; const nid = e ? (e.nvr || e.nvrId || null) : null;
-        return { id: r.id, deviceId: r.deviceId, deviceName: d?.name || null, nvrName: nid ? (nvrName[nid] || null) : null, ch: e ? Number(e.ch) : null, type: r.type, eventType: r.eventType, snapshotPath: r.snapshotPath, timestamp: r.timestamp.toISOString() };
+        return { id: r.id, deviceId: r.deviceId, deviceName: d?.name || null, nvrName: nid ? (nvrName[nid] || null) : null, ch: e ? Number(e.ch) : null, type: r.type, eventType: r.eventType, snapshotPath: r.snapshotPath, timestamp: r.timestamp.toISOString(), acknowledged: r.acknowledged, ackKind: r.ackKind, label: r.label };
     });
     return { items, total, page, pageSize: size };
 }

@@ -541,18 +541,21 @@ function EvidenceGallery({ cams, onClose, onOpen }: { cams: IntrusionCam[]; onCl
     const [q, setQ] = useState("");
     const [loading, setLoading] = useState(true);
     const [more, setMore] = useState(true);
+    const [from, setFrom] = useState("");
+    const [to, setTo] = useState("");
+    const [ack, setAck] = useState<"all" | "pending" | "done">("all");
     const size = 48;
-    useEffect(() => { setPage(0); setItems([]); setMore(true); }, [type, dev]);
+    useEffect(() => { setPage(0); setItems([]); setMore(true); }, [type, dev, from, to, ack]);
     useEffect(() => {
         let on = true; setLoading(true);
-        getDetectionHistory({ page, pageSize: size, type, deviceId: dev || undefined }).then((r) => {
+        getDetectionHistory({ page, pageSize: size, type, deviceId: dev || undefined, from: from || undefined, to: to || undefined, ack }).then((r) => {
             if (!on) return;
             setTotal(r.total);
             setItems((prev) => (page === 0 ? r.items : [...prev, ...r.items]));
             setMore((page + 1) * size < r.total);
         }).catch(() => { }).finally(() => { if (on) setLoading(false); });
         return () => { on = false; };
-    }, [page, type, dev]);
+    }, [page, type, dev, from, to, ack]);
     const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; if (!loading && more && el.scrollTop + el.clientHeight >= el.scrollHeight - 400) setPage((p) => p + 1); };
     const shown = q.trim() ? items.filter((d) => (d.deviceName || "").toLowerCase().includes(q.trim().toLowerCase()) || (d.nvrName || "").toLowerCase().includes(q.trim().toLowerCase())) : items;
     const TF = [
@@ -585,6 +588,22 @@ function EvidenceGallery({ cams, onClose, onOpen }: { cams: IntrusionCam[]; onCl
                             {cams.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                     </div>
+                    <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">Estado</div>
+                        <div className="flex gap-1">
+                            {([["all", "Todas"], ["pending", "Pendientes"], ["done", "Revisadas"]] as const).map(([k, lbl]) => (
+                                <button key={k} onClick={() => setAck(k)} className={cn("flex-1 px-1.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors", ack === k ? "bg-red-500/20 text-red-300" : "text-white/55 hover:text-white hover:bg-white/5")}>{lbl}</button>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-white/40 mb-1.5">Rango de fechas</div>
+                        <div className="space-y-1.5">
+                            <input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className="w-full h-9 px-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-[12px] text-white focus:outline-none [color-scheme:dark]" />
+                            <input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className="w-full h-9 px-2 rounded-lg bg-white/5 ring-1 ring-white/10 text-[12px] text-white focus:outline-none [color-scheme:dark]" />
+                            {(from || to) && <button onClick={() => { setFrom(""); setTo(""); }} className="text-[11px] font-bold text-white/50 hover:text-white">Limpiar fechas</button>}
+                        </div>
+                    </div>
                 </div>
                 <div className="mt-auto px-4 py-3 border-t border-white/10 text-[11px] text-white/45">{total} eventos</div>
             </div>
@@ -609,7 +628,8 @@ function EvidenceGallery({ cams, onClose, onOpen }: { cams: IntrusionCam[]; onCl
                                         {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
                                         <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
                                         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
-                                        <div className="absolute top-2.5 left-3 right-3">
+                                        {(() => { const st = !d.acknowledged ? { t: "Pendiente", c: "bg-amber-500/90" } : d.ackKind === "false" ? { t: "Falsa", c: "bg-slate-500/90" } : { t: "Real", c: "bg-red-600/90" }; return <span className={cn("absolute top-2.5 right-2.5 z-[1] inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide text-white shadow backdrop-blur-sm", st.c)}>{st.t}</span>; })()}
+                                        <div className="absolute top-2.5 left-3 right-14">
                                             <div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div>
                                             <div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? " · CH " + d.ch : "") + " · " : "") + when}</div>
                                         </div>
