@@ -2,6 +2,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { MODULE_DEFINITIONS, type ModuleId } from '@/lib/module-definitions';
+export type { ModuleId } from '@/lib/module-definitions';
 
 // ─── Module Definitions ─────────────────────────────
 
