@@ -137,6 +137,9 @@ const TYPE_META: Record<string, { label: string; color: string; activeClass?: st
     FACE_TERMINAL: { label: "Face", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
     QUEUE_COUNTER: { label: "Queue", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
     NVR: { label: "NVR", color: "text-blue-400", activeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+    // Cámaras que viven como canales de un grabador (intrusión, cruce de línea). Sin esta
+    // entrada existían en la base pero no se veían nunca en esta lista.
+    CAMERA: { label: "Cámara", color: "text-sky-400", activeClass: "bg-sky-500/15 text-sky-300 border-sky-500/30" },
     ACCESS_CONTROL: { label: "Acceso", color: "text-muted-foreground" },
     DOOR_INTERCOM: { label: "Portero", color: "text-muted-foreground" },
 };
@@ -282,6 +285,8 @@ export default function DevicesPage() {
     const allowedTypes: string[] = [];
     // Las cámaras interiores son del módulo LPR: sin esto quedaban invisibles en la lista.
     if (modules.MODULE_LPR) { allowedTypes.push("LPR_CAMERA"); allowedTypes.push("LPR_INTERIOR"); allowedTypes.push("NVR"); }
+    // Las cámaras de grabador no dependen del módulo: un grabador graba en cualquier instalación.
+    allowedTypes.push("CAMERA");
     if (modules.MODULE_FACE) allowedTypes.push("FACE_TERMINAL");
     if (modules.MODULE_QUEUE) allowedTypes.push("QUEUE_COUNTER");
     // El control de acceso no tiene interruptor de módulo porque no es opcional:

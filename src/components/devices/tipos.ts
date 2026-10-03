@@ -60,6 +60,15 @@ export const TIPOS_DE_EQUIPO = [
         sentido: false,
     },
     {
+        valor: "CAMERA",
+        rotulo: "Cámara de vigilancia",
+        /** Tiene vivo (directo o a través del grabador que la tiene en un canal). */
+        vivo: true,
+        icono: Video,
+        que: "No lee matrículas: vigila. Es la que usa el monitor de intrusión (cruce de línea y zona). Lo normal es importarla desde los canales del grabador, no cargarla a mano.",
+        sentido: false,
+    },
+    {
         valor: "FACE_TERMINAL",
         modulo: "MODULE_FACE" as ModuleId,
         rotulo: "Terminal de rostro",

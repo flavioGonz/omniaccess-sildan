@@ -25,7 +25,7 @@ import { tiposSegunModulos, tipoDeEquipo } from "@/components/devices/tipos";
 import { getEnabledModules } from "@/app/actions/modules";
 import type { ModuleId } from "@/lib/module-definitions";
 import { createDevice, updateDevice, getDevices } from "@/app/actions/devices";
-import { getNvrChannels, getNvrChannelMap, saveNvrChannelMap } from "@/app/actions/nvr";
+import { getNvrChannels, getNvrChannelMap, saveNvrChannelMap, importarCanalesNvr } from "@/app/actions/nvr";
 import { DRIVER_MODELS, type DeviceBrand as DriverDeviceBrand } from "@/lib/driver-models";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
@@ -66,7 +66,7 @@ import { sileo as toast } from "sileo";
  * analítica son justamente las que más vale poder mirar grabadas.
  */
 const esCamara = (d: { deviceType?: string }) =>
-    d.deviceType === "LPR_CAMERA" || d.deviceType === "LPR_INTERIOR"
+    d.deviceType === "LPR_CAMERA" || d.deviceType === "LPR_INTERIOR" || d.deviceType === "CAMERA"
     || d.deviceType === "QUEUE_COUNTER" || d.deviceType === "DOOR_INTERCOM";
 
 /** Cómo se prepara cada marca del lado del equipo, antes de que OmniAccess pueda usarlo. */
@@ -422,30 +422,35 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
         finally { setNvrOcupado(false); }
     };
 
-    const crearCamaraDeCanal = async (ch: any) => {
+    /* Importar canales del grabador como cámaras.
+       Antes "Crear la cámara" armaba un LPR_CAMERA Hikvision a mano: tipo equivocado (una
+       cámara de un grabador no abre barreras) y sin mapeo {nvr, ch}, así que el monitor de
+       intrusión no la veía y el vivo no sabía por qué grabador ir. Ahora pasa por
+       importarCanalesNvr, que la crea como CAMERA, la mapea y le registra el stream. */
+    const importarCanales = async (canales: number[]) => {
+        if (!device?.id) { setNvrAviso("Guardá primero el grabador y volvé a abrirlo para importar sus canales."); return; }
+        if (!canales.length) return;
         setNvrOcupado(true);
         try {
-            const fd = new FormData();
-            fd.set("name", ch.name || `Cámara ${ch.ip}`);
-            fd.set("ip", ch.ip);
-            fd.set("brand", "HIKVISION");
-            fd.set("deviceType", "LPR_CAMERA");
-            fd.set("direction", /salida|egres/i.test(ch.name || "") ? "EXIT" : "ENTRY");
-            fd.set("location", "");
-            fd.set("username", f.username || "admin");
-            fd.set("password", f.password || "");
-            fd.set("authType", "DIGEST");
-            fd.set("mac", "");
-            fd.set("groupId", "none");
-            await createDevice(fd);
+            const r = await importarCanalesNvr(device.id, canales);
+            if (!r.ok) { setNvrAviso("No se pudo importar: " + (r.error || "")); return; }
             const devs: any = await getDevices();
             setNvrCamaras((devs || []).filter(esCamara));
-            setNvrMapa((prev) => ({ ...prev, [ch.ip]: ch.channel }));
-            setNvrAviso(`Cámara creada: ${ch.name || ch.ip}`);
+            setNvrMapa((prev) => {
+                const m = { ...prev };
+                for (const d of r.detalle) if (d.ip && d.accion !== "omitida") m[d.ip] = d.channel;
+                return m;
+            });
+            const omitidas = r.detalle.filter((d) => d.accion === "omitida").length;
+            setNvrAviso(`${r.creadas} cámara${r.creadas === 1 ? "" : "s"} creada${r.creadas === 1 ? "" : "s"}, ${r.actualizadas} actualizada${r.actualizadas === 1 ? "" : "s"}${omitidas ? `, ${omitidas} omitida${omitidas === 1 ? "" : "s"}` : ""}`);
+            toast.success({ title: "Canales importados", description: `${r.creadas + r.actualizadas} cámara(s) listas en el monitor` });
         } catch (e: any) {
-            setNvrAviso("No se pudo crear: " + (e?.message || ""));
+            setNvrAviso("No se pudo importar: " + (e?.message || ""));
         } finally { setNvrOcupado(false); }
     };
+    const crearCamaraDeCanal = (ch: any) => importarCanales([ch.channel]);
+    /* Los canales que todavía no tienen una cámara nuestra con esa IP: es lo que se importa en bloque. */
+    const canalesSinCamara = nvrCanales.filter((ch: any) => ch.ip && !nvrCamaras.some((c: any) => c.ip === ch.ip));
 
     const probarRtsp = async () => {
         if (!f.rtspUrl.trim()) return;
@@ -1096,7 +1101,13 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                                                     )}
                                                     <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-1.5 pt-6">
                                                         <span className="block text-[11px] font-semibold text-white truncate">{ch.name || `Canal ${ch.channel}`}</span>
-                                                        <span className="block text-[10px] text-white/60 tabular-nums">{ch.ip || "sin IP"}</span>
+                                                        <span className="flex items-center gap-1.5 text-[10px] text-white/60 tabular-nums">
+                                                            {/* El grabador sabe si el canal está en línea; se muestra para no importar cámaras muertas sin saberlo. */}
+                                                            {ch.online !== null && ch.online !== undefined && (
+                                                                <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", ch.online ? "bg-[var(--bien)]" : "bg-[var(--quieto)]")} title={ch.online ? "En línea" : "Sin señal"} />
+                                                            )}
+                                                            {ch.ip || "sin IP"}{ch.model ? ` · ${ch.model}` : ""}
+                                                        </span>
                                                     </span>
                                                 </div>
                                                 <div className="p-2 space-y-1.5 bg-card/60">
@@ -1136,11 +1147,19 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                                 </div>
                             )}
 
-                            <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
                                 <span className="text-[12px] text-muted-foreground">{nvrAviso}</span>
-                                <Button type="button" variant="outline" onClick={guardarMapa} disabled={nvrOcupado || !nvrCanales.length}>
-                                    Guardar el mapeo
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                    {canalesSinCamara.length > 0 && (
+                                        <Button type="button" onClick={() => importarCanales(canalesSinCamara.map((c: any) => c.channel))} disabled={nvrOcupado}>
+                                            {nvrOcupado ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+                                            Importar {canalesSinCamara.length} canal{canalesSinCamara.length === 1 ? "" : "es"} sin cámara
+                                        </Button>
+                                    )}
+                                    <Button type="button" variant="outline" onClick={guardarMapa} disabled={nvrOcupado || !nvrCanales.length}>
+                                        Guardar el mapeo
+                                    </Button>
+                                </div>
                             </div>
                         </CajonSeccion>
                     )}

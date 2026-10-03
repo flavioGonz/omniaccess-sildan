@@ -66,23 +66,48 @@ export async function getNvrChannels(input: { ip: string; username?: string; pas
                 const dev: any = { ip, username: cred.username, password: cred.password, authType: a };
                 const xml: string = await authenticatedRequest("GET", "/ISAPI/ContentMgmt/InputProxy/channels", dev, { responseType: "text", accept: "application/xml", contentType: "application/xml" });
                 const channels = parseInputProxy(String(xml || ""));
-                if (channels.length) return { ok: true, authType: a, channels };
+                if (channels.length) {
+                    const estado = await leerEstadoCanales(dev);
+                    for (const c of channels) if (c.channel in estado) c.online = estado[c.channel];
+                    return { ok: true, authType: a, channels };
+                }
             } catch (e: any) { lastErr = e?.message || String(e); }
         }
     }
     return { ok: false, error: lastErr || "Sin respuesta ISAPI del NVR", channels: [] as any[] };
 }
 
-function parseInputProxy(xml: string): { channel: number; ip: string | null; name: string | null }[] {
-    const out: { channel: number; ip: string | null; name: string | null }[] = [];
+export type CanalNvr = { channel: number; ip: string | null; name: string | null; model: string | null; online: boolean | null };
+
+// El tag puede venir pelado (`<InputProxyChannel>`, fw V4.63) o con atributos
+// (`<InputProxyChannel version="1.0" xmlns=...>`, fw V4.83 de los NXI): por eso se parte por
+// `[\s>]` y no por el tag exacto. Verificado contra los dos NVR de San Nicolás.
+function parseInputProxy(xml: string): CanalNvr[] {
+    const out: CanalNvr[] = [];
     const blocks = xml.split(/<InputProxyChannel[\s>]/i).slice(1);
     for (const b of blocks) {
         const idM = b.match(/<id>\s*(\d+)\s*<\/id>/i);
         const ipM = b.match(/<ipAddress>\s*([0-9.]+)\s*<\/ipAddress>/i);
         const nmM = b.match(/<name>\s*([^<]*)\s*<\/name>/i);
-        if (idM) out.push({ channel: parseInt(idM[1]), ip: ipM ? ipM[1] : null, name: nmM ? nmM[1].trim() : null });
+        const mdM = b.match(/<model>\s*([^<]*)\s*<\/model>/i);
+        if (idM) out.push({ channel: parseInt(idM[1]), ip: ipM ? ipM[1] : null, name: nmM ? nmM[1].trim() : null, model: mdM ? mdM[1].trim() : null, online: null });
     }
     return out;
+}
+
+// El estado en línea NO viene en /channels: vive en /channels/status. Se consulta aparte y
+// se cruza por id; si falla, el canal queda con online=null (desconocido), no false.
+async function leerEstadoCanales(dev: any): Promise<Record<number, boolean>> {
+    try {
+        const xml: string = await authenticatedRequest("GET", "/ISAPI/ContentMgmt/InputProxy/channels/status", dev, { responseType: "text", accept: "application/xml", contentType: "application/xml" });
+        const estado: Record<number, boolean> = {};
+        for (const b of String(xml || "").split(/<InputProxyChannelStatus[\s>]/i).slice(1)) {
+            const idM = b.match(/<id>\s*(\d+)\s*<\/id>/i);
+            const onM = b.match(/<online>\s*(true|false)\s*<\/online>/i);
+            if (idM && onM) estado[parseInt(idM[1])] = onM[1].toLowerCase() === "true";
+        }
+        return estado;
+    } catch { return {}; }
 }
 
 // Compat: mapa cámara->canal (solo número). Para el editor de mapeo con NVR usar getNvrChannelMapFull.
@@ -147,4 +172,59 @@ export async function saveNvrChannelMap(
         });
         return { ok: true };
     } catch { return { ok: false }; }
+}
+
+// ── Importar canales de un NVR como cámaras ───────────────────────────────────
+// Lo que Olivos hizo a mano en la base (79 canales) acá es una acción. Cada canal elegido
+// pasa a ser un Device tipo CAMERA con las credenciales del NVR, queda mapeado {nvr, ch} en
+// NVR_CHANNEL_MAP (formato nuevo) y con su stream en go2rtc (rama CAMERA: HD vía NVR).
+// Idempotente por IP: un canal ya importado se actualiza, no se duplica.
+export async function importarCanalesNvr(nvrDeviceId: string, canales: number[]): Promise<{
+    ok: boolean; error?: string; creadas: number; actualizadas: number; detalle: { channel: number; ip: string | null; name: string; accion: "creada" | "actualizada" | "omitida"; motivo?: string }[];
+}> {
+    const detalle: { channel: number; ip: string | null; name: string; accion: "creada" | "actualizada" | "omitida"; motivo?: string }[] = [];
+    try {
+        const nvr = await prisma.device.findUnique({ where: { id: nvrDeviceId } });
+        if (!nvr || (nvr.deviceType as any) !== "NVR" || !nvr.ip) return { ok: false, error: "El NVR no existe o no tiene IP", creadas: 0, actualizadas: 0, detalle };
+
+        const res = await getNvrChannels({ ip: nvr.ip, username: nvr.username || undefined, password: nvr.password || undefined, authType: (nvr.authType as any) || undefined });
+        if (!res.ok) return { ok: false, error: res.error || "No se pudieron leer los canales", creadas: 0, actualizadas: 0, detalle };
+
+        const elegidos = (res.channels as CanalNvr[]).filter((c) => canales.includes(c.channel));
+        const mapa: Record<string, number> = {};
+        let creadas = 0, actualizadas = 0;
+
+        for (const c of elegidos) {
+            if (!c.ip) { detalle.push({ channel: c.channel, ip: null, name: c.name || "", accion: "omitida", motivo: "el canal no tiene IP" }); continue; }
+            // El nombre del NVR suele ser el bueno ("Sector 9 z2 - c1"); si viene vacío se arma uno.
+            const name = (c.name && c.name.trim()) || `${nvr.name} · ch ${c.channel}`;
+            const datos: any = {
+                name, ip: c.ip,
+                brand: nvr.brand, deviceType: "CAMERA",
+                username: nvr.username, password: nvr.password, authType: nvr.authType,
+                deviceModel: c.model || undefined,
+            };
+            const existente = await prisma.device.findFirst({ where: { ip: c.ip } });
+            let dev;
+            if (existente) {
+                // Si ya es una cámara nuestra se refresca; si es otro tipo (LPR, interior) no se le
+                // cambia el tipo: se avisa y se mapea igual, que es lo que sirve para el vivo.
+                const cambiaTipo = (existente.deviceType as any) !== "CAMERA";
+                dev = cambiaTipo ? existente : await prisma.device.update({ where: { id: existente.id }, data: { name: existente.name || name, deviceModel: datos.deviceModel } });
+                detalle.push({ channel: c.channel, ip: c.ip, name: dev.name, accion: "actualizada", motivo: cambiaTipo ? `ya existía como ${existente.deviceType}; sólo se mapeó` : undefined });
+                actualizadas++;
+            } else {
+                dev = await prisma.device.create({ data: datos });
+                detalle.push({ channel: c.channel, ip: c.ip, name: dev.name, accion: "creada" });
+                creadas++;
+            }
+            mapa[c.ip] = c.channel;
+            try { const { syncLprStream } = await import("@/lib/go2rtc-sync"); await syncLprStream(dev as any); } catch (e) { console.error("[importarCanalesNvr] go2rtc:", (e as any)?.message); }
+        }
+
+        if (Object.keys(mapa).length) await saveNvrChannelMapForNvr(nvr.ip, mapa);
+        return { ok: true, creadas, actualizadas, detalle };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || String(e), creadas: 0, actualizadas: 0, detalle };
+    }
 }
