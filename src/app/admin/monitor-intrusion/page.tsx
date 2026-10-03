@@ -445,7 +445,7 @@ function AlarmAckModal({ cam, alarms, onResolve, onClose }: { cam: IntrusionCam;
     );
 }
 
-function DetailDialog({ det, cam, geom, onClose, onAck }: { det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void; onAck?: (deviceId: string) => void }) {
+function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void; onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean }) {
     const [cur, setCur] = useState<any>(det);
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
@@ -488,10 +488,14 @@ function DetailDialog({ det, cam, geom, onClose, onAck }: { det: any; cam?: Intr
                     {idx >= 0 && sibs.length > 1 && <span className="ml-auto mt-1 text-[11px] font-bold text-white/60 tabular-nums self-start">{idx + 1} / {sibs.length}</span>}
                 </div>
                 <div className="absolute bottom-0 inset-x-0 p-4 pt-14 flex items-end justify-between gap-4 bg-gradient-to-t from-black/90 via-black/35 to-transparent">
-                    {/* Aceptar alarma */}
-                    {cur.deviceId && onAck ? (
-                        <button onClick={(e) => { e.stopPropagation(); onAck(cur.deviceId); }}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-red-700 text-[13px] font-extrabold shadow-xl hover:bg-red-50 active:scale-95 transition"><Check size={16} /> Aceptar alarma</button>
+                    {/* Resolver alarma desde la MISMA ficha del sidebar */}
+                    {hasAlarm && cur.deviceId && onResolveAlarm ? (
+                        <div className="flex items-center gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "false"); }}
+                                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> Falsa alarma</button>
+                            <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "real"); }}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Confirmar real</button>
+                        </div>
                     ) : <span />}
                     {/* datos apilados a la derecha, sin chips */}
                     <div className="flex flex-col items-end gap-0.5 text-right drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]">
@@ -1083,9 +1087,14 @@ export default function MonitorIntrusion() {
         setAlarms((a) => { const n = { ...a }; delete n[id]; return n; });
         if (kind === "real") { setAttendingIds((s) => new Set(s).add(id)); setAttending(id, true).catch(() => { }); }
     };
-    const [ackDev, setAckDev] = useState<IntrusionCam | null>(null);
     const [liveTab, setLiveTab] = useState<"live" | "rec" | "evi">("live");
     const openFicha = (c: IntrusionCam) => setDetail(lastByDev[c.id] ?? { id: `live-${c.id}`, deviceId: c.id, deviceName: c.name, type: "OTHER", eventType: null, snapshotPath: null, timestamp: new Date().toISOString() });
+    // Aceptar alarma abre la MISMA ficha del sidebar (con los botones real/falsa adentro).
+    const openAlarmFicha = (c: IntrusionCam) => {
+        const a = alarms[c.id]?.[0];
+        setDetail(a ? { id: a.id, deviceId: c.id, deviceName: c.name, type: a.type, eventType: null, snapshotPath: null, timestamp: a.ts }
+                    : (lastByDev[c.id] ?? { id: `live-${c.id}`, deviceId: c.id, deviceName: c.name, type: "OTHER", eventType: null, snapshotPath: null, timestamp: new Date().toISOString() }));
+    };
     const openLive = (c: IntrusionCam) => { setLiveTab("live"); setLiveDev(c); };
     const openClip = (c: IntrusionCam) => { setLiveTab("rec"); setLiveDev(c); };
 
@@ -1169,7 +1178,7 @@ export default function MonitorIntrusion() {
                                     <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
                                         {topRow.map((cam) => (
                                             <CamTile key={cam.id} cam={cam} alarms={alarms[cam.id]} last={lastByDev[cam.id]} geom={geom[cam.id]} hasAnalytics={analyticsIds.has(cam.id)} alarmActive={cam.alarmOk || alarmIds.has(cam.id)} onFicha={openFicha} onLive={openLive} onClip={openClip}
-                                                onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => setAckDev(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
+                                                onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => openAlarmFicha(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
                                         ))}
                                     </div>
                                 </div>
@@ -1178,7 +1187,7 @@ export default function MonitorIntrusion() {
                                 <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
                                     {restRow.map((cam) => (
                                         <CamTile key={cam.id} cam={cam} alarms={alarms[cam.id]} last={lastByDev[cam.id]} geom={geom[cam.id]} hasAnalytics={analyticsIds.has(cam.id)} alarmActive={cam.alarmOk || alarmIds.has(cam.id)} onFicha={openFicha} onLive={openLive} onClip={openClip}
-                                            onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => setAckDev(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
+                                            onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => openAlarmFicha(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
                                     ))}
                                 </div>
                             )}
@@ -1247,9 +1256,8 @@ export default function MonitorIntrusion() {
                 setAnalyticsIds((s) => new Set(s).add(id));
             }} />}
             {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
-            {ackDev && <AlarmAckModal cam={ackDev} alarms={alarms[ackDev.id] || []} onResolve={(k) => { ackAlarm(ackDev.id, k); setAckDev(null); }} onClose={() => setAckDev(null)} />}
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
-                onAck={(id) => { const c = camById[id]; setDetail(null); if (c) setAckDev(c); }} />}
+                hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); setDetail(null); }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
             {liveDev && <LiveModal key={liveDev.id} cam={liveDev} cams={cams} initialTab={liveTab} geom={geom[liveDev.id]} onClose={() => setLiveDev(null)} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setLiveDev(c); }} />}
             <RTooltip id="mi-tip" place="top" delayShow={100} className="!z-[9999] !rounded-md !bg-zinc-900 !text-white !text-[11px] !font-semibold !px-2 !py-1 !border !border-white/10 !shadow-xl !opacity-100" />

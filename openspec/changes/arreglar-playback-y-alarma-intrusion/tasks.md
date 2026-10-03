@@ -15,12 +15,12 @@
 
 ## 3. Aceptar alarma en la ficha del evento
 
-- [ ] 3.1 `DetailDialog`: reemplazar el botón único "Aceptar alarma" por Confirmar real / Falsa
+- [x] 3.1 `DetailDialog`: reemplazar el botón único "Aceptar alarma" por Confirmar real / Falsa
       alarma vía un handler `onResolveAlarm(deviceId, kind)`, visible cuando el canal tiene alarma
       activa (verificación: en un canal en alarma aparecen ambos botones).
-- [ ] 3.2 Overlay del tile y menú "Aceptar alarma": abrir `DetailDialog` con la última detección
+- [x] 3.2 Overlay del tile y menú "Aceptar alarma": abrir `DetailDialog` con la última detección
       del canal en vez de `AlarmAckModal` (verificación: al aceptar se abre la misma ficha del sidebar).
-- [ ] 3.3 Cablear `onResolveAlarm` a `ackAlarm(deviceId, kind)` y limpiar el overlay; dejar de
+- [x] 3.3 Cablear `onResolveAlarm` a `ackAlarm(deviceId, kind)` y limpiar el overlay; dejar de
       montar `AlarmAckModal` (verificación: resolver real/falsa cierra la ficha y limpia el overlay).
 
 ## 4. Verificación integral
