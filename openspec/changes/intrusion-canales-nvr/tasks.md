@@ -3,13 +3,13 @@
 Por fases; cada fase compila, se despliega y se verifica antes de la siguiente.
 
 ## Fase 1 — Importar canales de NVR como cámaras (hace aparecer las cámaras)
-- [ ] 1.1 `parseInputProxy` tolerante a los XML de V4.63 (M2) y V4.83 (NXI): probar contra NVR 2 y NVR 6.
-- [ ] 1.2 Acción `importarCanalesNvr(nvrDeviceId, canales[])` en `src/app/actions/nvr.ts`: crea
+- [x] 1.1 `parseInputProxy` tolerante a los XML de V4.63 (M2) y V4.83 (NXI): probar contra NVR 2 y NVR 6.
+- [x] 1.2 Acción `importarCanalesNvr(nvrDeviceId, canales[])` en `src/app/actions/nvr.ts`: crea
   `Device` tipo `CAMERA` (brand/creds del NVR), guarda `NVR_CHANNEL_MAP` `{ip:{nvr,ch}}`,
   `syncLprStream`; idempotente por IP.
-- [ ] 1.3 UI en `CajonDispositivo` (sección NVR): selección múltiple de canales + "Importar
+- [x] 1.3 UI en `CajonDispositivo` (sección NVR): selección múltiple de canales + "Importar
   seleccionados"; `crearCamaraDeCanal` deja de crear `LPR_CAMERA`.
-- [ ] 1.4 `CAMERA` visible/elegible en `/admin/devices`: `allowedTypes`, `TYPE_META`, `tipos.ts`,
+- [x] 1.4 `CAMERA` visible/elegible en `/admin/devices`: `allowedTypes`, `TYPE_META`, `tipos.ts`,
   `esCamara`.
 - [ ] 1.5 Verificar: importar las perimetrales del NVR 2 → aparecen en Dispositivos y en
   `monitor-intrusion` con "NVR 2 · ch N" y vivo.
