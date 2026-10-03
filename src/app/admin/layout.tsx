@@ -170,9 +170,6 @@ export default function AdminLayout({
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         <SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />
                     )}
-                    {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        <SidebarItem icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />
-                    )}
                     {modules.MODULE_QUEUE ? (
                         <SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />
                     ) : (
@@ -192,6 +189,7 @@ export default function AdminLayout({
                             {isAdmin && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users"} collapsed={collapsed} />)}
                             {isAdmin && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             <SidebarItem icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />
+                            {modules.MODULE_LPR && (<SidebarItem icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />)}
                         </>
                     )}
 
