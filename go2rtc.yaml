@@ -482,11 +482,11 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=21&subtype=0
     - ffmpeg:lpr_cmuofv5w0001xwbvd4ryb1skk_hd#video=h264
   lpr_cmuofv5w0001ywbvd0scbd2oq:
-    - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=22&subtype=1
-    - ffmpeg:lpr_cmuofv5w0001ywbvd0scbd2oq#video=h264
+    - rtsp://admin:Sildan.1329@172.16.2.21:554/cam/realmonitor?channel=1&subtype=1
+    - ffmpeg:lpr_cmuofv5w0001ywbvd0scbd2oq#video=h264#hardware=vaapi
   lpr_cmuofv5w0001ywbvd0scbd2oq_hd:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=22&subtype=0
-    - ffmpeg:lpr_cmuofv5w0001ywbvd0scbd2oq_hd#video=h264
+    - ffmpeg:lpr_cmuofv5w0001ywbvd0scbd2oq_hd#video=h264#hardware=vaapi
   lpr_cmuofv5w1001zwbvd0m51m0y5:
     - rtsp://admin:Sildan.1329@172.16.2.2:554/cam/realmonitor?channel=23&subtype=1
     - ffmpeg:lpr_cmuofv5w1001zwbvd0m51m0y5#video=h264#hardware=vaapi
