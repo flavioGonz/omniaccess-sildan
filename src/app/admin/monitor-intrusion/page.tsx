@@ -598,6 +598,13 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
     const nActive = (q ? 1 : 0) + (dev ? 1 : 0) + (type !== "ANALYTIC" ? 1 : 0) + (ack !== "all" ? 1 : 0) + ((from || to) ? 1 : 0);
     const clearAll = () => { setQ(""); setDev(""); setType("ANALYTIC"); setAck("all"); setFrom(""); setTo(""); };
     const stats = useMemo(() => { const by: Record<string, number> = {}; let pend = 0, done = 0; for (const d of items) { by[d.type] = (by[d.type] || 0) + 1; if (d.acknowledged) done++; else pend++; } return { by, pend, done }; }, [items]);
+    const [hoverId, setHoverId] = useState<string | null>(null);
+    const hoverTimer = useRef<any>(null);
+    const nvrRef = useRef<Record<string, string | null>>({});
+    const [, setNvrTick] = useState(0);
+    const resolveNvr = (deviceId: string) => { if (deviceId in nvrRef.current) return; fetch(`/api/nvr/channel?deviceId=${deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { nvrRef.current[deviceId] = j && j.nvr ? String(j.nvr) : null; setNvrTick((t) => t + 1); }).catch(() => { nvrRef.current[deviceId] = null; setNvrTick((t) => t + 1); }); };
+    const onCardEnter = (d: DetHistItem) => { clearTimeout(hoverTimer.current); if (d.deviceId) resolveNvr(d.deviceId); hoverTimer.current = setTimeout(() => setHoverId(d.id), 350); };
+    const onCardLeave = () => { clearTimeout(hoverTimer.current); setHoverId(null); };
     const geomRef = useRef<Record<string, Geom>>({});
     const [, setGeomTick] = useState(0);
     useEffect(() => { const ids = [...new Set(items.map((d) => d.deviceId).filter(Boolean))] as string[]; const missing = ids.filter((id) => !(id in geomRef.current)); if (!missing.length) return; getAnalyticsGeometryBatch(missing).then((g) => { geomRef.current = { ...geomRef.current, ...g }; setGeomTick((t) => t + 1); }).catch(() => { }); }, [items]);
@@ -646,9 +653,14 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                                 const href = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
                                 const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
                                 return (
-                                    <button key={d.id} onClick={() => onOpen(d)} className="group relative aspect-video rounded-2xl overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.02] transition-all duration-150 bg-neutral-900 text-left shadow-lg">
+                                    <button key={d.id} onClick={() => onOpen(d)} onMouseEnter={() => onCardEnter(d)} onMouseLeave={onCardLeave} className="group relative aspect-video rounded-2xl overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.02] transition-all duration-150 bg-neutral-900 text-left shadow-lg">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
+                                        {hoverId === d.id && d.deviceId && nvrRef.current[d.deviceId] && d.ch != null && (
+                                            // eslint-disable-next-line jsx-a11y/media-has-caption
+                                            <video autoPlay muted loop playsInline src={`/api/nvr/playback?ch=${d.ch}&t=${Math.floor(new Date(d.timestamp).getTime())}&pre=3&dur=14&nvr=${nvrRef.current[d.deviceId]}`} className="absolute inset-0 w-full h-full object-cover z-[1] bg-black" />
+                                        )}
+                                        {hoverId === d.id && d.deviceId && !(d.deviceId in nvrRef.current) && (<div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-[3] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/60 text-[9px] font-bold text-white/70"><Loader2 size={10} className="animate-spin" /> cargando…</div>)}
                                         <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
                                         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
                                         {d.deviceId && geomRef.current[d.deviceId] && <div className="absolute inset-0 z-[1] pointer-events-none"><GeomOverlay geom={geomRef.current[d.deviceId]} /></div>}
