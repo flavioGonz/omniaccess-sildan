@@ -964,7 +964,7 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
     const nowTs = recWin.end;
     // reencuadrar si el cursor sale de la ventana
     useEffect(() => { if (recT < recWin.start || recT > recWin.end) setAnchor(recT); }, [recT, recWin.start, recWin.end]);
-    const playbackUrl = nvrId && cam.ch != null ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&pre=4&dur=90&nvr=${nvrId}` : null;
+    const playbackUrl = nvrId && cam.ch != null ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&pre=4&dur=30&nvr=${nvrId}` : null;
 
     const tabs: { k: "live" | "rec" | "evi"; Icon: any; label: string }[] = [
         { k: "live", Icon: Video, label: "Vivo" },
