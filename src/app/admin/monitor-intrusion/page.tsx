@@ -598,6 +598,9 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
     const nActive = (q ? 1 : 0) + (dev ? 1 : 0) + (type !== "ANALYTIC" ? 1 : 0) + (ack !== "all" ? 1 : 0) + ((from || to) ? 1 : 0);
     const clearAll = () => { setQ(""); setDev(""); setType("ANALYTIC"); setAck("all"); setFrom(""); setTo(""); };
     const stats = useMemo(() => { const by: Record<string, number> = {}; let pend = 0, done = 0; for (const d of items) { by[d.type] = (by[d.type] || 0) + 1; if (d.acknowledged) done++; else pend++; } return { by, pend, done }; }, [items]);
+    const geomRef = useRef<Record<string, Geom>>({});
+    const [, setGeomTick] = useState(0);
+    useEffect(() => { const ids = [...new Set(items.map((d) => d.deviceId).filter(Boolean))] as string[]; const missing = ids.filter((id) => !(id in geomRef.current)); if (!missing.length) return; getAnalyticsGeometryBatch(missing).then((g) => { geomRef.current = { ...geomRef.current, ...g }; setGeomTick((t) => t + 1); }).catch(() => { }); }, [items]);
     const inp = "w-full h-10 px-3 rounded-xl bg-white/5 ring-1 ring-white/10 text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-red-400/60 [color-scheme:dark]";
     const Block = ({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) => (
         <div className="rounded-2xl bg-white/[0.04] ring-1 ring-white/10 p-3.5">
@@ -648,6 +651,7 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                                         {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
                                         <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
                                         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
+                                        {d.deviceId && geomRef.current[d.deviceId] && <div className="absolute inset-0 z-[1] pointer-events-none"><GeomOverlay geom={geomRef.current[d.deviceId]} /></div>}
                                         <div className="absolute inset-0 z-[2] grid place-items-center pointer-events-none">
                                             <button onClick={(e) => { e.stopPropagation(); onPlay?.(d); }} data-tooltip-id="mi-tip" data-tooltip-content="Ver grabación del evento" className="pointer-events-auto grid h-14 w-14 place-items-center rounded-full bg-black/45 backdrop-blur-md ring-2 ring-white/70 text-white shadow-2xl opacity-0 group-hover:opacity-100 hover:bg-red-600/85 hover:ring-red-300 transition-all active:scale-90"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg></button>
                                         </div>
@@ -784,7 +788,7 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
     );
 }
 
-function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStatus, onClose, onOpenEvent, onSwitchCam, onDismissFrom }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; fromCam?: IntrusionCam | null; camStatus?: Record<string, { recent: boolean; alarm: boolean }>; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void; onDismissFrom?: () => void }) {
+function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStatus, initialRecMs, onClose, onOpenEvent, onSwitchCam, onDismissFrom }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; fromCam?: IntrusionCam | null; camStatus?: Record<string, { recent: boolean; alarm: boolean }>; initialRecMs?: number; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void; onDismissFrom?: () => void }) {
     const [tab, setTab] = useState<"live" | "rec" | "evi">(initialTab);
     const isPtz = /ptz/i.test(cam.name || "");
     const [showPtz, setShowPtz] = useState(true);
@@ -853,11 +857,11 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
     const [qFlash, setQFlash] = useState(0);
     // grabación
     const [nvrId, setNvrId] = useState<string | null>(null);
-    const [recT, setRecT] = useState(Date.now() - 60000);      // posición del slider (inmediata)
-    const [recLoadT, setRecLoadT] = useState(Date.now() - 60000); // tiempo confirmado (debounced) que se reproduce
-    const [globalEnd] = useState(() => Date.now());
+    const [recT, setRecT] = useState(initialRecMs || (Date.now() - 60000));      // posición del slider (inmediata)
+    const [recLoadT, setRecLoadT] = useState(initialRecMs || (Date.now() - 60000)); // tiempo confirmado (debounced) que se reproduce
+    const [globalEnd] = useState(() => initialRecMs ? Math.max(Date.now(), initialRecMs + 60000) : Date.now());
     const [zoomIdx, setZoomIdx] = useState(0);
-    const [anchor, setAnchor] = useState(() => Date.now() - 60000);
+    const [anchor, setAnchor] = useState(() => initialRecMs || (Date.now() - 60000));
     const [recLoading, setRecLoading] = useState(false);
     const [recEvents, setRecEvents] = useState<DetHistItem[]>([]);
     const [scrub, setScrub] = useState<number | null>(null); // hora que se muestra grande al arrastrar
@@ -972,7 +976,7 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
                     </div>
                 )}
                 <video ref={videoRef} autoPlay muted playsInline className={cn("absolute inset-0 w-full h-full object-contain transition-opacity duration-300", tab === "live" && ready ? "opacity-100" : "opacity-0 pointer-events-none")} />
-                {tab === "live" && <GeomOverlay geom={geom} />}
+                {(tab === "live" || tab === "rec") && <div className="pointer-events-none absolute inset-0 z-[5]"><GeomOverlay geom={geom} /></div>}
                 {/* mini de la cámara de ORIGEN del seguimiento — movible y redimensionable */}
                 {tab === "live" && fromCam && (
                     <MovablePip defaultW={208} ring="ring-amber-400/40">
@@ -1341,6 +1345,7 @@ export default function MonitorIntrusion() {
     };
     const [liveTab, setLiveTab] = useState<"live" | "rec" | "evi">("live");
     const [prevCam, setPrevCam] = useState<IntrusionCam | null>(null);
+    const [playMs, setPlayMs] = useState<number | null>(null);
     const openFicha = (c: IntrusionCam) => setDetail(lastByDev[c.id] ?? { id: `live-${c.id}`, deviceId: c.id, deviceName: c.name, type: "OTHER", eventType: null, snapshotPath: null, timestamp: new Date().toISOString() });
     const trackStatus = useMemo(() => { const now = Date.now(); const o: Record<string, { recent: boolean; alarm: boolean }> = {}; cams.forEach((c) => { const l = lastByDev[c.id]; o[c.id] = { recent: !!(l && now - new Date(l.timestamp).getTime() < 15 * 60 * 1000), alarm: !!(alarms[c.id]?.length) }; }); return o; }, [cams, lastByDev, alarms]);
     // Aceptar alarma abre la MISMA ficha del sidebar (con los botones real/falsa adentro).
@@ -1349,8 +1354,8 @@ export default function MonitorIntrusion() {
         setDetail(a ? { id: a.id, deviceId: c.id, deviceName: c.name, type: a.type, eventType: null, snapshotPath: null, timestamp: a.ts }
                     : (lastByDev[c.id] ?? { id: `live-${c.id}`, deviceId: c.id, deviceName: c.name, type: "OTHER", eventType: null, snapshotPath: null, timestamp: new Date().toISOString() }));
     };
-    const openLive = (c: IntrusionCam) => { setLiveTab("live"); setPrevCam(null); setLiveDev(c); };
-    const openClip = (c: IntrusionCam) => { setLiveTab("rec"); setLiveDev(c); };
+    const openLive = (c: IntrusionCam) => { setLiveTab("live"); setPrevCam(null); setPlayMs(null); setLiveDev(c); };
+    const openClip = (c: IntrusionCam) => { setLiveTab("rec"); setPlayMs(null); setLiveDev(c); };
 
     const shown = useMemo(() => {
         const term = q.trim().toLowerCase();
@@ -1514,9 +1519,8 @@ export default function MonitorIntrusion() {
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
                 hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
-            {showEvidence && <EvidenceGallery cams={cams} onClose={() => setShowEvidence(false)} onOpen={(d) => setDetail(d)} onPlay={(d) => setPlayDet(d)} />}
-            {playDet && <EvidencePlayModal d={playDet} onClose={() => setPlayDet(null)} />}
-            {liveDev && <LiveModal key={liveDev.id} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
+            {showEvidence && <EvidenceGallery cams={cams} onClose={() => setShowEvidence(false)} onOpen={(d) => setDetail(d)} onPlay={(d) => { const c = d.deviceId ? camById[d.deviceId] : null; if (c) { setPlayMs(Math.floor(new Date(d.timestamp).getTime())); setLiveTab("rec"); setLiveDev(c); } }} />}
+            {liveDev && <LiveModal key={`${liveDev.id}:${playMs ?? "l"}`} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} initialRecMs={playMs ?? undefined} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); setPlayMs(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setPlayMs(null); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
             <RTooltip id="mi-tip" place="top" delayShow={100} className="!z-[9999] !rounded-md !bg-zinc-900 !text-white !text-[11px] !font-semibold !px-2 !py-1 !border !border-white/10 !shadow-xl !opacity-100" />
         </div>
     );
