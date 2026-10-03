@@ -406,7 +406,7 @@ function AlarmAckModal({ cam, alarms, onResolve, onClose }: { cam: IntrusionCam;
     return (
         <div className="fixed inset-0 z-[2300] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8" onClick={onClose}>
             {/* ventana grande, sin bordes, controles overlay sobre la captura */}
-            <div className="relative w-full max-w-5xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="relative w-full max-w-[92vw] max-h-[88vh] aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={snap} alt="" className="absolute inset-0 w-full h-full object-contain" />
                 <div className="absolute inset-0 pointer-events-none ring-4 ring-inset ring-red-500/70 rounded-2xl animate-pulse" />
@@ -565,6 +565,46 @@ function HistoryModal({ onClose, onOpen }: { onClose: () => void; onOpen: (d: De
                         <button disabled={page >= pages - 1} onClick={() => setPage((x) => x + 1)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs font-bold disabled:opacity-40 hover:bg-accent">Siguiente <ChevronRight size={14} /></button>
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { children: React.ReactNode; defaultW?: number; ring?: string }) {
+    const [st, setSt] = useState<{ x: number | null; y: number | null; w: number }>({ x: null, y: null, w: defaultW });
+    const d = useRef<{ mode: "move" | "resize"; sx: number; sy: number; ox: number; oy: number; ow: number } | null>(null);
+    const el = useRef<HTMLDivElement>(null);
+    const begin = (mode: "move" | "resize") => (e: React.PointerEvent) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const node = el.current; if (!node) return;
+        const par = node.offsetParent as HTMLElement | null;
+        const pr = par?.getBoundingClientRect(); const r = node.getBoundingClientRect();
+        const ox = st.x ?? (pr ? r.left - pr.left : r.left);
+        const oy = st.y ?? (pr ? r.top - pr.top : r.top);
+        d.current = { mode, sx: e.clientX, sy: e.clientY, ox, oy, ow: st.w };
+        try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { }
+    };
+    const onMove = (e: React.PointerEvent) => {
+        const c = d.current; if (!c) return;
+        if (c.mode === "move") {
+            const node = el.current; const par = node?.offsetParent as HTMLElement | null; const pr = par?.getBoundingClientRect();
+            let nx = c.ox + (e.clientX - c.sx), ny = c.oy + (e.clientY - c.sy);
+            if (pr && node) { nx = Math.max(0, Math.min(pr.width - node.offsetWidth, nx)); ny = Math.max(0, Math.min(pr.height - node.offsetHeight, ny)); }
+            setSt((v) => ({ ...v, x: nx, y: ny }));
+        } else {
+            setSt((v) => ({ ...v, w: Math.max(130, Math.min(720, c.ow + (e.clientX - c.sx))) }));
+        }
+    };
+    const end = (e: React.PointerEvent) => { d.current = null; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { } };
+    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y, width: st.w };
+    return (
+        <div ref={el} style={style} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}
+            className={cn("absolute z-30 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 bg-black/60 select-none touch-none", ring)}>
+            {children}
+            <div onPointerDown={begin("move")} className="absolute inset-0 z-[1] cursor-move" />
+            <div onPointerDown={begin("resize")} title="Redimensionar" className="absolute bottom-0 right-0 z-[3] w-5 h-5 grid place-items-end p-1 cursor-nwse-resize">
+                <span className="w-2.5 h-2.5 border-r-2 border-b-2 border-white/70" />
             </div>
         </div>
     );
@@ -744,8 +784,8 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose
     // ticks cada 3h para etiquetas + cada 1h finos
 
     return (
-        <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8" onClick={onClose}>
-            <div className="relative w-full max-w-5xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
+            <div className="relative w-full max-w-[92vw] max-h-[88vh] aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 {/* ── VIVO ── */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={snap} alt="" className={cn("absolute inset-0 w-full h-full object-contain transition-all duration-500", (!ready || tab !== "live") && "blur-[6px] scale-105 brightness-[0.5]")} />
@@ -759,18 +799,17 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose
                 )}
                 <video ref={videoRef} autoPlay muted playsInline className={cn("absolute inset-0 w-full h-full object-contain transition-opacity duration-300", tab === "live" && ready ? "opacity-100" : "opacity-0 pointer-events-none")} />
                 {tab === "live" && <GeomOverlay geom={geom} />}
-                {/* mini de la cámara de ORIGEN del seguimiento (de dónde venís) */}
+                {/* mini de la cámara de ORIGEN del seguimiento — movible y redimensionable */}
                 {tab === "live" && fromCam && (
-                    <div className="absolute right-4 top-16 z-30 w-40 sm:w-52 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 ring-amber-400/40 bg-black/60 group/from">
+                    <MovablePip defaultW={208} ring="ring-amber-400/40">
                         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                        <video key={`from_${fromCam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${fromCam.id}`)}&video=h264`} className="w-full h-full object-cover" />
-                        <button onClick={() => onSwitchCam?.(fromCam)} title={`Volver a ${fromCam.name}`} className="absolute inset-0" />
-                        <span className="absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 text-[8.5px] font-extrabold uppercase tracking-wide text-amber-300 pointer-events-none"><Crosshair size={7} /> Origen · {fromCam.name}</span>
+                        <video key={`from_${fromCam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${fromCam.id}`)}&video=h264`} className="absolute inset-0 w-full h-full object-cover" />
+                        <span className="absolute top-1 left-1 z-[2] inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 text-[8.5px] font-extrabold uppercase tracking-wide text-amber-300 pointer-events-none"><Crosshair size={7} /> Origen · {fromCam.name}</span>
                         <button onClick={() => onSwitchCam?.(fromCam)} data-tooltip-id="mi-tip" data-tooltip-content={`Volver a ${fromCam.name}`}
-                            className="absolute bottom-1 left-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/90 hover:bg-amber-500 text-white text-[9px] font-extrabold uppercase tracking-wide"><ChevronLeft size={11} /> Volver</button>
+                            className="absolute bottom-1 left-1 z-[2] inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/90 hover:bg-amber-500 text-white text-[9px] font-extrabold uppercase tracking-wide"><ChevronLeft size={11} /> Volver</button>
                         <button onClick={onDismissFrom} data-tooltip-id="mi-tip" data-tooltip-content="Cerrar origen"
-                            className="absolute top-1 right-1 w-6 h-6 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white/80 hover:text-white transition"><X size={13} /></button>
-                    </div>
+                            className="absolute top-1 right-1 z-[2] w-6 h-6 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white/80 hover:text-white transition"><X size={13} /></button>
+                    </MovablePip>
                 )}
                 {/* ── Visual Track: enlaces a cámaras vecinas ── */}
                 {tab === "live" && (
@@ -795,7 +834,7 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose
                                         <span className="absolute inset-0 rounded-full bg-amber-400/40 animate-ping" />
                                         <Crosshair size={18} className="relative" />
                                         {hoverLink === i && (
-                                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 rounded-xl overflow-hidden bg-black/85 backdrop-blur-md ring-1 ring-white/20 shadow-2xl pointer-events-none z-10">
+                                            <div className={cn("absolute w-52 rounded-xl overflow-hidden bg-black/85 backdrop-blur-md ring-1 ring-white/20 shadow-2xl pointer-events-none z-10", l.y < 0.42 ? "top-full mt-2" : "bottom-full mb-2", l.x < 0.2 ? "left-0" : l.x > 0.8 ? "right-0" : "left-1/2 -translate-x-1/2")}>
                                                 <div className="relative aspect-video bg-black">
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                                     <img src={`/api/snapshot/${c!.id}?t=hover`} alt="" className="absolute inset-0 w-full h-full object-cover" />
@@ -866,13 +905,13 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, onClose
                         )}
                         {/* mini PiP del vivo sobre la grabación — cerrable */}
                         {recSeen && showPip && (
-                            <div className="absolute right-4 top-16 z-30 w-40 sm:w-52 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/15 bg-black/60">
+                            <MovablePip defaultW={208} ring="ring-white/15">
                                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                                <video key={`pip_${cam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${cam.id}`)}&video=h264`} className="w-full h-full object-cover" />
-                                <span className="absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8.5px] font-extrabold uppercase tracking-wide text-red-300"><Circle size={6} className="fill-red-500 text-red-500 animate-pulse" /> Vivo</span>
+                                <video key={`pip_${cam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${cam.id}`)}&video=h264`} className="absolute inset-0 w-full h-full object-cover" />
+                                <span className="absolute top-1 left-1 z-[2] inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8.5px] font-extrabold uppercase tracking-wide text-red-300"><Circle size={6} className="fill-red-500 text-red-500 animate-pulse" /> Vivo</span>
                                 <button onClick={() => setShowPip(false)} data-tooltip-id="mi-tip" data-tooltip-content="Cerrar ventana de vivo"
-                                    className="absolute top-1 right-1 w-6 h-6 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white/80 hover:text-white transition"><X size={13} /></button>
-                            </div>
+                                    className="absolute top-1 right-1 z-[2] w-6 h-6 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white/80 hover:text-white transition"><X size={13} /></button>
+                            </MovablePip>
                         )}
                         {recSeen && !showPip && (
                             <button onClick={() => setShowPip(true)} data-tooltip-id="mi-tip" data-tooltip-content="Mostrar ventana de vivo"
