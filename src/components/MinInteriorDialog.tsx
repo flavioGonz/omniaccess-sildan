@@ -10,11 +10,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Loader2, RotateCw, ShieldAlert, ShieldCheck, ShieldQuestion, Search, ExternalLink } from "lucide-react";
+import { Loader2, RotateCw, ShieldAlert, ShieldCheck, ShieldQuestion, Search } from "lucide-react";
 import { native } from "@/lib/guard-native";
 
 const normPlate = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-const MIN_INTERIOR_URL = "https://matriculas-requeridas.minterior.gub.uy/index.php";
 
 type Result = { status: "REQUERIDA" | "NO" | "CAPTCHA" | "UNKNOWN"; matricula: string; excerpt: string };
 
@@ -183,32 +182,14 @@ export function MinInteriorDialog({
 
                     {badge()}
 
-                    <div className="flex items-center justify-between pt-1">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (native.isNative() && native.canOpenUrl()) { native.openUrl(MIN_INTERIOR_URL); return; }
-                                try {
-                                    const w = window.open(MIN_INTERIOR_URL, "_blank", "noopener,noreferrer");
-                                    if (!w) { navigator.clipboard?.writeText(MIN_INTERIOR_URL).catch(() => {}); }
-                                } catch {
-                                    try { navigator.clipboard?.writeText(MIN_INTERIOR_URL).catch(() => {}); } catch {}
-                                }
-                            }}
-                            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-indigo-500"
-                            title="Abrir el sitio oficial (o copiar el enlace si el visor lo bloquea)"
-                        >
-                            <ExternalLink size={12} /> Abrir sitio oficial
-                        </button>
-                        <div className="flex items-center gap-2">
-                            {result && (
-                                <Button type="button" variant="outline" onClick={startCaptcha}>Nueva consulta</Button>
-                            )}
-                            <Button type="button" onClick={consultar} disabled={submitting || loading || !!result}>
-                                {submitting ? <Loader2 className="animate-spin mr-1" size={16} /> : <Search className="mr-1" size={16} />}
-                                Consultar
-                            </Button>
-                        </div>
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                        {result && (
+                            <Button type="button" variant="outline" onClick={startCaptcha}>Nueva consulta</Button>
+                        )}
+                        <Button type="button" onClick={consultar} disabled={submitting || loading || !!result}>
+                            {submitting ? <Loader2 className="animate-spin mr-1" size={16} /> : <Search className="mr-1" size={16} />}
+                            Consultar
+                        </Button>
                     </div>
                 </div>
             </DialogContent>

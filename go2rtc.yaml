@@ -326,7 +326,7 @@ streams:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/701
     - ffmpeg:lpr_cmuofv5vk0012wbvdtlbskhdl_hd#video=h264
   lpr_cmuofv5vk0013wbvdk1pasb8h:
-    - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/802
+    - rtsp://admin:Sildan.1329@172.16.2.236:554/Streaming/Channels/102
     - ffmpeg:lpr_cmuofv5vk0013wbvdk1pasb8h#video=h264#hardware=vaapi
   lpr_cmuofv5vk0013wbvdk1pasb8h_hd:
     - rtsp://admin:Sildan.1329@172.16.2.249:554/Streaming/Channels/801
