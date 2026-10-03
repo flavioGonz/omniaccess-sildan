@@ -1062,7 +1062,6 @@ const handleWebhook = async (req, res, logPrefix) => {
                     if (cleanMac) orq.push({ mac: { contains: cleanMac } });
                     if (ipAddress) orq.push({ ip: ipAddress });
                     const dev = orq.length ? await prisma.device.findFirst({ where: { OR: orq } }) : null;
-                    try { console.log(logPrefix + " RAWTGT " + genType + " :: " + JSON.stringify(eventAlert).slice(0, 900)); } catch (e) {}
                     const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, timestamp: new Date() } });
                     if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
                     if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, timestamp: det.timestamp });
