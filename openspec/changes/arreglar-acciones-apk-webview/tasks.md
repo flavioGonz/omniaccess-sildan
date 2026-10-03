@@ -28,13 +28,32 @@
 
 ## 4. Contrato WebView / puente
 
-- [ ] 4.1 Documentar en `src/lib/guard-native.ts` y en la skill `omniaccess-deploy` el contrato
+- [x] 4.1 Documentar en `src/lib/guard-native.ts` y en la skill `omniaccess-deploy` el contrato
       mínimo del WebView (JavaScript, DOM storage, foco de inputs, teclado) y, si se agregó,
       el método del puente usado (verificación: la nota existe y describe el requisito).
-- [ ] 4.2 Si el fix requiere cambios en el wrapper Android, emitir la tarea para el proyecto
+- [x] 4.2 Si el fix requiere cambios en el wrapper Android, emitir la tarea para el proyecto
       Android con el contrato exacto (verificación: tarea creada con los settings requeridos).
 
 ## 5. Verificación integral
 
 - [ ] 5.1 Probar las dos acciones en los tres clientes (navegador, PWA, APK) y dejar
       registro del resultado (verificación: checklist de los 6 casos en verde).
+
+
+## Notas de apply (2026-10-03)
+
+**Código desplegado** (CT200, build DONE_0, `/guard` → 200, sin regresión en navegador/PWA):
+- `src/lib/guard-native.ts`: contrato WebView — `showKeyboard()`, `hideKeyboard()`, `openUrl(url)`, `canOpenUrl()`.
+- `PlateManualButton` y `MinInteriorDialog`: llaman `native.showKeyboard()` al enfocar los inputs;
+  "Abrir sitio oficial" usa `native.openUrl()` en APK con fallback `window.open`/clipboard en web.
+- Causa raíz confirmada por revisión de código: el WebView de Android no levanta el IME con
+  `.focus()` diferido, y `window.open`/`clipboard` están bloqueados en el WebView (de ahí #180/#181).
+
+**Pendiente — requiere un release de la APK + prueba en tablet** (1.1, 1.2, 2.1, 2.2, 2.3, 3.1, 3.2, 3.3, 5.1):
+la web ya llama al contrato, pero no surte efecto hasta que el wrapper Android implemente en
+`window.AndroidGuard`:
+- `showKeyboard()` / `hideKeyboard()` → `InputMethodManager.showSoftInput(...)` / `hideSoftInputFromWindow(...)`.
+- `openUrl(String url)` → `startActivity(Intent.ACTION_VIEW, Uri.parse(url))` o Chrome Custom Tab.
+- WebSettings recomendados: `javaScriptEnabled`, `domStorageEnabled`, `setFocusable(true)`,
+  y `windowSoftInputMode=adjustResize` en la Activity.
+Tras el build de la APK con esos métodos, verificar los 6 casos (2 acciones × navegador/PWA/APK).

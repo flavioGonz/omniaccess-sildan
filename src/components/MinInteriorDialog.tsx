@@ -11,6 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Loader2, RotateCw, ShieldAlert, ShieldCheck, ShieldQuestion, Search, ExternalLink } from "lucide-react";
+import { native } from "@/lib/guard-native";
 
 const normPlate = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 const MIN_INTERIOR_URL = "https://matriculas-requeridas.minterior.gub.uy/index.php";
@@ -143,6 +144,7 @@ export function MinInteriorDialog({
                         <Input
                             value={mat}
                             onChange={(e) => setMat(normPlate(e.target.value))}
+                            onFocus={() => { try { native.showKeyboard(); } catch { } }}
                             className="mt-1 font-bold uppercase tracking-widest"
                             placeholder="ABC1234"
                         />
@@ -155,6 +157,7 @@ export function MinInteriorDialog({
                                 value={code}
                                 onChange={(e) => setCode(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === "Enter") consultar(); }}
+                                onFocus={() => { try { native.showKeyboard(); } catch { } }}
                                 maxLength={6}
                                 className="w-28 text-center text-lg tracking-[0.3em] font-mono"
                                 placeholder="----"
@@ -184,6 +187,7 @@ export function MinInteriorDialog({
                         <button
                             type="button"
                             onClick={() => {
+                                if (native.isNative() && native.canOpenUrl()) { native.openUrl(MIN_INTERIOR_URL); return; }
                                 try {
                                     const w = window.open(MIN_INTERIOR_URL, "_blank", "noopener,noreferrer");
                                     if (!w) { navigator.clipboard?.writeText(MIN_INTERIOR_URL).catch(() => {}); }
