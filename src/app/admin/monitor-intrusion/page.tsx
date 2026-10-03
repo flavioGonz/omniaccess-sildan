@@ -784,7 +784,7 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
     // ticks cada 3h para etiquetas + cada 1h finos
 
     return (
-        <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6" onClick={onClose}>
+        <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6">
             <div className="relative w-full max-w-6xl max-h-[85vh] aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 {/* ── VIVO ── */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
