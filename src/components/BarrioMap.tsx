@@ -575,6 +575,8 @@ export default function BarrioMap() {
     const [intrDrawer, setIntrDrawer] = useState<null | "line" | "zone">(null);
     const [camSearch, setCamSearch] = useState("");
     const [camOpen, setCamOpen] = useState(false);
+    const [placeSearch, setPlaceSearch] = useState("");
+    const [placeOpen, setPlaceOpen] = useState(false);
     const beepRef = useRef<AudioContext | null>(null);
     const playBeep = useCallback(() => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = 880; o.connect(g); g.connect(ac.destination); const t = ac.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34); o.start(t); o.stop(t + 0.35); } catch { } }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
@@ -620,6 +622,7 @@ export default function BarrioMap() {
     clearRef.current = flow.clearAnims;
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
+    const placeFiltered = placeSearch.trim() ? unplaced.filter((d) => (d.name || "").toLowerCase().includes(placeSearch.trim().toLowerCase())) : unplaced;
 
     // Guarda TODO el mapa (API route POST — pasa el proxy sin problema)
     const persistNow = useCallback(async (next: BarrioMapData, okMsg = "Guardado") => {
@@ -1240,10 +1243,26 @@ export default function BarrioMap() {
                         </>)}
                         {tool === "camera" && (<>
                             <p className="font-bold flex items-center gap-1.5"><Video size={13} className="text-blue-400" /> Soltar cámara</p>
-                            <select value={pendingCam} onChange={(e) => setPendingCam(e.target.value)} className="w-full bg-background border border-border rounded-md px-2 py-1.5">
-                                <option value="">Elegí una cámara…</option>
-                                {unplaced.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                            </select>
+                            <div className="relative">
+                                <button type="button" onClick={() => setPlaceOpen((v) => !v)} className="w-full h-9 px-3 rounded-md bg-background border border-border text-sm flex items-center justify-between hover:bg-accent/50 transition-colors">
+                                    <span className={cn("truncate", !pendingCam && "text-muted-foreground")}>{pendingCam ? (devById[pendingCam]?.name || "Cámara") : "Elegí una cámara…"}</span>
+                                    <ChevronDown size={14} className={cn("text-muted-foreground shrink-0 transition-transform", placeOpen && "rotate-180")} />
+                                </button>
+                                {placeOpen && (
+                                    <div className="absolute z-[560] mt-1 left-0 right-0 bg-popover border border-border rounded-xl shadow-2xl overflow-hidden">
+                                        <div className="p-1.5 border-b border-border">
+                                            <div className="relative">
+                                                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                                                <input autoFocus value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Buscar cámara…" className="w-full h-8 pl-7 pr-2 rounded-lg bg-background border border-border text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                                            </div>
+                                        </div>
+                                        <div className="max-h-[220px] overflow-y-auto custom-scrollbar py-1">
+                                            {placeFiltered.length === 0 && <div className="px-3 py-3 text-xs text-muted-foreground text-center">Sin resultados</div>}
+                                            {placeFiltered.map((d: any) => <button key={d.id} onClick={() => { setPendingCam(d.id); setPlaceOpen(false); setPlaceSearch(""); }} className={cn("w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center justify-between gap-2 transition-colors", pendingCam === d.id && "bg-accent")}><span className="truncate font-semibold">{d.name}</span><span className={cn("shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded", d.deviceType === "LPR_CAMERA" ? "bg-amber-500/15 text-amber-400" : "bg-sky-500/15 text-sky-400")}>{d.deviceType === "LPR_CAMERA" ? "LPR" : "Cám"}</span></button>)}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                             <p className="text-muted-foreground">{pendingCam ? "Clic en el mapa para ubicarla." : `Ubicadas: ${placedIds.size}`}</p>
                         </>)}
                         {tool === "select" && (<p className="text-muted-foreground flex items-center gap-1.5"><MapPin size={13} /> {selected ? `Seleccionado: ${selected.type === "camera" ? (devById[selected.id]?.name || "cámara") : selected.type === "lote" ? (lotes.find((l) => l.id === selected.id)?.name || "lote") : "calle"}` : "Tocá un lote (doble clic para editar) o cámara · clic derecho para menú."}</p>)}
@@ -1274,8 +1293,8 @@ export default function BarrioMap() {
                             <button onClick={() => { setEditing(true); setTool("camera"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Video size={13} className="text-blue-400" /> Colocar cámara</button>
                             <div className="h-px bg-border my-1" />
                             <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Intrusión</div>
-                            <button onClick={() => { setIntrPick({ kind: "line" }); setIntrPickCam(""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Route size={13} className="text-sky-400" /> Definir cruce de línea</button>
-                            <button onClick={() => { setIntrPick({ kind: "zone" }); setIntrPickCam(""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><ShieldAlert size={13} className="text-sky-400" /> Definir zona de intrusión</button>
+                            <button onClick={() => { setEditing(true); setIntrDrawer("line"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Route size={13} className="text-sky-400" /> Definir cruce de línea</button>
+                            <button onClick={() => { setEditing(true); setIntrDrawer("zone"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><ShieldAlert size={13} className="text-sky-400" /> Definir zona de intrusión</button>
                         </>) : ctx.type === "intr" ? (<>
                             <button onClick={() => { removeIntr(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar cruce / zona</button>
                         </>) : (<>
