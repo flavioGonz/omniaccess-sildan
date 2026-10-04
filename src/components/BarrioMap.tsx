@@ -959,7 +959,7 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
 
-                    {show.cameras && data.cameras.map((c) => (
+                    {show.cameras && data.cameras.filter((c) => !mapBounds || mapBounds.contains([c.lat, c.lng] as any)).map((c) => (
                         <Marker key={`${c.deviceId}_${(c as any).rumbo ?? "n"}_${(c as any).size ?? 30}_${(c as any).color ?? "d"}`} position={[c.lat, c.lng]}
                             icon={camIconDe({ rumbo: (c as any).rumbo, size: (c as any).size, color: (c as any).color }, located?.type === "camera" && located.id === c.deviceId ? "cam-locate" : "")}
                             eventHandlers={{
@@ -968,7 +968,7 @@ export default function BarrioMap() {
                                 popupopen: () => setOpenCamPopup(c.deviceId),
                                 popupclose: () => setOpenCamPopup((v) => v === c.deviceId ? null : v),
                             }}>
-                            {show.names && <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>}
+                            {show.names && zoom >= 16 && <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>}
                             {!editing && !movingCam && (
                                 <Popup className="cam-live-popup" maxWidth={280} minWidth={260}>
                                     <div className="rounded-lg overflow-hidden">
