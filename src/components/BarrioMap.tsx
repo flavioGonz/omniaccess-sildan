@@ -1294,7 +1294,7 @@ export default function BarrioMap() {
                     );
                 })()}
                 {intrDraw && (
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[650] bg-popover/95 border border-border rounded-xl shadow-2xl px-3 py-2 flex items-center gap-2 backdrop-blur">
+                    <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-[650] bg-popover/95 border border-border rounded-xl shadow-2xl px-3 py-2 flex items-center gap-2 backdrop-blur">
                         <span className="text-xs font-bold">{intrDraw.kind === "zone" ? "Zona" : "Cruce"} · {devById[intrDraw.deviceId]?.name || "Cámara"} · {draftIntr.length} pts</span>
                         <button onClick={commitIntr} disabled={draftIntr.length < (intrDraw.kind === "zone" ? 3 : 2)} className="px-3 py-1.5 rounded-md bg-sky-600 text-white font-bold text-xs disabled:opacity-40 flex items-center gap-1"><Check size={13} /> Finalizar</button>
                         <button onClick={() => setDraftIntr((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button>
