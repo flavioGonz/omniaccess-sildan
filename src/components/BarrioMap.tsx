@@ -553,8 +553,24 @@ export default function BarrioMap() {
     const [intrPickCam, setIntrPickCam] = useState<string>("");
     const [intrCamList, setIntrCamList] = useState<IntrusionCam[]>([]);
     const [intrGeomPrev, setIntrGeomPrev] = useState<Record<string, MiniGeom>>({});
+    const [geomLoading, setGeomLoading] = useState(false);
+    const geomLoadedRef = useRef(false);
     useEffect(() => { getIntrusionCameras().then((c) => setIntrCamList(c || [])).catch(() => { }); }, []);
     useEffect(() => { if (!intrPickCam || intrGeomPrev[intrPickCam]) return; getAnalyticsGeometryBatch([intrPickCam]).then((g: any) => setIntrGeomPrev((p) => ({ ...p, ...g }))).catch(() => { }); }, [intrPickCam, intrGeomPrev]);
+    // En modo edición, en segundo plano, traemos la analítica (línea/zona) real de cada canal para
+    // poder listar/clasificar SOLO las cámaras que tienen un cruce o una zona configurada.
+    useEffect(() => {
+        if (!editing || geomLoadedRef.current || !intrCamList.length) return;
+        geomLoadedRef.current = true; setGeomLoading(true);
+        const ids = intrCamList.filter((c) => c.ch != null).map((c) => c.id);
+        (async () => {
+            for (let i = 0; i < ids.length; i += 10) {
+                try { const g = await getAnalyticsGeometryBatch(ids.slice(i, i + 10)); setIntrGeomPrev((p) => ({ ...p, ...g })); } catch { }
+            }
+            setGeomLoading(false);
+        })();
+    }, [editing, intrCamList]);
+    const geomKinds = useCallback((id: string) => { const g = intrGeomPrev[id]; return { line: !!(g && g.line && g.line.length >= 2), zone: !!(g && g.field && g.field.length >= 3) }; }, [intrGeomPrev]);
     const beepRef = useRef<AudioContext | null>(null);
     const playBeep = useCallback(() => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = 880; o.connect(g); g.connect(ac.destination); const t = ac.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34); o.start(t); o.stop(t + 0.35); } catch { } }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
@@ -1255,7 +1271,7 @@ export default function BarrioMap() {
                 )}
 
                 {intrPick && (() => {
-                    const list: any[] = intrCamList.length ? intrCamList : data.cameras.map((c) => ({ id: c.deviceId, name: devById[c.deviceId]?.name || c.deviceId, nvrName: null, ch: null }));
+                    const list: any[] = intrCamList.filter((c) => { const k = geomKinds(c.id); return k.line || k.zone; });
                     const sel = list.find((c) => c.id === intrPickCam);
                     return (
                     <div className="fixed inset-0 z-[700] bg-black/50 flex items-center justify-center" onClick={() => setIntrPick(null)}>
@@ -1269,7 +1285,8 @@ export default function BarrioMap() {
                                 <p className="text-xs text-muted-foreground mb-1.5">¿De qué cámara es?</p>
                                 <select value={intrPickCam} onChange={(e) => setIntrPickCam(e.target.value)} className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-sm mb-3">
                                     <option value="">Elegí una cámara…</option>
-                                    {list.map((c) => <option key={c.id} value={c.id}>{c.name}{c.nvrName ? ` · ${c.nvrName}${c.ch != null ? " CH" + c.ch : ""}` : ""}</option>)}
+                                    {list.length === 0 && <option value="" disabled>{geomLoading ? "Cargando analíticas…" : "Sin cámaras con cruce/zona configurado"}</option>}
+                                    {list.map((c) => { const k = geomKinds(c.id); const tipo = k.line && k.zone ? "Cruce+Zona" : k.zone ? "Zona" : "Cruce"; return <option key={c.id} value={c.id}>{c.name}{c.nvrName ? ` · ${c.nvrName}${c.ch != null ? " CH" + c.ch : ""}` : ""} · {tipo}</option>; })}
                                 </select>
                                 <div className="flex gap-2">
                                     <button disabled={!intrPickCam} onClick={() => { setIntrDraw({ kind: intrPick.kind, deviceId: intrPickCam }); setDraftIntr([]); setIntrPick(null); }} className="flex-1 py-1.5 rounded-md bg-sky-600 text-white font-bold text-sm disabled:opacity-40">Dibujar</button>
@@ -1302,13 +1319,15 @@ export default function BarrioMap() {
                     </div>
                 )}
                 {editing && (() => {
-                    const withGeom = new Set(((data as any).intrusions || []).map((g: any) => g.deviceId));
-                    const pend = intrCamList.filter((c) => c.ch != null && !withGeom.has(c.id));
-                    if (pend.length === 0) return null;
+                    const drawn = new Map<string, Set<string>>();
+                    ((data as any).intrusions || []).forEach((g: any) => { const st = drawn.get(g.deviceId) || new Set<string>(); st.add(g.kind); drawn.set(g.deviceId, st); });
+                    const pend: { id: string; name: string; kind: "line" | "zone" }[] = [];
+                    intrCamList.forEach((c) => { const k = geomKinds(c.id); const d = drawn.get(c.id) || new Set<string>(); if (k.line && !d.has("line")) pend.push({ id: c.id, name: c.name, kind: "line" }); if (k.zone && !d.has("zone")) pend.push({ id: c.id, name: c.name, kind: "zone" }); });
+                    if (pend.length === 0 && !geomLoading) return null;
                     return (
-                        <div className="absolute top-20 left-3 z-[600] bg-amber-500/95 text-black rounded-xl shadow-xl px-3 py-2 max-w-[250px]">
-                            <div className="text-[11px] font-extrabold uppercase tracking-wide flex items-center gap-1.5"><ShieldAlert size={13} /> {pend.length} sin cruce dibujado</div>
-                            <div className="mt-1 flex flex-wrap gap-1 max-h-[92px] overflow-auto">{pend.slice(0, 20).map((c) => <button key={c.id} onClick={() => { setIntrPick({ kind: "line" }); setIntrPickCam(c.id); }} title="Dibujar su cruce / zona" className="text-[10px] font-bold bg-black/15 hover:bg-black/25 rounded px-1.5 py-0.5">{c.name}</button>)}</div>
+                        <div className="absolute top-20 left-3 z-[600] bg-amber-500/95 text-black rounded-xl shadow-xl px-3 py-2 max-w-[260px]">
+                            <div className="text-[11px] font-extrabold uppercase tracking-wide flex items-center gap-1.5"><ShieldAlert size={13} /> {geomLoading && pend.length === 0 ? "Cargando analíticas…" : `${pend.length} sin dibujar`}</div>
+                            {pend.length > 0 && <div className="mt-1 flex flex-wrap gap-1 max-h-[104px] overflow-auto">{pend.slice(0, 24).map((p) => <button key={p.id + p.kind} onClick={() => { setIntrPick({ kind: p.kind }); setIntrPickCam(p.id); }} title={`Dibujar ${p.kind === "zone" ? "zona" : "cruce"} de ${p.name}`} className="text-[10px] font-bold bg-black/15 hover:bg-black/25 rounded px-1.5 py-0.5 inline-flex items-center gap-1">{p.kind === "zone" ? <ShieldAlert size={10} /> : <Route size={10} />}{p.name}</button>)}</div>}
                         </div>
                     );
                 })()}
