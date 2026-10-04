@@ -889,6 +889,7 @@ export default function BarrioMap() {
     const fondos: Base[] = ["Satélite", "Táctico", "Calles"];
     const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
         { key: "cameras", label: "Cámaras", Icon: CamIco },
+        { key: "intrusion", label: "Cruces / Zonas", Icon: ShieldAlert },
         { key: "lotes", label: "Lotes (polígonos)", Icon: LoteIco },
         { key: "loteNames", label: "Nombres de lotes", Icon: TypeIco },
         { key: "divisions", label: "Divisiones", Icon: Fence },

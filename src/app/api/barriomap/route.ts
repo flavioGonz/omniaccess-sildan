@@ -16,6 +16,7 @@ export async function GET() {
             cameras: Array.isArray(d.cameras) ? d.cameras : [],
             lotes: Array.isArray(d.lotes) ? d.lotes : [],
             divisions: Array.isArray(d.divisions) ? d.divisions : [],
+            intrusions: Array.isArray(d.intrusions) ? d.intrusions : [],
         });
     } catch (e: any) {
         return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
             cameras: Array.isArray(data.cameras) ? data.cameras : [],
             lotes: Array.isArray(data.lotes) ? data.lotes : [],
             divisions: Array.isArray(data.divisions) ? data.divisions : [],
+            intrusions: Array.isArray(data.intrusions) ? data.intrusions : [],
         };
         await prisma.setting.upsert({
             where: { key: "BARRIO_MAP" },
