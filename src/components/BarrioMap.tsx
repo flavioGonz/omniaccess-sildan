@@ -260,6 +260,12 @@ const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", ico
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
 const intrPulseIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span class="intr-pulse"></span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
+function destPoint(lat: number, lng: number, bearingDeg: number, meters: number): LL {
+    const R = 6371000; const br = (bearingDeg * Math.PI) / 180; const lat1 = (lat * Math.PI) / 180; const lng1 = (lng * Math.PI) / 180; const dR = meters / R;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(dR) + Math.cos(lat1) * Math.sin(dR) * Math.cos(br));
+    const lng2 = lng1 + Math.atan2(Math.sin(br) * Math.sin(dR) * Math.cos(lat1), Math.cos(dR) - Math.sin(lat1) * Math.sin(lat2));
+    return [(lat2 * 180) / Math.PI, (lng2 * 180) / Math.PI];
+}
 
 const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
@@ -508,7 +514,7 @@ export default function BarrioMap() {
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
     // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
-    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true, intrusion: true });
+    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true, intrusion: true, fov: false });
     const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
     const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
     const [pantalla, setPantalla] = useState(false);
@@ -824,6 +830,16 @@ export default function BarrioMap() {
         setDraftIntr([]); setIntrDraw(null);
     };
     const removeIntr = (id: string) => { const next = { ...data, intrusions: ((data as any).intrusions || []).filter((x: any) => x.id !== id) } as any; persistNow(next, "Eliminado"); };
+    const suggestGeom = (deviceId: string, kind: "line" | "zone") => {
+        const cam = data.cameras.find((c) => c.deviceId === deviceId);
+        if (!cam) { toast.error({ title: "Colocá la cámara en el mapa primero" }); return; }
+        const h = (cam as any).rumbo ?? 0;
+        let points: LL[];
+        if (kind === "line") { const f = destPoint(cam.lat, cam.lng, h, 28); points = [destPoint(f[0], f[1], h + 90, 16), destPoint(f[0], f[1], h - 90, 16)]; }
+        else { const a = destPoint(cam.lat, cam.lng, h + 90, 13); const b = destPoint(cam.lat, cam.lng, h - 90, 13); const af = destPoint(a[0], a[1], h, 30); const bf = destPoint(b[0], b[1], h, 30); const a0 = destPoint(a[0], a[1], h, 8); const b0 = destPoint(b[0], b[1], h, 8); points = [a0, af, bf, b0]; }
+        const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === deviceId && x.kind === kind)), { id: `intr_${Date.now()}`, deviceId, kind, points }] } as any;
+        persistNow(next, "Sugerencia creada — ajustá con Redibujar si hace falta");
+    };
     const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
     // Edición de vértices de una división (tejido/pared/alambrado) ya guardada.
     const setDivPoint = (divId: string, idx: number, ll: LL) => setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === divId ? { ...x, points: x.points.map((p: LL, i: number) => i === idx ? ll : p) } : x) }) as any : d);
@@ -907,6 +923,7 @@ export default function BarrioMap() {
     const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
         { key: "cameras", label: "Cámaras", Icon: CamIco },
         { key: "intrusion", label: "Cruces / Zonas", Icon: ShieldAlert },
+        { key: "fov", label: "Campo de visiÃ³n", Icon: Eye },
         { key: "lotes", label: "Lotes (polígonos)", Icon: LoteIco },
         { key: "loteNames", label: "Nombres de lotes", Icon: TypeIco },
         { key: "divisions", label: "Divisiones", Icon: Fence },
@@ -1017,6 +1034,7 @@ export default function BarrioMap() {
                     ))}
                     {draftDivision.length > 0 && <Polyline positions={draftDivision} pathOptions={{ color: DIV_STYLE[divTipo].color, weight: DIV_STYLE[divTipo].weight, dashArray: DIV_STYLE[divTipo].dashArray || "4 4", opacity: 0.8 }} />}
                     {draftStreet.length > 0 && <Polyline positions={draftStreet} pathOptions={{ color: "#38bdf8", weight: 4, dashArray: "6 6", opacity: 0.85, lineCap: "round" }} />}
+                    {show.fov && data.cameras.map((c) => { const h = (c as any).rumbo; if (h == null) return null; const r = 42, a = 26; const pL = destPoint(c.lat, c.lng, h - a, r); const pM = destPoint(c.lat, c.lng, h, r); const pR = destPoint(c.lat, c.lng, h + a, r); return <Polygon key={`fov_${c.deviceId}`} positions={[[c.lat, c.lng], pL, pM, pR]} pathOptions={{ color: "#38bdf8", weight: 1, opacity: 0.35, fillColor: "#38bdf8", fillOpacity: 0.07 }} interactive={false} />; })}
                     {show.intrusion && ((data as any).intrusions || []).map((g: any) => {
                         const active = !!intrAlerts[g.deviceId];
                         const col = active ? "#ef4444" : "#3b82f6";
@@ -1494,6 +1512,7 @@ export default function BarrioMap() {
                                             <div className="mt-0.5">{drawn ? <span className="text-[9px] font-bold uppercase text-emerald-500">● Dibujado ({drawn.points.length} pts)</span> : <span className="text-[9px] font-bold uppercase text-amber-500">● Pendiente</span>}</div>
                                             <div className="mt-1 flex gap-1 flex-wrap">
                                                 <button onClick={() => { setIntrDraw({ kind, deviceId: c.id }); setDraftIntr([]); setIntrPickCam(c.id); setIntrDrawer(null); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-600 text-white hover:bg-sky-500">{drawn ? "Redibujar" : "Dibujar"}</button>
+                                                {!drawn && placedIds.has(c.id) && <button onClick={() => suggestGeom(c.id, kind)} title="Crear una sugerencia segun la orientacion de la camara" className="text-[10px] font-bold px-2 py-0.5 rounded bg-violet-600/80 text-white hover:bg-violet-600">Sugerir</button>}
                                                 {drawn && <button onClick={() => { if (mapRef.current && drawn.points[0]) mapRef.current.setView(drawn.points[0], Math.max(mapRef.current.getZoom(), 18)); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent">Ver</button>}
                                                 {drawn && <button onClick={() => removeIntr(drawn.id)} title="Borrar del mapa" className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent text-red-400"><Trash2 size={11} /></button>}
                                             </div>
