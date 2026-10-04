@@ -703,11 +703,10 @@ export default function BarrioMap() {
             } else {
                 animateRef.current?.(ev);
             }
-            toast.info({ title: dir === "EXIT" ? "Salida" : "Entrada", description: `${plate}: recorrido ${dir === "EXIT" ? "de salida" : "de entrada"} por cámara.` });
             return;
         }
         const lote = lotesRef.current.find((l: any) => l.parkingSlotId === slotId);
-        if (!lote || !lote.points?.length) { animateRef.current?.(ev); toast.info({ title: "Lote no dibujado", description: `${plate}: muestro el recorrido por cámaras.` }); return; }
+        if (!lote || !lote.points?.length) { animateRef.current?.(ev); return; }
         const house = centroid(lote.points);
         const devId = ev?.device?.id || ev?.deviceId;
         const cam = devId ? camerasRef.current.find((c: any) => c.deviceId === devId) : null;
@@ -1075,7 +1074,7 @@ export default function BarrioMap() {
                 </MapContainer>
 
                 {Object.keys(intrAlerts).length > 0 && (
-                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[600] flex flex-col gap-1.5 items-center pointer-events-none">
+                    <div className="absolute top-4 left-4 z-[600] flex flex-col gap-1.5 items-start pointer-events-none">
                         {Object.entries(intrAlerts).sort((a, b) => b[1].ts - a[1].ts).slice(0, 5).map(([devId, a]) => (
                             <div key={devId} className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600/95 text-white shadow-2xl ring-1 ring-red-300/50 backdrop-blur-sm" style={{ animation: "intrBanner 1s ease-in-out infinite" }}>
                                 <ShieldAlert size={16} />
