@@ -32,7 +32,7 @@ type Tool = "select" | "perimeter" | "camera" | "lote" | "division" | "street";
 type LL = [number, number];
 type Base = "Táctico" | "Satélite" | "Calles";
 type SelKind = "street" | "camera" | "lote";
-type CtxKind = "street" | "camera" | "lote" | "guard" | "division";
+type CtxKind = "street" | "camera" | "lote" | "guard" | "division" | "map" | "intr";
 type DivTipo = "pared" | "tejido" | "alambrado";
 
 // Estilo de cada tipo de división (línea)
@@ -202,6 +202,15 @@ function MapRefGrabber({ onMap }: { onMap: (m: L.Map) => void }) {
 }
 function ClickHandler({ onClick }: { onClick: (ll: LL) => void }) {
     useMapEvents({ click(e) { onClick([e.latlng.lat, e.latlng.lng]); } });
+    return null;
+}
+function MapCtxMenu({ onCtx }: { onCtx: (oe: MouseEvent) => void }) {
+    useMapEvents({ contextmenu(e: any) {
+        const oe = e.originalEvent as MouseEvent; try { oe?.preventDefault?.(); } catch { }
+        const t = oe?.target as HTMLElement | null;
+        if (t && (t.closest?.(".leaflet-marker-pane") || ["path", "polyline", "polygon", "image"].includes((t.tagName || "").toLowerCase()))) return;
+        onCtx(oe);
+    } });
     return null;
 }
 function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
@@ -488,7 +497,7 @@ export default function BarrioMap() {
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
     // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
-    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true });
+    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true, intrusion: true });
     const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
     const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
     const [pantalla, setPantalla] = useState(false);
@@ -527,6 +536,10 @@ export default function BarrioMap() {
     const [importingOsm, setImportingOsm] = useState(false);
     // ── Alertas de intrusión en vivo sobre el mapa (cruce de línea / zona) ──
     const [intrAlerts, setIntrAlerts] = useState<Record<string, { ts: number; type: string; label?: string | null; name?: string }>>({});
+    const [draftIntr, setDraftIntr] = useState<LL[]>([]);
+    const [intrDraw, setIntrDraw] = useState<{ kind: "line" | "zone"; deviceId: string } | null>(null);
+    const [intrPick, setIntrPick] = useState<{ kind: "line" | "zone" } | null>(null);
+    const [intrPickCam, setIntrPickCam] = useState<string>("");
     const beepRef = useRef<AudioContext | null>(null);
     const playBeep = useCallback(() => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = 880; o.connect(g); g.connect(ac.destination); const t = ac.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34); o.start(t); o.stop(t + 0.35); } catch { } }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
@@ -718,6 +731,7 @@ export default function BarrioMap() {
             persistNow(next, "Posición actualizada");
             return;
         }
+        if (intrDraw) { setDraftIntr((p) => [...p, ll]); return; }
         if (extendDiv) {
             setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === extendDiv ? { ...x, points: [...x.points, ll] } : x) }) as any : d);
             return;
@@ -746,6 +760,16 @@ export default function BarrioMap() {
         if (draftStreet.length >= 2) setData((d) => d ? { ...d, streets: [...d.streets, { id: `st_${Date.now()}`, name: "", points: draftStreet }] } : d);
         setDraftStreet([]); setTool("select");
     };
+    const commitIntr = () => {
+        if (!intrDraw) return;
+        const min = intrDraw.kind === "zone" ? 3 : 2;
+        if (draftIntr.length >= min) {
+            const next = { ...data, intrusions: [...((data as any).intrusions || []), { id: `intr_${Date.now()}`, deviceId: intrDraw.deviceId, kind: intrDraw.kind, points: draftIntr }] } as any;
+            persistNow(next, intrDraw.kind === "zone" ? "Zona de intrusión guardada" : "Cruce de línea guardado");
+        }
+        setDraftIntr([]); setIntrDraw(null);
+    };
+    const removeIntr = (id: string) => { const next = { ...data, intrusions: ((data as any).intrusions || []).filter((x: any) => x.id !== id) } as any; persistNow(next, "Eliminado"); };
     const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
     // Edición de vértices de una división (tejido/pared/alambrado) ya guardada.
     const setDivPoint = (divId: string, idx: number, ll: LL) => setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === divId ? { ...x, points: x.points.map((p: LL, i: number) => i === idx ? ll : p) } : x) }) as any : d);
@@ -876,13 +900,16 @@ export default function BarrioMap() {
                 .intr-pulse{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;background:#ef4444;box-shadow:0 0 0 0 rgba(239,68,68,.75);animation:intrPulse 1.1s ease-out infinite}
                 @keyframes intrPulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.75)}70%{box-shadow:0 0 0 30px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
                 @keyframes intrBanner{0%,100%{opacity:1}50%{opacity:.62}}
+                @keyframes intrGeomBlink{0%,100%{opacity:1}50%{opacity:.3}}
+                .intr-geom-blink{animation:intrGeomBlink 0.8s ease-in-out infinite}
             `}</style>
-            <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv) && "map-draw")}>
+            <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv || intrDraw) && "map-draw")}>
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
                     <ZoomTracker onZoom={setZoom} />
                     <BoundsTracker onBounds={setMapBounds} />
-                    {(movingCam || extendDiv || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
+                    {(movingCam || extendDiv || intrDraw || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
+                    <MapCtxMenu onCtx={(oe) => setCtx({ x: oe.clientX, y: oe.clientY, type: "map", id: "" })} />
 
                     {base === "Satélite" && (
                         <TileLayer key="esri" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
@@ -936,6 +963,17 @@ export default function BarrioMap() {
                     ))}
                     {draftDivision.length > 0 && <Polyline positions={draftDivision} pathOptions={{ color: DIV_STYLE[divTipo].color, weight: DIV_STYLE[divTipo].weight, dashArray: DIV_STYLE[divTipo].dashArray || "4 4", opacity: 0.8 }} />}
                     {draftStreet.length > 0 && <Polyline positions={draftStreet} pathOptions={{ color: "#38bdf8", weight: 4, dashArray: "6 6", opacity: 0.85, lineCap: "round" }} />}
+                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => {
+                        const active = !!intrAlerts[g.deviceId];
+                        const col = active ? "#ef4444" : "#3b82f6";
+                        const cls = active ? "intr-geom-blink" : undefined;
+                        return g.kind === "zone"
+                            ? <Polygon key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 4 : 2.5, opacity: 0.95, fillColor: col, fillOpacity: active ? 0.28 : 0.1, className: cls }} eventHandlers={{ contextmenu: (e) => openCtx(e, "intr", g.id) }} />
+                            : <Polyline key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 6 : 3.5, opacity: 0.98, lineCap: "round", className: cls }} eventHandlers={{ contextmenu: (e) => openCtx(e, "intr", g.id) }} />;
+                    })}
+                    {draftIntr.length > 0 && (intrDraw?.kind === "zone"
+                        ? <Polygon positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 2, dashArray: "6 6", fillOpacity: 0.08 }} />
+                        : <Polyline positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 3, dashArray: "6 6", lineCap: "round" }} />)}
 
                     {show.guards && guards.map((g) => (
                         <Marker key={"g" + g.id} position={[g.lat, g.lng]}
@@ -1188,12 +1226,55 @@ export default function BarrioMap() {
                             <button onClick={() => { setEditDivPts(null); setExtendDiv(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Plus size={13} className="text-blue-400" /> Seguir agregando puntos</button>
                             <button onClick={() => { const dv = ((data as any).divisions || []).find((x: any) => x.id === ctx.id); if (dv) { const st = DIV_STYLE[dv.tipo as DivTipo] || DIV_STYLE.pared; setDivCustom({ id: dv.id, tipo: dv.tipo, color: dv.color || st.color, weight: dv.weight || st.weight }); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Palette size={13} className="text-purple-400" /> Color y grosor</button>
                             <button onClick={() => { removeDivision(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar división</button>
+                        </>) : ctx.type === "map" ? (<>
+                            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Intrusión</div>
+                            <button onClick={() => { setIntrPick({ kind: "line" }); setIntrPickCam(""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Route size={13} className="text-sky-400" /> Definir cruce de línea</button>
+                            <button onClick={() => { setIntrPick({ kind: "zone" }); setIntrPickCam(""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><ShieldAlert size={13} className="text-sky-400" /> Definir zona de intrusión</button>
+                        </>) : ctx.type === "intr" ? (<>
+                            <button onClick={() => { removeIntr(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar cruce / zona</button>
                         </>) : (<>
                             <button onClick={() => { renameStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar calle</button>
                             {editing && <button onClick={() => { removeStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar calle</button>}
                         </>)}
                     </div>
                 )}
+
+                {intrPick && (
+                    <div className="fixed inset-0 z-[700] bg-black/50 flex items-center justify-center" onClick={() => setIntrPick(null)}>
+                        <div className="bg-popover border border-border rounded-xl shadow-2xl p-4 w-[320px]" onClick={(e) => e.stopPropagation()}>
+                            <div className="text-sm font-bold mb-1 flex items-center gap-2">{intrPick.kind === "zone" ? <ShieldAlert size={15} className="text-sky-500" /> : <Route size={15} className="text-sky-500" />} {intrPick.kind === "zone" ? "Nueva zona de intrusión" : "Nuevo cruce de línea"}</div>
+                            <p className="text-xs text-muted-foreground mb-3">¿De qué cámara es {intrPick.kind === "zone" ? "esta zona" : "este cruce"}?</p>
+                            <select value={intrPickCam} onChange={(e) => setIntrPickCam(e.target.value)} className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-sm mb-3">
+                                <option value="">Elegí una cámara…</option>
+                                {data.cameras.map((c) => <option key={c.deviceId} value={c.deviceId}>{devById[c.deviceId]?.name || c.deviceId}</option>)}
+                            </select>
+                            <div className="flex gap-2">
+                                <button disabled={!intrPickCam} onClick={() => { setIntrDraw({ kind: intrPick.kind, deviceId: intrPickCam }); setDraftIntr([]); setIntrPick(null); }} className="flex-1 py-1.5 rounded-md bg-sky-600 text-white font-bold text-sm disabled:opacity-40">Dibujar</button>
+                                <button onClick={() => setIntrPick(null)} className="px-3 py-1.5 rounded-md bg-accent text-sm">Cancelar</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {intrDraw && (
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[650] bg-popover/95 border border-border rounded-xl shadow-2xl px-3 py-2 flex items-center gap-2 backdrop-blur">
+                        <span className="text-xs font-bold">{intrDraw.kind === "zone" ? "Zona" : "Cruce"} · {devById[intrDraw.deviceId]?.name || "Cámara"} · {draftIntr.length} pts</span>
+                        <button onClick={commitIntr} disabled={draftIntr.length < (intrDraw.kind === "zone" ? 3 : 2)} className="px-3 py-1.5 rounded-md bg-sky-600 text-white font-bold text-xs disabled:opacity-40 flex items-center gap-1"><Check size={13} /> Finalizar</button>
+                        <button onClick={() => setDraftIntr((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button>
+                        <button onClick={() => { setDraftIntr([]); setIntrDraw(null); }} className="px-2 py-1.5 rounded-md bg-accent"><X size={13} /></button>
+                    </div>
+                )}
+                {editing && (() => {
+                    const geoms = (data as any).intrusions || [];
+                    const withGeom = new Set(geoms.map((g: any) => g.deviceId));
+                    const pend = data.cameras.filter((c) => devById[c.deviceId]?.deviceType === "CAMERA" && !withGeom.has(c.deviceId));
+                    if (pend.length === 0) return null;
+                    return (
+                        <div className="absolute top-20 left-3 z-[600] bg-amber-500/95 text-black rounded-xl shadow-xl px-3 py-2 max-w-[230px]">
+                            <div className="text-[11px] font-extrabold uppercase tracking-wide flex items-center gap-1.5"><ShieldAlert size={13} /> {pend.length} cámara(s) sin cruce dibujado</div>
+                            <div className="mt-1 flex flex-wrap gap-1">{pend.slice(0, 10).map((c) => <button key={c.deviceId} onClick={() => { if (mapRef.current) mapRef.current.setView([c.lat, c.lng], Math.max(mapRef.current.getZoom(), 18)); }} className="text-[10px] font-bold bg-black/15 hover:bg-black/25 rounded px-1.5 py-0.5">{devById[c.deviceId]?.name || "Cámara"}</button>)}</div>
+                        </div>
+                    );
+                })()}
 
                 {/* Drawer de lote (edición) */}
                 <AnimatePresence>
