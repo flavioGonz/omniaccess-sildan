@@ -973,6 +973,8 @@ export default function BarrioMap() {
                 @keyframes intrBanner{0%,100%{opacity:1}50%{opacity:.62}}
                 @keyframes intrGeomBlink{0%,100%{opacity:1}50%{opacity:.3}}
                 .intr-geom-blink{animation:intrGeomBlink 0.8s ease-in-out infinite}
+                .intr-alert-tip{background:#dc2626;color:#fff;border:0;font-weight:800;font-size:10px;line-height:1;padding:3px 7px;border-radius:7px;box-shadow:0 2px 8px rgba(0,0,0,.5);animation:intrGeomBlink 0.9s ease-in-out infinite;white-space:nowrap}
+                .intr-alert-tip:before{display:none !important}
             `}</style>
             <div ref={wrapRef} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { const id = e.dataTransfer.getData("text/camId"); if (!id || !mapRef.current) return; e.preventDefault(); try { const ll = (mapRef.current as any).mouseEventToLatLng(e.nativeEvent); setEditing(true); placeCamera(id, [ll.lat, ll.lng]); } catch { } }} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv || intrDraw) && "map-draw")}>
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
@@ -1039,9 +1041,11 @@ export default function BarrioMap() {
                         const active = !!intrAlerts[g.deviceId];
                         const col = active ? "#ef4444" : "#3b82f6";
                         const cls = active ? "intr-geom-blink" : undefined;
+                        const handlers = { contextmenu: (e: any) => openCtx(e, "intr", g.id), click: () => { const a = intrAlerts[g.deviceId]; if (a) setAlertCard({ deviceId: g.deviceId, ms: a.ms || a.ts, id: a.id, type: a.type, label: a.label, name: a.name }); } };
+                        const tip = active ? <LTooltip permanent direction="top" className="intr-alert-tip">⚠ {g.kind === "zone" ? "Intrusión" : "Cruce"} · tocÃ¡ para aceptar</LTooltip> : null;
                         return g.kind === "zone"
-                            ? <Polygon key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 4 : 2.5, opacity: 0.95, fillColor: col, fillOpacity: active ? 0.28 : 0.1, className: cls }} eventHandlers={{ contextmenu: (e) => openCtx(e, "intr", g.id) }} />
-                            : <Polyline key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 6 : 3.5, opacity: 0.98, lineCap: "round", className: cls }} eventHandlers={{ contextmenu: (e) => openCtx(e, "intr", g.id) }} />;
+                            ? <Polygon key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 4 : 2.5, opacity: 0.95, fillColor: col, fillOpacity: active ? 0.3 : 0.1, className: cls }} eventHandlers={handlers}>{tip}</Polygon>
+                            : <Polyline key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 7 : 3.5, opacity: 0.98, lineCap: "round", className: cls }} eventHandlers={handlers}>{tip}</Polyline>;
                     })}
                     {draftIntr.length > 0 && (intrDraw?.kind === "zone"
                         ? <Polygon positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 2, dashArray: "6 6", fillOpacity: 0.08 }} />
@@ -1139,19 +1143,6 @@ export default function BarrioMap() {
                                 </button>
                             ))}
                         </div>
-                    </div>
-                )}
-                {Object.keys(intrAlerts).length > 0 && (
-                    <div className="absolute top-16 left-4 z-[600] flex flex-col gap-1.5 items-start">
-                        {Object.entries(intrAlerts).sort((a, b) => b[1].ts - a[1].ts).slice(0, 6).map(([devId, a]) => (
-                            <button key={devId} onClick={() => setAlertCard({ deviceId: devId, ms: a.ms || a.ts, id: a.id, type: a.type, label: a.label, name: a.name })}
-                                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600/95 text-white shadow-2xl ring-1 ring-red-300/50 backdrop-blur-sm hover:bg-red-600 transition-colors text-left" style={{ animation: "intrBanner 1s ease-in-out infinite" }}>
-                                <ShieldAlert size={16} className="shrink-0" />
-                                <span className="text-[13px] font-extrabold uppercase tracking-wide">{a.type === "LINECROSS" ? "Cruce de línea" : a.type === "INTRUSION" ? "Intrusión" : a.type === "REGION_ENTER" ? "Entra a zona" : "Detección"}</span>
-                                {a.label && <span className="text-[12px] font-bold">· {a.label === "vehicle" ? "Auto" : "Persona"}</span>}
-                                <span className="text-[12px] font-semibold opacity-90 truncate max-w-[140px]">· {a.name || "Cámara"}</span>
-                            </button>
-                        ))}
                     </div>
                 )}
                 {alertCard && (() => {
