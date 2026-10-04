@@ -267,6 +267,12 @@ function destPoint(lat: number, lng: number, bearingDeg: number, meters: number)
     const lng2 = lng1 + Math.atan2(Math.sin(br) * Math.sin(dR) * Math.cos(lat1), Math.cos(dR) - Math.sin(lat1) * Math.sin(lat2));
     return [(lat2 * 180) / Math.PI, (lng2 * 180) / Math.PI];
 }
+function condAllows(cond: any, label?: string | null): boolean {
+    if (!cond) return true;
+    if (cond.cls && cond.cls !== "all" && label !== cond.cls) return false;
+    if (cond.from && cond.to) { const d = new Date(); const cur = d.getHours() * 60 + d.getMinutes(); const [fh, fm] = String(cond.from).split(":").map(Number); const [th, tm] = String(cond.to).split(":").map(Number); const f = fh * 60 + fm, t = th * 60 + tm; const inRange = f <= t ? (cur >= f && cur <= t) : (cur >= f || cur <= t); if (!inRange) return false; }
+    return true;
+}
 
 const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
@@ -538,6 +544,7 @@ export default function BarrioMap() {
     const editingRef = useRef(editing); editingRef.current = editing;
     const lotesRef = useRef<any[]>([]);
     const camerasRef = useRef<any[]>([]);
+    const intrGeomsRef = useRef<any[]>([]);
     const plateMapRef = useRef<Record<string, string>>({});
     const streetsRef = useRef<Street[]>([]);
     const centerRef = useRef<LL>([-34.9, -56.1]);
@@ -593,6 +600,8 @@ export default function BarrioMap() {
     const geomKinds = useCallback((id: string) => { const g = intrGeomPrev[id]; return { line: !!(g && g.line && g.line.length >= 2), zone: !!(g && g.field && g.field.length >= 3) }; }, [intrGeomPrev]);
     const [intrMenu, setIntrMenu] = useState(false);
     const [intrDrawer, setIntrDrawer] = useState<null | "line" | "zone">(null);
+    const [condEdit, setCondEdit] = useState<null | { deviceId: string; kind: "line" | "zone" }>(null);
+    const [condForm, setCondForm] = useState<{ from: string; to: string; cls: string }>({ from: "", to: "", cls: "all" });
     const [camSearch, setCamSearch] = useState("");
     const [camOpen, setCamOpen] = useState(false);
     const [placeSearch, setPlaceSearch] = useState("");
@@ -610,9 +619,13 @@ export default function BarrioMap() {
         s.on("general_detection", (d: any) => {
             if (!d || !d.deviceId) return;
             const ms = d.timestamp ? new Date(d.timestamp).getTime() : Date.now();
-            setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), ms, id: d.id, type: d.type, label: d.label, name: d.deviceName } }));
             setRecentIntr((prev) => [{ id: d.id, deviceId: d.deviceId, name: d.deviceName, type: d.type, label: d.label, ms }, ...prev].slice(0, 14));
             setIntrCounts((p) => ({ ...p, [d.deviceId]: (p[d.deviceId] || 0) + 1 }));
+            const kindForType = (d.type === "INTRUSION" || d.type === "REGION_ENTER" || d.type === "REGION_EXIT") ? "zone" : "line";
+            const gs = intrGeomsRef.current.filter((g: any) => g.deviceId === d.deviceId);
+            const geom = gs.find((g: any) => g.kind === kindForType) || gs[0];
+            if (!condAllows(geom && geom.cond, d.label)) return;
+            setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), ms, id: d.id, type: d.type, label: d.label, name: d.deviceName } }));
             try { const lb = lastBeepRef.current[d.deviceId] || 0; if (soundRef.current && Date.now() - lb > 6000) { lastBeepRef.current[d.deviceId] = Date.now(); playBeep(d.label); speakAlert(d.label, d.deviceName); } } catch { }
             if (autoRef.current) { const cam = camerasRef.current.find((c: any) => c.deviceId === d.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }
         });
@@ -784,6 +797,7 @@ export default function BarrioMap() {
     const lotes = data.lotes || [];
     lotesRef.current = lotes;
     camerasRef.current = data.cameras;
+    intrGeomsRef.current = (data as any).intrusions || [];
     streetsRef.current = data.streets;
     centerRef.current = (data.perimeter && data.perimeter.length >= 3) ? centroid(data.perimeter) : (data.center as LL);
 
@@ -844,6 +858,7 @@ export default function BarrioMap() {
         const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === deviceId && x.kind === kind)), { id: `intr_${Date.now()}`, deviceId, kind, points }] } as any;
         persistNow(next, "Sugerencia creada — ajustá con Redibujar si hace falta");
     };
+    const setGeomCond = (deviceId: string, kind: "line" | "zone", cond: any) => { const next = { ...data, intrusions: ((data as any).intrusions || []).map((x: any) => (x.deviceId === deviceId && x.kind === kind) ? { ...x, cond } : x) } as any; persistNow(next, cond ? "Condición guardada" : "Condición quitada"); };
     const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
     // Edición de vértices de una división (tejido/pared/alambrado) ya guardada.
     const setDivPoint = (divId: string, idx: number, ll: LL) => setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === divId ? { ...x, points: x.points.map((p: LL, i: number) => i === idx ? ll : p) } : x) }) as any : d);
@@ -1511,6 +1526,15 @@ export default function BarrioMap() {
                                                 {!drawn && placedIds.has(c.id) && <button onClick={() => suggestGeom(c.id, kind)} title="Crear una sugerencia segun la orientacion de la camara" className="text-[10px] font-bold px-2 py-0.5 rounded bg-violet-600/80 text-white hover:bg-violet-600">Sugerir</button>}
                                                 {drawn && <button onClick={() => { if (mapRef.current && drawn.points[0]) mapRef.current.setView(drawn.points[0], Math.max(mapRef.current.getZoom(), 18)); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent">Ver</button>}
                                                 {drawn && <button onClick={() => removeIntr(drawn.id)} title="Borrar del mapa" className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent text-red-400"><Trash2 size={11} /></button>}
+                                                {drawn && <button onClick={() => { setCondEdit({ deviceId: c.id, kind }); setCondForm({ from: drawn.cond?.from || "", to: drawn.cond?.to || "", cls: drawn.cond?.cls || "all" }); }} className={cn("text-[10px] font-bold px-2 py-0.5 rounded inline-flex items-center gap-1", drawn.cond && (drawn.cond.from || (drawn.cond.cls && drawn.cond.cls !== "all")) ? "bg-sky-500/20 text-sky-400" : "bg-accent")}><Clock size={10} />{drawn.cond && (drawn.cond.from || (drawn.cond.cls && drawn.cond.cls !== "all")) ? `${drawn.cond.from && drawn.cond.to ? drawn.cond.from + "-" + drawn.cond.to : ""}${drawn.cond.cls && drawn.cond.cls !== "all" ? " " + (drawn.cond.cls === "human" ? "Pers" : "Auto") : ""}`.trim() || "Horario" : "Horario"}</button>}
+                                                {condEdit && condEdit.deviceId === c.id && condEdit.kind === kind && (
+                                                    <div className="w-full mt-1.5 border-t border-border pt-1.5 flex flex-col gap-1.5">
+                                                        <div className="flex items-center gap-1 text-[10px]"><span className="text-muted-foreground w-5">De</span><input type="time" value={condForm.from} onChange={(e) => setCondForm((f) => ({ ...f, from: e.target.value }))} className="flex-1 h-7 px-1.5 rounded bg-background border border-border text-[11px] [color-scheme:dark]" /><span className="text-muted-foreground">a</span><input type="time" value={condForm.to} onChange={(e) => setCondForm((f) => ({ ...f, to: e.target.value }))} className="flex-1 h-7 px-1.5 rounded bg-background border border-border text-[11px] [color-scheme:dark]" /></div>
+                                                        <select value={condForm.cls} onChange={(e) => setCondForm((f) => ({ ...f, cls: e.target.value }))} className="h-7 px-1.5 rounded bg-background border border-border text-[11px]"><option value="all">Alertar: todo</option><option value="human">Alertar: solo persona</option><option value="vehicle">Alertar: solo auto</option></select>
+                                                        <div className="flex gap-1"><button onClick={() => { setGeomCond(c.id, kind, { from: condForm.from || undefined, to: condForm.to || undefined, cls: condForm.cls }); setCondEdit(null); }} className="flex-1 py-1 rounded bg-sky-600 text-white text-[10px] font-bold">Guardar</button><button onClick={() => { setGeomCond(c.id, kind, undefined); setCondEdit(null); }} className="px-2 py-1 rounded bg-accent text-[10px] font-bold">Quitar</button><button onClick={() => setCondEdit(null)} className="px-2 py-1 rounded bg-accent text-[10px]"><X size={10} /></button></div>
+                                                        <p className="text-[9px] text-muted-foreground">Fuera de ese rango/clase, no suena ni parpadea (igual queda en el historial).</p>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
