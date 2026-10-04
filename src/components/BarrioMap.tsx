@@ -589,6 +589,7 @@ export default function BarrioMap() {
     const [placeSearch, setPlaceSearch] = useState("");
     const [placeDrawer, setPlaceDrawer] = useState(false);
     const beepRef = useRef<AudioContext | null>(null);
+    const lastBeepRef = useRef<Record<string, number>>({});
     const playBeep = useCallback((label?: string | null) => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const seq: [number, number, number][] = label === "human" ? [[1046, 0, 0.13], [1318, 0.17, 0.13]] : [[660, 0, 0.2]]; for (const [f, at, du] of seq) { const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = f; o.connect(g); g.connect(ac.destination); const t = ac.currentTime + at; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(label === "human" ? 0.28 : 0.2, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + du); o.start(t); o.stop(t + du + 0.03); } } catch { } }, []);
     const speakAlert = useCallback((label?: string | null, name?: string | null) => { try { const w: any = window; if (!w.speechSynthesis) return; const who = label === "vehicle" ? "Vehículo" : label === "human" ? "Persona" : "Detección"; const u = new SpeechSynthesisUtterance(`${who} en ${name || "cámara"}`); u.lang = "es-UY"; u.rate = 1.08; w.speechSynthesis.cancel(); w.speechSynthesis.speak(u); } catch { } }, []);
     const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
@@ -602,7 +603,7 @@ export default function BarrioMap() {
             const ms = d.timestamp ? new Date(d.timestamp).getTime() : Date.now();
             setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), ms, id: d.id, type: d.type, label: d.label, name: d.deviceName } }));
             setRecentIntr((prev) => [{ id: d.id, deviceId: d.deviceId, name: d.deviceName, type: d.type, label: d.label, ms }, ...prev].slice(0, 14));
-            try { if (soundRef.current) { playBeep(d.label); speakAlert(d.label, d.deviceName); } } catch { }
+            try { const lb = lastBeepRef.current[d.deviceId] || 0; if (soundRef.current && Date.now() - lb > 6000) { lastBeepRef.current[d.deviceId] = Date.now(); playBeep(d.label); speakAlert(d.label, d.deviceName); } } catch { }
             if (autoRef.current) { const cam = camerasRef.current.find((c: any) => c.deviceId === d.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }
         });
         s.on("connect", () => s.emit("get_guard_locations"));
@@ -1470,10 +1471,11 @@ export default function BarrioMap() {
                     const kind = intrDrawer;
                     const list = intrCamList.filter((c) => { const k = geomKinds(c.id); return kind === "line" ? k.line : k.zone; });
                     const drawnOf = (id: string) => ((data as any).intrusions || []).find((g: any) => g.deviceId === id && g.kind === kind);
+                    const drawnCount = list.filter((c) => drawnOf(c.id)).length;
                     return (
                         <div className="absolute top-0 right-0 bottom-0 z-[680] w-[320px] bg-card/95 backdrop-blur-xl border-l border-border shadow-2xl flex flex-col">
                             <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
-                                <div className="text-sm font-bold flex items-center gap-2">{kind === "zone" ? <ShieldAlert size={15} className="text-sky-500" /> : <Route size={15} className="text-sky-500" />} {kind === "zone" ? "Zonas de intrusión" : "Cruces de línea"}</div>
+                                <div className="text-sm font-bold flex items-center gap-2">{kind === "zone" ? <ShieldAlert size={15} className="text-sky-500" /> : <Route size={15} className="text-sky-500" />} {kind === "zone" ? "Zonas de intrusión" : "Cruces de línea"} <span className="text-[11px] font-semibold text-muted-foreground">{drawnCount}/{list.length}</span></div>
                                 <button onClick={() => setIntrDrawer(null)} className={gbtn}><X size={15} /></button>
                             </div>
                             <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
