@@ -24,6 +24,15 @@ async function go2rtcFrame(deviceId: string): Promise<Buffer | null> {
     } catch { return null; }
 }
 
+// go2rtc levanta el stream on-demand: el primer frame en frío suele fallar (502 en consola).
+// Reintentamos una vez tras un respiro para convertir ese 502 transitorio en un snapshot OK.
+async function go2rtcFrameRetry(deviceId: string): Promise<Buffer | null> {
+    let b = await go2rtcFrame(deviceId);
+    if (b) return b;
+    await new Promise((r) => setTimeout(r, 1200));
+    return await go2rtcFrame(deviceId);
+}
+
 /** Snapshot del canal a través del NVR (digest). Para cámaras colgadas de un NVR
  * que no son alcanzables directo. */
 async function nvrSnapshot(deviceId: string): Promise<Buffer | null> {
@@ -73,7 +82,7 @@ export async function GET(
         if (device.brand === "HIKVISION") {
             let buf = await new HikvisionDriver().captureSnapshot(device as any);
             if (!buf) buf = await nvrSnapshot(deviceId);
-            if (!buf) buf = await go2rtcFrame(deviceId);
+            if (!buf) buf = await go2rtcFrameRetry(deviceId);
             if (!buf) return new NextResponse("No snapshot available", { status: 502 });
             return new NextResponse(buf as any, {
                 status: 200,
@@ -100,7 +109,7 @@ export async function GET(
         }
         let imageBuffer = await fetchSnapshot(snapshotUrl, headers);
         if (!imageBuffer) imageBuffer = await nvrSnapshot(deviceId);
-        if (!imageBuffer) imageBuffer = await go2rtcFrame(deviceId);
+        if (!imageBuffer) imageBuffer = await go2rtcFrameRetry(deviceId);
         if (!imageBuffer) return new NextResponse("No snapshot available", { status: 502 });
         return new NextResponse(imageBuffer, {
             status: 200,
