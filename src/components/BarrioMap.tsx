@@ -273,6 +273,7 @@ function condAllows(cond: any, label?: string | null): boolean {
     if (cond.from && cond.to) { const d = new Date(); const cur = d.getHours() * 60 + d.getMinutes(); const [fh, fm] = String(cond.from).split(":").map(Number); const [th, tm] = String(cond.to).split(":").map(Number); const f = fh * 60 + fm, t = th * 60 + tm; const inRange = f <= t ? (cur >= f && cur <= t) : (cur >= f || cur <= t); if (!inRange) return false; }
     return true;
 }
+function sigOf(geom: any, kind: "line" | "zone"): string { const arr = kind === "line" ? (geom?.line || []) : (geom?.field || []); return JSON.stringify((arr as any[]).map((p: any) => [Math.round(p.x), Math.round(p.y)])); }
 
 const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
@@ -842,7 +843,7 @@ export default function BarrioMap() {
         if (!intrDraw) return;
         const min = intrDraw.kind === "zone" ? 3 : 2;
         if (draftIntr.length >= min) {
-            const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === intrDraw.deviceId && x.kind === intrDraw.kind)), { id: `intr_${Date.now()}`, deviceId: intrDraw.deviceId, kind: intrDraw.kind, points: draftIntr }] } as any;
+            const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === intrDraw.deviceId && x.kind === intrDraw.kind)), { id: `intr_${Date.now()}`, deviceId: intrDraw.deviceId, kind: intrDraw.kind, points: draftIntr, nvrSig: intrGeomPrev[intrDraw.deviceId] ? sigOf(intrGeomPrev[intrDraw.deviceId], intrDraw.kind) : undefined }] } as any;
             persistNow(next, intrDraw.kind === "zone" ? "Zona de intrusión guardada" : "Cruce de línea guardado");
         }
         setDraftIntr([]); setIntrDraw(null);
@@ -855,7 +856,7 @@ export default function BarrioMap() {
         let points: LL[];
         if (kind === "line") { const f = destPoint(cam.lat, cam.lng, h, 28); points = [destPoint(f[0], f[1], h + 90, 16), destPoint(f[0], f[1], h - 90, 16)]; }
         else { const a = destPoint(cam.lat, cam.lng, h + 90, 13); const b = destPoint(cam.lat, cam.lng, h - 90, 13); const af = destPoint(a[0], a[1], h, 30); const bf = destPoint(b[0], b[1], h, 30); const a0 = destPoint(a[0], a[1], h, 8); const b0 = destPoint(b[0], b[1], h, 8); points = [a0, af, bf, b0]; }
-        const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === deviceId && x.kind === kind)), { id: `intr_${Date.now()}`, deviceId, kind, points }] } as any;
+        const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === deviceId && x.kind === kind)), { id: `intr_${Date.now()}`, deviceId, kind, points, nvrSig: intrGeomPrev[deviceId] ? sigOf(intrGeomPrev[deviceId], kind) : undefined }] } as any;
         persistNow(next, "Sugerencia creada — ajustá con Redibujar si hace falta");
     };
     const setGeomCond = (deviceId: string, kind: "line" | "zone", cond: any) => { const next = { ...data, intrusions: ((data as any).intrusions || []).map((x: any) => (x.deviceId === deviceId && x.kind === kind) ? { ...x, cond } : x) } as any; persistNow(next, cond ? "Condición guardada" : "Condición quitada"); };
@@ -1510,7 +1511,7 @@ export default function BarrioMap() {
                             <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
                                 {geomLoading && list.length === 0 && <div className="text-xs text-muted-foreground flex items-center gap-2 p-3"><Loader2 size={14} className="animate-spin" /> Cargando analíticas…</div>}
                                 {!geomLoading && list.length === 0 && <div className="text-xs text-muted-foreground p-3">Ninguna cámara con {kind === "zone" ? "zona" : "cruce"} configurado.</div>}
-                                {list.map((c) => { const drawn = drawnOf(c.id); return (
+                                {list.map((c) => { const drawn = drawnOf(c.id); const stale = !!(drawn && drawn.nvrSig && intrGeomPrev[c.id] && drawn.nvrSig !== sigOf(intrGeomPrev[c.id], kind)); return (
                                     <div key={c.id} className="rounded-xl border border-border bg-background/60 p-2 flex gap-2">
                                         <div className="relative w-[84px] h-[52px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1521,7 +1522,7 @@ export default function BarrioMap() {
                                             <div className="text-[12px] font-bold truncate">{c.name}</div>
                                             <div className="text-[10px] text-muted-foreground truncate">{c.nvrName || "—"}{c.ch != null ? ` · CH ${c.ch}` : ""}</div>
                                             <div className="mt-0.5">{drawn ? <span className="text-[9px] font-bold uppercase text-emerald-500">● Dibujado ({drawn.points.length} pts)</span> : <span className="text-[9px] font-bold uppercase text-amber-500">● Pendiente</span>}{(intrCounts[c.id] || 0) > 0 && <span className="ml-1.5 text-[9px] font-bold text-muted-foreground">Hoy: {intrCounts[c.id]}</span>}</div>
-                                            <div className="mt-1 flex gap-1 flex-wrap">
+                                            <div className="mt-1 flex gap-1 flex-wrap">{stale && <span className="w-full text-[9px] font-bold text-amber-500 flex items-center gap-1 mb-0.5"><ShieldAlert size={10} /> Desactualizada: la analítica cambió en la cámara, redibujá</span>}
                                                 <button onClick={() => { setIntrDraw({ kind, deviceId: c.id }); setDraftIntr([]); setIntrPickCam(c.id); setIntrDrawer(null); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-600 text-white hover:bg-sky-500">{drawn ? "Redibujar" : "Dibujar"}</button>
                                                 {!drawn && placedIds.has(c.id) && <button onClick={() => suggestGeom(c.id, kind)} title="Crear una sugerencia segun la orientacion de la camara" className="text-[10px] font-bold px-2 py-0.5 rounded bg-violet-600/80 text-white hover:bg-violet-600">Sugerir</button>}
                                                 {drawn && <button onClick={() => { if (mapRef.current && drawn.points[0]) mapRef.current.setView(drawn.points[0], Math.max(mapRef.current.getZoom(), 18)); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent">Ver</button>}
