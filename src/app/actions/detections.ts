@@ -213,6 +213,16 @@ export async function setVisualTrackLinks(camId: string, links: TrackLink[]): Pr
     } catch { return { ok: false }; }
 }
 
+export async function getTodayIntrusionCounts(): Promise<Record<string, number>> {
+    const start = new Date(); start.setHours(0, 0, 0, 0);
+    try {
+        const rows = await prisma.detection.groupBy({ by: ["deviceId"], where: { type: { not: "MOTION" }, timestamp: { gte: start }, deviceId: { not: null } }, _count: { _all: true } });
+        const out: Record<string, number> = {};
+        for (const r of rows) if (r.deviceId) out[r.deviceId] = (r._count as any)._all;
+        return out;
+    } catch { return {}; }
+}
+
 export async function ackAlarms(deviceId: string, kind: "real" | "false" = "real"): Promise<{ ok: boolean; count: number }> {
     const since = new Date(Date.now() - 6 * 3600 * 1000);
     try {

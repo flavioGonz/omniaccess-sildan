@@ -22,7 +22,7 @@ import { io } from "socket.io-client";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
 import { LogIn, LogOut } from "lucide-react";
 import { getDevices } from "@/app/actions/devices";
-import { getIntrusionCameras, getAnalyticsGeometryBatch, ackAlarms, getDetectionHistory, type IntrusionCam } from "@/app/actions/detections";
+import { getIntrusionCameras, getAnalyticsGeometryBatch, ackAlarms, getDetectionHistory, getTodayIntrusionCounts, type IntrusionCam } from "@/app/actions/detections";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { montarVivo } from "@/lib/vivo";
@@ -260,6 +260,7 @@ const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", ico
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
 const intrPulseIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span class="intr-pulse"></span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
+const countBadgeIcon = (n: number) => L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:rgba(0,0,0,.72);color:#fff;font:800 10px/1 sans-serif;border:1px solid rgba(255,255,255,.35);box-shadow:0 1px 4px rgba(0,0,0,.5)">${n}</span>`, iconSize: [0, 0], iconAnchor: [9, 9] });
 function destPoint(lat: number, lng: number, bearingDeg: number, meters: number): LL {
     const R = 6371000; const br = (bearingDeg * Math.PI) / 180; const lat1 = (lat * Math.PI) / 180; const lng1 = (lng * Math.PI) / 180; const dR = meters / R;
     const lat2 = Math.asin(Math.sin(lat1) * Math.cos(dR) + Math.cos(lat1) * Math.sin(dR) * Math.cos(br));
@@ -556,6 +557,8 @@ export default function BarrioMap() {
     const [alertCard, setAlertCard] = useState<null | { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }>(null);
     const [soundOn, setSoundOn] = useState(true);
     const [recentIntr, setRecentIntr] = useState<any[]>([]);
+    const [intrCounts, setIntrCounts] = useState<Record<string, number>>({});
+    useEffect(() => { getTodayIntrusionCounts().then(setIntrCounts).catch(() => { }); const iv = setInterval(() => getTodayIntrusionCounts().then(setIntrCounts).catch(() => { }), 120000); return () => clearInterval(iv); }, []);
     const [feedOpen, setFeedOpen] = useState(false);
     useEffect(() => { try { if (localStorage.getItem("olivos.intrFeed") === "1") setFeedOpen(true); } catch { } }, []);
     useEffect(() => { try { localStorage.setItem("olivos.intrFeed", feedOpen ? "1" : "0"); } catch { } }, [feedOpen]);
@@ -609,6 +612,7 @@ export default function BarrioMap() {
             const ms = d.timestamp ? new Date(d.timestamp).getTime() : Date.now();
             setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), ms, id: d.id, type: d.type, label: d.label, name: d.deviceName } }));
             setRecentIntr((prev) => [{ id: d.id, deviceId: d.deviceId, name: d.deviceName, type: d.type, label: d.label, ms }, ...prev].slice(0, 14));
+            setIntrCounts((p) => ({ ...p, [d.deviceId]: (p[d.deviceId] || 0) + 1 }));
             try { const lb = lastBeepRef.current[d.deviceId] || 0; if (soundRef.current && Date.now() - lb > 6000) { lastBeepRef.current[d.deviceId] = Date.now(); playBeep(d.label); speakAlert(d.label, d.deviceName); } } catch { }
             if (autoRef.current) { const cam = camerasRef.current.find((c: any) => c.deviceId === d.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }
         });
@@ -1047,6 +1051,7 @@ export default function BarrioMap() {
                             ? <Polygon key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 4 : 2.5, opacity: 0.95, fillColor: col, fillOpacity: active ? 0.3 : 0.1, className: cls }} eventHandlers={handlers}>{tip}</Polygon>
                             : <Polyline key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 7 : 3.5, opacity: 0.98, lineCap: "round", className: cls }} eventHandlers={handlers}>{tip}</Polyline>;
                     })}
+                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => { const n = intrCounts[g.deviceId] || 0; if (!n || !g.points?.length) return null; return <Marker key={`cnt_${g.id}`} position={g.points[0]} icon={countBadgeIcon(n)} interactive={false} zIndexOffset={500} />; })}
                     {draftIntr.length > 0 && (intrDraw?.kind === "zone"
                         ? <Polygon positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 2, dashArray: "6 6", fillOpacity: 0.08 }} />
                         : <Polyline positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 3, dashArray: "6 6", lineCap: "round" }} />)}
@@ -1500,7 +1505,7 @@ export default function BarrioMap() {
                                         <div className="flex-1 min-w-0">
                                             <div className="text-[12px] font-bold truncate">{c.name}</div>
                                             <div className="text-[10px] text-muted-foreground truncate">{c.nvrName || "—"}{c.ch != null ? ` · CH ${c.ch}` : ""}</div>
-                                            <div className="mt-0.5">{drawn ? <span className="text-[9px] font-bold uppercase text-emerald-500">● Dibujado ({drawn.points.length} pts)</span> : <span className="text-[9px] font-bold uppercase text-amber-500">● Pendiente</span>}</div>
+                                            <div className="mt-0.5">{drawn ? <span className="text-[9px] font-bold uppercase text-emerald-500">● Dibujado ({drawn.points.length} pts)</span> : <span className="text-[9px] font-bold uppercase text-amber-500">● Pendiente</span>}{(intrCounts[c.id] || 0) > 0 && <span className="ml-1.5 text-[9px] font-bold text-muted-foreground">Hoy: {intrCounts[c.id]}</span>}</div>
                                             <div className="mt-1 flex gap-1 flex-wrap">
                                                 <button onClick={() => { setIntrDraw({ kind, deviceId: c.id }); setDraftIntr([]); setIntrPickCam(c.id); setIntrDrawer(null); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-600 text-white hover:bg-sky-500">{drawn ? "Redibujar" : "Dibujar"}</button>
                                                 {!drawn && placedIds.has(c.id) && <button onClick={() => suggestGeom(c.id, kind)} title="Crear una sugerencia segun la orientacion de la camara" className="text-[10px] font-bold px-2 py-0.5 rounded bg-violet-600/80 text-white hover:bg-violet-600">Sugerir</button>}
