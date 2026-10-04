@@ -1005,7 +1005,7 @@ export default function BarrioMap() {
                 </MapContainer>
 
                 {Object.keys(intrAlerts).length > 0 && (
-                    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[600] flex flex-col gap-1.5 items-center pointer-events-none">
+                    <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[600] flex flex-col gap-1.5 items-center pointer-events-none">
                         {Object.entries(intrAlerts).sort((a, b) => b[1].ts - a[1].ts).slice(0, 5).map(([devId, a]) => (
                             <div key={devId} className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600/95 text-white shadow-2xl ring-1 ring-red-300/50 backdrop-blur-sm" style={{ animation: "intrBanner 1s ease-in-out infinite" }}>
                                 <ShieldAlert size={16} />
