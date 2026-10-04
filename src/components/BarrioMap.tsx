@@ -571,6 +571,8 @@ export default function BarrioMap() {
         })();
     }, [editing, intrCamList]);
     const geomKinds = useCallback((id: string) => { const g = intrGeomPrev[id]; return { line: !!(g && g.line && g.line.length >= 2), zone: !!(g && g.field && g.field.length >= 3) }; }, [intrGeomPrev]);
+    const [intrMenu, setIntrMenu] = useState(false);
+    const [intrDrawer, setIntrDrawer] = useState<null | "line" | "zone">(null);
     const beepRef = useRef<AudioContext | null>(null);
     const playBeep = useCallback(() => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = 880; o.connect(g); g.connect(ac.destination); const t = ac.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34); o.start(t); o.stop(t + 0.35); } catch { } }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
@@ -597,7 +599,7 @@ export default function BarrioMap() {
         getPlateSlotMap().then((m: any) => { plateMapRef.current = m || {}; }).catch(() => { });
     }, []);
     useEffect(() => {
-        const close = () => setCtx(null);
+        const close = () => { setCtx(null); setIntrMenu(false); };
         window.addEventListener("click", close);
         return () => window.removeEventListener("click", close);
     }, []);
@@ -795,7 +797,7 @@ export default function BarrioMap() {
         if (!intrDraw) return;
         const min = intrDraw.kind === "zone" ? 3 : 2;
         if (draftIntr.length >= min) {
-            const next = { ...data, intrusions: [...((data as any).intrusions || []), { id: `intr_${Date.now()}`, deviceId: intrDraw.deviceId, kind: intrDraw.kind, points: draftIntr }] } as any;
+            const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === intrDraw.deviceId && x.kind === intrDraw.kind)), { id: `intr_${Date.now()}`, deviceId: intrDraw.deviceId, kind: intrDraw.kind, points: draftIntr }] } as any;
             persistNow(next, intrDraw.kind === "zone" ? "Zona de intrusión guardada" : "Cruce de línea guardado");
         }
         setDraftIntr([]); setIntrDraw(null);
@@ -879,7 +881,6 @@ export default function BarrioMap() {
         { id: "lote", icon: LandPlot, label: "Dibujar lote" },
         { id: "division", icon: Fence, label: "Dibujar división (pared/tejido/alambrado)" },
         { id: "perimeter", icon: Hexagon, label: "Dibujar perímetro" },
-        { id: "camera", icon: Video, label: "Soltar cámara" },
     ];
     const fondos: Base[] = ["Satélite", "Táctico", "Calles"];
     const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
@@ -1135,6 +1136,17 @@ export default function BarrioMap() {
                                         <button onClick={() => { setTool(t.id); setSelected(null); }} className={cn(gbtn, tool === t.id && "bg-blue-600 text-white hover:bg-blue-500 hover:text-white")}><t.icon size={16} /></button>
                                     </TooltipTrigger><TooltipContent>{t.label}</TooltipContent></Tooltip>
                                 ))}
+                                <div className="relative">
+                                    <Tooltip><TooltipTrigger asChild>
+                                        <button onClick={(e) => { e.stopPropagation(); setIntrMenu((v) => !v); }} className={cn(gbtn, intrMenu && "bg-white/10 text-foreground")}><Video size={16} /></button>
+                                    </TooltipTrigger><TooltipContent>Cámaras: cruces y zonas</TooltipContent></Tooltip>
+                                    {intrMenu && (
+                                        <div className="absolute top-full mt-2 left-0 z-[560] bg-popover border border-border rounded-xl shadow-2xl py-1 min-w-[180px]" onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={() => { setIntrDrawer("line"); setIntrMenu(false); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-xs font-bold"><Route size={13} className="text-sky-400" /> Cruces de línea</button>
+                                            <button onClick={() => { setIntrDrawer("zone"); setIntrMenu(false); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-xs font-bold"><ShieldAlert size={13} className="text-sky-400" /> Zonas de intrusión</button>
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="w-px h-6 bg-border mx-0.5" />
                                 <Tooltip><TooltipTrigger asChild><button onClick={importOsmStreets} disabled={importingOsm} className={cn(gbtn, "text-sky-400 hover:text-sky-300 hover:bg-sky-500/10")}>{importingOsm ? <Loader2 size={16} className="animate-spin" /> : <Route size={16} />}</button></TooltipTrigger><TooltipContent>Importar calles reales del barrio (OpenStreetMap) para el ruteo</TooltipContent></Tooltip>
                                 <div className="w-px h-6 bg-border mx-0.5" />
@@ -1258,6 +1270,8 @@ export default function BarrioMap() {
                             <button onClick={() => { const dv = ((data as any).divisions || []).find((x: any) => x.id === ctx.id); if (dv) { const st = DIV_STYLE[dv.tipo as DivTipo] || DIV_STYLE.pared; setDivCustom({ id: dv.id, tipo: dv.tipo, color: dv.color || st.color, weight: dv.weight || st.weight }); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Palette size={13} className="text-purple-400" /> Color y grosor</button>
                             <button onClick={() => { removeDivision(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar división</button>
                         </>) : ctx.type === "map" ? (<>
+                            <button onClick={() => { setEditing(true); setTool("camera"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Video size={13} className="text-blue-400" /> Colocar cámara</button>
+                            <div className="h-px bg-border my-1" />
                             <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Intrusión</div>
                             <button onClick={() => { setIntrPick({ kind: "line" }); setIntrPickCam(""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Route size={13} className="text-sky-400" /> Definir cruce de línea</button>
                             <button onClick={() => { setIntrPick({ kind: "zone" }); setIntrPickCam(""); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><ShieldAlert size={13} className="text-sky-400" /> Definir zona de intrusión</button>
@@ -1312,22 +1326,51 @@ export default function BarrioMap() {
                 })()}
                 {intrDraw && (
                     <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-[650] bg-popover/95 border border-border rounded-xl shadow-2xl px-3 py-2 flex items-center gap-2 backdrop-blur">
-                        <span className="text-xs font-bold">{intrDraw.kind === "zone" ? "Zona" : "Cruce"} · {devById[intrDraw.deviceId]?.name || "Cámara"} · {draftIntr.length} pts</span>
+                        <div className="relative w-[64px] h-[40px] rounded-md overflow-hidden bg-black ring-1 ring-border shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/api/snapshot/${intrDraw.deviceId}?t=ref`} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                            <MiniGeomOverlay geom={intrGeomPrev[intrDraw.deviceId]} />
+                        </div>
+                        <span className="text-xs font-bold">{intrDraw.kind === "zone" ? "Zona" : "Cruce"} · {devById[intrDraw.deviceId]?.name || intrCamList.find((c) => c.id === intrDraw.deviceId)?.name || "Cámara"} · {draftIntr.length} pts</span>
                         <button onClick={commitIntr} disabled={draftIntr.length < (intrDraw.kind === "zone" ? 3 : 2)} className="px-3 py-1.5 rounded-md bg-sky-600 text-white font-bold text-xs disabled:opacity-40 flex items-center gap-1"><Check size={13} /> Finalizar</button>
                         <button onClick={() => setDraftIntr((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button>
                         <button onClick={() => { setDraftIntr([]); setIntrDraw(null); }} className="px-2 py-1.5 rounded-md bg-accent"><X size={13} /></button>
                     </div>
                 )}
-                {editing && (() => {
-                    const drawn = new Map<string, Set<string>>();
-                    ((data as any).intrusions || []).forEach((g: any) => { const st = drawn.get(g.deviceId) || new Set<string>(); st.add(g.kind); drawn.set(g.deviceId, st); });
-                    const pend: { id: string; name: string; kind: "line" | "zone" }[] = [];
-                    intrCamList.forEach((c) => { const k = geomKinds(c.id); const d = drawn.get(c.id) || new Set<string>(); if (k.line && !d.has("line")) pend.push({ id: c.id, name: c.name, kind: "line" }); if (k.zone && !d.has("zone")) pend.push({ id: c.id, name: c.name, kind: "zone" }); });
-                    if (pend.length === 0 && !geomLoading) return null;
+
+                {intrDrawer && (() => {
+                    const kind = intrDrawer;
+                    const list = intrCamList.filter((c) => { const k = geomKinds(c.id); return kind === "line" ? k.line : k.zone; });
+                    const drawnOf = (id: string) => ((data as any).intrusions || []).find((g: any) => g.deviceId === id && g.kind === kind);
                     return (
-                        <div className="absolute top-20 left-3 z-[600] bg-amber-500/95 text-black rounded-xl shadow-xl px-3 py-2 max-w-[260px]">
-                            <div className="text-[11px] font-extrabold uppercase tracking-wide flex items-center gap-1.5"><ShieldAlert size={13} /> {geomLoading && pend.length === 0 ? "Cargando analíticas…" : `${pend.length} sin dibujar`}</div>
-                            {pend.length > 0 && <div className="mt-1 flex flex-wrap gap-1 max-h-[104px] overflow-auto">{pend.slice(0, 24).map((p) => <button key={p.id + p.kind} onClick={() => { setIntrPick({ kind: p.kind }); setIntrPickCam(p.id); }} title={`Dibujar ${p.kind === "zone" ? "zona" : "cruce"} de ${p.name}`} className="text-[10px] font-bold bg-black/15 hover:bg-black/25 rounded px-1.5 py-0.5 inline-flex items-center gap-1">{p.kind === "zone" ? <ShieldAlert size={10} /> : <Route size={10} />}{p.name}</button>)}</div>}
+                        <div className="absolute top-0 right-0 bottom-0 z-[680] w-[320px] bg-card/95 backdrop-blur-xl border-l border-border shadow-2xl flex flex-col">
+                            <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
+                                <div className="text-sm font-bold flex items-center gap-2">{kind === "zone" ? <ShieldAlert size={15} className="text-sky-500" /> : <Route size={15} className="text-sky-500" />} {kind === "zone" ? "Zonas de intrusión" : "Cruces de línea"}</div>
+                                <button onClick={() => setIntrDrawer(null)} className={gbtn}><X size={15} /></button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
+                                {geomLoading && list.length === 0 && <div className="text-xs text-muted-foreground flex items-center gap-2 p-3"><Loader2 size={14} className="animate-spin" /> Cargando analíticas…</div>}
+                                {!geomLoading && list.length === 0 && <div className="text-xs text-muted-foreground p-3">Ninguna cámara con {kind === "zone" ? "zona" : "cruce"} configurado.</div>}
+                                {list.map((c) => { const drawn = drawnOf(c.id); return (
+                                    <div key={c.id} className="rounded-xl border border-border bg-background/60 p-2 flex gap-2">
+                                        <div className="relative w-[84px] h-[52px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img src={`/api/snapshot/${c.id}?t=dr`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                            <MiniGeomOverlay geom={intrGeomPrev[c.id]} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-[12px] font-bold truncate">{c.name}</div>
+                                            <div className="text-[10px] text-muted-foreground truncate">{c.nvrName || "—"}{c.ch != null ? ` · CH ${c.ch}` : ""}</div>
+                                            <div className="mt-0.5">{drawn ? <span className="text-[9px] font-bold uppercase text-emerald-500">● Dibujado ({drawn.points.length} pts)</span> : <span className="text-[9px] font-bold uppercase text-amber-500">● Pendiente</span>}</div>
+                                            <div className="mt-1 flex gap-1 flex-wrap">
+                                                <button onClick={() => { setIntrDraw({ kind, deviceId: c.id }); setDraftIntr([]); setIntrPickCam(c.id); setIntrDrawer(null); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-600 text-white hover:bg-sky-500">{drawn ? "Redibujar" : "Dibujar"}</button>
+                                                {drawn && <button onClick={() => { if (mapRef.current && drawn.points[0]) mapRef.current.setView(drawn.points[0], Math.max(mapRef.current.getZoom(), 18)); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent">Ver</button>}
+                                                {drawn && <button onClick={() => removeIntr(drawn.id)} title="Borrar del mapa" className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent text-red-400"><Trash2 size={11} /></button>}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ); })}
+                            </div>
                         </div>
                     );
                 })()}
