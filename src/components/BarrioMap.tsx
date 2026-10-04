@@ -9,7 +9,7 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route, ShieldAlert,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -239,6 +239,7 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
 const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", iconSize: [0, 0], iconAnchor: [0, 0] });
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
+const intrPulseIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span class="intr-pulse"></span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
 
 const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
@@ -524,10 +525,21 @@ export default function BarrioMap() {
     const [ruta, setRuta] = useState<{ path: LL[]; key: number; dir?: string } | null>(null);
     const [draftStreet, setDraftStreet] = useState<LL[]>([]);
     const [importingOsm, setImportingOsm] = useState(false);
+    // ── Alertas de intrusión en vivo sobre el mapa (cruce de línea / zona) ──
+    const [intrAlerts, setIntrAlerts] = useState<Record<string, { ts: number; type: string; label?: string | null; name?: string }>>({});
+    const beepRef = useRef<AudioContext | null>(null);
+    const playBeep = useCallback(() => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = 880; o.connect(g); g.connect(ac.destination); const t = ac.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34); o.start(t); o.stop(t + 0.35); } catch { } }, []);
+    useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
 
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
         s.on("guard_locations", (data: any[]) => setGuards(Array.isArray(data) ? data.filter((g) => g.lat != null) : []));
+        s.on("general_detection", (d: any) => {
+            if (!d || !d.deviceId) return;
+            setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), type: d.type, label: d.label, name: d.deviceName } }));
+            try { playBeep(); } catch { }
+            if (autoRef.current) { const cam = camerasRef.current.find((c: any) => c.deviceId === d.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }
+        });
         s.on("connect", () => s.emit("get_guard_locations"));
         setLiveSocket(s);
         const iv = setInterval(() => { if (s.connected) s.emit("get_guard_locations"); }, 30000);
@@ -861,6 +873,9 @@ export default function BarrioMap() {
                 .map-draw .leaflet-container{cursor:default !important}
                 .omni-reticula{position:absolute;inset:0;pointer-events:none;z-index:400;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:44px 44px}
                 .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;box-shadow:inset 0 0 200px 40px rgba(0,0,0,.55)}
+                .intr-pulse{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;background:#ef4444;box-shadow:0 0 0 0 rgba(239,68,68,.75);animation:intrPulse 1.1s ease-out infinite}
+                @keyframes intrPulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.75)}70%{box-shadow:0 0 0 30px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+                @keyframes intrBanner{0%,100%{opacity:1}50%{opacity:.62}}
             `}</style>
             <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv) && "map-draw")}>
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
@@ -967,6 +982,8 @@ export default function BarrioMap() {
                             )}
                         </Marker>
                     ))}
+                    {/* Alerta de intrusión: halo rojo pulsante sobre la cámara que se activó */}
+                    {Object.keys(intrAlerts).map((devId) => { const cam = data.cameras.find((c) => c.deviceId === devId); if (!cam) return null; return <Marker key={`intr_${devId}`} position={[cam.lat, cam.lng]} icon={intrPulseIcon} interactive={false} zIndexOffset={2000} />; })}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
                     {ruta && ruta.path.length >= 2 && (
                         <>
@@ -986,6 +1003,19 @@ export default function BarrioMap() {
                         />
                     )}
                 </MapContainer>
+
+                {Object.keys(intrAlerts).length > 0 && (
+                    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-[600] flex flex-col gap-1.5 items-center pointer-events-none">
+                        {Object.entries(intrAlerts).sort((a, b) => b[1].ts - a[1].ts).slice(0, 5).map(([devId, a]) => (
+                            <div key={devId} className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600/95 text-white shadow-2xl ring-1 ring-red-300/50 backdrop-blur-sm" style={{ animation: "intrBanner 1s ease-in-out infinite" }}>
+                                <ShieldAlert size={16} />
+                                <span className="text-[13px] font-extrabold uppercase tracking-wide">{a.type === "LINECROSS" ? "Cruce de línea" : a.type === "INTRUSION" ? "Intrusión" : a.type === "REGION_ENTER" ? "Entra a zona" : "Detección"}</span>
+                                {a.label && <span className="text-[12px] font-bold">· {a.label === "vehicle" ? "Auto" : "Persona"}</span>}
+                                <span className="text-[12px] font-semibold opacity-90">· {a.name || "Cámara"}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
 
