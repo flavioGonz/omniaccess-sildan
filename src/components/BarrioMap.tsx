@@ -9,7 +9,7 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route, ShieldAlert,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route, ShieldAlert, Volume2, VolumeX, Play,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -22,7 +22,7 @@ import { io } from "socket.io-client";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
 import { LogIn, LogOut } from "lucide-react";
 import { getDevices } from "@/app/actions/devices";
-import { getIntrusionCameras, getAnalyticsGeometryBatch, type IntrusionCam } from "@/app/actions/detections";
+import { getIntrusionCameras, getAnalyticsGeometryBatch, ackAlarms, type IntrusionCam } from "@/app/actions/detections";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { montarVivo } from "@/lib/vivo";
@@ -546,7 +546,13 @@ export default function BarrioMap() {
     const [draftStreet, setDraftStreet] = useState<LL[]>([]);
     const [importingOsm, setImportingOsm] = useState(false);
     // ── Alertas de intrusión en vivo sobre el mapa (cruce de línea / zona) ──
-    const [intrAlerts, setIntrAlerts] = useState<Record<string, { ts: number; type: string; label?: string | null; name?: string }>>({});
+    const [intrAlerts, setIntrAlerts] = useState<Record<string, { ts: number; ms?: number; id?: string; type: string; label?: string | null; name?: string }>>({});
+    const [alertCard, setAlertCard] = useState<null | { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }>(null);
+    const [soundOn, setSoundOn] = useState(true);
+    const soundRef = useRef(true);
+    useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
+    useEffect(() => { try { if (localStorage.getItem("olivos.intrSound") === "0") setSoundOn(false); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("olivos.intrSound", soundOn ? "1" : "0"); } catch { } }, [soundOn]);
     const [draftIntr, setDraftIntr] = useState<LL[]>([]);
     const [intrDraw, setIntrDraw] = useState<{ kind: "line" | "zone"; deviceId: string } | null>(null);
     const [intrPick, setIntrPick] = useState<{ kind: "line" | "zone" } | null>(null);
@@ -578,7 +584,9 @@ export default function BarrioMap() {
     const [placeSearch, setPlaceSearch] = useState("");
     const [placeDrawer, setPlaceDrawer] = useState(false);
     const beepRef = useRef<AudioContext | null>(null);
-    const playBeep = useCallback(() => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = 880; o.connect(g); g.connect(ac.destination); const t = ac.currentTime; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.34); o.start(t); o.stop(t + 0.35); } catch { } }, []);
+    const playBeep = useCallback((label?: string | null) => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const seq: [number, number, number][] = label === "human" ? [[1046, 0, 0.13], [1318, 0.17, 0.13]] : [[660, 0, 0.2]]; for (const [f, at, du] of seq) { const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = f; o.connect(g); g.connect(ac.destination); const t = ac.currentTime + at; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(label === "human" ? 0.28 : 0.2, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + du); o.start(t); o.stop(t + du + 0.03); } } catch { } }, []);
+    const speakAlert = useCallback((label?: string | null, name?: string | null) => { try { const w: any = window; if (!w.speechSynthesis) return; const who = label === "vehicle" ? "Vehículo" : label === "human" ? "Persona" : "Detección"; const u = new SpeechSynthesisUtterance(`${who} en ${name || "cámara"}`); u.lang = "es-UY"; u.rate = 1.08; w.speechSynthesis.cancel(); w.speechSynthesis.speak(u); } catch { } }, []);
+    const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
 
     useEffect(() => {
@@ -586,8 +594,9 @@ export default function BarrioMap() {
         s.on("guard_locations", (data: any[]) => setGuards(Array.isArray(data) ? data.filter((g) => g.lat != null) : []));
         s.on("general_detection", (d: any) => {
             if (!d || !d.deviceId) return;
-            setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), type: d.type, label: d.label, name: d.deviceName } }));
-            try { playBeep(); } catch { }
+            const ms = d.timestamp ? new Date(d.timestamp).getTime() : Date.now();
+            setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), ms, id: d.id, type: d.type, label: d.label, name: d.deviceName } }));
+            try { if (soundRef.current) { playBeep(d.label); speakAlert(d.label, d.deviceName); } } catch { }
             if (autoRef.current) { const cam = camerasRef.current.find((c: any) => c.deviceId === d.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }
         });
         s.on("connect", () => s.emit("get_guard_locations"));
@@ -1080,18 +1089,49 @@ export default function BarrioMap() {
                     )}
                 </MapContainer>
 
+                <button onClick={() => setSoundOn((v) => !v)} title={soundOn ? "Silenciar alertas" : "Activar sonido de alertas"} className={cn("absolute top-4 left-4 z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", soundOn ? "bg-card/80 text-foreground hover:bg-card" : "bg-red-600/90 text-white")}>{soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}</button>
                 {Object.keys(intrAlerts).length > 0 && (
-                    <div className="absolute top-4 left-4 z-[600] flex flex-col gap-1.5 items-start pointer-events-none">
-                        {Object.entries(intrAlerts).sort((a, b) => b[1].ts - a[1].ts).slice(0, 5).map(([devId, a]) => (
-                            <div key={devId} className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600/95 text-white shadow-2xl ring-1 ring-red-300/50 backdrop-blur-sm" style={{ animation: "intrBanner 1s ease-in-out infinite" }}>
-                                <ShieldAlert size={16} />
+                    <div className="absolute top-16 left-4 z-[600] flex flex-col gap-1.5 items-start">
+                        {Object.entries(intrAlerts).sort((a, b) => b[1].ts - a[1].ts).slice(0, 6).map(([devId, a]) => (
+                            <button key={devId} onClick={() => setAlertCard({ deviceId: devId, ms: a.ms || a.ts, id: a.id, type: a.type, label: a.label, name: a.name })}
+                                className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-600/95 text-white shadow-2xl ring-1 ring-red-300/50 backdrop-blur-sm hover:bg-red-600 transition-colors text-left" style={{ animation: "intrBanner 1s ease-in-out infinite" }}>
+                                <ShieldAlert size={16} className="shrink-0" />
                                 <span className="text-[13px] font-extrabold uppercase tracking-wide">{a.type === "LINECROSS" ? "Cruce de línea" : a.type === "INTRUSION" ? "Intrusión" : a.type === "REGION_ENTER" ? "Entra a zona" : "Detección"}</span>
                                 {a.label && <span className="text-[12px] font-bold">· {a.label === "vehicle" ? "Auto" : "Persona"}</span>}
-                                <span className="text-[12px] font-semibold opacity-90">· {a.name || "Cámara"}</span>
-                            </div>
+                                <span className="text-[12px] font-semibold opacity-90 truncate max-w-[140px]">· {a.name || "Cámara"}</span>
+                            </button>
                         ))}
                     </div>
                 )}
+                {alertCard && (() => {
+                    const cam = intrCamList.find((c) => c.id === alertCard.deviceId);
+                    const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(alertCard.ms)}&pre=4&dur=12&nvr=${cam.nvrId}` : null;
+                    return (
+                        <div className="absolute top-16 left-4 z-[690] w-[320px] bg-card/97 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden">
+                            <div className="flex items-center justify-between px-3 py-2 bg-red-600 text-white">
+                                <div className="flex items-center gap-1.5 text-[12px] font-extrabold uppercase tracking-wide"><ShieldAlert size={14} /> {alertCard.type === "LINECROSS" ? "Cruce de línea" : alertCard.type === "INTRUSION" ? "Intrusión" : "Detección"}{alertCard.label ? ` · ${alertCard.label === "vehicle" ? "Auto" : "Persona"}` : ""}</div>
+                                <button onClick={() => setAlertCard(null)} className="p-1 rounded hover:bg-white/20"><X size={14} /></button>
+                            </div>
+                            <div className="relative w-full h-[180px] bg-black">
+                                {clip ? (
+                                    // eslint-disable-next-line jsx-a11y/media-has-caption
+                                    <video src={clip} autoPlay loop muted playsInline controls poster={`/api/snapshot/${alertCard.deviceId}?t=${alertCard.id || alertCard.ms}`} className="absolute inset-0 w-full h-full object-cover" />
+                                ) : (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={`/api/snapshot/${alertCard.deviceId}?t=${alertCard.id || alertCard.ms}`} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                                )}
+                            </div>
+                            <div className="px-3 py-2">
+                                <div className="text-[13px] font-bold truncate">{alertCard.name || "Cámara"}</div>
+                                <div className="text-[11px] text-muted-foreground tabular-nums">{new Date(alertCard.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+                                <div className="mt-2 flex gap-2">
+                                    <button onClick={() => ackAlert(alertCard.deviceId, "real")} className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500">Real</button>
+                                    <button onClick={() => ackAlert(alertCard.deviceId, "false")} className="flex-1 py-1.5 rounded-lg bg-accent text-xs font-bold hover:bg-accent/70">Falsa alarma</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })()}
 
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
 
