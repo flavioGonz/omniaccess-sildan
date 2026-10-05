@@ -259,34 +259,57 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
 const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", iconSize: [0, 0], iconAnchor: [0, 0] });
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
-// Ficha del evento de intrusión: fija sobre la cámara, con overlay rojo animado.
-function AlertDetailBody({ card, camList, onAck, onClose }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; onAck: (id: string, k: string) => void; onClose: () => void }) {
-    const cam = camList.find((c) => c.id === card.deviceId);
-    const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&pre=4&dur=12&nvr=${cam.nvrId}` : null;
+// Ficha del evento de intrusión: imagen a sangre (sin borde) con datos y botones como overlay, borde rojo animado.
+function IntrAlertCard({ card, clip, onAck, onClose }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void }) {
     return (
-        <div className="w-[320px] rounded-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 bg-red-600 text-white">
-                <div className="flex items-center gap-1.5 text-[12px] font-extrabold uppercase tracking-wide"><ShieldAlert size={14} /> {card.type === "LINECROSS" ? "Cruce de línea" : card.type === "INTRUSION" ? "Intrusión" : "Detección"}{card.label ? ` · ${card.label === "vehicle" ? "Auto" : "Persona"}` : ""}</div>
-                <button onClick={onClose} className="p-1 rounded hover:bg-white/20"><X size={14} /></button>
+        <div className="intr-alert-card">
+            {clip ? (
+                // eslint-disable-next-line jsx-a11y/media-has-caption
+                <video src={clip} autoPlay loop muted playsInline poster={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} className="intr-alert-img" />
+            ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} alt="" className="intr-alert-img" />
+            )}
+            <div className="absolute top-0 inset-x-0 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/80 via-black/35 to-transparent z-10">
+                <div className="flex items-center gap-1.5 text-[12px] font-extrabold uppercase tracking-wide text-white" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}><ShieldAlert size={14} className="text-red-400" /> {card.type === "LINECROSS" ? "Cruce de línea" : card.type === "INTRUSION" ? "Intrusión" : "Detección"}{card.label ? ` · ${card.label === "vehicle" ? "Auto" : "Persona"}` : ""}</div>
+                <button onClick={onClose} className="p-1 rounded text-white/90 hover:bg-white/20"><X size={14} /></button>
             </div>
-            <div className="relative w-full h-[180px] bg-black">
-                {clip ? (
-                    // eslint-disable-next-line jsx-a11y/media-has-caption
-                    <video src={clip} autoPlay loop muted playsInline controls poster={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} className="absolute inset-0 w-full h-full object-cover" />
-                ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                )}
-            </div>
-            <div className="px-3 py-2 bg-card">
-                <div className="text-[13px] font-bold truncate">{card.name || "Cámara"}</div>
-                <div className="text-[11px] text-muted-foreground tabular-nums">{new Date(card.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+            <div className="absolute bottom-0 inset-x-0 px-3 pt-10 pb-2.5 bg-gradient-to-t from-black/90 via-black/55 to-transparent z-10">
+                <div className="text-[13px] font-bold text-white truncate" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}>{card.name || "Cámara"}</div>
+                <div className="text-[11px] text-white/80 tabular-nums" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}>{new Date(card.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
                 <div className="mt-2 flex gap-2">
-                    <button onClick={() => onAck(card.deviceId, "real")} className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500">Real</button>
-                    <button onClick={() => onAck(card.deviceId, "false")} className="flex-1 py-1.5 rounded-lg bg-accent text-xs font-bold hover:bg-accent/70">Falsa alarma</button>
+                    <button onClick={() => onAck(card.deviceId, "real")} className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500 shadow-lg">Real</button>
+                    <button onClick={() => onAck(card.deviceId, "false")} className="flex-1 py-1.5 rounded-lg bg-white/15 backdrop-blur-sm text-white text-xs font-bold hover:bg-white/25 border border-white/20">Falsa alarma</button>
                 </div>
             </div>
         </div>
+    );
+}
+// Burbuja HTML anclada por proyección sobre la cámara (no usa Popup de Leaflet -> no parpadea).
+function IntrAlertBubble({ card, camList, cam, onAck, onClose }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: string) => void; onClose: () => void }) {
+    const map = useMap();
+    const ref = useRef<HTMLDivElement | null>(null);
+    const posRef = useRef({ lat: cam.lat, lng: cam.lng });
+    posRef.current = { lat: cam.lat, lng: cam.lng };
+    const ubicar = useCallback(() => {
+        const el = ref.current; if (!el) return;
+        const tam = map.getSize();
+        let p: L.Point; try { p = map.latLngToContainerPoint([posRef.current.lat, posRef.current.lng]); } catch { return; }
+        const W = 320, H = 196;
+        const x = Math.max(W / 2 + 8, Math.min(tam.x - W / 2 - 8, p.x));
+        const y = Math.max(H + 16, p.y - 20);
+        el.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
+    }, [map]);
+    useMapEvents({ move: ubicar, zoom: ubicar, resize: ubicar });
+    useEffect(() => { ubicar(); });
+    const meta = camList.find((c) => c.id === card.deviceId);
+    const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(card.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null;
+    return createPortal(
+        <div ref={ref} className="absolute left-0 top-0 pointer-events-auto" style={{ zIndex: 660, willChange: "transform" }}>
+            <IntrAlertCard card={card} clip={clip} onAck={onAck} onClose={onClose} />
+            <span className="block mx-auto w-3 h-3 rotate-45 -mt-1.5 bg-red-600 shadow-lg" />
+        </div>,
+        map.getContainer()
     );
 }
 const intrPulseIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span class="intr-pulse"></span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
@@ -1158,11 +1181,9 @@ export default function BarrioMap() {
                     ))}
                     {/* Alerta de intrusión: halo rojo pulsante sobre la cámara que se activó */}
                     {Object.keys(intrAlerts).map((devId) => { const cam = data.cameras.find((c) => c.deviceId === devId); if (!cam) return null; return <Marker key={`intr_${devId}`} position={[cam.lat, cam.lng]} icon={intrPulseIcon} interactive={false} zIndexOffset={2000} />; })}
-                    {/* Ficha de la alerta anclada SOBRE la cámara que la detectó */}
+                    {/* Ficha del evento anclada sobre la cámara (overlay HTML por proyección, sin popup) */}
                     {alertCard && (() => { const cam = data.cameras.find((c) => c.deviceId === alertCard.deviceId); if (!cam) return null; return (
-                        <Popup key={`alert_${alertCard.deviceId}`} position={[cam.lat, cam.lng]} autoPan={false} closeButton={false} autoClose={false} closeOnClick={false} className="intr-alert-popup" eventHandlers={{ remove: () => setAlertCard(null) }}>
-                            <AlertDetailBody card={alertCard} camList={intrCamList} onAck={ackAlert} onClose={() => setAlertCard(null)} />
-                        </Popup>
+                        <IntrAlertBubble key={`alert_${alertCard.deviceId}`} card={alertCard} camList={intrCamList} cam={cam} onAck={ackAlert} onClose={() => setAlertCard(null)} />
                     ); })()}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
                     {ruta && ruta.path.length >= 2 && (
@@ -1212,11 +1233,11 @@ export default function BarrioMap() {
                     </div>
                 )}
                 {/* Fallback: ficha fija SOLO si la cámara no está colocada en el mapa */}
-                {alertCard && !data.cameras.find((c) => c.deviceId === alertCard.deviceId) && (
-                    <div className="absolute top-16 left-4 z-[690] intr-alert-fixed overflow-hidden">
-                        <AlertDetailBody card={alertCard} camList={intrCamList} onAck={ackAlert} onClose={() => setAlertCard(null)} />
+                {alertCard && !data.cameras.find((c) => c.deviceId === alertCard.deviceId) && (() => { const meta = intrCamList.find((c) => c.id === alertCard.deviceId); const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(alertCard.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null; return (
+                    <div className="absolute top-16 left-4 z-[690]">
+                        <IntrAlertCard card={alertCard} clip={clip} onAck={ackAlert} onClose={() => setAlertCard(null)} />
                     </div>
-                )}
+                ); })()}
 
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
 
