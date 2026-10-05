@@ -125,6 +125,8 @@ export default function HistoryPage() {
     const [mappedNameSet, setMappedNameSet] = useState<Set<string>>(new Set());
     const [mappedIpSet, setMappedIpSet] = useState<Set<string>>(new Set());
     const [filterMerodeo, setFilterMerodeo] = useState(false);
+    const [selectedCams, setSelectedCams] = useState<Set<string>>(new Set());
+    const [camMenuOpen, setCamMenuOpen] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);
 
     useEffect(() => {
@@ -278,6 +280,7 @@ export default function HistoryPage() {
     const grantCount = events.filter(e => e.decision === "GRANT").length;
     const denyCount = events.filter(e => e.decision === "DENY").length;
     const vehFacets = useMemo(() => collectVehicleFacets(events), [events]);
+    const camList = useMemo(() => { const set = new Set<string>(); events.forEach((e: any) => { if ((e.accessType === "PLATE") && e.deviceName) set.add(e.deviceName); }); return Array.from(set).sort((a, b) => a.localeCompare(b)); }, [events]);
     const displayEvents = (filterMerodeo ? events.filter(e => merodeoSet.has(cleanPlate(e.plateDetected))) : events)
         .filter(e => {
             if (filterColor === "ALL" && filterVehType === "ALL") return true;
@@ -285,7 +288,8 @@ export default function HistoryPage() {
             if (filterColor !== "ALL" && m.color !== filterColor) return false;
             if (filterVehType !== "ALL" && m.typeLabel !== filterVehType) return false;
             return true;
-        });
+        })
+        .filter((e: any) => selectedCams.size === 0 || (e.deviceName && selectedCams.has(e.deviceName)));
 
     return (
         <div className="p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
@@ -370,8 +374,8 @@ export default function HistoryPage() {
             </div>
 
             {/* Search + Filters */}
-            <div className="bg-card/60 border border-border/50 rounded-lg p-5">
-                <div className="flex items-center gap-4 flex-wrap">
+            <div className="bg-card/60 border border-border/50 rounded-lg p-3">
+                <div className="flex items-center gap-2 flex-wrap">
                     {/* Search */}
                     <div className="relative flex-1 min-w-[250px]">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -392,19 +396,13 @@ export default function HistoryPage() {
                             </button>
                         )}
                         {(activeMode === null || activeMode === "LPR") && (
-                            <button onClick={() => setFilterType("PLATE")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "PLATE" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                LPR
-                            </button>
+                            <button onClick={() => setFilterType("PLATE")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "PLATE" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}><Car size={13} className="inline-block mr-1 align-[-2px]" /> LPR</button>
                         )}
                         {(activeMode === null || activeMode === "FACE") && (
-                            <button onClick={() => setFilterType("FACE")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "FACE" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                Rostros
-                            </button>
+                            <button onClick={() => setFilterType("FACE")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "FACE" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}><ScanFace size={13} className="inline-block mr-1 align-[-2px]" /> Rostros</button>
                         )}
                         {activeMode !== "QUEUE" && (
-                            <button onClick={() => setFilterType("TAG")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "TAG" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                RFID
-                            </button>
+                            <button onClick={() => setFilterType("TAG")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterType === "TAG" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}><CreditCard size={13} className="inline-block mr-1 align-[-2px]" /> RFID</button>
                         )}
                     </div>
 
@@ -413,12 +411,8 @@ export default function HistoryPage() {
                         <button onClick={() => setFilterDecision("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Todos
                         </button>
-                        <button onClick={() => setFilterDecision("GRANT")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "GRANT" ? "bg-emerald-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Permitidos
-                        </button>
-                        <button onClick={() => setFilterDecision("DENY")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "DENY" ? "bg-red-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Denegados
-                        </button>
+                        <button onClick={() => setFilterDecision("GRANT")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "GRANT" ? "bg-emerald-600 text-foreground" : "text-muted-foreground hover:text-foreground")}><CheckCircle2 size={13} className="inline-block mr-1 align-[-2px]" /> Permitidos</button>
+                        <button onClick={() => setFilterDecision("DENY")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDecision === "DENY" ? "bg-red-600 text-foreground" : "text-muted-foreground hover:text-foreground")}><XCircle size={13} className="inline-block mr-1 align-[-2px]" /> Denegados</button>
                     </div>
 
                     {/* Direction filter */}
@@ -426,12 +420,8 @@ export default function HistoryPage() {
                         <button onClick={() => setFilterDirection("ALL")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "ALL" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
                             Todos
                         </button>
-                        <button onClick={() => setFilterDirection("ENTRY")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "ENTRY" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Entrada
-                        </button>
-                        <button onClick={() => setFilterDirection("EXIT")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "EXIT" ? "bg-orange-600 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                            Salida
-                        </button>
+                        <button onClick={() => setFilterDirection("ENTRY")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "ENTRY" ? "bg-blue-600 text-foreground" : "text-muted-foreground hover:text-foreground")}><ArrowDownLeft size={13} className="inline-block mr-1 align-[-2px]" /> Entrada</button>
+                        <button onClick={() => setFilterDirection("EXIT")} className={cn("px-3 py-1.5 rounded text-xs font-semibold transition-all", filterDirection === "EXIT" ? "bg-orange-600 text-foreground" : "text-muted-foreground hover:text-foreground")}><ArrowUpRight size={13} className="inline-block mr-1 align-[-2px]" /> Salida</button>
                     </div>
 
                     {/* Vehicle color / type filters (client-side, sobre details) */}
@@ -457,6 +447,31 @@ export default function HistoryPage() {
                     <button onClick={() => setFilterMerodeo(v => !v)} className={cn("flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold border transition-all", filterMerodeo ? "bg-red-600 text-foreground border-red-500" : "bg-muted/40 text-muted-foreground border-border/30 hover:text-foreground")}>
                         <ShieldAlert size={14} /> Merodeo{merodeoSet.size > 0 ? ` (${merodeoSet.size})` : ""}
                     </button>
+                    {(activeMode === null || activeMode === "LPR") && (
+                    <div className="relative">
+                        <button onClick={() => setCamMenuOpen(v => !v)} className={cn("flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold border transition-all", selectedCams.size > 0 ? "bg-blue-600 text-foreground border-blue-500" : "bg-muted/40 text-muted-foreground border-border/30 hover:text-foreground")}>
+                            <Camera size={14} /> {selectedCams.size > 0 ? `Cámaras (${selectedCams.size})` : "Cámaras"} <ChevronDown size={13} className={cn("transition-transform", camMenuOpen && "rotate-180")} />
+                        </button>
+                        {camMenuOpen && (
+                            <>
+                                <div className="fixed inset-0 z-[40]" onClick={() => setCamMenuOpen(false)} />
+                                <div className="absolute right-0 mt-1 z-[41] w-60 max-h-72 overflow-y-auto custom-scrollbar bg-popover border border-border rounded-lg shadow-2xl p-1.5">
+                                    <div className="flex items-center justify-between px-2 py-1">
+                                        <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Cámaras LPR</span>
+                                        {selectedCams.size > 0 && <button onClick={() => setSelectedCams(new Set())} className="text-[10px] text-blue-400 hover:underline">Limpiar</button>}
+                                    </div>
+                                    {camList.length === 0 && <div className="text-xs text-muted-foreground px-2 py-2">Sin cámaras LPR en el rango.</div>}
+                                    {camList.map((name) => { const on = selectedCams.has(name); return (
+                                        <button key={name} onClick={() => setSelectedCams(prev => { const st = new Set(prev); if (st.has(name)) st.delete(name); else st.add(name); return st; })} className={cn("w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-left transition-colors", on ? "bg-blue-500/15 text-foreground" : "hover:bg-accent text-muted-foreground")}>
+                                            <span className={cn("w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0", on ? "bg-blue-600 border-blue-600" : "border-border")}>{on && <CheckCircle2 size={11} className="text-white" />}</span>
+                                            <Camera size={12} className="shrink-0 opacity-70" /> <span className="truncate">{name}</span>
+                                        </button>
+                                    ); })}
+                                </div>
+                            </>
+                        )}
+                    </div>
+                    )}
                 </div>
             </div>
 
