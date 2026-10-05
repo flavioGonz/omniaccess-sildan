@@ -57,7 +57,7 @@ const camArrow = (size: number, color: string, rumbo?: number | null) => rumbo =
   </span>`;
 const camHtml = (o?: { rumbo?: number | null; size?: number; color?: string }) => {
     const size = o?.size || 30, color = o?.color || "#2563eb";
-    return `<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translateY(-4px)">${camArrow(size, color, o?.rumbo)}${camGlyph(size, color)}</div>`;
+    return `<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translateY(-4px)">${camArrow(size, color, o?.rumbo)}<span class="cam-breath"></span>${camGlyph(size, color)}</div>`;
 };
 const camIconDe = (o?: { rumbo?: number | null; size?: number; color?: string }, extra = "") => {
     const size = o?.size || 30;
@@ -977,6 +977,8 @@ export default function BarrioMap() {
 
     const acercar = (d: number) => { const m = mapRef.current; if (m) m.setZoom(m.getZoom() + d); };
     const centrar = () => { const m = mapRef.current; if (m) m.setView(data.center, data.zoom); };
+    const hasActiveAlert = !!alertCard || Object.keys(intrAlerts).length > 0;
+    const eventosHoy = Object.values(intrCounts).reduce((a, b) => a + (b || 0), 0);
     const alternarPantalla = () => {
         const el = wrapRef.current; if (!el) return;
         if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
@@ -1056,8 +1058,21 @@ export default function BarrioMap() {
                 .intr-geom-blink{animation:intrGeomBlink 0.8s ease-in-out infinite}
                 .intr-alert-tip{background:#dc2626;color:#fff;border:0;font-weight:800;font-size:10px;line-height:1;padding:3px 7px;border-radius:7px;box-shadow:0 2px 8px rgba(0,0,0,.5);animation:intrGeomBlink 0.9s ease-in-out infinite;white-space:nowrap}
                 .intr-alert-tip:before{display:none !important}
+                /* Mapa que respira: latido suave de camaras en reposo */
+                .cam-breath{position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:rgba(34,197,94,.5);opacity:0;pointer-events:none;z-index:0}
+                .map-armed .cam-breath{animation:camBreath 2.8s ease-in-out infinite}
+                .map-alerting .cam-breath{animation:none;opacity:0}
+                @keyframes camBreath{0%{transform:scale(.5);opacity:0}45%{opacity:.5}100%{transform:scale(2.6);opacity:0}}
+                .perim-breath{animation:perimBreath 3.4s ease-in-out infinite}
+                @keyframes perimBreath{0%,100%{stroke-opacity:.45}50%{stroke-opacity:1}}
+                .map-alerting .perim-breath{animation:perimAlert 0.9s ease-in-out infinite}
+                @keyframes perimAlert{0%,100%{stroke-opacity:.5;stroke:#22c55e}50%{stroke-opacity:1;stroke:#ef4444}}
+                .hud-breathe{animation:hudBreathe 2.8s ease-in-out infinite}
+                @keyframes hudBreathe{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.9);opacity:0}}
+                .omni-alert-veil{position:absolute;inset:0;pointer-events:none;z-index:401;box-shadow:inset 0 0 220px 60px rgba(220,38,38,.36);animation:veilBreathe 1.4s ease-in-out infinite}
+                @keyframes veilBreathe{0%,100%{opacity:.5}50%{opacity:1}}
             `}</style>
-            <div ref={wrapRef} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { const id = e.dataTransfer.getData("text/camId"); if (!id || !mapRef.current) return; e.preventDefault(); try { const ll = (mapRef.current as any).mouseEventToLatLng(e.nativeEvent); setEditing(true); placeCamera(id, [ll.lat, ll.lng]); } catch { } }} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv || intrDraw) && "map-draw")}>
+            <div ref={wrapRef} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { const id = e.dataTransfer.getData("text/camId"); if (!id || !mapRef.current) return; e.preventDefault(); try { const ll = (mapRef.current as any).mouseEventToLatLng(e.nativeEvent); setEditing(true); placeCamera(id, [ll.lat, ll.lng]); } catch { } }} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv || intrDraw) && "map-draw", !editing && show.cameras && "map-armed", hasActiveAlert && "map-alerting")}>
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
                     <ZoomTracker onZoom={setZoom} />
@@ -1072,7 +1087,7 @@ export default function BarrioMap() {
                         <TileLayer key="osm" attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={19} maxZoom={21} />
                     )}
 
-                    {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
+                    {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08, className: "perim-breath" }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
                     {(show.lotes || show.loteNames) && (
@@ -1205,6 +1220,17 @@ export default function BarrioMap() {
                     )}
                 </MapContainer>
 
+                {/* Velo rojo que respira durante una alerta activa */}
+                {hasActiveAlert && <div className="omni-alert-veil" />}
+                {/* HUD de estado del sistema: respira verde en reposo, rojo en alerta */}
+                <div className={cn("absolute top-4 left-1/2 -translate-x-1/2 z-[605] flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-extrabold tracking-wide backdrop-blur-md shadow-lg border transition-colors", hasActiveAlert ? "bg-red-600/90 text-white border-red-300" : "bg-black/55 text-white border-white/15")}>
+                    <span className="relative flex h-2.5 w-2.5">
+                        <span className={cn("absolute inline-flex h-full w-full rounded-full", hasActiveAlert ? "bg-red-300 animate-ping" : "bg-emerald-400 hud-breathe")} />
+                        <span className={cn("relative inline-flex rounded-full h-2.5 w-2.5", hasActiveAlert ? "bg-red-100" : "bg-emerald-400")} />
+                    </span>
+                    {hasActiveAlert ? "INTRUSIÓN ACTIVA" : "SISTEMA ARMADO"}
+                    <span className="opacity-60 font-semibold">· {eventosHoy} hoy</span>
+                </div>
                 <button onClick={() => setSoundOn((v) => !v)} title={soundOn ? "Silenciar alertas" : "Activar sonido de alertas"} className={cn("absolute top-4 left-4 z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", soundOn ? "bg-card/80 text-foreground hover:bg-card" : "bg-red-600/90 text-white")}>{soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}</button>
                 <button onClick={() => setFeedOpen((v) => !v)} title="Feed de intrusiones" className={cn("absolute top-4 left-[3.5rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", feedOpen ? "bg-red-600/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Activity size={16} /></button>
                 {feedOpen && (
