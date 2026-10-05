@@ -1401,6 +1401,21 @@ export default function MonitorIntrusion() {
     };
     const openLive = (c: IntrusionCam) => { setLiveTab("live"); setPrevCam(null); setPlayMs(null); setLiveDev(c); };
     const openClip = (c: IntrusionCam) => { setLiveTab("rec"); setPlayMs(null); setLiveDev(c); };
+    // Deep-link desde el mapa: ?cam=<deviceId>&tab=rec&t=<ms> abre el modal de esa cámara.
+    const deepLinkedRef = useRef(false);
+    useEffect(() => {
+        if (deepLinkedRef.current || !cams.length) return;
+        try {
+            const sp = new URLSearchParams(window.location.search);
+            const camId = sp.get("cam"); if (!camId) return;
+            const c = cams.find((x) => x.id === camId); if (!c) return;
+            deepLinkedRef.current = true;
+            const tb = sp.get("tab"); const tms = parseInt(sp.get("t") || "0");
+            setLiveTab(tb === "live" || tb === "evi" ? tb : "rec");
+            if (tms) setPlayMs(tms);
+            setLiveDev(c);
+        } catch { }
+    }, [cams]);
 
     const shown = useMemo(() => {
         const term = q.trim().toLowerCase();

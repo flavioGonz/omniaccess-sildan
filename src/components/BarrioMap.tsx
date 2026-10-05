@@ -287,6 +287,7 @@ function IntrAlertCard({ card, clip, onAck, onClose }: { card: { deviceId: strin
                 <div className="mt-2 flex gap-2">
                     <button onClick={() => onAck(card.deviceId, "real")} className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500 shadow-lg">Real</button>
                     <button onClick={() => onAck(card.deviceId, "false")} className="flex-1 py-1.5 rounded-lg bg-white/15 backdrop-blur-sm text-white text-xs font-bold hover:bg-white/25 border border-white/20">Falsa alarma</button>
+                    <a href={`/admin/monitor-intrusion?cam=${card.deviceId}&tab=rec&t=${Math.floor(card.ms)}`} target="_blank" rel="noopener noreferrer" title="Ver evento (vivo · grabación · evidencia)" onClick={(e) => e.stopPropagation()} className="shrink-0 w-9 py-1.5 grid place-items-center rounded-lg bg-sky-600 text-white hover:bg-sky-500 shadow-lg"><Eye size={15} /></a>
                 </div>
             </div>
         </div>
