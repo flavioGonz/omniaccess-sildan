@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
@@ -899,6 +899,8 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
     const scrubTO = useRef<any>(null);
     const [recRetry, setRecRetry] = useState(0); // para reintentar el clip si queda colgado
     const recTriesRef = useRef(0);
+    const recStartedRef = useRef(false);
+    const [recRebuf, setRecRebuf] = useState(false);
     const [recSeen, setRecSeen] = useState(initialTab === "rec");
     const [recRate, setRecRate] = useState(1); // velocidad de reproducción (1/2/4/8)
     const [noRec, setNoRec] = useState(false); // no hay grabación en ese horario
@@ -915,6 +917,13 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
     const recMinutesOfDay = (() => { const d = new Date(recT); return d.getHours() * 60 + d.getMinutes(); })(); // no cargar el clip hasta que se abra Grabación al menos una vez
     const seekTo = (ms: number) => { const v = Math.max(Date.now() - 30 * 24 * 3600 * 1000, Math.min(Date.now(), ms)); setRecT(v); setScrub(v); clearTimeout(scrubTO.current); scrubTO.current = setTimeout(() => setScrub(null), 1100); };
     const recVideo = useRef<HTMLVideoElement>(null);
+    // Arranca la grabación solo cuando hay ~2.5s de búfer por delante (el NVR entrega a 1x,
+    // sin colchón el <video> se queda en buffering constante). Con cushion reproduce fluido.
+    const tryPlayCushion = useCallback(() => {
+        const v = recVideo.current; if (!v || recStartedRef.current) return;
+        let cushion = 0; try { if (v.buffered.length) cushion = v.buffered.end(v.buffered.length - 1) - (v.currentTime || 0); } catch { }
+        if (cushion >= 2.5 || v.readyState >= 4) { v.play().catch(() => { }); }
+    }, []);
     // evidencia
     const [evi, setEvi] = useState<DetHistItem[]>([]);
     const [eviBig, setEviBig] = useState<string | null>(null);
@@ -953,14 +962,15 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
     useEffect(() => { if (tab !== "rec") return; setRecLoading(true); const t = setTimeout(() => setRecLoadT(recT), 300); return () => clearTimeout(t); }, [recT, tab]);
     // watchdog: si el clip no empieza, reintenta; si tras los reintentos sigue sin frames, es que no hay grabación en ese horario.
     useEffect(() => {
-        if (tab !== "rec") return; setNoRec(false); const v = recVideo.current;
+        if (tab !== "rec") return; setNoRec(false); setRecRebuf(false); recStartedRef.current = false; const v = recVideo.current;
+        const fp = setTimeout(() => { const vv = recVideo.current; if (vv && !recStartedRef.current) vv.play().catch(() => { }); }, 3500);
         const wd = setTimeout(() => {
             if (v && v.readyState < 2) {
                 if (recTriesRef.current < 2) { recTriesRef.current++; setRecRetry((r) => r + 1); }
                 else { setRecLoading(false); setNoRec(true); }
             }
         }, 9000);
-        return () => clearTimeout(wd);
+        return () => { clearTimeout(wd); clearTimeout(fp); };
     }, [recLoadT, recRetry, tab]);
     // aplicar velocidad de reproducción al clip
     useEffect(() => { const v = recVideo.current; if (v) try { v.playbackRate = recRate; } catch { } }, [recRate, recLoadT, recRetry]);
@@ -1106,8 +1116,9 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={snap} alt="" className={cn("absolute inset-0 z-0 w-full h-full object-contain transition-opacity duration-500", recLoading ? "opacity-100 blur-[6px] scale-105 brightness-[0.4]" : "opacity-0")} />
                         {recSeen && playbackUrl ? (
-                            <video key={`${playbackUrl}#${recRetry}`} ref={recVideo} src={playbackUrl} autoPlay controls playsInline poster={snap}
-                                onLoadedData={() => { recTriesRef.current = 0; setRecLoading(false); setNoRec(false); try { recVideo.current!.playbackRate = recRate; } catch { } }} onPlaying={() => { recTriesRef.current = 0; setNoRec(false); waitRealFrame(recVideo.current, () => setRecLoading(false)); }} onCanPlay={() => setRecLoading(false)} onWaiting={() => setRecLoading(true)}
+                            <video key={`${playbackUrl}#${recRetry}`} ref={recVideo} src={playbackUrl} muted controls playsInline preload="auto" poster={snap}
+                                onLoadedData={() => { recTriesRef.current = 0; setNoRec(false); try { recVideo.current!.playbackRate = recRate; } catch { } tryPlayCushion(); }} onCanPlay={() => tryPlayCushion()} onProgress={() => tryPlayCushion()}
+                                onPlaying={() => { recTriesRef.current = 0; recStartedRef.current = true; setNoRec(false); setRecRebuf(false); waitRealFrame(recVideo.current, () => setRecLoading(false)); }} onWaiting={() => { if (recStartedRef.current) setRecRebuf(true); else setRecLoading(true); }} onTimeUpdate={() => { if (recRebuf) setRecRebuf(false); }}
                                 onError={() => { if (recTriesRef.current < 2) { recTriesRef.current++; setTimeout(() => setRecRetry((r) => r + 1), 800); } else { setRecLoading(false); setNoRec(true); } }}
                                 className="absolute inset-0 z-[1] w-full h-full object-contain" />
                         ) : (
@@ -1132,6 +1143,9 @@ function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStat
                             <div className="absolute inset-x-0 top-0 bottom-36 z-[2] grid place-items-center pointer-events-none">
                                 <span className="text-white text-lg sm:text-xl font-extrabold tracking-wide drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">Buscando grabación en el NVR<Dots /></span>
                             </div>
+                        )}
+                        {recRebuf && !recLoading && scrub == null && !noRec && (
+                            <div className="absolute top-3 left-3 z-[3] inline-flex items-center gap-1 px-2 py-1 rounded-full bg-black/55 text-white/85 text-[10px] font-bold pointer-events-none">Almacenando búfer<Dots /></div>
                         )}
                         {noRec && scrub == null && (
                             <div className="absolute inset-x-0 top-0 bottom-36 z-[2] grid place-items-center pointer-events-none">
