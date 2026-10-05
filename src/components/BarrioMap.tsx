@@ -259,24 +259,7 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
 const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", iconSize: [0, 0], iconAnchor: [0, 0] });
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
-// Mini evento: overlay limpio (solo imagen/clip estilizado), sin marco/controles/datos. Clic -> ficha de aceptación.
-function AlertCardBody({ card, camList, onClick }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; onClick?: () => void }) {
-    const cam = camList.find((c) => c.id === card.deviceId);
-    const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&pre=4&dur=12&nvr=${cam.nvrId}` : null;
-    const col = card.type === "INTRUSION" ? "#ef4444" : card.type === "LINECROSS" ? "#38bdf8" : "#f59e0b";
-    return (
-        <button type="button" onClick={onClick} className="intr-alert-media" style={{ boxShadow: `0 10px 30px rgba(0,0,0,.5), 0 0 0 2px ${col}, 0 0 18px ${col}99` }}>
-            {clip ? (
-                // eslint-disable-next-line jsx-a11y/media-has-caption
-                <video src={clip} autoPlay loop muted playsInline poster={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} />
-            ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} alt="" />
-            )}
-        </button>
-    );
-}
-// Ficha detallada de aceptación (aparece solo al tocar el mini evento).
+// Ficha del evento de intrusión: fija sobre la cámara, con overlay rojo animado.
 function AlertDetailBody({ card, camList, onAck, onClose }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; onAck: (id: string, k: string) => void; onClose: () => void }) {
     const cam = camList.find((c) => c.id === card.deviceId);
     const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&pre=4&dur=12&nvr=${cam.nvrId}` : null;
@@ -601,6 +584,7 @@ export default function BarrioMap() {
     const streetsRef = useRef<Street[]>([]);
     const centerRef = useRef<LL>([-34.9, -56.1]);
     const autoRef = useRef(false);
+    const alertDevRef = useRef<string | null>(null);
     const autoLastRef = useRef(0);
     const rutaTimer = useRef<any>(null);
     const [autoResaltar, setAutoResaltar] = useState(false);
@@ -614,7 +598,6 @@ export default function BarrioMap() {
     // ── Alertas de intrusión en vivo sobre el mapa (cruce de línea / zona) ──
     const [intrAlerts, setIntrAlerts] = useState<Record<string, { ts: number; ms?: number; id?: string; type: string; label?: string | null; name?: string }>>({});
     const [alertCard, setAlertCard] = useState<null | { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }>(null);
-    const [alertDetail, setAlertDetail] = useState<null | { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }>(null);
     const [soundOn, setSoundOn] = useState(true);
     const [recentIntr, setRecentIntr] = useState<any[]>([]);
     const [intrCounts, setIntrCounts] = useState<Record<string, number>>({});
@@ -663,7 +646,7 @@ export default function BarrioMap() {
     const lastBeepRef = useRef<Record<string, number>>({});
     const playBeep = useCallback((label?: string | null) => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const seq: [number, number, number][] = label === "human" ? [[1046, 0, 0.13], [1318, 0.17, 0.13]] : [[660, 0, 0.2]]; for (const [f, at, du] of seq) { const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = f; o.connect(g); g.connect(ac.destination); const t = ac.currentTime + at; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(label === "human" ? 0.28 : 0.2, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + du); o.start(t); o.stop(t + du + 0.03); } } catch { } }, []);
     const speakAlert = useCallback((label?: string | null, name?: string | null) => { try { const w: any = window; if (!w.speechSynthesis) return; const who = label === "vehicle" ? "Vehículo" : label === "human" ? "Persona" : "Detección"; const u = new SpeechSynthesisUtterance(`${who} en ${name || "cámara"}`); u.lang = "es-UY"; u.rate = 1.08; w.speechSynthesis.cancel(); w.speechSynthesis.speak(u); } catch { } }, []);
-    const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); setAlertDetail(null); setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
+    const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); alertDevRef.current = null; setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
 
     useEffect(() => {
@@ -680,7 +663,9 @@ export default function BarrioMap() {
             if (!condAllows(geom && geom.cond, d.label)) return;
             setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), ms, id: d.id, type: d.type, label: d.label, name: d.deviceName } }));
             try { const lb = lastBeepRef.current[d.deviceId] || 0; if (soundRef.current && Date.now() - lb > 6000) { lastBeepRef.current[d.deviceId] = Date.now(); playBeep(d.label); speakAlert(d.label, d.deviceName); } } catch { }
-            if (autoRef.current) { const cam = camerasRef.current.find((c: any) => c.deviceId === d.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }
+            setAlertCard((prev) => prev && prev.deviceId === d.deviceId ? prev : { deviceId: d.deviceId, ms, id: d.id, type: d.type, label: d.label, name: d.deviceName });
+            if (autoRef.current && alertDevRef.current !== d.deviceId) { const cam = camerasRef.current.find((c: any) => c.deviceId === d.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }
+            alertDevRef.current = d.deviceId;
         });
         s.on("connect", () => s.emit("get_guard_locations"));
         setLiveSocket(s);
@@ -1175,8 +1160,8 @@ export default function BarrioMap() {
                     {Object.keys(intrAlerts).map((devId) => { const cam = data.cameras.find((c) => c.deviceId === devId); if (!cam) return null; return <Marker key={`intr_${devId}`} position={[cam.lat, cam.lng]} icon={intrPulseIcon} interactive={false} zIndexOffset={2000} />; })}
                     {/* Ficha de la alerta anclada SOBRE la cámara que la detectó */}
                     {alertCard && (() => { const cam = data.cameras.find((c) => c.deviceId === alertCard.deviceId); if (!cam) return null; return (
-                        <Popup key={`alert_${alertCard.deviceId}`} position={[cam.lat, cam.lng]} autoPan autoPanPadding={[60, 60]} closeButton={false} autoClose={false} closeOnClick={false} className="intr-alert-popup" eventHandlers={{ remove: () => setAlertCard(null) }}>
-                            <AlertCardBody card={alertCard} camList={intrCamList} onClick={() => setAlertDetail(alertCard)} />
+                        <Popup key={`alert_${alertCard.deviceId}`} position={[cam.lat, cam.lng]} autoPan={false} closeButton={false} autoClose={false} closeOnClick={false} className="intr-alert-popup" eventHandlers={{ remove: () => setAlertCard(null) }}>
+                            <AlertDetailBody card={alertCard} camList={intrCamList} onAck={ackAlert} onClose={() => setAlertCard(null)} />
                         </Popup>
                     ); })()}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
@@ -1228,14 +1213,8 @@ export default function BarrioMap() {
                 )}
                 {/* Fallback: ficha fija SOLO si la cámara no está colocada en el mapa */}
                 {alertCard && !data.cameras.find((c) => c.deviceId === alertCard.deviceId) && (
-                    <div className="absolute top-16 left-4 z-[690]">
-                        <AlertCardBody card={alertCard} camList={intrCamList} onClick={() => setAlertDetail(alertCard)} />
-                    </div>
-                )}
-                {/* Ficha detallada (aceptar / falsa) — solo al tocar el mini evento */}
-                {alertDetail && (
-                    <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[695] bg-card/97 backdrop-blur-xl border border-border rounded-2xl shadow-2xl overflow-hidden">
-                        <AlertDetailBody card={alertDetail} camList={intrCamList} onAck={ackAlert} onClose={() => setAlertDetail(null)} />
+                    <div className="absolute top-16 left-4 z-[690] intr-alert-fixed overflow-hidden">
+                        <AlertDetailBody card={alertCard} camList={intrCamList} onAck={ackAlert} onClose={() => setAlertCard(null)} />
                     </div>
                 )}
 
