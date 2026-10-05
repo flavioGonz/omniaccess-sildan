@@ -105,13 +105,16 @@ function desdeEvento(ev: any): FilaHistorial | null {
     };
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, tipoVeh, barra, onMerodeo, onResumen }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, tipoVeh, camaras, barra, onMerodeo, onResumen }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /** Matrículas marcadas por merodeo; si viene vacío no se filtra. */
     merodeo?: Set<string>;
     /** Color y tipo de vehículo, sacados de los detalles de cada registro. */
     color?: string;
     tipoVeh?: string;
+    /** Cámaras elegidas (por nombre); vacío = todas. Traído del historial de Olivos (355749f),
+     *  pero resuelto como los otros dos: sobre lo cargado, con las opciones que hay en pantalla. */
+    camaras?: string[];
     /** Los controles de esta tabla, dentro de su mismo marco. */
     barra?: React.ReactNode;
     onMerodeo?: (chapas: Set<string>) => void;
@@ -124,7 +127,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
      * ofrecían colores que no estaban en pantalla y los contadores hablaban de un conjunto
      * distinto del que se estaba mirando. Un filtro tiene que ofrecer lo que hay.
      */
-    onResumen?: (r: { grant: number; deny: number; colores: string[]; tipos: string[] }) => void;
+    onResumen?: (r: { grant: number; deny: number; colores: string[]; tipos: string[]; camaras: string[] }) => void;
 }) {
     const [filas, setFilas] = useState<FilaHistorial[]>([]);
     const [hay, setHay] = useState(false);
@@ -244,14 +247,15 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
     useEffect(() => {
         if (!onResumen) return;
         let grant = 0, deny = 0;
-        const colores = new Set<string>(), tiposVeh = new Set<string>();
+        const colores = new Set<string>(), tiposVeh = new Set<string>(), cams = new Set<string>();
         for (const f of filas) {
             if (f.tipo === "ACCESO") (f.decision === "DENY" ? deny++ : grant++);
             const m = parseVehicleMeta(f.detalles);
             if (m.color) colores.add(m.color);
             if (m.typeLabel) tiposVeh.add(m.typeLabel);
+            if (f.camara) cams.add(f.camara);
         }
-        const r = { grant, deny, colores: [...colores].sort(), tipos: [...tiposVeh].sort() };
+        const r = { grant, deny, colores: [...colores].sort(), tipos: [...tiposVeh].sort(), camaras: [...cams].sort((a, b) => a.localeCompare(b)) };
         const nueva = JSON.stringify(r);
         if (nueva === firma.current) return;
         firma.current = nueva;
@@ -270,8 +274,10 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
         let v = merodeo && merodeo.size ? filas.filter((f) => f.plate && merodeo.has(f.plate)) : filas;
         const porColor = color && color !== "ALL";
         const porTipo = tipoVeh && tipoVeh !== "ALL";
-        if (porColor || porTipo) {
+        const porCamara = camaras && camaras.length > 0;
+        if (porColor || porTipo || porCamara) {
             v = v.filter((f) => {
+                if (porCamara && !(f.camara && camaras!.includes(f.camara))) return false;
                 const m = parseVehicleMeta(f.detalles);
                 if (porColor && m.color !== color) return false;
                 if (porTipo && m.typeLabel !== tipoVeh) return false;
@@ -279,7 +285,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
             });
         }
         return v;
-    }, [filas, merodeo, color, tipoVeh]);
+    }, [filas, merodeo, color, tipoVeh, camaras]);
 
     /**
      * La ficha del vehículo, armada con lo que la fila ya trae.

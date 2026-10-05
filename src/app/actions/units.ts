@@ -203,3 +203,14 @@ export async function unassignUserFromUnit(userId: string) {
     });
     revalidatePath("/admin/units");
 }
+
+// ── Crear el catastro a partir del mapa ───────────────────────────────────────
+// La lógica vive en src/lib/catastro-desde-lotes.ts para poder correrla también desde
+// scripts/crear-unidades-desde-lotes.ts (sin Next). Acá sólo se envuelve con la
+// revalidación de las pantallas que la miran.
+export async function crearUnidadesDesdeLotes(opts?: { parentId?: string | null }) {
+    const { crearUnidadesDesdeLotes: correr } = await import("@/lib/catastro-desde-lotes");
+    const r = await correr(opts);
+    if (r.ok) { revalidatePath("/admin/units"); revalidatePath("/admin/mapa"); }
+    return r;
+}

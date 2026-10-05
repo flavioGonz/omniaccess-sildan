@@ -325,9 +325,11 @@ export default function HistoryPage() {
      * que el que se estaba mirando. Dos datos correctos sobre cosas distintas, presentados
      * como si fueran del mismo.
      */
-    const [resumen, setResumen] = useState<{ grant: number; deny: number; colores: string[]; tipos: string[] }>(
-        { grant: 0, deny: 0, colores: [], tipos: [] },
+    const [resumen, setResumen] = useState<{ grant: number; deny: number; colores: string[]; tipos: string[]; camaras: string[] }>(
+        { grant: 0, deny: 0, colores: [], tipos: [], camaras: [] },
     );
+    /** Cámaras elegidas por nombre. Vacío = todas. */
+    const [camaras, setCamaras] = useState<string[]>([]);
     const grantCount = resumen.grant;
     const denyCount = resumen.deny;
     const vehFacets = useMemo(() => ({ colors: resumen.colores, types: resumen.tipos }), [resumen]);
@@ -360,13 +362,14 @@ export default function HistoryPage() {
             if (filterVehType !== "ALL") l.push({ id: "veh", texto: filterVehType, quitar: () => setFilterVehType("ALL") });
             if (filterMerodeo) l.push({ id: "mer", texto: "merodeo", quitar: () => setFilterMerodeo(false) });
         }
+        for (const c of camaras) l.push({ id: "cam_" + c, texto: c, quitar: () => setCamaras((p) => p.filter((x) => x !== c)) });
         return l;
-    }, [searchTerm, startDate, endDate, tipos, soloSeguimiento, filterType, filterDecision, filterDirection, filterColor, filterVehType, filterMerodeo]);
+    }, [searchTerm, startDate, endDate, tipos, soloSeguimiento, filterType, filterDecision, filterDirection, filterColor, filterVehType, filterMerodeo, camaras]);
 
     const limpiarFiltros = useCallback(() => {
         setSearchTerm(""); setStartDate(""); setEndDate("");
         setFilterType("ALL"); setFilterDecision("ALL"); setFilterDirection("ALL");
-        setFilterColor("ALL"); setFilterVehType("ALL"); setFilterMerodeo(false); setTipos([]);
+        setFilterColor("ALL"); setFilterVehType("ALL"); setFilterMerodeo(false); setTipos([]); setCamaras([]);
     }, []);
     /*
      * Acá se calculaba `displayEvents`, que filtraba por color y tipo de vehículo y
@@ -535,6 +538,22 @@ export default function HistoryPage() {
                                         { valor: "EXIT", rotulo: "Salidas" },
                                     ],
                                 },
+                                {
+                                    // Sólo aparece cuando hay más de una cámara en lo cargado: con una
+                                    // sola, el control no decide nada. Las opciones son las cámaras que
+                                    // están en pantalla, no el padrón de dispositivos.
+                                    clave: "camara", multiple: true, oculto: resumen.camaras.length < 2,
+                                    titulo: "Qué cámara registró el movimiento.",
+                                    valor: camaras,
+                                    alElegir: (v) => {
+                                        if (!v) { setCamaras([]); return; }
+                                        setCamaras((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v]);
+                                    },
+                                    opciones: [
+                                        { valor: "", rotulo: "Todas las cámaras" },
+                                        ...resumen.camaras.map((c) => ({ valor: c, rotulo: c })),
+                                    ],
+                                },
                             ]}
                             acciones={
                                 <button onClick={() => setFilterMerodeo(v => !v)}
@@ -593,6 +612,7 @@ export default function HistoryPage() {
                 merodeo={filterMerodeo ? chapasMerodeo : undefined}
                 color={filterColor}
                 tipoVeh={filterVehType}
+                camaras={camaras}
                 onMerodeo={setChapasMerodeo}
                 onResumen={setResumen}
             />

@@ -22,7 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getUnits, deleteUnit, createUnit, updateUnit, getUnitsWithDetails, bulkCreateSubUnits, getAvailableUsers, assignUserToUnit, unassignUserFromUnit } from "@/app/actions/units";
+import { getUnits, deleteUnit, createUnit, updateUnit, getUnitsWithDetails, bulkCreateSubUnits, getAvailableUsers, assignUserToUnit, unassignUserFromUnit, crearUnidadesDesdeLotes } from "@/app/actions/units";
 import { getLotes } from "@/app/actions/barriomap";
 import { CajonUnidad } from "@/components/units/CajonUnidad";
 import { getUsers } from "@/app/actions/users";
@@ -141,6 +141,20 @@ export default function UnitsPage() {
     const cargarLotes = useCallback(async () => {
         try { setLotes(await getLotes() as any); } catch { setLotes([]); }
     }, []);
+
+    // Lotes dibujados en el mapa que todavía no son una unidad del catastro. Mientras haya,
+    // la pantalla ofrece crearlos de un golpe en vez de obligar a cargarlos uno por uno.
+    const lotesSinUnidad = useMemo(() => lotes.filter((l) => !l.unitId).length, [lotes]);
+    const [creandoDesdeMapa, setCreandoDesdeMapa] = useState(false);
+    const crearDesdeMapa = async () => {
+        setCreandoDesdeMapa(true);
+        try {
+            const r = await crearUnidadesDesdeLotes();
+            if (!r.ok) { toast.error({ title: "No se pudieron crear", description: r.error }); return; }
+            toast.success({ title: `${r.creadas} unidades creadas`, description: r.vinculadas ? `${r.vinculadas} ya existían y se vincularon al lote.` : undefined });
+            await Promise.all([loadUnits(), cargarLotes()]);
+        } finally { setCreandoDesdeMapa(false); }
+    };
     useEffect(() => { cargarLotes(); }, [cargarLotes]);
 
     useEffect(() => {
@@ -233,9 +247,17 @@ export default function UnitsPage() {
 
                 </div>
 
-                <Button onClick={() => handleCreateNew()} size="sm" className="accion h-9 px-5 rounded-md font-semibold text-[12px] gap-1.5">
-                    <Plus size={16} /> Nueva propiedad
-                </Button>
+                <div className="flex items-center gap-2">
+                    {lotesSinUnidad > 0 && (
+                        <Button onClick={crearDesdeMapa} disabled={creandoDesdeMapa} size="sm" variant="outline" className="h-9 px-4 rounded-md font-semibold text-[12px] gap-1.5"
+                            title="Crea una unidad (casa o lote) por cada lote dibujado en el mapa que todavía no tiene una, y la deja vinculada.">
+                            <MapIcon size={15} /> {creandoDesdeMapa ? "Creando…" : `Crear ${lotesSinUnidad} desde el mapa`}
+                        </Button>
+                    )}
+                    <Button onClick={() => handleCreateNew()} size="sm" className="accion h-9 px-5 rounded-md font-semibold text-[12px] gap-1.5">
+                        <Plus size={16} /> Nueva propiedad
+                    </Button>
+                </div>
             </header>
 
             {/* Central Table Content */}
