@@ -271,7 +271,7 @@ function IntrAlertCard({ card, clip, onAck, onClose }: { card: { deviceId: strin
                 <img src={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} alt="" className="intr-alert-img" />
             )}
             <div className="absolute top-0 inset-x-0 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/80 via-black/35 to-transparent z-10">
-                <div className="flex items-center gap-1.5 text-[12px] font-extrabold uppercase tracking-wide text-white" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}><ShieldAlert size={14} className="text-red-400" /> {card.type === "LINECROSS" ? "Cruce de línea" : card.type === "INTRUSION" ? "Intrusión" : "Detección"}{card.label ? ` · ${card.label === "vehicle" ? "Auto" : "Persona"}` : ""}</div>
+                <div className="flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-wide text-white" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}><span className="flex items-center gap-1.5"><ShieldAlert size={14} className="text-red-400" /> {card.type === "LINECROSS" ? "Cruce de línea" : card.type === "INTRUSION" ? "Intrusión" : "Detección"}</span>{card.label ? <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black" style={{ background: card.label === "vehicle" ? "#06b6d4" : "#f59e0b", color: "#06121f", textShadow: "none" }}>{card.label === "vehicle" ? <Car size={12} /> : <UserIcon size={12} />}{card.label === "vehicle" ? "AUTO" : "PERSONA"}</span> : null}</div>
                 <button onClick={onClose} className="p-1 rounded text-white/90 hover:bg-white/20"><X size={14} /></button>
             </div>
             <div className="absolute bottom-0 inset-x-0 px-3 pt-10 pb-2.5 bg-gradient-to-t from-black/90 via-black/55 to-transparent z-10">
@@ -313,6 +313,7 @@ function IntrAlertBubble({ card, camList, cam, onAck, onClose }: { card: { devic
     );
 }
 const intrPulseIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span class="intr-pulse"></span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
+const sleepIcon = (cond: any) => L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:9px;background:rgba(15,23,42,.82);color:#cbd5e1;font:700 9px/1 sans-serif;border:1px solid rgba(148,163,184,.4);white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5)">💤 ${cond?.from && cond?.to ? cond.from + "–" + cond.to : "dormida"}</span>`, iconSize: [0, 0], iconAnchor: [0, -4] });
 const countBadgeIcon = (n: number) => L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:rgba(0,0,0,.72);color:#fff;font:800 10px/1 sans-serif;border:1px solid rgba(255,255,255,.35);box-shadow:0 1px 4px rgba(0,0,0,.5)">${n}</span>`, iconSize: [0, 0], iconAnchor: [9, 9] });
 function bearingOf(a: LL, b: LL): number { const p1 = (a[0] * Math.PI) / 180, p2 = (b[0] * Math.PI) / 180, dl = ((b[1] - a[1]) * Math.PI) / 180; const y = Math.sin(dl) * Math.cos(p2); const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl); return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360; }
 const ARROW1 = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 L19 12 L14 12 L14 21 L10 21 L10 12 L5 12 Z"/></svg>`;
@@ -329,6 +330,14 @@ function condAllows(cond: any, label?: string | null): boolean {
     if (cond.cls && cond.cls !== "all" && label !== cond.cls) return false;
     if (cond.from && cond.to) { const d = new Date(); const cur = d.getHours() * 60 + d.getMinutes(); const [fh, fm] = String(cond.from).split(":").map(Number); const [th, tm] = String(cond.to).split(":").map(Number); const f = fh * 60 + fm, t = th * 60 + tm; const inRange = f <= t ? (cur >= f && cur <= t) : (cur >= f || cur <= t); if (!inRange) return false; }
     return true;
+}
+// ¿La geometría está armada ahora según su franja horaria? (sin franja => siempre armada)
+function isArmedNow(cond: any): boolean {
+    if (!cond || !cond.from || !cond.to) return true;
+    const d = new Date(); const cur = d.getHours() * 60 + d.getMinutes();
+    const [fh, fm] = String(cond.from).split(":").map(Number); const [th, tm] = String(cond.to).split(":").map(Number);
+    const f = fh * 60 + fm, t = th * 60 + tm;
+    return f <= t ? (cur >= f && cur <= t) : (cur >= f || cur <= t);
 }
 function sigOf(geom: any, kind: "line" | "zone"): string { const arr = kind === "line" ? (geom?.line || []) : (geom?.field || []); return JSON.stringify((arr as any[]).map((p: any) => [Math.round(p.x), Math.round(p.y)])); }
 
@@ -608,6 +617,7 @@ export default function BarrioMap() {
     const centerRef = useRef<LL>([-34.9, -56.1]);
     const autoRef = useRef(false);
     const alertDevRef = useRef<string | null>(null);
+    const [, setNowMin] = useState(0);
     const autoLastRef = useRef(0);
     const rutaTimer = useRef<any>(null);
     const [autoResaltar, setAutoResaltar] = useState(false);
@@ -671,6 +681,7 @@ export default function BarrioMap() {
     const speakAlert = useCallback((label?: string | null, name?: string | null) => { try { const w: any = window; if (!w.speechSynthesis) return; const who = label === "vehicle" ? "Vehículo" : label === "human" ? "Persona" : "Detección"; const u = new SpeechSynthesisUtterance(`${who} en ${name || "cámara"}`); u.lang = "es-UY"; u.rate = 1.08; w.speechSynthesis.cancel(); w.speechSynthesis.speak(u); } catch { } }, []);
     const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); alertDevRef.current = null; setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
+    useEffect(() => { const iv = setInterval(() => setNowMin((m) => (m + 1) % 1440), 30000); return () => clearInterval(iv); }, []);
 
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
@@ -1135,16 +1146,19 @@ export default function BarrioMap() {
                     {show.fov && data.cameras.map((c) => { const h = (c as any).rumbo; if (h == null) return null; const r = 42, a = 26; const pL = destPoint(c.lat, c.lng, h - a, r); const pM = destPoint(c.lat, c.lng, h, r); const pR = destPoint(c.lat, c.lng, h + a, r); return <Polygon key={`fov_${c.deviceId}`} positions={[[c.lat, c.lng], pL, pM, pR]} pathOptions={{ color: "#38bdf8", weight: 1, opacity: 0.35, fillColor: "#38bdf8", fillOpacity: 0.07 }} interactive={false} />; })}
                     {show.intrusion && ((data as any).intrusions || []).map((g: any) => {
                         const active = !!intrAlerts[g.deviceId];
-                        const col = active ? "#ef4444" : "#3b82f6";
+                        const armed = isArmedNow(g.cond);
+                        const baseCol = g.kind === "zone" ? "#f59e0b" : "#3b82f6";
+                        const col = active ? "#ef4444" : armed ? baseCol : "#64748b";
                         const cls = active ? "intr-geom-blink" : undefined;
                         const handlers = { contextmenu: (e: any) => openCtx(e, "intr", g.id), click: () => { const a = intrAlerts[g.deviceId]; if (a) setAlertCard({ deviceId: g.deviceId, ms: a.ms || a.ts, id: a.id, type: a.type, label: a.label, name: a.name }); } };
                         const tip = active ? <LTooltip permanent direction="top" className="intr-alert-tip">⚠ {g.kind === "zone" ? "Intrusión" : "Cruce"} · tocÃ¡ para aceptar</LTooltip> : null;
                         return g.kind === "zone"
-                            ? <Polygon key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 4 : 2.5, opacity: 0.95, fillColor: col, fillOpacity: active ? 0.3 : 0.1, className: cls }} eventHandlers={handlers}>{tip}</Polygon>
-                            : <Polyline key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 7 : 3.5, opacity: 0.98, lineCap: "round", className: cls }} eventHandlers={handlers}>{tip}</Polyline>;
+                            ? <Polygon key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 4 : armed ? 2.5 : 2, opacity: active || armed ? 0.95 : 0.6, fillColor: col, fillOpacity: active ? 0.3 : armed ? 0.12 : 0.045, dashArray: active || armed ? undefined : "6 8", className: cls }} eventHandlers={handlers}>{tip}</Polygon>
+                            : <Polyline key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 7 : armed ? 3.5 : 2.5, opacity: active ? 0.98 : armed ? 0.95 : 0.6, lineCap: "round", dashArray: active || armed ? undefined : "6 8", className: cls }} eventHandlers={handlers}>{tip}</Polyline>;
                     })}
-                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => { if (g.kind !== "line" || !g.points || g.points.length < 2) return null; const dir = g.dir || "both"; if (dir === "none") return null; const a = g.points[0], b = g.points[1]; const mid: LL = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; const lb = bearingOf(a, b); const active = !!intrAlerts[g.deviceId]; const col = active ? "#ef4444" : "#3b82f6"; const deg = dir === "rev" ? lb - 90 : lb + 90; return <Marker key={`dir_${g.id}`} position={mid} icon={dirArrowIcon(deg, dir === "both", col)} interactive={false} zIndexOffset={450} />; })}
+                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => { if (g.kind !== "line" || !g.points || g.points.length < 2) return null; const dir = g.dir || "both"; if (dir === "none") return null; const a = g.points[0], b = g.points[1]; const mid: LL = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; const lb = bearingOf(a, b); const active = !!intrAlerts[g.deviceId]; const col = active ? "#ef4444" : (isArmedNow(g.cond) ? "#3b82f6" : "#64748b"); const deg = dir === "rev" ? lb - 90 : lb + 90; return <Marker key={`dir_${g.id}`} position={mid} icon={dirArrowIcon(deg, dir === "both", col)} interactive={false} zIndexOffset={450} />; })}
                     {show.intrusion && ((data as any).intrusions || []).map((g: any) => { const n = intrCounts[g.deviceId] || 0; if (!n || !g.points?.length) return null; return <Marker key={`cnt_${g.id}`} position={g.points[0]} icon={countBadgeIcon(n)} interactive={false} zIndexOffset={500} />; })}
+                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => { if (!g.points?.length || !g.cond || isArmedNow(g.cond) || !!intrAlerts[g.deviceId]) return null; const pos = g.kind === "zone" ? centroid(g.points) : g.points[0]; return <Marker key={`zzz_${g.id}`} position={pos} icon={sleepIcon(g.cond)} interactive={false} zIndexOffset={470} />; })}
                     {draftIntr.length > 0 && (intrDraw?.kind === "zone"
                         ? <Polygon positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 2, dashArray: "6 6", fillOpacity: 0.08 }} />
                         : <Polyline positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 3, dashArray: "6 6", lineCap: "round" }} />)}
@@ -1223,7 +1237,7 @@ export default function BarrioMap() {
                 {/* Velo rojo que respira durante una alerta activa */}
                 {hasActiveAlert && <div className="omni-alert-veil" />}
                 {/* HUD de estado del sistema: respira verde en reposo, rojo en alerta */}
-                <div className={cn("absolute top-4 left-1/2 -translate-x-1/2 z-[605] flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-extrabold tracking-wide backdrop-blur-md shadow-lg border transition-colors", hasActiveAlert ? "bg-red-600/90 text-white border-red-300" : "bg-black/55 text-white border-white/15")}>
+                <div className={cn("absolute top-[4.75rem] left-1/2 -translate-x-1/2 z-[605] flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-extrabold tracking-wide backdrop-blur-md shadow-lg border transition-colors", hasActiveAlert ? "bg-red-600/90 text-white border-red-300" : "bg-black/55 text-white border-white/15")}>
                     <span className="relative flex h-2.5 w-2.5">
                         <span className={cn("absolute inline-flex h-full w-full rounded-full", hasActiveAlert ? "bg-red-300 animate-ping" : "bg-emerald-400 hud-breathe")} />
                         <span className={cn("relative inline-flex rounded-full h-2.5 w-2.5", hasActiveAlert ? "bg-red-100" : "bg-emerald-400")} />
