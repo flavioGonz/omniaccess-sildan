@@ -280,7 +280,7 @@ export default function HistoryPage() {
     const grantCount = events.filter(e => e.decision === "GRANT").length;
     const denyCount = events.filter(e => e.decision === "DENY").length;
     const vehFacets = useMemo(() => collectVehicleFacets(events), [events]);
-    const camList = useMemo(() => { const set = new Set<string>(); events.forEach((e: any) => { if ((e.accessType === "PLATE") && e.deviceName) set.add(e.deviceName); }); return Array.from(set).sort((a, b) => a.localeCompare(b)); }, [events]);
+    const camList = useMemo(() => { const set = new Set<string>(); events.forEach((e: any) => { const nm = e.device?.name || e.deviceName; if ((e.accessType === "PLATE") && nm) set.add(nm); }); return Array.from(set).sort((a, b) => a.localeCompare(b)); }, [events]);
     const displayEvents = (filterMerodeo ? events.filter(e => merodeoSet.has(cleanPlate(e.plateDetected))) : events)
         .filter(e => {
             if (filterColor === "ALL" && filterVehType === "ALL") return true;
@@ -289,7 +289,7 @@ export default function HistoryPage() {
             if (filterVehType !== "ALL" && m.typeLabel !== filterVehType) return false;
             return true;
         })
-        .filter((e: any) => selectedCams.size === 0 || (e.deviceName && selectedCams.has(e.deviceName)));
+        .filter((e: any) => { if (selectedCams.size === 0) return true; const nm = e.device?.name || e.deviceName; return !!nm && selectedCams.has(nm); });
 
     return (
         <div className="p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
