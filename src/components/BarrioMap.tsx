@@ -671,6 +671,7 @@ export default function BarrioMap() {
     const [intrDrawer, setIntrDrawer] = useState<null | "line" | "zone">(null);
     const [condEdit, setCondEdit] = useState<null | { deviceId: string; kind: "line" | "zone" }>(null);
     const [condForm, setCondForm] = useState<{ from: string; to: string; cls: string }>({ from: "", to: "", cls: "all" });
+    const [schedEdit, setSchedEdit] = useState<null | { deviceId: string; kind: "line" | "zone"; x: number; y: number; from: string; to: string; cls: string }>(null);
     const [camSearch, setCamSearch] = useState("");
     const [camOpen, setCamOpen] = useState(false);
     const [placeSearch, setPlaceSearch] = useState("");
@@ -714,7 +715,7 @@ export default function BarrioMap() {
         getPlateSlotMap().then((m: any) => { plateMapRef.current = m || {}; }).catch(() => { });
     }, []);
     useEffect(() => {
-        const close = () => { setCtx(null); setIntrMenu(false); };
+        const close = () => { setCtx(null); setIntrMenu(false); setSchedEdit(null); };
         window.addEventListener("click", close);
         return () => window.removeEventListener("click", close);
     }, []);
@@ -990,6 +991,7 @@ export default function BarrioMap() {
     const centrar = () => { const m = mapRef.current; if (m) m.setView(data.center, data.zoom); };
     const hasActiveAlert = !!alertCard || Object.keys(intrAlerts).length > 0;
     const eventosHoy = Object.values(intrCounts).reduce((a, b) => a + (b || 0), 0);
+    const rightPanelOpen = feedOpen || !!camCustom || placeDrawer || !!intrDrawer;
     const alternarPantalla = () => {
         const el = wrapRef.current; if (!el) return;
         if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
@@ -1247,7 +1249,7 @@ export default function BarrioMap() {
                 </div>
                 <button onClick={() => setSoundOn((v) => !v)} title={soundOn ? "Silenciar alertas" : "Activar sonido de alertas"} className={cn("absolute top-4 left-4 z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", soundOn ? "bg-card/80 text-foreground hover:bg-card" : "bg-red-600/90 text-white")}>{soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}</button>
                 <button onClick={() => setFeedOpen((v) => !v)} title="Feed de intrusiones" className={cn("absolute top-4 left-[3.5rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", feedOpen ? "bg-red-600/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Activity size={16} /></button>
-                {feedOpen && (
+                {feedOpen && !camCustom && !placeDrawer && !intrDrawer && (
                     <div className="absolute top-4 right-4 bottom-4 z-[600] w-[270px] bg-card/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
                         <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
                             <div className="text-[13px] font-bold flex items-center gap-2"><Activity size={14} className="text-red-500" /> Intrusiones recientes</div>
@@ -1308,7 +1310,7 @@ export default function BarrioMap() {
                 {!editing && (
                     <>
                         <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} onPick={(ev) => onPlate(ev)} />
-                        <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => onPlate(ev)} />
+                        {!rightPanelOpen && <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => onPlate(ev)} />}
                     </>
                 )}
 
@@ -1465,15 +1467,33 @@ export default function BarrioMap() {
                             <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Intrusión</div>
                             <button onClick={() => { setEditing(true); setIntrDrawer("line"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Route size={13} className="text-sky-400" /> Definir cruce de línea</button>
                             <button onClick={() => { setEditing(true); setIntrDrawer("zone"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><ShieldAlert size={13} className="text-sky-400" /> Definir zona de intrusión</button>
-                        </>) : ctx.type === "intr" ? (<>
-                            <button onClick={() => { removeIntr(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar cruce / zona</button>
-                        </>) : (<>
+                        </>) : ctx.type === "intr" ? (() => {
+                            const g = ((data as any).intrusions || []).find((x: any) => x.id === ctx.id);
+                            if (!g) return <button onClick={() => { removeIntr(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar</button>;
+                            return (<>
+                                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">{g.kind === "zone" ? <ShieldAlert size={11} className="text-sky-500" /> : <Route size={11} className="text-sky-500" />}{g.kind === "zone" ? "Zona de intrusión" : "Cruce de línea"}</div>
+                                <button onClick={() => { setSchedEdit({ deviceId: g.deviceId, kind: g.kind, x: ctx.x, y: ctx.y, from: g.cond?.from || "", to: g.cond?.to || "", cls: g.cond?.cls || "all" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Clock size={13} className="text-sky-400" /> Horario de armado / reglas</button>
+                                {g.kind === "line" && <button onClick={() => { const order = ["both", "fwd", "rev", "none"]; const cur = g.dir || "both"; setGeomDir(g.deviceId, order[(order.indexOf(cur) + 1) % order.length]); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Compass size={13} className="text-emerald-400" /> Cambiar dirección ({(g.dir || "both") === "both" ? "ambas" : (g.dir === "fwd" ? "una" : g.dir === "rev" ? "otra" : "sin flecha")})</button>}
+                                <button onClick={() => { setEditing(true); setIntrDrawer(g.kind); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} className="text-blue-400" /> Editar en panel</button>
+                                <div className="h-px bg-border my-1" />
+                                <button onClick={() => { removeIntr(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar {g.kind === "zone" ? "zona" : "cruce"}</button>
+                            </>);
+                        })() : (<>
                             <button onClick={() => { renameStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar calle</button>
                             {editing && <button onClick={() => { removeStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar calle</button>}
                         </>)}
                     </div>
                 )}
 
+                {schedEdit && (
+                    <div className="fixed z-[602] w-[232px] bg-popover border border-border rounded-xl shadow-2xl p-2.5 space-y-2" style={{ left: Math.min(schedEdit.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 252), top: Math.min(schedEdit.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 190) }} onClick={(e) => e.stopPropagation()}>
+                        <div className="text-[11px] font-bold flex items-center gap-1.5"><Clock size={12} className="text-sky-500" /> Horario de armado</div>
+                        <div className="flex items-center gap-1 text-[10px]"><span className="text-muted-foreground w-5">De</span><input type="time" value={schedEdit.from} onChange={(e) => setSchedEdit((p) => p ? { ...p, from: e.target.value } : p)} className="flex-1 h-7 px-1.5 rounded bg-background border border-border text-[11px] [color-scheme:dark]" /><span className="text-muted-foreground">a</span><input type="time" value={schedEdit.to} onChange={(e) => setSchedEdit((p) => p ? { ...p, to: e.target.value } : p)} className="flex-1 h-7 px-1.5 rounded bg-background border border-border text-[11px] [color-scheme:dark]" /></div>
+                        <select value={schedEdit.cls} onChange={(e) => setSchedEdit((p) => p ? { ...p, cls: e.target.value } : p)} className="w-full h-7 px-1.5 rounded bg-background border border-border text-[11px]"><option value="all">Alertar: todo</option><option value="human">Alertar: solo persona</option><option value="vehicle">Alertar: solo auto</option></select>
+                        <div className="text-[9px] text-muted-foreground leading-tight">Sin horario = siempre armada. Fuera de la franja la geometría queda dormida (gris).</div>
+                        <div className="flex gap-1"><button onClick={() => { setGeomCond(schedEdit.deviceId, schedEdit.kind, { from: schedEdit.from || undefined, to: schedEdit.to || undefined, cls: schedEdit.cls }); setSchedEdit(null); }} className="flex-1 py-1.5 rounded-lg bg-sky-600 text-white text-[11px] font-bold">Guardar</button><button onClick={() => { setGeomCond(schedEdit.deviceId, schedEdit.kind, undefined); setSchedEdit(null); }} className="px-2 py-1.5 rounded-lg bg-accent text-[11px] font-bold">Quitar</button><button onClick={() => setSchedEdit(null)} className="px-2 py-1.5 rounded-lg bg-accent text-[11px]"><X size={11} /></button></div>
+                    </div>
+                )}
                 {intrPick && (() => {
                     const list: any[] = intrCamList.filter((c) => { const k = geomKinds(c.id); return k.line || k.zone; });
                     const sel = list.find((c) => c.id === intrPickCam);
@@ -1550,7 +1570,7 @@ export default function BarrioMap() {
                     </div>
                 )}
 
-{placeDrawer && (
+{placeDrawer && !camCustom && !intrDrawer && (
                     <div className="absolute top-0 right-0 bottom-0 z-[680] w-[320px] bg-card/95 backdrop-blur-xl border-l border-border shadow-2xl flex flex-col">
                         <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
                             <div className="text-sm font-bold flex items-center gap-2"><Video size={15} className="text-blue-400" /> Colocar cámara</div>
@@ -1580,7 +1600,7 @@ export default function BarrioMap() {
                     </div>
                 )}
 
-                {intrDrawer && (() => {
+                {intrDrawer && !camCustom && (() => {
                     const kind = intrDrawer;
                     const list = intrCamList.filter((c) => { const k = geomKinds(c.id); return kind === "line" ? k.line : k.zone; });
                     const drawnOf = (id: string) => ((data as any).intrusions || []).find((g: any) => g.deviceId === id && g.kind === kind);
