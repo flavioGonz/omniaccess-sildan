@@ -11,6 +11,7 @@ export interface BarrioMapData {
     cameras: { deviceId: string; lat: number; lng: number; rumbo?: number | null; size?: number; color?: string }[];
     lotes: { id: string; name?: string; points: [number, number][]; parkingSlotId?: string }[];
     divisions: { id: string; tipo: string; points: [number, number][]; color?: string; weight?: number }[];
+    intrusions?: { id: string; deviceId: string; kind: "line" | "zone"; points: [number, number][] }[];
 }
 
 const DEFAULT: BarrioMapData = {
@@ -21,6 +22,7 @@ const DEFAULT: BarrioMapData = {
     cameras: [],
     lotes: [],
     divisions: [],
+    intrusions: [],
 };
 
 // Los lotes de San Nicolás se guardaron durante meses bajo `lots` (con `label` y `unitId`);
@@ -55,6 +57,7 @@ export async function getBarrioMap(): Promise<BarrioMapData> {
             cameras: Array.isArray(d.cameras) ? d.cameras : [],
             lotes: normalizarLotes(d),
             divisions: Array.isArray(d.divisions) ? d.divisions : [],
+            intrusions: Array.isArray(d.intrusions) ? d.intrusions : [],
         };
     } catch {
         return DEFAULT;
@@ -71,7 +74,10 @@ export async function saveBarrioMap(data: BarrioMapData): Promise<{ ok: boolean;
         let previo: any = {};
         try { previo = row?.value ? JSON.parse(row.value) : {}; } catch { previo = {}; }
         const { lots: _lotsViejos, ...resto } = previo;
-        const fusionado = { ...resto, ...data };
+        // Si el que guarda no manda `lotes` (un cliente que no los conoce), no se le puede
+        // dar por borrado lo que no vio: se conservan los de la base, ya normalizados.
+        const lotes = Array.isArray((data as any)?.lotes) ? data.lotes : normalizarLotes(previo);
+        const fusionado = { ...resto, ...data, lotes };
         await prisma.setting.upsert({
             where: { key: "BARRIO_MAP" },
             update: { value: JSON.stringify(fusionado) },

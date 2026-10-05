@@ -283,7 +283,8 @@ export default function HistoryPage() {
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
-        const socket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false,  });
+        // Reconexión explícita (traída de main 8f7ac4e): detrás del proxy el socket se cae y sin esto la tabla quedaba muda hasta recargar.
+        const socket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
 
         socket.on("access_event", (event: FullAccessEvent) => {
             const { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page } = filtersRef.current;

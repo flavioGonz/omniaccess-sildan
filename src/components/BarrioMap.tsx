@@ -9,7 +9,7 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route, ShieldAlert, Volume2, VolumeX, Play, Activity, ListFilter,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,8 @@ import { io } from "socket.io-client";
 import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
 import { LogIn, LogOut } from "lucide-react";
 import { getDevices } from "@/app/actions/devices";
+import { getIntrusionCameras, getAnalyticsGeometryBatch, ackAlarms, getDetectionHistory, getTodayIntrusionCounts, type IntrusionCam } from "@/app/actions/detections";
+import { LiveModal } from "@/components/intrusion/LiveModal";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { montarVivo } from "@/lib/vivo";
@@ -32,7 +34,7 @@ type Tool = "select" | "perimeter" | "camera" | "lote" | "division" | "street";
 type LL = [number, number];
 type Base = "Táctico" | "Satélite" | "Calles";
 type SelKind = "street" | "camera" | "lote";
-type CtxKind = "street" | "camera" | "lote" | "guard" | "division";
+type CtxKind = "street" | "camera" | "lote" | "guard" | "division" | "map" | "intr";
 type DivTipo = "pared" | "tejido" | "alambrado";
 
 // Estilo de cada tipo de división (línea)
@@ -56,7 +58,7 @@ const camArrow = (size: number, color: string, rumbo?: number | null) => rumbo =
   </span>`;
 const camHtml = (o?: { rumbo?: number | null; size?: number; color?: string }) => {
     const size = o?.size || 30, color = o?.color || "#2563eb";
-    return `<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translateY(-4px)">${camArrow(size, color, o?.rumbo)}${camGlyph(size, color)}</div>`;
+    return `<div style="position:relative;display:flex;align-items:center;justify-content:center;transform:translateY(-4px)">${camArrow(size, color, o?.rumbo)}<span class="cam-breath"></span>${camGlyph(size, color)}</div>`;
 };
 const camIconDe = (o?: { rumbo?: number | null; size?: number; color?: string }, extra = "") => {
     const size = o?.size || 30;
@@ -204,6 +206,25 @@ function ClickHandler({ onClick }: { onClick: (ll: LL) => void }) {
     useMapEvents({ click(e) { onClick([e.latlng.lat, e.latlng.lng]); } });
     return null;
 }
+function MapCtxMenu({ onCtx }: { onCtx: (oe: MouseEvent) => void }) {
+    useMapEvents({ contextmenu(e: any) {
+        const oe = e.originalEvent as MouseEvent; try { oe?.preventDefault?.(); } catch { }
+        const t = oe?.target as HTMLElement | null;
+        if (t && (t.closest?.(".leaflet-marker-pane") || ["path", "polyline", "polygon", "image"].includes((t.tagName || "").toLowerCase()))) return;
+        onCtx(oe);
+    } });
+    return null;
+}
+type MiniGeom = { line?: { x: number; y: number }[]; field?: { x: number; y: number }[] };
+function MiniGeomOverlay({ geom }: { geom?: MiniGeom }) {
+    if (!geom || ((!geom.line || geom.line.length < 2) && (!geom.field || geom.field.length < 3))) return null;
+    return (
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
+            {geom.field && geom.field.length >= 3 && <polygon points={geom.field.map((p) => `${p.x},${p.y}`).join(" ")} fill="rgba(244,63,94,0.18)" stroke="#f43f5e" strokeWidth={1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+            {geom.line && geom.line.length === 2 && <line x1={geom.line[0].x} y1={geom.line[0].y} x2={geom.line[1].x} y2={geom.line[1].y} stroke="#38bdf8" strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+        </svg>
+    );
+}
 function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
     const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) });
     useEffect(() => { onZoom(map.getZoom()); /* eslint-disable-next-line */ }, []);
@@ -213,6 +234,13 @@ function ZoomTracker({ onZoom }: { onZoom: (z: number) => void }) {
 function BoundsTracker({ onBounds }: { onBounds: (b: L.LatLngBounds) => void }) {
     const map = useMapEvents({ moveend: () => onBounds(map.getBounds().pad(0.25)), zoomend: () => onBounds(map.getBounds().pad(0.25)) });
     useEffect(() => { onBounds(map.getBounds().pad(0.25)); /* eslint-disable-next-line */ }, []);
+    return null;
+}
+// Recuerda el último encuadre del mapa (centro/zoom) y lo restaura al recargar.
+function ViewPersist() {
+    const save = (map: L.Map) => { try { const c = map.getCenter(); localStorage.setItem("olivos.mapView", JSON.stringify({ lat: c.lat, lng: c.lng, z: map.getZoom() })); } catch { } };
+    const map = useMapEvents({ moveend: () => save(map), zoomend: () => save(map) });
+    useEffect(() => { try { const v = JSON.parse(localStorage.getItem("olivos.mapView") || "null"); if (v && Number.isFinite(v.lat) && Number.isFinite(v.lng)) map.setView([v.lat, v.lng], Number.isFinite(v.z) ? v.z : map.getZoom(), { animate: false }); } catch { } /* eslint-disable-next-line */ }, []);
     return null;
 }
 
@@ -239,6 +267,121 @@ function LiveMp4({ deviceId, className }: { deviceId: string; className?: string
 const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", iconSize: [0, 0], iconAnchor: [0, 0] });
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
+// Ficha del evento de intrusión: imagen a sangre (sin borde) con datos y botones como overlay, borde rojo animado.
+function IntrAlertCard({ card, clip, onAck, onClose, onViewRec }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void }) {
+    return (
+        <div className="intr-alert-card">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} alt="" className="intr-alert-img" />
+            <div className="absolute top-0 inset-x-0 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/80 via-black/35 to-transparent z-10">
+                <div className="flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-wide text-white" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}><span className="flex items-center gap-1.5"><ShieldAlert size={14} className="text-red-400" /> {card.type === "LINECROSS" ? "Cruce de línea" : card.type === "INTRUSION" ? "Intrusión" : "Detección"}</span>{card.label ? <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black" style={{ background: card.label === "vehicle" ? "#06b6d4" : "#f59e0b", color: "#06121f", textShadow: "none" }}>{card.label === "vehicle" ? <Car size={12} /> : <UserIcon size={12} />}{card.label === "vehicle" ? "AUTO" : "PERSONA"}</span> : null}</div>
+                <button onClick={onClose} className="p-1 rounded text-white/90 hover:bg-white/20"><X size={14} /></button>
+            </div>
+            <div className="absolute bottom-0 inset-x-0 px-3 pt-10 pb-2.5 bg-gradient-to-t from-black/90 via-black/55 to-transparent z-10">
+                <div className="text-[13px] font-bold text-white truncate" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}>{card.name || "Cámara"}</div>
+                <div className="text-[11px] text-white/80 tabular-nums" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}>{new Date(card.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+                <div className="mt-2 flex gap-2">
+                    <button onClick={() => onAck(card.deviceId, "real")} className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500 shadow-lg">Real</button>
+                    <button onClick={() => onAck(card.deviceId, "false")} className="flex-1 py-1.5 rounded-lg bg-white/15 backdrop-blur-sm text-white text-xs font-bold hover:bg-white/25 border border-white/20">Falsa alarma</button>
+                    <button onClick={(e) => { e.stopPropagation(); onViewRec?.(); }} title="Ver grabación del evento" className="shrink-0 w-9 py-1.5 grid place-items-center rounded-lg bg-sky-600 text-white hover:bg-sky-500 shadow-lg"><Eye size={15} /></button>
+                </div>
+            </div>
+        </div>
+    );
+}
+// Burbuja HTML anclada por proyección sobre la cámara (no usa Popup de Leaflet -> no parpadea).
+function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void }) {
+    const map = useMap();
+    const ref = useRef<HTMLDivElement | null>(null);
+    const posRef = useRef({ lat: cam.lat, lng: cam.lng });
+    posRef.current = { lat: cam.lat, lng: cam.lng };
+    const ubicar = useCallback(() => {
+        const el = ref.current; if (!el) return;
+        const tam = map.getSize();
+        let p: L.Point; try { p = map.latLngToContainerPoint([posRef.current.lat, posRef.current.lng]); } catch { return; }
+        const W = 320, H = 196;
+        const x = Math.max(W / 2 + 8, Math.min(tam.x - W / 2 - 8, p.x));
+        const y = Math.max(H + 16, p.y - 20);
+        el.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -100%)`;
+    }, [map]);
+    useMapEvents({ move: ubicar, zoom: ubicar, resize: ubicar });
+    useEffect(() => { ubicar(); });
+    const meta = camList.find((c) => c.id === card.deviceId);
+    const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(card.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null;
+    return createPortal(
+        <div ref={ref} className="absolute left-0 top-0 pointer-events-auto" style={{ zIndex: 660, willChange: "transform" }}>
+            <IntrAlertCard card={card} clip={clip} onAck={onAck} onClose={onClose} onViewRec={onViewRec} />
+            <span className="block mx-auto w-3 h-3 rotate-45 -mt-1.5 bg-red-600 shadow-lg" />
+        </div>,
+        map.getContainer()
+    );
+}
+// Modal completo del evento sobre el mapa: Vivo / Grabación / Evidencia (no navega al módulo).
+function RecModal({ card, camList, onClose }: { card: { deviceId: string; ms: number; id?: string; name?: string }; camList: any[]; onClose: () => void }) {
+    const [tab, setTab] = useState<"live" | "rec" | "evi">("rec");
+    const cam = camList.find((c) => c.id === card.deviceId);
+    const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&pre=5&dur=40&nvr=${cam.nvrId}` : null;
+    const snap = `/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`;
+    const tabs = [{ k: "live", label: "Vivo", Icon: Video }, { k: "rec", label: "Grabación", Icon: Play }, { k: "evi", label: "Evidencia", Icon: Eye }] as const;
+    return createPortal(
+        <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+            <div className="relative w-full max-w-3xl bg-card rounded-2xl overflow-hidden shadow-2xl border border-border" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+                    <div className="text-sm font-bold flex items-center gap-2 min-w-0"><ShieldAlert size={15} className="text-sky-500 shrink-0" /> <span className="truncate">{card.name || "Cámara"}</span> <span className="text-xs font-normal text-muted-foreground tabular-nums shrink-0">{new Date(card.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span></div>
+                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-accent shrink-0"><X size={16} /></button>
+                </div>
+                <div className="flex items-center gap-1 px-3 py-2 border-b border-border">
+                    {tabs.map((t) => (
+                        <button key={t.k} onClick={() => setTab(t.k)} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors", tab === t.k ? "bg-sky-600 text-white" : "text-muted-foreground hover:bg-accent")}><t.Icon size={14} /> {t.label}</button>
+                    ))}
+                </div>
+                <div className="relative w-full aspect-video bg-black">
+                    {tab === "live" && <LiveMp4 deviceId={card.deviceId} className="absolute inset-0 w-full h-full object-contain bg-black" />}
+                    {tab === "rec" && (clip ? (
+                        // eslint-disable-next-line jsx-a11y/media-has-caption
+                        <video key={clip} src={clip} autoPlay muted controls playsInline poster={snap} className="absolute inset-0 w-full h-full object-contain" />
+                    ) : (
+                        <div className="absolute inset-0 grid place-items-center text-white/50 text-sm">Sin NVR/canal para reproducir la grabación.</div>
+                    ))}
+                    {tab === "evi" && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={snap} alt="" className="absolute inset-0 w-full h-full object-contain" />
+                    )}
+                </div>
+                {tab === "rec" && clip && <div className="px-4 py-2 flex justify-end"><a href={`${clip}&download=1`} download className="text-xs font-bold px-3 py-1.5 rounded-lg bg-accent hover:bg-accent/70">Descargar clip</a></div>}
+            </div>
+        </div>,
+        document.body
+    );
+}
+const intrPulseIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span class="intr-pulse"></span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
+const sleepIcon = (cond: any) => L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:9px;background:rgba(15,23,42,.82);color:#cbd5e1;font:700 9px/1 sans-serif;border:1px solid rgba(148,163,184,.4);white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.5)">💤 ${cond?.from && cond?.to ? cond.from + "–" + cond.to : "dormida"}</span>`, iconSize: [0, 0], iconAnchor: [0, -4] });
+const countBadgeIcon = (n: number) => L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:rgba(0,0,0,.72);color:#fff;font:800 10px/1 sans-serif;border:1px solid rgba(255,255,255,.35);box-shadow:0 1px 4px rgba(0,0,0,.5)">${n}</span>`, iconSize: [0, 0], iconAnchor: [9, 9] });
+function bearingOf(a: LL, b: LL): number { const p1 = (a[0] * Math.PI) / 180, p2 = (b[0] * Math.PI) / 180, dl = ((b[1] - a[1]) * Math.PI) / 180; const y = Math.sin(dl) * Math.cos(p2); const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl); return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360; }
+const ARROW1 = `<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 L19 12 L14 12 L14 21 L10 21 L10 12 L5 12 Z"/></svg>`;
+const ARROW2 = `<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 L17 8 L13 8 L13 16 L17 16 L12 22 L7 16 L11 16 L11 8 L7 8 Z"/></svg>`;
+const dirArrowIcon = (deg: number, double: boolean, color: string) => L.divIcon({ className: "bg-transparent border-0", html: `<div style="transform:rotate(${deg}deg);color:${color};filter:drop-shadow(0 1px 2px rgba(0,0,0,.65))">${double ? ARROW2 : ARROW1}</div>`, iconSize: [0, 0], iconAnchor: [10, 10] });
+function destPoint(lat: number, lng: number, bearingDeg: number, meters: number): LL {
+    const R = 6371000; const br = (bearingDeg * Math.PI) / 180; const lat1 = (lat * Math.PI) / 180; const lng1 = (lng * Math.PI) / 180; const dR = meters / R;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(dR) + Math.cos(lat1) * Math.sin(dR) * Math.cos(br));
+    const lng2 = lng1 + Math.atan2(Math.sin(br) * Math.sin(dR) * Math.cos(lat1), Math.cos(dR) - Math.sin(lat1) * Math.sin(lat2));
+    return [(lat2 * 180) / Math.PI, (lng2 * 180) / Math.PI];
+}
+function condAllows(cond: any, label?: string | null): boolean {
+    if (!cond) return true;
+    if (cond.cls && cond.cls !== "all" && label !== cond.cls) return false;
+    if (cond.from && cond.to) { const d = new Date(); const cur = d.getHours() * 60 + d.getMinutes(); const [fh, fm] = String(cond.from).split(":").map(Number); const [th, tm] = String(cond.to).split(":").map(Number); const f = fh * 60 + fm, t = th * 60 + tm; const inRange = f <= t ? (cur >= f && cur <= t) : (cur >= f || cur <= t); if (!inRange) return false; }
+    return true;
+}
+// ¿La geometría está armada ahora según su franja horaria? (sin franja => siempre armada)
+function isArmedNow(cond: any): boolean {
+    if (!cond || !cond.from || !cond.to) return true;
+    const d = new Date(); const cur = d.getHours() * 60 + d.getMinutes();
+    const [fh, fm] = String(cond.from).split(":").map(Number); const [th, tm] = String(cond.to).split(":").map(Number);
+    const f = fh * 60 + fm, t = th * 60 + tm;
+    return f <= t ? (cur >= f && cur <= t) : (cur >= f || cur <= t);
+}
+function sigOf(geom: any, kind: "line" | "zone"): string { const arr = kind === "line" ? (geom?.line || []) : (geom?.field || []); return JSON.stringify((arr as any[]).map((p: any) => [Math.round(p.x), Math.round(p.y)])); }
 
 const LotesLayer = React.memo(function LotesLayer({ lotes, selectedId, showNames, showPolys, zoom, bounds, locatedId, onSelect, onEdit, onCtx }: {
     lotes: { id: string; name?: string; points: LL[]; parkingSlotId?: string }[];
@@ -487,7 +630,7 @@ export default function BarrioMap() {
     const [base, setBase] = useState<Base>("Satélite");
     const [menuCapas, setMenuCapas] = useState(false);
     // Por rendimiento: por defecto NO se dibujan los polígonos de lotes, solo los nombres.
-    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true });
+    const [show, setShow] = useState({ cameras: true, lotes: false, loteNames: false, divisions: true, perimeter: true, guards: true, names: true, intrusion: true, fov: false });
     const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
     const [openCamPopup, setOpenCamPopup] = useState<string | null>(null); // cámara con popup de video abierto (lazy)
     const [pantalla, setPantalla] = useState(false);
@@ -510,10 +653,13 @@ export default function BarrioMap() {
     const editingRef = useRef(editing); editingRef.current = editing;
     const lotesRef = useRef<any[]>([]);
     const camerasRef = useRef<any[]>([]);
+    const intrGeomsRef = useRef<any[]>([]);
     const plateMapRef = useRef<Record<string, string>>({});
     const streetsRef = useRef<Street[]>([]);
     const centerRef = useRef<LL>([-34.9, -56.1]);
     const autoRef = useRef(false);
+    const alertDevRef = useRef<string | null>(null);
+    const [, setNowMin] = useState(0);
     const autoLastRef = useRef(0);
     const rutaTimer = useRef<any>(null);
     const [autoResaltar, setAutoResaltar] = useState(false);
@@ -524,10 +670,84 @@ export default function BarrioMap() {
     const [ruta, setRuta] = useState<{ path: LL[]; key: number; dir?: string } | null>(null);
     const [draftStreet, setDraftStreet] = useState<LL[]>([]);
     const [importingOsm, setImportingOsm] = useState(false);
+    // ── Alertas de intrusión en vivo sobre el mapa (cruce de línea / zona) ──
+    const [intrAlerts, setIntrAlerts] = useState<Record<string, { ts: number; ms?: number; id?: string; type: string; label?: string | null; name?: string }>>({});
+    const [alertCard, setAlertCard] = useState<null | { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }>(null);
+    const [recModal, setRecModal] = useState<null | { cam: any; ms: number }>(null);
+    const [soundOn, setSoundOn] = useState(true);
+    const [recentIntr, setRecentIntr] = useState<any[]>([]);
+    const [intrCounts, setIntrCounts] = useState<Record<string, number>>({});
+    useEffect(() => { getTodayIntrusionCounts().then(setIntrCounts).catch(() => { }); const iv = setInterval(() => getTodayIntrusionCounts().then(setIntrCounts).catch(() => { }), 120000); return () => clearInterval(iv); }, []);
+    const [feedOpen, setFeedOpen] = useState(false);
+    useEffect(() => { try { if (localStorage.getItem("olivos.intrFeed") === "1") setFeedOpen(true); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("olivos.intrFeed", feedOpen ? "1" : "0"); } catch { } }, [feedOpen]);
+    const [lprFeedOn, setLprFeedOn] = useState(true);
+    useEffect(() => { try { const v = localStorage.getItem("olivos.lprFeed"); if (v != null) setLprFeedOn(v === "1"); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("olivos.lprFeed", lprFeedOn ? "1" : "0"); } catch { } }, [lprFeedOn]);
+    useEffect(() => { getDetectionHistory({ pageSize: 14 }).then((r: any) => setRecentIntr((r.items || []).map((it: any) => ({ id: it.id, deviceId: it.deviceId, name: it.deviceName, type: it.type, label: it.label, ms: new Date(it.timestamp).getTime() })))).catch(() => { }); }, []);
+    const soundRef = useRef(true);
+    useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
+    useEffect(() => { try { if (localStorage.getItem("olivos.intrSound") === "0") setSoundOn(false); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("olivos.intrSound", soundOn ? "1" : "0"); } catch { } }, [soundOn]);
+    const [draftIntr, setDraftIntr] = useState<LL[]>([]);
+    const [intrDraw, setIntrDraw] = useState<{ kind: "line" | "zone"; deviceId: string } | null>(null);
+    const [intrPick, setIntrPick] = useState<{ kind: "line" | "zone" } | null>(null);
+    const [intrPickCam, setIntrPickCam] = useState<string>("");
+    const [intrCamList, setIntrCamList] = useState<IntrusionCam[]>([]);
+    const [intrGeomPrev, setIntrGeomPrev] = useState<Record<string, MiniGeom>>({});
+    const [geomLoading, setGeomLoading] = useState(false);
+    const geomLoadedRef = useRef(false);
+    useEffect(() => { getIntrusionCameras().then((c) => setIntrCamList(c || [])).catch(() => { }); }, []);
+    useEffect(() => { if (!intrPickCam || intrGeomPrev[intrPickCam]) return; getAnalyticsGeometryBatch([intrPickCam]).then((g: any) => setIntrGeomPrev((p) => ({ ...p, ...g }))).catch(() => { }); }, [intrPickCam, intrGeomPrev]);
+    // En modo edición, en segundo plano, traemos la analítica (línea/zona) real de cada canal para
+    // poder listar/clasificar SOLO las cámaras que tienen un cruce o una zona configurada.
+    useEffect(() => {
+        if (!editing || geomLoadedRef.current || !intrCamList.length) return;
+        geomLoadedRef.current = true; setGeomLoading(true);
+        const ids = intrCamList.filter((c) => c.ch != null).map((c) => c.id);
+        (async () => {
+            for (let i = 0; i < ids.length; i += 10) {
+                try { const g = await getAnalyticsGeometryBatch(ids.slice(i, i + 10)); setIntrGeomPrev((p) => ({ ...p, ...g })); } catch { }
+            }
+            setGeomLoading(false);
+        })();
+    }, [editing, intrCamList]);
+    const geomKinds = useCallback((id: string) => { const g = intrGeomPrev[id]; return { line: !!(g && g.line && g.line.length >= 2), zone: !!(g && g.field && g.field.length >= 3) }; }, [intrGeomPrev]);
+    const [intrMenu, setIntrMenu] = useState(false);
+    const [intrDrawer, setIntrDrawer] = useState<null | "line" | "zone">(null);
+    const [condEdit, setCondEdit] = useState<null | { deviceId: string; kind: "line" | "zone" }>(null);
+    const [condForm, setCondForm] = useState<{ from: string; to: string; cls: string }>({ from: "", to: "", cls: "all" });
+    const [schedEdit, setSchedEdit] = useState<null | { deviceId: string; kind: "line" | "zone"; x: number; y: number; from: string; to: string; cls: string }>(null);
+    const [camSearch, setCamSearch] = useState("");
+    const [camOpen, setCamOpen] = useState(false);
+    const [placeSearch, setPlaceSearch] = useState("");
+    const [placeDrawer, setPlaceDrawer] = useState(false);
+    const beepRef = useRef<AudioContext | null>(null);
+    const lastBeepRef = useRef<Record<string, number>>({});
+    const playBeep = useCallback((label?: string | null) => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const seq: [number, number, number][] = label === "human" ? [[1046, 0, 0.13], [1318, 0.17, 0.13]] : [[660, 0, 0.2]]; for (const [f, at, du] of seq) { const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = f; o.connect(g); g.connect(ac.destination); const t = ac.currentTime + at; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(label === "human" ? 0.28 : 0.2, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + du); o.start(t); o.stop(t + du + 0.03); } } catch { } }, []);
+    const speakAlert = useCallback((label?: string | null, name?: string | null) => { try { const w: any = window; if (!w.speechSynthesis) return; const who = label === "vehicle" ? "Vehículo" : label === "human" ? "Persona" : "Detección"; const u = new SpeechSynthesisUtterance(`${who} en ${name || "cámara"}`); u.lang = "es-UY"; u.rate = 1.08; w.speechSynthesis.cancel(); w.speechSynthesis.speak(u); } catch { } }, []);
+    const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); alertDevRef.current = null; setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); setRecentIntr((prev) => prev.filter((it) => it.deviceId !== deviceId)); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
+    useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
+    useEffect(() => { const iv = setInterval(() => setNowMin((m) => (m + 1) % 1440), 30000); return () => clearInterval(iv); }, []);
 
     useEffect(() => {
         const s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
         s.on("guard_locations", (data: any[]) => setGuards(Array.isArray(data) ? data.filter((g) => g.lat != null) : []));
+        s.on("general_detection", (d: any) => {
+            if (!d || !d.deviceId) return;
+            const ms = d.timestamp ? new Date(d.timestamp).getTime() : Date.now();
+            setRecentIntr((prev) => [{ id: d.id, deviceId: d.deviceId, name: d.deviceName, type: d.type, label: d.label, ms }, ...prev].slice(0, 14));
+            setIntrCounts((p) => ({ ...p, [d.deviceId]: (p[d.deviceId] || 0) + 1 }));
+            const kindForType = (d.type === "INTRUSION" || d.type === "REGION_ENTER" || d.type === "REGION_EXIT") ? "zone" : "line";
+            const gs = intrGeomsRef.current.filter((g: any) => g.deviceId === d.deviceId);
+            const geom = gs.find((g: any) => g.kind === kindForType) || gs[0];
+            if (!condAllows(geom && geom.cond, d.label)) return;
+            setIntrAlerts((prev) => ({ ...prev, [d.deviceId]: { ts: Date.now(), ms, id: d.id, type: d.type, label: d.label, name: d.deviceName } }));
+            try { const lb = lastBeepRef.current[d.deviceId] || 0; if (soundRef.current && Date.now() - lb > 6000) { lastBeepRef.current[d.deviceId] = Date.now(); playBeep(d.label); speakAlert(d.label, d.deviceName); } } catch { }
+            setAlertCard((prev) => prev && prev.deviceId === d.deviceId ? prev : { deviceId: d.deviceId, ms, id: d.id, type: d.type, label: d.label, name: d.deviceName });
+            if (autoRef.current && alertDevRef.current !== d.deviceId) { const cam = camerasRef.current.find((c: any) => c.deviceId === d.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }
+            alertDevRef.current = d.deviceId;
+        });
         s.on("connect", () => s.emit("get_guard_locations"));
         setLiveSocket(s);
         const iv = setInterval(() => { if (s.connected) s.emit("get_guard_locations"); }, 30000);
@@ -536,12 +756,12 @@ export default function BarrioMap() {
 
     useEffect(() => {
         getBarrioMap().then((d) => { setData(d); setZoom(d.zoom || 16); }).catch(() => setData(null));
-        getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => { });
+        getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA" || x.deviceType === "CAMERA"))).catch(() => { });
         getParkingSlots().then((s: any) => setSlots(s || [])).catch(() => { });
         getPlateSlotMap().then((m: any) => { plateMapRef.current = m || {}; }).catch(() => { });
     }, []);
     useEffect(() => {
-        const close = () => setCtx(null);
+        const close = () => { setCtx(null); setIntrMenu(false); setSchedEdit(null); };
         window.addEventListener("click", close);
         return () => window.removeEventListener("click", close);
     }, []);
@@ -560,6 +780,8 @@ export default function BarrioMap() {
     clearRef.current = flow.clearAnims;
     const placedIds = useMemo(() => new Set((data?.cameras || []).map((c) => c.deviceId)), [data]);
     const unplaced = devices.filter((d) => !placedIds.has(d.id));
+    const placeFiltered = placeSearch.trim() ? unplaced.filter((d) => (d.name || "").toLowerCase().includes(placeSearch.trim().toLowerCase())) : unplaced;
+    const placeCamera = (id: string, ll: LL) => { setData((d) => d ? { ...d, cameras: [...d.cameras.filter((c) => c.deviceId !== id), { deviceId: id, lat: ll[0], lng: ll[1] }] } : d); };
 
     // Guarda TODO el mapa (API route POST — pasa el proxy sin problema)
     const persistNow = useCallback(async (next: BarrioMapData, okMsg = "Guardado") => {
@@ -645,11 +867,10 @@ export default function BarrioMap() {
             } else {
                 animateRef.current?.(ev);
             }
-            toast.info({ title: dir === "EXIT" ? "Salida" : "Entrada", description: `${plate}: recorrido ${dir === "EXIT" ? "de salida" : "de entrada"} por cámara.` });
             return;
         }
         const lote = lotesRef.current.find((l: any) => l.parkingSlotId === slotId);
-        if (!lote || !lote.points?.length) { animateRef.current?.(ev); toast.info({ title: "Lote no dibujado", description: `${plate}: muestro el recorrido por cámaras.` }); return; }
+        if (!lote || !lote.points?.length) { animateRef.current?.(ev); return; }
         const house = centroid(lote.points);
         const devId = ev?.device?.id || ev?.deviceId;
         const cam = devId ? camerasRef.current.find((c: any) => c.deviceId === devId) : null;
@@ -695,6 +916,7 @@ export default function BarrioMap() {
     const lotes = data.lotes || [];
     lotesRef.current = lotes;
     camerasRef.current = data.cameras;
+    intrGeomsRef.current = (data as any).intrusions || [];
     streetsRef.current = data.streets;
     centerRef.current = (data.perimeter && data.perimeter.length >= 3) ? centroid(data.perimeter) : (data.center as LL);
 
@@ -706,6 +928,7 @@ export default function BarrioMap() {
             persistNow(next, "Posición actualizada");
             return;
         }
+        if (intrDraw) { setDraftIntr((p) => [...p, ll]); return; }
         if (extendDiv) {
             setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === extendDiv ? { ...x, points: [...x.points, ll] } : x) }) as any : d);
             return;
@@ -734,6 +957,28 @@ export default function BarrioMap() {
         if (draftStreet.length >= 2) setData((d) => d ? { ...d, streets: [...d.streets, { id: `st_${Date.now()}`, name: "", points: draftStreet }] } : d);
         setDraftStreet([]); setTool("select");
     };
+    const commitIntr = () => {
+        if (!intrDraw) return;
+        const min = intrDraw.kind === "zone" ? 3 : 2;
+        if (draftIntr.length >= min) {
+            const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === intrDraw.deviceId && x.kind === intrDraw.kind)), { id: `intr_${Date.now()}`, deviceId: intrDraw.deviceId, kind: intrDraw.kind, points: draftIntr, nvrSig: intrGeomPrev[intrDraw.deviceId] ? sigOf(intrGeomPrev[intrDraw.deviceId], intrDraw.kind) : undefined }] } as any;
+            persistNow(next, intrDraw.kind === "zone" ? "Zona de intrusión guardada" : "Cruce de línea guardado");
+        }
+        setDraftIntr([]); setIntrDraw(null);
+    };
+    const removeIntr = (id: string) => { const next = { ...data, intrusions: ((data as any).intrusions || []).filter((x: any) => x.id !== id) } as any; persistNow(next, "Eliminado"); };
+    const suggestGeom = (deviceId: string, kind: "line" | "zone") => {
+        const cam = data.cameras.find((c) => c.deviceId === deviceId);
+        if (!cam) { toast.error({ title: "Colocá la cámara en el mapa primero" }); return; }
+        const h = (cam as any).rumbo ?? 0;
+        let points: LL[];
+        if (kind === "line") { const f = destPoint(cam.lat, cam.lng, h, 28); points = [destPoint(f[0], f[1], h + 90, 16), destPoint(f[0], f[1], h - 90, 16)]; }
+        else { const a = destPoint(cam.lat, cam.lng, h + 90, 13); const b = destPoint(cam.lat, cam.lng, h - 90, 13); const af = destPoint(a[0], a[1], h, 30); const bf = destPoint(b[0], b[1], h, 30); const a0 = destPoint(a[0], a[1], h, 8); const b0 = destPoint(b[0], b[1], h, 8); points = [a0, af, bf, b0]; }
+        const next = { ...data, intrusions: [...((data as any).intrusions || []).filter((x: any) => !(x.deviceId === deviceId && x.kind === kind)), { id: `intr_${Date.now()}`, deviceId, kind, points, nvrSig: intrGeomPrev[deviceId] ? sigOf(intrGeomPrev[deviceId], kind) : undefined }] } as any;
+        persistNow(next, "Sugerencia creada — ajustá con Redibujar si hace falta");
+    };
+    const setGeomCond = (deviceId: string, kind: "line" | "zone", cond: any) => { const next = { ...data, intrusions: ((data as any).intrusions || []).map((x: any) => (x.deviceId === deviceId && x.kind === kind) ? { ...x, cond } : x) } as any; persistNow(next, cond ? "Condición guardada" : "Condición quitada"); };
+    const setGeomDir = (deviceId: string, dir: string) => { const next = { ...data, intrusions: ((data as any).intrusions || []).map((x: any) => (x.deviceId === deviceId && x.kind === "line") ? { ...x, dir } : x) } as any; persistNow(next, "Dirección guardada"); };
     const removeDivision = (id: string) => setData((d) => d ? { ...d, divisions: ((d as any).divisions || []).filter((x: any) => x.id !== id) } as any : d);
     // Edición de vértices de una división (tejido/pared/alambrado) ya guardada.
     const setDivPoint = (divId: string, idx: number, ll: LL) => setData((d) => d ? ({ ...d, divisions: ((d as any).divisions || []).map((x: any) => x.id === divId ? { ...x, points: x.points.map((p: LL, i: number) => i === idx ? ll : p) } : x) }) as any : d);
@@ -790,6 +1035,9 @@ export default function BarrioMap() {
 
     const acercar = (d: number) => { const m = mapRef.current; if (m) m.setZoom(m.getZoom() + d); };
     const centrar = () => { const m = mapRef.current; if (m) m.setView(data.center, data.zoom); };
+    const hasActiveAlert = !!alertCard || Object.keys(intrAlerts).length > 0;
+    const eventosHoy = Object.values(intrCounts).reduce((a, b) => a + (b || 0), 0);
+    const rightPanelOpen = feedOpen || !!camCustom || placeDrawer || !!intrDrawer;
     const alternarPantalla = () => {
         const el = wrapRef.current; if (!el) return;
         if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
@@ -812,11 +1060,12 @@ export default function BarrioMap() {
         { id: "lote", icon: LandPlot, label: "Dibujar lote" },
         { id: "division", icon: Fence, label: "Dibujar división (pared/tejido/alambrado)" },
         { id: "perimeter", icon: Hexagon, label: "Dibujar perímetro" },
-        { id: "camera", icon: Video, label: "Soltar cámara" },
     ];
     const fondos: Base[] = ["Satélite", "Táctico", "Calles"];
     const capas: { key: keyof typeof show; label: string; Icon: any }[] = [
         { key: "cameras", label: "Cámaras", Icon: CamIco },
+        { key: "intrusion", label: "Cruces / Zonas", Icon: ShieldAlert },
+        { key: "fov", label: "Campo de visiÃ³n", Icon: Eye },
         { key: "lotes", label: "Lotes (polígonos)", Icon: LoteIco },
         { key: "loteNames", label: "Nombres de lotes", Icon: TypeIco },
         { key: "divisions", label: "Divisiones", Icon: Fence },
@@ -861,13 +1110,35 @@ export default function BarrioMap() {
                 .map-draw .leaflet-container{cursor:default !important}
                 .omni-reticula{position:absolute;inset:0;pointer-events:none;z-index:400;background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:44px 44px}
                 .omni-vineta{position:absolute;inset:0;pointer-events:none;z-index:400;box-shadow:inset 0 0 200px 40px rgba(0,0,0,.55)}
+                .intr-pulse{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;background:#ef4444;box-shadow:0 0 0 0 rgba(239,68,68,.75);animation:intrPulse 1.1s ease-out infinite}
+                @keyframes intrPulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,.75)}70%{box-shadow:0 0 0 30px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}
+                @keyframes intrBanner{0%,100%{opacity:1}50%{opacity:.62}}
+                @keyframes intrGeomBlink{0%,100%{opacity:1}50%{opacity:.3}}
+                .intr-geom-blink{animation:intrGeomBlink 0.8s ease-in-out infinite}
+                .intr-alert-tip{background:#dc2626;color:#fff;border:0;font-weight:800;font-size:10px;line-height:1;padding:3px 7px;border-radius:7px;box-shadow:0 2px 8px rgba(0,0,0,.5);animation:intrGeomBlink 0.9s ease-in-out infinite;white-space:nowrap}
+                .intr-alert-tip:before{display:none !important}
+                /* Mapa que respira: latido suave de camaras en reposo */
+                .cam-breath{position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:rgba(34,197,94,.5);opacity:0;pointer-events:none;z-index:0}
+                .map-armed .cam-breath{animation:camBreath 2.8s ease-in-out infinite}
+                .map-alerting .cam-breath{animation:none;opacity:0}
+                @keyframes camBreath{0%{transform:scale(.5);opacity:0}45%{opacity:.5}100%{transform:scale(2.6);opacity:0}}
+                .perim-breath{animation:perimBreath 3.4s ease-in-out infinite}
+                @keyframes perimBreath{0%,100%{stroke-opacity:.45}50%{stroke-opacity:1}}
+                .map-alerting .perim-breath{animation:perimAlert 0.9s ease-in-out infinite}
+                @keyframes perimAlert{0%,100%{stroke-opacity:.5;stroke:#22c55e}50%{stroke-opacity:1;stroke:#ef4444}}
+                .hud-breathe{animation:hudBreathe 2.8s ease-in-out infinite}
+                @keyframes hudBreathe{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.9);opacity:0}}
+                .omni-alert-veil{position:absolute;inset:0;pointer-events:none;z-index:401;box-shadow:inset 0 0 220px 60px rgba(220,38,38,.36);animation:veilBreathe 1.4s ease-in-out infinite}
+                @keyframes veilBreathe{0%,100%{opacity:.5}50%{opacity:1}}
             `}</style>
-            <div ref={wrapRef} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv) && "map-draw")}>
+            <div ref={wrapRef} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { const id = e.dataTransfer.getData("text/camId"); if (!id || !mapRef.current) return; e.preventDefault(); try { const ll = (mapRef.current as any).mouseEventToLatLng(e.nativeEvent); setEditing(true); placeCamera(id, [ll.lat, ll.lng]); } catch { } }} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv || intrDraw) && "map-draw", !editing && show.cameras && "map-armed", hasActiveAlert && "map-alerting")}>
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
+                    <ViewPersist />
                     <ZoomTracker onZoom={setZoom} />
                     <BoundsTracker onBounds={setMapBounds} />
-                    {(movingCam || extendDiv || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
+                    {(movingCam || extendDiv || intrDraw || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
+                    <MapCtxMenu onCtx={(oe) => setCtx({ x: oe.clientX, y: oe.clientY, type: "map", id: "" })} />
 
                     {base === "Satélite" && (
                         <TileLayer key="esri" attribution="&copy; Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={21} />
@@ -876,7 +1147,7 @@ export default function BarrioMap() {
                         <TileLayer key="osm" attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" maxNativeZoom={19} maxZoom={21} />
                     )}
 
-                    {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08 }} />}
+                    {show.perimeter && data.perimeter.length >= 3 && <Polygon positions={data.perimeter} pathOptions={{ color: "#22c55e", weight: 2, fillOpacity: 0.08, className: "perim-breath" }} />}
                     {draftPerimeter.length > 0 && <Polyline positions={draftPerimeter} pathOptions={{ color: "#22c55e", weight: 2, dashArray: "6 6" }} />}
 
                     {(show.lotes || show.loteNames) && (
@@ -921,6 +1192,25 @@ export default function BarrioMap() {
                     ))}
                     {draftDivision.length > 0 && <Polyline positions={draftDivision} pathOptions={{ color: DIV_STYLE[divTipo].color, weight: DIV_STYLE[divTipo].weight, dashArray: DIV_STYLE[divTipo].dashArray || "4 4", opacity: 0.8 }} />}
                     {draftStreet.length > 0 && <Polyline positions={draftStreet} pathOptions={{ color: "#38bdf8", weight: 4, dashArray: "6 6", opacity: 0.85, lineCap: "round" }} />}
+                    {show.fov && data.cameras.map((c) => { const h = (c as any).rumbo; if (h == null) return null; const r = 42, a = 26; const pL = destPoint(c.lat, c.lng, h - a, r); const pM = destPoint(c.lat, c.lng, h, r); const pR = destPoint(c.lat, c.lng, h + a, r); return <Polygon key={`fov_${c.deviceId}`} positions={[[c.lat, c.lng], pL, pM, pR]} pathOptions={{ color: "#38bdf8", weight: 1, opacity: 0.35, fillColor: "#38bdf8", fillOpacity: 0.07 }} interactive={false} />; })}
+                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => {
+                        const active = !!intrAlerts[g.deviceId];
+                        const armed = isArmedNow(g.cond);
+                        const baseCol = g.kind === "zone" ? "#f59e0b" : "#3b82f6";
+                        const col = active ? "#ef4444" : armed ? baseCol : "#64748b";
+                        const cls = active ? "intr-geom-blink" : undefined;
+                        const handlers = { contextmenu: (e: any) => openCtx(e, "intr", g.id), click: () => { const a = intrAlerts[g.deviceId]; if (a) setAlertCard({ deviceId: g.deviceId, ms: a.ms || a.ts, id: a.id, type: a.type, label: a.label, name: a.name }); } };
+                        const tip = active ? <LTooltip permanent direction="top" className="intr-alert-tip">⚠ {g.kind === "zone" ? "Intrusión" : "Cruce"} · tocÃ¡ para aceptar</LTooltip> : null;
+                        return g.kind === "zone"
+                            ? <Polygon key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 4 : armed ? 2.5 : 2, opacity: active || armed ? 0.95 : 0.6, fillColor: col, fillOpacity: active ? 0.3 : armed ? 0.12 : 0.045, dashArray: active || armed ? undefined : "6 8", className: cls }} eventHandlers={handlers}>{tip}</Polygon>
+                            : <Polyline key={g.id} positions={g.points} pathOptions={{ color: col, weight: active ? 7 : armed ? 3.5 : 2.5, opacity: active ? 0.98 : armed ? 0.95 : 0.6, lineCap: "round", dashArray: active || armed ? undefined : "6 8", className: cls }} eventHandlers={handlers}>{tip}</Polyline>;
+                    })}
+                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => { if (g.kind !== "line" || !g.points || g.points.length < 2) return null; const dir = g.dir || "both"; if (dir === "none") return null; const a = g.points[0], b = g.points[1]; const mid: LL = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; const lb = bearingOf(a, b); const active = !!intrAlerts[g.deviceId]; const col = active ? "#ef4444" : (isArmedNow(g.cond) ? "#3b82f6" : "#64748b"); const deg = dir === "rev" ? lb - 90 : lb + 90; return <Marker key={`dir_${g.id}`} position={mid} icon={dirArrowIcon(deg, dir === "both", col)} interactive={false} zIndexOffset={450} />; })}
+                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => { const n = intrCounts[g.deviceId] || 0; if (!n || !g.points?.length) return null; return <Marker key={`cnt_${g.id}`} position={g.points[0]} icon={countBadgeIcon(n)} interactive={false} zIndexOffset={500} />; })}
+                    {show.intrusion && ((data as any).intrusions || []).map((g: any) => { if (!g.points?.length || !g.cond || isArmedNow(g.cond) || !!intrAlerts[g.deviceId]) return null; const pos = g.kind === "zone" ? centroid(g.points) : g.points[0]; return <Marker key={`zzz_${g.id}`} position={pos} icon={sleepIcon(g.cond)} interactive={false} zIndexOffset={470} />; })}
+                    {draftIntr.length > 0 && (intrDraw?.kind === "zone"
+                        ? <Polygon positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 2, dashArray: "6 6", fillOpacity: 0.08 }} />
+                        : <Polyline positions={draftIntr} pathOptions={{ color: "#3b82f6", weight: 3, dashArray: "6 6", lineCap: "round" }} />)}
 
                     {show.guards && guards.map((g) => (
                         <Marker key={"g" + g.id} position={[g.lat, g.lng]}
@@ -944,7 +1234,7 @@ export default function BarrioMap() {
                         </Marker>
                     ))}
 
-                    {show.cameras && data.cameras.map((c) => (
+                    {show.cameras && data.cameras.filter((c) => !mapBounds || mapBounds.contains([c.lat, c.lng] as any)).map((c) => (
                         <Marker key={`${c.deviceId}_${(c as any).rumbo ?? "n"}_${(c as any).size ?? 30}_${(c as any).color ?? "d"}`} position={[c.lat, c.lng]}
                             icon={camIconDe({ rumbo: (c as any).rumbo, size: (c as any).size, color: (c as any).color }, located?.type === "camera" && located.id === c.deviceId ? "cam-locate" : "")}
                             eventHandlers={{
@@ -953,7 +1243,7 @@ export default function BarrioMap() {
                                 popupopen: () => setOpenCamPopup(c.deviceId),
                                 popupclose: () => setOpenCamPopup((v) => v === c.deviceId ? null : v),
                             }}>
-                            {show.names && <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>}
+                            {show.names && zoom >= 16 && <LTooltip permanent direction="top" offset={[0, -22]} className="cam-name-tip">{devById[c.deviceId]?.name || "Cámara"}</LTooltip>}
                             {!editing && !movingCam && (
                                 <Popup className="cam-live-popup" maxWidth={280} minWidth={260}>
                                     <div className="rounded-lg overflow-hidden">
@@ -967,6 +1257,12 @@ export default function BarrioMap() {
                             )}
                         </Marker>
                     ))}
+                    {/* Alerta de intrusión: halo rojo pulsante sobre la cámara que se activó */}
+                    {Object.keys(intrAlerts).map((devId) => { const cam = data.cameras.find((c) => c.deviceId === devId); if (!cam) return null; return <Marker key={`intr_${devId}`} position={[cam.lat, cam.lng]} icon={intrPulseIcon} interactive={false} zIndexOffset={2000} />; })}
+                    {/* Ficha del evento anclada sobre la cámara (overlay HTML por proyección, sin popup) */}
+                    {alertCard && (() => { const cam = data.cameras.find((c) => c.deviceId === alertCard.deviceId); if (!cam) return null; return (
+                        <IntrAlertBubble key={`alert_${alertCard.deviceId}`} card={alertCard} camList={intrCamList} cam={cam} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => { const cm = intrCamList.find((c) => c.id === alertCard.deviceId); if (cm) setRecModal({ cam: cm, ms: alertCard.ms }); }} />
+                    ); })()}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
                     {ruta && ruta.path.length >= 2 && (
                         <>
@@ -986,6 +1282,53 @@ export default function BarrioMap() {
                         />
                     )}
                 </MapContainer>
+
+                {/* Velo rojo que respira durante una alerta activa */}
+                {hasActiveAlert && <div className="omni-alert-veil" />}
+                {/* HUD de estado del sistema: respira verde en reposo, rojo en alerta */}
+                <div className={cn("absolute top-[4.75rem] left-1/2 -translate-x-1/2 z-[605] flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-extrabold tracking-wide backdrop-blur-md shadow-lg border transition-colors", hasActiveAlert ? "bg-red-600/90 text-white border-red-300" : "bg-black/55 text-white border-white/15")}>
+                    <span className="relative flex h-2.5 w-2.5">
+                        <span className={cn("absolute inline-flex h-full w-full rounded-full", hasActiveAlert ? "bg-red-300 animate-ping" : "bg-emerald-400 hud-breathe")} />
+                        <span className={cn("relative inline-flex rounded-full h-2.5 w-2.5", hasActiveAlert ? "bg-red-100" : "bg-emerald-400")} />
+                    </span>
+                    {hasActiveAlert ? "INTRUSIÓN ACTIVA" : "SISTEMA ARMADO"}
+                    <span className="opacity-60 font-semibold">· {eventosHoy} hoy</span>
+                </div>
+                <button onClick={() => setSoundOn((v) => !v)} title={soundOn ? "Silenciar alertas" : "Activar sonido de alertas"} className={cn("absolute top-4 left-4 z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", soundOn ? "bg-card/80 text-foreground hover:bg-card" : "bg-red-600/90 text-white")}>{soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}</button>
+                <button onClick={() => setFeedOpen((v) => !v)} title="Feed de intrusiones" className={cn("absolute top-4 left-[3.5rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", feedOpen ? "bg-red-600/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Activity size={16} /></button>
+                <button onClick={() => setLprFeedOn((v) => !v)} title="Feed LPR (entradas / salidas)" className={cn("absolute top-4 left-[6rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", lprFeedOn ? "bg-amber-500/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Car size={16} /></button>
+                {feedOpen && !camCustom && !placeDrawer && !intrDrawer && (
+                    <div className="absolute top-4 right-4 bottom-4 z-[600] w-[270px] bg-card/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
+                            <div className="text-[13px] font-bold flex items-center gap-2"><Activity size={14} className="text-red-500" /> Intrusiones recientes</div>
+                            <button onClick={() => setFeedOpen(false)} className={gbtn}><X size={14} /></button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
+                            {recentIntr.length === 0 && <div className="text-xs text-muted-foreground p-3 text-center">Sin eventos recientes.</div>}
+                            {recentIntr.map((it) => (
+                                <button key={it.id || it.ms} onClick={() => { setAlertCard({ deviceId: it.deviceId, ms: it.ms, id: it.id, type: it.type, label: it.label, name: it.name }); const cam = camerasRef.current.find((c: any) => c.deviceId === it.deviceId); if (cam && mapRef.current) { try { mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18), { animate: true }); } catch { } } }}
+                                    className="w-full flex items-center gap-2 rounded-xl border border-border bg-background/60 p-1.5 hover:bg-accent/40 transition-colors text-left">
+                                    <div className="relative w-[64px] h-[40px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={`/api/snapshot/${it.deviceId}?t=${it.id || it.ms}`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-[11.5px] font-bold truncate flex items-center gap-1">{it.type === "INTRUSION" ? <ShieldAlert size={11} className="text-red-500 shrink-0" /> : <Route size={11} className="text-sky-500 shrink-0" />}{it.type === "INTRUSION" ? "Intrusión" : it.type === "LINECROSS" ? "Cruce" : "Detección"}{it.label ? <span className="text-muted-foreground">· {it.label === "vehicle" ? "Auto" : "Persona"}</span> : null}</div>
+                                        <div className="text-[10px] text-muted-foreground truncate">{it.name || "Cámara"}</div>
+                                        <div className="text-[9.5px] text-muted-foreground tabular-nums">{new Date(it.ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+                {/* Fallback: ficha fija SOLO si la cámara no está colocada en el mapa */}
+                {alertCard && !data.cameras.find((c) => c.deviceId === alertCard.deviceId) && (() => { const meta = intrCamList.find((c) => c.id === alertCard.deviceId); const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(alertCard.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null; return (
+                    <div className="absolute top-16 left-4 z-[690]">
+                        <IntrAlertCard card={alertCard} clip={clip} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => { const cm = intrCamList.find((c) => c.id === alertCard.deviceId); if (cm) setRecModal({ cam: cm, ms: alertCard.ms }); }} />
+                    </div>
+                ); })()}
+                {recModal && <LiveModal cam={recModal.cam} cams={intrCamList} initialTab="rec" initialRecMs={recModal.ms} onClose={() => setRecModal(null)} />}
 
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
 
@@ -1013,10 +1356,10 @@ export default function BarrioMap() {
                 )}
 
                 {/* Columnas de flujo en vivo */}
-                {!editing && (
+                {!editing && lprFeedOn && (
                     <>
                         <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} onPick={(ev) => onPlate(ev)} />
-                        <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => onPlate(ev)} />
+                        {!rightPanelOpen && <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => onPlate(ev)} />}
                     </>
                 )}
 
@@ -1036,6 +1379,19 @@ export default function BarrioMap() {
                                         <button onClick={() => { setTool(t.id); setSelected(null); }} className={cn(gbtn, tool === t.id && "bg-blue-600 text-white hover:bg-blue-500 hover:text-white")}><t.icon size={16} /></button>
                                     </TooltipTrigger><TooltipContent>{t.label}</TooltipContent></Tooltip>
                                 ))}
+                                <div className="relative">
+                                    <Tooltip><TooltipTrigger asChild>
+                                        <button onClick={(e) => { e.stopPropagation(); setIntrMenu((v) => !v); }} className={cn(gbtn, intrMenu && "bg-white/10 text-foreground")}><Video size={16} /></button>
+                                    </TooltipTrigger><TooltipContent>Cámaras: cruces y zonas</TooltipContent></Tooltip>
+                                    {intrMenu && (
+                                        <div className="absolute top-full mt-2 left-0 z-[560] bg-popover border border-border rounded-xl shadow-2xl py-1 min-w-[180px]" onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={() => { setPlaceDrawer(true); setIntrMenu(false); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-xs font-bold"><Video size={13} className="text-blue-400" /> Colocar cámara</button>
+                                            <div className="h-px bg-border my-1" />
+                                            <button onClick={() => { setIntrDrawer("line"); setIntrMenu(false); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-xs font-bold"><Route size={13} className="text-sky-400" /> Cruces de línea</button>
+                                            <button onClick={() => { setIntrDrawer("zone"); setIntrMenu(false); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-xs font-bold"><ShieldAlert size={13} className="text-sky-400" /> Zonas de intrusión</button>
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="w-px h-6 bg-border mx-0.5" />
                                 <Tooltip><TooltipTrigger asChild><button onClick={importOsmStreets} disabled={importingOsm} className={cn(gbtn, "text-sky-400 hover:text-sky-300 hover:bg-sky-500/10")}>{importingOsm ? <Loader2 size={16} className="animate-spin" /> : <Route size={16} />}</button></TooltipTrigger><TooltipContent>Importar calles reales del barrio (OpenStreetMap) para el ruteo</TooltipContent></Tooltip>
                                 <div className="w-px h-6 bg-border mx-0.5" />
@@ -1128,11 +1484,7 @@ export default function BarrioMap() {
                         </>)}
                         {tool === "camera" && (<>
                             <p className="font-bold flex items-center gap-1.5"><Video size={13} className="text-blue-400" /> Soltar cámara</p>
-                            <select value={pendingCam} onChange={(e) => setPendingCam(e.target.value)} className="w-full bg-background border border-border rounded-md px-2 py-1.5">
-                                <option value="">Elegí una cámara…</option>
-                                {unplaced.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                            </select>
-                            <p className="text-muted-foreground">{pendingCam ? "Clic en el mapa para ubicarla." : `Ubicadas: ${placedIds.size}`}</p>
+                            <p className="text-muted-foreground">{pendingCam ? `Clic en el mapa para ubicar ${devById[pendingCam]?.name || "la cámara"}.` : "Elegí una cámara en el panel (o arrastrala al mapa)."}</p>
                         </>)}
                         {tool === "select" && (<p className="text-muted-foreground flex items-center gap-1.5"><MapPin size={13} /> {selected ? `Seleccionado: ${selected.type === "camera" ? (devById[selected.id]?.name || "cámara") : selected.type === "lote" ? (lotes.find((l) => l.id === selected.id)?.name || "lote") : "calle"}` : "Tocá un lote (doble clic para editar) o cámara · clic derecho para menú."}</p>)}
                     </div>
@@ -1158,12 +1510,193 @@ export default function BarrioMap() {
                             <button onClick={() => { setEditDivPts(null); setExtendDiv(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Plus size={13} className="text-blue-400" /> Seguir agregando puntos</button>
                             <button onClick={() => { const dv = ((data as any).divisions || []).find((x: any) => x.id === ctx.id); if (dv) { const st = DIV_STYLE[dv.tipo as DivTipo] || DIV_STYLE.pared; setDivCustom({ id: dv.id, tipo: dv.tipo, color: dv.color || st.color, weight: dv.weight || st.weight }); } setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Palette size={13} className="text-purple-400" /> Color y grosor</button>
                             <button onClick={() => { removeDivision(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar división</button>
-                        </>) : (<>
+                        </>) : ctx.type === "map" ? (<>
+                            <button onClick={() => { setEditing(true); setPlaceDrawer(true); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Video size={13} className="text-blue-400" /> Colocar cámara</button>
+                            <div className="h-px bg-border my-1" />
+                            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Intrusión</div>
+                            <button onClick={() => { setEditing(true); setIntrDrawer("line"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Route size={13} className="text-sky-400" /> Definir cruce de línea</button>
+                            <button onClick={() => { setEditing(true); setIntrDrawer("zone"); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><ShieldAlert size={13} className="text-sky-400" /> Definir zona de intrusión</button>
+                        </>) : ctx.type === "intr" ? (() => {
+                            const g = ((data as any).intrusions || []).find((x: any) => x.id === ctx.id);
+                            if (!g) return <button onClick={() => { removeIntr(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar</button>;
+                            return (<>
+                                <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">{g.kind === "zone" ? <ShieldAlert size={11} className="text-sky-500" /> : <Route size={11} className="text-sky-500" />}{g.kind === "zone" ? "Zona de intrusión" : "Cruce de línea"}</div>
+                                <button onClick={() => { setSchedEdit({ deviceId: g.deviceId, kind: g.kind, x: ctx.x, y: ctx.y, from: g.cond?.from || "", to: g.cond?.to || "", cls: g.cond?.cls || "all" }); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Clock size={13} className="text-sky-400" /> Horario de armado / reglas</button>
+                                {g.kind === "line" && <button onClick={() => { const order = ["both", "fwd", "rev", "none"]; const cur = g.dir || "both"; setGeomDir(g.deviceId, order[(order.indexOf(cur) + 1) % order.length]); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Compass size={13} className="text-emerald-400" /> Cambiar dirección ({(g.dir || "both") === "both" ? "ambas" : (g.dir === "fwd" ? "una" : g.dir === "rev" ? "otra" : "sin flecha")})</button>}
+                                <button onClick={() => { setEditing(true); setIntrDrawer(g.kind); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} className="text-blue-400" /> Editar en panel</button>
+                                <div className="h-px bg-border my-1" />
+                                <button onClick={() => { removeIntr(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar {g.kind === "zone" ? "zona" : "cruce"}</button>
+                            </>);
+                        })() : (<>
                             <button onClick={() => { renameStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><PencilIcon size={13} /> Renombrar calle</button>
                             {editing && <button onClick={() => { removeStreet(ctx.id); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2 text-red-400"><Trash2 size={13} /> Borrar calle</button>}
                         </>)}
                     </div>
                 )}
+
+                {schedEdit && (
+                    <div className="fixed z-[602] w-[232px] bg-popover border border-border rounded-xl shadow-2xl p-2.5 space-y-2" style={{ left: Math.min(schedEdit.x, (typeof window !== "undefined" ? window.innerWidth : 1200) - 252), top: Math.min(schedEdit.y, (typeof window !== "undefined" ? window.innerHeight : 800) - 190) }} onClick={(e) => e.stopPropagation()}>
+                        <div className="text-[11px] font-bold flex items-center gap-1.5"><Clock size={12} className="text-sky-500" /> Horario de armado</div>
+                        <div className="flex items-center gap-1 text-[10px]"><span className="text-muted-foreground w-5">De</span><input type="time" value={schedEdit.from} onChange={(e) => setSchedEdit((p) => p ? { ...p, from: e.target.value } : p)} className="flex-1 h-7 px-1.5 rounded bg-background border border-border text-[11px] [color-scheme:dark]" /><span className="text-muted-foreground">a</span><input type="time" value={schedEdit.to} onChange={(e) => setSchedEdit((p) => p ? { ...p, to: e.target.value } : p)} className="flex-1 h-7 px-1.5 rounded bg-background border border-border text-[11px] [color-scheme:dark]" /></div>
+                        <select value={schedEdit.cls} onChange={(e) => setSchedEdit((p) => p ? { ...p, cls: e.target.value } : p)} className="w-full h-7 px-1.5 rounded bg-background border border-border text-[11px]"><option value="all">Alertar: todo</option><option value="human">Alertar: solo persona</option><option value="vehicle">Alertar: solo auto</option></select>
+                        <div className="text-[9px] text-muted-foreground leading-tight">Sin horario = siempre armada. Fuera de la franja la geometría queda dormida (gris).</div>
+                        <div className="flex gap-1"><button onClick={() => { setGeomCond(schedEdit.deviceId, schedEdit.kind, { from: schedEdit.from || undefined, to: schedEdit.to || undefined, cls: schedEdit.cls }); setSchedEdit(null); }} className="flex-1 py-1.5 rounded-lg bg-sky-600 text-white text-[11px] font-bold">Guardar</button><button onClick={() => { setGeomCond(schedEdit.deviceId, schedEdit.kind, undefined); setSchedEdit(null); }} className="px-2 py-1.5 rounded-lg bg-accent text-[11px] font-bold">Quitar</button><button onClick={() => setSchedEdit(null)} className="px-2 py-1.5 rounded-lg bg-accent text-[11px]"><X size={11} /></button></div>
+                    </div>
+                )}
+                {intrPick && (() => {
+                    const list: any[] = intrCamList.filter((c) => { const k = geomKinds(c.id); return k.line || k.zone; });
+                    const sel = list.find((c) => c.id === intrPickCam);
+                    const q = camSearch.trim().toLowerCase();
+                    const filtered = q ? list.filter((c) => `${c.name} ${c.nvrName || ""} ${c.ch ?? ""}`.toLowerCase().includes(q)) : list;
+                    return (
+                    <div className="fixed inset-0 z-[700] bg-black/50 flex items-center justify-center" onClick={() => setIntrPick(null)}>
+                        <div className="bg-popover border border-border rounded-xl shadow-2xl p-4 flex gap-4" onClick={(e) => e.stopPropagation()}>
+                            <div className="w-[300px]">
+                                <div className="text-sm font-bold mb-2 flex items-center gap-2">{intrPick.kind === "zone" ? <ShieldAlert size={15} className="text-sky-500" /> : <Route size={15} className="text-sky-500" />} {intrPick.kind === "zone" ? "Nueva zona de intrusión" : "Nuevo cruce de línea"}</div>
+                                <div className="flex gap-1.5 mb-3">
+                                    <button onClick={() => setIntrPick({ kind: "line" })} className={cn("flex-1 py-1.5 rounded-md text-xs font-bold flex items-center justify-center gap-1", intrPick.kind === "line" ? "bg-sky-600 text-white" : "bg-accent")}><Route size={13} /> Cruce</button>
+                                    <button onClick={() => setIntrPick({ kind: "zone" })} className={cn("flex-1 py-1.5 rounded-md text-xs font-bold flex items-center justify-center gap-1", intrPick.kind === "zone" ? "bg-sky-600 text-white" : "bg-accent")}><ShieldAlert size={13} /> Zona</button>
+                                </div>
+                                <p className="text-xs text-muted-foreground mb-1.5">¿De qué cámara es?</p>
+                                <div className="relative mb-3">
+                                    <button type="button" onClick={() => setCamOpen((v) => !v)} className="w-full h-9 px-3 rounded-md bg-background border border-border text-sm flex items-center justify-between hover:bg-accent/50 transition-colors">
+                                        <span className={cn("truncate", !sel && "text-muted-foreground")}>{sel ? `${sel.name}${sel.nvrName ? ` · ${sel.nvrName}${sel.ch != null ? " CH" + sel.ch : ""}` : ""}` : "Elegí una cámara…"}</span>
+                                        <ChevronDown size={14} className={cn("text-muted-foreground shrink-0 transition-transform", camOpen && "rotate-180")} />
+                                    </button>
+                                    {camOpen && (
+                                        <div className="absolute z-[710] mt-1 left-0 right-0 bg-popover border border-border rounded-xl shadow-2xl overflow-hidden">
+                                            <div className="p-1.5 border-b border-border">
+                                                <div className="relative">
+                                                    <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                                                    <input autoFocus value={camSearch} onChange={(e) => setCamSearch(e.target.value)} placeholder="Buscar cámara / NVR / canal…" className="w-full h-8 pl-7 pr-2 rounded-lg bg-background border border-border text-xs focus:outline-none focus:ring-1 focus:ring-sky-500" />
+                                                </div>
+                                            </div>
+                                            <div className="max-h-[210px] overflow-y-auto custom-scrollbar py-1">
+                                                {filtered.length === 0 && <div className="px-3 py-3 text-xs text-muted-foreground text-center">{geomLoading ? "Cargando analíticas…" : "Sin resultados"}</div>}
+                                                {filtered.map((c) => { const k = geomKinds(c.id); const tipo = k.line && k.zone ? "Cruce+Zona" : k.zone ? "Zona" : "Cruce"; return (
+                                                    <button key={c.id} onClick={() => { setIntrPickCam(c.id); setCamOpen(false); setCamSearch(""); }} className={cn("w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center justify-between gap-2 transition-colors", intrPickCam === c.id && "bg-accent")}>
+                                                        <span className="truncate"><span className="font-bold">{c.name}</span>{c.nvrName ? <span className="text-muted-foreground"> · {c.nvrName}{c.ch != null ? ` CH${c.ch}` : ""}</span> : null}</span>
+                                                        <span className={cn("shrink-0 text-[9px] font-extrabold px-1.5 py-0.5 rounded", tipo === "Zona" ? "bg-rose-500/15 text-rose-400" : tipo === "Cruce" ? "bg-sky-500/15 text-sky-400" : "bg-violet-500/15 text-violet-400")}>{tipo}</span>
+                                                    </button>
+                                                ); })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex gap-2">
+                                    <button disabled={!intrPickCam} onClick={() => { setIntrDraw({ kind: intrPick.kind, deviceId: intrPickCam }); setDraftIntr([]); setIntrPick(null); }} className="flex-1 py-1.5 rounded-md bg-sky-600 text-white font-bold text-sm disabled:opacity-40">Dibujar</button>
+                                    <button onClick={() => setIntrPick(null)} className="px-3 py-1.5 rounded-md bg-accent text-sm">Cancelar</button>
+                                </div>
+                            </div>
+                            <div className="w-[260px] flex flex-col">
+                                <div className="text-[11px] font-bold text-muted-foreground mb-1.5">Analítica en la cámara</div>
+                                <div className="relative w-[260px] h-[150px] bg-black rounded-lg overflow-hidden ring-1 ring-border flex items-center justify-center">
+                                    {intrPickCam ? (<>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={`/api/snapshot/${intrPickCam}?t=intr`} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                                        <MiniGeomOverlay geom={intrGeomPrev[intrPickCam]} />
+                                        {!intrGeomPrev[intrPickCam] && <span className="relative text-[10px] text-white/70">Cargando analítica…</span>}
+                                    </>) : <span className="text-[11px] text-muted-foreground px-3 text-center">Elegí una cámara para ver su línea/zona</span>}
+                                </div>
+                                {sel && sel.nvrName && <div className="text-[10px] text-muted-foreground mt-1.5 truncate">{sel.nvrName}{sel.ch != null ? ` · CH ${sel.ch}` : ""}</div>}
+                                <p className="text-[10px] text-muted-foreground mt-auto pt-2">La referencia azul marca qué cruza la cámara: dibujá la línea/zona en el mapa con esa orientación.</p>
+                            </div>
+                        </div>
+                    </div>
+                    );
+                })()}
+                {intrDraw && (
+                    <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-[650] bg-popover/95 border border-border rounded-xl shadow-2xl px-3 py-2 flex items-center gap-2 backdrop-blur">
+                        <div className="relative w-[64px] h-[40px] rounded-md overflow-hidden bg-black ring-1 ring-border shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/api/snapshot/${intrDraw.deviceId}?t=ref`} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                            <MiniGeomOverlay geom={intrGeomPrev[intrDraw.deviceId]} />
+                        </div>
+                        <span className="text-xs font-bold">{intrDraw.kind === "zone" ? "Zona" : "Cruce"} · {devById[intrDraw.deviceId]?.name || intrCamList.find((c) => c.id === intrDraw.deviceId)?.name || "Cámara"} · {draftIntr.length} pts</span>
+                        <button onClick={commitIntr} disabled={draftIntr.length < (intrDraw.kind === "zone" ? 3 : 2)} className="px-3 py-1.5 rounded-md bg-sky-600 text-white font-bold text-xs disabled:opacity-40 flex items-center gap-1"><Check size={13} /> Finalizar</button>
+                        <button onClick={() => setDraftIntr((p) => p.slice(0, -1))} className="px-2 py-1.5 rounded-md bg-accent"><Undo2 size={13} /></button>
+                        <button onClick={() => { setDraftIntr([]); setIntrDraw(null); }} className="px-2 py-1.5 rounded-md bg-accent"><X size={13} /></button>
+                    </div>
+                )}
+
+{placeDrawer && !camCustom && !intrDrawer && (
+                    <div className="absolute top-0 right-0 bottom-0 z-[680] w-[320px] bg-card/95 backdrop-blur-xl border-l border-border shadow-2xl flex flex-col">
+                        <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
+                            <div className="text-sm font-bold flex items-center gap-2"><Video size={15} className="text-blue-400" /> Colocar cámara</div>
+                            <button onClick={() => setPlaceDrawer(false)} className={gbtn}><X size={15} /></button>
+                        </div>
+                        <div className="px-2.5 pt-2 pb-1 shrink-0">
+                            <div className="relative"><Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" /><input value={placeSearch} onChange={(e) => setPlaceSearch(e.target.value)} placeholder="Buscar cámara…" className="w-full h-8 pl-7 pr-2 rounded-lg bg-background border border-border text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" /></div>
+                            <p className="text-[10px] text-muted-foreground mt-1.5">Arrastrá una cámara al mapa, o tocÃ¡ “Colocar” y hacé clic en el punto.</p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1.5">
+                            {placeFiltered.length === 0 && <div className="text-xs text-muted-foreground p-3 text-center">{unplaced.length === 0 ? "Todas las cámaras ya están ubicadas." : "Sin resultados."}</div>}
+                            {placeFiltered.map((d: any) => (
+                                <div key={d.id} draggable onDragStart={(e) => { e.dataTransfer.setData("text/camId", d.id); e.dataTransfer.effectAllowed = "copy"; }}
+                                    className={cn("rounded-xl border border-border bg-background/60 p-1.5 flex items-center gap-2 cursor-grab active:cursor-grabbing", pendingCam === d.id && "ring-1 ring-blue-500")}>
+                                    <div className="relative w-[72px] h-[44px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={`/api/snapshot/${d.id}?t=pl`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" draggable={false} />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-[12px] font-bold truncate">{d.name}</div>
+                                        <div className="mt-0.5"><span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded", d.deviceType === "LPR_CAMERA" ? "bg-amber-500/15 text-amber-400" : "bg-sky-500/15 text-sky-400")}>{d.deviceType === "LPR_CAMERA" ? "LPR" : "Cámara"}</span></div>
+                                    </div>
+                                    <button onClick={() => { setEditing(true); setPendingCam(d.id); setTool("camera"); }} className="text-[10px] font-bold px-2 py-1 rounded bg-blue-600 text-white hover:bg-blue-500 shrink-0">Colocar</button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {intrDrawer && !camCustom && (() => {
+                    const kind = intrDrawer;
+                    const list = intrCamList.filter((c) => { const k = geomKinds(c.id); return kind === "line" ? k.line : k.zone; });
+                    const drawnOf = (id: string) => ((data as any).intrusions || []).find((g: any) => g.deviceId === id && g.kind === kind);
+                    const drawnCount = list.filter((c) => drawnOf(c.id)).length;
+                    return (
+                        <div className="absolute top-0 right-0 bottom-0 z-[680] w-[320px] bg-card/95 backdrop-blur-xl border-l border-border shadow-2xl flex flex-col">
+                            <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
+                                <div className="text-sm font-bold flex items-center gap-2">{kind === "zone" ? <ShieldAlert size={15} className="text-sky-500" /> : <Route size={15} className="text-sky-500" />} {kind === "zone" ? "Zonas de intrusión" : "Cruces de línea"} <span className="text-[11px] font-semibold text-muted-foreground">{drawnCount}/{list.length}</span></div>
+                                <button onClick={() => setIntrDrawer(null)} className={gbtn}><X size={15} /></button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
+                                {geomLoading && list.length === 0 && <div className="text-xs text-muted-foreground flex items-center gap-2 p-3"><Loader2 size={14} className="animate-spin" /> Cargando analíticas…</div>}
+                                {!geomLoading && list.length === 0 && <div className="text-xs text-muted-foreground p-3">Ninguna cámara con {kind === "zone" ? "zona" : "cruce"} configurado.</div>}
+                                {list.map((c) => { const drawn = drawnOf(c.id); const stale = !!(drawn && drawn.nvrSig && intrGeomPrev[c.id] && drawn.nvrSig !== sigOf(intrGeomPrev[c.id], kind)); return (
+                                    <div key={c.id} className="rounded-xl border border-border bg-background/60 p-2 flex gap-2">
+                                        <div className="relative w-[84px] h-[52px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img src={`/api/snapshot/${c.id}?t=dr`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                            <MiniGeomOverlay geom={intrGeomPrev[c.id]} />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="text-[12px] font-bold truncate">{c.name}</div>
+                                            <div className="text-[10px] text-muted-foreground truncate">{c.nvrName || "—"}{c.ch != null ? ` · CH ${c.ch}` : ""}</div>
+                                            <div className="mt-0.5">{drawn ? <span className="text-[9px] font-bold uppercase text-emerald-500">● Dibujado ({drawn.points.length} pts)</span> : <span className="text-[9px] font-bold uppercase text-amber-500">● Pendiente</span>}{(intrCounts[c.id] || 0) > 0 && <span className="ml-1.5 text-[9px] font-bold text-muted-foreground">Hoy: {intrCounts[c.id]}</span>}</div>
+                                            <div className="mt-1 flex gap-1 flex-wrap">{stale && <span className="w-full text-[9px] font-bold text-amber-500 flex items-center gap-1 mb-0.5"><ShieldAlert size={10} /> Desactualizada: la analítica cambió en la cámara, redibujá</span>}
+                                                <button onClick={() => { setIntrDraw({ kind, deviceId: c.id }); setDraftIntr([]); setIntrPickCam(c.id); setIntrDrawer(null); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-600 text-white hover:bg-sky-500">{drawn ? "Redibujar" : "Dibujar"}</button>
+                                                {!drawn && placedIds.has(c.id) && <button onClick={() => suggestGeom(c.id, kind)} title="Crear una sugerencia segun la orientacion de la camara" className="text-[10px] font-bold px-2 py-0.5 rounded bg-violet-600/80 text-white hover:bg-violet-600">Sugerir</button>}
+                                                {drawn && <button onClick={() => { if (mapRef.current && drawn.points[0]) mapRef.current.setView(drawn.points[0], Math.max(mapRef.current.getZoom(), 18)); }} className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent">Ver</button>}
+                                                {drawn && <button onClick={() => removeIntr(drawn.id)} title="Borrar del mapa" className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent text-red-400"><Trash2 size={11} /></button>}
+                                                {drawn && kind === "line" && <button onClick={() => { const cur = drawn.dir || "both"; const order = ["both", "fwd", "rev", "none"]; setGeomDir(c.id, order[(order.indexOf(cur) + 1) % order.length]); }} title="DirecciÃ³n de la flecha del cruce" className="text-[10px] font-bold px-2 py-0.5 rounded bg-accent">{(() => { const dd = drawn.dir || "both"; return dd === "both" ? "â Ambas" : dd === "fwd" ? "â Una" : dd === "rev" ? "â Otra" : "â Sin flecha"; })()}</button>}
+                                                {drawn && <button onClick={() => { setCondEdit({ deviceId: c.id, kind }); setCondForm({ from: drawn.cond?.from || "", to: drawn.cond?.to || "", cls: drawn.cond?.cls || "all" }); }} className={cn("text-[10px] font-bold px-2 py-0.5 rounded inline-flex items-center gap-1", drawn.cond && (drawn.cond.from || (drawn.cond.cls && drawn.cond.cls !== "all")) ? "bg-sky-500/20 text-sky-400" : "bg-accent")}><Clock size={10} />{drawn.cond && (drawn.cond.from || (drawn.cond.cls && drawn.cond.cls !== "all")) ? `${drawn.cond.from && drawn.cond.to ? drawn.cond.from + "-" + drawn.cond.to : ""}${drawn.cond.cls && drawn.cond.cls !== "all" ? " " + (drawn.cond.cls === "human" ? "Pers" : "Auto") : ""}`.trim() || "Horario" : "Horario"}</button>}
+                                                {condEdit && condEdit.deviceId === c.id && condEdit.kind === kind && (
+                                                    <div className="w-full mt-1.5 border-t border-border pt-1.5 flex flex-col gap-1.5">
+                                                        <div className="flex items-center gap-1 text-[10px]"><span className="text-muted-foreground w-5">De</span><input type="time" value={condForm.from} onChange={(e) => setCondForm((f) => ({ ...f, from: e.target.value }))} className="flex-1 h-7 px-1.5 rounded bg-background border border-border text-[11px] [color-scheme:dark]" /><span className="text-muted-foreground">a</span><input type="time" value={condForm.to} onChange={(e) => setCondForm((f) => ({ ...f, to: e.target.value }))} className="flex-1 h-7 px-1.5 rounded bg-background border border-border text-[11px] [color-scheme:dark]" /></div>
+                                                        <select value={condForm.cls} onChange={(e) => setCondForm((f) => ({ ...f, cls: e.target.value }))} className="h-7 px-1.5 rounded bg-background border border-border text-[11px]"><option value="all">Alertar: todo</option><option value="human">Alertar: solo persona</option><option value="vehicle">Alertar: solo auto</option></select>
+                                                        <div className="flex gap-1"><button onClick={() => { setGeomCond(c.id, kind, { from: condForm.from || undefined, to: condForm.to || undefined, cls: condForm.cls }); setCondEdit(null); }} className="flex-1 py-1 rounded bg-sky-600 text-white text-[10px] font-bold">Guardar</button><button onClick={() => { setGeomCond(c.id, kind, undefined); setCondEdit(null); }} className="px-2 py-1 rounded bg-accent text-[10px] font-bold">Quitar</button><button onClick={() => setCondEdit(null)} className="px-2 py-1 rounded bg-accent text-[10px]"><X size={10} /></button></div>
+                                                        <p className="text-[9px] text-muted-foreground">Fuera de ese rango/clase, no suena ni parpadea (igual queda en el historial).</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ); })}
+                            </div>
+                        </div>
+                    );
+                })()}
 
                 {/* Drawer de lote (edición) */}
                 <AnimatePresence>

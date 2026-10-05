@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
-import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2 } from "lucide-react";
+import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
@@ -13,6 +13,7 @@ import { Scrub } from "@/components/Scrub";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tooltip as RTooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
+import { LiveModal } from "@/components/intrusion/LiveModal";
 
 type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
 type AlarmChip = { id: string; type: string; label: string; ts: string };
@@ -406,7 +407,7 @@ function AlarmAckModal({ cam, alarms, onResolve, onClose }: { cam: IntrusionCam;
     return (
         <div className="fixed inset-0 z-[2300] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8" onClick={onClose}>
             {/* ventana grande, sin bordes, controles overlay sobre la captura */}
-            <div className="relative w-full max-w-5xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="relative w-full max-w-6xl max-h-[85vh] aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={snap} alt="" className="absolute inset-0 w-full h-full object-contain" />
                 <div className="absolute inset-0 pointer-events-none ring-4 ring-inset ring-red-500/70 rounded-2xl animate-pulse" />
@@ -445,7 +446,7 @@ function AlarmAckModal({ cam, alarms, onResolve, onClose }: { cam: IntrusionCam;
     );
 }
 
-function DetailDialog({ det, cam, geom, onClose, onAck }: { det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void; onAck?: (deviceId: string) => void }) {
+function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void; onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean }) {
     const [cur, setCur] = useState<any>(det);
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
@@ -460,6 +461,22 @@ function DetailDialog({ det, cam, geom, onClose, onAck }: { det: any; cam?: Intr
     const hasGeom = !!(geom && ((geom.line && geom.line.length === 2) || (geom.field && geom.field.length >= 3)));
     const hasPrev = idx >= 0 && idx < sibs.length - 1; // más viejo
     const hasNext = idx > 0;                            // más nuevo
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            const t = e.target as HTMLElement | null;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+            if (e.key === "ArrowLeft") { e.preventDefault(); go(1); }
+            else if (e.key === "ArrowRight") { e.preventDefault(); go(-1); }
+            else if (e.key === "Escape") { e.preventDefault(); onClose(); }
+            else if (hasAlarm && cur.deviceId && onResolveAlarm) {
+                const k = e.key.toLowerCase();
+                if (k === "a" || e.key === "Enter") { e.preventDefault(); onResolveAlarm(cur.deviceId, "real"); }
+                else if (k === "f" || k === "r") { e.preventDefault(); onResolveAlarm(cur.deviceId, "false"); }
+            }
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [cur, idx, sibs, hasAlarm, onResolveAlarm, onClose]);
     return (
         <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-10" onClick={onClose}>
             {/* flechas AFUERA del modal, para pasar eventos del canal */}
@@ -471,6 +488,11 @@ function DetailDialog({ det, cam, geom, onClose, onAck }: { det: any; cam?: Intr
             <button onClick={(e) => { e.stopPropagation(); onClose(); }} data-tooltip-id="mi-tip" data-tooltip-content="Cerrar"
                 className="absolute right-3 top-3 sm:right-6 sm:top-6 z-[6] w-11 h-11 grid place-items-center rounded-full bg-white/10 hover:bg-white/25 text-white ring-1 ring-white/15 backdrop-blur-md transition active:scale-90"><X size={22} /></button>
             <div className="relative w-full max-w-6xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[7] flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-black/65 backdrop-blur-md ring-1 ring-white/10 text-[10px] font-bold text-white/70 pointer-events-none">
+                    <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">←</kbd><kbd className="px-1 rounded bg-white/15">→</kbd> eventos</span>
+                    {hasAlarm && cur.deviceId && onResolveAlarm && (<><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-red-500/40 text-red-100">A</kbd> aceptar</span><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-amber-500/40 text-amber-100">F</kbd> falsa</span></>)}
+                    <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">Esc</kbd> cerrar</span>
+                </div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 {snap ? <img src={snap} alt="" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><ImageOff size={32} /></div>}
                 <GeomOverlay geom={geom} alert />
@@ -488,10 +510,14 @@ function DetailDialog({ det, cam, geom, onClose, onAck }: { det: any; cam?: Intr
                     {idx >= 0 && sibs.length > 1 && <span className="ml-auto mt-1 text-[11px] font-bold text-white/60 tabular-nums self-start">{idx + 1} / {sibs.length}</span>}
                 </div>
                 <div className="absolute bottom-0 inset-x-0 p-4 pt-14 flex items-end justify-between gap-4 bg-gradient-to-t from-black/90 via-black/35 to-transparent">
-                    {/* Aceptar alarma */}
-                    {cur.deviceId && onAck ? (
-                        <button onClick={(e) => { e.stopPropagation(); onAck(cur.deviceId); }}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-red-700 text-[13px] font-extrabold shadow-xl hover:bg-red-50 active:scale-95 transition"><Check size={16} /> Aceptar alarma</button>
+                    {/* Resolver alarma desde la MISMA ficha del sidebar */}
+                    {hasAlarm && cur.deviceId && onResolveAlarm ? (
+                        <div className="flex items-center gap-2">
+                            <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "false"); }}
+                                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> Falsa alarma <kbd className="ml-1 px-1 rounded bg-black/30 text-[10px]">F</kbd></button>
+                            <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "real"); }}
+                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Confirmar real <kbd className="ml-1 px-1 rounded bg-black/25 text-[10px]">A</kbd></button>
+                        </div>
                     ) : <span />}
                     {/* datos apilados a la derecha, sin chips */}
                     <div className="flex flex-col items-end gap-0.5 text-right drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]">
@@ -503,6 +529,194 @@ function DetailDialog({ det, cam, geom, onClose, onAck }: { det: any; cam?: Intr
                     </div>
                 </div>
             </div>
+        </div>
+    );
+}
+
+function EvidencePlayModal({ d, onClose }: { d: DetHistItem; onClose: () => void }) {
+    const [nvr, setNvr] = useState<string | null | undefined>(undefined);
+    useEffect(() => { let on = true; if (!d.deviceId) { setNvr(null); return; } fetch(`/api/nvr/channel?deviceId=${d.deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (on) setNvr(j && j.nvr ? String(j.nvr) : null); }).catch(() => { if (on) setNvr(null); }); return () => { on = false; }; }, [d.deviceId]);
+    const ms = Math.floor(new Date(d.timestamp).getTime());
+    const url = nvr && d.ch != null ? `/api/nvr/playback?ch=${d.ch}&t=${ms}&pre=6&dur=40&nvr=${nvr}` : null;
+    const snap = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : undefined);
+    const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const m = META[d.type] || META.OTHER;
+    return (
+        <div className="fixed inset-0 z-[2300] bg-black/92 backdrop-blur-sm grid place-items-center p-4 sm:p-8" onClick={onClose}>
+            <div className="relative w-full max-w-5xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                {url ? (
+                    // eslint-disable-next-line jsx-a11y/media-has-caption
+                    <video src={url} autoPlay controls playsInline poster={snap} className="absolute inset-0 w-full h-full object-contain" />
+                ) : nvr === undefined ? (
+                    <div className="absolute inset-0 grid place-items-center text-white/60"><Loader2 className="animate-spin" size={26} /></div>
+                ) : (
+                    <div className="absolute inset-0 grid place-items-center text-center text-white/50 text-sm px-6">Sin grabación disponible para este evento<br />(la cámara no tiene NVR/canal mapeado).</div>
+                )}
+                <div className="absolute top-0 inset-x-0 p-4 flex items-start gap-3 bg-gradient-to-b from-black/70 to-transparent pointer-events-none">
+                    <span className={cn("grid h-10 w-10 place-items-center rounded-xl backdrop-blur-md ring-1 ring-white/10 shrink-0", m.cls)}><m.Icon size={19} /></span>
+                    <div className="min-w-0">
+                        <div className="text-[15px] font-extrabold text-white truncate drop-shadow">{d.deviceName || "Cámara"} · {m.label}</div>
+                        <div className="text-[12px] text-white/70 truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? ` · CH ${d.ch}` : "") + " · " : "") + when}</div>
+                    </div>
+                    <button onClick={onClose} className="pointer-events-auto ml-auto w-10 h-10 grid place-items-center rounded-full bg-black/40 hover:bg-black/70 text-white/80 hover:text-white backdrop-blur-sm shrink-0"><X size={20} /></button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam[]; onClose: () => void; onOpen: (d: DetHistItem) => void; onPlay?: (d: DetHistItem) => void }) {
+    const [items, setItems] = useState<DetHistItem[]>([]);
+    const [total, setTotal] = useState(0);
+    const [page, setPage] = useState(0);
+    const [type, setType] = useState<"ANALYTIC" | "ALL" | "MOTION" | "INTRUSION" | "LINECROSS">("ANALYTIC");
+    const [dev, setDev] = useState<string>("");
+    const [q, setQ] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [more, setMore] = useState(true);
+    const [from, setFrom] = useState("");
+    const [to, setTo] = useState("");
+    const [ack, setAck] = useState<"all" | "pending" | "done">("all");
+    const [qApplied, setQApplied] = useState("");
+    const size = 48;
+    useEffect(() => { setPage(0); setItems([]); setMore(true); }, [type, dev, from, to, ack]);
+    useEffect(() => { const t = setTimeout(() => setQApplied(q), 220); return () => clearTimeout(t); }, [q]);
+    useEffect(() => {
+        let on = true; setLoading(true);
+        getDetectionHistory({ page, pageSize: size, type, deviceId: dev || undefined, from: from || undefined, to: to || undefined, ack }).then((r) => {
+            if (!on) return;
+            setTotal(r.total);
+            setItems((prev) => (page === 0 ? r.items : [...prev, ...r.items]));
+            setMore((page + 1) * size < r.total);
+        }).catch(() => { }).finally(() => { if (on) setLoading(false); });
+        return () => { on = false; };
+    }, [page, type, dev, from, to, ack]);
+    const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; if (!loading && more && el.scrollTop + el.clientHeight >= el.scrollHeight - 400) setPage((p) => p + 1); };
+    const shown = useMemo(() => { const term = qApplied.trim().toLowerCase(); return term ? items.filter((d) => (d.deviceName || "").toLowerCase().includes(term) || (d.nvrName || "").toLowerCase().includes(term)) : items; }, [items, qApplied]);
+    const TF = [
+        { k: "ANALYTIC", label: "Intrusión+", Icon: ShieldAlert }, { k: "INTRUSION", label: "Intrusión", Icon: ShieldAlert }, { k: "LINECROSS", label: "Línea", Icon: Radar }, { k: "MOTION", label: "Movimiento", Icon: Activity }, { k: "ALL", label: "Todo", Icon: Camera },
+    ] as const;
+    const nActive = (q ? 1 : 0) + (dev ? 1 : 0) + (type !== "ANALYTIC" ? 1 : 0) + (ack !== "all" ? 1 : 0) + ((from || to) ? 1 : 0);
+    const clearAll = () => { setQ(""); setDev(""); setType("ANALYTIC"); setAck("all"); setFrom(""); setTo(""); };
+    const stats = useMemo(() => { const by: Record<string, number> = {}; let pend = 0, done = 0; for (const d of items) { by[d.type] = (by[d.type] || 0) + 1; if (d.acknowledged) done++; else pend++; } return { by, pend, done }; }, [items]);
+    const [hoverId, setHoverId] = useState<string | null>(null);
+    const [playId, setPlayId] = useState<string | null>(null);
+    const [ready, setReady] = useState(false);
+    const [camOpen, setCamOpen] = useState(false);
+    const hoverTimer = useRef<any>(null);
+    const nvrRef = useRef<Record<string, string | null>>({});
+    const [, setNvrTick] = useState(0);
+    const resolveNvr = (deviceId: string) => { if (deviceId in nvrRef.current) return; fetch(`/api/nvr/channel?deviceId=${deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { nvrRef.current[deviceId] = j && j.nvr ? String(j.nvr) : null; setNvrTick((t) => t + 1); }).catch(() => { nvrRef.current[deviceId] = null; setNvrTick((t) => t + 1); }); };
+    const onCardEnter = (d: DetHistItem) => { clearTimeout(hoverTimer.current); setHoverId(d.id); setReady(false); if (d.deviceId) resolveNvr(d.deviceId); hoverTimer.current = setTimeout(() => setPlayId(d.id), 3000); };
+    const onCardLeave = () => { clearTimeout(hoverTimer.current); setHoverId(null); setPlayId(null); setReady(false); };
+    const geomRef = useRef<Record<string, Geom>>({});
+    const [, setGeomTick] = useState(0);
+    useEffect(() => { const ids = [...new Set(items.map((d) => d.deviceId).filter(Boolean))] as string[]; const missing = ids.filter((id) => !(id in geomRef.current)); if (!missing.length) return; getAnalyticsGeometryBatch(missing).then((g) => { geomRef.current = { ...geomRef.current, ...g }; setGeomTick((t) => t + 1); }).catch(() => { }); }, [items]);
+    const inp = "w-full h-10 px-3 rounded-xl bg-white/5 ring-1 ring-white/10 text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-red-400/60 [color-scheme:dark]";
+    const Block = ({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) => (
+        <div className="rounded-2xl bg-white/[0.04] ring-1 ring-white/10 p-3.5">
+            <div className="flex items-center gap-2 mb-2.5"><span className="grid h-7 w-7 place-items-center rounded-lg bg-red-500/15 text-red-400">{icon}</span><span className="text-[11px] font-extrabold uppercase tracking-wide text-white/45">{title}</span></div>
+            {children}
+        </div>
+    );
+    return (
+        <div className="fixed inset-0 z-[2090] bg-neutral-950/96 backdrop-blur-sm flex" onClick={onClose}>
+            {/* SIDEBAR IZQUIERDA — filtros */}
+            <aside onClick={(e) => e.stopPropagation()} className="hidden md:flex w-60 shrink-0 h-full bg-neutral-900/95 text-white border-r border-white/10 flex-col">
+                <div className="px-4 py-4 flex items-center gap-2 border-b border-white/10">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-red-400"><path d="M3 5h18M6 12h12M10 19h4" /></svg>
+                    <span className="text-[15px] font-extrabold">Filtros</span>
+                    {nActive > 0 && <span className="grid place-items-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[11px] font-extrabold">{nActive}</span>}
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+                    <Block icon={<Search size={15} />} title="Buscar"><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Cámara o NVR…" className={inp} /></Block>
+                    <Block icon={<ShieldAlert size={15} />} title="Tipo de evento"><div className="grid grid-cols-2 gap-1.5">{TF.map((f) => (<button key={f.k} onClick={() => setType(f.k)} className={cn("inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-[12px] font-bold transition-colors", type === f.k ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" : "bg-white/5 text-white/55 hover:bg-white/10")}><f.Icon size={13} /> {f.label}</button>))}</div></Block>
+                    <Block icon={<Camera size={15} />} title="Cámara">
+                        <button type="button" onClick={() => setCamOpen((v) => !v)} className="w-full h-10 px-3 rounded-xl bg-white/5 ring-1 ring-white/10 text-[13px] text-white flex items-center justify-between hover:bg-white/10 transition">
+                            <span className="truncate">{dev ? (cams.find((c) => c.id === dev)?.name || "Cámara") : "Todas las cámaras"}</span>
+                            <ChevronDown size={15} className={cn("text-white/50 transition-transform shrink-0", camOpen && "rotate-180")} />
+                        </button>
+                        {camOpen && (
+                            <div className="mt-1.5 max-h-56 overflow-y-auto custom-scrollbar rounded-xl bg-neutral-800 ring-1 ring-white/15 shadow-xl divide-y divide-white/5">
+                                <button onClick={() => { setDev(""); setCamOpen(false); }} className={cn("w-full text-left px-3 py-2 text-[13px] transition hover:bg-white/10", dev === "" ? "text-red-300 font-bold" : "text-white/80")}>Todas las cámaras</button>
+                                {cams.map((cc) => (<button key={cc.id} onClick={() => { setDev(cc.id); setCamOpen(false); }} className={cn("w-full text-left px-3 py-2 text-[13px] truncate transition hover:bg-white/10", dev === cc.id ? "text-red-300 font-bold" : "text-white/80")}>{cc.name}</button>))}
+                            </div>
+                        )}
+                    </Block>
+                    <Block icon={<Check size={15} />} title="Estado"><div className="flex gap-1.5">{([["all", "Todas"], ["pending", "Pendientes"], ["done", "Revisadas"]] as const).map(([k, lbl]) => (<button key={k} onClick={() => setAck(k)} className={cn("flex-1 px-1.5 py-2 rounded-xl text-[11px] font-bold transition-colors", ack === k ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" : "bg-white/5 text-white/55 hover:bg-white/10")}>{lbl}</button>))}</div></Block>
+                    <Block icon={<CalIco size={15} />} title="Rango de fechas"><div className="space-y-2"><label className="block"><span className="text-[11px] font-bold text-white/40">Desde</span><input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className={cn(inp, "px-2.5 text-[12px]")} /></label><label className="block"><span className="text-[11px] font-bold text-white/40">Hasta</span><input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className={cn(inp, "px-2.5 text-[12px]")} /></label></div></Block>
+                </div>
+                <div className="px-4 py-3 border-t border-white/10 flex items-center gap-2"><span className="text-[12px] font-bold text-white/50 tabular-nums">{total} eventos</span>{nActive > 0 && <button onClick={clearAll} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-[12px] font-bold text-white/70 transition">Limpiar</button>}</div>
+            </aside>
+
+            {/* CENTRO — grilla */}
+            <div onClick={(e) => e.stopPropagation()} className="flex-1 min-w-0 h-full flex flex-col">
+                <div className="px-5 py-3.5 flex items-center gap-3 border-b border-white/10">
+                    <span className="grid h-8 w-8 place-items-center rounded-lg bg-red-500/15"><Camera size={16} className="text-red-400" /></span>
+                    <span className="text-sm font-bold text-white">Evidencia</span>
+                    <span className="text-[12px] text-white/45 tabular-nums">· {shown.length} / {total}</span>
+                    {loading && <Loader2 size={15} className="animate-spin text-white/50" />}
+                    <button onClick={onClose} className="ml-auto w-9 h-9 grid place-items-center rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white transition"><X size={18} /></button>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-4" onScroll={onScroll}>
+                    {shown.length === 0 && !loading ? (
+                        <div className="h-full grid place-items-center text-white/40 text-sm">Sin evidencia para este filtro.</div>
+                    ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                            {shown.map((d) => {
+                                const m = META[d.type] || META.OTHER;
+                                const href = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
+                                const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+                                return (
+                                    <button key={d.id} onClick={() => onOpen(d)} onMouseEnter={() => onCardEnter(d)} onMouseLeave={onCardLeave} className="group relative aspect-video rounded-2xl overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.02] transition-all duration-150 bg-neutral-900 text-left shadow-lg">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
+                                        {playId === d.id && d.deviceId && nvrRef.current[d.deviceId] && d.ch != null && (
+                                            // eslint-disable-next-line jsx-a11y/media-has-caption
+                                            <video autoPlay muted loop playsInline onPlaying={() => setReady(true)} onLoadedData={() => setReady(true)} src={`/api/nvr/playback?ch=${d.ch}&t=${Math.floor(new Date(d.timestamp).getTime())}&pre=3&dur=14&nvr=${nvrRef.current[d.deviceId]}`} className="absolute inset-0 w-full h-full object-cover z-[1] bg-black" />
+                                        )}
+                                        <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
+                                        <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
+                                        {d.deviceId && geomRef.current[d.deviceId] && <div className="absolute inset-0 z-[1] pointer-events-none"><GeomOverlay geom={geomRef.current[d.deviceId]} /></div>}
+                                        {playId === d.id && !ready && (
+                                            <div className="absolute inset-0 z-[2] grid place-items-center pointer-events-none">
+                                                <div className="absolute inset-0 sk opacity-50" />
+                                                <span className="relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-sm text-white text-[12px] font-bold shadow"><Loader2 size={14} className="animate-spin" /> Cargando evento<Dots /></span>
+                                            </div>
+                                        )}
+                                        {(() => { const st = !d.acknowledged ? { t: "Pendiente", c: "bg-amber-500/90" } : d.ackKind === "false" ? { t: "Falsa", c: "bg-slate-500/90" } : { t: "Real", c: "bg-red-600/90" }; return <span className={cn("absolute top-2.5 right-2.5 z-[1] inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide text-white shadow backdrop-blur-sm", st.c)}>{st.t}</span>; })()}
+                                        <div className="absolute top-2.5 left-3 right-14"><div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div><div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? " · CH " + d.ch : "") + " · " : "") + when}</div></div>
+                                        <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5">
+                                            <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm shadow", m.cls)}><m.Icon size={13} /> {m.label}</span>
+                                            {d.label && <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-extrabold uppercase tracking-wide bg-black/55 backdrop-blur-sm text-white shadow ring-1 ring-white/15">{d.label === "vehicle" ? <><Car size={13} /> Auto</> : <><User size={13} /> Persona</>}</span>}
+                                        </div>
+                                        <span className="absolute bottom-2.5 right-3 inline-flex items-center px-2 py-1 rounded-lg bg-black/55 backdrop-blur-sm text-[11px] font-bold text-white/90 tabular-nums">hace {ago(d.timestamp)}</span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+                    {loading && items.length > 0 && <div className="flex items-center justify-center gap-2 py-5 text-[12px] text-white/45"><Loader2 size={14} className="animate-spin" /> Cargando más…</div>}
+                </div>
+            </div>
+
+            {/* SIDEBAR DERECHA — resumen */}
+            <aside onClick={(e) => e.stopPropagation()} className="hidden lg:flex w-60 shrink-0 h-full bg-neutral-900/95 text-white border-l border-white/10 flex-col">
+                <div className="px-4 py-4 flex items-center gap-2 border-b border-white/10"><span className="grid h-7 w-7 place-items-center rounded-lg bg-red-500/15 text-red-400"><Activity size={15} /></span><span className="text-[15px] font-extrabold">Resumen</span></div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-3">
+                    <div className="grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl bg-white/[0.04] ring-1 ring-white/10 p-2.5 text-center"><div className="text-[20px] font-extrabold tabular-nums text-white">{total}</div><div className="text-[10px] font-bold uppercase tracking-wide text-white/40">Total</div></div>
+                        <div className="rounded-2xl bg-amber-500/10 ring-1 ring-amber-500/30 p-2.5 text-center"><div className="text-[20px] font-extrabold tabular-nums text-amber-300">{stats.pend}</div><div className="text-[10px] font-bold uppercase tracking-wide text-amber-400/70">Pend.</div></div>
+                        <div className="rounded-2xl bg-white/[0.04] ring-1 ring-white/10 p-2.5 text-center"><div className="text-[20px] font-extrabold tabular-nums text-white">{stats.done}</div><div className="text-[10px] font-bold uppercase tracking-wide text-white/40">Revis.</div></div>
+                    </div>
+                    <Block icon={<Radar size={15} />} title="Por tipo (en vista)">
+                        <div className="space-y-1.5">
+                            {Object.keys(stats.by).length === 0 ? <div className="text-[12px] text-white/40">Sin datos</div> : Object.entries(stats.by).sort((a, b) => b[1] - a[1]).map(([t, n]) => { const mm = META[t] || META.OTHER; return (<button key={t} onClick={() => setType(t === "MOTION" ? "MOTION" : t === "LINECROSS" ? "LINECROSS" : t === "INTRUSION" ? "INTRUSION" : "ALL")} className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 transition text-left"><span className={cn("grid h-7 w-7 place-items-center rounded-lg", mm.cls)}><mm.Icon size={13} /></span><span className="text-[12px] font-bold text-white/75 truncate flex-1">{mm.label}</span><span className="text-[13px] font-extrabold tabular-nums text-white">{n}</span></button>); })}
+                        </div>
+                    </Block>
+                    <div className="text-[11px] text-white/35 px-1 leading-snug">El desglose por tipo y estado es sobre los eventos cargados en pantalla; el total es global.</div>
+                </div>
+            </aside>
         </div>
     );
 }
@@ -545,7 +759,7 @@ function HistoryModal({ onClose, onOpen }: { onClose: () => void; onOpen: (d: De
                             <tbody>
                                 {items.map((d) => { const m = META[d.type] || META.OTHER; return (
                                     <tr key={d.id} onClick={() => onOpen(d)} className="border-b border-border/40 hover:bg-accent/50 cursor-pointer">
-                                        <td className="px-4 py-2.5"><span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-bold", m.cls)}><m.Icon size={12} /> {m.label}</span></td>
+                                        <td className="px-4 py-2.5"><span className={cn("inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-bold", m.cls)}><m.Icon size={12} /> {m.label}</span>{d.label && <span className="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-white/15 text-[11px] font-bold text-white/80">{d.label === "vehicle" ? <><Car size={11} /> Auto</> : <><User size={11} /> Persona</>}</span>}</td>
                                         <td className="px-4 py-2.5 text-foreground truncate max-w-[220px]">{d.deviceName || "—"}</td>
                                         <td className="px-4 py-2.5 text-muted-foreground">{d.nvrName || "—"}{d.ch != null ? ` · CH ${d.ch}` : ""}</td>
                                         <td className="px-4 py-2.5 text-muted-foreground tabular-nums">{new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</td>
@@ -566,414 +780,41 @@ function HistoryModal({ onClose, onOpen }: { onClose: () => void; onOpen: (d: De
     );
 }
 
-function LiveModal({ cam, cams = [], geom, initialTab = "live", onClose, onOpenEvent, onSwitchCam }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void }) {
-    const [tab, setTab] = useState<"live" | "rec" | "evi">(initialTab);
-    const isPtz = /ptz/i.test(cam.name || "");
-    const [showPtz, setShowPtz] = useState(true);
-    const [ptzSpeed, setPtzSpeed] = useState(5);
-    const ptzSend = (action: string, opts: any = {}) => fetch(`/api/devices/ptz?deviceId=${cam.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, speed: ptzSpeed, ...opts }) }).catch(() => { });
-    const dragRefP = useRef<{ active: boolean; dir: string; ox: number; oy: number }>({ active: false, dir: "", ox: 0, oy: 0 });
-    const wheelTO = useRef<any>(null);
-    // Teclado: flechas mueven, +/- zoom (apenas carga el modal en tab vivo)
-    useEffect(() => {
-        if (tab !== "live" || !isPtz) return;
-        const km: Record<string, string> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
-        const held = new Set<string>();
-        const keyToDir = (e: KeyboardEvent) => (e.key === "+" || e.key === "=") ? "zoomin" : (e.key === "-" || e.key === "_") ? "zoomout" : km[e.key];
-        const down = (e: KeyboardEvent) => { const d = keyToDir(e); if (!d) return; e.preventDefault(); if (held.has(d)) return; held.add(d); ptzSend("move", { dir: d }); };
-        const up = (e: KeyboardEvent) => { const d = keyToDir(e); if (!d) return; e.preventDefault(); if (held.delete(d)) ptzSend("stop", { dir: d }); };
-        window.addEventListener("keydown", down); window.addEventListener("keyup", up);
-        return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); held.forEach((d) => ptzSend("stop", { dir: d })); };
-    }, [tab, isPtz, ptzSpeed, cam.id]);
-    const [hd, setHd] = useState(false);
-    const streamName = hd ? `lpr_${cam.id}_hd` : `lpr_${cam.id}`;
-    // ── Visual Track: enlaces a cámaras vecinas de la misma escena ──
-    const stageRef = useRef<HTMLDivElement>(null);
-    const [trackEdit, setTrackEdit] = useState(false);
-    const [links, setLinks] = useState<TrackLink[]>([]);
-    const [trackSaving, setTrackSaving] = useState(false);
-    const [addOpen, setAddOpen] = useState(false);
-    const dragLink = useRef<number | null>(null);
-    useEffect(() => { let on = true; setTrackEdit(false); setAddOpen(false); getVisualTrackLinks(cam.id).then((l) => { if (on) setLinks(l); }).catch(() => { }); return () => { on = false; }; }, [cam.id]);
-    const saveLinks = async (next: TrackLink[]) => { setLinks(next); setTrackSaving(true); try { await setVisualTrackLinks(cam.id, next); } finally { setTrackSaving(false); } };
-    const linkTargets = useMemo(() => links.map((l) => ({ l, c: cams.find((c) => c.id === l.to) })).filter((x) => x.c), [links, cams]);
-    const addCandidates = useMemo(() => cams.filter((c) => c.id !== cam.id && !links.some((l) => l.to === c.id)), [cams, cam.id, links]);
-    const stageXY = (clientX: number, clientY: number) => { const r = stageRef.current?.getBoundingClientRect(); if (!r) return { x: 0.5, y: 0.5 }; return { x: Math.max(0, Math.min(1, (clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (clientY - r.top) / r.height)) }; };
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const [ready, setReady] = useState(false);
-    const [stalled, setStalled] = useState(false);
-    const readyRef = useRef(false);
-    const setReadyV = (v: boolean) => { readyRef.current = v; setReady(v); };
-    // ── Anti-verde: el decodificador VAAPI emite 1–N frames verdes al calentar.
-    //    No revelamos el <video> hasta pintar un frame real (muestreo 8x8 por canvas). ──
-    const sampleCanvas = useRef<HTMLCanvasElement | null>(null);
-    const paintRAF = useRef<number>(0);
-    const isGreenFrame = (v: HTMLVideoElement) => {
-        try {
-            if (!v.videoWidth || v.readyState < 2) return true;
-            let c = sampleCanvas.current; if (!c) { c = document.createElement("canvas"); c.width = 8; c.height = 8; sampleCanvas.current = c; }
-            const ctx = c.getContext("2d", { willReadFrequently: true } as any); if (!ctx) return false;
-            ctx.drawImage(v, 0, 0, 8, 8);
-            const d = ctx.getImageData(0, 0, 8, 8).data; let r = 0, g = 0, b = 0, n = 0;
-            for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; n++; }
-            r /= n; g /= n; b /= n;
-            return g > 40 && r < 28 && b < 28; // verde puro de warmup (≈0,76,0)
-        } catch { return false; } // tainted u otro error → no bloquear
+function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { children: React.ReactNode; defaultW?: number; ring?: string }) {
+    const [st, setSt] = useState<{ x: number | null; y: number | null; w: number }>({ x: null, y: null, w: defaultW });
+    const d = useRef<{ mode: "move" | "resize"; sx: number; sy: number; ox: number; oy: number; ow: number } | null>(null);
+    const el = useRef<HTMLDivElement>(null);
+    const begin = (mode: "move" | "resize") => (e: React.PointerEvent) => {
+        if (e.button !== 0) return;
+        e.preventDefault(); e.stopPropagation();
+        const node = el.current; if (!node) return;
+        const par = node.offsetParent as HTMLElement | null;
+        const pr = par?.getBoundingClientRect(); const r = node.getBoundingClientRect();
+        const ox = st.x ?? (pr ? r.left - pr.left : r.left);
+        const oy = st.y ?? (pr ? r.top - pr.top : r.top);
+        d.current = { mode, sx: e.clientX, sy: e.clientY, ox, oy, ow: st.w };
+        try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { }
     };
-    const waitRealFrame = (v: HTMLVideoElement | null, done: () => void, capMs = 2600) => {
-        if (!v) { done(); return; }
-        const t0 = performance.now();
-        const step = () => {
-            if (!isGreenFrame(v) || performance.now() - t0 > capMs) { done(); return; }
-            paintRAF.current = requestAnimationFrame(step);
-        };
-        cancelAnimationFrame(paintRAF.current); paintRAF.current = requestAnimationFrame(step);
+    const onMove = (e: React.PointerEvent) => {
+        const c = d.current; if (!c) return;
+        if (c.mode === "move") {
+            const node = el.current; const par = node?.offsetParent as HTMLElement | null; const pr = par?.getBoundingClientRect();
+            let nx = c.ox + (e.clientX - c.sx), ny = c.oy + (e.clientY - c.sy);
+            if (pr && node) { nx = Math.max(0, Math.min(pr.width - node.offsetWidth, nx)); ny = Math.max(0, Math.min(pr.height - node.offsetHeight, ny)); }
+            setSt((v) => ({ ...v, x: nx, y: ny }));
+        } else {
+            setSt((v) => ({ ...v, w: Math.max(130, Math.min(720, c.ow + (e.clientX - c.sx))) }));
+        }
     };
-    const [snap, setSnap] = useState(`/api/snapshot/${cam.id}?t=${Date.now()}`);
-    const [qFlash, setQFlash] = useState(0);
-    // grabación
-    const [nvrId, setNvrId] = useState<string | null>(null);
-    const [recT, setRecT] = useState(Date.now() - 60000);      // posición del slider (inmediata)
-    const [recLoadT, setRecLoadT] = useState(Date.now() - 60000); // tiempo confirmado (debounced) que se reproduce
-    const [globalEnd] = useState(() => Date.now());
-    const [zoomIdx, setZoomIdx] = useState(0);
-    const [anchor, setAnchor] = useState(() => Date.now() - 60000);
-    const [recLoading, setRecLoading] = useState(false);
-    const [recEvents, setRecEvents] = useState<DetHistItem[]>([]);
-    const [scrub, setScrub] = useState<number | null>(null); // hora que se muestra grande al arrastrar
-    const scrubTO = useRef<any>(null);
-    const [recRetry, setRecRetry] = useState(0); // para reintentar el clip si queda colgado
-    const recTriesRef = useRef(0);
-    const [recSeen, setRecSeen] = useState(initialTab === "rec");
-    const [recRate, setRecRate] = useState(1); // velocidad de reproducción (1/2/4/8)
-    const [noRec, setNoRec] = useState(false); // no hay grabación en ese horario
-    // fecha + hora: la rueda elige la hora; el date-picker elige el día
-    const pad2 = (n: number) => String(n).padStart(2, "0");
-    const dayStr = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
-    const recDateStr = dayStr(recT);
-    const todayStr = dayStr(Date.now());
-    const dateTimeToMs = (dateStr: string, minutes: number) => {
-        const [y, mo, da] = dateStr.split("-").map(Number);
-        const ms = new Date(y, (mo || 1) - 1, da || 1, Math.floor(minutes / 60), minutes % 60, 0, 0).getTime();
-        return Math.min(Date.now(), ms); // nunca futuro
-    };
-    const recMinutesOfDay = (() => { const d = new Date(recT); return d.getHours() * 60 + d.getMinutes(); })(); // no cargar el clip hasta que se abra Grabación al menos una vez
-    const seekTo = (ms: number) => { const v = Math.max(Date.now() - 30 * 24 * 3600 * 1000, Math.min(Date.now(), ms)); setRecT(v); setScrub(v); clearTimeout(scrubTO.current); scrubTO.current = setTimeout(() => setScrub(null), 1100); };
-    const recVideo = useRef<HTMLVideoElement>(null);
-    // evidencia
-    const [evi, setEvi] = useState<DetHistItem[]>([]);
-    const [eviBig, setEviBig] = useState<string | null>(null);
-
-    useEffect(() => { fetch(`/api/devices/stream?deviceId=${cam.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ensure" }) }).catch(() => { }); }, [cam.id]);
-    useEffect(() => { fetch(`/api/nvr/channel?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNvrId(d && d.nvr ? String(d.nvr) : null)).catch(() => { }); }, [cam.id]);
-    useEffect(() => { if (tab !== "evi") return; getDetectionHistory({ deviceId: cam.id, pageSize: 30 }).then((r) => setEvi(r.items)).catch(() => { }); }, [tab, cam.id]);
-    useEffect(() => { if (tab !== "rec") return; getDetectionHistory({ deviceId: cam.id, pageSize: 100 }).then((r) => setRecEvents(r.items)).catch(() => { }); }, [tab, cam.id]);
-    useEffect(() => { if (ready || tab !== "live") return; const iv = setInterval(() => setSnap(`/api/snapshot/${cam.id}?t=${Date.now()}`), 1500); return () => clearInterval(iv); }, [ready, cam.id, tab]);
-
-    // ── LIVE loader (paciencia > warmup del transcode HW, sin churn) ──
-    // NO depende de `tab`: el vivo sigue corriendo aunque estés en Grabación/Evidencia,
-    // así volver a "Vivo" es instantáneo (no recarga el stream).
-    useEffect(() => {
-        const video = videoRef.current; if (!video) return;
-        let stopped = false, tries = 0; let wd: any = null, st: any = null;
-        const base = `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=h264`;
-        setReadyV(false); setStalled(false);
-        const watchdog = () => { clearTimeout(wd); wd = setTimeout(() => { if (stopped) return; if (!readyRef.current && tries++ < 10) start(); }, 10000); };
-        const start = () => { if (stopped) return; try { video.src = `${base}&t=${Date.now()}`; video.play().catch(() => { }); } catch { } watchdog(); };
-        const markStall = () => { clearTimeout(st); st = setTimeout(() => { if (!stopped) setStalled(true); }, 2500); }; // sólo si el corte dura
-        const onPlaying = () => { clearTimeout(wd); clearTimeout(st); tries = 0; setStalled(false); waitRealFrame(video, () => setReadyV(true)); };
-        const onWaiting = () => markStall();
-        const onEnded = () => { if (stopped) return; start(); }; // reconexión fluida manteniendo el último frame
-        const onErr = () => { if (stopped) return; markStall(); if (tries++ < 10) setTimeout(start, 1800); };
-        const onProgress = () => { try { if (video.buffered.length) { const end = video.buffered.end(video.buffered.length - 1); if (end - video.currentTime > 4) video.currentTime = end - 0.8; } } catch { } };
-        video.addEventListener("playing", onPlaying); video.addEventListener("waiting", onWaiting); video.addEventListener("stalled", onWaiting); video.addEventListener("ended", onEnded); video.addEventListener("error", onErr); video.addEventListener("progress", onProgress);
-        const boot = setTimeout(start, 120);
-        return () => { stopped = true; cancelAnimationFrame(paintRAF.current); clearTimeout(wd); clearTimeout(st); clearTimeout(boot); video.removeEventListener("playing", onPlaying); video.removeEventListener("waiting", onWaiting); video.removeEventListener("stalled", onWaiting); video.removeEventListener("ended", onEnded); video.removeEventListener("error", onErr); video.removeEventListener("progress", onProgress); try { video.pause(); video.removeAttribute("src"); video.load(); } catch { } };
-    }, [streamName, cam.id]);
-    const toggleHd = () => { setHd((h) => !h); setQFlash(Date.now()); };
-    useEffect(() => { if (!qFlash) return; const t = setTimeout(() => setQFlash(0), 1200); return () => clearTimeout(t); }, [qFlash]);
-
-    useEffect(() => { if (tab === "rec") setRecSeen(true); }, [tab]);
-    // ── REC: debounce del seek (evita disparar clips en cada pixel del arrastre) ──
-    useEffect(() => { if (tab !== "rec") return; setRecLoading(true); const t = setTimeout(() => setRecLoadT(recT), 300); return () => clearTimeout(t); }, [recT, tab]);
-    // watchdog: si el clip no empieza, reintenta; si tras los reintentos sigue sin frames, es que no hay grabación en ese horario.
-    useEffect(() => {
-        if (tab !== "rec") return; setNoRec(false); const v = recVideo.current;
-        const wd = setTimeout(() => {
-            if (v && v.readyState < 2) {
-                if (recTriesRef.current < 2) { recTriesRef.current++; setRecRetry((r) => r + 1); }
-                else { setRecLoading(false); setNoRec(true); }
-            }
-        }, 9000);
-        return () => clearTimeout(wd);
-    }, [recLoadT, recRetry, tab]);
-    // aplicar velocidad de reproducción al clip
-    useEffect(() => { const v = recVideo.current; if (v) try { v.playbackRate = recRate; } catch { } }, [recRate, recLoadT, recRetry]);
-
-    const DAY = 24 * 3600 * 1000;
-    const globalStart = globalEnd - DAY;
-    const ZOOM: { scale: number; span: number }[] = [
-        { scale: 3600, span: 24 * 3600 }, { scale: 1800, span: 12 * 3600 }, { scale: 600, span: 4 * 3600 },
-        { scale: 300, span: 2 * 3600 }, { scale: 120, span: 3600 }, { scale: 60, span: 1800 }, { scale: 30, span: 900 }, { scale: 10, span: 300 },
-    ];
-    const zoom = ZOOM[Math.max(0, Math.min(ZOOM.length - 1, zoomIdx))];
-    const recWin = useMemo(() => {
-        const span = zoom.span * 1000;
-        if (span >= DAY) return { start: globalStart, end: globalEnd };
-        let start = anchor - span / 2;
-        start = Math.max(globalStart, Math.min(globalEnd - span, start));
-        return { start, end: start + span };
-    }, [zoom.span, anchor, globalStart, globalEnd]);
-    const recMin = recWin.start;
-    const nowTs = recWin.end;
-    // reencuadrar si el cursor sale de la ventana
-    useEffect(() => { if (recT < recWin.start || recT > recWin.end) setAnchor(recT); }, [recT, recWin.start, recWin.end]);
-    const playbackUrl = nvrId && cam.ch != null ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&pre=4&dur=90&nvr=${nvrId}` : null;
-
-    const tabs: { k: "live" | "rec" | "evi"; Icon: any; label: string }[] = [
-        { k: "live", Icon: Video, label: "Vivo" },
-        { k: "rec", Icon: Film, label: "Grabación" },
-        { k: "evi", Icon: Camera, label: "Evidencia" },
-    ];
-    // ticks cada 3h para etiquetas + cada 1h finos
-
+    const end = (e: React.PointerEvent) => { d.current = null; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { } };
+    const style: React.CSSProperties = st.x == null ? { right: 16, top: 64, width: st.w } : { left: st.x, top: st.y, width: st.w };
     return (
-        <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8" onClick={onClose}>
-            <div className="relative w-full max-w-5xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                {/* ── VIVO ── */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={snap} alt="" className={cn("absolute inset-0 w-full h-full object-contain transition-all duration-500", (!ready || tab !== "live") && "blur-[6px] scale-105 brightness-[0.5]")} />
-                {tab === "live" && !ready && <div className="vsheen absolute inset-0 overflow-hidden pointer-events-none" />}
-                {tab === "live" && (!ready || stalled) && (
-                    <div className="absolute inset-0 grid place-items-center pointer-events-none z-[2]">
-                        <span className="text-white text-xl sm:text-2xl font-extrabold tracking-wide drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
-                            {!ready ? (hd ? "Cambiando a HD" : "Conectando video") : "Reconectando"}<Dots />
-                        </span>
-                    </div>
-                )}
-                <video ref={videoRef} autoPlay muted playsInline className={cn("absolute inset-0 w-full h-full object-contain transition-opacity duration-300", tab === "live" && ready ? "opacity-100" : "opacity-0 pointer-events-none")} />
-                {tab === "live" && <GeomOverlay geom={geom} />}
-                {/* ── Visual Track: enlaces a cámaras vecinas ── */}
-                {tab === "live" && (
-                    <div ref={stageRef} className={cn("absolute inset-0 z-[6]", trackEdit ? "pointer-events-auto" : "pointer-events-none")}
-                        onPointerMove={(e) => { if (!trackEdit || dragLink.current == null) return; const { x, y } = stageXY(e.clientX, e.clientY); setLinks((prev) => prev.map((l, i) => i === dragLink.current ? { ...l, x, y } : l)); }}
-                        onPointerUp={() => { if (dragLink.current != null) { dragLink.current = null; saveLinks(links); } }}
-                        onPointerLeave={() => { if (dragLink.current != null) { dragLink.current = null; saveLinks(links); } }}>
-                        {linkTargets.map(({ l, c }, i) => (
-                            <div key={c!.id} style={{ left: `${l.x * 100}%`, top: `${l.y * 100}%` }} className="absolute -translate-x-1/2 -translate-y-1/2">
-                                {trackEdit ? (
-                                    <div onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); dragLink.current = i; }}
-                                        className="group relative flex items-center gap-1.5 pl-2 pr-2.5 h-8 rounded-full bg-amber-500/90 text-white ring-2 ring-white/70 shadow-xl cursor-move select-none touch-none">
-                                        <Crosshair size={14} className="shrink-0" />
-                                        <span className="text-[11px] font-extrabold truncate max-w-[120px]">{c!.name}</span>
-                                        <button onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); const next = links.filter((_, j) => j !== i); saveLinks(next); }}
-                                            className="ml-0.5 w-5 h-5 grid place-items-center rounded-full bg-black/40 hover:bg-red-600 text-white shrink-0"><Trash2 size={11} /></button>
-                                    </div>
-                                ) : (
-                                    <button onClick={() => onSwitchCam?.(c!)} data-tooltip-id="mi-tip" data-tooltip-content={`Seguir a ${c!.name}`}
-                                        className="pointer-events-auto flex items-center gap-1.5 pl-2 pr-3 h-8 rounded-full bg-black/55 hover:bg-amber-500/90 text-white backdrop-blur-md ring-1 ring-white/25 hover:ring-white/70 shadow-xl transition-all active:scale-95">
-                                        <span className="relative grid place-items-center w-4 h-4 shrink-0"><span className="absolute inset-0 rounded-full bg-amber-400/60 animate-ping" /><Crosshair size={14} className="relative" /></span>
-                                        <span className="text-[11px] font-extrabold truncate max-w-[130px]">{c!.name}</span>
-                                    </button>
-                                )}
-                            </div>
-                        ))}
-                        {/* panel de edición */}
-                        {trackEdit && (
-                            <div className="pointer-events-auto absolute top-16 left-1/2 -translate-x-1/2 w-[min(90%,420px)] rounded-2xl bg-black/70 backdrop-blur-xl ring-1 ring-white/15 shadow-2xl p-3">
-                                <div className="flex items-center gap-2 mb-1">
-                                    <Crosshair size={15} className="text-amber-400" />
-                                    <span className="text-white text-[13px] font-extrabold">Seguimiento visual</span>
-                                    {trackSaving && <Loader2 size={13} className="animate-spin text-white/60" />}
-                                    <button onClick={() => setAddOpen((v) => !v)} className="ml-auto inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-amber-500/90 hover:bg-amber-500 text-white text-[11px] font-extrabold"><Plus size={13} /> Agregar cámara</button>
-                                </div>
-                                <p className="text-white/55 text-[11px] leading-snug">Arrastrá cada ícono al punto de la escena por donde se pasa a esa cámara. Al verlo en vivo, tocá el ícono para seguir al intruso.</p>
-                                {addOpen && (
-                                    <div className="mt-2 max-h-44 overflow-y-auto rounded-xl bg-black/40 ring-1 ring-white/10 divide-y divide-white/5">
-                                        {addCandidates.length === 0 && <div className="px-3 py-2 text-white/40 text-[11px]">No hay más cámaras para enlazar.</div>}
-                                        {addCandidates.map((c) => (
-                                            <button key={c.id} onClick={() => { saveLinks([...links, { to: c.id, x: 0.5, y: 0.5 }]); setAddOpen(false); }}
-                                                className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/10 transition-colors">
-                                                <Crosshair size={13} className="text-amber-400 shrink-0" />
-                                                <span className="text-white text-[12px] font-bold truncate">{c.name}</span>
-                                                {c.nvrName && <span className="ml-auto text-white/40 text-[10px] font-semibold truncate">{c.nvrName}</span>}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                )}
-                {tab === "live" && isPtz && (
-                    <div className="absolute inset-0 z-[5] cursor-grab active:cursor-grabbing"
-                        onWheel={(e) => { e.preventDefault(); const dir = e.deltaY < 0 ? "zoomin" : "zoomout"; ptzSend("move", { dir }); clearTimeout(wheelTO.current); wheelTO.current = setTimeout(() => ptzSend("stop", { dir }), 280); }}
-                        onPointerDown={(e) => { dragRefP.current = { active: true, dir: "", ox: e.clientX, oy: e.clientY }; (e.target as Element).setPointerCapture?.(e.pointerId); }}
-                        onPointerMove={(e) => { const st = dragRefP.current; if (!st.active) return; const dx = e.clientX - st.ox, dy = e.clientY - st.oy; const dist = Math.hypot(dx, dy); if (dist < 22) { if (st.dir) { ptzSend("stop", { dir: st.dir }); st.dir = ""; } return; } const dir = ptzAngleToDir(Math.atan2(dy, dx)); if (dir !== st.dir) { if (st.dir) ptzSend("stop", { dir: st.dir }); ptzSend("move", { dir }); st.dir = dir; } }}
-                        onPointerUp={() => { const st = dragRefP.current; if (st.dir) ptzSend("stop", { dir: st.dir }); dragRefP.current = { active: false, dir: "", ox: 0, oy: 0 }; }}
-                        onPointerLeave={() => { const st = dragRefP.current; if (st.dir) ptzSend("stop", { dir: st.dir }); dragRefP.current = { active: false, dir: "", ox: 0, oy: 0 }; }}
-                    />
-                )}
-                {tab === "live" && isPtz && showPtz && <div className="absolute bottom-16 right-4 z-30"><PtzControls deviceId={cam.id} speed={ptzSpeed} onSpeed={setPtzSpeed} /></div>}
-
-                {/* ── GRABACIÓN ── (se mantiene montado para no recargar el clip al cambiar de pestaña) */}
-                {(
-                    <div className={cn("absolute inset-0 z-10 bg-black", tab !== "rec" && "hidden")}>
-                        {/* fondo: última captura del canal (evita el vacío negro mientras el NVR abre la grabación) */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={snap} alt="" className={cn("absolute inset-0 z-0 w-full h-full object-contain transition-opacity duration-500", recLoading ? "opacity-100 blur-[6px] scale-105 brightness-[0.4]" : "opacity-0")} />
-                        {recSeen && playbackUrl ? (
-                            <video key={`${playbackUrl}#${recRetry}`} ref={recVideo} src={playbackUrl} autoPlay controls playsInline poster={snap}
-                                onLoadedData={() => { recTriesRef.current = 0; setRecLoading(false); setNoRec(false); try { recVideo.current!.playbackRate = recRate; } catch { } }} onPlaying={() => { recTriesRef.current = 0; setNoRec(false); waitRealFrame(recVideo.current, () => setRecLoading(false)); }} onCanPlay={() => setRecLoading(false)} onWaiting={() => setRecLoading(true)}
-                                onError={() => { if (recTriesRef.current < 2) { recTriesRef.current++; setTimeout(() => setRecRetry((r) => r + 1), 800); } else { setRecLoading(false); setNoRec(true); } }}
-                                className="absolute inset-0 z-[1] w-full h-full object-contain" />
-                        ) : (
-                            <div className="absolute inset-0 z-[1] grid place-items-center text-white/50 text-sm">Sin NVR/canal para reproducir grabación.</div>
-                        )}
-                        {/* mini PiP del vivo (siempre visible en grabación, flotante sin marcos) */}
-                        {recSeen && (
-                            <div className="absolute right-4 top-16 z-30 w-40 sm:w-52 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/15 bg-black/60">
-                                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-                                <video key={`pip_${cam.id}`} autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${cam.id}`)}&video=h264`} className="w-full h-full object-cover" />
-                                <span className="absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8.5px] font-extrabold uppercase tracking-wide text-red-300"><Circle size={6} className="fill-red-500 text-red-500 animate-pulse" /> Vivo</span>
-                            </div>
-                        )}
-                        {/* aviso centrado mientras el NVR abre/ubica la grabación (no tapa los controles de abajo) */}
-                        {recLoading && playbackUrl && scrub == null && !noRec && (
-                            <div className="absolute inset-x-0 top-0 bottom-36 z-[2] grid place-items-center pointer-events-none">
-                                <span className="text-white text-lg sm:text-xl font-extrabold tracking-wide drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">Buscando grabación en el NVR<Dots /></span>
-                            </div>
-                        )}
-                        {noRec && scrub == null && (
-                            <div className="absolute inset-x-0 top-0 bottom-36 z-[2] grid place-items-center pointer-events-none">
-                                <span className="inline-flex flex-col items-center gap-1 text-white/90 drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]">
-                                    <span className="text-lg sm:text-xl font-extrabold">Sin grabación en este horario</span>
-                                    <span className="text-[12px] text-white/55">Probá otro momento en la línea de tiempo</span>
-                                </span>
-                            </div>
-                        )}
-                        {/* hora grande mientras se arrastra la barra — abajo, sobre la línea de tiempo (no tapa el aviso de carga) */}
-                        {scrub != null && (
-                            <div className="absolute inset-x-0 bottom-32 z-[25] flex justify-center pointer-events-none">
-                                <span className="px-4 py-1 rounded-xl bg-black/45 backdrop-blur-sm text-white text-3xl sm:text-4xl font-extrabold tabular-nums tracking-wide drop-shadow-[0_3px_14px_rgba(0,0,0,0.95)]">
-                                    {new Date(scrub).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                                </span>
-                            </div>
-                        )}
-                        {/* línea de tiempo — sin recuadro, directa sobre degradado */}
-                        <div className="absolute bottom-0 inset-x-0 px-5 pb-3 pt-20 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20">
-                            <div>
-                                <div className="flex items-center gap-2.5 mb-2">
-                                    {/* fecha seleccionada — pill con icono; el input nativo va encima, invisible */}
-                                    <label className="relative inline-flex items-center gap-1.5 h-8 pl-2.5 pr-3 rounded-full bg-white/10 hover:bg-white/15 ring-1 ring-white/10 cursor-pointer transition"
-                                        data-tooltip-id="mi-tip" data-tooltip-content="Elegir fecha">
-                                        <CalIco size={13} className="text-white/55 shrink-0" />
-                                        <span className="text-white font-bold tabular-nums text-[12px] leading-none">{new Date(recT).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric" })}</span>
-                                        <input type="date" value={recDateStr} max={todayStr}
-                                            onChange={(e) => { const v = e.target.value; if (v) seekTo(dateTimeToMs(v, recMinutesOfDay)); }}
-                                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer [color-scheme:dark]" />
-                                    </label>
-                                    {/* hora en curso */}
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <Circle size={7} className="fill-red-500 text-red-500 animate-pulse shrink-0" />
-                                        <span className="text-white font-extrabold tabular-nums text-[15px] leading-none drop-shadow-[0_1px_5px_rgba(0,0,0,0.95)]">{new Date(recT).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-                                    </span>
-                                    {/* velocidad de reproducción */}
-                                    <button onClick={() => setRecRate((r) => (r >= 8 ? 1 : r * 2))} data-tooltip-id="mi-tip" data-tooltip-content="Velocidad de reproducción"
-                                        className={cn("ml-auto h-8 min-w-[40px] px-2.5 grid place-items-center rounded-full text-[12px] font-extrabold tabular-nums ring-1 ring-white/10 transition", recRate > 1 ? "bg-sky-500/80 text-white ring-sky-400/40" : "bg-white/10 text-white/90 hover:bg-white/15")}>{recRate}x</button>
-                                </div>
-                                <Scrub step="5" momentum={30} format="24h" width={680} value={recMinutesOfDay} start={recMinutesOfDay} onChange={(mins) => seekTo(dateTimeToMs(recDateStr, mins))} />
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* ── EVIDENCIA ── */}
-                {tab === "evi" && (
-                    <div className="absolute inset-0 z-10 bg-black/70 backdrop-blur-sm overflow-y-auto custom-scrollbar p-4 pt-14 pl-20">
-                        {evi.length === 0 ? (
-                            <div className="h-full grid place-items-center text-white/50 text-sm">Sin capturas de evidencia para este canal.</div>
-                        ) : (
-                            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                                {evi.map((d) => {
-                                    const m = META[d.type] || META.OTHER;
-                                    const href = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
-                                    return (
-                                        <button key={d.id} onClick={() => href && setEviBig(href)} className="group relative aspect-video rounded-lg overflow-hidden ring-1 ring-white/10 hover:ring-white/40 bg-neutral-900 transition text-left">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={16} /></div>}
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
-                                            <span className={cn("absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[7.5px] font-extrabold uppercase", m.cls)}><m.Icon size={8} /> {m.label}</span>
-                                            <span className="absolute bottom-1 inset-x-1.5 text-[8.5px] font-bold text-white/85">{ago(d.timestamp)}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        )}
-                        {eviBig && (
-                            <div className="fixed inset-0 z-[2200] bg-black/90 grid place-items-center p-6" onClick={() => setEviBig(null)}>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={eviBig} alt="" className="max-w-full max-h-full object-contain rounded-xl" />
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                {/* flash de calidad */}
-                <AnimatePresence>
-                    {qFlash > 0 && tab === "live" && (
-                        <motion.div key={qFlash} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.15 }} transition={{ type: "spring", stiffness: 400, damping: 26 }}
-                            className="absolute inset-0 grid place-items-center pointer-events-none z-20">
-                            <span className="px-5 py-2.5 rounded-2xl bg-black/55 backdrop-blur-md text-white text-lg font-extrabold tracking-[0.25em] ring-1 ring-white/15 shadow-2xl">{hd ? "HD · ALTA" : "SD · ESTÁNDAR"}</span>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
-                {/* barra de pestañas glass (izquierda) */}
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-1.5 p-1.5 rounded-2xl bg-black/45 backdrop-blur-xl ring-1 ring-white/10 shadow-xl">
-                    {tabs.map(({ k, Icon, label }) => (
-                        <button key={k} onClick={() => setTab(k)} data-tooltip-id="mi-tip" data-tooltip-content={label}
-                            className={cn("grid h-11 w-11 place-items-center rounded-xl transition-all active:scale-90", tab === k ? "bg-red-600 text-white shadow-lg" : "text-white/70 hover:text-white hover:bg-white/10")}>
-                            <Icon size={18} />
-                        </button>
-                    ))}
-                </div>
-
-                {/* top */}
-                <div className="absolute top-0 inset-x-0 p-4 flex items-start gap-3 bg-gradient-to-b from-black/65 to-transparent z-20">
-                    <div className="text-base font-extrabold text-white leading-tight truncate drop-shadow min-w-0">{cam.name}</div>
-                    <div className="ml-auto flex items-center gap-2 shrink-0">
-                        {tab === "live" && isPtz && (
-                            <button onClick={() => setShowPtz((v) => !v)} data-tooltip-id="mi-tip" data-tooltip-content={showPtz ? "Ocultar control PTZ" : "Mostrar control PTZ"}
-                                className={cn("px-2.5 h-9 grid place-items-center rounded-full text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm transition-colors", showPtz ? "bg-red-600/90 text-white" : "bg-black/40 text-white/80 hover:bg-black/70")}><Joystick size={16} /></button>
-                        )}
-                        {tab === "live" && (
-                            <button onClick={() => { setTrackEdit((v) => !v); setAddOpen(false); }} data-tooltip-id="mi-tip" data-tooltip-content={trackEdit ? "Terminar edición de seguimiento" : "Editar seguimiento visual (enlaces entre cámaras)"}
-                                className={cn("px-2.5 h-9 grid place-items-center rounded-full text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm transition-colors", trackEdit ? "bg-amber-500/90 text-white" : "bg-black/40 text-white/80 hover:bg-black/70")}><Pencil size={15} /></button>
-                        )}
-                        {tab === "live" && (
-                            <button onClick={toggleHd} data-tooltip-id="mi-tip" data-tooltip-content={hd ? "Cambiar a sub-flujo (ligero)" : "Cambiar a flujo principal (HD)"}
-                                className={cn("px-2.5 h-9 grid place-items-center rounded-full text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm transition-colors", hd ? "bg-sky-500/90 text-white" : "bg-black/40 text-white/80 hover:bg-black/70")}>{hd ? "HD" : "SD"}</button>
-                        )}
-                        {tab === "rec" && nvrId && cam.ch != null && (
-                            <a href={`/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&pre=10&dur=60&download=1&nvr=${nvrId}`} download
-                                data-tooltip-id="mi-tip" data-tooltip-content="Descargar clip (60s alrededor de este instante)"
-                                className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-sky-500/80 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><Download size={17} /></a>
-                        )}
-                        <button onClick={onClose} className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-black/70 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><X size={18} /></button>
-                    </div>
-                </div>
-
-                {/* abajo-izq (sólo vivo) */}
-                {tab === "live" && (
-                    <div className="absolute bottom-0 inset-x-0 p-4 pl-20 bg-gradient-to-t from-black/70 to-transparent z-20">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            {cam.nvrName && <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-white/75"><Server size={11} /> {cam.nvrName}</span>}
-                            {cam.ch != null && <span className="text-[11px] font-bold text-white/55">CH {cam.ch}</span>}
-                            <span className="inline-flex items-center gap-1 text-[11px] font-extrabold uppercase tracking-wider text-red-300"><Circle size={7} className="fill-red-500 text-red-500 animate-pulse" /> {ready ? (stalled ? "Reconectando…" : "En vivo") : "Conectando…"}</span>
-                        </div>
-                    </div>
-                )}
+        <div ref={el} style={style} onPointerMove={onMove} onPointerUp={end} onPointerCancel={end}
+            className={cn("absolute z-30 aspect-video rounded-xl overflow-hidden shadow-2xl ring-1 bg-black/60 select-none touch-none", ring)}>
+            {children}
+            <div onPointerDown={begin("move")} className="absolute inset-0 z-[1] cursor-move" />
+            <div onPointerDown={begin("resize")} title="Redimensionar" className="absolute bottom-0 right-0 z-[3] w-5 h-5 grid place-items-end p-1 cursor-nwse-resize">
+                <span className="w-2.5 h-2.5 border-r-2 border-b-2 border-white/70" />
             </div>
         </div>
     );
@@ -994,6 +835,8 @@ export default function MonitorIntrusion() {
     const [alarmDev, setAlarmDev] = useState<IntrusionCam | null>(null);
     const [detail, setDetail] = useState<any>(null);
     const [showHistory, setShowHistory] = useState(false);
+    const [showEvidence, setShowEvidence] = useState(false);
+    const [playDet, setPlayDet] = useState<DetHistItem | null>(null);
 
     // Reconstruir alarmas sin aceptar al cargar la página (overlays persistentes)
     useEffect(() => {
@@ -1047,7 +890,7 @@ export default function MonitorIntrusion() {
     useEffect(() => {
         let s: any;
         try {
-            s = io(getSocketUrl(), { path: "/io/socket.io", transports: ["polling", "websocket"] });
+            s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
             s.on("general_detection", (d: any) => {
                 if (filter === "ANALYTIC" && d.type === "MOTION") return;
                 const item: DetItem = { id: d.id, deviceId: d.deviceId, deviceName: d.deviceName, type: d.type, eventType: d.eventType, snapshotPath: d.snapshotPath || null, timestamp: d.timestamp };
@@ -1076,11 +919,34 @@ export default function MonitorIntrusion() {
         setAlarms((a) => { const n = { ...a }; delete n[id]; return n; });
         if (kind === "real") { setAttendingIds((s) => new Set(s).add(id)); setAttending(id, true).catch(() => { }); }
     };
-    const [ackDev, setAckDev] = useState<IntrusionCam | null>(null);
     const [liveTab, setLiveTab] = useState<"live" | "rec" | "evi">("live");
+    const [prevCam, setPrevCam] = useState<IntrusionCam | null>(null);
+    const [playMs, setPlayMs] = useState<number | null>(null);
     const openFicha = (c: IntrusionCam) => setDetail(lastByDev[c.id] ?? { id: `live-${c.id}`, deviceId: c.id, deviceName: c.name, type: "OTHER", eventType: null, snapshotPath: null, timestamp: new Date().toISOString() });
-    const openLive = (c: IntrusionCam) => { setLiveTab("live"); setLiveDev(c); };
-    const openClip = (c: IntrusionCam) => { setLiveTab("rec"); setLiveDev(c); };
+    const trackStatus = useMemo(() => { const now = Date.now(); const o: Record<string, { recent: boolean; alarm: boolean }> = {}; cams.forEach((c) => { const l = lastByDev[c.id]; o[c.id] = { recent: !!(l && now - new Date(l.timestamp).getTime() < 15 * 60 * 1000), alarm: !!(alarms[c.id]?.length) }; }); return o; }, [cams, lastByDev, alarms]);
+    // Aceptar alarma abre la MISMA ficha del sidebar (con los botones real/falsa adentro).
+    const openAlarmFicha = (c: IntrusionCam) => {
+        const a = alarms[c.id]?.[0];
+        setDetail(a ? { id: a.id, deviceId: c.id, deviceName: c.name, type: a.type, eventType: null, snapshotPath: null, timestamp: a.ts }
+                    : (lastByDev[c.id] ?? { id: `live-${c.id}`, deviceId: c.id, deviceName: c.name, type: "OTHER", eventType: null, snapshotPath: null, timestamp: new Date().toISOString() }));
+    };
+    const openLive = (c: IntrusionCam) => { setLiveTab("live"); setPrevCam(null); setPlayMs(null); setLiveDev(c); };
+    const openClip = (c: IntrusionCam) => { setLiveTab("rec"); setPlayMs(null); setLiveDev(c); };
+    // Deep-link desde el mapa: ?cam=<deviceId>&tab=rec&t=<ms> abre el modal de esa cámara.
+    const deepLinkedRef = useRef(false);
+    useEffect(() => {
+        if (deepLinkedRef.current || !cams.length) return;
+        try {
+            const sp = new URLSearchParams(window.location.search);
+            const camId = sp.get("cam"); if (!camId) return;
+            const c = cams.find((x) => x.id === camId); if (!c) return;
+            deepLinkedRef.current = true;
+            const tb = sp.get("tab"); const tms = parseInt(sp.get("t") || "0");
+            setLiveTab(tb === "live" || tb === "evi" ? tb : "rec");
+            if (tms) setPlayMs(tms);
+            setLiveDev(c);
+        } catch { }
+    }, [cams]);
 
     const shown = useMemo(() => {
         const term = q.trim().toLowerCase();
@@ -1131,6 +997,7 @@ export default function MonitorIntrusion() {
                     </div>
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-400"><Circle size={8} className="fill-emerald-500 text-emerald-500 animate-pulse" /> En vivo</span>
                     <button onClick={() => setShowHistory(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><History size={13} /> Historial</button>
+                    <button onClick={() => setShowEvidence(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><Camera size={13} /> Evidencia</button>
                     <div className="inline-flex rounded-xl border border-border p-0.5 bg-card">
                         {(["ANALYTIC", "MOTION", "ALL"] as const).map((f) => (
                             <button key={f} onClick={() => setFilter(f)} className={cn("px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-colors", filter === f ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:text-foreground")}>
@@ -1162,7 +1029,7 @@ export default function MonitorIntrusion() {
                                     <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
                                         {topRow.map((cam) => (
                                             <CamTile key={cam.id} cam={cam} alarms={alarms[cam.id]} last={lastByDev[cam.id]} geom={geom[cam.id]} hasAnalytics={analyticsIds.has(cam.id)} alarmActive={cam.alarmOk || alarmIds.has(cam.id)} onFicha={openFicha} onLive={openLive} onClip={openClip}
-                                                onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => setAckDev(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
+                                                onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => openAlarmFicha(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
                                         ))}
                                     </div>
                                 </div>
@@ -1171,7 +1038,7 @@ export default function MonitorIntrusion() {
                                 <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
                                     {restRow.map((cam) => (
                                         <CamTile key={cam.id} cam={cam} alarms={alarms[cam.id]} last={lastByDev[cam.id]} geom={geom[cam.id]} hasAnalytics={analyticsIds.has(cam.id)} alarmActive={cam.alarmOk || alarmIds.has(cam.id)} onFicha={openFicha} onLive={openLive} onClip={openClip}
-                                            onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => setAckDev(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
+                                            onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => openAlarmFicha(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
                                     ))}
                                 </div>
                             )}
@@ -1240,11 +1107,11 @@ export default function MonitorIntrusion() {
                 setAnalyticsIds((s) => new Set(s).add(id));
             }} />}
             {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
-            {ackDev && <AlarmAckModal cam={ackDev} alarms={alarms[ackDev.id] || []} onResolve={(k) => { ackAlarm(ackDev.id, k); setAckDev(null); }} onClose={() => setAckDev(null)} />}
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
-                onAck={(id) => { const c = camById[id]; setDetail(null); if (c) setAckDev(c); }} />}
+                hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
-            {liveDev && <LiveModal key={liveDev.id} cam={liveDev} cams={cams} initialTab={liveTab} geom={geom[liveDev.id]} onClose={() => setLiveDev(null)} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setLiveDev(c); }} />}
+            {showEvidence && <EvidenceGallery cams={cams} onClose={() => setShowEvidence(false)} onOpen={(d) => setDetail(d)} onPlay={(d) => { const c = d.deviceId ? camById[d.deviceId] : null; if (c) { setPlayMs(Math.floor(new Date(d.timestamp).getTime())); setLiveTab("rec"); setLiveDev(c); } }} />}
+            {liveDev && <LiveModal key={`${liveDev.id}:${playMs ?? "l"}`} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} initialRecMs={playMs ?? undefined} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); setPlayMs(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setPlayMs(null); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
             <RTooltip id="mi-tip" place="top" delayShow={100} className="!z-[9999] !rounded-md !bg-zinc-900 !text-white !text-[11px] !font-semibold !px-2 !py-1 !border !border-white/10 !shadow-xl !opacity-100" />
         </div>
     );

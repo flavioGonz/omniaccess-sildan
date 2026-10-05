@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Keyboard, Loader2, CheckCircle2, UserCheck, UserX, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { setEventPlate } from "@/app/actions/history";
+import { native } from "@/lib/guard-native";
 
 const normPlate = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
@@ -58,7 +59,7 @@ export function PlateManualButton({
     const forceFocus = () => {
         for (const d of [60, 220, 500]) {
             setTimeout(() => {
-                try { inputRef.current?.focus({ preventScroll: true }); } catch { }
+                try { inputRef.current?.focus({ preventScroll: true }); native.showKeyboard(); } catch { }
             }, d);
         }
     };
@@ -119,7 +120,7 @@ export function PlateManualButton({
                                 value={plate}
                                 onChange={(e) => setPlate(normPlate(e.target.value))}
                                 onKeyDown={(e) => { if (e.key === "Enter") save(); }}
-                                onClick={() => { try { inputRef.current?.focus(); } catch { } }}
+                                onClick={() => { try { inputRef.current?.focus(); native.showKeyboard(); } catch { } }}
                                 className="h-12 text-center text-2xl font-bold uppercase tracking-[0.3em]"
                                 placeholder="ABC1234"
                                 inputMode="text"

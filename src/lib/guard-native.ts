@@ -52,6 +52,17 @@ export const native = {
     enableNfc(on: boolean) { call("enableNfc", on); },
     openSettings() { call("openSettings"); },
     openAccessibility() { call("openAccessibility"); },
+    // --- Contrato WebView (APK) ---
+    // El WebView de Android NO levanta el teclado con un .focus() diferido (no va atado a un
+    // gesto): la APK debe implementar showKeyboard()/hideKeyboard() (InputMethodManager).
+    // openUrl(url): abrir URL externa con Intent/Custom Tab (window.open no anda en WebView).
+    showKeyboard() { call("showKeyboard"); },
+    hideKeyboard() { call("hideKeyboard"); },
+    canOpenUrl(): boolean { try { const b = bridge(); return !!(b && typeof b.openUrl === "function"); } catch { return false; } },
+    openUrl(url: string): boolean {
+        try { const b = bridge(); if (b && typeof b.openUrl === "function") { b.openUrl(url); return true; } } catch { }
+        return false;
+    },
     getBattery(): number {
         const v = call("getBattery");
         if (typeof v === "number") return v;

@@ -1073,22 +1073,30 @@ const handleWebhook = async (req, res, logPrefix) => {
                 for (const k of Object.keys(MAP)) { if (etLower.includes(k)) { genType = MAP[k]; break; } }
                 if (genType) {
                     if (genType === "MOTION") {
-                        global.__lastMotion = global.__lastMotion || {};
-                        const mkey = (macAddress || ipAddress || "x");
-                        const nowM = Date.now();
-                        if (global.__lastMotion[mkey] && (nowM - global.__lastMotion[mkey]) < 30000) {
-                            res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: "MOTION", throttled: true })); return;
-                        }
-                        global.__lastMotion[mkey] = nowM;
+                        // Movimiento simple (VMD): NO se almacena, NO se emite, NO se captura imagen.
+                        // Solo interesan analíticas clasificadas (cruce de línea, intrusión de zona, persona/vehículo).
+                        // El VMD por cambio de cuadro genera miles de eventos/imágenes y satura el sistema.
+                        res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "motion", ignored: true })); return;
                     }
+
                     const cleanMac = macAddress ? macAddress.replace(/[:\-\s]/g, "").toUpperCase() : null;
                     const orq = [];
                     if (cleanMac) orq.push({ mac: { contains: cleanMac } });
                     if (ipAddress) orq.push({ ip: ipAddress });
                     const dev = orq.length ? await prisma.device.findFirst({ where: { OR: orq } }) : null;
-                    const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, timestamp: new Date() } });
+                    // Clase de objeto que clasificó la cámara (AcuSense): human | vehicle. Viene en
+                    // DetectionRegionList > DetectionRegionEntry > detectionTarget del push Hik.
+                    let targetClass = null;
+                    try {
+                        const drl = eventAlert.DetectionRegionList || xmlData.DetectionRegionList;
+                        let entry = drl && (drl.DetectionRegionEntry || drl);
+                        if (Array.isArray(entry)) entry = entry[0];
+                        const dt = entry && (entry.detectionTarget || entry.targetType || entry.objectType);
+                        if (dt) { const t = String(dt).toLowerCase(); targetClass = t.includes("vehicle") || t.includes("car") ? "vehicle" : t.includes("human") || t.includes("person") || t.includes("pedestrian") ? "human" : null; }
+                    } catch (e) {}
+                    const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, label: targetClass, timestamp: new Date() } });
                     if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
-                    if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, timestamp: det.timestamp });
+                    if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, label: targetClass, timestamp: det.timestamp });
                     console.log(logPrefix + " 🟣 [ANALYTIC] " + genType + " (" + eventType + ") dev=" + (dev ? dev.name : "?"));
                     if (dev && dev.ip && genType !== "MOTION") { captureIntrusion(dev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}); }
                     res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: genType })); return;

@@ -1,28 +1,32 @@
 schema: spec-driven
 
 context: |
-  Language: es
-  All artifacts must be written in es.
-  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  Language: es. Todos los artefactos (propuestas, specs, tasks) en espanol; los
+  encabezados estructurales de OpenSpec y las palabras SHALL/MUST quedan en ingles.
+  OmniAccess: app Next.js 16 (App Router) + Node bajo PM2 — omniaccess-web (:10001),
+  omniaccess-webhooks/server.js (:10000, socket.io global.io), dispatch-worker.
+  Datos: PostgreSQL lpr_db via Prisma, MinIO (S3), go2rtc (video). Zona horaria del
+  server UTC; usuarios Montevideo (UTC-3, sin DST).
+  Repo multi-sitio (omniaccess-sildan): ramas por cliente (los-olivos = Los Olivos en
+  vivo, san-nicolas) mas main unificada. No hornear config especifica de un cliente
+  (IPs, dominios) dentro de codigo compartido sin aislarla.
+  Despliegue: se parchea en el server, build en background, restart del proceso PM2
+  correcto, y recien se da por hecho tras verificar HTTP 200. Nunca romper produccion.
+  Restricciones de negocio: las consultas a Min. del Interior son human-in-the-loop
+  (no automatizar el envio); el QR de una invitacion se envia al residente que lo
+  genero, nunca al invitado; no eliminar camaras existentes.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always state what is out of scope
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - Indicar siempre que queda fuera de alcance (Out of scope).
+    - Nombrar el/los proceso(s) PM2 a reiniciar y las paginas a verificar.
+  tasks:
+    - Incluir un paso final de verificacion (build DONE_0 + HTTP 200 de lo tocado).
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+operations:
+  apply:
+    guidance:
+      - Patch idempotente en el server, build en background, restart del proceso correcto.
+  archive:
+    guidance:
+      - Resumir que cambio y el resultado de la verificacion antes de archivar.
