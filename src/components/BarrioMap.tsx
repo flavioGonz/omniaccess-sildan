@@ -267,7 +267,7 @@ const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", ico
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
 // Ficha del evento de intrusión: imagen a sangre (sin borde) con datos y botones como overlay, borde rojo animado.
-function IntrAlertCard({ card, clip, onAck, onClose }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void }) {
+function IntrAlertCard({ card, clip, onAck, onClose, onViewRec }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void }) {
     return (
         <div className="intr-alert-card">
             {clip ? (
@@ -287,14 +287,14 @@ function IntrAlertCard({ card, clip, onAck, onClose }: { card: { deviceId: strin
                 <div className="mt-2 flex gap-2">
                     <button onClick={() => onAck(card.deviceId, "real")} className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500 shadow-lg">Real</button>
                     <button onClick={() => onAck(card.deviceId, "false")} className="flex-1 py-1.5 rounded-lg bg-white/15 backdrop-blur-sm text-white text-xs font-bold hover:bg-white/25 border border-white/20">Falsa alarma</button>
-                    <a href={`/admin/monitor-intrusion?cam=${card.deviceId}&tab=rec&t=${Math.floor(card.ms)}`} target="_blank" rel="noopener noreferrer" title="Ver evento (vivo · grabación · evidencia)" onClick={(e) => e.stopPropagation()} className="shrink-0 w-9 py-1.5 grid place-items-center rounded-lg bg-sky-600 text-white hover:bg-sky-500 shadow-lg"><Eye size={15} /></a>
+                    <button onClick={(e) => { e.stopPropagation(); onViewRec?.(); }} title="Ver grabación del evento" className="shrink-0 w-9 py-1.5 grid place-items-center rounded-lg bg-sky-600 text-white hover:bg-sky-500 shadow-lg"><Eye size={15} /></button>
                 </div>
             </div>
         </div>
     );
 }
 // Burbuja HTML anclada por proyección sobre la cámara (no usa Popup de Leaflet -> no parpadea).
-function IntrAlertBubble({ card, camList, cam, onAck, onClose }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: string) => void; onClose: () => void }) {
+function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void }) {
     const map = useMap();
     const ref = useRef<HTMLDivElement | null>(null);
     const posRef = useRef({ lat: cam.lat, lng: cam.lng });
@@ -314,10 +314,35 @@ function IntrAlertBubble({ card, camList, cam, onAck, onClose }: { card: { devic
     const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(card.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null;
     return createPortal(
         <div ref={ref} className="absolute left-0 top-0 pointer-events-auto" style={{ zIndex: 660, willChange: "transform" }}>
-            <IntrAlertCard card={card} clip={clip} onAck={onAck} onClose={onClose} />
+            <IntrAlertCard card={card} clip={clip} onAck={onAck} onClose={onClose} onViewRec={onViewRec} />
             <span className="block mx-auto w-3 h-3 rotate-45 -mt-1.5 bg-red-600 shadow-lg" />
         </div>,
         map.getContainer()
+    );
+}
+// Modal de grabación en el propio mapa (no navega al módulo de intrusión).
+function RecModal({ card, camList, onClose }: { card: { deviceId: string; ms: number; id?: string; name?: string }; camList: any[]; onClose: () => void }) {
+    const cam = camList.find((c) => c.id === card.deviceId);
+    const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&pre=5&dur=40&nvr=${cam.nvrId}` : null;
+    return createPortal(
+        <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+            <div className="relative w-full max-w-3xl bg-card rounded-2xl overflow-hidden shadow-2xl border border-border" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
+                    <div className="text-sm font-bold flex items-center gap-2"><Video size={15} className="text-sky-500" /> Grabación · {card.name || "Cámara"} <span className="text-xs font-normal text-muted-foreground tabular-nums">{new Date(card.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span></div>
+                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-accent"><X size={16} /></button>
+                </div>
+                <div className="relative w-full aspect-video bg-black">
+                    {clip ? (
+                        // eslint-disable-next-line jsx-a11y/media-has-caption
+                        <video src={clip} autoPlay muted controls playsInline poster={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} className="absolute inset-0 w-full h-full object-contain" />
+                    ) : (
+                        <div className="absolute inset-0 grid place-items-center text-white/50 text-sm">Sin NVR/canal para reproducir la grabación.</div>
+                    )}
+                </div>
+                {clip && <div className="px-4 py-2 flex justify-end"><a href={`${clip}&download=1`} download className="text-xs font-bold px-3 py-1.5 rounded-lg bg-accent hover:bg-accent/70">Descargar clip</a></div>}
+            </div>
+        </div>,
+        document.body
     );
 }
 const intrPulseIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span class="intr-pulse"></span>`, iconSize: [0, 0], iconAnchor: [0, 0] });
@@ -639,6 +664,7 @@ export default function BarrioMap() {
     // ── Alertas de intrusión en vivo sobre el mapa (cruce de línea / zona) ──
     const [intrAlerts, setIntrAlerts] = useState<Record<string, { ts: number; ms?: number; id?: string; type: string; label?: string | null; name?: string }>>({});
     const [alertCard, setAlertCard] = useState<null | { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }>(null);
+    const [recModal, setRecModal] = useState<null | { deviceId: string; ms: number; id?: string; name?: string }>(null);
     const [soundOn, setSoundOn] = useState(true);
     const [recentIntr, setRecentIntr] = useState<any[]>([]);
     const [intrCounts, setIntrCounts] = useState<Record<string, number>>({});
@@ -1226,7 +1252,7 @@ export default function BarrioMap() {
                     {Object.keys(intrAlerts).map((devId) => { const cam = data.cameras.find((c) => c.deviceId === devId); if (!cam) return null; return <Marker key={`intr_${devId}`} position={[cam.lat, cam.lng]} icon={intrPulseIcon} interactive={false} zIndexOffset={2000} />; })}
                     {/* Ficha del evento anclada sobre la cámara (overlay HTML por proyección, sin popup) */}
                     {alertCard && (() => { const cam = data.cameras.find((c) => c.deviceId === alertCard.deviceId); if (!cam) return null; return (
-                        <IntrAlertBubble key={`alert_${alertCard.deviceId}`} card={alertCard} camList={intrCamList} cam={cam} onAck={ackAlert} onClose={() => setAlertCard(null)} />
+                        <IntrAlertBubble key={`alert_${alertCard.deviceId}`} card={alertCard} camList={intrCamList} cam={cam} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => setRecModal({ deviceId: alertCard.deviceId, ms: alertCard.ms, id: alertCard.id, name: alertCard.name })} />
                     ); })()}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
                     {ruta && ruta.path.length >= 2 && (
@@ -1290,9 +1316,10 @@ export default function BarrioMap() {
                 {/* Fallback: ficha fija SOLO si la cámara no está colocada en el mapa */}
                 {alertCard && !data.cameras.find((c) => c.deviceId === alertCard.deviceId) && (() => { const meta = intrCamList.find((c) => c.id === alertCard.deviceId); const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(alertCard.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null; return (
                     <div className="absolute top-16 left-4 z-[690]">
-                        <IntrAlertCard card={alertCard} clip={clip} onAck={ackAlert} onClose={() => setAlertCard(null)} />
+                        <IntrAlertCard card={alertCard} clip={clip} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => setRecModal({ deviceId: alertCard.deviceId, ms: alertCard.ms, id: alertCard.id, name: alertCard.name })} />
                     </div>
                 ); })()}
+                {recModal && <RecModal card={recModal} camList={intrCamList} onClose={() => setRecModal(null)} />}
 
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
 
