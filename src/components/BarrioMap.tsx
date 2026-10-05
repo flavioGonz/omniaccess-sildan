@@ -23,6 +23,7 @@ import { FlowAnims, FlowColumn, useFlow } from "@/components/barrio/FlowLayer";
 import { LogIn, LogOut } from "lucide-react";
 import { getDevices } from "@/app/actions/devices";
 import { getIntrusionCameras, getAnalyticsGeometryBatch, ackAlarms, getDetectionHistory, getTodayIntrusionCounts, type IntrusionCam } from "@/app/actions/detections";
+import { LiveModal } from "@/components/intrusion/LiveModal";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { montarVivo } from "@/lib/vivo";
@@ -672,7 +673,7 @@ export default function BarrioMap() {
     // ── Alertas de intrusión en vivo sobre el mapa (cruce de línea / zona) ──
     const [intrAlerts, setIntrAlerts] = useState<Record<string, { ts: number; ms?: number; id?: string; type: string; label?: string | null; name?: string }>>({});
     const [alertCard, setAlertCard] = useState<null | { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }>(null);
-    const [recModal, setRecModal] = useState<null | { deviceId: string; ms: number; id?: string; name?: string }>(null);
+    const [recModal, setRecModal] = useState<null | { cam: any; ms: number }>(null);
     const [soundOn, setSoundOn] = useState(true);
     const [recentIntr, setRecentIntr] = useState<any[]>([]);
     const [intrCounts, setIntrCounts] = useState<Record<string, number>>({});
@@ -1260,7 +1261,7 @@ export default function BarrioMap() {
                     {Object.keys(intrAlerts).map((devId) => { const cam = data.cameras.find((c) => c.deviceId === devId); if (!cam) return null; return <Marker key={`intr_${devId}`} position={[cam.lat, cam.lng]} icon={intrPulseIcon} interactive={false} zIndexOffset={2000} />; })}
                     {/* Ficha del evento anclada sobre la cámara (overlay HTML por proyección, sin popup) */}
                     {alertCard && (() => { const cam = data.cameras.find((c) => c.deviceId === alertCard.deviceId); if (!cam) return null; return (
-                        <IntrAlertBubble key={`alert_${alertCard.deviceId}`} card={alertCard} camList={intrCamList} cam={cam} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => setRecModal({ deviceId: alertCard.deviceId, ms: alertCard.ms, id: alertCard.id, name: alertCard.name })} />
+                        <IntrAlertBubble key={`alert_${alertCard.deviceId}`} card={alertCard} camList={intrCamList} cam={cam} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => { const cm = intrCamList.find((c) => c.id === alertCard.deviceId); if (cm) setRecModal({ cam: cm, ms: alertCard.ms }); }} />
                     ); })()}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
                     {ruta && ruta.path.length >= 2 && (
@@ -1324,10 +1325,10 @@ export default function BarrioMap() {
                 {/* Fallback: ficha fija SOLO si la cámara no está colocada en el mapa */}
                 {alertCard && !data.cameras.find((c) => c.deviceId === alertCard.deviceId) && (() => { const meta = intrCamList.find((c) => c.id === alertCard.deviceId); const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(alertCard.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null; return (
                     <div className="absolute top-16 left-4 z-[690]">
-                        <IntrAlertCard card={alertCard} clip={clip} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => setRecModal({ deviceId: alertCard.deviceId, ms: alertCard.ms, id: alertCard.id, name: alertCard.name })} />
+                        <IntrAlertCard card={alertCard} clip={clip} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => { const cm = intrCamList.find((c) => c.id === alertCard.deviceId); if (cm) setRecModal({ cam: cm, ms: alertCard.ms }); }} />
                     </div>
                 ); })()}
-                {recModal && <RecModal card={recModal} camList={intrCamList} onClose={() => setRecModal(null)} />}
+                {recModal && <LiveModal cam={recModal.cam} cams={intrCamList} initialTab="rec" initialRecMs={recModal.ms} onClose={() => setRecModal(null)} />}
 
                 {oscura && <><div className="omni-reticula" /><div className="omni-vineta" /></>}
 
