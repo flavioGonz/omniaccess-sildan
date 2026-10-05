@@ -242,7 +242,7 @@ export default function HistoryPage() {
 
     useEffect(() => {
         const socketUrl = getSocketUrl();
-        const socket = io(socketUrl, { transports: ["websocket", "polling"] });
+        const socket = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
 
         socket.on("access_event", (event: FullAccessEvent) => {
             const { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, startTime, endTime, page } = filtersRef.current;

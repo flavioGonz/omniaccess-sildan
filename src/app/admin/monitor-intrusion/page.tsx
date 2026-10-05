@@ -1359,7 +1359,7 @@ export default function MonitorIntrusion() {
     useEffect(() => {
         let s: any;
         try {
-            s = io(getSocketUrl(), { path: "/io/socket.io", transports: ["polling", "websocket"] });
+            s = io(window.location.origin, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
             s.on("general_detection", (d: any) => {
                 if (filter === "ANALYTIC" && d.type === "MOTION") return;
                 const item: DetItem = { id: d.id, deviceId: d.deviceId, deviceName: d.deviceName, type: d.type, eventType: d.eventType, snapshotPath: d.snapshotPath || null, timestamp: d.timestamp };
