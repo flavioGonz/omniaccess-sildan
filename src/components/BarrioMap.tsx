@@ -270,13 +270,8 @@ const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<spa
 function IntrAlertCard({ card, clip, onAck, onClose, onViewRec }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void }) {
     return (
         <div className="intr-alert-card">
-            {clip ? (
-                // eslint-disable-next-line jsx-a11y/media-has-caption
-                <video src={clip} autoPlay loop muted playsInline poster={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} className="intr-alert-img" />
-            ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} alt="" className="intr-alert-img" />
-            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} alt="" className="intr-alert-img" />
             <div className="absolute top-0 inset-x-0 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/80 via-black/35 to-transparent z-10">
                 <div className="flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-wide text-white" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}><span className="flex items-center gap-1.5"><ShieldAlert size={14} className="text-red-400" /> {card.type === "LINECROSS" ? "Cruce de línea" : card.type === "INTRUSION" ? "Intrusión" : "Detección"}</span>{card.label ? <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black" style={{ background: card.label === "vehicle" ? "#06b6d4" : "#f59e0b", color: "#06121f", textShadow: "none" }}>{card.label === "vehicle" ? <Car size={12} /> : <UserIcon size={12} />}{card.label === "vehicle" ? "AUTO" : "PERSONA"}</span> : null}</div>
                 <button onClick={onClose} className="p-1 rounded text-white/90 hover:bg-white/20"><X size={14} /></button>
@@ -320,26 +315,39 @@ function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec }: { ca
         map.getContainer()
     );
 }
-// Modal de grabación en el propio mapa (no navega al módulo de intrusión).
+// Modal completo del evento sobre el mapa: Vivo / Grabación / Evidencia (no navega al módulo).
 function RecModal({ card, camList, onClose }: { card: { deviceId: string; ms: number; id?: string; name?: string }; camList: any[]; onClose: () => void }) {
+    const [tab, setTab] = useState<"live" | "rec" | "evi">("rec");
     const cam = camList.find((c) => c.id === card.deviceId);
     const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&pre=5&dur=40&nvr=${cam.nvrId}` : null;
+    const snap = `/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`;
+    const tabs = [{ k: "live", label: "Vivo", Icon: Video }, { k: "rec", label: "Grabación", Icon: Play }, { k: "evi", label: "Evidencia", Icon: Eye }] as const;
     return createPortal(
         <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
             <div className="relative w-full max-w-3xl bg-card rounded-2xl overflow-hidden shadow-2xl border border-border" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-                    <div className="text-sm font-bold flex items-center gap-2"><Video size={15} className="text-sky-500" /> Grabación · {card.name || "Cámara"} <span className="text-xs font-normal text-muted-foreground tabular-nums">{new Date(card.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span></div>
-                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-accent"><X size={16} /></button>
+                    <div className="text-sm font-bold flex items-center gap-2 min-w-0"><ShieldAlert size={15} className="text-sky-500 shrink-0" /> <span className="truncate">{card.name || "Cámara"}</span> <span className="text-xs font-normal text-muted-foreground tabular-nums shrink-0">{new Date(card.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span></div>
+                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-accent shrink-0"><X size={16} /></button>
+                </div>
+                <div className="flex items-center gap-1 px-3 py-2 border-b border-border">
+                    {tabs.map((t) => (
+                        <button key={t.k} onClick={() => setTab(t.k)} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors", tab === t.k ? "bg-sky-600 text-white" : "text-muted-foreground hover:bg-accent")}><t.Icon size={14} /> {t.label}</button>
+                    ))}
                 </div>
                 <div className="relative w-full aspect-video bg-black">
-                    {clip ? (
+                    {tab === "live" && <LiveMp4 deviceId={card.deviceId} className="absolute inset-0 w-full h-full object-contain bg-black" />}
+                    {tab === "rec" && (clip ? (
                         // eslint-disable-next-line jsx-a11y/media-has-caption
-                        <video src={clip} autoPlay muted controls playsInline poster={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} className="absolute inset-0 w-full h-full object-contain" />
+                        <video key={clip} src={clip} autoPlay muted controls playsInline poster={snap} className="absolute inset-0 w-full h-full object-contain" />
                     ) : (
                         <div className="absolute inset-0 grid place-items-center text-white/50 text-sm">Sin NVR/canal para reproducir la grabación.</div>
+                    ))}
+                    {tab === "evi" && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={snap} alt="" className="absolute inset-0 w-full h-full object-contain" />
                     )}
                 </div>
-                {clip && <div className="px-4 py-2 flex justify-end"><a href={`${clip}&download=1`} download className="text-xs font-bold px-3 py-1.5 rounded-lg bg-accent hover:bg-accent/70">Descargar clip</a></div>}
+                {tab === "rec" && clip && <div className="px-4 py-2 flex justify-end"><a href={`${clip}&download=1`} download className="text-xs font-bold px-3 py-1.5 rounded-lg bg-accent hover:bg-accent/70">Descargar clip</a></div>}
             </div>
         </div>,
         document.body
@@ -717,7 +725,7 @@ export default function BarrioMap() {
     const lastBeepRef = useRef<Record<string, number>>({});
     const playBeep = useCallback((label?: string | null) => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const seq: [number, number, number][] = label === "human" ? [[1046, 0, 0.13], [1318, 0.17, 0.13]] : [[660, 0, 0.2]]; for (const [f, at, du] of seq) { const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = f; o.connect(g); g.connect(ac.destination); const t = ac.currentTime + at; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(label === "human" ? 0.28 : 0.2, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + du); o.start(t); o.stop(t + du + 0.03); } } catch { } }, []);
     const speakAlert = useCallback((label?: string | null, name?: string | null) => { try { const w: any = window; if (!w.speechSynthesis) return; const who = label === "vehicle" ? "Vehículo" : label === "human" ? "Persona" : "Detección"; const u = new SpeechSynthesisUtterance(`${who} en ${name || "cámara"}`); u.lang = "es-UY"; u.rate = 1.08; w.speechSynthesis.cancel(); w.speechSynthesis.speak(u); } catch { } }, []);
-    const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); alertDevRef.current = null; setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
+    const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); alertDevRef.current = null; setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); setRecentIntr((prev) => prev.filter((it) => it.deviceId !== deviceId)); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
     useEffect(() => { const iv = setInterval(() => setNowMin((m) => (m + 1) % 1440), 30000); return () => clearInterval(iv); }, []);
 
