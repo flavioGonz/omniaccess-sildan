@@ -235,6 +235,13 @@ function BoundsTracker({ onBounds }: { onBounds: (b: L.LatLngBounds) => void }) 
     useEffect(() => { onBounds(map.getBounds().pad(0.25)); /* eslint-disable-next-line */ }, []);
     return null;
 }
+// Recuerda el último encuadre del mapa (centro/zoom) y lo restaura al recargar.
+function ViewPersist() {
+    const save = (map: L.Map) => { try { const c = map.getCenter(); localStorage.setItem("olivos.mapView", JSON.stringify({ lat: c.lat, lng: c.lng, z: map.getZoom() })); } catch { } };
+    const map = useMapEvents({ moveend: () => save(map), zoomend: () => save(map) });
+    useEffect(() => { try { const v = JSON.parse(localStorage.getItem("olivos.mapView") || "null"); if (v && Number.isFinite(v.lat) && Number.isFinite(v.lng)) map.setView([v.lat, v.lng], Number.isFinite(v.z) ? v.z : map.getZoom(), { animate: false }); } catch { } /* eslint-disable-next-line */ }, []);
+    return null;
+}
 
 function LiveMp4({ deviceId, className }: { deviceId: string; className?: string }) {
     const ref = useRef<HTMLVideoElement>(null);
@@ -638,6 +645,9 @@ export default function BarrioMap() {
     const [feedOpen, setFeedOpen] = useState(false);
     useEffect(() => { try { if (localStorage.getItem("olivos.intrFeed") === "1") setFeedOpen(true); } catch { } }, []);
     useEffect(() => { try { localStorage.setItem("olivos.intrFeed", feedOpen ? "1" : "0"); } catch { } }, [feedOpen]);
+    const [lprFeedOn, setLprFeedOn] = useState(true);
+    useEffect(() => { try { const v = localStorage.getItem("olivos.lprFeed"); if (v != null) setLprFeedOn(v === "1"); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("olivos.lprFeed", lprFeedOn ? "1" : "0"); } catch { } }, [lprFeedOn]);
     useEffect(() => { getDetectionHistory({ pageSize: 14 }).then((r: any) => setRecentIntr((r.items || []).map((it: any) => ({ id: it.id, deviceId: it.deviceId, name: it.deviceName, type: it.type, label: it.label, ms: new Date(it.timestamp).getTime() })))).catch(() => { }); }, []);
     const soundRef = useRef(true);
     useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
@@ -1088,6 +1098,7 @@ export default function BarrioMap() {
             <div ref={wrapRef} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { const id = e.dataTransfer.getData("text/camId"); if (!id || !mapRef.current) return; e.preventDefault(); try { const ll = (mapRef.current as any).mouseEventToLatLng(e.nativeEvent); setEditing(true); placeCamera(id, [ll.lat, ll.lng]); } catch { } }} className={cn("relative h-full w-full bg-black", base === "Táctico" && "map-tactico", ((editing && tool !== "select") || movingCam || extendDiv || intrDraw) && "map-draw", !editing && show.cameras && "map-armed", hasActiveAlert && "map-alerting")}>
                 <MapContainer center={data.center} zoom={data.zoom} className="h-full w-full z-0" zoomControl={false} scrollWheelZoom>
                     <MapRefGrabber onMap={(m) => (mapRef.current = m)} />
+                    <ViewPersist />
                     <ZoomTracker onZoom={setZoom} />
                     <BoundsTracker onBounds={setMapBounds} />
                     {(movingCam || extendDiv || intrDraw || (editing && tool !== "select")) && <ClickHandler onClick={onMapClick} />}
@@ -1249,6 +1260,7 @@ export default function BarrioMap() {
                 </div>
                 <button onClick={() => setSoundOn((v) => !v)} title={soundOn ? "Silenciar alertas" : "Activar sonido de alertas"} className={cn("absolute top-4 left-4 z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", soundOn ? "bg-card/80 text-foreground hover:bg-card" : "bg-red-600/90 text-white")}>{soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}</button>
                 <button onClick={() => setFeedOpen((v) => !v)} title="Feed de intrusiones" className={cn("absolute top-4 left-[3.5rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", feedOpen ? "bg-red-600/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Activity size={16} /></button>
+                <button onClick={() => setLprFeedOn((v) => !v)} title="Feed LPR (entradas / salidas)" className={cn("absolute top-4 left-[6rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", lprFeedOn ? "bg-amber-500/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Car size={16} /></button>
                 {feedOpen && !camCustom && !placeDrawer && !intrDrawer && (
                     <div className="absolute top-4 right-4 bottom-4 z-[600] w-[270px] bg-card/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
                         <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
@@ -1307,7 +1319,7 @@ export default function BarrioMap() {
                 )}
 
                 {/* Columnas de flujo en vivo */}
-                {!editing && (
+                {!editing && lprFeedOn && (
                     <>
                         <FlowColumn side="left" title="Entradas" icon={LogIn} accent="emerald" events={flow.entries} onPick={(ev) => onPlate(ev)} />
                         {!rightPanelOpen && <FlowColumn side="right" title="Salidas" icon={LogOut} accent="orange" events={flow.exits} onPick={(ev) => onPlate(ev)} />}
