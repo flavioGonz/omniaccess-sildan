@@ -1656,12 +1656,17 @@ type DrawerKey = null | "conn" | "cmds" | "allow" | "hist";
 
 function WhatsAppSection() {
     const [config, setConfig] = useState({ url: "", apiKey: "" });
+    // Los ids son los que lee waha-handler.js (cmdActivo): un interruptor acá apaga el
+    // comando de verdad. Antes esta lista era decorativa — mostraba "aforo" (que el bot no
+    // tiene), "estado" como "Próximamente" (que sí funciona) y no mencionaba el flujo de
+    // invitación del residente, que es el que más usa el barrio.
     const [commands, setCommands] = useState([
-        { id: 'matricula', cmd: 'matricula [AAA1234]', desc: 'Gestión de matrículas (Consultar/Agregar)', icon: Car, active: true },
-        { id: 'last_events', cmd: 'ultimas entradas/salidas', desc: 'Reporte de últimos accesos con filtro', icon: Activity, active: true },
-        { id: 'logs', cmd: 'último evento', desc: 'Último acceso registrado (con foto)', icon: Eye, active: true },
-        { id: 'aforo', cmd: 'aforo', desc: 'Aforo en vivo de las filas (Control de Filas)', icon: Activity, active: true },
-        { id: 'status', cmd: 'estado', desc: 'Estado del sistema (Próximamente)', icon: Bot, active: false },
+        { id: 'invitar', cmd: 'invitar · visita · pase', desc: 'Residentes: crea un pase de visita paso a paso (nombre, patente, cuándo) y devuelve el QR al residente', icon: Users, active: true, quien: 'Residentes' },
+        { id: 'matricula', cmd: 'ABC1234  ·  ABC1234.', desc: 'Busca el vehículo; con punto al final, fotos e historial', icon: Car, active: true, quien: 'Personal' },
+        { id: 'agregar_matricula', cmd: 'agregar matrícula', desc: 'Alta de un vehículo guiada (matrícula, nombre)', icon: Plus, active: true, quien: 'Personal' },
+        { id: 'eventos', cmd: 'ultimo · entradas · salidas · eventos', desc: 'Último movimiento con foto, o los últimos 20 con filtro', icon: Eye, active: true, quien: 'Personal' },
+        { id: 'estado', cmd: 'estado', desc: 'Cámaras y grabadores: online/offline y último visto', icon: Activity, active: true, quien: 'Personal' },
+        { id: 'notificaciones', cmd: 'configurar alerta', desc: 'Recibir en este chat las alertas de acceso en tiempo real', icon: Bot, active: true, quien: 'Personal' },
     ]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -1811,8 +1816,8 @@ function WhatsAppSection() {
                         <div key={cmd.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card/40">
                             <div className="p-2 rounded-lg bg-muted text-muted-foreground shrink-0"><cmd.icon size={14} /></div>
                             <div className="min-w-0 flex-1">
-                                <span className="block text-xs font-mono font-bold text-foreground truncate">{cmd.cmd}</span>
-                                <span className="block text-[10px] text-muted-foreground truncate">{cmd.desc}</span>
+                                <span className="block text-xs font-bold text-foreground truncate tabular-nums">{cmd.cmd} <span className="ml-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">{cmd.quien}</span></span>
+                                <span className="block text-[10px] text-muted-foreground leading-snug">{cmd.desc}</span>
                             </div>
                             <Switch checked={cmd.active} onCheckedChange={() => toggleCommand(cmd.id)} />
                         </div>

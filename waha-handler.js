@@ -74,6 +74,19 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         console.log(`${logPrefix} [WAHA] Message from ${from}: "${body_text}"`);
 
+        // ── Interruptores del cajón "Comandos del bot" (Setting WAHA_COMMANDS) ──
+        // Hasta acá la pantalla guardaba [{id, active}] y nadie lo leía: un interruptor
+        // apagado seguía contestando. Ahora cada comando pregunta antes de actuar; lo que
+        // no está en la lista se considera prendido, para no apagar nada por accidente.
+        let _cmdCfg = null;
+        const cmdActivo = async (id) => {
+            if (_cmdCfg === null) {
+                _cmdCfg = {};
+                try { const r = await prisma.setting.findUnique({ where: { key: 'WAHA_COMMANDS' } }); for (const c of JSON.parse(r?.value || '[]')) if (c && c.id) _cmdCfg[c.id] = c.active !== false; } catch (e) {}
+            }
+            return _cmdCfg[id] !== false;
+        };
+
         // Notification for UI
         if (global.io) {
             global.io.emit("webhook-event", {
@@ -259,7 +272,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         // TRIGGER: "agregar matricula"
         const addPlateRegex = /^(?:agregar|añadir|nuevo|nueva)\s+(?:matricula|matrícula|vehiculo|vehículo)/i;
-        if (addPlateRegex.test(lowerBody) && await isAdminSender()) {
+        if (addPlateRegex.test(lowerBody) && await cmdActivo('agregar_matricula') && await isAdminSender()) {
             await prisma.whatsAppSession.upsert({
                 where: { phoneNumber: from },
                 create: { phoneNumber: from, step: 'ADD_PLATE_PLATE' },
@@ -297,7 +310,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         };
 
         const inviteTrigger = /^(?:invitar|invito|invitaci(o|ó)n|invitacion|visita|pase)\b/i;
-        if (inviteTrigger.test(lowerBody)) {
+        if (inviteTrigger.test(lowerBody) && await cmdActivo('invitar')) {
             const host = await resolveHost();
             if(!host){ await sendText("🔒 Este servicio es solo para residentes registrados. Si sos residente y no te reconoce, pedile al administrador que cargue tu número."); res.writeHead(200); res.end('OK'); return; }
             await prisma.whatsAppSession.upsert({ where:{ phoneNumber:from }, create:{ phoneNumber:from, step:'INV_NAME', data:JSON.stringify(host) }, update:{ step:'INV_NAME', data:JSON.stringify(host) } });
@@ -503,7 +516,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         }
 
         // 1. NOTIFICATIONS
-        if (lowerBody.includes('configurar alerta') || lowerBody.includes('activar notifica')) {
+        if ((lowerBody.includes('configurar alerta') || lowerBody.includes('activar notifica')) && await cmdActivo('notificaciones')) {
             await prisma.setting.upsert({
                 where: { key: 'WAHA_NOTIFICATION_NUMBER' },
                 update: { value: from },
@@ -514,7 +527,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         }
 
         // 2. STATUS / DEVICES
-        if (lowerBody === 'estado' || lowerBody.includes('camara') || lowerBody.includes('viva')) {
+        if ((lowerBody === 'estado' || lowerBody.includes('camara') || lowerBody.includes('viva')) && await cmdActivo('estado')) {
             const devices = await prisma.device.findMany();
             let response = `📸 *Estado de Dispositivos*\n\n`;
             if (devices.length === 0) response += "_No hay dispositivos registrados._";
@@ -530,7 +543,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         // 3. EVENT QUERIES (Latest event/entry/exit)
         const isEventQuery = /^(?:ultimo|último|ultima|última|eventos|entradas|salidas|accesos|foti?o)/i.test(lowerBody);
 
-        if (isEventQuery) {
+        if (isEventQuery && await cmdActivo('eventos')) {
             const isPlural = /s\b/i.test(lowerBody.split(" ").pop() || "") || /(?:eventos|accesos|entradas|salidas)/i.test(lowerBody);
             const limit = isPlural ? 20 : 1;
             const whereClause = {};
@@ -614,7 +627,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         // 4. PLATE QUERY (Ends with dot OR implicit if nums exist)
         const plateQueryMatch = body_text.trim().match(/^([A-Za-z0-9]{3,10})(\.)?$/);
-        if (plateQueryMatch) {
+        if (plateQueryMatch && await cmdActivo('matricula')) {
             const rawPlate = plateQueryMatch[1];
             const hasDot = !!plateQueryMatch[2];
             const hasNumber = /[0-9]/.test(rawPlate);
@@ -692,7 +705,10 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             `• Agrega un punto (ej: *ABC123.*) para ver fotos e historial.\n\n` +
             `⚙️ *SISTEMA Y GESTIÓN*\n` +
             `• *"estado"* - Ver cámaras online/offline.\n` +
-            `• *"notificaciones"* - Activar alertas en este chat.\n\n` +
+            `• *"configurar alerta"* - Activar alertas en este chat.\n` +
+            `• *"agregar matrícula"* - Dar de alta un vehículo.\n\n` +
+            `🎟️ *VISITAS*\n` +
+            `• *"invitar"* - Un residente crea un pase de visita y recibe el QR.\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
             `💡 _Tip: Puedes buscar personas escribiendo su nombre._`;
 
