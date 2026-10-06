@@ -49,6 +49,7 @@ import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
+import { rotuloLectura } from "@/lib/lectura-metodo";
 import { getImagePath } from "@/lib/image-path";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getUnits } from "@/app/actions/units";
@@ -190,6 +191,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
             <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 pointer-events-none">
                 <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span></span>
                 <span className="text-[9px] font-bold text-white/90 truncate max-w-[130px]">{dev.name}</span>
+                {ev && rotuloLectura(ev.details) && <span className="text-[9px] tabular-nums text-white/70">· {rotuloLectura(ev.details)}</span>}
             </div>
             {plate && (
                 <div className="absolute inset-x-1.5 bottom-1.5 z-20 pointer-events-none flex justify-center">
@@ -200,7 +202,9 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
             )}
         </div>
     );
-    return ev ? (
+    // Una lectura que todavía no es evento de acceso (sinEvento: avistamiento viejo de una
+    // interior) no tiene ficha que abrir: el diálogo pediría un AccessEvent que no existe.
+    return ev && !ev.sinEvento ? (
         <div className="relative group/cam">
             <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
                 <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
@@ -294,6 +298,7 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
                 <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
                     <Badge className={cn("text-xs shadow-lg", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
                     {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-lg backdrop-blur", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                    {rotuloLectura(ev.details) && <span className="text-[10px] tabular-nums px-2 py-0.5 rounded bg-black/55 text-white/85 backdrop-blur">{rotuloLectura(ev.details)}</span>}
                 </div>
                 <div className="absolute top-3 right-3 z-10"><Badge className={cn("text-xs shadow-lg", ok ? "bg-emerald-600" : "bg-red-600")}>{ok ? "PERMITIDO" : "DENEGADO"}</Badge></div>
                 {crop && (
@@ -428,6 +433,8 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                         <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
                             <TimeAgo timestamp={event.timestamp} />
                             {event.device?.name && <span>&middot; {event.device.name}</span>}
+                            {/* Cómo se leyó y con qué confianza: ANPR de la cámara o RTSP Detect del contenedor. Discreto: es un dato de calidad, no la captura. */}
+                            {rotuloLectura(event.details) && <span className="tabular-nums opacity-80">&middot; {rotuloLectura(event.details)}</span>}
                         </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0 self-center">

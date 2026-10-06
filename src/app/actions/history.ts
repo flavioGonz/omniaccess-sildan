@@ -404,7 +404,7 @@ export async function getLastEventPerDevice() {
         // LPR mostraba el vivo pero nunca una lectura, como si la cámara no leyera. Se
         // devuelve con la misma forma que un evento para que el mosaico no distinga.
         const lecturas: any[] = await prisma.$queryRawUnsafe(`
-            SELECT DISTINCT ON (s."deviceId") s."deviceId", s.id, s.plate, s."snapshotUrl", s.decision, s."eventType", s.timestamp
+            SELECT DISTINCT ON (s."deviceId") s."deviceId", s.id, s.plate, s."snapshotUrl", s.decision, s."eventType", s.timestamp, s.confidence, s.reads
             FROM "PlateSighting" s JOIN "Device" d ON d.id = s."deviceId"
             WHERE d."deviceType" = 'LPR_INTERIOR' AND d."trackAcceso" = true AND s."snapshotUrl" IS NOT NULL
             ORDER BY s."deviceId", s.timestamp DESC
@@ -413,7 +413,9 @@ export async function getLastEventPerDevice() {
             if (map[l.deviceId]) continue;
             map[l.deviceId] = {
                 deviceId: l.deviceId, id: l.id, plateDetected: l.plate, snapshotPath: l.snapshotUrl, imagePath: null,
-                decision: l.decision || "UNKNOWN", direction: l.eventType === "EXIT" ? "EXIT" : "ENTRY", timestamp: l.timestamp, details: null,
+                decision: l.decision || "UNKNOWN", direction: l.eventType === "EXIT" ? "EXIT" : "ENTRY", timestamp: l.timestamp,
+                details: `Metodo: RTSP Detect${l.confidence != null ? `, Confianza: ${Math.round(Number(l.confidence) * 100)}%` : ""}${l.reads != null ? `, Lecturas: ${l.reads}` : ""}`,
+                sinEvento: true,
             };
         }
         return map;
@@ -474,4 +476,52 @@ export async function setEventPlate(eventId: string, rawPlate: string) {
     } catch (e: any) {
         return { ok: false as const, error: e?.message || String(e) };
     }
+}
+
+// ── Reporte: las pestañas complementarias ────────────────────────────────────────────
+// El Excel del historial traía sólo los accesos. Las otras tres cosas que un barrio
+// quiere ver en el mismo archivo —qué detectó el perímetro, qué se le pidió al bot y a
+// quién se invitó— viven en tablas distintas y no tenían cómo salir. Se traen juntas, en
+// una sola llamada, para el rango de fechas del reporte.
+export async function getReporteComplementario(from: Date, to: Date) {
+    const [devices, detecciones, charlas, invitaciones] = await Promise.all([
+        prisma.device.findMany({ select: { id: true, name: true, ip: true } }),
+        prisma.detection.findMany({
+            where: { timestamp: { gte: from, lte: to } },
+            orderBy: { timestamp: "desc" }, take: 50000,
+        }),
+        prisma.wahaRequestLog.findMany({
+            where: { timestamp: { gte: from, lte: to } },
+            orderBy: { timestamp: "desc" }, take: 50000,
+        }),
+        prisma.invitation.findMany({
+            where: { createdAt: { gte: from, lte: to } },
+            orderBy: { createdAt: "desc" }, take: 20000,
+            include: { guests: { include: { plates: true, entries: { orderBy: { timestamp: "asc" } } } } },
+        }),
+    ]);
+    const nombre = new Map(devices.map((d) => [d.id, d.name]));
+    // Quién escribió: el teléfono de la ficha es la autorización, así que el nombre sale
+    // de ahí (coincidencia por los últimos 8 dígitos, igual que el handler del bot).
+    const users = await prisma.user.findMany({ where: { phone: { not: null } }, select: { name: true, phone: true, role: true } });
+    const porCola = new Map(users.map((u) => [String(u.phone).replace(/\D/g, "").slice(-8), u]));
+    return {
+        detecciones: detecciones.map((d) => ({
+            id: d.id, timestamp: d.timestamp, type: d.type, label: d.label, deviceId: d.deviceId,
+            device: (d.deviceId && nombre.get(d.deviceId)) || null, snapshotPath: d.snapshotPath,
+            acknowledged: d.acknowledged, ackKind: d.ackKind, ackAt: d.ackAt, details: d.details,
+        })),
+        charlas: charlas.map((c) => {
+            const u = porCola.get(String(c.fromNumber).replace(/\D/g, "").slice(-8));
+            return { id: c.id, timestamp: c.timestamp, fromNumber: c.fromNumber, quien: u?.name || null, rol: u ? String(u.role) : null, messageBody: c.messageBody, status: c.status, responseDetails: c.responseDetails };
+        }),
+        invitaciones: invitaciones.map((i) => ({
+            id: i.id, createdAt: i.createdAt, hostName: i.hostName, hostLabel: i.hostLabel, kind: String(i.kind), title: i.title,
+            validFrom: i.validFrom, validTo: i.validTo, reentry: String(i.reentry), status: String(i.status), createdVia: i.createdVia,
+            guests: i.guests.map((g) => ({
+                name: g.name, doc: g.doc, status: String(g.status), plates: g.plates.map((p) => p.plate),
+                entradas: g.entries.map((e) => ({ timestamp: e.timestamp, direction: e.direction, method: e.method, gate: e.gate, plate: e.plate })),
+            })),
+        })),
+    };
 }

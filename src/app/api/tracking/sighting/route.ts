@@ -11,6 +11,7 @@ import { mismaChapa, pareceMatricula } from "@/lib/matriculas";
 import {
     leerCaja, areaTipica, pareceChapa, area as areaDe, type Caja,
 } from "@/lib/recuadros";
+import { registrarPasoPorAcceso } from "@/lib/paso-por-acceso";
 
 export const dynamic = "force-dynamic";
 
@@ -371,6 +372,10 @@ export async function POST(req: NextRequest) {
         if (lugar != null) {
             await nombrarOcupante(body.deviceId!, lugar, patente, confianza ?? 0, guardada.id).catch(() => null);
         }
+        await registrarPasoPorAcceso({
+            sightingId: guardada.id, plate: patente, deviceId: body.deviceId, eventType: guardada.eventType,
+            confidence: confianza, reads: lecturas, snapshotUrl: body.snapshotUrl, timestamp: cuando,
+        });
         return NextResponse.json({
             ok: true, estado: lugar != null ? "OCUPA" : "PASO", id: guardada.id,
             lugar: lugar != null ? lugar + 1 : null, franja: true,
@@ -576,5 +581,12 @@ export async function POST(req: NextRequest) {
         },
     });
 
-    return NextResponse.json({ ok: true, estado: "PASO", id: creado.id, passId: pass.id });
+    // Si esta cámara mira un acceso (trackAcceso), la pasada es además una entrada o
+    // salida del barrio: queda como AccessEvent, con método y confianza. Ver paso-por-acceso.
+    const accessEventId = await registrarPasoPorAcceso({
+        sightingId: creado.id, plate: patente, deviceId: body.deviceId, eventType: creado.eventType,
+        confidence: confianza, reads: lecturas, snapshotUrl: body.snapshotUrl, timestamp: cuando,
+    });
+
+    return NextResponse.json({ ok: true, estado: "PASO", id: creado.id, passId: pass.id, accessEventId });
 }

@@ -1200,6 +1200,14 @@ const handleWebhook = async (req, res, logPrefix) => {
         const _picRect = _picArr.find((x) => x && (x.plateRect || x.boundingBox));
         const plateRect = _findRect(_picRect) || _findRect(eventAlert.ANPR) || _findRect(xmlData.ANPR) || _findRect(vehicleInfo);
         const rectStr = plateRect ? `, PlateRect: ${Math.round(plateRect.x)}/${Math.round(plateRect.y)}/${Math.round(plateRect.w)}/${Math.round(plateRect.h)}` : "";
+        // Cómo se leyó y con qué confianza. La ANPR de Hikvision manda confidenceLevel
+        // (0..100) en el bloque ANPR; si este firmware no lo trae, no se inventa: queda
+        // sólo el método, y la pantalla muestra la confianza como "sin dato". Mismo
+        // formato (Metodo/Confianza) que las lecturas por RTSP del contenedor, para que el
+        // monitor y el reporte las muestren igual.
+        const _confRaw = eventAlert.ANPR?.confidenceLevel ?? xmlData.ANPR?.confidenceLevel ?? eventAlert.confidenceLevel ?? null;
+        const _confNum = _confRaw != null && _confRaw !== "" && !Number.isNaN(Number(_confRaw)) ? Math.round(Number(_confRaw)) : null;
+        const metodoStr = `, Metodo: ANPR${_confNum != null ? `, Confianza: ${_confNum}%` : ""}`;
         if (plateRect) console.log(`${logPrefix} \u{1F7E9} [ANPR-RECT] plate box (0-1000?):`, plateRect);
 
         // Guardar TODOS los datos ANPR para futuras implementaciones
@@ -1469,7 +1477,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                 snapshotPath: relativeImagePath,
                 plateNumber: finalPlate,
                 plateDetected: finalPlate, // Ensure we fill both
-                details: `${isUnknown ? 'ALERTA: Matrícula No Reconocida. ' : ''}Marca: ${vehicleBrand}, Modelo: ${vehicleModel}, Color: ${vehicleColor}, Tipo: ${vehicleType}, Source: ${cameraDecision ? 'Camera' : 'Server'}${rectStr}${plateCropPath ? `, PlateCrop: ${plateCropPath}` : ''}`
+                details: `${isUnknown ? 'ALERTA: Matrícula No Reconocida. ' : ''}Marca: ${vehicleBrand}, Modelo: ${vehicleModel}, Color: ${vehicleColor}, Tipo: ${vehicleType}, Source: ${cameraDecision ? 'Camera' : 'Server'}${metodoStr}${rectStr}${plateCropPath ? `, PlateCrop: ${plateCropPath}` : ''}`
             }
         });
 
