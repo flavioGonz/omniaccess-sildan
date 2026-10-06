@@ -156,11 +156,24 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             return false;
         };
 
+        // Historial de consultas (Ajustes → WhatsApp): una fila por mensaje recibido, con la
+        // primera respuesta. Lo escribía sólo la ruta vieja de Next, que ya no recibe nada;
+        // por eso el cajón decía "Sin registros" con el bot andando.
+        let _registrado = false;
+        const registrar = async (status, detalle) => {
+            if (_registrado) return; _registrado = true;
+            try {
+                await senderTail();
+                await prisma.wahaRequestLog.create({ data: { fromNumber: String(chatDestino || from).replace(/@.*$/, ''), messageBody: String(body_text).slice(0, 500), status, responseDetails: detalle ? String(detalle).slice(0, 400) : null } });
+            } catch (e) {}
+        };
+
         const sendText = async (text) => {
             const headers = {};
             if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
             await senderTail();
             await axios.post(`${wahaUrl}/api/sendText`, { session: session || 'default', chatId: chatDestino, text }, { headers });
+            registrar('OK', text);
         };
 
         // La foto va como JPEG chico en base64, no como URL: la captura de una LPR pesa ~2 MB
@@ -178,6 +191,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                 let buf = Buffer.from(r.data);
                 try { const sharp = require('sharp'); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { console.error('[WAHA] sharp:', e.message); }
                 await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/jpeg', filename: 'captura.jpg', data: buf.toString('base64') }, caption }, { headers, timeout: 40000 });
+                registrar('OK', '📷 ' + caption);
                 return;
             } catch (e) {
                 console.error('[WAHA] imagen local falló, se manda por URL:', e.response?.data || e.message);
@@ -189,6 +203,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             const headers = {}; if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
             await senderTail();
             await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/png', filename: 'pase.png', data: b64 }, caption }, { headers });
+            registrar('OK', '🎟️ ' + caption);
         };
 
         // --- HIKVISION HELPERS (Internal JS version of HikvisionDriver) ---
@@ -339,7 +354,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         const inviteTrigger = /^(?:invitar|invito|invitaci(o|ó)n|invitacion|visita|pase)\b/i;
         if (inviteTrigger.test(lowerBody) && await cmdActivo('invitar')) {
             const host = await resolveHost();
-            if(!host){ console.log(`${logPrefix} [WAHA] invitar desde un número no registrado, se ignora: ${from}`); res.writeHead(200); res.end('OK'); return; }
+            if(!host){ console.log(`${logPrefix} [WAHA] invitar desde un número no registrado, se ignora: ${from}`); await registrar('IGNORADO', 'invitar desde un número sin usuario'); res.writeHead(200); res.end('OK'); return; }
             await prisma.whatsAppSession.upsert({ where:{ phoneNumber:from }, create:{ phoneNumber:from, step:'INV_NAME', data:JSON.stringify(host) }, update:{ step:'INV_NAME', data:JSON.stringify(host) } });
             await sendText(`👋 Hola ${host.name||''}. Vamos a crear un *pase de visita*.\n\n¿*Nombre* del invitado?`);
             res.writeHead(200); res.end('OK'); return;
@@ -539,7 +554,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             // Al bot sólo le escriben los residentes (por el teléfono cargado en su ficha) y el
             // personal. Un número que no es de nadie se ignora EN SILENCIO: contestarle, aunque
             // sea para decirle que no, confirma que el número existe y que es del barrio.
-            if (!_host) { console.log(`${logPrefix} [WAHA] remitente no registrado, se ignora: ${from}`); res.writeHead(200); res.end('OK'); return; }
+            if (!_host) { console.log(`${logPrefix} [WAHA] remitente no registrado, se ignora: ${from}`); await registrar('IGNORADO', 'número sin usuario'); res.writeHead(200); res.end('OK'); return; }
             await sendText("👋 Para generar un *pase de visita*, escribí *invitar*.");
             res.writeHead(200); res.end('OK'); return;
         }
@@ -557,15 +572,23 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         // 2. STATUS / DEVICES
         if ((lowerBody === 'estado' || lowerBody.includes('camara') || lowerBody.includes('viva')) && await cmdActivo('estado')) {
-            const devices = await prisma.device.findMany();
-            let response = `📸 *Estado de Dispositivos*\n\n`;
-            if (devices.length === 0) response += "_No hay dispositivos registrados._";
+            // "Visto" tiene que ser lo último que el equipo dio señales, por cualquier camino:
+            // sólo miraba lastOnlinePush (lo que la cámara manda sola), así que un grabador o una
+            // cámara interior —que nunca empujan nada— figuraban 🔴 "Nunca" estando en línea.
+            // El sondeo de server.js (RTSP cada pocos minutos) escribe lastOnlinePull.
+            const devices = (await prisma.device.findMany()).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            const TIPO = { LPR_CAMERA: 'LPR de barrera', LPR_INTERIOR: 'Cámara interior', CAMERA: 'Cámara', NVR: 'Grabador', QUEUE_COUNTER: 'Contador', DOOR_INTERCOM: 'Portero', FACE_TERMINAL: 'Terminal facial' };
+            const RECIENTE_MS = 10 * 60 * 1000; // sin señal en 10 min = se da por caído
+            let response = `📸 *Estado de equipos*\n\n`;
+            if (devices.length === 0) response += "_No hay equipos registrados._";
             devices.forEach(d => {
-                const icon = d.lastOnlinePush ? '🟢' : '🔴';
-                const lastSeen = d.lastOnlinePush ? new Date(d.lastOnlinePush).toLocaleString('es-UY') : 'Nunca';
-                response += `${icon} *${d.name}*\n   ├ IP: ${d.ip}\n   ├ Tipo: ${d.deviceType}\n   └ Visto: ${lastSeen}\n\n`;
+                const visto = [d.lastOnlinePush, d.lastOnlinePull].filter(Boolean).map(x => new Date(x).getTime());
+                const ultimo = visto.length ? Math.max(...visto) : null;
+                const enLinea = ultimo != null && (Date.now() - ultimo) < RECIENTE_MS;
+                const cuando = ultimo ? new Date(ultimo).toLocaleString('es-UY', { timeZone: 'America/Montevideo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'nunca';
+                response += `${enLinea ? '🟢' : '🔴'} *${d.name}* · ${TIPO[d.deviceType] || d.deviceType}\n   ${d.ip} · ${enLinea ? 'en línea' : 'sin señal'} (${cuando})\n\n`;
             });
-            await sendText(response);
+            await sendText(response.trimEnd());
             res.writeHead(200); res.end('OK'); return;
         }
 

@@ -64,6 +64,7 @@ import { cn } from "@/lib/utils";
 import { DriverDetailsDialog } from "@/components/DriverDetailsDialog";
 import { DRIVER_MODELS, type DeviceBrand } from "@/lib/driver-models";
 import { updateSetting, getSetting, testS3Connection, getBucketLifecycle, updateBucketLifecycle, testDbConnection, getBucketStats, getDbStats, downloadBackup, restoreBackup, populateDatabase, testWahaConnection, getWahaHistory, testExternalDbConnection, updateDatabaseUrl, runDatabaseMigrations, getLearnedPlates, clearLearnedPlates, testFaceEngineConnection } from "@/app/actions/settings";
+import { getAvisosWhatsApp, setAvisoWhatsApp, agregarDestinatarioWhatsApp, quitarDestinatarioWhatsApp, type TipoAviso } from "@/app/actions/whatsapp-avisos";
 import { clearAllVisitorFaces } from "@/app/actions/face-admin";
 import { getAdminsList as getAdmins, saveAdmin as saveAdminAction, deleteAdmin as deleteAdminAction } from "@/app/actions/users";
 import { useEffect, useTransition } from "react";
@@ -1652,7 +1653,7 @@ function ModeConfiguration({ title, description, settingKey, options }: {
     );
 }
 
-type DrawerKey = null | "conn" | "cmds" | "allow" | "hist";
+type DrawerKey = null | "conn" | "cmds" | "allow" | "hist" | "avisos";
 
 function WhatsAppSection() {
     const [config, setConfig] = useState({ url: "", apiKey: "" });
@@ -1680,7 +1681,31 @@ function WhatsAppSection() {
     const [webhook, setWebhook] = useState("");
     const [drawer, setDrawer] = useState<DrawerKey>(null);
 
-    useEffect(() => { loadConfig(); }, []);
+    // Avisos salientes (intrusión / LPR por WhatsApp): cada interruptor es una regla del
+    // motor de notificaciones, ver actions/whatsapp-avisos.ts.
+    const [avisos, setAvisos] = useState<{ intrusion: { enabled: boolean; eventos: string }; lpr: { enabled: boolean; eventos: string }; destinatarios: { id: string; name: string; address: string }[] }>({ intrusion: { enabled: false, eventos: "" }, lpr: { enabled: false, eventos: "DENY,UNKNOWN" }, destinatarios: [] });
+    const [nuevoDestino, setNuevoDestino] = useState({ numero: "", nombre: "" });
+    const cargarAvisos = async () => { try { setAvisos(await getAvisosWhatsApp() as any); } catch (e) { console.error(e); } };
+    const alternarAviso = async (tipo: TipoAviso, on: boolean) => {
+        const r = await setAvisoWhatsApp(tipo, on);
+        if (!r.ok) { toast.error({ title: "No se pudo guardar", description: r.error }); return; }
+        toast.success({ title: on ? "Avisos activados" : "Avisos desactivados" });
+        cargarAvisos();
+    };
+    const alternarEventoLpr = async (ev: string) => {
+        const puestos = new Set(String(avisos.lpr.eventos || "").split(",").filter(Boolean));
+        puestos.has(ev) ? puestos.delete(ev) : puestos.add(ev);
+        const r = await setAvisoWhatsApp("LPR", avisos.lpr.enabled, Array.from(puestos).join(","));
+        if (!r.ok) toast.error({ title: "No se pudo guardar", description: r.error });
+        cargarAvisos();
+    };
+    const agregarDestino = async () => {
+        const r: any = await agregarDestinatarioWhatsApp(nuevoDestino.numero, nuevoDestino.nombre);
+        if (!r.ok) { toast.error({ title: r.error || "No se pudo agregar" }); return; }
+        setNuevoDestino({ numero: "", nombre: "" }); cargarAvisos();
+    };
+
+    useEffect(() => { loadConfig(); cargarAvisos(); }, []);
 
     const loadConfig = async () => {
         setLoading(true);
@@ -1776,6 +1801,9 @@ function WhatsAppSection() {
                     <ConfigTile icon={<Settings size={18} />} color="emerald" title="Conexión" value={host} onClick={() => setDrawer("conn")} />
                     <ConfigTile icon={<MessageSquare size={18} />} color="violet" title="Comandos del bot" value={`${cmdsActive} activos`} onClick={() => setDrawer("cmds")} />
                     <ConfigTile icon={<ShieldCheck size={18} />} color={allowEnabled ? "emerald" : "amber"} title="Remitentes autorizados" value={allowEnabled ? `${allowList.length} autorizados` : "Abierto a todos"} onClick={() => setDrawer("allow")} />
+                    <ConfigTile icon={<Bell size={18} />} color={(avisos.intrusion.enabled || avisos.lpr.enabled) ? "emerald" : "amber"} title="Avisos por WhatsApp"
+                        value={[avisos.intrusion.enabled ? "Intrusión" : null, avisos.lpr.enabled ? "LPR" : null].filter(Boolean).join(" · ") || "Apagados"}
+                        onClick={() => { cargarAvisos(); setDrawer("avisos"); }} />
                     <ConfigTile icon={<FileText size={18} />} color="sky" title="Historial de consultas" value={`${history.length} registros`} onClick={() => { loadHistory(); setDrawer("hist"); }} />
                 </div>
             </div>
@@ -1869,6 +1897,65 @@ function WhatsAppSection() {
                         </>
                     )}
                     <Button onClick={saveAllowlist} disabled={savingAllow} className="w-full h-10 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white">{savingAllow ? "Guardando…" : "Guardar seguridad"}</Button>
+                </div>
+            </SideDrawer>
+
+            <SideDrawer open={drawer === "avisos"} onClose={() => setDrawer(null)} icon={<Bell size={18} />} title="Avisos por WhatsApp">
+                <div className="space-y-5">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">Lo que el sistema manda por su cuenta a los números de abajo. Cada interruptor es una regla de <b>Notificaciones</b>, donde se afina horario, cámara y antirrebote.</p>
+
+                    <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card/40">
+                        <div className="min-w-0 flex-1">
+                            <span className="block text-xs font-bold text-foreground">Alertas de intrusión</span>
+                            <span className="block text-[10px] text-muted-foreground">Cruce de línea, intrusión en zona, entrada y salida de zona, con la captura y la clase (persona/vehículo).</span>
+                        </div>
+                        <Switch checked={avisos.intrusion.enabled} onCheckedChange={(v) => alternarAviso("INTRUSION", v)} />
+                    </div>
+
+                    <div className="p-3 rounded-xl border border-border bg-card/40 space-y-2.5">
+                        <div className="flex items-center gap-3">
+                            <div className="min-w-0 flex-1">
+                                <span className="block text-xs font-bold text-foreground">Eventos LPR</span>
+                                <span className="block text-[10px] text-muted-foreground">Lecturas de las cámaras de barrera, con la foto.</span>
+                            </div>
+                            <Switch checked={avisos.lpr.enabled} onCheckedChange={(v) => alternarAviso("LPR", v)} />
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                            {[{ v: "DENY", l: "Denegados" }, { v: "UNKNOWN", l: "No reconocidos" }, { v: "WATCHLIST", l: "En seguimiento" }, { v: "ALLOW", l: "Permitidos" }].map((ev) => {
+                                const on = String(avisos.lpr.eventos || "").split(",").includes(ev.v);
+                                return (
+                                    <button key={ev.v} type="button" onClick={() => alternarEventoLpr(ev.v)}
+                                        className={cn("px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors",
+                                            on ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300" : "bg-muted/40 border-border text-muted-foreground hover:text-foreground")}>
+                                        {ev.l}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">"Permitidos" es un mensaje por cada auto del barrio: conviene dejarlo apagado.</p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Quién recibe los avisos</Label>
+                        {avisos.destinatarios.length === 0 && (
+                            <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5">
+                                <ShieldAlert size={14} className="text-amber-400 shrink-0 mt-0.5" />
+                                <span className="text-[10px] text-amber-300">Sin destinatarios: los avisos se encolan y no llegan a nadie.</span>
+                            </div>
+                        )}
+                        {avisos.destinatarios.map((d) => (
+                            <div key={d.id} className="flex items-center gap-2 p-2 rounded-lg border border-border bg-card/40">
+                                <span className="text-xs font-semibold text-foreground truncate flex-1">{d.name}</span>
+                                <span className="text-[11px] font-mono text-muted-foreground tabular-nums">+{d.address}</span>
+                                <button onClick={async () => { await quitarDestinatarioWhatsApp(d.id); cargarAvisos(); }} className="p-1 rounded text-muted-foreground hover:text-red-400" title="Quitar"><Trash2 size={13} /></button>
+                            </div>
+                        ))}
+                        <div className="flex gap-2">
+                            <Input value={nuevoDestino.nombre} onChange={(e) => setNuevoDestino({ ...nuevoDestino, nombre: e.target.value })} placeholder="Nombre (garita, jefe de seguridad…)" className="bg-background border-border h-10 text-xs" />
+                            <Input value={nuevoDestino.numero} onChange={(e) => setNuevoDestino({ ...nuevoDestino, numero: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarDestino(); } }} placeholder="099 123 456" className="bg-background border-border h-10 font-mono text-xs w-40" />
+                            <Button onClick={agregarDestino} className="h-10 px-3 bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={15} /></Button>
+                        </div>
+                    </div>
                 </div>
             </SideDrawer>
 
