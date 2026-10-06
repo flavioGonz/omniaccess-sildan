@@ -65,6 +65,20 @@ function camposSeguimiento(formData: FormData) {
         const t = ((formData.get("trackTrigger") as string) || "").trim();
         datos.trackTrigger = ["escena", "linea", "zona", "camara"].includes(t) ? t : "escena";
     }
+    /*
+     * Que mira la camara interior: una calle de adentro (lo normal) o un acceso.
+     *
+     * Viene como un solo valor del formulario —"INTERNA", "ENTRY" o "EXIT"— porque para
+     * quien la carga es UNA pregunta ("que mira esta camara"), no dos. Si mira un acceso,
+     * `direction` toma ese sentido y la camara aparece en el monitor LPR como una lectora
+     * mas; sigue siendo LPR_INTERIOR y el contenedor la sigue leyendo por RTSP.
+     */
+    if (formData.has("trackAcceso")) {
+        const v = ((formData.get("trackAcceso") as string) || "").trim();
+        const acceso = v === "ENTRY" || v === "EXIT";
+        datos.trackAcceso = acceso;
+        if (acceso) datos.direction = v;
+    }
     return datos;
 }
 

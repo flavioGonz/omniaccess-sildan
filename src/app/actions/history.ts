@@ -399,6 +399,23 @@ export async function getLastEventPerDevice() {
         `);
         const map: Record<string, any> = {};
         for (const r of rows) map[r.deviceId] = r;
+        // Las interiores que miran un acceso (trackAcceso) no generan AccessEvent: las lee
+        // el contenedor y lo suyo es un PlateSighting. Sin esto, su mosaico en el monitor
+        // LPR mostraba el vivo pero nunca una lectura, como si la cámara no leyera. Se
+        // devuelve con la misma forma que un evento para que el mosaico no distinga.
+        const lecturas: any[] = await prisma.$queryRawUnsafe(`
+            SELECT DISTINCT ON (s."deviceId") s."deviceId", s.id, s.plate, s."snapshotUrl", s.decision, s."eventType", s.timestamp
+            FROM "PlateSighting" s JOIN "Device" d ON d.id = s."deviceId"
+            WHERE d."deviceType" = 'LPR_INTERIOR' AND d."trackAcceso" = true AND s."snapshotUrl" IS NOT NULL
+            ORDER BY s."deviceId", s.timestamp DESC
+        `);
+        for (const l of lecturas) {
+            if (map[l.deviceId]) continue;
+            map[l.deviceId] = {
+                deviceId: l.deviceId, id: l.id, plateDetected: l.plate, snapshotPath: l.snapshotUrl, imagePath: null,
+                decision: l.decision || "UNKNOWN", direction: l.eventType === "EXIT" ? "EXIT" : "ENTRY", timestamp: l.timestamp, details: null,
+            };
+        }
         return map;
     } catch (e) { return {}; }
 }

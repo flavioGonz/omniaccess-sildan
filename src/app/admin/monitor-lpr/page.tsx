@@ -158,6 +158,9 @@ function ThumbImg({ src, className }: { src?: string; className?: string }) {
     return <img src={src} alt="" className={className} loading="eager" decoding="async" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />;
 }
 
+/** Cada cuánto se vuelve a pedir la última lectura de las interiores de acceso (ver esCamaraDeAcceso). */
+const REFRESCO_LECTURAS_INTERIOR_MS = 15_000;
+
 function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent?: string; ev?: any; onRegister?: (p?: string) => void }) {
     const camRouter = useRouter();
     const [lit, setLit] = useState(false);
@@ -820,7 +823,17 @@ export default function MonitorLPR() {
         }
     };
 
-    useEffect(() => { getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA"))).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
+    // Las lectoras de barrera y las interiores que miran un acceso (trackAcceso): a esas
+    // últimas las lee el contenedor, no la cámara, y sus lecturas no llegan por el socket
+    // de access_event, así que su última captura se vuelve a pedir cada tanto.
+    const esCamaraDeAcceso = (x: any) => x.deviceType === "LPR_CAMERA" || (x.deviceType === "LPR_INTERIOR" && !!x.trackAcceso);
+    useEffect(() => { getDevices().then((d: any) => setDevices((d || []).filter(esCamaraDeAcceso))).catch(() => {}); getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); getAvailableStreams().then((s: any) => setStreams(s || [])).catch(() => {}); }, []);
+    const hayInterioresDeAcceso = useMemo(() => devices.some((x: any) => x.deviceType === "LPR_INTERIOR"), [devices]);
+    useEffect(() => {
+        if (!hayInterioresDeAcceso) return;
+        const iv = setInterval(() => { getLastEventPerDevice().then(setLastCapByDev).catch(() => {}); }, REFRESCO_LECTURAS_INTERIOR_MS);
+        return () => clearInterval(iv);
+    }, [hayInterioresDeAcceso]);
     const [platesPark, setPlatesPark] = useState<Set<string>>(new Set());
     useEffect(() => { Promise.all([getUnits(), getAccessGroups(), getParkingSlots()]).then(([u, g, p]: any) => { setUnits(u || []); setGroups(g || []); setParkingSlots(p || []); }).catch(() => {}); getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => {}); }, []);
 

@@ -385,7 +385,7 @@ async function camaras() {
             select: {
                 id: true, name: true, rtspUrl: true, ip: true, username: true, password: true,
                 trackScene: true, trackRoi: true, trackMinConf: true, trackFps: true, trackTrigger: true,
-                trackLine: true,
+                trackLine: true, trackAcceso: true, direction: true,
             },
         });
         for (const d of devs) {
@@ -411,6 +411,9 @@ async function camaras() {
                 confianza: d.trackMinConf ?? undefined,
                 fps: d.trackFps ?? undefined,
                 disparo: d.trackTrigger || "escena",
+                // Una interior que mira un acceso reporta sus lecturas como ENTRY/EXIT, no
+                // como INTERNAL: es lo que las distingue de un auto pasando por una calle.
+                tipoEvento: d.trackAcceso && (d.direction === "ENTRY" || d.direction === "EXIT") ? d.direction : "INTERNAL",
             });
         }
     } catch (e) { log("no se pudieron leer los dispositivos interiores:", e.message); }
@@ -812,7 +815,7 @@ async function avisarAvistamiento(cam, lectura, url) {
             cameraName: cam.name,
             lat: cam.lat ?? null,
             lng: cam.lng ?? null,
-            eventType: "INTERNAL",
+            eventType: cam.tipoEvento || "INTERNAL",
             snapshotUrl: url,
             timestamp: new Date().toISOString(),
         }),

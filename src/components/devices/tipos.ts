@@ -49,6 +49,8 @@ export const TIPOS_DE_EQUIPO = [
         icono: Video,
         que: "No abre nada. Mira una calle de adentro para dibujar por dónde anduvo cada vehículo.",
         sentido: false,
+        /** Puede mirar un acceso: sin ANPR propio, pero apuntando a la entrada o la salida. */
+        acceso: true,
     },
     {
         valor: "NVR",

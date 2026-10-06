@@ -169,6 +169,13 @@ model Device {
   trackLine       String?
   trackMinConf    Float?
   trackFps        Float?
+  // Una camara interior que mira un ACCESO. La camara no tiene ANPR propio (es de
+  // deteccion facial/AcuSense), asi que las matriculas las lee el contenedor por RTSP
+  // como en cualquier interior; pero lo que ve es la entrada o la salida del barrio,
+  // y por eso tiene que figurar en el monitor LPR junto a las lectoras de barrera,
+  // con el sentido de `direction`. Sin esto, la unica manera de verla ahi era
+  // cambiarle el tipo a LPR_CAMERA, y eso la sacaba del seguimiento: dejaba de leer.
+  trackAcceso     Boolean          @default(false)
   // Intrusión: capa transversal (cruce de línea / zona AcuSense). La geometría se guarda
   // como String JSON (0..1), mismo criterio que trackLine, y se escribe en la cámara por ISAPI.
   intrusionEnabled  Boolean        @default(false)

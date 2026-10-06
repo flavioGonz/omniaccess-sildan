@@ -255,6 +255,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
            mitad de las cámaras del barrio terminen mirando la imagen cambiar cuando la
            cámara sabe perfectamente cuándo cruzó un auto. */
         trackTrigger: device?.trackTrigger || "",
+        /* "INTERNA" | "ENTRY" | "EXIT": una sola pregunta, ver camposSeguimiento en actions/devices. */
+        trackAcceso: device?.trackAcceso ? (device?.direction || "ENTRY") : "INTERNA",
         /**
          * El grupo de acceso.
          *
@@ -1022,6 +1024,28 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                                         <Input value={f.trackScene} placeholder="0.08" className="tabular-nums"
                                             onChange={(e) => set("trackScene", e.target.value)} />
                                     </CajonCampo>
+                                    {/*
+                                      * La cámara de la entrada de San Nicolás (.86) no tiene ANPR:
+                                      * es de detección facial. Las matrículas se las lee el
+                                      * contenedor, como a cualquier interior — pero lo que mira es
+                                      * la entrada, y el guardia la busca en el monitor LPR, no en
+                                      * el de seguimiento. Pasarla a "LPR de acceso" la sacaba del
+                                      * contenedor y dejaba de leer; esto la deja leyendo y la pone
+                                      * donde se la busca.
+                                      */}
+                                    {(tipo as any)?.acceso && (
+                                        <CajonCampo etiqueta="Qué mira"
+                                            pista="Una calle de adentro es lo normal: lo que lea dibuja recorridos y estadías. Si mira la entrada o la salida, además figura en el monitor LPR junto a las lectoras de barrera, con ese sentido.">
+                                            <Select value={f.trackAcceso} onValueChange={(v) => set("trackAcceso", v)}>
+                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="INTERNA">Una calle de adentro</SelectItem>
+                                                    <SelectItem value="ENTRY">La entrada del barrio</SelectItem>
+                                                    <SelectItem value="EXIT">La salida del barrio</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </CajonCampo>
+                                    )}
                                     <CajonCampo etiqueta="Seguimiento"
                                         pista="Pausada queda cargada y con toda su configuración, pero no se le pide un solo cuadro. Sirve para sacarla de circulación sin borrarla.">
                                         <Select value={f.trackEnabled} onValueChange={(v) => set("trackEnabled", v)}>
