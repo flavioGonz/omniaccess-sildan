@@ -112,7 +112,12 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         const serverBaseUrl = baseUrlSetting?.value || "http://192.168.99.99:10001";
 
         // ── Resolver número real del remitente (WhatsApp manda @lid oculto) ──
+        // Además del número (para reconocer al residente) se guarda el chat "@c.us": el motor
+        // WEBJS contesta texto a un @lid, pero sendImage a un @lid falla con "Data passed to
+        // getter must include an id property" → el pase llegaba sin QR. A partir de acá todo
+        // se manda al chat resuelto; si no se pudo resolver, al @lid original.
         let _senderTailCache = null;
+        let chatDestino = chatId;
         const senderTail = async () => {
             if (_senderTailCache !== null) return _senderTailCache;
             let id = from || "";
@@ -121,7 +126,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                     const lid = id.replace('@lid','');
                     const headers = {}; if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
                     const r = await axios.get(`${wahaUrl}/api/${session || 'default'}/lids/${lid}`, { headers, timeout: 8000 });
-                    if (r.data && r.data.pn) id = r.data.pn;
+                    if (r.data && r.data.pn) { id = r.data.pn; chatDestino = r.data.pn; }
                 } catch (e) { console.error('[WAHA] lid resolve error:', e.message); }
             }
             _senderTailCache = String(id).replace(/\D/g,'').slice(-8);
@@ -143,7 +148,8 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         const sendText = async (text) => {
             const headers = {};
             if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
-            await axios.post(`${wahaUrl}/api/sendText`, { session: session || 'default', chatId, text }, { headers });
+            await senderTail();
+            await axios.post(`${wahaUrl}/api/sendText`, { session: session || 'default', chatId: chatDestino, text }, { headers });
         };
 
         const sendImage = async (url, caption) => {
@@ -152,9 +158,10 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
             // For WEBJS Core (Free), /api/sendMedia is often more reliable than /api/sendImage
             // The structure for sendMedia uses 'file' as a link or object
+            await senderTail();
             const body = {
                 session: session || 'default',
-                chatId,
+                chatId: chatDestino,
                 file: {
                     url: url
                 },
@@ -168,7 +175,8 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         const sendImageB64 = async (b64, caption) => {
             const headers = {}; if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
-            await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId, file: { mimetype: 'image/png', filename: 'pase.png', data: b64 }, caption }, { headers });
+            await senderTail();
+            await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/png', filename: 'pase.png', data: b64 }, caption }, { headers });
         };
 
         // --- HIKVISION HELPERS (Internal JS version of HikvisionDriver) ---
