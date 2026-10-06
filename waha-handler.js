@@ -599,11 +599,42 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             res.writeHead(200); res.end('OK'); return;
         }
 
-        // 3. EVENT QUERIES (Latest event/entry/exit)
-        const isEventQuery = /^(?:ultimo|último|ultima|última|eventos|entradas|salidas|accesos|foti?o)/i.test(lowerBody);
+        // 3b. INTRUSIÓN: "eventos" (o "intrusion", "cruces", "zonas") → los últimos 20 cruces de
+        // línea / intrusiones de zona, con la captura del más reciente. Antes "eventos" era un
+        // sinónimo de "accesos"; Nico lo pidió para intrusión el 6/10, "similar a matrículas".
+        if (/^(?:eventos?|intrusi(o|ó)n(es)?|cruces?|zonas?)\b/i.test(lowerBody) && await cmdActivo('intrusion')) {
+            const dets = await prisma.detection.findMany({
+                where: { type: { in: ['LINECROSS', 'INTRUSION', 'REGION_ENTER', 'REGION_EXIT'] } },
+                take: 20, orderBy: { timestamp: 'desc' },
+            });
+            if (dets.length === 0) {
+                await sendText("🛡️ *Intrusión:* sin eventos registrados todavía.");
+                res.writeHead(200); res.end('OK'); return;
+            }
+            const ids = [...new Set(dets.map(d => d.deviceId).filter(Boolean))];
+            const devs = ids.length ? await prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+            const nombre = Object.fromEntries(devs.map(d => [d.id, d.name]));
+            const TIPO = { LINECROSS: 'Cruce de línea', INTRUSION: 'Intrusión en zona', REGION_ENTER: 'Entrada a zona', REGION_EXIT: 'Salida de zona' };
+            const CLASE = { human: '🚶 persona', vehicle: '🚗 vehículo' };
+            const hhmm = (x) => new Date(x).toLocaleString('es-UY', { timeZone: 'America/Montevideo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            let caption = `🛡️ *Últimos ${dets.length} eventos de intrusión*\n\n`;
+            dets.forEach((d, i) => {
+                caption += `${i + 1}. ${d.acknowledged ? '✅' : '🔴'} ${TIPO[d.type] || d.type} · ${nombre[d.deviceId] || '¿cámara?'}${d.label && CLASE[d.label] ? ' · ' + CLASE[d.label] : ''} · ${hhmm(d.timestamp)}\n`;
+            });
+            const ultimo = dets[0];
+            caption += `\n🚨 *Más reciente:* ${TIPO[ultimo.type] || ultimo.type} en *${nombre[ultimo.deviceId] || '¿cámara?'}*${ultimo.label && CLASE[ultimo.label] ? ' (' + CLASE[ultimo.label] + ')' : ''}\n📅 ${hhmm(ultimo.timestamp)}\n━━━━━━━━━━━━━━━━━━━━`;
+            // La captura vive en MinIO (bucket intrusion) y snapshotPath ya es /api/files/intrusion/<id>.jpg
+            const foto = ultimo.snapshotPath ? (ultimo.snapshotPath.startsWith('http') ? ultimo.snapshotPath : `${serverBaseUrl}${ultimo.snapshotPath}`) : null;
+            if (foto) { try { await sendImage(foto, caption); } catch (e) { console.error('[WAHA] foto intrusión:', e.message); await sendText(caption); } }
+            else await sendText(caption);
+            res.writeHead(200); res.end('OK'); return;
+        }
+
+        // 3. EVENT QUERIES (Latest event/entry/exit) — "eventos" ya no entra acá (es intrusión).
+        const isEventQuery = /^(?:ultimo|último|ultima|última|entradas|salidas|accesos|foti?o)/i.test(lowerBody);
 
         if (isEventQuery && await cmdActivo('eventos')) {
-            const isPlural = /s\b/i.test(lowerBody.split(" ").pop() || "") || /(?:eventos|accesos|entradas|salidas)/i.test(lowerBody);
+            const isPlural = /s\b/i.test(lowerBody.split(" ").pop() || "") || /(?:accesos|entradas|salidas)/i.test(lowerBody);
             const limit = isPlural ? 20 : 1;
             const whereClause = {};
             if (/entrada/i.test(lowerBody)) whereClause.direction = 'ENTRY';
@@ -758,7 +789,9 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             `• *"ultimo"* - Ver el movimiento más reciente.\n` +
             `• *"entradas"* - Últimos ingresos registrados.\n` +
             `• *"salidas"* - Últimos egresos registrados.\n` +
-            `• *"eventos"* - Resumen de los últimos 5 movimientos.\n\n` +
+            `• *"accesos"* - Resumen de los últimos 20 movimientos.\n\n` +
+            `🛡️ *INTRUSIÓN*\n` +
+            `• *"eventos"* - Últimos 20 cruces de línea / intrusiones, con la captura.\n\n` +
             `🚘 *BÚSQUEDA POR MATRÍCULA*\n` +
             `• Escribe la matrícula (ej: *ABC123*) para ubicar un vehículo.\n` +
             `• Agrega un punto (ej: *ABC123.*) para ver fotos e historial.\n\n` +

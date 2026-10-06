@@ -26,8 +26,10 @@ async function logoConfigurado(): Promise<{ url: string; ruta: string } | null> 
     try {
         const s = await prisma.setting.findUnique({ where: { key: SETTING_LOGO_QR } });
         const url = (s?.value || "").trim();
-        if (!url.startsWith("/branding/")) return null; // sólo lo que subió Ajustes
-        const ruta = path.join(process.cwd(), "public", url);
+        // Sólo lo que subió Ajustes: /branding/<archivo> (anterior al build) o /api/branding/<archivo>.
+        const m = url.match(/^\/(?:api\/)?branding\/([^/?#]+)$/);
+        if (!m) return null;
+        const ruta = path.join(process.cwd(), "public", "branding", path.basename(m[1]));
         await fs.access(ruta);
         return { url, ruta };
     } catch { return null; }

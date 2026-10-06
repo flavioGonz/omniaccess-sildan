@@ -929,7 +929,9 @@ export async function uploadBrandingFile(formData: FormData) {
         const filePath = path.join(uploadDir, fileName);
         await fs.writeFile(filePath, buffer);
 
-        return { success: true, url: `/branding/${fileName}` };
+        // Se devuelve la URL de la ruta que lee del disco, no /branding/...: Next en producción
+        // sólo sirve de /public lo que existía al compilar, y un logo recién subido daba 404.
+        return { success: true, url: `/api/branding/${fileName}` };
     } catch (error: any) {
         console.error("Error uploading branding file:", error);
         return { success: false, message: error.message };

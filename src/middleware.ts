@@ -58,6 +58,7 @@ export async function middleware(request: NextRequest) {
         // (server.js ignora el estado de la respuesta, así que fallaba en silencio).
         pathname === '/api/notifications/event' ||
         pathname.startsWith('/api/invitado/') ||   // el QR del pase: lo baja el bot y el invitado
+        pathname.startsWith('/api/branding/') ||   // logos subidos (login, QR): los ve quien no inició sesión
         pathname.startsWith('/api/nvr/') ||
         pathname.startsWith('/api/clip/') ||
         pathname.startsWith('/api/min-interior') ||
