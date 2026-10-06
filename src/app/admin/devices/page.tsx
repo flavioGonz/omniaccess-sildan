@@ -1036,8 +1036,10 @@ export default function DevicesPage() {
                                                 <ProvisionButton deviceId={dev.id} deviceName={dev.name} onDone={() => handleRefreshStats(dev.id)} />
                                             )}
 
-                                            {/* Intrusión: dibujar línea/zona en cámaras AcuSense Hikvision. */}
-                                            {dev.brand === 'HIKVISION' && (dev.deviceType === 'LPR_INTERIOR' || dev.deviceType === 'LPR_CAMERA') && (
+                                            {/* Intrusión: dibujar línea/zona en cámaras AcuSense Hikvision. Incluye CAMERA,
+                                                que es justamente el tipo de las perimetrales de intrusión: sin esto, pasarlas
+                                                a "cámara de vigilancia" las dejaba sin forma de armarlas desde acá. */}
+                                            {dev.brand === 'HIKVISION' && (dev.deviceType === 'LPR_INTERIOR' || dev.deviceType === 'LPR_CAMERA' || dev.deviceType === 'CAMERA') && (
                                             <TooltipProvider>
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>

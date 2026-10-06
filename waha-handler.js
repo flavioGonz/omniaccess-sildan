@@ -609,7 +609,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             // cámara interior —que nunca empujan nada— figuraban 🔴 "Nunca" estando en línea.
             // El sondeo de server.js (RTSP cada pocos minutos) escribe lastOnlinePull.
             const devices = (await prisma.device.findMany()).sort((a, b) => String(a.name).localeCompare(String(b.name)));
-            const TIPO = { LPR_CAMERA: 'LPR de barrera', LPR_INTERIOR: 'Cámara interior', CAMERA: 'Cámara', NVR: 'Grabador', QUEUE_COUNTER: 'Contador', DOOR_INTERCOM: 'Portero', FACE_TERMINAL: 'Terminal facial' };
+            const TIPO = { LPR_CAMERA: 'LPR de barrera', LPR_INTERIOR: 'Cámara interior', CAMERA: 'Cámara de intrusión', NVR: 'Grabador', QUEUE_COUNTER: 'Contador', DOOR_INTERCOM: 'Portero', FACE_TERMINAL: 'Terminal facial' };
             const RECIENTE_MS = 10 * 60 * 1000; // sin señal en 10 min = se da por caído
             let response = `📸 *Estado de equipos*\n\n`;
             if (devices.length === 0) response += "_No hay equipos registrados._";
