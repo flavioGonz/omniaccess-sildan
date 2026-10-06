@@ -69,6 +69,17 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         const from = messageData.from;
         const body_text = messageData.body || '';
+
+        // Un mismo mensaje puede llegar dos veces: WAHA tiene dos emisores de webhook (el
+        // global del contenedor, WHATSAPP_HOOK_URL, y el de la sesión) y además reintenta.
+        // El 6/10 cada respuesta salía duplicada por eso. Se recuerda el id del mensaje
+        // (o remitente+texto+hora si no viene) durante 2 minutos y la repetición se ignora.
+        const dedupeKey = String(messageData.id || `${from}|${body_text}|${messageData.timestamp || ''}`);
+        global.__wahaVistos = global.__wahaVistos || new Map();
+        const ahora = Date.now();
+        for (const [k, t] of global.__wahaVistos) if (ahora - t > 120000) global.__wahaVistos.delete(k);
+        if (global.__wahaVistos.has(dedupeKey)) { res.writeHead(200); res.end('DUP'); return; }
+        global.__wahaVistos.set(dedupeKey, ahora);
         const chatId = from;
         const lowerBody = body_text.toLowerCase().trim();
 
