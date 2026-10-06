@@ -57,6 +57,7 @@ export async function middleware(request: NextRequest) {
         // contestaba 401 y NINGUNA regla de LPR, Face o intrusión disparaba desde los eventos
         // (server.js ignora el estado de la respuesta, así que fallaba en silencio).
         pathname === '/api/notifications/event' ||
+        pathname.startsWith('/api/invitado/') ||   // el QR del pase: lo baja el bot y el invitado
         pathname.startsWith('/api/nvr/') ||
         pathname.startsWith('/api/clip/') ||
         pathname.startsWith('/api/min-interior') ||

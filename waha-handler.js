@@ -529,12 +529,19 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                     const caption = `✅ *Pase creado*\n👤 ${d.guestName}${d.plate?(" ("+d.plate+")"):" (a pie)"}\n🕒 ${fmt(win.from)} → ${fmt(win.to)}\n🏠 Invita: ${d.name||""}${d.label?(" · "+d.label):""}\n\nReenviá este QR a tu invitado para que lo muestre en la garita.`;
                     let imgSent = false;
                     try {
-                        if (QRLIB) {
+                        // El QR lo dibuja la app (/api/invitado/<token>/qr.png): una sola
+                        // implementación, con el logo del barrio configurado en Ajustes. Si la
+                        // app no responde, se arma acá sin logo antes que no mandar nada.
+                        let b64 = null;
+                        try {
+                            const r = await axios.get(`http://127.0.0.1:10001/api/invitado/${encodeURIComponent(qrToken)}/qr.png`, { responseType: 'arraybuffer', timeout: 15000 });
+                            if (r.status === 200 && r.data && r.data.byteLength > 500) b64 = Buffer.from(r.data).toString('base64');
+                        } catch (e) { console.error('[WAHA] qr.png de la app falló, va sin logo:', e.message); }
+                        if (!b64 && QRLIB) {
                             const link = `${serverBaseUrl.replace(/\/+$/,'')}/invitado/${qrToken}`;
-                            const du = await QRLIB.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: 'M' });
-                            await sendImageB64(du.split(',')[1], caption);
-                            imgSent = true;
+                            b64 = (await QRLIB.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: 'M' })).split(',')[1];
                         }
+                        if (b64) { await sendImageB64(b64, caption); imgSent = true; }
                     } catch (e) { console.error('[WAHA] QR image send error:', e.message); }
                     if (!imgSent) await sendText(caption);
                 } catch (e) {

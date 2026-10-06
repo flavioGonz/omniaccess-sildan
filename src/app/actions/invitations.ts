@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
 import QRCode from "qrcode";
+import { qrPasePng, qrPaseSvg } from "@/lib/qr-pase";
 import { getWhatsAppConfig } from "@/lib/whatsapp";
 
 // ══════════════════════════════════════════════════════════════════
@@ -260,8 +261,7 @@ export async function expireStaleInvitations(): Promise<{ expired: number }> {
 
 /** SVG de un QR para el texto/URL dado (se renderiza con dangerouslySetInnerHTML). */
 export async function getQrSvg(text: string): Promise<string> {
-    try { return await QRCode.toString(String(text || ""), { type: "svg", margin: 1, errorCorrectionLevel: "M", width: 240 }); }
-    catch { return ""; }
+    return qrPaseSvg(text, 240);
 }
 
 /** Extrae el token de un valor escaneado (acepta el token pelado o una URL .../invitado/<token>). */
@@ -442,8 +442,7 @@ async function sendGuestQrToHostInternal(hostUserId: string, g: any, inv: any): 
     if (!baseRow?.value) { console.error("[invitaciones] falta BASE_URL en Ajustes: no se envía el QR"); return; }
     const base = baseRow.value.replace(/\/+$/, "");
     const link = `${base}/invitado/${g.qrToken}`;
-    const dataUrl = await QRCode.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: "M" });
-    const b64 = dataUrl.split(",")[1] || "";
+    const b64 = (await qrPasePng(link)).toString("base64");
     const fmt = (x: Date) => new Date(x).toLocaleString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     const plates = (g.plates || []).map((p: any) => p.plate);
     const caption = `✅ *Pase creado*\n👤 ${g.name || "Invitado"}${plates.length ? ` (${plates.join(", ")})` : " (a pie)"}\n🕒 ${fmt(inv.validFrom)} → ${fmt(inv.validTo)}\n🏠 Invita: ${inv.hostName||""}${inv.hostLabel?(" · "+inv.hostLabel):""}\n\nReenviá este QR a tu invitado para que lo muestre en la garita.`;
@@ -507,11 +506,12 @@ export async function sendPassToHost(token: string, qrToken: string): Promise<{ 
         if (!baseRow?.value) return { ok: false, error: "Falta la URL pública del sistema (BASE_URL) en Ajustes" };
         const base = baseRow.value.replace(/\/+$/, "");
         const link = `${base}/invitado/${qrToken}`;
-        const dataUrl = await QRCode.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: "M" });
-        const b64 = dataUrl.split(",")[1] || "";
+        const b64 = (await qrPasePng(link)).toString("base64");
         const fmt = (x: Date) => new Date(x).toLocaleString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
         const plates = (g.plates || []).map((p: any) => p.plate);
-        const caption = `🎟️ *Pase de visita — Los Olivos*\n\n👤 ${g.name || "Invitado"}${plates.length ? ` (${plates.join(", ")})` : ""}\n🕒 ${fmt(inv.validFrom)} → ${fmt(inv.validTo)}\n\nReenviale este QR a tu invitado para que lo muestre en la garita.\n${link}`;
+        // El nombre del barrio sale de Ajustes → Marca; estaba escrito "Los Olivos" a mano.
+        const marca = (await prisma.setting.findUnique({ where: { key: "APP_BRAND_NAME" } }))?.value?.trim();
+        const caption = `🎟️ *Pase de visita${marca ? ` — ${marca}` : ""}*\n\n👤 ${g.name || "Invitado"}${plates.length ? ` (${plates.join(", ")})` : ""}\n🕒 ${fmt(inv.validFrom)} → ${fmt(inv.validTo)}\n\nReenviale este QR a tu invitado para que lo muestre en la garita.\n${link}`;
         const cfg = await getWhatsAppConfig();
         const headers: any = { "Content-Type": "application/json" };
         if (cfg.apiKey) headers["X-Api-Key"] = cfg.apiKey;

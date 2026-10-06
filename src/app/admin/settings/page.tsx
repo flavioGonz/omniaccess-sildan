@@ -63,7 +63,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { DriverDetailsDialog } from "@/components/DriverDetailsDialog";
 import { DRIVER_MODELS, type DeviceBrand } from "@/lib/driver-models";
-import { updateSetting, getSetting, testS3Connection, getBucketLifecycle, updateBucketLifecycle, testDbConnection, getBucketStats, getDbStats, downloadBackup, restoreBackup, populateDatabase, testWahaConnection, getWahaHistory, testExternalDbConnection, updateDatabaseUrl, runDatabaseMigrations, getLearnedPlates, clearLearnedPlates, testFaceEngineConnection } from "@/app/actions/settings";
+import { updateSetting, getSetting, testS3Connection, getBucketLifecycle, updateBucketLifecycle, testDbConnection, getBucketStats, getDbStats, downloadBackup, restoreBackup, populateDatabase, testWahaConnection, getWahaHistory, uploadBrandingFile, testExternalDbConnection, updateDatabaseUrl, runDatabaseMigrations, getLearnedPlates, clearLearnedPlates, testFaceEngineConnection } from "@/app/actions/settings";
 import { getAvisosWhatsApp, setAvisoWhatsApp, agregarDestinatarioWhatsApp, quitarDestinatarioWhatsApp, getRemitentesDelBot, type TipoAviso } from "@/app/actions/whatsapp-avisos";
 import { clearAllVisitorFaces } from "@/app/actions/face-admin";
 import { getAdminsList as getAdmins, saveAdmin as saveAdminAction, deleteAdmin as deleteAdminAction } from "@/app/actions/users";
@@ -1653,7 +1653,7 @@ function ModeConfiguration({ title, description, settingKey, options }: {
     );
 }
 
-type DrawerKey = null | "conn" | "cmds" | "allow" | "hist" | "avisos";
+type DrawerKey = null | "conn" | "cmds" | "allow" | "hist" | "avisos" | "qr";
 
 function WhatsAppSection() {
     const [config, setConfig] = useState({ url: "", apiKey: "" });
@@ -1709,7 +1709,25 @@ function WhatsAppSection() {
         setNuevoDestino({ numero: "", nombre: "" }); cargarAvisos();
     };
 
-    useEffect(() => { loadConfig(); cargarAvisos(); }, []);
+    // Logo del centro del QR de los pases (Setting INVITE_QR_LOGO_URL, imagen en /branding).
+    const [logoQr, setLogoQr] = useState<string>("");
+    const [subiendoLogoQr, setSubiendoLogoQr] = useState(false);
+    const [muestraQr, setMuestraQr] = useState(0); // cambia para recargar la vista previa
+    const cargarLogoQr = async () => { try { setLogoQr((await getSetting("INVITE_QR_LOGO_URL"))?.value || ""); } catch { } };
+    const subirLogoQr = async (file: File) => {
+        setSubiendoLogoQr(true);
+        try {
+            const fd = new FormData(); fd.append("file", file);
+            const r: any = await uploadBrandingFile(fd);
+            if (!r?.success) { toast.error({ title: "No se pudo subir", description: r?.message }); return; }
+            await updateSetting("INVITE_QR_LOGO_URL", r.url);
+            setLogoQr(r.url); setMuestraQr((n) => n + 1);
+            toast.success({ title: "Logo del QR actualizado" });
+        } finally { setSubiendoLogoQr(false); }
+    };
+    const quitarLogoQr = async () => { await updateSetting("INVITE_QR_LOGO_URL", ""); setLogoQr(""); setMuestraQr((n) => n + 1); toast.success({ title: "El QR vuelve a salir sin logo" }); };
+
+    useEffect(() => { loadConfig(); cargarAvisos(); cargarLogoQr(); }, []);
 
     const loadConfig = async () => {
         setLoading(true);
@@ -1808,6 +1826,7 @@ function WhatsAppSection() {
                     <ConfigTile icon={<Bell size={18} />} color={(avisos.intrusion.enabled || avisos.lpr.enabled) ? "emerald" : "amber"} title="Avisos por WhatsApp"
                         value={[avisos.intrusion.enabled ? "Intrusión" : null, avisos.lpr.enabled ? "LPR" : null].filter(Boolean).join(" · ") || "Apagados"}
                         onClick={() => { cargarAvisos(); setDrawer("avisos"); }} />
+                    <ConfigTile icon={<QrCode size={18} />} color={logoQr ? "emerald" : "sky"} title="QR de los pases" value={logoQr ? "Con logo en el centro" : "Sin logo"} onClick={() => { cargarLogoQr(); setDrawer("qr"); }} />
                     <ConfigTile icon={<FileText size={18} />} color="sky" title="Historial de consultas" value={`${history.length} registros`} onClick={() => { loadHistory(); setDrawer("hist"); }} />
                 </div>
             </div>
@@ -1983,6 +2002,24 @@ function WhatsAppSection() {
                             <Button onClick={agregarDestino} className="h-10 px-3 bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={15} /></Button>
                         </div>
                     </div>
+                </div>
+            </SideDrawer>
+
+            <SideDrawer open={drawer === "qr"} onClose={() => setDrawer(null)} icon={<QrCode size={18} />} title="QR de los pases">
+                <div className="space-y-4">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">El QR que recibe el residente por WhatsApp y el que muestra la página del pase. Con un logo en el centro el QR usa corrección de errores alta, así que se lee igual. Conviene una imagen cuadrada, PNG con fondo transparente o blanco.</p>
+                    <div className="flex items-center justify-center p-4 rounded-xl border border-border bg-white">
+                        {/* Muestra real: el mismo generador, con un token de ejemplo. */}
+                        <img key={muestraQr} src={`/api/invitado/MUESTRA/qr.png?v=${muestraQr}`} alt="Vista previa del QR" className="w-48 h-48" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <label className={cn("flex-1 h-10 inline-flex items-center justify-center gap-2 rounded-md border border-border bg-muted/40 text-xs font-semibold cursor-pointer hover:bg-accent", subiendoLogoQr && "opacity-60 pointer-events-none")}>
+                            <Upload size={14} /> {subiendoLogoQr ? "Subiendo…" : logoQr ? "Cambiar logo" : "Subir logo"}
+                            <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) subirLogoQr(f); e.currentTarget.value = ""; }} />
+                        </label>
+                        {logoQr && <Button variant="outline" onClick={quitarLogoQr} className="h-10 px-3 text-xs"><Trash2 size={14} className="mr-1.5" /> Quitar</Button>}
+                    </div>
+                    {logoQr && <p className="text-[10px] text-muted-foreground font-mono break-all">{logoQr}</p>}
                 </div>
             </SideDrawer>
 
