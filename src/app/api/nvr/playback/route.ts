@@ -32,6 +32,13 @@ function fmtDahua(ms: number): string {
 // no lo reproduce en MP4). El códec de un canal es constante, así que cacheamos por
 // (ip:ch) por 30 min. (ffprobe verificado: el H.264+/SmartCodec de estos NVR decodifica
 // limpio; lo "corrupto" del restream RTSP de la lección de campo era de otra serie.)
+const DRI = "/dev/dri/renderD128";
+let _gpu: boolean | null = null;
+function tieneGpu(): boolean {
+    if (_gpu === null) { try { _gpu = require("fs").existsSync(DRI); } catch { _gpu = false; } }
+    return _gpu!;
+}
+
 type CodecHit = { c: string; ts: number };
 const codecCache: Map<string, CodecHit> = (globalThis as any).__nvrCodec ?? new Map<string, CodecHit>();
 (globalThis as any).__nvrCodec = codecCache;
@@ -89,7 +96,11 @@ export async function GET(req: NextRequest) {
     } else {
         const start = fmtNvr(startMs);
         const end = fmtNvr(startMs + dur * 1000);
-        url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01/?starttime=${start}&endtime=${end}`;
+        // `Streaming/Channels/<ch>01?starttime=` y NO `Streaming/tracks/`: en los dos NVR de
+        // San Nicolás (DS-7616NI-M2/16P V4.63 y DS-7616NXI-K2(D) V4.83) `tracks` contesta
+        // "400 Bad Request" a cualquier rango, con y sin barra; `Channels` reproduce (verificado
+        // con ffprobe el 6/10). Es el mismo síntoma que la skill Hikvision anota para DS-9632NI.
+        url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/Channels/${ch}01?starttime=${start}&endtime=${end}`;
     }
 
     // ¿El origen es H.264? → remux directo (copy). ¿HEVC? → transcode.
@@ -100,9 +111,18 @@ export async function GET(req: NextRequest) {
     // Decode por codec (solo ruta transcode): Dahua = H.264 -> GPU (VAAPI);
     // Hik HEVC -> decode por SOFTWARE (el VAAPI de HEVC de estos NVR corrompe: verde/gris).
     const isDahua = String(conn.brand || "").toUpperCase().includes("DAHUA");
-    const DEC = isDahua ? ["-hwaccel", "vaapi", "-hwaccel_device", "/dev/dri/renderD128", "-hwaccel_output_format", "vaapi"] : [];
-    const SWUP = isDahua ? [] : ["-vaapi_device", "/dev/dri/renderD128"];
-    const VF = isDahua ? "scale_vaapi=w=-2:h=720" : "scale=-2:720,format=nv12,hwupload";
+    // Sin GPU no hay VAAPI: el contenedor de San Nicolás no tiene /dev/dri, y con los
+    // argumentos de VAAPI ffmpeg moría al arrancar → TODO playback HEVC daba 502 (y acá
+    // los dos NVR graban todo en H.265). Se decide por lo que hay en el equipo, no por
+    // lo que tenía el de Olivos: con GPU, VAAPI; sin GPU, libx264 ultrafast a 720p, que
+    // en 8 núcleos rinde un clip a la vez sin despeinarse.
+    const hayGpu = tieneGpu();
+    const DEC = isDahua && hayGpu ? ["-hwaccel", "vaapi", "-hwaccel_device", DRI, "-hwaccel_output_format", "vaapi"] : [];
+    const SWUP = hayGpu && !isDahua ? ["-vaapi_device", DRI] : [];
+    const VF = !hayGpu ? "scale=-2:720,format=yuv420p" : isDahua ? "scale_vaapi=w=-2:h=720" : "scale=-2:720,format=nv12,hwupload";
+    const ENC = hayGpu
+        ? ["-c:v", "h264_vaapi", "-qp", "24"]
+        : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", "26", "-g", "25", "-threads", "4"];
 
     // Modo "clip completo": genera un MP4 completo (faststart) a un archivo temporal y lo sirve
     // con Content-Length + soporte de rangos. Necesario para que el <video> reproduzca en el
@@ -116,7 +136,7 @@ export async function GET(req: NextRequest) {
             ? ["-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
                "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", tmp]
             : [...DEC, "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
-               "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp];
+               "-an", ...SWUP, "-vf", VF, ...ENC, "-movflags", "+faststart", "-y", tmp];
         const ok = await new Promise<boolean>((resolve) => {
             const ff2 = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "ignore"] });
             const killer = setTimeout(() => { try { ff2.kill("SIGKILL"); } catch { } resolve(false); }, 45000);
@@ -160,7 +180,7 @@ export async function GET(req: NextRequest) {
             "-probesize", "500000", "-analyzeduration", "500000",
             ...DEC,
             "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
-            "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "24",
+            "-an", ...SWUP, "-vf", VF, ...ENC,
             "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
             "-f", "mp4", "pipe:1",
         ];

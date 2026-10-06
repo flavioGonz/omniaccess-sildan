@@ -54,14 +54,25 @@ function rtspViaNvr(nvr: { ip: string; user: string; pass: string; rtspPort: str
     return `rtsp://${cred}${nvr.ip}:${port}/Streaming/Channels/${ch}${hd ? "01" : "02"}`;
 }
 
+// El segundo origen de cada stream es un ffmpeg que transcodifica a H.264 (los canales
+// H.265 no se ven en el navegador). `#hardware=vaapi` sólo si hay GPU: en el contenedor
+// de San Nicolás no existe /dev/dri y con vaapi el productor moría en silencio → vivo en
+// negro para cualquier cámara guardada desde la UI. Se mira el equipo, no la rama.
+const DRI = "/dev/dri/renderD128";
+let _gpu: boolean | null = null;
+function transcode(n: string): string {
+    if (_gpu === null) { try { _gpu = fs.existsSync(DRI); } catch { _gpu = false; } }
+    return `ffmpeg:${n}#video=h264${_gpu ? "#hardware=vaapi" : ""}`;
+}
+
 async function writeStreams(name: string, nameHd: string, sd: string, hd: string): Promise<void> {
     // 1) Persistir en go2rtc.yaml
     try {
         let doc: any = {};
         if (fs.existsSync(CONFIG)) doc = (yaml.load(fs.readFileSync(CONFIG, "utf8")) as any) || {};
         if (!doc.streams || typeof doc.streams !== "object") doc.streams = {};
-        doc.streams[name] = [sd, `ffmpeg:${name}#video=h264#hardware=vaapi`];
-        doc.streams[nameHd] = [hd, `ffmpeg:${nameHd}#video=h264#hardware=vaapi`];
+        doc.streams[name] = [sd, transcode(name)];
+        doc.streams[nameHd] = [hd, transcode(nameHd)];
         try { fs.copyFileSync(CONFIG, `${CONFIG}.bak.auto.${Date.now()}`); } catch { }
         fs.writeFileSync(CONFIG, yaml.dump(doc, { lineWidth: 400 }), "utf8");
     } catch (e) { console.error("[go2rtc-sync] yaml:", (e as any)?.message); }
@@ -75,8 +86,8 @@ async function writeStreams(name: string, nameHd: string, sd: string, hd: string
             clearTimeout(t);
         } catch { }
     };
-    await put(name, sd, `ffmpeg:${name}#video=h264#hardware=vaapi`);
-    await put(nameHd, hd, `ffmpeg:${nameHd}#video=h264#hardware=vaapi`);
+    await put(name, sd, transcode(name));
+    await put(nameHd, hd, transcode(nameHd));
 }
 
 /**

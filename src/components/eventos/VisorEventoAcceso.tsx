@@ -47,6 +47,9 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
     const [abierto, setAbierto] = useState(false);
 
     const [canalNvr, setCanalNvr] = useState<number | null>(null);
+    /** El NVR dueño del canal: sin él, el clip iba al NVR "por defecto", que con tres
+     *  grabadores es el equivocado dos de cada tres veces. */
+    const [nvrId, setNvrId] = useState<string | null>(null);
     const [verGrabacion, setVerGrabacion] = useState(false);
     const [historial, setHistorial] = useState<any[] | undefined>(undefined);
     const [cargandoHistorial, setCargandoHistorial] = useState(false);
@@ -69,6 +72,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                 if (!vivo) return;
                 const ch = d?.channel != null ? Number(d.channel) : null;
                 setCanalNvr(ch);
+                setNvrId(d?.nvr ? String(d.nvr) : null);
                 if (autoRecording && ch) setVerGrabacion(true);
             })
             .catch(() => { if (vivo) setCanalNvr(null); });
@@ -238,7 +242,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                     onRegistrar={registrar}
                     onGrabacion={canalNvr != null ? () => setVerGrabacion(true) : undefined}
                     hrefClip={canalNvr != null
-                        ? `/api/nvr/playback?ch=${canalNvr}&t=${msEvento}&pre=10&dur=30&download=1`
+                        ? `/api/nvr/playback?ch=${canalNvr}&t=${msEvento}&pre=10&dur=30&download=1${nvrId ? `&nvr=${nvrId}` : ""}`
                         : null}
                     onExportar={exportar}
                     onListaNegra={conChapa ? alternarLista : undefined}
