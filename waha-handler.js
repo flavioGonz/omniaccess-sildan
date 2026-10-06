@@ -99,12 +99,16 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         }
 
         // Config
-        const wahaUrlSetting = await prisma.setting.findUnique({ where: { key: 'WAHA_URL' } });
-        const wahaApiKeySetting = await prisma.setting.findUnique({ where: { key: 'WAHA_API_KEY' } });
-        const baseUrlSetting = await prisma.setting.findUnique({ where: { key: 'BASE_URL' } }); // e.g. http://192.168.99.99:10001
+        // Misma fuente y prioridad que getWhatsAppConfig() (src/lib/whatsapp.ts): OPENWA_*
+        // primero, WAHA_* de respaldo. Este handler leía sólo WAHA_*; en San Nicolás la clave
+        // vive en OPENWA_API_KEY, así que todo lo que mandaba daba 401 y el bot "no contestaba"
+        // (y como el handler devolvía 500, WAHA reintentaba 15 veces el mismo mensaje).
+        const cfgRows = await prisma.setting.findMany({ where: { key: { in: ['OPENWA_URL', 'OPENWA_API_KEY', 'WAHA_URL', 'WAHA_API_KEY', 'BASE_URL'] } } });
+        const cfg = {}; for (const r of cfgRows) cfg[r.key] = r.value;
+        const baseUrlSetting = cfg.BASE_URL ? { value: cfg.BASE_URL } : null;
 
-        const wahaUrl = wahaUrlSetting?.value || "http://localhost:3000";
-        const wahaApiKey = wahaApiKeySetting?.value;
+        const wahaUrl = (cfg.OPENWA_URL || cfg.WAHA_URL || process.env.OPENWA_URL || "http://localhost:3000").replace(/\/+$/, "");
+        const wahaApiKey = cfg.OPENWA_API_KEY || cfg.WAHA_API_KEY || process.env.OPENWA_API_KEY;
         const serverBaseUrl = baseUrlSetting?.value || "http://192.168.99.99:10001";
 
         // ── Resolver número real del remitente (WhatsApp manda @lid oculto) ──
@@ -130,6 +134,9 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                 if (users.some(u => String(u.phone||'').replace(/\D/g,'').slice(-8) === tail)) return true;
             } catch (e) {}
             try { const r = await prisma.setting.findUnique({ where:{ key:'BOT_ADMIN_PHONES' } }); const arr = JSON.parse(r?.value||'[]'); if (arr.some(p => String((typeof p==='string'?p:p.phone)||'').replace(/\D/g,'').slice(-8) === tail)) return true; } catch (e) {}
+            // La lista "Remitentes autorizados" de Ajustes suma números de personal que no
+            // tienen usuario cargado (el teléfono de la garita, por ejemplo).
+            try { const r = await prisma.setting.findUnique({ where:{ key:'WHATSAPP_ALLOWLIST' } }); const arr = JSON.parse(r?.value||'[]'); if (arr.some(p => String((typeof p==='string'?p:p.phone)||'').replace(/\D/g,'').slice(-8) === tail)) return true; } catch (e) {}
             return false;
         };
 
@@ -312,7 +319,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         const inviteTrigger = /^(?:invitar|invito|invitaci(o|ó)n|invitacion|visita|pase)\b/i;
         if (inviteTrigger.test(lowerBody) && await cmdActivo('invitar')) {
             const host = await resolveHost();
-            if(!host){ await sendText("🔒 Este servicio es solo para residentes registrados. Si sos residente y no te reconoce, pedile al administrador que cargue tu número."); res.writeHead(200); res.end('OK'); return; }
+            if(!host){ console.log(`${logPrefix} [WAHA] invitar desde un número no registrado, se ignora: ${from}`); res.writeHead(200); res.end('OK'); return; }
             await prisma.whatsAppSession.upsert({ where:{ phoneNumber:from }, create:{ phoneNumber:from, step:'INV_NAME', data:JSON.stringify(host) }, update:{ step:'INV_NAME', data:JSON.stringify(host) } });
             await sendText(`👋 Hola ${host.name||''}. Vamos a crear un *pase de visita*.\n\n¿*Nombre* del invitado?`);
             res.writeHead(200); res.end('OK'); return;
@@ -509,9 +516,11 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         // Sólo admins/personal usan el bot de consultas. Residentes → flujo de invitación; resto → aviso.
         if (!(await isAdminSender())) {
             const _host = await resolveHost();
-            await sendText(_host
-                ? "👋 Para generar un *pase de visita*, escribí *invitar*."
-                : "🔒 Este WhatsApp es del barrio (residentes y personal). Si sos residente y no te reconoce, pedile al administrador que cargue tu número.");
+            // Al bot sólo le escriben los residentes (por el teléfono cargado en su ficha) y el
+            // personal. Un número que no es de nadie se ignora EN SILENCIO: contestarle, aunque
+            // sea para decirle que no, confirma que el número existe y que es del barrio.
+            if (!_host) { console.log(`${logPrefix} [WAHA] remitente no registrado, se ignora: ${from}`); res.writeHead(200); res.end('OK'); return; }
+            await sendText("👋 Para generar un *pase de visita*, escribí *invitar*.");
             res.writeHead(200); res.end('OK'); return;
         }
 
@@ -719,8 +728,10 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
     } catch (error) {
         console.error(`${logPrefix} [WAHA] Handler Error:`, error);
-        res.writeHead(500);
-        res.end('Error');
+        // 200 aunque haya fallado: con 500 WAHA reintenta el mismo mensaje hasta 15 veces y
+        // el residente recibe la respuesta repetida cuando el fallo era transitorio.
+        res.writeHead(200);
+        res.end('ERR');
     }
 };
 

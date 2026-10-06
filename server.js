@@ -2794,13 +2794,12 @@ async function notifyHostGuest(gm, plate, device, direction){
         if(inv && inv.notify===false) return;
         const u=await prisma.user.findUnique({ where:{ id:gm.hostUserId }, select:{ phone:true } });
         const phone=((u&&u.phone)||"").replace(/\D/g,""); if(!phone) return;
-        const [wu,wk,ws]=await Promise.all([
-            prisma.setting.findUnique({ where:{ key:"WAHA_URL" } }),
-            prisma.setting.findUnique({ where:{ key:"WAHA_API_KEY" } }),
-            prisma.setting.findUnique({ where:{ key:"OPENWA_SESSION" } }),
-        ]);
-        const url=((wu&&wu.value)||"http://192.168.99.22:2785").replace(/\/+$/,"");
-        const headers={ "Content-Type":"application/json" }; if(wk&&wk.value) headers["X-Api-Key"]=wk.value;
+        // OPENWA_* primero, WAHA_* de respaldo (misma regla que getWhatsAppConfig).
+        const rows=await prisma.setting.findMany({ where:{ key:{ in:["OPENWA_URL","OPENWA_API_KEY","WAHA_URL","WAHA_API_KEY","OPENWA_SESSION"] } } });
+        const c={}; for(const r of rows) c[r.key]=r.value;
+        const url=(c.OPENWA_URL||c.WAHA_URL||"http://127.0.0.1:3000").replace(/\/+$/,"");
+        const ws={ value:c.OPENWA_SESSION };
+        const headers={ "Content-Type":"application/json" }; const k=c.OPENWA_API_KEY||c.WAHA_API_KEY; if(k) headers["X-Api-Key"]=k;
         const dir=direction==="EXIT"?"salió":"entró";
         const hora=new Date().toLocaleTimeString("es-UY",{ hour:"2-digit", minute:"2-digit" });
         const text=`✅ Tu invitado ${gm.name||plate} ${dir} ${hora} por ${(device&&device.name)||"un acceso"} (${plate}).`;

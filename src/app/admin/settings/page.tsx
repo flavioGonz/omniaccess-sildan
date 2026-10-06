@@ -1829,7 +1829,7 @@ function WhatsAppSection() {
             <SideDrawer open={drawer === "allow"} onClose={() => setDrawer(null)} icon={<ShieldCheck size={18} />} title="Remitentes autorizados"
                 headerRight={<Switch checked={allowEnabled} onCheckedChange={setAllowEnabled} />}>
                 <div className="space-y-4">
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">Con la lista blanca activada, el bot <b>solo</b> procesa mensajes de los números/grupos autorizados; al resto lo ignora en silencio. Evita fuga de datos a desconocidos.</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">Al bot le escriben <b>los residentes</b> (por el celular cargado en su ficha de usuario: sólo pueden pedir pases de visita) y <b>el personal</b> (usuarios con rol administrador, staff, seguridad u operador, por su celular: consultas y gestión). A cualquier otro número lo ignora en silencio. Esta lista suma números de personal que no tienen usuario, como el teléfono de la garita.</p>
                     {!allowEnabled ? (
                         <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5">
                             <ShieldAlert size={14} className="text-amber-400 shrink-0 mt-0.5" />
