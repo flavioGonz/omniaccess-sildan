@@ -96,11 +96,14 @@ export async function GET(req: NextRequest) {
     } else {
         const start = fmtNvr(startMs);
         const end = fmtNvr(startMs + dur * 1000);
-        // `Streaming/Channels/<ch>01?starttime=` y NO `Streaming/tracks/`: en los dos NVR de
-        // San Nicolás (DS-7616NI-M2/16P V4.63 y DS-7616NXI-K2(D) V4.83) `tracks` contesta
-        // "400 Bad Request" a cualquier rango, con y sin barra; `Channels` reproduce (verificado
-        // con ffprobe el 6/10). Es el mismo síntoma que la skill Hikvision anota para DS-9632NI.
-        url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/Channels/${ch}01?starttime=${start}&endtime=${end}`;
+        // `Streaming/tracks/<ch>01?starttime=`, que es la ruta de PLAYBACK de Hikvision. El 6/10
+        // a la mañana esto se había cambiado a `Streaming/Channels/<ch>01?starttime=` porque
+        // `tracks` contestaba 400: era que el rango no tenía grabación (400 es exactamente lo que
+        // el NVR contesta a un rango vacío o futuro). `Channels` "reproducía" porque IGNORA el
+        // rango y manda el VIVO: el visor mostraba 11:24 pidiendo las 05:55. Verificado el 6/10
+        // con cuadros extraídos de los dos NVR (DS-7616NI-M2/16P V4.63 y DS-7616NXI-K2(D)
+        // V4.83): `tracks` cae en el segundo pedido; `Channels` en la hora actual.
+        url = `rtsp://${conn.user}:${conn.pass}@${conn.ip}:${port}/Streaming/tracks/${ch}01?starttime=${start}&endtime=${end}`;
     }
 
     // ¿El origen es H.264? → remux directo (copy). ¿HEVC? → transcode.

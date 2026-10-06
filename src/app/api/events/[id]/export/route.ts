@@ -96,8 +96,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     // 3) clip del NVR (ffmpeg → mp4 con moov al final, apto para reproducir en cualquier player)
     if (channel && nvr) {
         const startMs = t.getTime() - pre * 1000;
-        // `Channels`, no `tracks`: los NVR de San Nicolás contestan 400 a `tracks` (ver playback/route.ts).
-        const url = `rtsp://${nvr.user}:${nvr.pass}@${nvr.ip}:${nvr.rtspPort || "554"}/Streaming/Channels/${channel}01?starttime=${fmtNvr(startMs)}&endtime=${fmtNvr(startMs + dur * 1000)}`;
+        // `tracks` y no `Channels`: `Channels?starttime=` ignora el rango y manda el vivo (ver api/nvr/playback).
+        const url = `rtsp://${nvr.user}:${nvr.pass}@${nvr.ip}:${nvr.rtspPort || "554"}/Streaming/tracks/${channel}01?starttime=${fmtNvr(startMs)}&endtime=${fmtNvr(startMs + dur * 1000)}`;
         const ff = spawn("ffmpeg", ["-rtsp_transport", "tcp", "-i", url, "-t", String(dur), "-an", "-c:v", "copy", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
         const timer = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } }, (dur + 40) * 1000);
         ff.on("close", () => clearTimeout(timer));
