@@ -52,6 +52,11 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/api/onvif/notify') ||
         pathname.startsWith('/api/snapshot/') ||
         pathname.startsWith('/api/tracking/') ||
+        // La entrada interna del motor de reglas: server.js (proceso aparte, sin sesión) la
+        // llama con x-tracking-token y la ruta lo verifica. Sin esta línea el middleware le
+        // contestaba 401 y NINGUNA regla de LPR, Face o intrusión disparaba desde los eventos
+        // (server.js ignora el estado de la respuesta, así que fallaba en silencio).
+        pathname === '/api/notifications/event' ||
         pathname.startsWith('/api/nvr/') ||
         pathname.startsWith('/api/clip/') ||
         pathname.startsWith('/api/min-interior') ||

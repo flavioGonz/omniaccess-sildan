@@ -2877,12 +2877,14 @@ async function notificarPorReglas(evento) {
         }
         if (!token) return;
         const base = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001";
-        await fetch(`${base}/api/notifications/event`, {
+        const r = await fetch(`${base}/api/notifications/event`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-tracking-token": token },
             body: JSON.stringify(evento),
             signal: AbortSignal.timeout(8000),
         });
+        // Un 401/500 acá es una regla que no disparó: tiene que verse en el log, no tragarse.
+        if (!r.ok) console.error(`[reglas] /api/notifications/event respondió ${r.status} para ${evento.modulo}/${evento.evento}`);
     } catch (e) {
         console.error("[reglas] no se pudo notificar:", (e && e.message) || e);
     }
