@@ -437,7 +437,10 @@ async function sendGuestQrToHostInternal(hostUserId: string, g: any, inv: any): 
     const digits = normPhoneUy(u?.phone || "");
     if (!digits || digits.length < 10) return;
     const baseRow = await prisma.setting.findUnique({ where: { key: "BASE_URL" } });
-    const base = (baseRow?.value || "https://olivos.sildan.com.uy").replace(/\/+$/, "");
+    // Sin BASE_URL no hay link que valga: antes caía al dominio de Olivos y un barrio
+    // nuevo mandaba QR de otro cliente. Mejor no mandar y decirlo en el log.
+    if (!baseRow?.value) { console.error("[invitaciones] falta BASE_URL en Ajustes: no se envía el QR"); return; }
+    const base = baseRow.value.replace(/\/+$/, "");
     const link = `${base}/invitado/${g.qrToken}`;
     const dataUrl = await QRCode.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: "M" });
     const b64 = dataUrl.split(",")[1] || "";
@@ -501,7 +504,8 @@ export async function sendPassToHost(token: string, qrToken: string): Promise<{ 
         if (!digits || digits.length < 10) return { ok: false, error: "Tu usuario no tiene un celular válido cargado" };
         const inv: any = g.invitation;
         const baseRow = await prisma.setting.findUnique({ where: { key: "BASE_URL" } });
-        const base = (baseRow?.value || "https://olivos.sildan.com.uy").replace(/\/+$/, "");
+        if (!baseRow?.value) return { ok: false, error: "Falta la URL pública del sistema (BASE_URL) en Ajustes" };
+        const base = baseRow.value.replace(/\/+$/, "");
         const link = `${base}/invitado/${qrToken}`;
         const dataUrl = await QRCode.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: "M" });
         const b64 = dataUrl.split(",")[1] || "";

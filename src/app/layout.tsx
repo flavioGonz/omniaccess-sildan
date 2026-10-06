@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import localFont from "next/font/local";
 import "./globals.css";
 
@@ -36,15 +37,41 @@ export const viewport = {
   themeColor: "#ffffff",
 };
 
-export const metadata: Metadata = {
-  title: "Omniacces",
-  description: "Sistema de control de acceso LPR y Facial",
-  icons: {
-    icon: "/iconos/guard-512.png",
-    apple: "/iconos/guard-512.png",
-  },
-  manifest: "/manifest.json",
-};
+// La marca del PRODUCTO, no la del cliente: el favicon, el ícono de la PWA y la tarjeta
+// que WhatsApp arma al compartir el link salían con el logo de Sildan (el cliente de
+// Olivos) en todos los barrios. Lo del cliente (nombre, logo, fondo del login) vive en
+// Ajustes → Marca (APP_BRAND_*); esto es lo fijo. Los PNG se regeneran con
+// scripts/iconos-marca.py a partir del isotipo de brand/OmniLogo.tsx.
+//
+// openGraph necesita URL absoluta (WhatsApp no resuelve relativas): se arma con el host
+// con el que entró el pedido, así sirve para cualquier dominio sin hornear ninguno.
+export async function generateMetadata(): Promise<Metadata> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "localhost";
+  const proto = h.get("x-forwarded-proto") || (host.startsWith("localhost") || /^\d+\.\d+\.\d+\.\d+/.test(host) ? "http" : "https");
+  const base = `${proto}://${host}`;
+  const descripcion = "Control de acceso y vigilancia: LPR, reconocimiento facial, intrusión y visitas.";
+  return {
+    metadataBase: new URL(base),
+    title: "OmniAccess",
+    description: descripcion,
+    applicationName: "OmniAccess",
+    icons: {
+      icon: [{ url: "/favicon.png", sizes: "32x32", type: "image/png" }, { url: "/iconos/omni-192.png", sizes: "192x192", type: "image/png" }],
+      apple: "/apple-touch-icon.png",
+    },
+    manifest: "/manifest.json",
+    openGraph: {
+      type: "website",
+      siteName: "OmniAccess",
+      title: "OmniAccess",
+      description: descripcion,
+      url: base,
+      images: [{ url: "/og-omniaccess.png", width: 1200, height: 630, alt: "OmniAccess" }],
+    },
+    twitter: { card: "summary_large_image", title: "OmniAccess", description: descripcion, images: ["/og-omniaccess.png"] },
+  };
+}
 
 import { ThemeProvider } from "@/components/theme-provider";
 import ThemedToaster from "@/components/ThemedToaster";

@@ -232,7 +232,7 @@ export default function GuardIphoneConsole({
                         if ("Notification" in window && Notification.permission === "granted") {
                             new Notification("⚠️ ALERTA DE SEGURIDAD - OMNIACCESS GUARD", {
                                 body: `Modo de alerta activado por ${data.triggeredBy || "un compañero"}.`,
-                                icon: "/icons/sildan-icon-dot.png",
+                                icon: "/iconos/omni-192.png",
                                 tag: "security-alert"
                             });
                         }
@@ -273,7 +273,7 @@ export default function GuardIphoneConsole({
             if ("Notification" in window && Notification.permission === "granted") {
                 new Notification("⚠️ SOLICITUD DE APOYO", {
                     body: `${data.type} reportado por ${data.requesterName}.`,
-                    icon: "/iconos/sildan-pwa.png",
+                    icon: "/iconos/omni-192.png",
                     tag: "mission-alert",
                     requireInteraction: true
                 });
