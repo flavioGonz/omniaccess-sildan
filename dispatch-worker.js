@@ -75,7 +75,14 @@ function fetchLocalBase64(path) {
                 if (res.statusCode !== 200) { res.resume(); return resolve(null); }
                 const chunks = [];
                 res.on("data", (c) => chunks.push(c));
-                res.on("end", () => { const buf = Buffer.concat(chunks); resolve(buf.length > 100 ? buf.toString("base64") : null); });
+                res.on("end", async () => {
+                    let buf = Buffer.concat(chunks);
+                    if (buf.length <= 100) return resolve(null);
+                    // Achicar a 1280 px / JPEG 82: una captura LPR de 2 MB llega a WhatsApp como
+                    // "HD" con miniatura borrosa y botón de descarga; a ~200 KB se ve al instante.
+                    try { const sharp = require("sharp"); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { console.error("[dispatch] sharp:", e.message); }
+                    resolve(buf.toString("base64"));
+                });
             });
         req.on("error", () => resolve(null));
         req.on("timeout", () => { req.destroy(); resolve(null); });

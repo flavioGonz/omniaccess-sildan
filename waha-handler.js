@@ -163,25 +163,26 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             await axios.post(`${wahaUrl}/api/sendText`, { session: session || 'default', chatId: chatDestino, text }, { headers });
         };
 
+        // La foto va como JPEG chico en base64, no como URL: la captura de una LPR pesa ~2 MB
+        // (2560×1440) y WhatsApp la trata como "HD" → el residente ve una miniatura borrosa con
+        // un botón de 2 MB que no siempre baja. Se lee del propio server (127.0.0.1:10001,
+        // sin pasar por el dominio público), se achica a 1280 px y queda en ~150–250 KB,
+        // que WhatsApp muestra al instante. Si algo falla, se manda por URL como antes.
         const sendImage = async (url, caption) => {
             const headers = {};
             if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
-
-            // For WEBJS Core (Free), /api/sendMedia is often more reliable than /api/sendImage
-            // The structure for sendMedia uses 'file' as a link or object
             await senderTail();
-            const body = {
-                session: session || 'default',
-                chatId: chatDestino,
-                file: {
-                    url: url
-                },
-                caption: caption
-            };
-
-            console.log(`[WAHA-DEBUG] Sending image via URL: ${url}`);
-            // Switching back to /api/sendImage but keeping the URL logic
-            await axios.post(`${wahaUrl}/api/sendImage`, body, { headers });
+            try {
+                const local = serverBaseUrl && url.startsWith(serverBaseUrl) ? url.replace(serverBaseUrl, 'http://127.0.0.1:10001') : url;
+                const r = await axios.get(local, { responseType: 'arraybuffer', timeout: 15000 });
+                let buf = Buffer.from(r.data);
+                try { const sharp = require('sharp'); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { console.error('[WAHA] sharp:', e.message); }
+                await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/jpeg', filename: 'captura.jpg', data: buf.toString('base64') }, caption }, { headers, timeout: 40000 });
+                return;
+            } catch (e) {
+                console.error('[WAHA] imagen local falló, se manda por URL:', e.response?.data || e.message);
+            }
+            await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { url, mimetype: 'image/jpeg', filename: 'captura.jpg' }, caption }, { headers, timeout: 40000 });
         };
 
         const sendImageB64 = async (b64, caption) => {
