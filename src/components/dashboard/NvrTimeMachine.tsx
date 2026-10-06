@@ -241,7 +241,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
     };
 
     const playbackSrc = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=${PRE_SEC}&dur=120${nvrQ}${forceTx ? "&tx=1" : ""}` : "";
-    const downloadHref = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=10&dur=60&download=1${nvrQ}` : "";
+    const downloadHref = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&download=1${nvrQ}` : "";
 
     const startWallMs = committedMs - PRE_SEC * 1000;
     const displayMs = (dragging || tab !== "grabacion") ? playheadMs : startWallMs + videoCur * 1000;

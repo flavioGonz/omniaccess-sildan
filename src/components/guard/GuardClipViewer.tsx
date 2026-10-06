@@ -33,8 +33,8 @@ export default function GuardClipViewer({ event, onClose }: { event: any; onClos
     if (!event) return null;
     const t = new Date(event.timestamp).getTime();
     const nvrQ = nvrId ? `&nvr=${nvrId}` : "";
-    const src = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14&whole=1${nvrQ}&rk=${rk}` : "";
-    const dl = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&pre=6&dur=14&download=1${nvrQ}` : "";
+    const src = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&whole=1${nvrQ}&rk=${rk}` : "";
+    const dl = channel != null ? `/api/nvr/playback?ch=${channel}&t=${t}&download=1${nvrQ}` : "";
     const hora = new Date(event.timestamp).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 
     return (

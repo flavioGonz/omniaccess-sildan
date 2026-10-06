@@ -284,7 +284,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     const nowTs = recWin.end;
     // reencuadrar si el cursor sale de la ventana
     useEffect(() => { if (recT < recWin.start || recT > recWin.end) setAnchor(recT); }, [recT, recWin.start, recWin.end]);
-    const playbackUrl = nvrId && cam.ch != null ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&pre=4&dur=30&nvr=${nvrId}${recRetry > 0 ? "&tx=1" : ""}` : null;
+    const playbackUrl = nvrId && cam.ch != null ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&nvr=${nvrId}${recRetry > 0 ? "&tx=1" : ""}` : null;
 
     const tabs: { k: "live" | "rec" | "evi"; Icon: any; label: string }[] = [
         { k: "live", Icon: Video, label: "Vivo" },
@@ -557,7 +557,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                                 className={cn("px-2.5 h-9 grid place-items-center rounded-full text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm transition-colors", hd ? "bg-sky-500/90 text-white" : "bg-black/40 text-white/80 hover:bg-black/70")}>{hd ? "HD" : "SD"}</button>
                         )}
                         {tab === "rec" && nvrId && cam.ch != null && (
-                            <a href={`/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&pre=10&dur=60&download=1&nvr=${nvrId}`} download
+                            <a href={`/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&download=1&nvr=${nvrId}`} download
                                 data-tooltip-id="mi-tip" data-tooltip-content="Descargar clip (60s alrededor de este instante)"
                                 className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-sky-500/80 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><Download size={17} /></a>
                         )}

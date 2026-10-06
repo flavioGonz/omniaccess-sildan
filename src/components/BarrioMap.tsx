@@ -320,7 +320,7 @@ function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec }: { ca
 function RecModal({ card, camList, onClose }: { card: { deviceId: string; ms: number; id?: string; name?: string }; camList: any[]; onClose: () => void }) {
     const [tab, setTab] = useState<"live" | "rec" | "evi">("rec");
     const cam = camList.find((c) => c.id === card.deviceId);
-    const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&pre=5&dur=40&nvr=${cam.nvrId}` : null;
+    const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&nvr=${cam.nvrId}` : null;
     const snap = `/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`;
     const tabs = [{ k: "live", label: "Vivo", Icon: Video }, { k: "rec", label: "Grabación", Icon: Play }, { k: "evi", label: "Evidencia", Icon: Eye }] as const;
     return createPortal(

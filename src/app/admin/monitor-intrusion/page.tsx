@@ -18,6 +18,15 @@ import { LiveModal } from "@/components/intrusion/LiveModal";
 type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
 type AlarmChip = { id: string; type: string; label: string; ts: string };
 
+/**
+ * La miniatura en bucle de cada detección NO usa la ventana configurable de Ajustes: se
+ * transcodifica una por cada tarjeta de la grilla, y con "60 s después" cada una pasaría
+ * a ser un minuto de ffmpeg. Corta y fija a propósito; la ventana larga es la del clip
+ * que se abre al tocar la detección.
+ */
+const MINIATURA_ANTES_SEG = 3;
+const MINIATURA_DUR_SEG = 14;
+
 const META: Record<string, { label: string; cls: string; ring: string; dot: string; Icon: any }> = {
     LINECROSS: { label: "Cruce de línea", cls: "text-red-300 border-red-500/40 bg-red-500/10", ring: "ring-red-500", dot: "bg-red-500", Icon: Radar },
     INTRUSION: { label: "Intrusión", cls: "text-red-300 border-red-500/40 bg-red-500/10", ring: "ring-red-500", dot: "bg-red-500", Icon: ShieldAlert },
@@ -537,7 +546,8 @@ function EvidencePlayModal({ d, onClose }: { d: DetHistItem; onClose: () => void
     const [nvr, setNvr] = useState<string | null | undefined>(undefined);
     useEffect(() => { let on = true; if (!d.deviceId) { setNvr(null); return; } fetch(`/api/nvr/channel?deviceId=${d.deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (on) setNvr(j && j.nvr ? String(j.nvr) : null); }).catch(() => { if (on) setNvr(null); }); return () => { on = false; }; }, [d.deviceId]);
     const ms = Math.floor(new Date(d.timestamp).getTime());
-    const url = nvr && d.ch != null ? `/api/nvr/playback?ch=${d.ch}&t=${ms}&pre=6&dur=40&nvr=${nvr}` : null;
+    // Sin pre/dur: la ventana la decide Ajustes → Video del evento (lib/ventana-playback).
+    const url = nvr && d.ch != null ? `/api/nvr/playback?ch=${d.ch}&t=${ms}&nvr=${nvr}` : null;
     const snap = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : undefined);
     const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const m = META[d.type] || META.OTHER;
@@ -673,7 +683,7 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                                         {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
                                         {playId === d.id && d.deviceId && nvrRef.current[d.deviceId] && d.ch != null && (
                                             // eslint-disable-next-line jsx-a11y/media-has-caption
-                                            <video autoPlay muted loop playsInline onPlaying={() => setReady(true)} onLoadedData={() => setReady(true)} src={`/api/nvr/playback?ch=${d.ch}&t=${Math.floor(new Date(d.timestamp).getTime())}&pre=3&dur=14&nvr=${nvrRef.current[d.deviceId]}`} className="absolute inset-0 w-full h-full object-cover z-[1] bg-black" />
+                                            <video autoPlay muted loop playsInline onPlaying={() => setReady(true)} onLoadedData={() => setReady(true)} src={`/api/nvr/playback?ch=${d.ch}&t=${Math.floor(new Date(d.timestamp).getTime())}&pre=${MINIATURA_ANTES_SEG}&dur=${MINIATURA_DUR_SEG}&nvr=${nvrRef.current[d.deviceId]}`} className="absolute inset-0 w-full h-full object-cover z-[1] bg-black" />
                                         )}
                                         <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
                                         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />

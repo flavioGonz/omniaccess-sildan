@@ -156,7 +156,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
 
     const exportar = useCallback(() => {
         const a = document.createElement("a");
-        a.href = `/api/events/${event.id}/export?pre=10&dur=30`;
+        a.href = `/api/events/${event.id}/export`;
         a.download = "";
         document.body.appendChild(a);
         a.click();
@@ -242,7 +242,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                     onRegistrar={registrar}
                     onGrabacion={canalNvr != null ? () => setVerGrabacion(true) : undefined}
                     hrefClip={canalNvr != null
-                        ? `/api/nvr/playback?ch=${canalNvr}&t=${msEvento}&pre=10&dur=30&download=1${nvrId ? `&nvr=${nvrId}` : ""}`
+                        ? `/api/nvr/playback?ch=${canalNvr}&t=${msEvento}&download=1${nvrId ? `&nvr=${nvrId}` : ""}`
                         : null}
                     onExportar={exportar}
                     onListaNegra={conChapa ? alternarLista : undefined}

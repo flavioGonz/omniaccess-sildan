@@ -5,6 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
+import { ventanaPlayback, acotarVentana, ANTES_MAX, DESPUES_MAX } from "@/lib/ventana-playback";
 import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById, type NvrConn } from "@/lib/nvr-resolve";
 import { getS3Client } from "@/lib/s3";
@@ -46,8 +47,12 @@ function parseDetails(details: string | null) {
 
 export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
     const { id } = await ctx.params;
-    const pre = Math.min(60, Math.max(0, parseInt(req.nextUrl.searchParams.get("pre") || "10", 10)));
-    const dur = Math.min(120, Math.max(5, parseInt(req.nextUrl.searchParams.get("dur") || "30", 10)));
+    // Misma ventana que el visor (Ajustes → Video del evento), salvo que se pida otra.
+    const ventana = await ventanaPlayback();
+    const pre = req.nextUrl.searchParams.get("pre") != null ? acotarVentana(req.nextUrl.searchParams.get("pre"), null).antes : ventana.antes;
+    const dur = req.nextUrl.searchParams.get("dur") != null
+        ? Math.min(ANTES_MAX + DESPUES_MAX, Math.max(5, parseInt(req.nextUrl.searchParams.get("dur") || "0", 10) || 5))
+        : pre + ventana.despues;
     const ev = await prisma.accessEvent.findUnique({ where: { id }, include: { device: { select: { id: true, name: true, ip: true, location: true } }, user: { select: { name: true, role: true, unit: { select: { name: true } } } } } });
     if (!ev) return new Response("Evento no encontrado", { status: 404 });
 

@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import { resolveNvrById } from "@/lib/nvr-resolve";
+import { ventanaPlayback, acotarVentana, ANTES_MAX, DESPUES_MAX } from "@/lib/ventana-playback";
 
 // El NVR Hikvision (DS-7732NXI, Sildan) interpreta starttime/endtime como HORA LOCAL
 // del equipo aunque lleven sufijo Z (verificado: ContentMgmt/search devuelve los
@@ -80,9 +81,14 @@ export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;
     const ch = sp.get("ch");
     const t = parseInt(sp.get("t") || "0");
-    const pre = Math.min(60, Math.max(0, parseInt(sp.get("pre") || "10")));
-    const dur = Math.min(180, Math.max(5, parseInt(sp.get("dur") || "40")));
     if (!ch || !/^\d+$/.test(ch) || !t) return new Response("missing ch/t", { status: 400 });
+    // Segundos antes/después: lo que diga Ajustes, salvo que la pantalla pida otra cosa a
+    // propósito (la miniatura en bucle del monitor de intrusión manda la suya, corta).
+    const ventana = await ventanaPlayback();
+    const pre = sp.get("pre") != null ? acotarVentana(sp.get("pre"), null).antes : ventana.antes;
+    const dur = sp.get("dur") != null
+        ? Math.min(ANTES_MAX + DESPUES_MAX, Math.max(5, parseInt(sp.get("dur") || "0") || 5))
+        : pre + ventana.despues;
 
     const conn = await resolveNvrById(sp.get("nvr"));
     if (!conn) return new Response("NVR not configured", { status: 404 });

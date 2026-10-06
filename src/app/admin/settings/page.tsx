@@ -56,6 +56,7 @@ import StorageBrowser from "@/components/settings/StorageBrowser";
 import { Button } from "@/components/ui/button";
 const SystemFlow = nextDynamic(() => import("@/components/dashboard/SystemFlow"), { ssr: false, loading: _SLoad });
 const TrackingSection = nextDynamic(() => import("./TrackingSection"), { ssr: false, loading: _SLoad });
+const PlaybackSection = nextDynamic(() => import("./PlaybackSection"), { ssr: false, loading: _SLoad });
 const OmniLprToggle = nextDynamic(() => import("./OmniLprToggle"), { ssr: false });
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -201,6 +202,7 @@ const NAV_GROUPS = [
         { sec: "whatsapp", btab: "", label: "Chatbot (OpenWA)", icon: MessageSquare },
         { sec: "tracking", btab: "", label: "Omni-LPR & Seguimiento", icon: Video },
         { sec: "prerec", btab: "", label: "Pre-grabación", icon: Video },
+        { sec: "playback", btab: "", label: "Video del evento", icon: Video },
     ]},
 ];
 
@@ -590,6 +592,7 @@ export default function SettingsPage() {
                     )}
 
                     {activeSection === "tracking" && <TrackingSection />}
+                    {activeSection === "playback" && <PlaybackSection />}
                 </div>
             </div>
 
