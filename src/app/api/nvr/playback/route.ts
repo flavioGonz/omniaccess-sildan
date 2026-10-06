@@ -179,7 +179,11 @@ export async function GET(req: NextRequest) {
             "-f", "mp4", "pipe:1",
         ]
         : [
-            "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
+            // Sin `nobuffer`/`low_delay` acá: con el decodificador HEVC por software esos dos
+            // flags hacen que ffmpeg empiece a sacar cuadros antes de tener la referencia y
+            // TODO el clip sale gris (medido el 6/10 sobre NVR 2: 594 B de cuadro contra
+            // 11 KB sin los flags). En la rama copy no se decodifica nada y no molestan.
+            "-allowed_media_types", "video", "-fflags", "genpts",
             "-probesize", "500000", "-analyzeduration", "500000",
             ...DEC,
             "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
