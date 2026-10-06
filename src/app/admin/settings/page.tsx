@@ -64,7 +64,7 @@ import { cn } from "@/lib/utils";
 import { DriverDetailsDialog } from "@/components/DriverDetailsDialog";
 import { DRIVER_MODELS, type DeviceBrand } from "@/lib/driver-models";
 import { updateSetting, getSetting, testS3Connection, getBucketLifecycle, updateBucketLifecycle, testDbConnection, getBucketStats, getDbStats, downloadBackup, restoreBackup, populateDatabase, testWahaConnection, getWahaHistory, testExternalDbConnection, updateDatabaseUrl, runDatabaseMigrations, getLearnedPlates, clearLearnedPlates, testFaceEngineConnection } from "@/app/actions/settings";
-import { getAvisosWhatsApp, setAvisoWhatsApp, agregarDestinatarioWhatsApp, quitarDestinatarioWhatsApp, type TipoAviso } from "@/app/actions/whatsapp-avisos";
+import { getAvisosWhatsApp, setAvisoWhatsApp, agregarDestinatarioWhatsApp, quitarDestinatarioWhatsApp, getRemitentesDelBot, type TipoAviso } from "@/app/actions/whatsapp-avisos";
 import { clearAllVisitorFaces } from "@/app/actions/face-admin";
 import { getAdminsList as getAdmins, saveAdmin as saveAdminAction, deleteAdmin as deleteAdminAction } from "@/app/actions/users";
 import { useEffect, useTransition } from "react";
@@ -1686,6 +1686,10 @@ function WhatsAppSection() {
     const [avisos, setAvisos] = useState<{ intrusion: { enabled: boolean; eventos: string }; lpr: { enabled: boolean; eventos: string }; destinatarios: { id: string; name: string; address: string }[] }>({ intrusion: { enabled: false, eventos: "" }, lpr: { enabled: false, eventos: "DENY,UNKNOWN" }, destinatarios: [] });
     const [nuevoDestino, setNuevoDestino] = useState({ numero: "", nombre: "" });
     const cargarAvisos = async () => { try { setAvisos(await getAvisosWhatsApp() as any); } catch (e) { console.error(e); } };
+    // Quién le escribe al bot de verdad: residentes y personal por el teléfono de su ficha
+    // (sólo lectura acá; se editan en Usuarios) + los números cargados a mano.
+    const [remitentes, setRemitentes] = useState<{ residentes: { id: string; name: string; phone: string; unidad: string | null }[]; personal: { id: string; name: string; phone: string; rol: string }[] }>({ residentes: [], personal: [] });
+    const cargarRemitentes = async () => { try { setRemitentes(await getRemitentesDelBot()); } catch (e) { console.error(e); } };
     const alternarAviso = async (tipo: TipoAviso, on: boolean) => {
         const r = await setAvisoWhatsApp(tipo, on);
         if (!r.ok) { toast.error({ title: "No se pudo guardar", description: r.error }); return; }
@@ -1800,7 +1804,7 @@ function WhatsAppSection() {
                 <div className="lg:col-span-2 space-y-3">
                     <ConfigTile icon={<Settings size={18} />} color="emerald" title="Conexión" value={host} onClick={() => setDrawer("conn")} />
                     <ConfigTile icon={<MessageSquare size={18} />} color="violet" title="Comandos del bot" value={`${cmdsActive} activos`} onClick={() => setDrawer("cmds")} />
-                    <ConfigTile icon={<ShieldCheck size={18} />} color={allowEnabled ? "emerald" : "amber"} title="Remitentes autorizados" value={allowEnabled ? `${allowList.length} autorizados` : "Abierto a todos"} onClick={() => setDrawer("allow")} />
+                    <ConfigTile icon={<ShieldCheck size={18} />} color="emerald" title="Remitentes autorizados" value={`${remitentes.residentes.length} residentes · ${remitentes.personal.length + allowList.length} personal`} onClick={() => { cargarRemitentes(); setDrawer("allow"); }} />
                     <ConfigTile icon={<Bell size={18} />} color={(avisos.intrusion.enabled || avisos.lpr.enabled) ? "emerald" : "amber"} title="Avisos por WhatsApp"
                         value={[avisos.intrusion.enabled ? "Intrusión" : null, avisos.lpr.enabled ? "LPR" : null].filter(Boolean).join(" · ") || "Apagados"}
                         onClick={() => { cargarAvisos(); setDrawer("avisos"); }} />
@@ -1854,49 +1858,72 @@ function WhatsAppSection() {
                 </div>
             </SideDrawer>
 
-            <SideDrawer open={drawer === "allow"} onClose={() => setDrawer(null)} icon={<ShieldCheck size={18} />} title="Remitentes autorizados"
-                headerRight={<Switch checked={allowEnabled} onCheckedChange={setAllowEnabled} />}>
-                <div className="space-y-4">
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">Al bot le escriben <b>los residentes</b> (por el celular cargado en su ficha de usuario: sólo pueden pedir pases de visita) y <b>el personal</b> (usuarios con rol administrador, staff, seguridad u operador, por su celular: consultas y gestión). A cualquier otro número lo ignora en silencio. Esta lista suma números de personal que no tienen usuario, como el teléfono de la garita.</p>
-                    {!allowEnabled ? (
-                        <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5">
-                            <ShieldAlert size={14} className="text-amber-400 shrink-0 mt-0.5" />
-                            <span className="text-[10px] text-amber-300">Desactivada: cualquiera que escriba al bot puede consultar datos. Recomendado activarla.</span>
+            <SideDrawer open={drawer === "allow"} onClose={() => setDrawer(null)} icon={<ShieldCheck size={18} />} title="Remitentes autorizados">
+                <div className="space-y-5">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">Al bot le escriben <b>los residentes</b> por el celular de su ficha (sólo pases de visita) y <b>el personal</b> por el suyo (consultas y gestión). A cualquier otro número lo ignora en silencio. Las fichas se editan en <b>Usuarios</b>; acá sólo se agregan números de personal sin usuario, como el teléfono de la garita.</p>
+
+                    <div className="space-y-1.5">
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Residentes con celular ({remitentes.residentes.length})</p>
+                        {remitentes.residentes.length === 0 ? (
+                            <p className="text-[10px] text-muted-foreground italic">Ningún residente tiene celular cargado: nadie puede pedir pases por WhatsApp todavía.</p>
+                        ) : (
+                            <div className="max-h-56 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+                                {remitentes.residentes.map((r) => (
+                                    <div key={r.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                                        <span className="text-xs text-foreground truncate flex-1">{r.name}{r.unidad ? <span className="text-muted-foreground"> · {r.unidad}</span> : null}</span>
+                                        <span className="text-[11px] font-mono text-muted-foreground tabular-nums">{r.phone}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Personal con celular ({remitentes.personal.length})</p>
+                        {remitentes.personal.length === 0 ? (
+                            <p className="text-[10px] text-muted-foreground italic">Ningún usuario de personal tiene celular cargado.</p>
+                        ) : (
+                            <div className="rounded-lg border border-border divide-y divide-border">
+                                {remitentes.personal.map((r) => (
+                                    <div key={r.id} className="flex items-center gap-2 px-2.5 py-1.5">
+                                        <span className="text-xs text-foreground truncate flex-1">{r.name} <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{r.rol}</span></span>
+                                        <span className="text-[11px] font-mono text-muted-foreground tabular-nums">{r.phone}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="space-y-2">
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Agregados a mano ({allowList.length})</p>
+                        <div className="flex gap-2">
+                            <Input value={newAllow} onChange={(e) => setNewAllow(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAllow(newAllow); } }} placeholder="Número (098…) o grupo (…@g.us)" className="bg-background border-border h-10 font-mono text-xs" />
+                            <Button onClick={() => addAllow(newAllow)} className="h-10 px-3 bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={15} /></Button>
                         </div>
-                    ) : (
-                        <>
-                            <div className="flex gap-2">
-                                <Input value={newAllow} onChange={(e) => setNewAllow(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addAllow(newAllow); } }} placeholder="Número (098…) o grupo (…@g.us)" className="bg-background border-border h-10 font-mono text-xs" />
-                                <Button onClick={() => addAllow(newAllow)} className="h-10 px-3 bg-emerald-600 hover:bg-emerald-500 text-white"><Plus size={15} /></Button>
-                            </div>
-                            {history.length > 0 && (
-                                <div>
-                                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Remitentes recientes (tocar para autorizar)</p>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {Array.from(new Set(history.map((h: any) => h.user).filter(Boolean))).slice(0, 8).map((u: any) => (
-                                            <button key={u} onClick={() => addAllow(u)} disabled={allowList.includes(u)} className="text-[10px] font-mono px-2 py-1 rounded-md border border-border bg-muted/50 hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40 transition">+ {String(u).split("@")[0]}</button>
-                                        ))}
-                                    </div>
+                        {history.length > 0 && (
+                            <div>
+                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Remitentes recientes (tocar para autorizar)</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {Array.from(new Set(history.map((h: any) => h.user).filter(Boolean))).slice(0, 8).map((u: any) => (
+                                        <button key={u} onClick={() => addAllow(u)} disabled={allowList.includes(u)} className="text-[10px] font-mono px-2 py-1 rounded-md border border-border bg-muted/50 hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40 transition">+ {String(u).split("@")[0]}</button>
+                                    ))}
                                 </div>
-                            )}
-                            <div className="space-y-1.5">
-                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Autorizados ({allowList.length})</p>
-                                {allowList.length === 0 ? (
-                                    <p className="text-[10px] text-muted-foreground italic">Sin remitentes autorizados. Con la lista vacía y activada, el bot no responde a nadie.</p>
-                                ) : (
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {allowList.map((v) => (
-                                            <span key={v} className="inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
-                                                {v.endsWith("@g.us") ? "👥 " : "📱 "}{String(v).split("@")[0]}
-                                                <button onClick={() => removeAllow(v)} className="hover:text-red-400"><X size={11} /></button>
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
                             </div>
-                        </>
-                    )}
-                    <Button onClick={saveAllowlist} disabled={savingAllow} className="w-full h-10 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white">{savingAllow ? "Guardando…" : "Guardar seguridad"}</Button>
+                        )}
+                        {allowList.length === 0 ? (
+                            <p className="text-[10px] text-muted-foreground italic">Sin números agregados a mano.</p>
+                        ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                                {allowList.map((v) => (
+                                    <span key={v} className="inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
+                                        {v.endsWith("@g.us") ? "👥 " : "📱 "}{String(v).split("@")[0]}
+                                        <button onClick={() => removeAllow(v)} className="hover:text-red-400"><X size={11} /></button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                        <Button onClick={saveAllowlist} disabled={savingAllow} className="w-full h-10 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white">{savingAllow ? "Guardando…" : "Guardar"}</Button>
+                    </div>
                 </div>
             </SideDrawer>
 

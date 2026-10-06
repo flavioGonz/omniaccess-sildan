@@ -80,3 +80,20 @@ export async function quitarDestinatarioWhatsApp(id: string) {
     await guardarDestinatarios(lista.filter((d) => d.id !== id));
     return { ok: true };
 }
+
+// ── Quién puede escribirle al bot (lo que el handler de verdad acepta) ─────────────────
+// Residentes y personal salen de la ficha de usuario: el teléfono de la ficha ES la
+// autorización. Acá se listan para que el cajón de Ajustes muestre la lista real y no
+// sólo los números cargados a mano; se editan desde Usuarios, no desde acá.
+export async function getRemitentesDelBot() {
+    const users = await prisma.user.findMany({
+        where: { phone: { not: null }, role: { in: ["RESIDENT", "ADMIN", "STAFF", "SECURITY", "OPERATOR"] as any } },
+        select: { id: true, name: true, phone: true, role: true, unit: { select: { name: true } } },
+        orderBy: { name: "asc" },
+    });
+    const conTelefono = users.filter((u) => String(u.phone || "").replace(/\D/g, "").length >= 8);
+    return {
+        residentes: conTelefono.filter((u) => u.role === "RESIDENT").map((u) => ({ id: u.id, name: u.name, phone: u.phone!, unidad: u.unit?.name || null })),
+        personal: conTelefono.filter((u) => u.role !== "RESIDENT").map((u) => ({ id: u.id, name: u.name, phone: u.phone!, rol: String(u.role) })),
+    };
+}
