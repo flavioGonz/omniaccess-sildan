@@ -75,7 +75,9 @@ async function probe(d: any, viewers: Record<string, number>): Promise<HealthRes
         jobs.push((async () => {
             try {
                 const hddXml = await authenticatedRequest("GET", "/ISAPI/ContentMgmt/Storage/hdd", auth(d), { responseType: "text", accept: "application/xml", timeout: 5000 });
-                const re = /<hdd>([\s\S]*?)<\/hdd>/gi; let m; let any = false; let allOk = true;
+                // La etiqueta puede traer atributos (`<hdd version="1.0">` en DS-7616NXI-K2 V4.83): con
+                // `/<hdd>/` a secas el NVR 6 figuraba "sin discos" teniendo uno sano.
+                const re = /<hdd(?:\s[^>]*)?>([\s\S]*?)<\/hdd>/gi; let m; let any = false; let allOk = true;
                 while ((m = re.exec(hddXml))) {
                     const st = xmlField(m[1], "status");
                     if (st === "notexist") continue;
@@ -102,7 +104,7 @@ export async function probeAllDevices(): Promise<HealthResult[]> {
 }
 
 // ── Reglas de alerta ──
-const MEM_OPEN = 95, MEM_CLOSE = 90, DRIFT_LIMIT = 120;
+const DRIFT_LIMIT = 120;
 
 async function ensureAlert(deviceId: string, name: string, type: string, severity: string, message: string) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
@@ -135,8 +137,12 @@ export async function persistAndAlert(results: HealthResult[]) {
             if (r.disksOk === false) await ensureAlert(r.id, r.name, "disk", "critical", "Disco del NVR degradado / SMART no OK");
             else if (r.disksOk === true) await resolveAlert(r.id, r.name, "disk");
             // MEMORIA (NVR) con histéresis
-            if (r.memPct != null && r.memPct >= MEM_OPEN) await ensureAlert(r.id, r.name, "mem", "warning", `Memoria del NVR alta (${r.memPct}%)`);
-            else if (r.memPct != null && r.memPct < MEM_CLOSE) await resolveAlert(r.id, r.name, "mem");
+            // La memoria se mide y se muestra, pero no alerta: un NVR Hikvision usa casi toda la
+            // RAM como caché (NVR 2 de San Nicolás: 98 % sostenido con 108 días de uptime). La
+            // alerta "memoria alta" era permanente, y una alerta permanente es ruido que tapa
+            // a las que importan (offline, disco, hora). Si algún día hay un caso real de fuga,
+            // el umbral vuelve con la evidencia que lo justifique.
+            await resolveAlert(r.id, r.name, "mem");
             // DRIFT de reloj
             if (r.driftSec != null && Math.abs(r.driftSec) > DRIFT_LIMIT) await ensureAlert(r.id, r.name, "drift", "warning", `Reloj desfasado ${r.driftSec > 0 ? "+" : ""}${r.driftSec}s vs servidor`);
             else if (r.driftSec != null && Math.abs(r.driftSec) <= DRIFT_LIMIT) await resolveAlert(r.id, r.name, "drift");

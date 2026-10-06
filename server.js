@@ -32,7 +32,6 @@ const { captureForDevice: captureIntrusion } = require("./lib-intrusion-capture"
 const { getVehicleColorName, getVehicleBrandName } = require("./hikvision-codes");
 const { handleWahaWebhook } = require("./waha-handler");
 // Intrusión (capa transversal): cruce de línea / zona de las cámaras AcuSense.
-const { handleIntrusionEvent, esEventoIntrusion } = require("./handlers/intrusion-handler");
 
 // Configure axios defaults for device communication
 const agent = new https.Agent({
@@ -1033,15 +1032,11 @@ const handleWebhook = async (req, res, logPrefix) => {
         // Check for ANPR Data presence to determine if it's a vehicle event despite missing plate
         const hasAnprData = xmlData.ANPR || eventAlert.ANPR || xmlData.EventNotificationAlert?.ANPR || eventAlert.vehicleInfo;
 
-        // Intrusión: cruce de línea / entrada-salida de zona. Sin esta rama caían en el
-        // descarte "sin patente". La detección corre a bordo de la cámara AcuSense.
-        if (esEventoIntrusion(eventType)) {
-            await handleIntrusionEvent({
-                xmlData, eventAlert, eventType, macAddress, ipAddress, images, req, res, logPrefix,
-                deps: { prisma, io: global.io, fetchCameraSnapshot },
-            });
-            return;
-        }
+        // Intrusión (cruce de línea / zona): una sola pila, la de ANALÍTICAS de más abajo
+        // (Detection + general_detection + captura), que es la que miran monitor-intrusion,
+        // el mapa y Evidencia. Hasta el 6/10 acá se interceptaba con handlers/intrusion-handler
+        // (IntrusionEvent + intrusion_alert), y el monitor nuevo nunca veía nada: dos pilas,
+        // cada pantalla escuchando a la otra. Decisión del 3/10: queda la de Olivos.
 
         if (!plateNumber && !hasAnprData) {
             if (isHeartbeat) {

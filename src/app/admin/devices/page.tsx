@@ -1185,7 +1185,10 @@ export default function DevicesPage() {
                                     const h = health[dev.id];
                                     const disks: any[] = h?.disks || [];
                                     const disksOk = disks.length > 0 && disks.every((d) => d.status === 'ok');
-                                    const healthy = h?.reachable && (disks.length === 0 || disksOk) && (h?.memPct == null || h.memPct < 95);
+                                    // La memoria no entra en el veredicto: un NVR Hikvision usa casi toda la RAM
+                                    // como caché (NVR 2: 98 % con 108 días de uptime, estable). Marcarlo "atención"
+                                    // por eso era un aviso permanente que no decía nada.
+                                    const healthy = h?.reachable && (disks.length === 0 || disksOk);
                                     return (
                                         <TableRow key={dev.id} className="border-border/50 hover:bg-foreground/[0.04] transition-colors">
                                             <TableCell className="py-3 pl-5">

@@ -56,7 +56,11 @@ export type IntrusionCam = { id: string; name: string; brand: string; ip: string
 /** Cámaras para el monitor de intrusión, con su NVR y canal (del NVR_CHANNEL_MAP). */
 export async function getIntrusionCameras(): Promise<IntrusionCam[]> {
     const [devices, nvrs, mapRow] = await Promise.all([
-        prisma.device.findMany({ where: { deviceType: "CAMERA" as any }, select: { id: true, name: true, brand: true, ip: true }, orderBy: { name: "asc" } }),
+        // CAMERA (canales importados de un NVR) y LPR_INTERIOR: en San Nicolás las
+        // perimetrales son AcuSense que a la vez alimentan el seguimiento por RTSP y vigilan
+        // una línea. La capa de intrusión no es exclusiva de un tipo: es cualquier cámara
+        // que pueda clasificar cruces/zonas a bordo.
+        prisma.device.findMany({ where: { deviceType: { in: ["CAMERA", "LPR_INTERIOR"] as any } }, select: { id: true, name: true, brand: true, ip: true }, orderBy: { name: "asc" } }),
         prisma.device.findMany({ where: { deviceType: "NVR" }, select: { id: true, name: true } }),
         prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } }),
     ]);

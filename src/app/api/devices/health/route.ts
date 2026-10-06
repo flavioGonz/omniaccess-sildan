@@ -82,7 +82,9 @@ async function probe(d: any, streams: Record<string, { consumers: number; produc
             try {
                 const hddXml = await authenticatedRequest("GET", "/ISAPI/ContentMgmt/Storage/hdd", auth(d), { responseType: "text", accept: "application/xml", timeout: 5000 });
                 const disks: any[] = [];
-                const re = /<hdd>([\s\S]*?)<\/hdd>/gi; let m;
+                // La etiqueta puede traer atributos (`<hdd version="1.0">` en DS-7616NXI-K2 V4.83): con
+                // `/<hdd>/` a secas el NVR 6 figuraba "sin discos" teniendo uno sano.
+                const re = /<hdd(?:\s[^>]*)?>([\s\S]*?)<\/hdd>/gi; let m;
                 while ((m = re.exec(hddXml))) {
                     const blk = m[1];
                     const status = xmlField(blk, "status");

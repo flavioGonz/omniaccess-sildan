@@ -756,7 +756,7 @@ export default function BarrioMap() {
 
     useEffect(() => {
         getBarrioMap().then((d) => { setData(d); setZoom(d.zoom || 16); }).catch(() => setData(null));
-        getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA" || x.deviceType === "CAMERA"))).catch(() => { });
+        getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA" || x.deviceType === "CAMERA" || x.deviceType === "LPR_INTERIOR"))).catch(() => { });
         getParkingSlots().then((s: any) => setSlots(s || [])).catch(() => { });
         getPlateSlotMap().then((m: any) => { plateMapRef.current = m || {}; }).catch(() => { });
     }, []);

@@ -14,6 +14,7 @@ import { authenticatedRequest } from "@/lib/digest-auth";
 
 export const dynamic = "force-dynamic";
 const TZ = "America/Montevideo";
+const TZ_HIK = "CST+3:00:00";
 const TIME = "/ISAPI/System/time";
 
 function auth(d: any) { return { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" }; }
@@ -45,7 +46,10 @@ async function syncOne(d: any, mode: string, ntpServer: string): Promise<any> {
         }
         // mode "now": manual push
         const local = montevideoNow();
-        xml = setTag(setTag(xml, "timeMode", "manual"), "localTime", local);
+        // Sin el huso, una cámara que vino de fábrica en CST-8:00:00 (China) toma el reloj de
+        // pared y lo guarda como +08:00: queda 11 h corrida aunque el push "haya andado".
+        // Hikvision escribe el huso con el signo invertido: Montevideo (UTC-3) es CST+3:00:00.
+        xml = setTag(setTag(setTag(xml, "timeMode", "manual"), "timeZone", TZ_HIK), "localTime", local);
         await authenticatedRequest("PUT", TIME, auth(d), { data: xml, contentType: "application/xml", responseType: "text", timeout: 8000 });
         return { id: d.id, ok: true, mode: "now", localTime: local };
     } catch (e: any) {
@@ -59,7 +63,8 @@ export async function POST(req: NextRequest) {
     let devices: any[] = [];
     if (all) {
         devices = await prisma.device.findMany({
-            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
+            // Las interiores también tienen reloj: "todas" eran todas menos ellas.
+            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA", "NVR"] as any } },
             select: { id: true, ip: true, username: true, password: true, authType: true },
         });
     } else if (deviceId) {
