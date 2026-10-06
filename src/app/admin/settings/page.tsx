@@ -1665,6 +1665,7 @@ function WhatsAppSection() {
         { id: 'invitar', cmd: 'invitar · visita · pase', desc: 'Residentes: crea un pase de visita paso a paso (nombre, patente, cuándo) y devuelve el QR al residente', icon: Users, active: true, quien: 'Residentes' },
         { id: 'matricula', cmd: 'ABC1234  ·  ABC1234.', desc: 'Busca el vehículo; con punto al final, fotos e historial', icon: Car, active: true, quien: 'Personal' },
         { id: 'agregar_matricula', cmd: 'agregar matrícula', desc: 'Alta de un vehículo guiada (matrícula, nombre)', icon: Plus, active: true, quien: 'Personal' },
+        { id: 'lista_negra', cmd: 'lista negra ABC1234 · quitar lista negra ABC1234', desc: 'Marca o saca una matrícula de la lista negra (la misma del monitor); con motivo opcional', icon: ShieldAlert, active: true, quien: 'Personal' },
         { id: 'eventos', cmd: 'ultimo · entradas · salidas · accesos', desc: 'Último movimiento con foto, o los últimos 20 con filtro', icon: Eye, active: true, quien: 'Personal' },
         { id: 'intrusion', cmd: 'eventos · intrusion · cruces', desc: 'Últimos 20 cruces de línea / intrusiones de zona, con la captura del más reciente', icon: ShieldAlert, active: true, quien: 'Personal' },
         { id: 'estado', cmd: 'estado', desc: 'Cámaras y grabadores: online/offline y último visto', icon: Activity, active: true, quien: 'Personal' },

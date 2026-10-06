@@ -312,6 +312,31 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         // --- URGENT TRIGGERS (Direct Commands) ---
 
+        // TRIGGER: lista negra — "lista negra ABC1234 [motivo]" / "bloquear ABC1234 [motivo]" carga la
+        // matrícula en la lista de vigilancia como NEGRA (misma tabla PlateWatch que usa el
+        // monitor); "quitar lista negra ABC1234" / "desbloquear ABC1234" la saca. Sólo personal.
+        const listaNegra = lowerBody.match(/^(quitar\s+|sacar\s+)?(?:lista\s+negra|bloquear|desbloquear)\s+([a-z0-9]{3,10})\b\s*(.*)$/i);
+        if (listaNegra && await cmdActivo('lista_negra') && await isAdminSender()) {
+            const quitar = !!listaNegra[1] || /^desbloquear/i.test(lowerBody);
+            const plate = listaNegra[2].toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const motivo = (listaNegra[3] || '').trim();
+            try {
+                if (quitar) {
+                    const r = await prisma.plateWatch.updateMany({ where: { plate, category: { in: ['negra', 'BLACKLISTED'] } }, data: { active: false } });
+                    await sendText(r.count ? `✅ *${plate}* salió de la lista negra.` : `ℹ️ *${plate}* no estaba en la lista negra.`);
+                } else {
+                    const quien = (await senderTail()) || from;
+                    await prisma.plateWatch.upsert({
+                        where: { plate },
+                        create: { plate, category: 'BLACKLISTED', label: motivo || `Cargada por WhatsApp (…${quien.slice(-4)})`, notify: true, active: true },
+                        update: { category: 'BLACKLISTED', ...(motivo ? { label: motivo } : {}), notify: true, active: true },
+                    });
+                    await sendText(`⛔ *${plate}* quedó en la *lista negra*${motivo ? `: ${motivo}` : ''}.\nCuando pase por una cámara va a avisar y figurar en el monitor. Para sacarla: *quitar lista negra ${plate}*.`);
+                }
+            } catch (e) { await sendText(`❌ No pude actualizar la lista negra: ${e.message}`); }
+            res.writeHead(200); res.end('OK'); return;
+        }
+
         // TRIGGER: "agregar matricula"
         const addPlateRegex = /^(?:agregar|añadir|nuevo|nueva)\s+(?:matricula|matrícula|vehiculo|vehículo)/i;
         if (addPlateRegex.test(lowerBody) && await cmdActivo('agregar_matricula') && await isAdminSender()) {
@@ -792,6 +817,8 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             `• *"accesos"* - Resumen de los últimos 20 movimientos.\n\n` +
             `🛡️ *INTRUSIÓN*\n` +
             `• *"eventos"* - Últimos 20 cruces de línea / intrusiones, con la captura.\n\n` +
+            `⛔ *LISTA NEGRA*\n` +
+            `• *"lista negra ABC123 motivo"* - Marca la matrícula; *"quitar lista negra ABC123"* la saca.\n\n` +
             `🚘 *BÚSQUEDA POR MATRÍCULA*\n` +
             `• Escribe la matrícula (ej: *ABC123*) para ubicar un vehículo.\n` +
             `• Agrega un punto (ej: *ABC123.*) para ver fotos e historial.\n\n` +
