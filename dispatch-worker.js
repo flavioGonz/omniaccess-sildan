@@ -191,20 +191,38 @@ ensureRecorders();
 setInterval(ensureRecorders, 30000);
 
 // OpenWA send-video (base64 mp4).
-function openwaSendVideo(baseUrl, apiKey, session, chatId, base64, caption) {
+// ── WhatsApp por WAHA ──────────────────────────────────────────────────────
+// El motor de WhatsApp es WAHA (devlikeapro/waha): /api/sendText, /api/sendImage,
+// /api/sendVideo con {session, chatId, file:{mimetype,filename,data|url}, caption} y
+// cabecera X-Api-Key. Estas funciones hablaban el dialecto de OpenWA
+// (/api/sessions/<s>/messages/send-image, {base64}) que ya no corre en ningún barrio:
+// cada despacho por WhatsApp moría con 404 "Cannot POST .../send-image".
+function wahaPost(baseUrl, apiKey, ruta, cuerpo, timeout) {
     return new Promise((resolve) => {
         let u;
-        try { u = new URL(`${baseUrl.replace(/\/+$/, "")}/api/sessions/${encodeURIComponent(session)}/messages/send-video`); }
+        try { u = new URL(`${baseUrl.replace(/\/+$/, "")}${ruta}`); }
         catch (e) { return resolve({ ok: false, body: "bad OPENWA_URL: " + e.message }); }
         const lib = u.protocol === "https:" ? https : http;
-        const body = JSON.stringify({ chatId, base64, caption, mimetype: "video/mp4", filename: "aforo.mp4" });
+        const body = JSON.stringify(cuerpo);
         const req = lib.request({ hostname: u.hostname, port: u.port || (u.protocol === "https:" ? 443 : 80), path: u.pathname, method: "POST",
-            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-API-Key": apiKey || "" }, timeout: 40000 },
+            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-Api-Key": apiKey || "" }, timeout: timeout || 25000 },
             (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: d, status: res.statusCode })); });
         req.on("error", (e) => resolve({ ok: false, body: e.message }));
         req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
         req.write(body); req.end();
     });
+}
+function openwaSend(baseUrl, apiKey, session, chatId, text) {
+    return wahaPost(baseUrl, apiKey, "/api/sendText", { session, chatId, text }, 15000);
+}
+function openwaSendImage(baseUrl, apiKey, session, chatId, base64, caption) {
+    return wahaPost(baseUrl, apiKey, "/api/sendImage", { session, chatId, file: { mimetype: "image/jpeg", filename: "captura.jpg", data: base64 }, caption }, 30000);
+}
+function openwaSendVideo(baseUrl, apiKey, session, chatId, base64, caption) {
+    return wahaPost(baseUrl, apiKey, "/api/sendVideo", { session, chatId, file: { mimetype: "video/mp4", filename: "clip.mp4", data: base64 }, caption }, 40000);
+}
+function openwaSendVideoUrl(baseUrl, apiKey, session, chatId, videoUrl, caption) {
+    return wahaPost(baseUrl, apiKey, "/api/sendVideo", { session, chatId, file: { mimetype: "video/mp4", filename: "clip.mp4", url: videoUrl }, caption }, 40000);
 }
 
 // Telegram sendAnimation (by public URL).
@@ -214,62 +232,6 @@ function telegramSendAnimation(token, chatId, animationUrl, caption) {
         const req = https.request(`https://api.telegram.org/bot${token}/sendAnimation`,
             { method: "POST", headers: { "Content-Type": "application/json" }, timeout: 25000 },
             (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode === 200, body: d })); });
-        req.on("error", (e) => resolve({ ok: false, body: e.message }));
-        req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
-        req.write(body); req.end();
-    });
-}
-
-// OpenWA send-text. baseUrl like http://192.168.99.22:2785 (http or https).
-function openwaSend(baseUrl, apiKey, session, chatId, text) {
-    return new Promise((resolve) => {
-        let u;
-        try { u = new URL(`${baseUrl.replace(/\/+$/, "")}/api/sessions/${encodeURIComponent(session)}/messages/send-text`); }
-        catch (e) { return resolve({ ok: false, body: "bad OPENWA_URL: " + e.message }); }
-        const lib = u.protocol === "https:" ? https : http;
-        const body = JSON.stringify({ chatId, text });
-        const req = lib.request({
-            hostname: u.hostname, port: u.port || (u.protocol === "https:" ? 443 : 80),
-            path: u.pathname, method: "POST",
-            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-API-Key": apiKey || "" },
-            timeout: 15000,
-        }, (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: d, status: res.statusCode })); });
-        req.on("error", (e) => resolve({ ok: false, body: e.message }));
-        req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
-        req.write(body); req.end();
-    });
-}
-
-// OpenWA send-video por URL publica (mas robusto que base64).
-function openwaSendVideoUrl(baseUrl, apiKey, session, chatId, videoUrl, caption) {
-    return new Promise((resolve) => {
-        let u;
-        try { u = new URL(`${baseUrl.replace(/\/+$/, "")}/api/sessions/${encodeURIComponent(session)}/messages/send-video`); }
-        catch (e) { return resolve({ ok: false, body: "bad OPENWA_URL: " + e.message }); }
-        const lib = u.protocol === "https:" ? https : http;
-        const body = JSON.stringify({ chatId, url: videoUrl, mimetype: "video/mp4", filename: "aforo.mp4", caption });
-        const req = lib.request({ hostname: u.hostname, port: u.port || (u.protocol === "https:" ? 443 : 80), path: u.pathname, method: "POST",
-            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-API-Key": apiKey || "" }, timeout: 40000 },
-            (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: d, status: res.statusCode })); });
-        req.on("error", (e) => resolve({ ok: false, body: e.message }));
-        req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
-        req.write(body); req.end();
-    });
-}
-// OpenWA send-image (by base64).
-function openwaSendImage(baseUrl, apiKey, session, chatId, base64, caption) {
-    return new Promise((resolve) => {
-        let u;
-        try { u = new URL(`${baseUrl.replace(/\/+$/, "")}/api/sessions/${encodeURIComponent(session)}/messages/send-image`); }
-        catch (e) { return resolve({ ok: false, body: "bad OPENWA_URL: " + e.message }); }
-        const lib = u.protocol === "https:" ? https : http;
-        const body = JSON.stringify({ chatId, base64, caption, mimetype: "image/jpeg", filename: "aforo.jpg" });
-        const req = lib.request({
-            hostname: u.hostname, port: u.port || (u.protocol === "https:" ? 443 : 80),
-            path: u.pathname, method: "POST",
-            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-API-Key": apiKey || "" },
-            timeout: 25000,
-        }, (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, body: d, status: res.statusCode })); });
         req.on("error", (e) => resolve({ ok: false, body: e.message }));
         req.on("timeout", () => { req.destroy(); resolve({ ok: false, body: "timeout" }); });
         req.write(body); req.end();
@@ -378,7 +340,7 @@ async function handle(job) {
             } else if (dj.channel === "whatsapp") {
                 const url = await getSetting("OPENWA_URL", await getSetting("WAHA_URL", "http://192.168.99.22:2785"));
                 const key = await getSetting("OPENWA_API_KEY", await getSetting("WAHA_API_KEY", ""));
-                const session = await getSetting("OPENWA_SESSION", "omniaccess");
+                const session = await getSetting("OPENWA_SESSION", "default");
                 const chatId = toChatId(p.chatId || p.to || await getSetting("OPENWA_DEFAULT_CHAT", ""));
                 if (!chatId) throw new Error("Falta destinatario WhatsApp (OPENWA_DEFAULT_CHAT o payload.chatId)");
                 let r;
