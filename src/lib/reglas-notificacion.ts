@@ -10,12 +10,14 @@ import { fecha, hora } from "@/lib/fechas";
  * plantillas y antirrebote. Acá entran los tres por la misma puerta.
  */
 
-export type Modulo = "QUEUE" | "LPR" | "FACE";
+export type Modulo = "QUEUE" | "LPR" | "FACE" | "INTRUSION";
 
 export type EventoNotificable = {
     modulo: Modulo;
-    /** ALLOW | DENY | UNKNOWN | WATCHLIST */
+    /** ALLOW | DENY | UNKNOWN | WATCHLIST — y en INTRUSION: LINECROSS | INTRUSION | REGION_ENTER | REGION_EXIT */
     evento: string;
+    /** Intrusión: qué clasificó la cámara (human | vehicle), si lo dijo. */
+    clase?: string | null;
     deviceId?: string | null;
     deviceName?: string | null;
     /** Matrícula (LPR) o nombre de la persona (FACE). */
@@ -44,7 +46,12 @@ const ETIQUETA: Record<string, string> = {
     WATCHLIST: "Vehículo en seguimiento",
     PARKED: "Vehículo estacionó",
     LEFT: "Vehículo se retiró",
+    LINECROSS: "Cruce de línea",
+    INTRUSION: "Intrusión en zona",
+    REGION_ENTER: "Entrada a zona",
+    REGION_EXIT: "Salida de zona",
 };
+const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };
 
 /** Reemplaza las variables de la plantilla con lo que trae el evento. */
 function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date) {
@@ -60,13 +67,16 @@ function armarTexto(plantilla: string | null, ev: EventoNotificable, ahora: Date
         "{quien}": quien,
         "{time}": hora(ahora),
         "{date}": fecha(ahora),
+        "{clase}": CLASE[String(ev.clase || "")] || "—",
         "{count}": String(ev.extra?.count ?? ""),
         "{threshold}": String(ev.extra?.threshold ?? ""),
         "{wait}": String(ev.extra?.wait ?? ""),
     };
     const base = plantilla || (ev.modulo === "FACE"
         ? "👤 {evento}\n{persona}\n{device} · {channel}\n{date} {time}"
-        : "🚗 {evento}\n{plate}\n{device} · {channel}\n{date} {time}");
+        : ev.modulo === "INTRUSION"
+            ? "🚨 {evento}\n{device} · {clase}\n{date} {time}"
+            : "🚗 {evento}\n{plate}\n{device} · {channel}\n{date} {time}");
     return Object.entries(vars).reduce((t, [k, v]) => t.split(k).join(v), base);
 }
 
@@ -139,10 +149,10 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
                             modulo: ev.modulo,
                             ruleName: regla.name,
                             deviceName: ev.deviceName,
-                            channelName: ev.direction === "EXIT" ? "Salida" : "Entrada",
+                            channelName: ev.modulo === "INTRUSION" ? (CLASE[String(ev.clase || "")] || "Intrusión") : (ev.direction === "EXIT" ? "Salida" : "Entrada"),
                             plate: ev.plate || null,
                             persona: ev.personName || null,
-                            asunto: `${ETIQUETA[ev.evento] || ev.evento} · ${ev.plate || ev.personName || ""}`.trim(),
+                            asunto: `${ETIQUETA[ev.evento] || ev.evento} · ${ev.plate || ev.personName || ev.deviceName || ""}`.trim(),
                             snapshotPath: ev.snapshotPath || null,
                             text: texto,
                             ...(destino ? { to: destino, chatId: destino } : {}),

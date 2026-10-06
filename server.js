@@ -1093,7 +1093,20 @@ const handleWebhook = async (req, res, logPrefix) => {
                     if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
                     if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, label: targetClass, timestamp: det.timestamp });
                     console.log(logPrefix + " 🟣 [ANALYTIC] " + genType + " (" + eventType + ") dev=" + (dev ? dev.name : "?"));
-                    if (dev && dev.ip && genType !== "MOTION") { captureIntrusion(dev, det.id).then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); }).catch(() => {}); }
+                    // Captura a MinIO (bucket intrusion) y recién después las reglas de notificación,
+                    // para que el WhatsApp/Telegram salga con la foto y no con un enlace vacío. La foto
+                    // vive en S3 como todas las demás; el despacho la lee por /api/files/<bucket>/<key>.
+                    const avisar = (foto) => notificarPorReglas({
+                        modulo: "INTRUSION", evento: genType,
+                        deviceId: dev ? dev.id : null, deviceName: dev ? dev.name : null,
+                        clase: targetClass, snapshotPath: foto || null,
+                        extra: { detectionId: det.id, eventType: eventType || null },
+                    }).catch(() => {});
+                    if (dev && dev.ip && genType !== "MOTION") {
+                        captureIntrusion(dev, det.id)
+                            .then((p) => { if (p && global.io) global.io.emit("detection_snapshot", { id: det.id, snapshotPath: p }); avisar(p); })
+                            .catch(() => avisar(null));
+                    } else { avisar(null); }
                     res.writeHead(200); res.end(JSON.stringify({ status: "ok", type: "analytic", kind: genType })); return;
                 }
             } catch (e) { console.error(logPrefix + " [ANALYTIC] err: " + (e && e.message)); }

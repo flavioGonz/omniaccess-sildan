@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/lib/avisos";
 import {
     getNotificationRules, createNotificationRule, updateNotificationRule, deleteNotificationRule,
-    getQueueDevices,
+    getDispositivosParaReglas,
 } from "@/app/actions/queue";
 
 type Rule = {
@@ -26,7 +26,16 @@ const MODULOS = [
     { v: "QUEUE", l: "Filas", color: "bg-violet-500" },
     { v: "LPR", l: "LPR (matrículas)", color: "bg-amber-500" },
     { v: "FACE", l: "Face (rostros)", color: "bg-teal-500" },
+    { v: "INTRUSION", l: "Intrusión (cruces y zonas)", color: "bg-red-500" },
 ];
+// Qué cámaras puede elegir una regla, según el modo. Antes el selector listaba sólo los
+// contadores de filas, así que una regla de LPR o de intrusión no podía acotarse a una cámara.
+const TIPOS_POR_MODULO: Record<string, string[]> = {
+    QUEUE: ["QUEUE_COUNTER"],
+    LPR: ["LPR_CAMERA", "LPR_INTERIOR"],
+    FACE: ["FACE_TERMINAL", "FACE_CAMERA", "DOOR_INTERCOM"],
+    INTRUSION: ["CAMERA", "LPR_INTERIOR"],
+};
 const EVENTOS: Record<string, { v: string; l: string }[]> = {
     LPR: [
         { v: "ALLOW", l: "Acceso permitido" },
@@ -40,6 +49,12 @@ const EVENTOS: Record<string, { v: string; l: string }[]> = {
         { v: "ALLOW", l: "Acceso permitido" },
         { v: "DENY", l: "Acceso denegado" },
         { v: "UNKNOWN", l: "Rostro no reconocido" },
+    ],
+    INTRUSION: [
+        { v: "LINECROSS", l: "Cruce de línea" },
+        { v: "INTRUSION", l: "Intrusión en zona" },
+        { v: "REGION_ENTER", l: "Entrada a zona" },
+        { v: "REGION_EXIT", l: "Salida de zona" },
     ],
 };
 const OPERATORS = [">=", ">", "==", "<="];
@@ -63,7 +78,7 @@ export default function RulesManager() {
 
     const load = useCallback(async () => {
         try {
-            const [r, d] = await Promise.all([getNotificationRules(), getQueueDevices()]);
+            const [r, d] = await Promise.all([getNotificationRules(), getDispositivosParaReglas()]);
             setRules(r as any); setDevices(d as any);
         } catch (e) { console.error(e); } finally { setLoading(false); }
     }, []);
@@ -146,7 +161,7 @@ export default function RulesManager() {
                             <select value={form.deviceId} onChange={e => setForm({ ...form, deviceId: e.target.value })}
                                 className="mt-1 w-full bg-muted/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground outline-none focus:border-violet-500">
                                 <option value="">Todas</option>
-                                {devices.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                                {devices.filter((d: any) => (TIPOS_POR_MODULO[form.modulo] || []).includes(d.deviceType)).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                             </select>
                         </label>
                         {form.modulo === "QUEUE" && (

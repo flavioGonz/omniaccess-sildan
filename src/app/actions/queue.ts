@@ -394,6 +394,14 @@ export async function getQueueMonthlyBreakdown(deviceId?: string, from?: Date, t
 }
 
 // --- Get queue devices for selects ---
+/** Todos los equipos con su tipo, para que cada regla elija entre las cámaras de su modo. */
+export async function getDispositivosParaReglas() {
+    return prisma.device.findMany({
+        select: { id: true, name: true, ip: true, location: true, brand: true, deviceType: true },
+        orderBy: { name: "asc" },
+    });
+}
+
 export async function getQueueDevices() {
     return prisma.device.findMany({
         where: { deviceType: "QUEUE_COUNTER" },
