@@ -238,7 +238,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
                 const info: Record<string, { channel: number; name: string | null }> = {};
                 setNvrMap((prev) => { const m = { ...prev }; for (const ch of r.channels) { if (ch.ip) { m[ch.ip] = ch.channel; info[ch.ip] = { channel: ch.channel, name: ch.name }; } } return m; });
                 setNvrInfo(info);
-                setNvrMsg(`Detectados ${r.channels.length} canales por ISAPI`);
+                setNvrMsg(`Detectados ${r.channels.length} canales`);
             } else setNvrMsg(r?.error || "No se detectaron canales");
         } catch (e: any) { setNvrMsg(e?.message || "Error"); }
         finally { setNvrBusy(false); }
@@ -255,7 +255,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children }: Device
             const fd = new FormData();
             fd.set("name", ch.name || `Cámara ${ch.ip}`);
             fd.set("ip", ch.ip);
-            fd.set("brand", "HIKVISION");
+            fd.set("brand", (ch.brand as string) || "HIKVISION");
             fd.set("deviceType", "LPR_CAMERA");
             fd.set("direction", /salida|egres/i.test(ch.name || "") ? "EXIT" : "ENTRY");
             fd.set("location", "");

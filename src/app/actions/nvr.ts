@@ -59,6 +59,18 @@ export async function getNvrChannels(input: { ip: string; username?: string; pas
     }
     if (creds.length === 0) creds.push({ username: "admin", password: "" });
 
+    // Marca del NVR (por IP): Dahua no habla ISAPI → lee los canales por CGI.
+    let nvrBrand = "";
+    try { const d = await prisma.device.findFirst({ where: { deviceType: "NVR", ip }, select: { brand: true } }); nvrBrand = (d?.brand || "").toUpperCase(); } catch { }
+    if (nvrBrand === "DAHUA") {
+        let dErr = "";
+        for (const cred of creds) {
+            try { const ch = await getDahuaChannels(ip, cred.username, cred.password); if (ch.length) return { ok: true, authType: "DIGEST", channels: ch }; }
+            catch (e: any) { dErr = e?.message || String(e); }
+        }
+        return { ok: false, error: dErr || "Sin respuesta CGI del NVR Dahua", channels: [] as any[] };
+    }
+
     let lastErr = "";
     for (const cred of creds) {
         for (const a of ["DIGEST", "BASIC"]) {
@@ -70,7 +82,48 @@ export async function getNvrChannels(input: { ip: string; username?: string; pas
             } catch (e: any) { lastErr = e?.message || String(e); }
         }
     }
-    return { ok: false, error: lastErr || "Sin respuesta ISAPI del NVR", channels: [] as any[] };
+    // Fallback: si ISAPI no respondió, probar CGI Dahua (NVR de marca no declarada).
+    for (const cred of creds) {
+        try { const ch = await getDahuaChannels(ip, cred.username, cred.password); if (ch.length) return { ok: true, authType: "DIGEST", channels: ch }; } catch { }
+    }
+    return { ok: false, error: lastErr || "Sin respuesta del NVR (ISAPI/CGI)", channels: [] as any[] };
+}
+
+// ── Canales de un NVR Dahua por CGI: RemoteDevice (cámaras remotas) + ChannelTitle (nombres) ──
+async function getDahuaChannels(ip: string, username: string, password: string): Promise<{ channel: number; ip: string | null; name: string | null; brand?: string }[]> {
+    const dev: any = { ip, username, password, authType: "DIGEST", brand: "DAHUA" };
+    const titles: Record<number, string> = {};
+    try {
+        const ct: string = await authenticatedRequest("GET", "/cgi-bin/configManager.cgi?action=getConfig&name=ChannelTitle", dev, { responseType: "text", timeout: 8000 });
+        const rx = /ChannelTitle\[(\d+)\]\.Name=([^\r\n]*)/g; let mm: RegExpExecArray | null;
+        while ((mm = rx.exec(String(ct || "")))) { const t = mm[2].trim(); if (t) titles[parseInt(mm[1])] = t; }
+    } catch { }
+    const rd: string = await authenticatedRequest("GET", "/cgi-bin/configManager.cgi?action=getConfig&name=RemoteDevice", dev, { responseType: "text", timeout: 8000 });
+    return parseDahuaRemote(String(rd || ""), titles);
+}
+
+function parseDahuaRemote(text: string, titles: Record<number, string>): { channel: number; ip: string | null; name: string | null; brand?: string }[] {
+    // Soporta las dos formas de clave: table.RemoteDevice[N].X y table.RemoteDevice.uuid:..._N.X
+    const byIdx: Record<number, { ip: string | null; name: string | null; enable: boolean; vendor: string | null; devType: string | null }> = {};
+    const re = /RemoteDevice(?:\[(\d+)\]|\.uuid:[^.=]*?_(\d+))\.([A-Za-z0-9_]+)=([^\r\n]*)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+        const idx = parseInt(m[1] ?? m[2]); if (isNaN(idx)) continue;
+        const key = m[3]; const val = (m[4] || "").trim();
+        const e = byIdx[idx] || (byIdx[idx] = { ip: null, name: null, enable: false, vendor: null, devType: null });
+        if (key === "Address") e.ip = val || null;
+        else if (key === "Enable") e.enable = /true/i.test(val);
+        else if (key === "Name" && !e.name) e.name = val || null;
+        else if (key === "Vendor") e.vendor = val || null;
+        else if (key === "DeviceType") e.devType = val || null;
+    }
+    const out: { channel: number; ip: string | null; name: string | null; brand?: string }[] = [];
+    for (const k of Object.keys(byIdx).map(Number).sort((a, b) => a - b)) {
+        const e = byIdx[k]; if (!e.ip || e.ip === "192.168.0.0" || e.ip === "0.0.0.0") continue;
+        const brand = /dahua|dh-|ipc-|tpc-/i.test((e.vendor || "") + "|" + (e.devType || "")) ? "DAHUA" : "HIKVISION";
+        out.push({ channel: k + 1, ip: e.ip, name: titles[k] || e.name || ("Canal " + (k + 1)), brand });
+    }
+    return out;
 }
 
 function parseInputProxy(xml: string): { channel: number; ip: string | null; name: string | null }[] {
