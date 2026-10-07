@@ -1,6 +1,6 @@
 {
-    "name": "Omniaccess Guard",
-    "short_name": "Omniacces",
+    "name": "OmniAccess Guard",
+    "short_name": "OA Guard",
     "description": "Consola móvil de control de acceso",
     "start_url": "/guard-iphone",
     "display": "standalone",

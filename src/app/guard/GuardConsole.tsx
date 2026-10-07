@@ -1517,7 +1517,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
                                 <a href="/api/apk" download className="mt-6 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-white/30 hover:text-[#F43F5E] transition-colors">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="M8 11l4 4 4-4" /><path d="M5 21h14" /></svg>
-                                    Descargar app para tablet
+                                    Descargar OmniAccess Guard para tablet
                                 </a>
                             </div>
 
