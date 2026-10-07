@@ -14,10 +14,16 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;
+    // El origen para redirigir se arma con los encabezados del proxy: `req.url` acá llega
+    // como localhost:10001 (lo que ve el proceso), y la pantalla terminaría en una URL
+    // que sólo existe dentro del servidor.
+    const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || req.nextUrl.host;
+    const proto = req.headers.get("x-forwarded-proto") || (/^(localhost|127\.|\d+\.\d+\.\d+\.\d+)/.test(host) ? "http" : "https");
+    const origen = `${proto}://${host}`;
     const token = sp.get(PARAM_PANTALLA) || "";
     const volver = sp.get("volver") || "/monitor";
     const destino = volver.startsWith("/monitor") ? volver : "/monitor";
-    const invalido = (motivo: string) => NextResponse.redirect(new URL(`/monitor/enlace-invalido?motivo=${motivo}`, req.url));
+    const invalido = (motivo: string) => NextResponse.redirect(new URL(`/monitor/enlace-invalido?motivo=${motivo}`, origen));
 
     const enlace = await enlacePorToken(token).catch(() => null);
     if (!enlace || !esVista(enlace.vista)) return invalido("invalido");
@@ -25,7 +31,7 @@ export async function GET(req: NextRequest) {
     if (vistaDestino && !enlaceAbre(enlace.vista, vistaDestino)) return invalido("otra-vista");
 
     const cookie = await firmarCookiePantalla(enlace);
-    const res = NextResponse.redirect(new URL(vistaDestino ? destino : `/monitor/${enlace.vista}`, req.url));
-    res.cookies.set(COOKIE_PANTALLA, cookie, { httpOnly: true, sameSite: "lax", secure: req.nextUrl.protocol === "https:", path: "/", maxAge: 365 * 24 * 3600 });
+    const res = NextResponse.redirect(new URL(vistaDestino ? destino : `/monitor/${enlace.vista}`, origen));
+    res.cookies.set(COOKIE_PANTALLA, cookie, { httpOnly: true, sameSite: "lax", secure: proto === "https", path: "/", maxAge: 365 * 24 * 3600 });
     return res;
 }
