@@ -71,3 +71,31 @@ export function nombreDeClip(patron: string, datos: { camara?: string | null; ma
     nombre = nombre.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
     return nombre || "clip";
 }
+
+// ── Clip de un instante (alertas con video y envío por WhatsApp) ──────────────────────────
+// Las constantes viven acá porque las lee también la pantalla de Ajustes (navegador); la
+// lógica que corta video está en lib/clip-instante y lib/clip-nvr, que son sólo de servidor.
+
+/** Ventana del clip de ALERTA, separada de la del playback: una alerta que tarda en llegar pierde su gracia. */
+export const AJUSTE_ALERTA_ANTES = "ALERTA_CLIP_ANTES_SEG";
+export const AJUSTE_ALERTA_DESPUES = "ALERTA_CLIP_DESPUES_SEG";
+export const ALERTA_ANTES_POR_DEFECTO = 5;
+export const ALERTA_DESPUES_POR_DEFECTO = 5;
+export const ALERTA_ANTES_MAX = 15;
+export const ALERTA_DESPUES_MAX = 15;
+
+/**
+ * Tope del clip que un operador manda por WhatsApp. El NVR entrega la grabación a tiempo real
+ * (medido el 7/10: 10 s de video tardan ~11 s en salir, sea copy o transcode), y el operador
+ * espera con el diálogo abierto; un minuto es lo que se banca esperar.
+ */
+export const ENVIO_MAX_SEG = 60;
+
+/** Largo de cada segmento del anillo local. El worker graba con este valor y la web corta con él. */
+export const SEG_ANILLO_SEG = 2;
+
+/** Lo que tarda el NVR en exponer por RTSP un tramo recién grabado (con menos, el final sale sin cuadros). */
+export const MARGEN_GRABACION_SEG = 4;
+
+/** Cuánto vive un clip servible en disco: lo que WAHA/Telegram tardan en bajarlo por URL, con margen. */
+export const CLIP_RETENCION_MIN = 10;
