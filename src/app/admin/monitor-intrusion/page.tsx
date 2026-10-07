@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
-import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
-import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User } from "lucide-react";
+import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, reclasificarComoFalsa, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
+import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
@@ -124,13 +124,33 @@ function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending
         <div ref={boxRef} onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}
             className={cn("relative rounded-2xl overflow-hidden aspect-video bg-neutral-900 group/tile transition-all duration-300",
                 active ? "ring-2 ring-red-500 shadow-[0_0_30px_rgba(239,68,68,0.65)]" : attending ? "" : "ring-1 ring-white/[0.06] hover:ring-white/25")}>
-            {/* borde animado: evento REAL confirmado, en atención hasta resolver */}
-            {attending && !active && <div className="absolute inset-0 z-40 rounded-2xl pointer-events-none ptl-attend" />}
+            {/*
+                INTRUSIÓN CONFIRMADA: el operador dijo que es real y nadie la resolvió todavía.
+
+                Era un borde fino que respiraba y una píldora de 9px que decía "En atención":
+                la misma presencia que un canal tranquilo, para el único estado de la pantalla
+                que significa "hay alguien adentro ahora". Ahora el canal entero se tiñe con un
+                degradé rojo que se mueve, el rótulo late en el centro y hay UN botón: ver el
+                evento. Resolver o reclasificar como falsa se hace desde la ficha, con la foto
+                delante, no desde una píldora a ciegas.
+            */}
             {attending && !active && (
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[41] flex items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600/90 text-white text-[9px] font-extrabold uppercase tracking-wide shadow-lg animate-pulse"><ShieldAlert size={10} /> En atención</span>
-                    <button onClick={(e) => { e.stopPropagation(); onResolve?.(cam.id); }} data-tooltip-id="mi-tip" data-tooltip-content="Marcar evento como resuelto"
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white text-emerald-700 text-[9px] font-extrabold uppercase tracking-wide shadow-lg hover:bg-emerald-50 active:scale-95"><Check size={10} /> Resolver</button>
+                <div className="absolute inset-0 z-[41] rounded-2xl overflow-hidden pointer-events-none">
+                    <div className="intr-conf" />
+                    <div className="intr-conf-borde" />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/35 backdrop-blur-sm text-red-100 text-[9px] font-extrabold uppercase tracking-[0.18em]">
+                            <ShieldAlert size={10} /> {m ? m.label : "Intrusión"}{last ? ` · hace ${ago(last.timestamp)}` : ""}
+                        </span>
+                        <div className="intr-conf-rotulo text-white font-black uppercase leading-none tracking-[0.12em] text-[clamp(14px,2.1vw,24px)] drop-shadow-lg">
+                            Intrusión confirmada
+                        </div>
+                        <div className="text-[10.5px] font-semibold text-white/85 drop-shadow truncate max-w-full">{cam.name}{cam.nvrName ? ` · ${cam.nvrName}` : ""}{cam.ch != null ? ` · CH ${cam.ch}` : ""}</div>
+                        <button onClick={(e) => { e.stopPropagation(); onAck(cam); }} data-tooltip-id="mi-tip" data-tooltip-content="Abre la ficha del evento: desde ahí se acepta como resuelto o se marca como falsa alarma"
+                            className="pointer-events-auto mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white text-red-700 text-[12px] font-extrabold uppercase tracking-wide shadow-[0_8px_24px_rgba(0,0,0,.45)] hover:bg-red-50 active:scale-95 transition">
+                            <Eye size={15} /> Ver evento
+                        </button>
+                    </div>
                 </div>
             )}
             {!loaded && <div className="absolute inset-0 sk" />}
@@ -466,7 +486,14 @@ function AlarmAckModal({ cam, alarms, onResolve, onClose }: { cam: IntrusionCam;
     );
 }
 
-function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void; onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean }) {
+function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion }: {
+    det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
+    onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean;
+    /** La cámara tiene una intrusión confirmada como real y sin resolver. */
+    enAtencion?: boolean;
+    /** Cerrarla: aceptarla como resuelta, o reclasificarla como falsa alarma. */
+    onCerrarAtencion?: (deviceId: string, como: "resuelta" | "falsa") => void;
+}) {
     const [cur, setCur] = useState<any>(det);
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
@@ -492,11 +519,16 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
                 const k = e.key.toLowerCase();
                 if (k === "a" || e.key === "Enter") { e.preventDefault(); onResolveAlarm(cur.deviceId, "real"); }
                 else if (k === "f" || k === "r") { e.preventDefault(); onResolveAlarm(cur.deviceId, "false"); }
+            } else if (enAtencion && cur.deviceId && onCerrarAtencion) {
+                const k = e.key.toLowerCase();
+                if (k === "a" || e.key === "Enter") { e.preventDefault(); onCerrarAtencion(cur.deviceId, "resuelta"); }
+                else if (k === "f") { e.preventDefault(); onCerrarAtencion(cur.deviceId, "falsa"); }
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [cur, idx, sibs, hasAlarm, onResolveAlarm, onClose]);
+    }, [cur, idx, sibs, hasAlarm, onResolveAlarm, enAtencion, onCerrarAtencion, onClose]);
+    const atencionAbierta = !hasAlarm && !!enAtencion && !!cur.deviceId && !!onCerrarAtencion;
     return (
         <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-10" onClick={onClose}>
             {/* flechas AFUERA del modal, para pasar eventos del canal */}
@@ -510,7 +542,7 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
             <div className="relative w-full max-w-6xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[7] flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-black/65 backdrop-blur-md ring-1 ring-white/10 text-[10px] font-bold text-white/70 pointer-events-none">
                     <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">←</kbd><kbd className="px-1 rounded bg-white/15">→</kbd> eventos</span>
-                    {hasAlarm && cur.deviceId && onResolveAlarm && (<><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-red-500/40 text-red-100">A</kbd> aceptar</span><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-amber-500/40 text-amber-100">F</kbd> falsa</span></>)}
+                    {((hasAlarm && cur.deviceId && onResolveAlarm) || atencionAbierta) && (<><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-red-500/40 text-red-100">A</kbd> aceptar</span><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-amber-500/40 text-amber-100">F</kbd> falsa</span></>)}
                     <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">Esc</kbd> cerrar</span>
                 </div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -521,11 +553,16 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/90 ring-1 ring-red-200/40 shadow-[0_0_20px_rgba(239,68,68,0.8)] text-white text-[10px] font-extrabold uppercase tracking-wide animate-pulse"><m.Icon size={11} /> Detección en esta área</span>
                     </div>
                 )}
+                {/* La ficha de una intrusión confirmada lleva el mismo rojo que el canal: que no haya duda de qué se está decidiendo. */}
+                {atencionAbierta && <div className="absolute inset-0 pointer-events-none intr-conf-borde" />}
                 <div className="absolute top-0 inset-x-0 p-4 pr-16 flex items-start gap-3 bg-gradient-to-b from-black/75 to-transparent">
                     <span className={cn("grid h-11 w-11 place-items-center rounded-xl backdrop-blur-md ring-1 ring-white/10 shrink-0", m.cls)}><m.Icon size={21} /></span>
                     <div className="min-w-0">
                         <div className="text-lg font-extrabold text-white leading-tight truncate drop-shadow">{m.label}</div>
                         <div className="text-[12px] text-white/65 truncate">{cur.deviceName || cam?.name || "Cámara"}</div>
+                        {atencionAbierta && (
+                            <span className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-[0.14em] shadow-lg animate-pulse"><ShieldAlert size={11} /> Intrusión confirmada · sin resolver</span>
+                        )}
                     </div>
                     {idx >= 0 && sibs.length > 1 && <span className="ml-auto mt-1 text-[11px] font-bold text-white/60 tabular-nums self-start">{idx + 1} / {sibs.length}</span>}
                 </div>
@@ -537,6 +574,17 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
                                 className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> Falsa alarma <kbd className="ml-1 px-1 rounded bg-black/30 text-[10px]">F</kbd></button>
                             <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "real"); }}
                                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Confirmar real <kbd className="ml-1 px-1 rounded bg-black/25 text-[10px]">A</kbd></button>
+                        </div>
+                    ) : atencionAbierta ? (
+                        /* Confirmada y sin resolver: aceptarla cierra la atención; falsa alarma además corrige el registro. */
+                        <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2">
+                                <button onClick={(e) => { e.stopPropagation(); onCerrarAtencion!(cur.deviceId, "falsa"); }} data-tooltip-id="mi-tip" data-tooltip-content="Se marca como falsa en el historial y el canal vuelve a la normalidad"
+                                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> Falsa alarma <kbd className="ml-1 px-1 rounded bg-black/30 text-[10px]">F</kbd></button>
+                                <button onClick={(e) => { e.stopPropagation(); onCerrarAtencion!(cur.deviceId, "resuelta"); }} data-tooltip-id="mi-tip" data-tooltip-content="La intrusión fue real y ya se atendió: el canal vuelve a la normalidad"
+                                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Aceptar · resuelta <kbd className="ml-1 px-1 rounded bg-black/25 text-[10px]">A</kbd></button>
+                            </div>
+                            <p className="text-[10.5px] text-white/55 drop-shadow max-w-md">Fue confirmada como real. Si con la foto delante ves que no lo era, marcála como falsa: queda corregido en el historial.</p>
                         </div>
                     ) : <span />}
                     {/* datos apilados a la derecha, sin chips */}
@@ -943,6 +991,11 @@ export default function MonitorIntrusion() {
     const [attendingIds, setAttendingIds] = useState<Set<string>>(new Set());
     useEffect(() => { getAttendingIds().then((ids) => setAttendingIds(new Set(ids || []))).catch(() => { }); }, []);
     const resolveAttending = (id: string) => { setAttendingIds((s) => { const n = new Set(s); n.delete(id); return n; }); setAttending(id, false).catch(() => { }); };
+    /** Cerrar una intrusión confirmada desde su ficha: resuelta deja el registro como está; falsa lo corrige. */
+    const cerrarAtencion = (id: string, como: "resuelta" | "falsa") => {
+        resolveAttending(id);
+        if (como === "falsa") reclasificarComoFalsa(id).then(() => getRecentDetections(60, filter !== "ANALYTIC").then(setDets).catch(() => { })).catch(() => { });
+    };
     const ackAlarm = (id: string, kind: "real" | "false" = "real") => {
         ackAlarms(id, kind).catch(() => { });
         setAlarms((a) => { const n = { ...a }; delete n[id]; return n; });
@@ -1139,7 +1192,8 @@ export default function MonitorIntrusion() {
             {horarioDev && <HorarioArmadoDialog cam={horarioDev.cam} todasLasCamaras={horarioDev.todas} actual={horarioDev.cam ? horarios[horarioDev.cam.id] ?? null : null} general={horarioGeneral} onClose={() => setHorarioDev(null)} onAplicado={cargarHorarios} />}
             {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
-                hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }} />}
+                hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }}
+                enAtencion={!!(detail?.deviceId && attendingIds.has(detail.deviceId))} onCerrarAtencion={(id, como) => { cerrarAtencion(id, como); setDetail(null); }} />}
             {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onOpen={(d) => setDetail(d)} />}
             {showEvidence && <EvidenceGallery cams={cams} onClose={() => setShowEvidence(false)} onOpen={(d) => setDetail(d)} onPlay={(d) => { const c = d.deviceId ? camById[d.deviceId] : null; if (c) { setPlayMs(Math.floor(new Date(d.timestamp).getTime())); setLiveTab("rec"); setLiveDev(c); } }} />}
             {liveDev && <LiveModal key={`${liveDev.id}:${playMs ?? "l"}`} cam={liveDev} cams={cams} camStatus={trackStatus} initialTab={liveTab} initialRecMs={playMs ?? undefined} fromCam={prevCam} geom={geom[liveDev.id]} onClose={() => { setLiveDev(null); setPrevCam(null); setPlayMs(null); }} onOpenEvent={(d) => setDetail(d)} onSwitchCam={(c) => { setLiveTab("live"); setPrevCam(liveDev); setPlayMs(null); setLiveDev(c); }} onDismissFrom={() => setPrevCam(null)} />}
