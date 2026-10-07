@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
     Activity, Bot, Car, Eye, FileText, Info, MessageSquare, RefreshCcw, Settings,
     ShieldCheck, ShieldAlert, Plus, X, Loader2, QrCode, Smartphone, CheckCircle2, LogOut,
@@ -226,32 +226,60 @@ export default function WhatsAppSection() {
 
             <SideDrawer open={drawer === "hist"} onClose={() => setDrawer(null)} icon={<FileText size={18} />} title="Historial de consultas"
                 headerRight={<button onClick={loadHistory} className="w-8 h-8 grid place-items-center rounded-lg hover:bg-accent text-muted-foreground" title="Actualizar"><RefreshCcw size={15} /></button>}>
-                <div className="border border-border rounded-xl overflow-hidden">
-                    <Table>
-                        <TableHeader className="bg-foreground/10">
-                            <TableRow className="border-border hover:bg-transparent">
-                                <TableHead className="h-8 text-[9px] font-bold text-muted-foreground uppercase tracking-widest w-24">Usuario</TableHead>
-                                <TableHead className="h-8 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Interacción</TableHead>
-                                <TableHead className="h-8 text-[9px] font-bold text-muted-foreground uppercase tracking-widest text-right w-20">Hora</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {history.length === 0 ? (
-                                <TableRow className="border-border hover:bg-transparent"><TableCell colSpan={3} className="py-10 text-center text-[11px] text-muted-foreground italic">Sin registros recientes.</TableCell></TableRow>
-                            ) : history.map((h) => (
-                                <TableRow key={h.id} className="border-border hover:bg-accent">
-                                    <TableCell className="py-2 align-top"><span className="text-[9px] font-bold text-foreground bg-foreground/10 px-1.5 py-0.5 rounded-full block truncate" title={h.user}>{h.user.split('@')[0]}</span></TableCell>
-                                    <TableCell className="py-2 align-top">
-                                        <p className="text-[10px] font-mono text-emerald-400 break-words line-clamp-2" title={h.command}>&gt; {h.command}</p>
-                                        <p className="text-[9px] text-muted-foreground break-words line-clamp-2" title={h.response}>{h.response}</p>
-                                    </TableCell>
-                                    <TableCell className="py-2 text-right text-[9px] text-muted-foreground font-mono align-top whitespace-nowrap">{h.time}</TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
+                <WaChatThread history={history} />
             </SideDrawer>
+        </div>
+    );
+}
+
+// ── Historial del chatbot como hilo de conversacion (estilo WhatsApp) ──
+function WaChatThread({ history }: { history: any[] }) {
+    const users = useMemo(() => Array.from(new Set(history.map((h: any) => h.user).filter(Boolean))) as string[], [history]);
+    const [sel, setSel] = useState<string>("__all__");
+    useEffect(() => { if (sel !== "__all__" && !users.includes(sel)) setSel("__all__"); }, [users, sel]);
+    const chrono = useMemo(() => { const it = sel === "__all__" ? history : history.filter((h: any) => h.user === sel); return [...it].reverse(); }, [history, sel]);
+    const scRef = useRef<HTMLDivElement>(null);
+    useEffect(() => { const el = scRef.current; if (el) el.scrollTop = el.scrollHeight; }, [sel, history.length]);
+    const initial = (u: string) => String(u || "?").replace(/@.*/, "").slice(-2).toUpperCase();
+    const short = (u: string) => String(u || "").split("@")[0];
+    return (
+        <div className="flex flex-col h-[62vh]">
+            {users.length > 1 && (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-1 custom-scrollbar shrink-0">
+                    <button onClick={() => setSel("__all__")} className={cn("shrink-0 px-2.5 py-1 rounded-full text-[11px] font-bold transition-colors", sel === "__all__" ? "bg-emerald-600 text-white" : "bg-accent text-muted-foreground hover:text-foreground")}>Todas</button>
+                    {users.map((u) => (
+                        <button key={u} onClick={() => setSel(u)} className={cn("shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition-colors", sel === u ? "bg-emerald-600 text-white" : "bg-accent text-muted-foreground hover:text-foreground")}>
+                            <span className="w-4 h-4 rounded-full bg-foreground/15 grid place-items-center text-[8px]">{initial(u)}</span>{short(u)}
+                        </button>
+                    ))}
+                </div>
+            )}
+            <div ref={scRef} className="flex-1 overflow-y-auto custom-scrollbar rounded-2xl border border-border bg-muted/30 p-3 space-y-3">
+                {chrono.length === 0 && <div className="h-full grid place-items-center text-[11px] text-muted-foreground italic">Sin conversaciones recientes.</div>}
+                {chrono.map((h: any, i: number) => (
+                    <div key={h.id || i} className="space-y-1.5">
+                        {h.command && (
+                            <div className="flex items-end gap-2">
+                                <div className="w-7 h-7 rounded-full bg-sky-500/15 text-sky-500 grid place-items-center text-[9px] font-bold shrink-0">{initial(h.user)}</div>
+                                <div className="max-w-[80%]">
+                                    {sel === "__all__" && <div className="text-[9px] text-muted-foreground font-semibold mb-0.5 ml-1">{short(h.user)}</div>}
+                                    <div className="rounded-2xl rounded-bl-md bg-card border border-border px-3 py-2 text-[12px] text-foreground break-words whitespace-pre-wrap shadow-sm">{h.command}</div>
+                                    <div className="text-[9px] text-muted-foreground mt-0.5 ml-1">{h.time}</div>
+                                </div>
+                            </div>
+                        )}
+                        {h.response && (
+                            <div className="flex items-end gap-2 flex-row-reverse">
+                                <div className="w-7 h-7 rounded-full bg-emerald-500/15 text-emerald-500 grid place-items-center shrink-0"><Bot size={14} /></div>
+                                <div className="max-w-[80%]">
+                                    <div className="rounded-2xl rounded-br-md bg-emerald-600 text-white px-3 py-2 text-[12px] whitespace-pre-wrap break-words shadow-sm">{h.response}</div>
+                                    <div className="text-[9px] text-muted-foreground mt-0.5 mr-1 text-right">{h.time}</div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
         </div>
     );
 }
