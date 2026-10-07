@@ -258,7 +258,7 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
     const clock = new Date(displayMs);
     // Descargar desde el instante que se está viendo, con la ventana que se elija en el diálogo.
     const instanteClip = Math.floor(displayMs);
-    const hrefDescarga = (antes: number, despues: number) => `/api/nvr/playback?ch=${channel}&t=${instanteClip}&pre=${antes}&dur=${antes + despues}&download=1${nvrQ}${plate ? `&matricula=${encodeURIComponent(plate)}` : ""}`;
+    const hrefDescarga = (antes: number, despues: number, instante: number) => `/api/nvr/playback?ch=${channel}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1${nvrQ}${plate ? `&matricula=${encodeURIComponent(plate)}` : ""}`;
     const hh = horaSeg(clock);
     const dd = fechaCorta(clock);
 

@@ -32,16 +32,20 @@ const estimadoSeg = (seg: number) => seg + 6;
 
 type Fase = { tipo: "eligiendo" } | { tipo: "armando"; desde: number } | { tipo: "listo"; r: ResultadoEnvioClip };
 
-export function DescargaClip({ instante, ventana, href, onClose, deviceId, camara, matricula }: {
+export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose, deviceId, camara, matricula }: {
     instante: number;
     ventana: VentanaClip;
-    href: (antes: number, despues: number) => string;
+    /** URL de descarga para ESTE instante (el fijado al abrir) y la ventana elegida. */
+    href: (antes: number, despues: number, instante: number) => string;
     onClose: () => void;
     /** Con cámara se ofrece "Enviar por WhatsApp"; sin ella, sólo descargar. */
     deviceId?: string | null;
     camara?: string | null;
     matricula?: string | null;
 }) {
+    // El instante queda FIJO al abrir: el video sigue corriendo detrás y su posición cambia; lo que
+    // se baja o se manda tiene que ser lo que el diálogo dice, no lo que el video muestre después.
+    const [instante] = useState(instanteAlAbrir);
     const [antes, setAntes] = useState(ventana.antes);
     const [despues, setDespues] = useState(ventana.despues);
     const a = acotar(antes, 0, ventana.topes.antesMax), d = acotar(despues, ventana.topes.despuesMin, ventana.topes.despuesMax);
@@ -61,7 +65,7 @@ export function DescargaClip({ instante, ventana, href, onClose, deviceId, camar
 
     return (
         <div className="absolute inset-0 z-[60] bg-black/70 backdrop-blur-sm grid place-items-center p-4" onClick={(e) => { e.stopPropagation(); if (!ocupado) onClose(); }}>
-            <motion.div layout className="w-full max-w-md rounded-2xl bg-neutral-900/95 ring-1 ring-white/10 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <motion.div layout className="w-full max-w-lg rounded-2xl bg-neutral-900/95 ring-1 ring-white/10 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-start gap-3 p-5 pb-4">
                     <span className={cn("w-10 h-10 rounded-xl grid place-items-center ring-1 shrink-0", enviando ? "bg-emerald-500/20 ring-emerald-400/30" : "bg-sky-500/20 ring-sky-400/30")}>
                         {enviando ? <MessageCircle size={18} className="text-emerald-300" /> : <Download size={18} className="text-sky-300" />}
@@ -112,13 +116,13 @@ export function DescargaClip({ instante, ventana, href, onClose, deviceId, camar
                         {!enviando && (
                             <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/10 bg-black/30">
                                 {deviceId && (
-                                    <button onClick={() => setEnviando(true)} className="h-9 px-3.5 mr-auto inline-flex items-center gap-2 rounded-xl text-[12.5px] font-bold text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10 transition">
+                                    <button onClick={() => setEnviando(true)} className="h-9 px-3.5 mr-auto inline-flex items-center gap-2 whitespace-nowrap rounded-xl text-[12.5px] font-bold text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10 transition">
                                         <MessageCircle size={15} /> Enviar por WhatsApp
                                     </button>
                                 )}
                                 <button onClick={onClose} className="h-9 px-4 rounded-xl text-[12.5px] font-bold text-white/70 hover:text-white hover:bg-white/10 transition">Cancelar</button>
-                                <a href={href(a, d)} download onClick={onClose}
-                                    className="h-9 px-4 inline-flex items-center gap-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold shadow-lg active:scale-95 transition"><Download size={15} /> Descargar {a + d} s</a>
+                                <a href={href(a, d, instante)} download onClick={onClose}
+                                    className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold shadow-lg active:scale-95 transition"><Download size={15} /> Descargar {a + d} s</a>
                             </div>
                         )}
                     </>
@@ -137,6 +141,7 @@ function PanelDestinatarios({ instante, camara, matricula, segundos, onEnviar, o
     const [elegidos, setElegidos] = useState<Set<string>>(new Set());
     const [q, setQ] = useState("");
     const [hallados, setHallados] = useState<DestinatarioClip[]>([]);
+    const [buscado, setBuscado] = useState("");
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState("");
     const t = useRef<any>(null);
@@ -148,7 +153,7 @@ function PanelDestinatarios({ instante, camara, matricula, segundos, onEnviar, o
     useEffect(() => {
         clearTimeout(t.current);
         if (q.trim().length < 2) { setHallados([]); return; }
-        t.current = setTimeout(() => { buscarDestinatariosClip(q).then((r) => setHallados(r.usuarios.filter((u) => !extra.some((x) => x.telefono === u.telefono)))).catch(() => setHallados([])); }, 250);
+        t.current = setTimeout(() => { buscarDestinatariosClip(q).then((r) => { setHallados(r.usuarios.filter((u) => !extra.some((x) => x.telefono === u.telefono))); setBuscado(q); }).catch(() => setHallados([])); }, 250);
     }, [q, extra]);
 
     const todos = useMemo(() => [...avisos, ...extra], [avisos, extra]);
@@ -180,6 +185,9 @@ function PanelDestinatarios({ instante, camara, matricula, segundos, onEnviar, o
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Sumar un usuario: nombre, lote o teléfono"
                     className="w-full h-9 rounded-xl bg-white/10 ring-1 ring-white/10 focus:ring-emerald-400/50 pl-9 pr-3 text-[13px] text-white placeholder:text-white/35 outline-none" />
+                {hallados.length === 0 && q.trim().length >= 2 && buscado === q && (
+                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-xl bg-neutral-800 ring-1 ring-white/10 px-3 py-2.5 text-[12px] text-white/55">Ningún usuario con teléfono coincide con «{q}». El teléfono se carga en la ficha del usuario.</div>
+                )}
                 {hallados.length > 0 && (
                     <div className="absolute z-10 left-0 right-0 mt-1 rounded-xl bg-neutral-800 ring-1 ring-white/10 shadow-2xl overflow-hidden">
                         {hallados.map((u) => (

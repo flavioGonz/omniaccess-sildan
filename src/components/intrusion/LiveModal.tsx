@@ -346,7 +346,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
         window.addEventListener("keydown", k);
         return () => window.removeEventListener("keydown", k);
     }, [tab, togglePlay]);
-    const hrefDescarga = (antes: number, despues: number) => `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(posMs ?? recT)}&pre=${antes}&dur=${antes + despues}&download=1&nvr=${nvrId}`;
+    const hrefDescarga = (antes: number, despues: number, instante: number) => `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1&nvr=${nvrId}`;
 
     const tabs: { k: "live" | "rec" | "evi"; Icon: any; label: string }[] = [
         { k: "live", Icon: Video, label: "Vivo" },
