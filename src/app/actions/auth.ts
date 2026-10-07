@@ -5,7 +5,7 @@ import { pantallaInicio } from '@/lib/landing'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { SignJWT, jwtVerify } from 'jose'
-import { CLAVES_PERMISOS, PERMISOS_OPERADOR, esAdministrador } from '@/lib/permisos'
+import { ROL_ADMINISTRADOR_ID, CLAVES_PERMISOS, PERMISOS_OPERADOR, esAdministrador } from '@/lib/permisos'
 import bcrypt from 'bcryptjs'
 
 // JWT_SECRET MUST come from environment - no hardcoded fallback
@@ -135,7 +135,9 @@ export async function login(formData: FormData) {
     // sin consultar la base en cada navegación. Cambiar un rol pide volver a entrar.
     const perms: string[] = user.appRole ? user.appRole.permisos : (user.role === 'ADMIN' ? CLAVES_PERMISOS : PERMISOS_OPERADOR)
     const rolApp = user.appRole?.nombre || (user.role === 'ADMIN' ? 'Administrador' : 'Operador')
-    const roleSesion = esAdministrador(perms) ? 'ADMIN' : 'OPERATOR'
+    // Administrador lo es por su rol, no por tener hoy todas las claves del catálogo: si mañana
+    // se agrega un permiso, el que ya es administrador sigue viendo todo (lib/permisos).
+    const roleSesion = user.appRoleId === ROL_ADMINISTRADOR_ID || esAdministrador(perms) ? 'ADMIN' : 'OPERATOR'
 
     if (!secretKey) {
         return { error: 'Error de configuración del servidor. Contacte al administrador.' }
@@ -143,7 +145,7 @@ export async function login(formData: FormData) {
 
     const expiresCtx = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
-    const token = await new SignJWT({ sub: user.id, role: roleSesion, name: user.name, perms, rolApp })
+    const token = await new SignJWT({ sub: user.id, role: roleSesion, name: user.name, perms, rolApp, rolAppId: user.appRoleId || null })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('24h')

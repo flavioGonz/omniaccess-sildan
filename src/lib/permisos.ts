@@ -74,9 +74,10 @@ export const ROL_ADMINISTRADOR_ID = "rol-administrador";
  * ADMIN) devuelve el catálogo completo de hoy; los demás, lo que traiga el token, y una
  * sesión vieja sin `perms` lo del operador.
  */
-export function permisosDeSesion(payload: { perms?: unknown; role?: unknown; rolApp?: unknown } | null | undefined): string[] {
+export function permisosDeSesion(payload: { perms?: unknown; role?: unknown; rolApp?: unknown; rolAppId?: unknown } | null | undefined): string[] {
     if (!payload) return [];
-    if (payload.rolApp === ROL_ADMINISTRADOR_ID || payload.role === "ADMIN") return CLAVES_PERMISOS;
+    // `rolAppId` viaja en los tokens nuevos; `rolApp` (el nombre) y `role` legado cubren los anteriores.
+    if (payload.rolAppId === ROL_ADMINISTRADOR_ID || payload.rolApp === "Administrador" || payload.role === "ADMIN") return CLAVES_PERMISOS;
     if (Array.isArray(payload.perms)) return payload.perms as string[];
     return PERMISOS_OPERADOR;
 }
