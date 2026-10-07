@@ -15,6 +15,7 @@ import { getCarLogo } from "@/lib/car-logos";
 import { getRelatedSessionEvents } from "@/app/actions/history";
 import { getImagePath } from "@/lib/image-path";
 import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
+import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { AcuSearchPanel, AcuMatch } from "@/components/dashboard/AcuSearchPanel";
 import { getWatchlist, addWatch, deactivateWatch } from "@/app/actions/watchlist";
@@ -111,6 +112,11 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     const [nvrChannel, setNvrChannel] = useState<number | null>(null);
     const [nvrId, setNvrId] = useState<string | null>(null);
     const [showVideo, setShowVideo] = useState(false);
+    // "Clip": antes bajaba sin preguntar un clip que el globo decía "de 30 s" y medía lo de Ajustes.
+    // Ahora abre el mismo diálogo que el playback: dice qué trae, deja cambiarlo o mandarlo por WhatsApp.
+    const [descarga, setDescarga] = useState(false);
+    const [ventanaClip, setVentanaClip] = useState<VentanaClip | null>(null);
+    useEffect(() => { fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d?.topes) setVentanaClip(d); }).catch(() => { }); }, []);
     const [stats, setStats] = useState<PlateStats | null>(null);
     const [watch, setWatch] = useState<{ id: string; category: string } | null>(null);
     const [watchBusy, setWatchBusy] = useState(false);
@@ -292,6 +298,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
         } finally { setTimeout(() => setExporting(false), 2500); }
     }
     const clipHref = nvrChannel ? `/api/nvr/playback?ch=${nvrChannel}&t=${eventMs}&download=1${nvrId ? `&nvr=${nvrId}` : ""}` : undefined;
+    const hrefDescarga = (antes: number, despues: number, instante: number) => `/api/nvr/playback?ch=${nvrChannel}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1${nvrId ? `&nvr=${nvrId}` : ""}${hasPlate ? `&matricula=${encodeURIComponent(plateText)}` : ""}`;
 
     const maxDaily = Math.max(1, ...(stats?.daily.map(d => d.count) || [1]));
     const maxHour = Math.max(1, ...(stats?.hourly.entry || [0]), ...(stats?.hourly.exit || [0]));
@@ -518,7 +525,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                         <Action icon={<PlayCircle size={18} />} label="Grabación" tone="blue" tip={nvrChannel ? "Ver grabación del NVR en este instante" : "Cámara sin canal NVR mapeado"} disabled={!nvrChannel} onClick={() => setShowVideo(true)} />
                                         <Action icon={<Search size={18} />} label="Similares" tone="fuchsia" tip="Encuadrar el objetivo y buscarlo en todas las cámaras" disabled={!displayImage} onClick={() => { setCropMode(true); setCrop(null); }} active={cropMode} />
                                         <div className="w-px bg-border/70 my-3 mx-0.5 shrink-0" />
-                                        <Action icon={<Download size={18} />} label="Clip" tone="neutral" tip={nvrChannel ? "Descargar clip MP4 (30 s)" : "Sin canal NVR"} href={clipHref} download disabled={!clipHref} />
+                                        <Action icon={<Download size={18} />} label="Clip" tone="neutral" tip={nvrChannel ? (ventanaClip ? `Clip de ${ventanaClip.antes} s antes y ${ventanaClip.despues} s después: descargar o mandar por WhatsApp` : "Clip del evento") : "Sin canal NVR"} onClick={() => setDescarga(true)} disabled={!clipHref || !ventanaClip} />
                                         <Action icon={<Archive size={18} />} label="Exportar" tone="neutral" tip="ZIP con foto + clip + datos del evento" onClick={exportZip} busy={exporting} />
                                         {((!isVerified || !isGrant) || hasPlate) && <div className="w-px bg-border/70 my-3 mx-0.5 shrink-0" />}
                                         {(!isVerified || !isGrant) && <Action icon={<UserPlus size={18} />} label="Registrar" tone="emerald" tip={hasPlate ? `Dar de alta un usuario con ${plateText}` : "Registrar"} onClick={doRegister} />}
@@ -633,6 +640,12 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                     </div>
                 </DialogContent>
             </Dialog>
+            {descarga && ventanaClip && nvrChannel && (
+                <div className="fixed inset-0 z-[3300]">
+                    <DescargaClip instante={eventMs} ventana={ventanaClip} href={hrefDescarga} onClose={() => setDescarga(false)}
+                        deviceId={(event as any).device?.id} camara={(event as any).device?.name} matricula={hasPlate ? plateText : null} />
+                </div>
+            )}
             <NvrTimeMachine open={showVideo} onClose={() => setShowVideo(false)} deviceId={(event as any).device?.id} channel={nvrChannel} eventTimeMs={eventMs} deviceName={(event as any).device?.name} evidenceUrl={displayImage || undefined} plate={event.plateDetected} />
             {tm && <NvrTimeMachine open onClose={() => setTm(null)} deviceId={tm.deviceId} channel={tm.channel} eventTimeMs={tm.eventTimeMs} deviceName={tm.deviceName} />}
             <ConfirmarAccion id={plateText} open={!!conflicto} onOpenChange={(o) => { if (!o) setConflicto(null); }}

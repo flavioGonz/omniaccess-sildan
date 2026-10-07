@@ -6,6 +6,7 @@ import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { sileo as toast } from "sileo";
 import { VisorCuadro, leerDetalles } from "@/components/VisorCuadro";
 import NvrTimeMachine from "@/components/dashboard/NvrTimeMachine";
+import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { getImagePath } from "@/lib/image-path";
 import { addWatch, deactivateWatch, getWatchlist } from "@/app/actions/watchlist";
 import { resumirCamaras } from "@/lib/lista-negra";
@@ -60,6 +61,11 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
     const [ocupadoLista, setOcupadoLista] = useState(false);
     /** La chapa ya está en otra categoría de la lista: qué era, para preguntar antes de pisarla. */
     const [conflicto, setConflicto] = useState<{ etiqueta: string; cat: string; motivo: string | null } | null>(null);
+    // "Clip": el mismo diálogo que el playback (antes bajaba directo un clip "de treinta segundos"
+    // que medía lo de Ajustes).
+    const [descarga, setDescarga] = useState(false);
+    const [ventanaClip, setVentanaClip] = useState<VentanaClip | null>(null);
+    useEffect(() => { if (!abierto) return; fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d?.topes) setVentanaClip(d); }).catch(() => { }); }, [abierto]);
 
     const chapa = limpiar(event?.plateDetected);
     const conChapa = hayChapa(event?.plateDetected);
@@ -254,6 +260,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                     hrefClip={canalNvr != null
                         ? `/api/nvr/playback?ch=${canalNvr}&t=${msEvento}&download=1${nvrId ? `&nvr=${nvrId}` : ""}`
                         : null}
+                    onClip={canalNvr != null && ventanaClip ? () => setDescarga(true) : undefined}
                     onExportar={exportar}
                     onListaNegra={conChapa ? alternarLista : undefined}
                     enListaNegra={vigilada?.category === "BLACKLISTED"}
@@ -274,6 +281,14 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                     return { success: true };
                 }}
                 onSuccess={() => setConflicto(null)} />
+
+            {descarga && ventanaClip && canalNvr != null && (
+                <div className="fixed inset-0 z-[3300]">
+                    <DescargaClip instante={msEvento} ventana={ventanaClip} onClose={() => setDescarga(false)}
+                        href={(antes, despues, instante) => `/api/nvr/playback?ch=${canalNvr}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1${nvrId ? `&nvr=${nvrId}` : ""}${conChapa ? `&matricula=${encodeURIComponent(chapa)}` : ""}`}
+                        deviceId={dispositivo?.id} camara={dispositivo?.name} matricula={conChapa ? chapa : null} />
+                </div>
+            )}
 
             {verGrabacion && canalNvr != null && dispositivo?.id && (
                 <NvrTimeMachine

@@ -317,7 +317,7 @@ function Medida({ valor, rotulo, tono, ayuda }: { valor: string; rotulo: string;
 export function VisorCuadro({
     fila, ficha, onRegistrar, limiteMin,
     historial, cargandoHistorial,
-    onGrabacion, hrefClip, onExportar, onListaNegra, enListaNegra, ocupadoLista,
+    onGrabacion, hrefClip, onClip, onExportar, onListaNegra, enListaNegra, ocupadoLista,
     hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar,
 }: {
     fila: CuadroAvistamiento;
@@ -342,6 +342,8 @@ export function VisorCuadro({
        pantalla a veces no responde. */
     onGrabacion?: () => void;
     hrefClip?: string | null;
+    /** Si viene, "Clip" abre el diálogo (qué trae, cambiarlo, mandarlo por WhatsApp) en vez de bajar directo. */
+    onClip?: () => void;
     onExportar?: () => void;
     onListaNegra?: () => void;
     enListaNegra?: boolean;
@@ -972,8 +974,9 @@ export function VisorCuadro({
                                 Grabación
                             </Pildora>
                         )}
-                        {hrefClip && (
-                            <Pildora icono={Download} href={hrefClip} title="Bajar un clip de treinta segundos">
+                        {(onClip || hrefClip) && (
+                            <Pildora icono={Download} onClick={onClip} href={onClip ? undefined : hrefClip}
+                                title={onClip ? "Bajar o mandar por WhatsApp un clip de este instante" : "Bajar el clip de este instante (la duración es la de Ajustes → Video del evento)"}>
                                 Clip
                             </Pildora>
                         )}

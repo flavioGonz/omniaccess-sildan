@@ -129,8 +129,19 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
 }
 
 
-export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStatus, initialRecMs, onClose, onOpenEvent, onSwitchCam, onDismissFrom }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; fromCam?: IntrusionCam | null; camStatus?: Record<string, { recent: boolean; alarm: boolean }>; initialRecMs?: number; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void; onDismissFrom?: () => void }) {
+export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live", fromCam, camStatus, initialRecMs, onClose, onOpenEvent, onSwitchCam, onDismissFrom }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; fromCam?: IntrusionCam | null; camStatus?: Record<string, { recent: boolean; alarm: boolean }>; initialRecMs?: number; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void; onDismissFrom?: () => void }) {
     const [tab, setTab] = useState<"live" | "rec" | "evi">(initialTab);
+    // La línea/zona de la regla sobre el video. El monitor de intrusión la pasa; el mapa (y quien
+    // abra el visor desde otro lado) no la tenía y la grabación del evento salía sin overlay.
+    // Si no viene, se pide acá: es la misma acción con caché que usa el monitor.
+    const [geomPropia, setGeomPropia] = useState<Geom | undefined>(undefined);
+    useEffect(() => {
+        if (geomProp || !cam?.id) return;
+        let vivo = true;
+        getAnalyticsGeometryBatch([cam.id]).then((g) => { if (vivo) setGeomPropia(g?.[cam.id] as Geom | undefined); }).catch(() => { });
+        return () => { vivo = false; };
+    }, [geomProp, cam?.id]);
+    const geom = geomProp ?? geomPropia;
     const isPtz = /ptz/i.test(cam.name || "");
     const [showPtz, setShowPtz] = useState(true);
     const [ptzSpeed, setPtzSpeed] = useState(5);
