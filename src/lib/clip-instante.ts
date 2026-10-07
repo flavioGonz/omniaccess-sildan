@@ -31,7 +31,10 @@ import {
  */
 
 /** Dónde quedan los clips servibles (/api/clip/<archivo>). Por defecto, public/clips del proyecto. */
-export const DIR_CLIPS = process.env.CLIPS_DIR || path.join(process.cwd(), "public", "clips");
+// `turbopackIgnore`: sin él, el build ve un path armado con cwd y trata de empaquetar la carpeta
+// entera; public/clips es un enlace a /datos/clips y el build se cayó el 7/10 en cuanto había un
+// clip adentro ("Symlink ... points out of the filesystem root"). Son rutas de ejecución, no assets.
+export const DIR_CLIPS = process.env.CLIPS_DIR || path.join(/* turbopackIgnore: true */ process.cwd(), "public", "clips");
 /** Dónde graba el worker el anillo. Fuera de public: nada del anillo se sirve. Igual en los dos procesos. */
 export const DIR_ANILLO = process.env.ANILLO_DIR || path.join(os.tmpdir(), "omniaccess-anillo");
 
@@ -39,7 +42,7 @@ export const DIR_ANILLO = process.env.ANILLO_DIR || path.join(os.tmpdir(), "omni
 export async function marcaAgua(): Promise<string | null> {
     const v = (await prisma.setting.findUnique({ where: { key: AJUSTE_MARCA_AGUA } }).catch(() => null))?.value;
     if (v === "false") return null;
-    const fp = path.join(process.cwd(), "public", ARCHIVO_MARCA_AGUA);
+    const fp = path.join(/* turbopackIgnore: true */ process.cwd(), "public", ARCHIVO_MARCA_AGUA);
     return fs.existsSync(fp) ? fp : null;
 }
 
