@@ -4,17 +4,89 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
-import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User } from "lucide-react";
+import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Play, Pause, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
-import { PlaybackTimeline } from "@/components/PlaybackTimeline";
-import { Scrub } from "@/components/Scrub";
+import { Scrub, type MarcaScrub } from "@/components/Scrub";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tooltip as RTooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
 
 type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
+
+/**
+ * Cuánto video se pide al NVR al navegar la línea de tiempo.
+ *
+ * Al abrir la grabación en un instante se usaba la misma ventana que la ficha del evento
+ * (10 s antes + 10 s después): el clip terminaba a los veinte segundos y el operador creía
+ * que "el video no corre". Navegar no es ver un evento: acá se pide un tramo largo y, cuando
+ * termina, se sigue solo desde donde quedó. Tres minutos es el tope que admite la ruta
+ * (ANTES_MAX + DESPUES_MAX) sin pasarse; el proceso se corta solo al cambiar de instante.
+ */
+const DUR_NAVEGACION_SEG = 180;
+/** Si el tramo murió antes de esto, no era el final del tramo: no había grabación. */
+const MIN_SEG_PARA_ENCADENAR = 3;
+
+type Ventana = { antes: number; despues: number; topes: { antesMax: number; despuesMax: number; despuesMin: number } };
+const VENTANA_INICIAL: Ventana = { antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } };
+const horaSeg = (ms: number) => new Date(ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+
+/**
+ * El diálogo previo a bajar un clip.
+ *
+ * Antes el botón bajaba sin decir nada un clip "de 60 s" (según su tooltip) que en
+ * realidad medía lo que dijera Ajustes. Ahora dice exactamente qué va a traer —cuántos
+ * segundos antes y después de qué instante, de dónde sale ese valor— y deja cambiarlo
+ * para ESTE clip sin tocar la configuración del barrio.
+ */
+function DescargaClip({ instante, ventana, href, onClose }: { instante: number; ventana: Ventana; href: (antes: number, despues: number) => string; onClose: () => void }) {
+    const [antes, setAntes] = useState(ventana.antes);
+    const [despues, setDespues] = useState(ventana.despues);
+    const acotar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(Number.isFinite(v) ? v : min)));
+    const a = acotar(antes, 0, ventana.topes.antesMax), d = acotar(despues, ventana.topes.despuesMin, ventana.topes.despuesMax);
+    const cambiado = a !== ventana.antes || d !== ventana.despues;
+    useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }; window.addEventListener("keydown", k, true); return () => window.removeEventListener("keydown", k, true); }, [onClose]);
+    return (
+        <div className="absolute inset-0 z-[60] bg-black/70 backdrop-blur-sm grid place-items-center p-4" onClick={onClose}>
+            <div className="w-full max-w-md rounded-2xl bg-neutral-900/95 ring-1 ring-white/10 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-start gap-3 p-5 pb-4">
+                    <span className="w-10 h-10 rounded-xl bg-sky-500/20 grid place-items-center ring-1 ring-sky-400/30 shrink-0"><Download size={18} className="text-sky-300" /></span>
+                    <div className="min-w-0">
+                        <div className="text-[15px] font-extrabold text-white leading-tight">Descargar clip</div>
+                        <div className="text-[12px] text-white/60 mt-0.5">Alrededor de las <span className="text-white font-bold tabular-nums">{horaSeg(instante)}</span> del {new Date(instante).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric" })}</div>
+                    </div>
+                    <button onClick={onClose} className="ml-auto w-8 h-8 grid place-items-center rounded-full hover:bg-white/10 text-white/60 hover:text-white"><X size={16} /></button>
+                </div>
+                <div className="px-5 pb-4 grid grid-cols-2 gap-3">
+                    <label className="block">
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5">Segundos antes</span>
+                        <input type="number" min={0} max={ventana.topes.antesMax} value={antes} onChange={(e) => setAntes(Number(e.target.value))}
+                            className="w-full h-10 rounded-xl bg-white/10 ring-1 ring-white/10 focus:ring-sky-400/60 px-3 text-[16px] font-extrabold tabular-nums text-white outline-none" />
+                    </label>
+                    <label className="block">
+                        <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5">Segundos después</span>
+                        <input type="number" min={ventana.topes.despuesMin} max={ventana.topes.despuesMax} value={despues} onChange={(e) => setDespues(Number(e.target.value))}
+                            className="w-full h-10 rounded-xl bg-white/10 ring-1 ring-white/10 focus:ring-sky-400/60 px-3 text-[16px] font-extrabold tabular-nums text-white outline-none" />
+                    </label>
+                </div>
+                <div className="mx-5 mb-4 rounded-xl bg-white/[0.06] ring-1 ring-white/10 px-3.5 py-3 flex items-start gap-2.5">
+                    <Settings2 size={14} className="text-white/45 shrink-0 mt-0.5" />
+                    <p className="text-[11.5px] text-white/65 leading-snug">
+                        El clip irá de <span className="text-white font-bold tabular-nums">{horaSeg(instante - a * 1000)}</span> a <span className="text-white font-bold tabular-nums">{horaSeg(instante + d * 1000)}</span> ({a + d} s).
+                        {" "}Lo configurado en <span className="text-white/85 font-semibold">Ajustes → Video del evento</span> es {ventana.antes} s antes y {ventana.despues} s después
+                        {cambiado ? "; el cambio vale sólo para este clip." : "."}
+                    </p>
+                </div>
+                <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/10 bg-black/30">
+                    <button onClick={onClose} className="h-9 px-4 rounded-xl text-[12.5px] font-bold text-white/70 hover:text-white hover:bg-white/10 transition">Cancelar</button>
+                    <a href={href(a, d)} download onClick={onClose}
+                        className="h-9 px-4 inline-flex items-center gap-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold shadow-lg active:scale-95 transition"><Download size={15} /> Descargar {a + d} s</a>
+                </div>
+            </div>
+        </div>
+    );
+}
 type AlarmChip = { id: string; type: string; label: string; ts: string };
 
 
@@ -195,6 +267,16 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     const [recSeen, setRecSeen] = useState(initialTab === "rec");
     const [recRate, setRecRate] = useState(1); // velocidad de reproducción (1/2/4/8)
     const [noRec, setNoRec] = useState(false); // no hay grabación en ese horario
+    // La ventana de Ajustes: dónde empieza el video que se ve, y qué se le dice al operador al descargar.
+    const [ventana, setVentana] = useState<Ventana>(VENTANA_INICIAL);
+    useEffect(() => { fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d && typeof d.antes === "number") setVentana(d); }).catch(() => { }); }, []);
+    const [recPlaying, setRecPlaying] = useState(false);
+    /** El operador pausó a propósito: no se le vuelve a arrancar el video hasta que toque play o cambie de instante. */
+    const pausadoPorUsuario = useRef(false);
+    /** El instante real (ms) del cuadro que se está viendo: lo que sigue el cursor de la regla. */
+    const [posMs, setPosMs] = useState<number | null>(null);
+    const ultimaPos = useRef(0);
+    const [descarga, setDescarga] = useState(false);
     // fecha + hora: la rueda elige la hora; el date-picker elige el día
     const pad2 = (n: number) => String(n).padStart(2, "0");
     const dayStr = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
@@ -206,12 +288,12 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
         return Math.min(Date.now(), ms); // nunca futuro
     };
     const recMinutesOfDay = (() => { const d = new Date(recT); return d.getHours() * 60 + d.getMinutes(); })(); // no cargar el clip hasta que se abra Grabación al menos una vez
-    const seekTo = (ms: number) => { const v = Math.max(Date.now() - 30 * 24 * 3600 * 1000, Math.min(Date.now(), ms)); setRecT(v); setScrub(v); clearTimeout(scrubTO.current); scrubTO.current = setTimeout(() => setScrub(null), 1100); };
+    const seekTo = (ms: number) => { const v = Math.max(Date.now() - 30 * 24 * 3600 * 1000, Math.min(Date.now(), ms)); pausadoPorUsuario.current = false; setPosMs(null); setRecT(v); setScrub(v); clearTimeout(scrubTO.current); scrubTO.current = setTimeout(() => setScrub(null), 1100); };
     const recVideo = useRef<HTMLVideoElement>(null);
     // Arranca la grabación solo cuando hay ~2.5s de búfer por delante (el NVR entrega a 1x,
     // sin colchón el <video> se queda en buffering constante). Con cushion reproduce fluido.
     const tryPlayCushion = useCallback(() => {
-        const v = recVideo.current; if (!v || recStartedRef.current) return;
+        const v = recVideo.current; if (!v || recStartedRef.current || pausadoPorUsuario.current) return;
         let cushion = 0; try { if (v.buffered.length) cushion = v.buffered.end(v.buffered.length - 1) - (v.currentTime || 0); } catch { }
         if (cushion >= 2.5 || v.readyState >= 4) { v.play().catch(() => { }); }
     }, []);
@@ -222,7 +304,18 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     useEffect(() => { fetch(`/api/devices/stream?deviceId=${cam.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ensure" }) }).catch(() => { }); }, [cam.id]);
     useEffect(() => { fetch(`/api/nvr/channel?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNvrId(d && d.nvr ? String(d.nvr) : null)).catch(() => { }); }, [cam.id]);
     useEffect(() => { if (tab !== "evi") return; getDetectionHistory({ deviceId: cam.id, pageSize: 30 }).then((r) => setEvi(r.items)).catch(() => { }); }, [tab, cam.id]);
-    useEffect(() => { if (tab !== "rec") return; getDetectionHistory({ deviceId: cam.id, pageSize: 100 }).then((r) => setRecEvents(r.items)).catch(() => { }); }, [tab, cam.id]);
+    // Los eventos del DÍA que se está mirando (no los últimos 100 de siempre): son las marcas de la regla.
+    useEffect(() => {
+        if (tab !== "rec") return;
+        const [y, mo, da] = recDateStr.split("-").map(Number);
+        const d0 = new Date(y, mo - 1, da, 0, 0, 0, 0), d1 = new Date(y, mo - 1, da, 23, 59, 59, 999);
+        getDetectionHistory({ deviceId: cam.id, pageSize: 100, type: "ANALYTIC", from: d0.toISOString(), to: d1.toISOString() }).then((r) => setRecEvents(r.items)).catch(() => { });
+    }, [tab, cam.id, recDateStr]);
+    const marcas = useMemo<MarcaScrub[]>(() => recEvents.map((e) => {
+        const d = new Date(e.timestamp); const m = META[e.type] || META.OTHER;
+        return { id: e.id, m: d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60, Icon: m.Icon, titulo: `${m.label} · ${horaSeg(d.getTime())}`, tono: e.type === "LINECROSS" || e.type === "INTRUSION" ? "mal" : e.type === "MOTION" ? "info" : "aviso" };
+    }), [recEvents]);
+    const irAMarca = (k: MarcaScrub) => { const ev = recEvents.find((x) => x.id === k.id); if (ev) seekTo(new Date(ev.timestamp).getTime()); };
     useEffect(() => { if (ready || tab !== "live") return; const iv = setInterval(() => setSnap(`/api/snapshot/${cam.id}?t=${Date.now()}`), 1500); return () => clearInterval(iv); }, [ready, cam.id, tab]);
 
     // ── LIVE loader (paciencia > warmup del transcode HW, sin churn) ──
@@ -253,8 +346,9 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     useEffect(() => { if (tab !== "rec") return; setRecLoading(true); const t = setTimeout(() => setRecLoadT(recT), 300); return () => clearTimeout(t); }, [recT, tab]);
     // watchdog: si el clip no empieza, reintenta; si tras los reintentos sigue sin frames, es que no hay grabación en ese horario.
     useEffect(() => {
-        if (tab !== "rec") return; setNoRec(false); setRecRebuf(false); recStartedRef.current = false; const v = recVideo.current;
-        const fp = setTimeout(() => { const vv = recVideo.current; if (vv && !recStartedRef.current) vv.play().catch(() => { }); }, 3500);
+        if (tab !== "rec") return; setNoRec(false); setRecRebuf(false); setRecPlaying(false); recStartedRef.current = false; const v = recVideo.current;
+        // Si a los 1,5 s el colchón no llegó, se arranca igual: esperar más se leía como "no anda".
+        const fp = setTimeout(() => { const vv = recVideo.current; if (vv && !recStartedRef.current && !pausadoPorUsuario.current) vv.play().catch(() => { }); }, 1500);
         const wd = setTimeout(() => {
             if (v && v.readyState < 2) {
                 if (recTriesRef.current < 2) { recTriesRef.current++; setRecRetry((r) => r + 1); }
@@ -284,7 +378,28 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     const nowTs = recWin.end;
     // reencuadrar si el cursor sale de la ventana
     useEffect(() => { if (recT < recWin.start || recT > recWin.end) setAnchor(recT); }, [recT, recWin.start, recWin.end]);
-    const playbackUrl = nvrId && cam.ch != null ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&nvr=${nvrId}${recRetry > 0 ? "&tx=1" : ""}` : null;
+    const playbackUrl = nvrId && cam.ch != null ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&nvr=${nvrId}&dur=${DUR_NAVEGACION_SEG}${recRetry > 0 ? "&tx=1" : ""}` : null;
+    /** Dónde empieza el video que se está viendo: el instante pedido menos los segundos "antes" de Ajustes. */
+    const clipStart = recLoadT - ventana.antes * 1000;
+    const minutosDe = (ms: number) => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+    /** El cursor sigue al video mientras corre; si no, queda donde se lo dejó. */
+    const valorRegla = posMs != null && !recLoading ? minutosDe(posMs) : recMinutesOfDay;
+    const togglePlay = useCallback(() => {
+        const v = recVideo.current; if (!v) return;
+        if (v.paused) { pausadoPorUsuario.current = false; v.play().catch(() => { }); }
+        else { pausadoPorUsuario.current = true; v.pause(); }
+    }, []);
+    useEffect(() => {
+        if (tab !== "rec") return;
+        const k = (e: KeyboardEvent) => {
+            const t = e.target as HTMLElement | null;
+            if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+            if (e.key === " " || e.key === "k") { e.preventDefault(); togglePlay(); }
+        };
+        window.addEventListener("keydown", k);
+        return () => window.removeEventListener("keydown", k);
+    }, [tab, togglePlay]);
+    const hrefDescarga = (antes: number, despues: number) => `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(posMs ?? recT)}&pre=${antes}&dur=${antes + despues}&download=1&nvr=${nvrId}`;
 
     const tabs: { k: "live" | "rec" | "evi"; Icon: any; label: string }[] = [
         { k: "live", Icon: Video, label: "Vivo" },
@@ -406,12 +521,31 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                         {/* fondo: última captura del canal (evita el vacío negro mientras el NVR abre la grabación) */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={snap} alt="" className={cn("absolute inset-0 z-0 w-full h-full object-contain transition-opacity duration-500", recLoading ? "opacity-100 blur-[6px] scale-105 brightness-[0.4]" : "opacity-0")} />
+                        {/* Sin `controls`: los nativos quedaban DEBAJO del degradado de la línea de tiempo,
+                            así que había play y pausa pero no se veían. Ahora el botón es nuestro, y el
+                            video mismo se toca para pausar/seguir, como en cualquier reproductor. */}
                         {recSeen && playbackUrl ? (
-                            <video key={`${playbackUrl}#${recRetry}`} ref={recVideo} src={playbackUrl} muted controls playsInline preload="auto" poster={snap}
+                            <video key={`${playbackUrl}#${recRetry}`} ref={recVideo} src={playbackUrl} muted playsInline preload="auto" poster={snap}
+                                onClick={togglePlay}
+                                onPlay={() => setRecPlaying(true)} onPause={() => setRecPlaying(false)}
                                 onLoadedData={() => { recTriesRef.current = 0; setNoRec(false); try { recVideo.current!.playbackRate = recRate; } catch { } tryPlayCushion(); }} onCanPlay={() => tryPlayCushion()} onProgress={() => tryPlayCushion()}
-                                onPlaying={() => { recTriesRef.current = 0; recStartedRef.current = true; setNoRec(false); setRecRebuf(false); waitRealFrame(recVideo.current, () => setRecLoading(false)); }} onWaiting={() => { if (recStartedRef.current) setRecRebuf(true); else setRecLoading(true); }} onTimeUpdate={() => { if (recRebuf) setRecRebuf(false); }}
+                                onPlaying={() => { recTriesRef.current = 0; recStartedRef.current = true; setNoRec(false); setRecRebuf(false); waitRealFrame(recVideo.current, () => setRecLoading(false)); }} onWaiting={() => { if (recStartedRef.current) setRecRebuf(true); else setRecLoading(true); }}
+                                onTimeUpdate={(e) => {
+                                    if (recRebuf) setRecRebuf(false);
+                                    // Una vez por segundo alcanza para mover el cursor; a 4 Hz redibujaba todo el modal por nada.
+                                    const ms = clipStart + e.currentTarget.currentTime * 1000;
+                                    if (Math.abs(ms - ultimaPos.current) >= 900) { ultimaPos.current = ms; setPosMs(ms); }
+                                }}
+                                onEnded={() => {
+                                    const v = recVideo.current; if (!v) return;
+                                    // Terminó el tramo: seguir desde donde quedó, salvo que el operador haya pausado o
+                                    // el tramo haya muerto enseguida (eso no es un final: es que no había grabación).
+                                    if (v.currentTime < MIN_SEG_PARA_ENCADENAR) { if (clipStart < Date.now() - 30000) { setRecLoading(false); setNoRec(true); } return; }
+                                    const sig = clipStart + v.currentTime * 1000 + ventana.antes * 1000 + 100;
+                                    if (!pausadoPorUsuario.current && sig < Date.now() - 15000) seekTo(sig);
+                                }}
                                 onError={() => { if (recTriesRef.current < 2) { recTriesRef.current++; setTimeout(() => setRecRetry((r) => r + 1), 800); } else { setRecLoading(false); setNoRec(true); } }}
-                                className="absolute inset-0 z-[1] w-full h-full object-contain" />
+                                className="absolute inset-0 z-[1] w-full h-full object-contain cursor-pointer" />
                         ) : (
                             <div className="absolute inset-0 z-[1] grid place-items-center text-white/50 text-sm">Sin NVR/canal para reproducir grabación.</div>
                         )}
@@ -446,14 +580,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                                 </span>
                             </div>
                         )}
-                        {/* hora grande mientras se arrastra la barra — abajo, sobre la línea de tiempo (no tapa el aviso de carga) */}
-                        {scrub != null && (
-                            <div className="absolute inset-x-0 bottom-32 z-[25] flex justify-center pointer-events-none">
-                                <span className="px-4 py-1 rounded-xl bg-black/45 backdrop-blur-sm text-white text-3xl sm:text-4xl font-extrabold tabular-nums tracking-wide drop-shadow-[0_3px_14px_rgba(0,0,0,0.95)]">
-                                    {new Date(scrub).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                                </span>
-                            </div>
-                        )}
+                        {descarga && <DescargaClip instante={posMs ?? recT} ventana={ventana} href={hrefDescarga} onClose={() => setDescarga(false)} />}
                         {/* línea de tiempo — sin recuadro, directa sobre degradado */}
                         <div className="absolute bottom-0 inset-x-0 px-5 pb-3 pt-20 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20">
                             <div>
@@ -467,16 +594,21 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                                             onChange={(e) => { const v = e.target.value; if (v) seekTo(dateTimeToMs(v, recMinutesOfDay)); }}
                                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer [color-scheme:dark]" />
                                     </label>
-                                    {/* hora en curso */}
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <Circle size={7} className="fill-red-500 text-red-500 animate-pulse shrink-0" />
-                                        <span className="text-white font-extrabold tabular-nums text-[15px] leading-none drop-shadow-[0_1px_5px_rgba(0,0,0,0.95)]">{new Date(recT).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
-                                    </span>
+                                    {/* play / pausa. La hora que iba acá se fue: ya está grande sobre la regla, y la cámara la quema en el cuadro. */}
+                                    <button onClick={togglePlay} disabled={!playbackUrl} data-tooltip-id="mi-tip" data-tooltip-content={recPlaying ? "Pausar (espacio)" : "Reproducir (espacio)"}
+                                        className={cn("h-8 w-8 grid place-items-center rounded-full ring-1 transition active:scale-90", recPlaying ? "bg-white text-black ring-white/40" : "bg-red-600 text-white ring-red-400/40 hover:bg-red-500", !playbackUrl && "opacity-40")}>
+                                        {recLoading && !noRec ? <Loader2 size={14} className="animate-spin" /> : recPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
+                                    </button>
+                                    {posMs != null && !recLoading && (
+                                        <span className="text-[11px] font-bold tabular-nums text-white/70 drop-shadow" data-tooltip-id="mi-tip" data-tooltip-content="Instante exacto del cuadro que se ve">{horaSeg(posMs)}</span>
+                                    )}
                                     {/* velocidad de reproducción */}
                                     <button onClick={() => setRecRate((r) => (r >= 8 ? 1 : r * 2))} data-tooltip-id="mi-tip" data-tooltip-content="Velocidad de reproducción"
                                         className={cn("ml-auto h-8 min-w-[40px] px-2.5 grid place-items-center rounded-full text-[12px] font-extrabold tabular-nums ring-1 ring-white/10 transition", recRate > 1 ? "bg-sky-500/80 text-white ring-sky-400/40" : "bg-white/10 text-white/90 hover:bg-white/15")}>{recRate}x</button>
                                 </div>
-                                <Scrub step="5" momentum={30} format="24h" width={680} value={recMinutesOfDay} start={recMinutesOfDay} onChange={(mins) => seekTo(dateTimeToMs(recDateStr, mins))} />
+                                <Scrub step="5" momentum={30} format="24h" width={680} value={valorRegla} start={recMinutesOfDay}
+                                    onChange={(mins) => seekTo(dateTimeToMs(recDateStr, mins))}
+                                    marcas={marcas} onMarca={irAMarca} />
                             </div>
                         </div>
                     </div>
@@ -557,9 +689,9 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                                 className={cn("px-2.5 h-9 grid place-items-center rounded-full text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm transition-colors", hd ? "bg-sky-500/90 text-white" : "bg-black/40 text-white/80 hover:bg-black/70")}>{hd ? "HD" : "SD"}</button>
                         )}
                         {tab === "rec" && nvrId && cam.ch != null && (
-                            <a href={`/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&download=1&nvr=${nvrId}`} download
-                                data-tooltip-id="mi-tip" data-tooltip-content="Descargar clip (60s alrededor de este instante)"
-                                className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-sky-500/80 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><Download size={17} /></a>
+                            <button onClick={() => setDescarga(true)}
+                                data-tooltip-id="mi-tip" data-tooltip-content={`Descargar clip · ${ventana.antes} s antes y ${ventana.despues} s después de este instante`}
+                                className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-sky-500/80 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><Download size={17} /></button>
                         )}
                         <button onClick={onClose} className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-black/70 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><X size={18} /></button>
                     </div>

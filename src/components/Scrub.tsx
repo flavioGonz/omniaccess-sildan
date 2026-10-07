@@ -35,9 +35,25 @@ function label(m: number, h24: boolean) {
     return { time: `${h % 12 || 12}:${mm}`, mer: h < 12 ? "AM" : "PM" };
 }
 
-export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange }: {
+/**
+ * Una marca sobre la regla: un evento a una hora del día.
+ *
+ * `m` es el minuto del día con decimales (04:35:17 → 275.28). El ícono es el del tipo de
+ * evento (cruce de línea, zona), para que se reconozca sin leer. Al tocarla la regla se
+ * posiciona EXACTAMENTE ahí —sin redondear al paso de 5 minutos, que es para arrastrar—
+ * y avisa con `onMarca`, que es lo que lleva a la grabación de ese instante.
+ */
+export type MarcaScrub = { id: string; m: number; Icon: React.ComponentType<{ size?: number; className?: string }>; titulo: string; tono?: string };
+
+/** Cuántos minutos cubre un ícono de marca a 2 px/min: dos eventos más cerca que esto se juntan en una sola marca con contador. */
+const MINUTOS_POR_MARCA = 9;
+
+export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca }: {
     step?: string; momentum?: number; format?: string; corner?: number; start?: number; width?: number;
     value?: number; onChange?: (minutes: number) => void;
+    marcas?: MarcaScrub[];
+    /** Se tocó una marca: la regla ya está sobre ella; el padre decide qué grabación abrir. */
+    onMarca?: (marca: MarcaScrub, grupo: MarcaScrub[]) => void;
 } = {}) {
     const HALF = (width - 36) / 2;
     const still = stillness();
@@ -50,11 +66,14 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     const lastStep = useRef(Math.floor(start / (Number(step) || 15)));
     const dragging = useRef(false);
     const onChangeRef = useRef(onChange); onChangeRef.current = onChange;
+    const onMarcaRef = useRef(onMarca); onMarcaRef.current = onMarca;
 
-    // seguir el reloj externo cuando NO se está arrastrando
+    // seguir el reloj externo cuando NO se está arrastrando ni asentándose tras un arrastre.
+    // El umbral es chico a propósito: `value` llega con decimales mientras el video avanza
+    // (un segundo son 0,017 min) y con 0,5 la regla quedaba quieta medio minuto y saltaba.
     useEffect(() => {
-        if (value == null || dragging.current) return;
-        if (Math.abs(wrap(p.current.x) - wrap(value)) < 0.5) return;
+        if (value == null || dragging.current || raf.current) return;
+        if (Math.abs(wrap(p.current.x) - wrap(value)) < 0.01) return;
         p.current.x = value; p.current.to = value; p.current.v = 0; setPos(value);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value]);
@@ -132,6 +151,27 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     const { time, mer } = label(pos, h24);
     const s = Number(step) || 15;
 
+    /**
+     * Las marcas visibles, agrupadas. Se recorren de la más nueva a la más vieja y cada
+     * una se pega al grupo anterior si cae a menos de un ícono de distancia: así un evento
+     * que disparó cuatro detecciones en dos minutos es UNA marca con un "4", y no cuatro
+     * íconos encimados que no se pueden tocar.
+     */
+    const grupos: { lider: MarcaScrub; todas: MarcaScrub[]; x: number; f: number }[] = [];
+    if (marcas && marcas.length) {
+        const vis = marcas.filter((k) => Math.abs(k.m - pos) <= span).sort((a, b) => b.m - a.m);
+        for (const k of vis) {
+            const u = grupos[grupos.length - 1];
+            if (u && Math.abs(u.lider.m - k.m) < MINUTOS_POR_MARCA) { u.todas.push(k); continue; }
+            const x = (k.m - pos) * PX;
+            grupos.push({ lider: k, todas: [k], x, f: clamp(1 - Math.pow(Math.abs(x) / HALF, 2), 0, 1) });
+        }
+    }
+    const irAMarca = (g: { lider: MarcaScrub; todas: MarcaScrub[] }) => {
+        cancelAnimationFrame(raf.current); raf.current = 0; p.current.v = 0; p.current.to = g.lider.m; set(g.lider.m);
+        onMarcaRef.current?.(g.lider, g.todas);
+    };
+
     return (
         <div className="tms" style={{ "--tms-r": `${Math.max(0, corner)}px`, width } as React.CSSProperties}>
             <div className="tms-read" aria-live="polite" aria-label={`${time} ${mer}`}>
@@ -158,6 +198,27 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                         );
                     })}
                 </div>
+                {/* Las marcas van FUERA de .tms-track para no heredar su transform, y por encima
+                    de los ticks: son lo único de la regla que se toca de a uno. El pointerdown se
+                    corta para que tocar una marca no empiece un arrastre. */}
+                <div className="tms-marcas" aria-hidden={grupos.length === 0}>
+                    {grupos.map((g) => {
+                        const Ic = g.lider.Icon;
+                        const n = g.todas.length;
+                        const texto = n > 1 ? `${n} eventos · ${g.lider.titulo} y ${n - 1} más` : g.lider.titulo;
+                        return (
+                            <button key={g.lider.id} type="button" className="tms-marca" data-tono={g.lider.tono || "mal"}
+                                style={{ "--tx": `${g.x.toFixed(2)}px`, opacity: 0.25 + 0.75 * g.f } as React.CSSProperties}
+                                data-tooltip-id="mi-tip" data-tooltip-content={`${texto} · ir a la grabación`}
+                                aria-label={`${texto}, ir a la grabación`}
+                                onPointerDown={(e) => { e.stopPropagation(); }}
+                                onClick={(e) => { e.stopPropagation(); irAMarca(g); }}>
+                                <Ic size={11} />
+                                {n > 1 && <span className="tms-marca-n">{n}</span>}
+                            </button>
+                        );
+                    })}
+                </div>
                 <span className="tms-mark" aria-hidden="true" />
             </div>
             <style jsx global>{`
@@ -180,6 +241,14 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 .tms-tick[data-kind="hour"] { height: 25px; }
                 .tms-hour { position: absolute; left: 0; top: 36px; font-size: 11px; font-weight: 600; white-space: nowrap; color: rgba(255,255,255,0.6); }
                 .tms-mark { position: absolute; left: 50%; top: 2px; width: 3px; height: 32px; margin-left: -1.5px; border-radius: 2px; background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.9); }
+                /* Marcas de evento: colgadas del borde superior de la regla, sobre los ticks de su hora. */
+                .tms-marcas { position: absolute; left: 50%; top: -14px; height: 22px; width: 0; }
+                .tms-marca { position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,0.85); display: grid; place-items: center; color: #fff; cursor: pointer; padding: 0; transform: translateX(var(--tx, 0px)) translateX(-50%); transition: box-shadow 120ms ease; touch-action: none; }
+                .tms-marca[data-tono="mal"]   { background: #dc2626; box-shadow: 0 0 10px rgba(239,68,68,0.75); }
+                .tms-marca[data-tono="aviso"] { background: #d97706; box-shadow: 0 0 10px rgba(245,158,11,0.7); }
+                .tms-marca[data-tono="info"]  { background: #0284c7; box-shadow: 0 0 10px rgba(56,189,248,0.7); }
+                .tms-marca:hover { transform: translateX(var(--tx, 0px)) translateX(-50%) scale(1.18); box-shadow: 0 0 16px rgba(255,255,255,0.55); }
+                .tms-marca-n { position: absolute; top: -7px; right: -7px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; background: #fff; color: #991b1b; font-size: 9px; font-weight: 800; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; }
                 @keyframes tms-blur-a { from { filter: blur(2px); } to { filter: blur(0); } }
                 @keyframes tms-blur-b { from { filter: blur(2px); } to { filter: blur(0); } }
             `}</style>
