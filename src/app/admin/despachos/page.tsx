@@ -202,7 +202,7 @@ function showThresholdToast(data: { alertName: string; deviceName: string; chann
                 </div>
             </div>
         </div>
-    ), { duration: 8000, position: "top-right" });
+    ), { duration: 8000 });
 }
 
 import DispatchQueuePanel from "./DispatchQueuePanel";

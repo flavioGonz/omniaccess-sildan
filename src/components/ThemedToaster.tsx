@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
-import { Toaster } from "sileo";
+import { Toaster, sileo, type SileoOptions } from "sileo";
 
 /**
  * El globo de avisos.
@@ -71,7 +71,68 @@ function leerGlobo(): string {
     }
 }
 
+/**
+ * Dónde salen los avisos: abajo al centro, todos.
+ *
+ * Estaban en el medio de la pantalla (ver globals.css, la regla que corría el visor a la
+ * mitad). Ahí está casi siempre el puntero —se acaba de apretar un botón de un diálogo
+ * centrado—, y la librería frena el reloj de TODOS los avisos mientras el puntero esté
+ * encima de uno. El globo no se iba hasta que alguien lo arrastraba o movía el mouse, que
+ * se vivía como "hay que aceptarlo". Abajo al centro no tapa la barra del mapa (el motivo
+ * por el que se lo había sacado de arriba) y no queda debajo del puntero.
+ */
+const POSICION = "bottom-center" as const;
+
+/** Lo que la librería usa cuando una llamada no dice cuánto dura. */
+const DURACION_POR_DEFECTO_MS = 6000;
+/** Cada cuánto se vuelve a mirar un aviso vencido que tenía el puntero encima. */
+const REINTENTO_MS = 1000;
+
+/**
+ * El reloj propio de cada aviso, por encima del de la librería.
+ *
+ * El de sileo@0.1.3 tiene un defecto: marca "puntero encima" al entrar y lo desmarca al
+ * salir, pero si el globo desaparece con el puntero encima (se lo arrastró para cerrarlo,
+ * o se reemplazó) la salida nunca llega. La marca queda puesta y desde ahí NINGÚN aviso se
+ * va solo — todos esperan a que alguien los cierre a mano. Lo mismo en 0.1.5.
+ *
+ * Este reloj no depende de esa marca: al vencer, cierra el aviso salvo que el puntero esté
+ * de verdad sobre los avisos en ese instante (`:hover` del visor, que lo calcula el
+ * navegador y no se queda pegado); si lo está, vuelve a mirar en un segundo. Los avisos
+ * sin duración (los de "cargando…") no se tocan: los cierra quien los abrió.
+ *
+ * Se instala una sola vez sobre el objeto `sileo`, que es el mismo para todos los
+ * archivos que lo importan — directo o por `lib/avisos` —, así que cubre todas las
+ * llamadas sin tocar ninguna.
+ */
+let relojInstalado = false;
+function instalarReloj() {
+    if (relojInstalado || typeof window === "undefined") return;
+    relojInstalado = true;
+    const s = sileo as unknown as Record<string, (o: SileoOptions) => string>;
+    for (const metodo of ["show", "success", "error", "warning", "info", "action"]) {
+        const original = s[metodo];
+        if (typeof original !== "function") continue;
+        s[metodo] = (opciones: SileoOptions) => {
+            // Una posición por llamada partía los avisos en dos lugares de la pantalla.
+            const { position: _ignorada, ...resto } = opciones || {};
+            const id = original({ ...resto });
+            const dur = resto.duration === undefined ? DURACION_POR_DEFECTO_MS : resto.duration;
+            if (id && dur !== null && dur > 0) {
+                const vencer = () => {
+                    const visor = document.querySelector("[data-sileo-viewport]");
+                    if (visor?.matches(":hover")) { window.setTimeout(vencer, REINTENTO_MS); return; }
+                    sileo.dismiss(id);
+                };
+                window.setTimeout(vencer, dur);
+            }
+            return id;
+        };
+    }
+}
+
 export default function ThemedToaster() {
+    instalarReloj();
     /* `resolvedTheme` no se usa para leer el color: se usa sólo como una señal más de que
        algo del tema cambió. El color siempre sale del DOM. */
     const { resolvedTheme } = useTheme();
@@ -104,5 +165,5 @@ export default function ThemedToaster() {
         return () => obs.disconnect();
     }, [resolvedTheme]);
 
-    return <Toaster position="top-center" options={{ fill }} />;
+    return <Toaster position={POSICION} offset={{ bottom: 20 }} options={{ fill }} />;
 }

@@ -332,7 +332,7 @@ function showQueueAlertToast(data: { alertName: string; deviceName: string; chan
                 <div className="h-1 bg-foreground/10"><div className="h-full bg-red-500/60 animate-[shrink_8s_linear_forwards]" /></div>
             </div>
         ),
-        { duration: 8000, position: "top-right" }
+        { duration: 8000 }
     );
 }
 

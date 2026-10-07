@@ -73,6 +73,7 @@ import { OtpInput, type OtpStatus } from "@/components/ui/otp-input";
 import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import ModosSection from "./ModosSection";
+import CentroNotificaciones, { TABS_NOTIFICACIONES } from "../notificaciones/CentroNotificaciones";
 import AlmacenamientoSection from "./AlmacenamientoSection";
 import { FUNCIONES, type FuncionId } from "@/lib/funciones";
 import { getFunciones, toggleFuncion } from "@/app/actions/funciones";
@@ -191,6 +192,11 @@ const NAV_GROUPS = [
         { sec: "branding", btab: "pwa", label: "PWA e Iconos", icon: Smartphone },
         { sec: "branding", btab: "splash", label: "PWA SplashScreen", icon: Smartphone },
     ]},
+    /* El centro de notificaciones, mudado desde su pantalla propia: una entrada por parte,
+       como Branding. `ntab` elige la parte. */
+    { id: "notificaciones", label: "Notificaciones", icon: Bell, items: TABS_NOTIFICACIONES.map((t) => (
+        { sec: "notificaciones", btab: "", ntab: t.k, label: t.l, icon: t.icon }
+    )) },
     { id: "modos", label: "Modos", icon: Layers, items: [
         { sec: "modo", btab: "", label: "Modos (LPR / Face / Cola)", icon: Layers },
     ]},
@@ -220,6 +226,17 @@ export default function SettingsPage() {
     const [activeSection, setActiveSection] = useState("system_status");
     const [openGroup, setOpenGroup] = useState<string | null>(null);
     const [brandingTab, setBrandingTab] = useState("identidad");
+    const [notifTab, setNotifTab] = useState("canales");
+    /* Se puede entrar directo a una sección: /admin/settings?seccion=notificaciones&tab=reglas
+       (es a donde lleva la ruta vieja /admin/notificaciones). */
+    useEffect(() => {
+        try {
+            const q = new URLSearchParams(window.location.search);
+            const sec = q.get("seccion");
+            if (sec) setActiveSection(sec);
+            if (sec === "notificaciones" && q.get("tab")) setNotifTab(q.get("tab")!);
+        } catch { /* sin URL legible, queda la sección por defecto */ }
+    }, []);
     const [storageTab, setStorageTab] = useState("explorador");
     const [selectedBrand, setSelectedBrand] = useState<string | null>(null);
     const [modelSearch, setModelSearch] = useState("");
@@ -269,7 +286,7 @@ export default function SettingsPage() {
                 <div className="relative z-50 flex items-center gap-1.5 flex-wrap">
                     {NAV_GROUPS.map((g) => {
                         const GIcon = g.icon;
-                        const groupActive = g.items.some(it => it.sec === activeSection && (it.btab ? it.btab === brandingTab : true));
+                        const groupActive = g.items.some((it: any) => it.sec === activeSection && (it.btab ? it.btab === brandingTab : true) && (it.ntab ? it.ntab === notifTab : true));
                         const isOpen = openGroup === g.id;
                         return (
                             <div key={g.id} className="relative">
@@ -286,13 +303,13 @@ export default function SettingsPage() {
                                 </button>
                                 {isOpen && (
                                     <div className="absolute left-0 top-full mt-1.5 min-w-[240px] rounded-xl border border-border bg-card shadow-xl shadow-black/30 p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
-                                        {g.items.map((it, idx) => {
+                                        {g.items.map((it: any, idx) => {
                                             const IIcon = it.icon;
-                                            const itemActive = it.sec === activeSection && (it.btab ? it.btab === brandingTab : true);
+                                            const itemActive = it.sec === activeSection && (it.btab ? it.btab === brandingTab : true) && (it.ntab ? it.ntab === notifTab : true);
                                             return (
                                                 <button
                                                     key={idx}
-                                                    onClick={() => { setActiveSection(it.sec); if (it.btab) setBrandingTab(it.btab); setOpenGroup(null); }}
+                                                    onClick={() => { setActiveSection(it.sec); if (it.btab) setBrandingTab(it.btab); if (it.ntab) setNotifTab(it.ntab); setOpenGroup(null); }}
                                                     className={cn(
                                                         "w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium rounded-lg transition-colors text-left",
                                                         itemActive ? "bg-indigo-500/15 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
@@ -573,6 +590,7 @@ export default function SettingsPage() {
 
                     {activeSection === "tracking" && <TrackingSection />}
                     {activeSection === "playback" && <PlaybackSection />}
+                    {activeSection === "notificaciones" && <CentroNotificaciones tab={notifTab} />}
                 </div>
             </div>
 

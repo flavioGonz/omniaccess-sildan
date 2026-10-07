@@ -50,7 +50,7 @@ export const PERMISOS: Permiso[] = [
     { clave: "filas", rotulo: "Control de filas", grupo: "Filas", descripcion: "Filas, flujo, despachos, horarios, kiosko, calibración de aforo y reportes de filas.", rutas: ["/admin/filas", "/admin/flujo-filas", "/admin/despachos", "/admin/horarios-filas", "/admin/kiosko", "/admin/calibracion-aforo", "/admin/reportes-queue"] },
 
     // ── Administración ──
-    { clave: "notificaciones", rotulo: "Notificaciones", grupo: "Administración", descripcion: "Reglas de aviso: WhatsApp, Telegram, correo, destinatarios y plantillas.", rutas: ["/admin/notificaciones"] },
+    { clave: "notificaciones", rotulo: "Notificaciones", grupo: "Administración", descripcion: "Reglas de aviso: WhatsApp, Telegram, correo, destinatarios y plantillas. Viven en Configuración → Notificaciones, así que también hace falta Ajustes para abrirlas.", rutas: ["/admin/notificaciones"] },
     { clave: "ajustes", rotulo: "Ajustes", grupo: "Administración", descripcion: "Toda la configuración del sistema, menos los accesos al panel.", rutas: ["/admin/settings", "/admin/debug", "/admin/manuales"] },
     { clave: "accesos", rotulo: "Accesos al panel", grupo: "Administración", descripcion: "Los usuarios del sistema y los roles: quién entra al panel y qué puede abrir. Quien tiene esto puede darse a sí mismo cualquier otro permiso.", rutas: [] },
 ];

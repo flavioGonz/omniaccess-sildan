@@ -669,7 +669,9 @@ function _isoDay(d: Date) { const x = d.getDay(); return x === 0 ? 7 : x; }
 
 async function evaluateNotificationRules(deviceId: string, channelName: string | null | undefined, count: number, snapshotPath?: string | null) {
     let rules: any[];
-    try { rules = await prisma.notificationRule.findMany({ where: { enabled: true } }); }
+    // Sólo las de Filas: sin el filtro, una regla de Matrículas o Intrusión (que también tiene
+    // metric/operator/threshold, con sus valores por defecto) se evaluaba contra el aforo.
+    try { rules = await prisma.notificationRule.findMany({ where: { enabled: true, modulo: "QUEUE" } }); }
     catch { return; }
     if (!rules.length) return;
     const now = new Date();

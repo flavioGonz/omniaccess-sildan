@@ -991,20 +991,20 @@ video::-webkit-media-controls { display: none !important; }
    ══════════════════════════════════════════════════════════════════════ */
 
 /*
- * El globo aparece en el CENTRO de la pantalla, no colgado de arriba.
+ * El globo sale ABAJO AL CENTRO, subiendo, y se va bajando.
  *
- * Arriba al centro choca con la barra de herramientas del mapa: en la foto del
- * operador el título quedaba tapado por la barra y sólo se leía la descripción, que
- * es justo al revés de lo que hace falta.
+ * Antes se corría el visor al medio de la pantalla (arriba al centro chocaba con la barra
+ * del mapa). En el medio quedaba debajo del puntero y la librería frena el reloj mientras
+ * el puntero esté encima: los avisos no se iban solos. Ver ThemedToaster.
  *
- * La librería no tiene una posición "centro": sus seis opciones cuelgan de arriba o
- * de abajo. Se consigue corriendo el visor a la mitad, que es un cambio de dos
- * líneas y no toca nada más — el apilado, la animación de entrada y el arrastre
- * siguen funcionando igual porque sólo cambia dónde está anclado el contenedor.
+ * La librería ya anima la entrada y la salida desde abajo, pero con 6 px: no se lee como
+ * "sube". Se agranda el recorrido a 1,5 rem, con la misma curva y la misma escala. Va con
+ * el visor en el selector para ganarle a la regla de la librería sin depender del orden en
+ * que se junten los dos CSS.
  */
-[data-sileo-viewport][data-position="top-center"] {
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
+[data-sileo-viewport][data-position^="bottom"] [data-sileo-toast]:not([data-ready=true]),
+[data-sileo-viewport][data-position^="bottom"] [data-sileo-toast][data-ready=true][data-exiting=true] {
+    transform: translateY(1.5rem) scale(.95);
 }
 
 [data-sileo-viewport] {

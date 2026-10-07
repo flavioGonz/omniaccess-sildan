@@ -212,7 +212,6 @@ export default function PlazasPage() {
                 toast.success({
                     title: "¡Configuración Guardada!",
                     description: result.message || "Las plazas se han guardado correctamente",
-                    position: "bottom-center"
                 });
             } else {
                 toast.error({

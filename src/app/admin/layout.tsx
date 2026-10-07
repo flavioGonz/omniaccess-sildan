@@ -45,7 +45,6 @@ import {
     MonitorPlay,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import AlertBell from "@/components/AlertBell";
 import { cn } from "@/lib/utils";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
 import { hasAcuSeekNvr } from "@/app/actions/acuseek";
@@ -292,7 +291,8 @@ export default function AdminLayout({
                         )}
                         {!collapsed && (
                             <div className="ml-auto flex items-center gap-1.5">
-                                <AlertBell className="cursor-pointer" />
+                                {/* Sin campana: contaba alertas de equipos y llevaba a Notificaciones, que no
+                                    las muestra. Las notificaciones viven en Configuración → Notificaciones. */}
                                 <ThemeToggle />
                                 <button
                                     onClick={handleLogout}
