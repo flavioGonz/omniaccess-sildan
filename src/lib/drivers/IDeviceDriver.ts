@@ -4,6 +4,9 @@ import { Device, Credential } from "@prisma/client";
  * Base interface for all device drivers.
  * Every driver MUST implement these two methods.
  */
+/** Las dos listas de una lectora ANPR Hikvision. */
+export type ListaCamara = "whiteList" | "blackList";
+
 export interface IDeviceDriver {
     upsertCredential(credential: Credential, device: Device): Promise<void>;
     triggerRelay(device: Device): Promise<void>;
@@ -20,7 +23,10 @@ export interface ILprDriver extends IDeviceDriver {
         numOfMatches: number;
         isLastPage: boolean;
     }>;
-    addPlateToCamera(device: Device, plate: string): Promise<void>;
+    /** `lista` por defecto "whiteList"; "blackList" para la lista negra de la cámara (ver lib/lista-negra). */
+    addPlateToCamera(device: Device, plate: string, lista?: ListaCamara): Promise<void>;
+    /** Saca una sola matrícula de la cámara, de la lista que esté. Opcional: no todos los drivers lo saben hacer. */
+    removePlateFromCamera?(device: Device, plate: string): Promise<void>;
     deleteCredential(credentialValue: string, device: Device): Promise<void>;
     clearWhiteList?(device: Device): Promise<void>;
 }

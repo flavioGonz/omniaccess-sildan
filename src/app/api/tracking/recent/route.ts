@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { normalizeWatchCat } from "@/lib/watch-categories";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 import { ESTADIA_VENCE_MIN } from "@/lib/estadias";
 
@@ -105,7 +106,8 @@ export async function GET() {
             };
         }
         for (const w of vigiladas) {
-            fichas[w.plate] = { ...(fichas[w.plate] || {}), vigilancia: { etiqueta: w.label, categoria: w.category, color: w.color } };
+            // Categoría canónica (BLACKLISTED | WHITELISTED | SEARCH): el visor pinta por ella.
+            fichas[w.plate] = { ...(fichas[w.plate] || {}), vigilancia: { etiqueta: w.label, categoria: normalizeWatchCat(w.category) || w.category, color: w.color } };
         }
     }
 

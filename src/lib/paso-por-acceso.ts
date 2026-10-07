@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { avisarPorSocket } from "@/lib/avisar";
 import { notificarEvento } from "@/lib/reglas-notificacion";
+import { estaEnListaNegra, detalleListaNegra } from "@/lib/lista-negra";
 
 /**
  * Una lectura del contenedor en una cámara que mira un ACCESO se convierte en un evento
@@ -60,14 +61,18 @@ export async function registrarPasoPorAcceso(l: Lectura): Promise<string | null>
             where: { type: "PLATE", value: l.plate },
             include: { user: { include: { unit: true } } },
         });
+        // La lista negra manda sobre la credencial y el modo (misma regla que server.js).
+        const negra = await estaEnListaNegra(l.plate);
         let decision: "GRANT" | "DENY" = "DENY";
-        if (credential) {
+        if (negra.negra) decision = "DENY";
+        else if (credential) {
             const modo = (await prisma.setting.findUnique({ where: { key: "MODE_LPR" } }))?.value || "WHITELIST";
             decision = modo === "BLACKLIST" ? "DENY" : "GRANT";
         }
 
         const confianza = l.confidence != null ? Math.round(Number(l.confidence) * 100) : null;
         const details = [
+            negra.negra ? detalleListaNegra(negra.motivo) : null,
             `Metodo: ${METODO_RTSP}`,
             confianza != null ? `Confianza: ${confianza}%` : null,
             l.reads != null ? `Lecturas: ${l.reads}` : null,
@@ -92,13 +97,21 @@ export async function registrarPasoPorAcceso(l: Lectura): Promise<string | null>
         await prisma.plateSighting.update({ where: { id: l.sightingId }, data: { accessEventId: event.id, decision } }).catch(() => null);
 
         // La misma forma que emite server.js para las lectoras: el monitor no distingue.
-        avisarPorSocket("access_event", { ...event, device, user: credential?.user || null, direction: event.direction, watch: null, guest: null });
+        const watch = negra.watch ? { label: negra.watch.label, category: negra.watch.category, color: negra.watch.color, source: negra.watch.origen === "rol" ? "role" : "manual", motivo: negra.watch.motivo } : null;
+        avisarPorSocket("access_event", { ...event, device, user: credential?.user || null, direction: event.direction, watch, guest: null });
         notificarEvento({
             modulo: "LPR",
             evento: credential ? (decision === "GRANT" ? "ALLOW" : "DENY") : "UNKNOWN",
             deviceId: device.id, deviceName: device.name,
             plate: l.plate, direction: event.direction, snapshotPath: event.snapshotPath,
         }).catch(() => 0);
+        if (negra.watch && (negra.watch.category === "BLACKLISTED" || negra.watch.category === "SEARCH")) {
+            notificarEvento({
+                modulo: "LPR", evento: "WATCHLIST", deviceId: device.id, deviceName: device.name,
+                plate: l.plate, direction: event.direction, snapshotPath: event.snapshotPath,
+                extra: { categoria: negra.watch.category, motivo: negra.motivo, origen: negra.origen },
+            } as any).catch(() => 0);
+        }
         return event.id;
     } catch (e) {
         console.error("[paso-por-acceso] no se pudo registrar el acceso:", (e as any)?.message);

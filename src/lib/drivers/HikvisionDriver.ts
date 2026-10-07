@@ -1,5 +1,5 @@
 import axios from "axios";
-import { IDeviceDriver, ILprDriver, IFaceDriver, ILogDriver } from "./IDeviceDriver";
+import { IDeviceDriver, ILprDriver, IFaceDriver, ILogDriver, ListaCamara } from "./IDeviceDriver";
 import { Device, Credential, CredentialType, AuthType } from "@prisma/client";
 import {
     authenticatedRequest,
@@ -127,10 +127,11 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
      * esperando el error que no llegaba nunca. Así que relanzar no rompe a nadie:
      * reactiva lo que ya estaba escrito.
      */
-    async upsertCredential(credential: Credential, device: Device): Promise<void> {
+    /** `lista`: la lista de la cámara en la que va la chapa; quien llama la resuelve con lib/lista-negra. */
+    async upsertCredential(credential: Credential, device: Device, lista: ListaCamara = "whiteList"): Promise<void> {
         if (credential.type !== CredentialType.PLATE) return;
         try {
-            await this.addPlateToCamera(device, credential.value);
+            await this.addPlateToCamera(device, credential.value, lista);
         } catch (e: any) {
             /* Se relanza con contexto: qué chapa y a qué equipo. El mensaje crudo de
                ISAPI no dice ninguna de las dos cosas, y sin eso el error que llega
@@ -142,14 +143,8 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
     async deleteCredential(credentialValue: string, device: Device): Promise<void> {
         // 1. Try LPR Delete (Traffic API)
         if (device.deviceType === 'LPR_CAMERA') {
-            const url = `/ISAPI/Traffic/channels/1/DelLicensePlateAuditData?format=json`;
-            const payload = {
-                id: [credentialValue],
-                deleteAllEnabled: false
-            };
-
             try {
-                await this.request("PUT", url, payload, device);
+                await this.removePlateFromCamera(device, credentialValue);
                 return;
             } catch (e: any) {
                 console.error(`[Hikvision LPR] Failed to delete plate:`, e.message);
@@ -273,7 +268,43 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
         }
     }
 
-    async addPlateToCamera(device: Device, plate: string): Promise<void> {
+    /**
+     * Busca el id interno que la cámara le dio a una matrícula (y en qué lista está).
+     *
+     * Hace falta porque `DelLicensePlateAuditData` NO acepta la matrícula: acepta el `id`
+     * del registro, como string. El código viejo mandaba la matrícula y la cámara contestaba
+     * "Invalid JSON Content": borrar una chapa de la cámara nunca había funcionado. Medido
+     * el 7/10 en la iDS-2CD7A46G0/P de salida: `{"id":["2"]}` borra; `{"id":[2]}` contesta OK
+     * y no borra nada; `{"id":["PRU3BA"]}` es rechazado.
+     */
+    async findPlateOnCamera(device: Device, plate: string): Promise<{ id: string; lista: ListaCamara } | null> {
+        const url = `/ISAPI/Traffic/channels/1/searchLPListAudit`;
+        const xml = `<?xml version="1.0" encoding="UTF-8"?><LPSearchCond><searchID>${Date.now().toString(36)}</searchID><maxResult>10</maxResult><searchResultPosition>0</searchResultPosition><LicensePlate>${plate}</LicensePlate></LPSearchCond>`;
+        const response: string = await this.requestXML("POST", url, xml, device);
+        const bloques = response.match(/<LicensePlateInfo>[\s\S]*?<\/LicensePlateInfo>/g) || [];
+        for (const b of bloques) {
+            const lp = (b.match(/<LicensePlate>([^<]*)<\/LicensePlate>/) || [])[1] || "";
+            if (lp.toUpperCase() !== plate.toUpperCase()) continue;   // el filtro de la cámara es "contiene"
+            const id = (b.match(/<id>([^<]*)<\/id>/) || [])[1] || "";
+            const tipo = (b.match(/<type>([^<]*)<\/type>/) || [])[1] || "whiteList";
+            if (id) return { id, lista: tipo === "blackList" ? "blackList" : "whiteList" };
+        }
+        return null;
+    }
+
+    async removePlateFromCamera(device: Device, plate: string): Promise<void> {
+        const hallada = await this.findPlateOnCamera(device, plate);
+        if (!hallada) return;   // no estaba: nada que borrar
+        const url = `/ISAPI/Traffic/channels/1/DelLicensePlateAuditData?format=json`;
+        await this.request("PUT", url, { id: [String(hallada.id)], deleteAllEnabled: false }, device);
+    }
+
+    /**
+     * Carga (o mueve) una matrícula en la cámara. Mismo registro, distinta lista: medido el
+     * 7/10, volver a mandar la misma chapa con otro `listType` la REEMPLAZA (mismo id), así que
+     * pasar de blanca a negra o al revés es un solo PUT, sin borrar antes.
+     */
+    async addPlateToCamera(device: Device, plate: string, lista: ListaCamara = "whiteList"): Promise<void> {
         const url = `/ISAPI/Traffic/channels/1/licensePlateAuditData/record?format=json`;
         const now = new Date();
         const createTime = now.toISOString().split('.')[0].replace('Z', ''); // YYYY-MM-DDTHH:mm:ss
@@ -286,7 +317,7 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
             LicensePlateInfoList: [
                 {
                     LicensePlate: plate,
-                    listType: "whiteList",
+                    listType: lista,
                     createTime: createTime,
                     effectiveStartDate: startDate,
                     effectiveTime: endDate,

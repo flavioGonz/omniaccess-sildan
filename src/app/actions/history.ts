@@ -1,6 +1,30 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { estaEnListaNegra, detalleListaNegra } from "@/lib/lista-negra";
+
+/**
+ * Pega a cada evento su `watch` (la misma forma que emite server.js por el socket): la fila
+ * activa de la lista de vigilancia para esa matrícula, o la derivada del rol BLACKLISTED.
+ * Una consulta por página, no por evento.
+ */
+async function adjuntarVigilancia<T extends { plateDetected?: string | null; user?: any }>(events: T[]): Promise<(T & { watch?: any })[]> {
+    const norm = (p: string | null | undefined) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const plates = [...new Set(events.map((e) => norm(e.plateDetected)).filter(Boolean))];
+    if (plates.length === 0) return events;
+    let filas: { plate: string; label: string; category: string; color: string | null; motivo: string | null }[] = [];
+    try {
+        filas = await prisma.plateWatch.findMany({ where: { active: true, plate: { in: plates } }, select: { plate: true, label: true, category: true, color: true, motivo: true } });
+    } catch { return events; }
+    const porPlaca = new Map(filas.map((f) => [norm(f.plate), f]));
+    return events.map((e) => {
+        const f = porPlaca.get(norm(e.plateDetected));
+        if (f) return { ...e, watch: { label: f.label, category: f.category, color: f.color, source: "manual", motivo: f.motivo } };
+        const role = String(e.user?.role || "").toUpperCase();
+        if (role === "BLACKLISTED" || role === "WHITELISTED") return { ...e, watch: { label: e.user?.name || "", category: role, color: null, source: "role", motivo: null } };
+        return e;
+    });
+}
 
 export async function getAccessEvents(options?: {
     take?: number,
@@ -99,13 +123,18 @@ export async function getAccessEvents(options?: {
             prisma.accessEvent.count({ where: whereClause })
         ]);
 
+        // La vigilancia viaja con el evento también cuando se recarga desde la base: antes
+        // sólo venía por el socket, y al recargar el monitor una lectura en lista negra
+        // perdía el rojo y la pila crítica.
+        const conVigilancia = await adjuntarVigilancia(events);
+
         if (options?.omitEnrichment) {
-            return { events, total };
+            return { events: conVigilancia, total };
         }
 
         // Batch enrichment: single raw SQL query to get previous events for ALL events at once.
         // This replaces the N+1 pattern (1 query per event) with 1 query total.
-        const enrichedEvents = await enrichEventsWithDuration(events);
+        const enrichedEvents = await enrichEventsWithDuration(conVigilancia);
 
         return { events: enrichedEvents, total };
 
@@ -440,16 +469,14 @@ export async function setEventPlate(eventId: string, rawPlate: string) {
         });
         const modeSetting = await prisma.setting.findUnique({ where: { key: "MODE_LPR" } });
         const mode = modeSetting?.value || "WHITELIST";
-        const decision: "GRANT" | "DENY" = credential ? (mode === "BLACKLIST" ? "DENY" : "GRANT") : "DENY";
-
-        let watch: { label: string; category: string } | null = null;
-        try {
-            const w = await prisma.plateWatch.findFirst({ where: { plate, active: true } });
-            if (w) watch = { label: w.label, category: w.category };
-        } catch { /* modelo puede no existir en instancias viejas */ }
+        // La lista negra manda sobre credencial y modo: misma regla que server.js y que las
+        // cámaras de acceso leídas por RTSP (lib/lista-negra).
+        const negra = await estaEnListaNegra(plate);
+        const decision: "GRANT" | "DENY" = negra.negra ? "DENY" : credential ? (mode === "BLACKLIST" ? "DENY" : "GRANT") : "DENY";
+        const watch = negra.watch ? { label: negra.watch.label, category: negra.watch.category } : null;
 
         const prev = await prisma.accessEvent.findUnique({ where: { id: eventId } });
-        const details = ((prev?.details || "") + ` | Matrícula cargada manualmente: ${plate}`).slice(0, 900);
+        const details = ((negra.negra ? `${detalleListaNegra(negra.motivo)}, ` : "") + (prev?.details || "") + ` | Matrícula cargada manualmente: ${plate}`).slice(0, 900);
 
         await prisma.accessEvent.update({
             where: { id: eventId },

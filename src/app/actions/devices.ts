@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { matriculasParaCargar, listaParaMatricula } from "@/lib/lista-negra";
 import { Device, DeviceBrand, DeviceDirection, DeviceType, AuthType } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
@@ -402,7 +403,9 @@ export async function syncPlatesToDevice(deviceId: string) {
             return { success: false, message: "Dispositivo no compatible para sincronización LPR" };
         }
 
-        const plates = await prisma.credential.findMany({ where: { type: "PLATE" } });
+        // Cada matrícula con SU lista: las credenciales a la blanca, la lista negra a la
+        // negra. Antes iban todas las credenciales a la blanca, incluidas las de lista negra.
+        const plates = await matriculasParaCargar();
         const driver = new HikvisionDriver();
 
         /* Si el borrado falla, la cámara conserva lo que tenía y esto pasa a ser un
@@ -422,10 +425,10 @@ export async function syncPlatesToDevice(deviceId: string) {
 
         for (const plate of plates) {
             try {
-                await driver.upsertCredential(plate, device);
+                await driver.addPlateToCamera(device, plate.plate, plate.lista);
                 enviadas++;
             } catch (err: any) {
-                fallidas.push({ plate: plate.value, error: err?.message || String(err) });
+                fallidas.push({ plate: plate.plate, error: `No se pudo cargar la matrícula ${plate.plate} en ${device.ip}: ${err?.message || String(err)}` });
             }
         }
 
@@ -527,7 +530,7 @@ export async function addDevicePlate(id: string, plate: string) {
         }
 
         const driver = new HikvisionDriver();
-        await driver.addPlateToCamera(device, plate);
+        await driver.addPlateToCamera(device, plate, await listaParaMatricula(plate));
 
         return { success: true, message: `Matrícula ${plate} añadida correctamente a la cámara.` };
     } catch (error: any) {
@@ -817,22 +820,8 @@ export async function syncPlatesToAllDevices() {
             return { success: false, message: "No hay dispositivos LPR compatibles" };
         }
 
-        // Get all plates from database
-        const plates = await prisma.credential.findMany({
-            where: { type: "PLATE" },
-            include: {
-                user: {
-                    select: {
-                        name: true,
-                        unit: {
-                            select: {
-                                name: true
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        // Cada matrícula con su lista (blanca = credenciales, negra = lista de vigilancia).
+        const plates = await matriculasParaCargar();
 
         const results = [];
         const driver = new HikvisionDriver();
@@ -861,11 +850,11 @@ export async function syncPlatesToAllDevices() {
 
                 for (const plate of plates) {
                     try {
-                        await driver.upsertCredential(plate, device);
+                        await driver.addPlateToCamera(device, plate.plate, plate.lista);
                         successCount++;
                     } catch (err) {
                         failCount++;
-                        console.error(`[SyncAll] Failed to sync plate ${plate.value} to ${device.name}:`, err);
+                        console.error(`[SyncAll] Failed to sync plate ${plate.plate} to ${device.name}:`, err);
                     }
                 }
 

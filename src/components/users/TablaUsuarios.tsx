@@ -99,9 +99,11 @@ function Pila({ items, icono: Icono, rotulo, mono }: {
 }
 
 export function TablaUsuarios({
-    usuarios, cargando, error, alReintentar, hayMas, traerMas, alAbrir, alBorrar, barra,
+    usuarios, cargando, error, alReintentar, hayMas, traerMas, alAbrir, alBorrar, barra, enListaNegra,
 }: {
     usuarios: UsuarioFila[];
+    /** Personas con alguna matrícula activa en la lista de vigilancia como lista negra. */
+    enListaNegra?: Set<string>;
     cargando?: boolean;
     error?: string | null;
     alReintentar?: () => void;
@@ -117,11 +119,15 @@ export function TablaUsuarios({
             valor: (u) => u.name,
             celda: (u) => {
                 const rol = ROLES[u.role] || ROLES.RESIDENT;
+                // La lista negra ya no es (sólo) un rol: es tener matrículas en la lista de
+                // vigilancia. Se muestra al lado del rol, no en su lugar: una persona sigue
+                // siendo residente aunque esté en lista negra.
+                const negra = enListaNegra?.has(u.id) && u.role !== "BLACKLISTED";
                 return (
                     <Identidad
                         foto={u.cara}
                         nombre={u.name}
-                        insignia={<Chip tono={rol.tono} icono={rol.icono}>{rol.label}</Chip>}
+                        insignia={<span className="inline-flex items-center gap-1"><Chip tono={rol.tono} icono={rol.icono}>{rol.label}</Chip>{negra && <Chip tono="mal" icono={ShieldAlert}>Lista negra</Chip>}</span>}
                         sub={
                             u.phone || u.email ? (
                                 <span className="inline-flex items-center gap-2.5">
@@ -212,7 +218,7 @@ export function TablaUsuarios({
                 </div>
             ),
         },
-    ], [alAbrir, alBorrar]);
+    ], [alAbrir, alBorrar, enListaNegra]);
 
     return (
         <Tabla<UsuarioFila>

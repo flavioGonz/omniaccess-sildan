@@ -5,6 +5,8 @@ import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import { useSearchParams, useRouter } from "next/navigation";
 import { getUsers, deleteUser } from "@/app/actions/users";
+import { getPersonasEnListaNegra } from "@/app/actions/watchlist";
+import { ListaVigilancia } from "@/components/users/ListaVigilancia";
 import { getUnits } from "@/app/actions/units";
 import { getAccessGroups } from "@/app/actions/groups";
 import { getParkingSlots } from "@/app/actions/parking";
@@ -99,6 +101,10 @@ const PAGINA = 40;
 
 export default function UsersPage() {
     const [users, setUsers] = useState<UserWithRelations[]>([]);
+    const [enListaNegra, setEnListaNegra] = useState<Set<string>>(new Set());
+    // Dos pestañas: las personas, y la lista de vigilancia (matrículas). ?tab=vigilancia la abre
+    // directo: es adonde apunta el atajo del monitor LPR.
+    const [pestania, setPestania] = useState<"personas" | "vigilancia">("personas");
     const [visibleUsers, setVisibleUsers] = useState<UserWithRelations[]>([]);
     const [units, setUnits] = useState<any[]>([]);
     const [groups, setGroups] = useState<any[]>([]);
@@ -124,6 +130,7 @@ export default function UsersPage() {
 
     // Handle ?action=create&face=... from EventDetailsDialog
     useEffect(() => {
+        if (searchParams.get("tab") === "vigilancia") setPestania("vigilancia");
         const action = searchParams.get("action");
         const face = searchParams.get("face");
         if (action === "create") {
@@ -144,14 +151,16 @@ export default function UsersPage() {
         setIsLoading(true);
         try {
             // Using existing actions but would ideally optimize to fetch lighter objects
-            const [usersData, unitsData, groupsData, parkingData, devicesData] = await Promise.all([
+            const [usersData, unitsData, groupsData, parkingData, devicesData, negras] = await Promise.all([
                 getUsers(),
                 getUnits(),
                 getAccessGroups(),
                 getParkingSlots(),
-                getDevices()
+                getDevices(),
+                getPersonasEnListaNegra().catch(() => [] as string[]),
             ]);
             setUsers(usersData as UserWithRelations[]);
+            setEnListaNegra(new Set(negras));
             setUnits(unitsData);
             setGroups(groupsData);
             setParkingSlots(parkingData);
@@ -271,13 +280,26 @@ export default function UsersPage() {
                     </div>
                 </header>
 
+                {/* Pestañas: una sola pantalla para las personas y para la lista de vigilancia
+                    (lista negra / VIP / en búsqueda). El monitor y el bot escriben esa misma lista. */}
+                <div className="px-8 pt-4 shrink-0">
+                    <div className="inline-flex rounded-full border border-border bg-card p-0.5">
+                        {([["personas", "Personas"], ["vigilancia", "Lista de vigilancia"]] as const).map(([k, l]) => (
+                            <button key={k} type="button" onClick={() => { setPestania(k); router.replace(k === "vigilancia" ? "/admin/users?tab=vigilancia" : "/admin/users"); }}
+                                className={`h-8 px-4 rounded-full text-[12px] font-semibold ${pestania === k ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                                {l}{k === "vigilancia" && enListaNegra.size > 0 ? <span className="ml-1.5 tabular-nums text-[10px] px-1.5 py-0.5 rounded-md chip-mal">{enListaNegra.size}</span> : null}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
                 <main className="flex-1 overflow-hidden px-8 py-6 flex flex-col">
 
-                {/* Los filtros se mudaron adentro del marco de la tabla: son SUS
-                    controles, no una tira suelta que casualmente está encima. */}
-
-                {/* La tabla de la aplicación, con los filtros adentro de su mismo marco. */}
+                {pestania === "vigilancia" ? (
+                    <ListaVigilancia personas={users as any} />
+                ) : (
                 <TablaUsuarios
+                    enListaNegra={enListaNegra}
                     usuarios={aMostrar}
                     cargando={isLoading}
                     error={error}
@@ -306,6 +328,7 @@ export default function UsersPage() {
                         />
                     }
                 />
+                )}
                 </main>
             </div>
 

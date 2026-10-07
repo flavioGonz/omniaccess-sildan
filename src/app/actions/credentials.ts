@@ -1,6 +1,8 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { listaParaMatricula } from "@/lib/lista-negra";
+import { heredarListaNegraSiCorresponde } from "@/app/actions/watchlist";
 import { revalidatePath } from "next/cache";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { Credential } from "@prisma/client";
@@ -63,11 +65,15 @@ export async function createCredential(formData: FormData) {
     });
 
     if (type === "PLATE") {
+        // Si la persona está marcada en lista negra, la matrícula nueva nace en la lista
+        // (y por lo tanto va a la lista negra de la cámara, no a la blanca).
+        if (userId) await heredarListaNegraSiCorresponde(userId, value).catch(() => null);
+        const lista = await listaParaMatricula(value);
         const hikDevices = await prisma.device.findMany({ where: { brand: "HIKVISION", deviceType: "LPR_CAMERA" } });
         const driver = new HikvisionDriver();
         for (const dev of hikDevices) {
             try {
-                await driver.upsertCredential(credential, dev);
+                await driver.upsertCredential(credential, dev, lista);
             } catch (err) {
                 console.error(`Failed to push plate to device ${dev.ip}:`, err);
             }
@@ -94,6 +100,8 @@ export async function updateCredential(id: string, formData: FormData) {
     });
 
     if (newCredential.type === "PLATE") {
+        if (userId) await heredarListaNegraSiCorresponde(userId, value).catch(() => null);
+        const lista = await listaParaMatricula(value);
         const hikDevices = await prisma.device.findMany({ where: { brand: "HIKVISION", deviceType: "LPR_CAMERA" } });
         const driver = new HikvisionDriver();
         for (const dev of hikDevices) {
@@ -102,7 +110,7 @@ export async function updateCredential(id: string, formData: FormData) {
                 if (oldCredential && oldCredential.value !== newCredential.value) {
                     await driver.deleteCredential(oldCredential.value, dev);
                 }
-                await driver.upsertCredential(newCredential, dev);
+                await driver.upsertCredential(newCredential, dev, lista);
             } catch (err) {
                 console.error(`Failed to update plate on device ${dev.ip}:`, err);
             }

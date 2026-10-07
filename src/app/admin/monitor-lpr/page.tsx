@@ -1012,11 +1012,14 @@ export default function MonitorLPR() {
     // Popup automático de lecturas anómalas: cuando el toggle está activo, siembra las
     // mini-ventanas desde los eventos ya cargados (poll + socket), no solo de eventos nuevos.
     // Así aparecen apenas se activa, y quedan fijas hasta que el guardia las cierra.
+    // Una sola fuente: el `watch` que trae el evento (socket o recarga) y, de respaldo, el mapa
+    // de vigilancia por matrícula. El rol BLACKLISTED se sigue aceptando por el módulo facial.
     const esNegra = useCallback((e: any) => {
-        const cat = String(e.watch?.category || "").toLowerCase();
+        const plate = String(e.plateDetected || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+        const cat = String(e.watch?.category || (plate && watchMap[plate]?.category) || "").toLowerCase();
         const role = String(e.user?.role || "").toUpperCase();
         return cat === "negra" || cat === "blacklisted" || role === "BLACKLISTED";
-    }, []);
+    }, [watchMap]);
     const esAnomala = useCallback((e: any) => {
         const plate = (e.plateDetected || "").toUpperCase();
         if (plate === "DOOR_OPEN" || plate === "DOOR_CLOSE") return false;

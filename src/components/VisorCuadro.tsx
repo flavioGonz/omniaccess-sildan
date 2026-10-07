@@ -160,7 +160,12 @@ function acotar(pos: { x: number; y: number }, escala: number, caja: DOMRect | n
     };
 }
 
-const ICONO_VIGILANCIA: Record<string, any> = { negra: ShieldAlert, busca: Lupa, vip: Star };
+// Las categorías canónicas de la lista de vigilancia; las viejas (negra/busca/vip) se aceptan
+// por si llega una ficha de una instancia sin migrar.
+const ICONO_VIGILANCIA: Record<string, any> = { BLACKLISTED: ShieldAlert, SEARCH: Lupa, WHITELISTED: Star, negra: ShieldAlert, busca: Lupa, vip: Star };
+const esNegra = (c?: string | null) => c === "BLACKLISTED" || c === "negra";
+const esBusca = (c?: string | null) => c === "SEARCH" || c === "busca";
+const esVip = (c?: string | null) => c === "WHITELISTED" || c === "vip";
 
 /**
  * De qué color se tiñe la ventana.
@@ -171,12 +176,12 @@ const ICONO_VIGILANCIA: Record<string, any> = { negra: ShieldAlert, busca: Lupa,
  */
 function tonoDelEstado(fila: CuadroAvistamiento, ficha?: FichaMatricula | null) {
     const cat = ficha?.vigilancia?.categoria;
-    if (cat === "negra") return "var(--mal)";
+    if (esNegra(cat)) return "var(--mal)";
     // Denegado: el sistema miró y dijo que no. Eso sí es rojo — es un hecho, no una
     // ausencia de datos.
     if (fila.decision === "DENY") return "var(--mal)";
-    if (cat === "busca") return "var(--aviso)";
-    if (cat === "vip") return "var(--quieto)";
+    if (esBusca(cat)) return "var(--aviso)";
+    if (esVip(cat)) return "var(--quieto)";
     if (ficha?.dueno || ficha?.marca) return "var(--bien)";
     // Desconocida: no se sabe nada, y eso no es una alarma.
     return "var(--muted-foreground)";
@@ -980,7 +985,7 @@ export function VisorCuadro({
                         )}
                         {onListaNegra && (
                             <Pildora icono={ShieldBan} onClick={onListaNegra} encendida={enListaNegra} ocupada={ocupadoLista}
-                                title={enListaNegra ? "Sacar esta matrícula de la lista negra" : "Marcar esta matrícula y alertar cuando aparezca"}>
+                                title={enListaNegra ? "Sacar de la lista negra: vuelve a decidir la credencial y el modo LPR; si tiene credencial vuelve a la lista blanca de las lectoras" : "Lista negra: toda lectura se registra DENEGADA (aunque tenga credencial), va a la lista negra de las lectoras, el monitor la muestra en rojo y avisa"}>
                                 {enListaNegra ? "Quitar de la lista" : "Lista negra"}
                             </Pildora>
                         )}

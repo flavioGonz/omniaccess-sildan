@@ -7,7 +7,7 @@ import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
     Building2, Camera, Car, Check, CreditCard, DoorOpen, Home,
     KeyRound, Loader2, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
-    Shield, Upload, User as UserIcon, HelpCircle, History, X,
+    Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import { createUser, updateUser } from "@/app/actions/users";
 import { addDevicePlate } from "@/app/actions/devices";
 import { syncUserToDevice } from "@/app/actions/deviceMemory";
 import { Pista } from "@/components/ui/pista";
+import { ListaNegraDePersona } from "@/components/users/ListaNegraDePersona";
 import { PasosEnvio, type Paso } from "@/components/equipos/PasosEnvio";
 import { HistorialAccesos } from "@/components/users/HistorialAccesos";
 import { ElegirEquipos, RotuloEquipos } from "@/components/equipos/ElegirEquipos";
@@ -639,6 +640,14 @@ export function CajonUsuario({
                             {gruposElegidos.map((id) => <input key={id} type="hidden" name="groupId" value={id} />)}
                         </div>
                     </CajonSeccion>
+
+                    {/* ── Lista negra: sólo en una persona ya guardada (necesita id y matrículas en la base) ── */}
+                    {user?.id && (
+                        <CajonSeccion titulo="Lista negra" icono={ShieldAlert}
+                            ayuda="Es una acción con efecto inmediato en la barrera y en las lectoras, por eso no espera al Guardar de la ficha.">
+                            <ListaNegraDePersona userId={user.id} chapas={chapas} onCambio={() => onSuccess?.()} />
+                        </CajonSeccion>
+                    )}
 
                     {/* ── A qué equipos se manda ── */}
                     <CajonSeccion titulo="A qué equipos se manda" icono={Server}

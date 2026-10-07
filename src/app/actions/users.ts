@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { heredarListaNegraSiCorresponde } from "@/app/actions/watchlist";
 import { revalidatePath } from "next/cache";
 import { UserRole, type VehicleType } from "@prisma/client";
 import { addDevicePlate } from "./devices";
@@ -39,11 +40,18 @@ function leerMatriculas(formData: FormData): string[] | null {
 async function ponerMatriculas(userId: string, chapas: string[], tipo: VehicleType) {
     /* Las credenciales se reemplazan enteras: son un reflejo de la lista, no tienen datos
        propios que valga la pena conservar. */
+    const previas = (await prisma.credential.findMany({ where: { userId, type: "PLATE" }, select: { value: true } })).map((c) => c.value);
     await prisma.credential.deleteMany({ where: { userId, type: "PLATE" } });
     if (chapas.length) {
         await prisma.credential.createMany({
             data: chapas.map((value) => ({ type: "PLATE" as const, value, userId })),
         });
+    }
+    // Una persona marcada en lista negra arrastra sus matrículas nuevas a la lista (y a la
+    // lista negra de las lectoras). Sin esto, agregarle un auto a alguien marcado lo dejaba
+    // afuera de la lista hasta que alguien se diera cuenta.
+    for (const plate of chapas.filter((p) => !previas.includes(p))) {
+        await heredarListaNegraSiCorresponde(userId, plate).catch(() => null);
     }
 
     const suyos = await prisma.vehicle.findMany({ where: { userId } });

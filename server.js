@@ -28,6 +28,7 @@ const axios = require("axios");
 const https = require("https");
 const crypto = require("crypto");
 const { uploadToS3 } = require("./lib-s3");
+const { estaEnListaNegra, detalleListaNegra } = require("./lib-lista-negra");
 const { captureForDevice: captureIntrusion } = require("./lib-intrusion-capture");
 const { getVehicleColorName, getVehicleBrandName } = require("./hikvision-codes");
 const { handleWahaWebhook } = require("./waha-handler");
@@ -1464,6 +1465,20 @@ const handleWebhook = async (req, res, logPrefix) => {
             }
         }
 
+        // ── LISTA NEGRA: manda sobre la credencial, el modo LPR y la lista de la cámara ──
+        // Hasta el 7/10 esto se consultaba DESPUÉS de guardar el evento y sólo para pintar la
+        // tarjeta: un auto en lista negra con credencial entraba PERMITIDO. Ahora se pregunta
+        // antes de decidir, desde la misma consulta que usa la aplicación (lib-lista-negra), y
+        // si está, la decisión es DENY y el evento dice por qué.
+        let listaNegra = { negra: false, motivo: null, origen: null, watch: null };
+        if (!isUnknown) listaNegra = await estaEnListaNegra(prisma, finalPlate);
+        let watchHit = listaNegra.watch ? { label: listaNegra.watch.label, category: listaNegra.watch.category, color: listaNegra.watch.color, source: listaNegra.watch.source, motivo: listaNegra.watch.motivo } : null;
+        if (listaNegra.negra) {
+            accessDecision = "DENY";
+            console.log(`${logPrefix} ⛔ [LISTA-NEGRA] ${finalPlate} (${listaNegra.origen}): ${listaNegra.motivo || 'sin motivo'} -> DENY`);
+        }
+        const detalleNegra = listaNegra.negra ? `${detalleListaNegra(listaNegra.motivo)}, ` : "";
+
         // Persist Event
         const event = await prisma.accessEvent.create({
             data: {
@@ -1477,7 +1492,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                 snapshotPath: relativeImagePath,
                 plateNumber: finalPlate,
                 plateDetected: finalPlate, // Ensure we fill both
-                details: `${isUnknown ? 'ALERTA: Matrícula No Reconocida. ' : ''}Marca: ${vehicleBrand}, Modelo: ${vehicleModel}, Color: ${vehicleColor}, Tipo: ${vehicleType}, Source: ${cameraDecision ? 'Camera' : 'Server'}${metodoStr}${rectStr}${plateCropPath ? `, PlateCrop: ${plateCropPath}` : ''}`
+                details: `${detalleNegra}${isUnknown ? 'ALERTA: Matrícula No Reconocida. ' : ''}Marca: ${vehicleBrand}, Modelo: ${vehicleModel}, Color: ${vehicleColor}, Tipo: ${vehicleType}, Source: ${cameraDecision ? 'Camera' : 'Server'}${metodoStr}${rectStr}${plateCropPath ? `, PlateCrop: ${plateCropPath}` : ''}`
             }
         });
 
@@ -1512,26 +1527,18 @@ const handleWebhook = async (req, res, logPrefix) => {
         try { await checkMerodeo(finalPlate, device, event, logPrefix); }
         catch (e) { console.error(`${logPrefix} Merodeo check error:`, (e && e.message) || e); }
 
-        // ---- WATCHLIST (lista negra / búsqueda / VIP) — alineado a UserRole — LPR ----
-        let watchHit = null;
+        // ---- WATCHLIST: avisos. La decisión ya se tomó arriba (lista negra); acá sólo se avisa ----
+        // Se avisa igual venga la lista negra de una fila manual, de una persona marcada o del
+        // rol: antes la regla WATCHLIST sólo disparaba para el rol y Telegram sólo para lo manual.
         try {
-            if (!isUnknown) {
-                const w = await prisma.plateWatch.findFirst({ where: { plate: finalPlate, active: true } });
-                if (w) {
-                    const cat = normalizeWatchCat(w.category);
-                    watchHit = { label: w.label, category: cat, color: w.color, source: 'manual' };
-                    if (w.notify) {
-                        notifyWatchTelegram(`🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${w.label || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
-                    }
-                    console.log(`${logPrefix} [WATCHLIST] hit ${finalPlate} (${cat})`);
+            if (watchHit) {
+                const cat = watchHit.category;
+                const quien = watchHit.label || '';
+                const etiqueta = watchCatLabel(cat);
+                if (watchHit.motivo || listaNegra.watch?.notify !== false) {
+                    notifyWatchTelegram(`🚨 <b>${etiqueta}</b> · ${finalPlate}\n${quien}${watchHit.motivo ? `\n${watchHit.motivo}` : ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
                 }
-            }
-            // Auto-derivado del rol del usuario registrado (si no hubo watch manual)
-            if (!watchHit && credential && credential.user && (credential.user.role === 'BLACKLISTED' || credential.user.role === 'WHITELISTED')) {
-                const cat = credential.user.role;
-                watchHit = { label: credential.user.name || '', category: cat, color: null, source: 'role' };
-                if (cat === 'BLACKLISTED') {
-                    notifyWatchTelegram(`🚨 <b>${watchCatLabel(cat)}</b> · ${finalPlate}\n${credential.user.name || ''}\nCámara: ${(device && device.name) || 'N/D'} (${event.direction === 'ENTRY' ? 'Entrada' : 'Salida'})`);
+                if (cat === 'BLACKLISTED' || cat === 'SEARCH') {
                     notificarPorReglas({
                         modulo: "LPR", evento: "WATCHLIST",
                         deviceId: device ? device.id : null,
@@ -1539,12 +1546,12 @@ const handleWebhook = async (req, res, logPrefix) => {
                         plate: finalPlate,
                         direction: event.direction || "ENTRY",
                         snapshotPath: relativeImagePath || null,
-                        extra: { categoria: watchCatLabel(cat) },
+                        extra: { categoria: etiqueta, motivo: watchHit.motivo || null, origen: listaNegra.origen || watchHit.source },
                     }).catch(() => { });
                 }
-                console.log(`${logPrefix} [WATCHLIST] role-derived ${finalPlate} (${cat})`);
+                console.log(`${logPrefix} [WATCHLIST] ${finalPlate} (${cat}, ${watchHit.source})`);
             }
-        } catch (e) { console.error(`${logPrefix} Watchlist check error:`, (e && e.message) || e); }
+        } catch (e) { console.error(`${logPrefix} Watchlist notify error:`, (e && e.message) || e); }
 
         // ---- INVITADOS / visitas temporales — LPR (precedencia: lista negra SIEMPRE gana) ----
         let guestHit = null;

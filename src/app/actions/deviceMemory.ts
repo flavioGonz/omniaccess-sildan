@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { listaParaMatricula } from "@/lib/lista-negra";
 import { AkuvoxDriver } from "@/lib/drivers/AkuvoxDriver";
 
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
@@ -150,7 +151,7 @@ export async function syncUserToDevice(deviceId: string, userId: string) {
             // LPR Path
             const plate = user.credentials.find(c => c.type === 'PLATE');
             if (plate) {
-                await driver.upsertCredential(plate, device);
+                await driver.upsertCredential(plate, device, await listaParaMatricula(plate.value));
                 return true;
             }
         }
@@ -278,7 +279,7 @@ export async function exportAllToDevice(deviceId: string) {
             } else {
                 const plates = user.credentials.filter(c => c.type === 'PLATE');
                 for (const plate of plates) {
-                    await driver.upsertCredential(plate, device);
+                    await driver.upsertCredential(plate, device, await listaParaMatricula(plate.value));
                     tags++;
                 }
             }

@@ -638,15 +638,34 @@ model DeviceAlert {
 }
 
 // ── Watchlist / lista negra de matrículas (resaltado + sonido + alerta) ──
+/// La lista de vigilancia: UNA fila por matricula, con una categoria canonica
+/// (BLACKLISTED | WHITELISTED | SEARCH). Es la unica verdad para "esta matricula esta
+/// vigilada": la decision de la barrera, las listas de la camara, el monitor, la ficha
+/// del evento y el bot leen de aca. El rol BLACKLISTED del usuario queda para el modulo
+/// facial y se lee solo como respaldo (ver lib/lista-negra.ts).
 model PlateWatch {
-  id        String   @id @default(cuid())
-  plate     String   @unique
-  label     String   @default("")
-  category  String   @default("negra") // busca | negra | vip
-  color     String?
-  notify    Boolean  @default(true)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id            String    @id @default(cuid())
+  plate         String    @unique
+  label         String    @default("")
+  category      String    @default("BLACKLISTED") // BLACKLISTED | WHITELISTED | SEARCH
+  color         String?
+  notify        Boolean   @default(true)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  /// Por que esta en la lista, en palabras de quien la cargo.
+  motivo        String?
+  /// Quien la cargo: nombre del operador o numero de WhatsApp.
+  createdBy     String?
+  /// Si existe porque una PERSONA fue marcada en lista negra: todas sus matriculas
+  /// llevan su id, y desmarcarla las desactiva. Sin vinculo, la entrada es de la
+  /// matricula sola y la persona no la arrastra.
+  userId        String?
+  /// La baja no borra: queda cuando se saco, para el historial.
+  deactivatedAt DateTime?
+
+  @@index([userId])
+  @@index([active, category])
 }
 
 /// Avistamiento de una matricula en una camara, con la posicion de esa camara

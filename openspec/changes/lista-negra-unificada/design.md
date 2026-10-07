@@ -144,5 +144,11 @@ de Next) y relata el resultado por cámara.
 
 ## Open Questions
 
-- Si la cámara soporta borrar una matrícula puntual de su lista (se resuelve en la tarea de prueba
-  ISAPI; no cambia el spec ni la UI, sólo la estrategia interna de actualización).
+- ~~Si la cámara soporta borrar una matrícula puntual de su lista~~ **Resuelto el 7/10 contra la
+  iDS-2CD7A46G0/P de salida (.8):** `licensePlateAuditData/record` con `listType: blackList`
+  funciona; mandar la misma chapa con otro `listType` **reemplaza** el registro (mismo `id`), así
+  que mover de blanca a negra es un PUT; `DelLicensePlateAuditData` borra por el **`id` interno
+  del registro, como string** (`{"id":["2"]}`): con número contesta OK y no borra, con la matrícula
+  contesta "Invalid JSON Content" — que es lo que mandaba el código viejo, o sea que borrar una
+  chapa de la cámara nunca había funcionado. El id se obtiene con `searchLPListAudit` filtrando
+  por `LicensePlate`.

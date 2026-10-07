@@ -2,6 +2,7 @@ const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { Readable } = require("stream");
 const axios = require("axios");
 const crypto = require("crypto");
+const { estaEnListaNegra, vigilanciaDe, normalizarMatricula } = require("./lib-lista-negra");
 let QRLIB=null; try{ QRLIB=require("qrcode"); }catch(e){}
 
 // Helper: Stream to Buffer
@@ -283,6 +284,8 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         };
 
         const addPlateToHikvision = async (device, plate) => {
+            // Una matrícula en lista negra no va a la lista blanca de la cámara ni desde el bot.
+            const enNegra = (await estaEnListaNegra(prisma, plate)).negra;
             const url = `/ISAPI/Traffic/channels/1/licensePlateAuditData/record?format=json`;
             const now = new Date();
             const createTime = now.toISOString().split('.')[0].replace('Z', '');
@@ -295,7 +298,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                 LicensePlateInfoList: [
                     {
                         LicensePlate: plate,
-                        listType: "whiteList",
+                        listType: enNegra ? "blackList" : "whiteList",
                         createTime: createTime,
                         effectiveStartDate: startDate,
                         effectiveTime: endDate,
@@ -312,26 +315,40 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         // --- URGENT TRIGGERS (Direct Commands) ---
 
-        // TRIGGER: lista negra — "lista negra ABC1234 [motivo]" / "bloquear ABC1234 [motivo]" carga la
-        // matrícula en la lista de vigilancia como NEGRA (misma tabla PlateWatch que usa el
-        // monitor); "quitar lista negra ABC1234" / "desbloquear ABC1234" la saca. Sólo personal.
+        // TRIGGER: lista negra — "lista negra ABC1234 [motivo]" / "bloquear ABC1234 [motivo]" pone la
+        // matrícula en la lista de vigilancia; "quitar lista negra ABC1234" / "desbloquear" la saca.
+        // No escribe la tabla por su cuenta: pasa por /api/vigilancia/bot, que usa las mismas
+        // acciones que la pantalla (conflicto de categoría, desactivar en vez de borrar,
+        // actualización de las lectoras y su resultado). Sólo personal.
         const listaNegra = lowerBody.match(/^(quitar\s+|sacar\s+)?(?:lista\s+negra|bloquear|desbloquear)\s+([a-z0-9]{3,10})\b\s*(.*)$/i);
         if (listaNegra && await cmdActivo('lista_negra') && await isAdminSender()) {
             const quitar = !!listaNegra[1] || /^desbloquear/i.test(lowerBody);
             const plate = listaNegra[2].toUpperCase().replace(/[^A-Z0-9]/g, '');
-            const motivo = (listaNegra[3] || '').trim();
+            let motivo = (listaNegra[3] || '').trim();
+            // "lista negra ABC1234 confirmar [motivo]": pisa una VIP / en búsqueda a sabiendas.
+            const force = /^confirmar\b/i.test(motivo);
+            if (force) motivo = motivo.replace(/^confirmar\b\s*/i, '').trim();
             try {
+                const quien = (await senderTail()) || from;
+                const token = (await prisma.setting.findUnique({ where: { key: 'TRACKING_TOKEN' } }))?.value || process.env.TRACKING_TOKEN || '';
+                const r = await axios.post('http://127.0.0.1:10001/api/vigilancia/bot',
+                    { accion: quitar ? 'baja' : 'alta', plate, motivo: motivo || undefined, createdBy: `WhatsApp …${String(quien).slice(-4)}`, force },
+                    { headers: { 'x-tracking-token': token }, timeout: 40000, validateStatus: () => true });
+                const d = r.data || {};
+                if (r.status !== 200) throw new Error(d.error || `HTTP ${r.status}`);
+                const camaras = d.resumen ? `\n📷 Lectoras: ${d.resumen}` : '';
                 if (quitar) {
-                    const r = await prisma.plateWatch.updateMany({ where: { plate, category: { in: ['negra', 'BLACKLISTED'] } }, data: { active: false } });
-                    await sendText(r.count ? `✅ *${plate}* salió de la lista negra.` : `ℹ️ *${plate}* no estaba en la lista negra.`);
+                    if (!d.estaba) await sendText(d.porRol
+                        ? `ℹ️ *${plate}* está en lista negra por el *rol* de su dueño (módulo facial), no por una entrada de la lista: se saca desde la ficha de esa persona.`
+                        : `ℹ️ *${plate}* no estaba en la lista negra.`);
+                    else await sendText(`✅ *${plate}* salió de la lista negra.\nVuelve a decidir la credencial y el modo LPR.${camaras}`);
+                } else if (d.conflicto) {
+                    const cat = d.conflicto.category === 'WHITELISTED' ? 'VIP / autorizado' : 'en búsqueda';
+                    await sendText(`⚠️ *${plate}* ya está como *${cat}*${d.conflicto.motivo ? ` (${d.conflicto.motivo})` : ''}.\nSi igual querés pasarla a lista negra: *lista negra ${plate} confirmar ${motivo || 'motivo'}*`);
+                } else if (!d.ok) {
+                    throw new Error(d.error || 'no se pudo guardar');
                 } else {
-                    const quien = (await senderTail()) || from;
-                    await prisma.plateWatch.upsert({
-                        where: { plate },
-                        create: { plate, category: 'BLACKLISTED', label: motivo || `Cargada por WhatsApp (…${quien.slice(-4)})`, notify: true, active: true },
-                        update: { category: 'BLACKLISTED', ...(motivo ? { label: motivo } : {}), notify: true, active: true },
-                    });
-                    await sendText(`⛔ *${plate}* quedó en la *lista negra*${motivo ? `: ${motivo}` : ''}.\nCuando pase por una cámara va a avisar y figurar en el monitor. Para sacarla: *quitar lista negra ${plate}*.`);
+                    await sendText(`⛔ *${plate}* quedó en la *lista negra*${motivo ? `: ${motivo}` : ''}.\nToda lectura se registra DENEGADA aunque tenga credencial; el monitor la muestra en rojo y avisa.${camaras}\nPara sacarla: *quitar lista negra ${plate}*.`);
                 }
             } catch (e) { await sendText(`❌ No pude actualizar la lista negra: ${e.message}`); }
             res.writeHead(200); res.end('OK'); return;

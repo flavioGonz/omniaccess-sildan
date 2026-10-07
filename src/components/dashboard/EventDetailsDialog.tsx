@@ -16,7 +16,9 @@ import { getImagePath } from "@/lib/image-path";
 import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { AcuSearchPanel, AcuMatch } from "@/components/dashboard/AcuSearchPanel";
-import { getWatchlist, addWatch, deleteWatch } from "@/app/actions/watchlist";
+import { getWatchlist, addWatch, deactivateWatch } from "@/app/actions/watchlist";
+import { resumirCamaras } from "@/lib/lista-negra";
+import { watchCatMeta } from "@/lib/watch-categories";
 import { sileo as toast } from "sileo";
 import { fecha, hora, horaSeg } from "@/lib/fechas";
 
@@ -253,8 +255,23 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
         if (!hasPlate) return;
         setWatchBusy(true);
         try {
-            if (watch?.category === "BLACKLISTED") { await deleteWatch(watch.id); setWatch(null); toast.success({ title: `${plateText} quitada de lista negra` }); }
-            else { const r: any = await addWatch({ plate: plateText, label: brandName ? `${brandName} ${meta.Color || ""}`.trim() : "", category: "BLACKLISTED", notify: true }); if (r?.ok === false) throw new Error(r.error); setWatch({ id: r?.row?.id || "?", category: "BLACKLISTED" }); toast.warning({ title: `${plateText} en lista negra`, description: "Se alertará en cada detección." }); }
+            // Baja = desactivar (queda el historial). Alta: si ya está como VIP / en búsqueda se
+            // pregunta antes de pisarla. Las lectoras se actualizan y se informa el resultado.
+            if (watch?.category === "BLACKLISTED") {
+                const r: any = await deactivateWatch(watch.id); if (r?.ok === false) throw new Error(r.error);
+                setWatch(null); toast.success({ title: `${plateText} salió de la lista negra`, description: r?.camaras ? resumirCamaras(r.camaras) : "Vuelve a decidir la credencial y el modo LPR." });
+            } else {
+                const etiqueta = brandName ? `${brandName} ${meta.Color || ""}`.trim() : "";
+                let r: any = await addWatch({ plate: plateText, label: etiqueta, category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento" });
+                if (r?.conflicto) {
+                    const cat = watchCatMeta(r.conflicto.category).label;
+                    if (!window.confirm(`${plateText} ya está como ${cat}${r.conflicto.motivo ? ` (${r.conflicto.motivo})` : ""}. ¿Pasarla a lista negra?`)) return;
+                    r = await addWatch({ plate: plateText, label: etiqueta, category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento", force: true });
+                }
+                if (r?.ok === false) throw new Error(r.error);
+                setWatch({ id: r?.row?.id || "?", category: "BLACKLISTED" });
+                toast.warning({ title: `${plateText} en lista negra`, description: `Toda lectura se registra DENEGADA y avisa.${r?.camaras ? ` Lectoras: ${resumirCamaras(r.camaras)}` : ""}` });
+            }
         } catch (e: any) { toast.error({ title: "No se pudo actualizar la lista", description: e?.message }); }
         finally { setWatchBusy(false); }
     }

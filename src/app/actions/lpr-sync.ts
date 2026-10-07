@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
+import { matriculasParaCargar, type MatriculaParaCamara } from "@/lib/lista-negra";
 import { getSession } from "@/app/actions/auth";
 
 // Sincronización de matrículas a las cámaras LPR — versión INCREMENTAL (diff).
@@ -52,11 +53,10 @@ export async function releaseSyncLock() {
     return { ok: true };
 }
 
+// Lo que la cámara tiene que tener: credenciales en la blanca, lista negra en la negra. Antes
+// eran sólo las credenciales, todas a la blanca (ver lib/lista-negra).
 async function dbPlateSet(): Promise<Set<string>> {
-    const creds = await prisma.credential.findMany({ where: { type: "PLATE" }, select: { value: true } });
-    const s = new Set<string>();
-    for (const c of creds) { const n = norm(c.value); if (n) s.add(n); }
-    return s;
+    return new Set((await matriculasParaCargar()).map((m) => m.plate));
 }
 
 /** Analiza (sin tocar nada) cuántas matrículas tiene cada cámara y qué cambiaría. */
@@ -89,9 +89,9 @@ export async function syncDeviceIncremental(deviceId: string) {
     if (!device || device.brand !== "HIKVISION") return { ok: false, error: "Dispositivo no compatible", added: 0, addFail: 0, removed: 0, remFail: 0 };
     const driver = new HikvisionDriver();
 
-    const creds = await prisma.credential.findMany({ where: { type: "PLATE" } });
-    const byNorm = new Map<string, any>();
-    for (const c of creds) { const n = norm(c.value); if (n && !byNorm.has(n)) byNorm.set(n, c); }
+    const deseadas = await matriculasParaCargar();
+    const byNorm = new Map<string, MatriculaParaCamara>();
+    for (const m of deseadas) if (!byNorm.has(m.plate)) byNorm.set(m.plate, m);
     const db = new Set(byNorm.keys());
 
     let cam: string[] = [];
@@ -102,14 +102,16 @@ export async function syncDeviceIncremental(deviceId: string) {
     const camOrig = new Map<string, string>();
     for (const p of cam) { const n = norm(p); if (n) { camSet.add(n); if (!camOrig.has(n)) camOrig.set(n, p); } }
 
-    const toAdd = [...db].filter((p) => !camSet.has(p));
+    // Las negras se mandan SIEMPRE, estén o no en la cámara: la lectura de la cámara no dice
+    // en qué lista está cada una, y volver a mandar la misma chapa con otro listType la mueve.
+    const toAdd = [...db].filter((p) => !camSet.has(p) || byNorm.get(p)?.lista === "blackList");
     const toRemove = [...camSet].filter((p) => !db.has(p));
 
     let added = 0, addFail = 0, removed = 0, remFail = 0;
     for (const n of toAdd) {
-        const c = byNorm.get(n);
-        if (!c) continue;
-        try { await driver.upsertCredential(c, device); added++; } catch { addFail++; }
+        const m = byNorm.get(n);
+        if (!m) continue;
+        try { await driver.addPlateToCamera(device, m.plate, m.lista); added++; } catch { addFail++; }
     }
     for (const n of toRemove) {
         try { await driver.deleteCredential(camOrig.get(n) || n, device); removed++; } catch { remFail++; }
@@ -123,11 +125,11 @@ export async function syncDeviceFull(deviceId: string) {
     const device = await prisma.device.findUnique({ where: { id: deviceId } });
     if (!device || device.brand !== "HIKVISION") return { ok: false, error: "Dispositivo no compatible", added: 0, addFail: 0, removed: 0, remFail: 0 };
     const driver = new HikvisionDriver();
-    const creds = await prisma.credential.findMany({ where: { type: "PLATE" } });
+    const deseadas = await matriculasParaCargar();
     let before = 0;
     try { before = (await driver.getPlates(device)).length; } catch { }
     try { await driver.clearWhiteList(device); } catch { }
     let added = 0, addFail = 0;
-    for (const c of creds) { try { await driver.upsertCredential(c, device); added++; } catch { addFail++; } }
+    for (const m of deseadas) { try { await driver.addPlateToCamera(device, m.plate, m.lista); added++; } catch { addFail++; } }
     return { ok: true, added, addFail, removed: before, remFail: 0, before, after: added };
 }

@@ -57,6 +57,7 @@ export async function middleware(request: NextRequest) {
         // contestaba 401 y NINGUNA regla de LPR, Face o intrusión disparaba desde los eventos
         // (server.js ignora el estado de la respuesta, así que fallaba en silencio).
         pathname === '/api/notifications/event' ||
+        pathname === '/api/vigilancia/bot' ||   // bot de WhatsApp → lista de vigilancia (token propio)
         pathname.startsWith('/api/invitado/') ||   // el QR del pase: lo baja el bot y el invitado
         pathname.startsWith('/api/branding/') ||   // logos subidos (login, QR): los ve quien no inició sesión
         pathname.startsWith('/api/nvr/') ||

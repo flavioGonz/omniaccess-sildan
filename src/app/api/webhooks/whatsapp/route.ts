@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { listaParaMatricula } from '@/lib/lista-negra';
 import { sendWahaText, sendWahaImage } from '@/lib/whatsapp';
 import { getQueueDevices, getLatestQueueCounts, getQueueAlerts } from '@/app/actions/queue';
 import { getSetting, updateSetting, getS3InternalClient } from '@/app/actions/settings';
@@ -327,7 +328,7 @@ export async function POST(req: Request) {
                             // Currently we assume Hikvision for LPR. 
                             // In a multi-brand environment, we would switch drivers here.
                             if (dev.brand === 'HIKVISION') {
-                                await driver.addPlateToCamera(dev, plate);
+                                await driver.addPlateToCamera(dev, plate, await listaParaMatricula(plate));
                                 successCount++;
                             } else {
                                 // For now, other brands might not have the functionality implemented
@@ -451,7 +452,7 @@ export async function POST(req: Request) {
 
                     for (const dev of lprDevices) {
                         try {
-                            await driver.addPlateToCamera(dev, plate);
+                            await driver.addPlateToCamera(dev, plate, await listaParaMatricula(plate));
                             syncCount++;
                         } catch (e) {
                             console.error(`Failed to add plate to ${dev.ip}`, e);
