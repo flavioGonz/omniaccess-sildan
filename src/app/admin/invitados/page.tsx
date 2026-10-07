@@ -330,6 +330,37 @@ function ScanModal({ onClose, onMarked }: { onClose: () => void; onMarked: () =>
     );
 }
 
+// Presets y parser de duracion en lenguaje natural para la validez del pase.
+const VALID_PRESETS: { k: string; label: string; calc: (f: Date) => Date }[] = [
+    { k: "1h", label: "1 h", calc: (f) => new Date(f.getTime() + 3600e3) },
+    { k: "2h", label: "2 h", calc: (f) => new Date(f.getTime() + 2 * 3600e3) },
+    { k: "4h", label: "4 h", calc: (f) => new Date(f.getTime() + 4 * 3600e3) },
+    { k: "hoy", label: "Hoy", calc: (f) => { const y = new Date(f); y.setHours(23, 59, 0, 0); return y; } },
+    { k: "man", label: "Mañana", calc: (f) => { const y = new Date(f); y.setDate(y.getDate() + 1); y.setHours(23, 59, 0, 0); return y; } },
+    { k: "finde", label: "Fin de semana", calc: (f) => { const y = new Date(f); y.setDate(y.getDate() + ((7 - y.getDay()) % 7)); y.setHours(23, 59, 0, 0); return y; } },
+    { k: "3d", label: "3 días", calc: (f) => { const y = new Date(f); y.setDate(y.getDate() + 3); return y; } },
+    { k: "1w", label: "1 semana", calc: (f) => { const y = new Date(f); y.setDate(y.getDate() + 7); return y; } },
+];
+function parseDur(text: string, from: Date): Date | null {
+    const t = (text || "").toLowerCase().trim(); if (!t) return null;
+    const d = new Date(from.getTime());
+    const eod = (x: Date) => { const y = new Date(x); y.setHours(23, 59, 0, 0); return y; };
+    if (/(todo el d[ií]a|hoy)/.test(t)) return eod(d);
+    if (/pasado ma[nñ]ana/.test(t)) { const y = new Date(d); y.setDate(y.getDate() + 2); return eod(y); }
+    if (/ma[nñ]ana/.test(t)) { const y = new Date(d); y.setDate(y.getDate() + 1); return eod(y); }
+    if (/fin de semana|finde/.test(t)) { const y = new Date(d); y.setDate(y.getDate() + ((7 - y.getDay()) % 7)); return eod(y); }
+    const mh = t.match(/hasta (?:las? )?(\d{1,2})(?::(\d{2}))?/);
+    if (mh) { const y = new Date(d); y.setHours(parseInt(mh[1]), mh[2] ? parseInt(mh[2]) : 0, 0, 0); if (y <= d) y.setDate(y.getDate() + 1); return y; }
+    const mn = t.match(/(\d+(?:[.,]\d+)?)\s*(semanas?|sem|d[ií]as?|horas?|hs?|minutos?|mins?|h|d|m)/);
+    if (mn) { const n = parseFloat(mn[1].replace(",", ".")); const u = mn[2]; const y = new Date(d);
+        if (/^sem/.test(u)) y.setDate(y.getDate() + n * 7);
+        else if (/^d/.test(u)) y.setDate(y.getDate() + n);
+        else if (/^h/.test(u)) y.setTime(y.getTime() + n * 3600e3);
+        else y.setTime(y.getTime() + n * 60e3);
+        return y;
+    }
+    return null;
+}
 function NewPassModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
     const now = new Date();
     const toLocal = (d: Date) => { const p = (n: number) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
@@ -338,6 +369,8 @@ function NewPassModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
     const [hostLabel, setHostLabel] = useState("");
     const [from, setFrom] = useState(toLocal(now));
     const [to, setTo] = useState(toLocal(new Date(now.getTime() + 8 * 3600 * 1000)));
+    const [durText, setDurText] = useState("");
+    const applyDur = (txt: string) => { const d = parseDur(txt, new Date(from)); if (d) { setTo(toLocal(d)); setErr(""); } else setErr("No entend\u00ed la duraci\u00f3n. Prob\u00e1: \"2 horas\", \"hasta ma\u00f1ana\", \"3 d\u00edas\"."); };
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState("");
     const [done, setDone] = useState<{ code: string; qrToken?: string } | null>(null);
@@ -382,6 +415,19 @@ function NewPassModal({ onClose, onCreated }: { onClose: () => void; onCreated: 
                         <div className="grid grid-cols-2 gap-3">
                             <Field label="Desde"><input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className="inp" /></Field>
                             <Field label="Hasta"><input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className="inp" /></Field>
+                        </div>
+                        <div>
+                            <div className="text-[11px] font-semibold text-muted-foreground mb-1.5 inline-flex items-center gap-1.5"><Clock size={12} /> Validez rápida</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {VALID_PRESETS.map((p) => (
+                                    <button key={p.k} type="button" onClick={() => { setTo(toLocal(p.calc(new Date(from)))); setErr(""); }} className="px-2.5 py-1 rounded-full bg-accent hover:bg-accent/70 text-xs font-bold transition-colors">{p.label}</button>
+                                ))}
+                            </div>
+                            <div className="mt-2 flex items-center gap-2">
+                                <input value={durText} onChange={(e) => setDurText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyDur(durText); } }} placeholder='Escribí cuánto: "2 horas", "hasta mañana", "3 días"' className="inp flex-1" />
+                                <button type="button" onClick={() => applyDur(durText)} className="h-10 px-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shrink-0">Aplicar</button>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-1.5">Vence: <b className="text-foreground">{fmtDT(to)}</b></div>
                         </div>
                         {err && <p className="text-sm text-red-500 font-semibold">{err}</p>}
                         <button disabled={saving} onClick={submit} className="w-full h-12 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold inline-flex items-center justify-center gap-2 disabled:opacity-60 transition-colors">
