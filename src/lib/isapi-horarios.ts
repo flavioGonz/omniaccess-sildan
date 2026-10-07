@@ -105,16 +105,18 @@ export function describirHorario(h: Horario | null | undefined): string {
     // Rango por día, rejuntando "desde–24:00" con el "00:00–hasta" del día siguiente.
     const porDia = new Map<number, string[]>();
     const usados = new Set<number>();
+    // Primero los que terminan a medianoche: se juntan con el "00:00–hasta" del día siguiente,
+    // esté donde esté en la lista (el de domingo a lunes queda al principio por el orden).
+    bl.forEach((b, i) => {
+        if (b.hasta !== "24:00" || b.desde === "00:00") return;
+        const sig = b.dia === 7 ? 1 : b.dia + 1;
+        const j = bl.findIndex((x, k) => !usados.has(k) && k !== i && x.dia === sig && x.desde === "00:00" && x.hasta !== "24:00");
+        if (j >= 0) { usados.add(i); usados.add(j); porDia.set(b.dia, [...(porDia.get(b.dia) || []), `${b.desde}–${bl[j].hasta}`]); }
+    });
     bl.forEach((b, i) => {
         if (usados.has(i)) return;
-        let texto = `${b.desde}–${b.hasta}`;
-        if (b.hasta === "24:00") {
-            const sig = b.dia === 7 ? 1 : b.dia + 1;
-            const j = bl.findIndex((x, k) => !usados.has(k) && k !== i && x.dia === sig && x.desde === "00:00");
-            if (j >= 0) { texto = `${b.desde}–${bl[j].hasta}`; usados.add(j); }
-            else if (b.desde === "00:00") texto = "24 h";
-        }
         usados.add(i);
+        const texto = b.desde === "00:00" && b.hasta === "24:00" ? "24 h" : `${b.desde}–${b.hasta}`;
         porDia.set(b.dia, [...(porDia.get(b.dia) || []), texto]);
     });
     // Agrupar días consecutivos con el mismo texto.
