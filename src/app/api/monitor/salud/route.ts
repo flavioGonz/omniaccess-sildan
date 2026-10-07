@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
+import { estadoDelSistema } from "@/lib/estado-sistema";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +23,7 @@ const salida = (cmd: string) => new Promise<string>((res) => exec(cmd, { timeout
  * que ya se muestrea (salud de dispositivos, alertas offline) y lo que /api/system-status
  * chequea en vivo (base, MinIO, bot, Omni-LPR), más los procesos PM2.
  */
-export async function GET(req: Request) {
+export async function GET() {
     const p = await autorizarMonitor("/api/monitor/salud");
     if (p.error) return p.error;
     const ahora = Date.now();
@@ -54,11 +55,7 @@ export async function GET(req: Request) {
 
     // Servicios: lo que ya chequea /api/system-status, llamado acá mismo para no duplicar la lógica.
     let sistema: any = {};
-    try {
-        const origen = new URL(req.url).origin;
-        const r = await fetch(`${origen}/api/system-status`, { headers: { cookie: req.headers.get("cookie") || "" }, cache: "no-store" });
-        if (r.ok) sistema = await r.json();
-    } catch { }
+    try { sistema = await estadoDelSistema(); } catch { }
     const svc = (id: string, nombre: string, s: any, extra?: string) => {
         const st: Estado = !s ? "sinDato" : s.status === "connected" ? "bien" : s.status === "disabled" ? "sinDato" : "caido";
         comps.push({ id, grupo: "servicios", nombre, estado: st, detalle: !s ? "sin respuesta del chequeo" : s.status === "disabled" ? "no configurado" : st === "bien" ? `${extra || "responde"}${s.latency ? ` · ${s.latency} ms` : ""}` : "no responde", respondio: st === "bien" ? new Date().toISOString() : null, caidoDesde: null });
@@ -84,5 +81,6 @@ export async function GET(req: Request) {
     } catch { for (const nombre of PROCESOS) comps.push({ id: `pm2:${nombre}`, grupo: "procesos", nombre, estado: "sinDato", detalle: "PM2 no contestó", respondio: null, caidoDesde: null }); }
 
     const conProblemas = comps.filter((c) => c.estado === "caido" || c.estado === "degradado");
-    return NextResponse.json({ componentes: comps, resumen: { total: comps.length, conProblemas: conProblemas.length, primero: conProblemas.slice(0, 5).map((c) => c.nombre) }, ahora: new Date().toISOString() }, { headers: SIN_CACHE });
+    const sinDato = comps.filter((c) => c.estado === "sinDato").length;
+    return NextResponse.json({ componentes: comps, resumen: { total: comps.length, conProblemas: conProblemas.length, sinDato, primero: conProblemas.slice(0, 5).map((c) => c.nombre) }, ahora: new Date().toISOString() }, { headers: SIN_CACHE });
 }

@@ -13,6 +13,10 @@ const ATENCION_HORAS = 24;
 /** Una matrícula denegada esta cantidad de veces en la ventana es merodeo: mismo umbral que el historial. */
 const MERODEO_DENEGADOS = 4;
 
+/** Lo que la cámara manda cuando NO leyó una chapa: no es una matrícula y no puede ser merodeo ni vigilancia. */
+const NO_ES_CHAPA = new Set(["", "NOLEIDA", "NOLEIDO", "UNKNOWN", "SINLECTURA", "SINMATRICULA", "NONE", "NULL"]);
+const esChapa = (ch: string | null | undefined): ch is string => !!ch && !NO_ES_CHAPA.has(ch);
+
 const forma = (e: any) => ({
     id: e.id, ts: e.timestamp.toISOString(), plate: e.plateDetected || e.plateNumber || null, persona: e.user?.name || null,
     camara: e.device?.name || e.location || null, sentido: e.direction, decision: e.decision, accessType: e.accessType,
@@ -39,19 +43,19 @@ export async function GET() {
     // Adentro ahora: matrículas cuya última lectura permitida de hoy fue una entrada.
     const ultimaPorChapa = new Map<string, "ENTRY" | "EXIT">();
     const hoyOrdenado = recientes.filter((e) => e.timestamp >= hoy && e.decision === "GRANT").sort((a, b) => +a.timestamp - +b.timestamp);
-    for (const e of hoyOrdenado) { const ch = normalizarMatricula(e.plateDetected); if (ch) ultimaPorChapa.set(ch, e.direction as any); }
+    for (const e of hoyOrdenado) { const ch = normalizarMatricula(e.plateDetected); if (esChapa(ch)) ultimaPorChapa.set(ch, e.direction as any); }
     const adentro = [...ultimaPorChapa.values()].filter((d) => d === "ENTRY").length;
 
     // Fila de atención.
-    const chapas = [...new Set(recientes.map((e) => normalizarMatricula(e.plateDetected)).filter(Boolean))] as string[];
+    const chapas = [...new Set(recientes.map((e) => normalizarMatricula(e.plateDetected)).filter(esChapa))];
     const vigiladas = chapas.length ? await prisma.plateWatch.findMany({ where: { active: true, plate: { in: chapas }, category: { in: ["BLACKLISTED", "SEARCH"] } }, select: { plate: true, category: true, motivo: true, label: true } }).catch(() => []) : [];
     const porChapa = new Map(vigiladas.map((v) => [normalizarMatricula(v.plate), v]));
     const denegadasPorChapa = new Map<string, number>();
-    for (const e of recientes) { const ch = normalizarMatricula(e.plateDetected); if (ch && e.decision === "DENY") denegadasPorChapa.set(ch, (denegadasPorChapa.get(ch) || 0) + 1); }
+    for (const e of recientes) { const ch = normalizarMatricula(e.plateDetected); if (esChapa(ch) && e.decision === "DENY") denegadasPorChapa.set(ch, (denegadasPorChapa.get(ch) || 0) + 1); }
     const vistas = new Set<string>();
     const atencion: { plate: string; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO"; motivo: string; ts: string; camara: string | null; veces?: number }[] = [];
     for (const e of recientes) {
-        const ch = normalizarMatricula(e.plateDetected); if (!ch || vistas.has(ch)) continue;
+        const ch = normalizarMatricula(e.plateDetected); if (!esChapa(ch) || vistas.has(ch)) continue;
         const v = porChapa.get(ch);
         if (v) { vistas.add(ch); atencion.push({ plate: ch, tipo: v.category === "SEARCH" ? "EN_BUSQUEDA" : "LISTA_NEGRA", motivo: v.motivo || v.label || "sin motivo cargado", ts: e.timestamp.toISOString(), camara: e.device?.name || null }); continue; }
         if ((denegadasPorChapa.get(ch) || 0) >= MERODEO_DENEGADOS) { vistas.add(ch); atencion.push({ plate: ch, tipo: "MERODEO", motivo: `${denegadasPorChapa.get(ch)} lecturas denegadas en ${ATENCION_HORAS} h`, ts: e.timestamp.toISOString(), camara: e.device?.name || null, veces: denegadasPorChapa.get(ch) }); }

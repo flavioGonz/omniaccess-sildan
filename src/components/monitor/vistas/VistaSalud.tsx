@@ -11,7 +11,7 @@ const INTERVALO_MS = 60_000;
 
 type Estado = "bien" | "degradado" | "caido" | "sinDato";
 type Comp = { id: string; grupo: "camaras" | "nvr" | "servicios" | "procesos"; nombre: string; estado: Estado; detalle: string; respondio: string | null; caidoDesde: string | null };
-type Datos = { componentes: Comp[]; resumen: { total: number; conProblemas: number; primero: string[] }; ahora: string };
+type Datos = { componentes: Comp[]; resumen: { total: number; conProblemas: number; sinDato: number; primero: string[] }; ahora: string };
 
 const TONO: Record<Estado, { fondo: string; borde: string; Icono: any; texto: string }> = {
     bien: { fondo: "bg-card", borde: "border-border", Icono: CheckCircle2, texto: "text-[var(--bien-texto)]" },
@@ -36,8 +36,9 @@ export function VistaSalud() {
             <div className={cn("shrink-0 rounded-2xl border px-6 py-5 flex items-center gap-5", !r ? "border-border bg-card" : r.conProblemas ? "border-[color-mix(in_oklab,var(--mal)_60%,transparent)] bg-[var(--mal-suave)]" : "border-[color-mix(in_oklab,var(--bien)_50%,transparent)] bg-[var(--bien-suave)]")}>
                 <span className={cn("grid h-16 w-16 place-items-center rounded-full shrink-0", !r ? "bg-muted text-muted-foreground" : r.conProblemas ? "pleno-mal" : "pleno-bien")}>{!r ? <HelpCircle size={32} /> : r.conProblemas ? <XCircle size={32} /> : <CheckCircle2 size={32} />}</span>
                 <div className="min-w-0">
-                    <div className="text-[36px] font-bold leading-tight">{!r ? (error ? "No se pudo leer la salud" : "Revisando…") : r.conProblemas ? `${r.conProblemas} componente${r.conProblemas === 1 ? "" : "s"} con problemas` : "Todo en línea"}</div>
-                    <div className="text-[17px] text-muted-foreground truncate">{!r ? (error || "") : r.conProblemas ? r.primero.join(" · ") : `${r.total} componentes vigilados · revisado ${hace(datos!.ahora)}`}</div>
+                    {/* "Todo en línea" sólo si de verdad se sabe de todos: lo que no se muestrea no se da por bueno. */}
+                    <div className="text-[36px] font-bold leading-tight">{!r ? (error ? "No se pudo leer la salud" : "Revisando…") : r.conProblemas ? `${r.conProblemas} componente${r.conProblemas === 1 ? "" : "s"} con problemas` : r.sinDato ? "Sin problemas conocidos" : "Todo en línea"}</div>
+                    <div className="text-[17px] text-muted-foreground truncate">{!r ? (error || "") : r.conProblemas ? r.primero.join(" · ") : `${r.total - r.sinDato} de ${r.total} componentes responden${r.sinDato ? ` · ${r.sinDato} sin dato` : ""} · revisado ${hace(datos!.ahora)}`}</div>
                 </div>
             </div>
             <div className="flex-1 min-h-0 grid grid-cols-2 gap-4 overflow-hidden">

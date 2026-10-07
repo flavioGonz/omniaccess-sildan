@@ -31,11 +31,21 @@ const desdeEvento = (e: any): Lectura | null => e?.id && e?.timestamp ? ({
 }) : null;
 
 const esListaNegra = (l: Lectura) => /lista negra/i.test(l.detalles || "");
+/**
+ * El motivo del denegado, sacado de `details`. Ese campo mezcla el motivo con la ficha del
+ * vehículo que leyó la cámara ("Marca: …, Modelo: …, Color: …, Tipo: …, Source: …, Metodo:
+ * …, Confianza: …, PlateRect: …"): se descartan esos pares y queda lo que explica la
+ * decisión ("Lista negra: …", "ALERTA: Matrícula No Reconocida"). Si no queda nada, es el
+ * caso corriente: la matrícula no tiene credencial.
+ */
+const CLAVES_FICHA = /^(Marca|Modelo|Color|Tipo|Source|Metodo|Método|Confianza|PlateRect|PlateCrop|Camara|Cámara)\s*:/i;
 const motivoDenegado = (l: Lectura) => {
     const d = l.detalles || "";
-    const m = d.match(/Lista negra:\s*([^·|]+)/i); if (m) return `Lista negra: ${m[1].trim()}`;
-    const partes = d.split(/[·|]/).map((x) => x.trim()).filter((x) => x && !/^Metodo|^Método|^Confianza/i.test(x));
-    return partes[0] || "Sin credencial vigente";
+    const m = d.match(/Lista negra:\s*([^,·|]+)/i); if (m) return `Lista negra: ${m[1].trim()}`;
+    const partes = d.split(/[,·|]/).map((x) => x.trim().replace(/\.$/, "")).filter((x) => x && !CLAVES_FICHA.test(x));
+    const texto = partes[0] || "";
+    if (/no reconocida/i.test(texto)) return "Matrícula no reconocida";
+    return texto.replace(/^ALERTA:\s*/i, "") || "Sin credencial vigente";
 };
 
 function Contador({ rotulo, valor, Icono, tono }: { rotulo: string; valor: number; Icono: any; tono?: "bien" | "mal" | "info" }) {
@@ -102,15 +112,15 @@ export function VistaLpr() {
                                         <div className="text-[14px] text-white/55 mt-1">{hace(ultima.ts)}{ultima.metodo.metodo ? ` · ${ultima.metodo.metodo}` : ""}{ultima.metodo.confianza != null ? ` · ${Math.round(ultima.metodo.confianza)} %` : ""}</div>
                                     </div>
                                 </div>
-                                <div className="absolute bottom-0 inset-x-0 p-6 flex items-end justify-between gap-6">
+                                <div className="absolute bottom-0 inset-x-0 p-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
                                     <div className="min-w-0">
-                                        <div className="inline-block px-5 py-2 rounded-xl bg-white text-black text-[72px] font-bold tabular-nums tracking-[0.14em] leading-none shadow-[0_8px_30px_rgba(0,0,0,.6)]">{ultima.plate || "S/L"}</div>
+                                        <div className="inline-block px-5 py-2 rounded-xl bg-white text-black text-[clamp(36px,5.5vw,72px)] font-bold tabular-nums tracking-[0.14em] leading-none shadow-[0_8px_30px_rgba(0,0,0,.6)]">{ultima.plate || "S/L"}</div>
                                         <div className="mt-3 text-[22px] font-semibold text-white truncate">{ultima.persona || (permitido ? "Autorizado" : "Desconocido")}</div>
                                     </div>
-                                    <div className={cn("shrink-0 flex items-center gap-3 px-6 py-4 rounded-2xl text-white", negra || !permitido ? "pleno-mal" : "pleno-bien")}>
+                                    <div className={cn("ml-auto flex items-center gap-3 px-6 py-4 rounded-2xl text-white", negra || !permitido ? "pleno-mal" : "pleno-bien")}>
                                         {negra ? <ShieldAlert size={40} /> : permitido ? <ShieldCheck size={40} /> : <ShieldX size={40} />}
                                         <div>
-                                            <div className="text-[34px] font-black uppercase tracking-[0.08em] leading-none">{negra ? "Lista negra" : permitido ? "Permitido" : "Denegado"}</div>
+                                            <div className="text-[clamp(22px,2.6vw,34px)] font-black uppercase tracking-[0.08em] leading-none">{negra ? "Lista negra" : permitido ? "Permitido" : "Denegado"}</div>
                                             {!permitido && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{motivoDenegado(ultima)}</div>}
                                         </div>
                                     </div>
