@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { ARCHIVO_APK } from "@/lib/apk";
 import { stat } from "fs/promises";
 import path from "path";
 
@@ -22,6 +23,6 @@ export async function GET() {
             else if (r.value) versionName = r.value;
         }
     } catch { }
-    try { const st = await stat(path.join(process.cwd(), "public", "GuardiaSildan.apk")); updatedAt = st.mtime.toISOString(); } catch { }
+    try { const st = await stat(path.join(process.cwd(), "public", ARCHIVO_APK)); updatedAt = st.mtime.toISOString(); } catch { }
     return Response.json({ versionCode, versionName, url: "/api/apk", updatedAt }, { headers: { "Cache-Control": "no-store" } });
 }

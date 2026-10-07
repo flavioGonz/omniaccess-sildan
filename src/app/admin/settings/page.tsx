@@ -49,7 +49,6 @@ import {
 import nextDynamic from "next/dynamic";
 const _SLoad = () => <div className="p-8 text-sm text-muted-foreground animate-pulse">Cargando…</div>;
 const BrandingSection = nextDynamic(() => import("./BrandingSection"), { ssr: false, loading: _SLoad });
-const SystemLiveStatus = nextDynamic(() => import("./SystemLiveStatus"), { ssr: false, loading: _SLoad });
 const AuditPage = nextDynamic(() => import("@/app/admin/audit/page"), { ssr: false, loading: _SLoad });
 const WebhookDebugPage = nextDynamic(() => import("@/app/admin/debug/page"), { ssr: false, loading: _SLoad });
 import StorageBrowser from "@/components/settings/StorageBrowser";
@@ -200,7 +199,6 @@ const NAV_GROUPS = [
         { sec: "audit", btab: "", label: "Auditoría Hardware", icon: ShieldCheck },
         { sec: "whatsapp", btab: "", label: "Chatbot (OpenWA)", icon: MessageSquare },
         { sec: "tracking", btab: "", label: "Omni-LPR & Seguimiento", icon: Video },
-        { sec: "prerec", btab: "", label: "Pre-grabación", icon: Video },
         { sec: "playback", btab: "", label: "Video del evento", icon: Video },
     ]},
 ];
@@ -546,21 +544,6 @@ export default function SettingsPage() {
                             </div>
                             {storageTab === "explorador" && <StorageBrowser />}
                             {storageTab === "config" && <AlmacenamientoSection />}
-                        </div>
-                    )}
-
-                    {activeSection === "prerec" && (
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between mb-2">
-                                <div>
-                                    <h2 className="text-2xl font-bold text-foreground tracking-tight">Pre-grabación</h2>
-                                    <p className="text-sm text-muted-foreground mt-1">Buffer continuo de video por cámara de fila y flujos procesados en vivo</p>
-                                </div>
-                                <div className="p-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
-                                    <Video className="text-emerald-400" size={24} />
-                                </div>
-                            </div>
-                            <SystemLiveStatus />
                         </div>
                     )}
 

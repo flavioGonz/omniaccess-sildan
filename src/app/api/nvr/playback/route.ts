@@ -3,10 +3,12 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
 import { spawn } from "child_process";
-import { resolveNvrById } from "@/lib/nvr-resolve";
+import { resolveNvrById, getChannelMap } from "@/lib/nvr-resolve";
+import { prisma } from "@/lib/prisma";
+import { configClips, filtroEscala, CRF_POR_CALIDAD, nombreDeClip } from "@/lib/clips";
 import { ventanaPlayback, acotarVentana, ANTES_MAX, DESPUES_MAX } from "@/lib/ventana-playback";
 
-// El NVR Hikvision (DS-7732NXI, Sildan) interpreta starttime/endtime como HORA LOCAL
+// El NVR Hikvision (DS-7732NXI de Los Olivos) interpreta starttime/endtime como HORA LOCAL
 // del equipo aunque lleven sufijo Z (verificado: ContentMgmt/search devuelve los
 // segmentos con hora local "Z"). Formateamos en la zona del NVR (America/Montevideo).
 const NVR_TZ = "America/Montevideo";
@@ -126,12 +128,15 @@ export async function GET(req: NextRequest) {
     // lo que tenía el de Olivos: con GPU, VAAPI; sin GPU, libx264 ultrafast a 720p, que
     // en 8 núcleos rinde un clip a la vez sin despeinarse.
     const hayGpu = tieneGpu();
+    // Resolución y calidad: Ajustes → Video del evento (lib/clips). Antes 720p y crf 26 fijos.
+    const cfg = await configClips();
+    const alto = cfg.altura || null;
     const DEC = isDahua && hayGpu ? ["-hwaccel", "vaapi", "-hwaccel_device", DRI, "-hwaccel_output_format", "vaapi"] : [];
     const SWUP = hayGpu && !isDahua ? ["-vaapi_device", DRI] : [];
-    const VF = !hayGpu ? "scale=-2:720,format=yuv420p" : isDahua ? "scale_vaapi=w=-2:h=720" : "scale=-2:720,format=nv12,hwupload";
+    const VF = !hayGpu ? filtroEscala(cfg.altura) : isDahua ? (alto ? `scale_vaapi=w=-2:h=${alto}` : "scale_vaapi=w=-2:h=-2") : `${alto ? `scale=-2:${alto},` : ""}format=nv12,hwupload`;
     const ENC = hayGpu
-        ? ["-c:v", "h264_vaapi", "-qp", "24"]
-        : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", "26", "-g", "25", "-threads", "4"];
+        ? ["-c:v", "h264_vaapi", "-qp", String(CRF_POR_CALIDAD[cfg.calidad])]
+        : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-g", "25", "-threads", "4"];
 
     // Modo "clip completo": genera un MP4 completo (faststart) a un archivo temporal y lo sirve
     // con Content-Length + soporte de rangos. Necesario para que el <video> reproduzca en el
@@ -211,9 +216,14 @@ export async function GET(req: NextRequest) {
 
     const headers: Record<string, string> = { "Content-Type": "video/mp4", "Cache-Control": "no-store" };
     if (sp.get("download") === "1") {
-        const d = new Date(startMs);
-        const p = (n: number) => String(n).padStart(2, "0");
-        const fname = `clip_ch${ch}_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.mp4`;
+        // El nombre sale del patrón de Ajustes. La cámara se busca por su canal en el mapa de NVR.
+        let camara: string | null = null;
+        try {
+            const mapa = await getChannelMap();
+            const ip = Object.keys(mapa).find((k) => String(mapa[k].ch) === String(ch) && (!sp.get("nvr") || mapa[k].nvrId === sp.get("nvr")));
+            if (ip) camara = (await prisma.device.findFirst({ where: { ip }, select: { name: true } }))?.name || null;
+        } catch { }
+        const fname = `${nombreDeClip(cfg.nombre, { camara, matricula: sp.get("matricula"), fecha: new Date(startMs), canal: ch })}.mp4`;
         headers["Content-Disposition"] = `attachment; filename="${fname}"`;
     }
     return new Response(stream as any, { headers });

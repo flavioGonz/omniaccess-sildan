@@ -5,6 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
+import { configClips, nombreDeClip, filtroEscala, CRF_POR_CALIDAD } from "@/lib/clips";
 import { ventanaPlayback, acotarVentana, ANTES_MAX, DESPUES_MAX } from "@/lib/ventana-playback";
 import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById, type NvrConn } from "@/lib/nvr-resolve";
@@ -61,7 +62,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const t = new Date(ev.timestamp);
     const p = (n: number) => String(n).padStart(2, "0");
     const stamp = `${t.getFullYear()}${p(t.getMonth() + 1)}${p(t.getDate())}_${p(t.getHours())}${p(t.getMinutes())}${p(t.getSeconds())}`;
-    const base = `evento_${plate}_${stamp}`;
+    // Nombre, formato y calidad: Ajustes → Video del evento (lib/clips).
+    const cfg = await configClips();
+    const base = nombreDeClip(cfg.nombre, { camara: ev.device?.name, matricula: plate, fecha: t, evento: ev.id.slice(-6) });
+    void stamp;
 
     // canal NVR — por el mapa multi-NVR, como el playback. Esta ruta leía el mapa viejo
     // `{ip: canal}` y los settings NVR_HOST/USER/PASS: con el formato `{ip:{nvr,ch}}` el
@@ -103,9 +107,18 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
         const startMs = t.getTime() - pre * 1000;
         // `tracks` y no `Channels`: `Channels?starttime=` ignora el rango y manda el vivo (ver api/nvr/playback).
         const url = `rtsp://${nvr.user}:${nvr.pass}@${nvr.ip}:${nvr.rtspPort || "554"}/Streaming/tracks/${channel}01?starttime=${fmtNvr(startMs)}&endtime=${fmtNvr(startMs + dur * 1000)}`;
-        const ff = spawn("ffmpeg", ["-rtsp_transport", "tcp", "-i", url, "-t", String(dur), "-an", "-c:v", "copy", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
-        const timer = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } }, (dur + 40) * 1000);
+        // Se transcodifica a H.264 con la resolución y calidad de Ajustes. Antes iba `-c:v copy`:
+        // los NVR graban H.265 y ese MP4 no lo abría ni el navegador ni el reproductor del teléfono.
+        const ff = spawn("ffmpeg", ["-rtsp_transport", "tcp", "-fflags", "genpts", "-i", url, "-t", String(dur), "-an",
+            "-vf", filtroEscala(cfg.altura), "-c:v", "libx264", "-preset", "veryfast", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-g", "25", "-threads", "4",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
+        const timer = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } }, (dur + 60) * 1000);
         ff.on("close", () => clearTimeout(timer));
+        if (cfg.entrega === "mp4") {
+            // Entrega "sólo el video": el MP4 directo, con el nombre del patrón.
+            const web = Readable.toWeb(ff.stdout as Readable) as any;
+            return new Response(web, { headers: { "Content-Type": "video/mp4", "Content-Disposition": `attachment; filename="${base}.mp4"`, "Cache-Control": "no-store" } });
+        }
         zip.append(ff.stdout as Readable, { name: `${base}/clip_${dur}s.mp4` });
     } else {
         zip.append("Este evento no tiene grabación asociada (dispositivo sin canal NVR mapeado).", { name: `${base}/SIN_CLIP.txt` });

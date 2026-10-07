@@ -14,6 +14,7 @@ import { Film, Loader2, Save } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import EntregaClips from "./EntregaClips";
 import { getSetting, updateSetting } from "@/app/actions/settings";
 import {
     AJUSTE_SEG_ANTES, AJUSTE_SEG_DESPUES, ANTES_POR_DEFECTO, DESPUES_POR_DEFECTO,
@@ -110,6 +111,8 @@ export default function PlaybackSection() {
                     </div>
                 </div>
             )}
+            {/* Cómo se entrega el clip: resolución, calidad, formato y nombre. Cierra la parte de video. */}
+            <EntregaClips />
         </div>
     );
 }
