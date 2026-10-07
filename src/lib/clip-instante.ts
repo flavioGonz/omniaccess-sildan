@@ -31,10 +31,11 @@ import {
  */
 
 /** Dónde quedan los clips servibles (/api/clip/<archivo>). Por defecto, public/clips del proyecto. */
-// `turbopackIgnore`: sin él, el build ve un path armado con cwd y trata de empaquetar la carpeta
-// entera; public/clips es un enlace a /datos/clips y el build se cayó el 7/10 en cuanto había un
-// clip adentro ("Symlink ... points out of the filesystem root"). Son rutas de ejecución, no assets.
-export const DIR_CLIPS = process.env.CLIPS_DIR || path.join(/* turbopackIgnore: true */ process.cwd(), "public", "clips");
+// Fuera del proyecto, como la caché de miniaturas: el 7/10 el build se cayó porque Turbopack
+// rastreaba public/clips (un enlace a /datos/clips) en cuanto había un clip adentro ("Symlink ...
+// points out of the filesystem root"), y marcarlo con turbopackIgnore no alcanzó. Los clips son
+// temporales (CLIP_RETENCION_MIN) y los sirve /api/clip/[file], no Next como estáticos.
+export const DIR_CLIPS = process.env.CLIPS_DIR || path.join(os.tmpdir(), "omniaccess-clips");
 /** Dónde graba el worker el anillo. Fuera de public: nada del anillo se sirve. Igual en los dos procesos. */
 export const DIR_ANILLO = process.env.ANILLO_DIR || path.join(os.tmpdir(), "omniaccess-anillo");
 

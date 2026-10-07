@@ -211,7 +211,8 @@ setInterval(ensureRecorders, 30000);
 
 // ── Clip de la alerta: lo corta la web (lib/clip-instante) ─────────────────
 // Un solo lugar que sabe sacar video (NVR o anillo), el mismo del playback. Acá sólo se pide.
-const DIR_CLIPS = process.env.CLIPS_DIR || path.join(__dirname, "public", "clips");
+// Mismo directorio que la web (lib/clip-instante: DIR_CLIPS), fuera del proyecto.
+const DIR_CLIPS = process.env.CLIPS_DIR || path.join(os.tmpdir(), "omniaccess-clips");
 let _token = null;
 async function trackingToken() {
     if (_token === null) _token = process.env.TRACKING_TOKEN || await getSetting("TRACKING_TOKEN", "");
