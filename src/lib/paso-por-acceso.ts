@@ -104,11 +104,13 @@ export async function registrarPasoPorAcceso(l: Lectura): Promise<string | null>
             evento: credential ? (decision === "GRANT" ? "ALLOW" : "DENY") : "UNKNOWN",
             deviceId: device.id, deviceName: device.name,
             plate: l.plate, direction: event.direction, snapshotPath: event.snapshotPath,
+            instante: l.timestamp.getTime(),
         }).catch(() => 0);
         if (negra.watch && (negra.watch.category === "BLACKLISTED" || negra.watch.category === "SEARCH")) {
             notificarEvento({
                 modulo: "LPR", evento: "WATCHLIST", deviceId: device.id, deviceName: device.name,
                 plate: l.plate, direction: event.direction, snapshotPath: event.snapshotPath,
+                instante: l.timestamp.getTime(),
                 extra: { categoria: negra.watch.category, motivo: negra.motivo, origen: negra.origen },
             } as any).catch(() => 0);
         }

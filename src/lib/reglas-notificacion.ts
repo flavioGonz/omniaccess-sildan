@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
 import { fecha, hora } from "@/lib/fechas";
+import { ventanaAlerta } from "@/lib/clip-instante";
+import { MARGEN_GRABACION_SEG } from "@/lib/clips";
 
 /**
  * Motor de reglas de notificación, compartido por los tres modos.
@@ -25,6 +27,11 @@ export type EventoNotificable = {
     personName?: string | null;
     direction?: string | null;
     snapshotPath?: string | null;
+    /**
+     * Cuándo pasó (ISO o epoch ms). El clip de la alerta se corta alrededor de este momento;
+     * si falta se usa el de encolado, que llega tarde lo que tarde el evento en llegar acá.
+     */
+    instante?: string | number | null;
     extra?: Record<string, any>;
 };
 
@@ -111,6 +118,13 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
 
         let encolados = 0;
 
+        // Con el clip en alertas prendido, WhatsApp y Telegram esperan a que exista el tramo
+        // posterior del video (segundos "después" + lo que tarda el NVR en exponerlo). Apagado,
+        // salen al instante como siempre. Se calcula una vez por evento.
+        const conClip = (await prisma.setting.findUnique({ where: { key: "DISPATCH_ANIMATED" } }).catch(() => null))?.value === "true";
+        const demoraClipMs = conClip ? ((await ventanaAlerta()).despues + MARGEN_GRABACION_SEG) * 1000 : 0;
+        const instante = ev.instante != null && !Number.isNaN(new Date(ev.instante as any).getTime()) ? new Date(ev.instante as any) : ahora;
+
         for (const regla of reglas) {
             // Cámara: null en la regla significa "cualquiera".
             if (regla.deviceId && regla.deviceId !== ev.deviceId) continue;
@@ -131,7 +145,8 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
 
             for (const canal of canales) {
                 const plantilla = plantillas.find((t) => t.channel === canal) || plantillas.find((t) => t.channel === "all");
-                const texto = armarTexto(plantilla?.body || null, ev, ahora);
+                // La hora del texto es la del evento, no la de encolado: con el clip la alerta sale unos segundos después.
+                const texto = armarTexto(plantilla?.body || null, ev, instante);
 
                 // Un despacho por destinatario de ese canal; si no hay ninguno,
                 // uno solo y que el worker use el destino por defecto.
@@ -142,6 +157,7 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
                     await enqueueDispatch({
                         type: "ALERT",
                         channel: canal,
+                        delayMs: canal === "whatsapp" || canal === "telegram" ? Math.max(0, demoraClipMs - (Date.now() - instante.getTime())) : 0,
                         ruleId: regla.id,
                         deviceId: ev.deviceId || null,
                         payload: {
@@ -154,6 +170,7 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
                             persona: ev.personName || null,
                             asunto: `${ETIQUETA[ev.evento] || ev.evento} · ${ev.plate || ev.personName || ev.deviceName || ""}`.trim(),
                             snapshotPath: ev.snapshotPath || null,
+                            instante: instante.toISOString(),
                             text: texto,
                             ...(destino ? { to: destino, chatId: destino } : {}),
                             ...(ev.extra || {}),

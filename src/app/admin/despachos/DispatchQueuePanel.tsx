@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
     Send, FileText, Bell, RefreshCw, Clock, CheckCircle2, XCircle,
-    Loader2, RotateCcw, AlertTriangle, BarChart3,
+    Loader2, RotateCcw, AlertTriangle, BarChart3, Film,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/avisos";
@@ -166,11 +166,15 @@ export default function DispatchQueuePanel() {
                     const st = STATUS[j.status] || STATUS.PENDING;
                     const StIcon = st.icon;
                     const isReport = j.type === "REPORT";
-                    const label = j.payload?.ruleName || (isReport ? "Reporte" : "Alerta");
+                    // CLIP: un clip que un operador mandó a mano desde la grabación (actions/clips).
+                    const isClip = j.type === "CLIP";
+                    const label = isClip ? `Clip · ${j.payload?.deviceName || "cámara"}` : (j.payload?.ruleName || (isReport ? "Reporte" : "Alerta"));
+                    // Un despacho ENVIADO puede traer una nota ("sin video: …"): es un aviso, no una falla.
+                    const esNota = j.status === "SENT" && !!j.lastError;
                     return (
                         <div key={j.id} className="flex items-center gap-3 px-4 py-2.5">
                             <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0", isReport ? "bg-sky-500/10 text-sky-400" : "bg-violet-500/10 text-violet-400")}>
-                                {isReport ? <FileText size={15} /> : <Bell size={15} />}
+                                {isReport ? <FileText size={15} /> : isClip ? <Film size={15} /> : <Bell size={15} />}
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
@@ -179,14 +183,14 @@ export default function DispatchQueuePanel() {
                                 </div>
                                 <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-2.5 gap-y-0.5 mt-0.5">
                                     <span>{fmt(j.createdAt)}</span>
-                                    <span>· intentos {j.attempts}/{j.maxAttempts}</span>
-                                    {j.lastError && <span className="text-red-400 truncate max-w-[260px]" title={j.lastError}>· {j.lastError}</span>}
+                                    {isClip ? <span>· enviado por {j.payload?.enviadoPor || "—"}{j.payload?.destinatarios?.length ? ` a ${j.payload.destinatarios.map((d: any) => d.nombre || d.telefono).join(", ")}` : ""}</span> : <span>· intentos {j.attempts}/{j.maxAttempts}</span>}
+                                    {j.lastError && <span className={cn("truncate max-w-[320px]", esNota ? "tono-aviso inline-flex items-center gap-1" : "text-red-400")} title={j.lastError}>· {esNota && <AlertTriangle size={11} />}{j.lastError}</span>}
                                 </div>
                             </div>
                             <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border shrink-0", st.cls)}>
                                 <StIcon size={11} className={j.status === "PROCESSING" ? "animate-spin" : ""} /> {st.label}
                             </span>
-                            {j.status === "FAILED" && (
+                            {j.status === "FAILED" && !isClip && (
                                 <button onClick={() => retry(j.id)} title="Reintentar" className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition shrink-0">
                                     <RotateCcw size={14} />
                                 </button>

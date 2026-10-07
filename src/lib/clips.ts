@@ -99,3 +99,13 @@ export const MARGEN_GRABACION_SEG = 4;
 
 /** Cuánto vive un clip servible en disco: lo que WAHA/Telegram tardan en bajarlo por URL, con margen. */
 export const CLIP_RETENCION_MIN = 10;
+
+/**
+ * Qué tipos de equipo alcanza una regla "de cualquier cámara" según su módulo. La misma tabla
+ * está en dispatch-worker.js (que decide qué cámaras graban en anillo): si cambia una, cambia
+ * la otra. Face no está: los terminales faciales no exponen un stream que go2rtc republique.
+ */
+export const TIPOS_POR_MODULO: Record<string, string[]> = {
+    LPR: ["LPR_CAMERA", "LPR_INTERIOR"],
+    INTRUSION: ["CAMERA", "LPR_CAMERA", "LPR_INTERIOR"],
+};

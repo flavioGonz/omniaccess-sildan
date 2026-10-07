@@ -10,6 +10,8 @@ import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
 import { Scrub, type MarcaScrub } from "@/components/Scrub";
 import { motion, AnimatePresence } from "framer-motion";
+// El diálogo de descarga (y ahora de envío por WhatsApp) es compartido con la ficha del evento.
+import { DescargaClip } from "@/components/video/DescargaClip";
 import { Tooltip as RTooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
 
@@ -32,61 +34,6 @@ type Ventana = { antes: number; despues: number; topes: { antesMax: number; desp
 const VENTANA_INICIAL: Ventana = { antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } };
 const horaSeg = (ms: number) => new Date(ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
-/**
- * El diálogo previo a bajar un clip.
- *
- * Antes el botón bajaba sin decir nada un clip "de 60 s" (según su tooltip) que en
- * realidad medía lo que dijera Ajustes. Ahora dice exactamente qué va a traer —cuántos
- * segundos antes y después de qué instante, de dónde sale ese valor— y deja cambiarlo
- * para ESTE clip sin tocar la configuración del barrio.
- */
-function DescargaClip({ instante, ventana, href, onClose }: { instante: number; ventana: Ventana; href: (antes: number, despues: number) => string; onClose: () => void }) {
-    const [antes, setAntes] = useState(ventana.antes);
-    const [despues, setDespues] = useState(ventana.despues);
-    const acotar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(Number.isFinite(v) ? v : min)));
-    const a = acotar(antes, 0, ventana.topes.antesMax), d = acotar(despues, ventana.topes.despuesMin, ventana.topes.despuesMax);
-    const cambiado = a !== ventana.antes || d !== ventana.despues;
-    useEffect(() => { const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } }; window.addEventListener("keydown", k, true); return () => window.removeEventListener("keydown", k, true); }, [onClose]);
-    return (
-        <div className="absolute inset-0 z-[60] bg-black/70 backdrop-blur-sm grid place-items-center p-4" onClick={onClose}>
-            <div className="w-full max-w-md rounded-2xl bg-neutral-900/95 ring-1 ring-white/10 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-start gap-3 p-5 pb-4">
-                    <span className="w-10 h-10 rounded-xl bg-sky-500/20 grid place-items-center ring-1 ring-sky-400/30 shrink-0"><Download size={18} className="text-sky-300" /></span>
-                    <div className="min-w-0">
-                        <div className="text-[15px] font-extrabold text-white leading-tight">Descargar clip</div>
-                        <div className="text-[12px] text-white/60 mt-0.5">Alrededor de las <span className="text-white font-bold tabular-nums">{horaSeg(instante)}</span> del {new Date(instante).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric" })}</div>
-                    </div>
-                    <button onClick={onClose} className="ml-auto w-8 h-8 grid place-items-center rounded-full hover:bg-white/10 text-white/60 hover:text-white"><X size={16} /></button>
-                </div>
-                <div className="px-5 pb-4 grid grid-cols-2 gap-3">
-                    <label className="block">
-                        <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5">Segundos antes</span>
-                        <input type="number" min={0} max={ventana.topes.antesMax} value={antes} onChange={(e) => setAntes(Number(e.target.value))}
-                            className="w-full h-10 rounded-xl bg-white/10 ring-1 ring-white/10 focus:ring-sky-400/60 px-3 text-[16px] font-extrabold tabular-nums text-white outline-none" />
-                    </label>
-                    <label className="block">
-                        <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5">Segundos después</span>
-                        <input type="number" min={ventana.topes.despuesMin} max={ventana.topes.despuesMax} value={despues} onChange={(e) => setDespues(Number(e.target.value))}
-                            className="w-full h-10 rounded-xl bg-white/10 ring-1 ring-white/10 focus:ring-sky-400/60 px-3 text-[16px] font-extrabold tabular-nums text-white outline-none" />
-                    </label>
-                </div>
-                <div className="mx-5 mb-4 rounded-xl bg-white/[0.06] ring-1 ring-white/10 px-3.5 py-3 flex items-start gap-2.5">
-                    <Settings2 size={14} className="text-white/45 shrink-0 mt-0.5" />
-                    <p className="text-[11.5px] text-white/65 leading-snug">
-                        El clip irá de <span className="text-white font-bold tabular-nums">{horaSeg(instante - a * 1000)}</span> a <span className="text-white font-bold tabular-nums">{horaSeg(instante + d * 1000)}</span> ({a + d} s).
-                        {" "}Lo configurado en <span className="text-white/85 font-semibold">Ajustes → Video del evento</span> es {ventana.antes} s antes y {ventana.despues} s después
-                        {cambiado ? "; el cambio vale sólo para este clip." : "."}
-                    </p>
-                </div>
-                <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/10 bg-black/30">
-                    <button onClick={onClose} className="h-9 px-4 rounded-xl text-[12.5px] font-bold text-white/70 hover:text-white hover:bg-white/10 transition">Cancelar</button>
-                    <a href={href(a, d)} download onClick={onClose}
-                        className="h-9 px-4 inline-flex items-center gap-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold shadow-lg active:scale-95 transition"><Download size={15} /> Descargar {a + d} s</a>
-                </div>
-            </div>
-        </div>
-    );
-}
 type AlarmChip = { id: string; type: string; label: string; ts: string };
 
 
@@ -580,7 +527,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                                 </span>
                             </div>
                         )}
-                        {descarga && <DescargaClip instante={posMs ?? recT} ventana={ventana} href={hrefDescarga} onClose={() => setDescarga(false)} />}
+                        {descarga && <DescargaClip instante={posMs ?? recT} ventana={ventana} href={hrefDescarga} onClose={() => setDescarga(false)} deviceId={cam.id} camara={cam.name} />}
                         {/* línea de tiempo — sin recuadro, directa sobre degradado */}
                         <div className="absolute bottom-0 inset-x-0 px-5 pb-3 pt-20 bg-gradient-to-t from-black/90 via-black/40 to-transparent z-20">
                             <div>

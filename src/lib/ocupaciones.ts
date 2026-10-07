@@ -182,6 +182,7 @@ export async function confirmarOcupacion(fila: Fila, cameraName: string) {
         modulo: "LPR", evento: "PARKED",
         deviceId: fila.deviceId, deviceName: cameraName,
         plate: fila.plate || "",
+        instante: fila.desde.getTime(),
         extra: { desde: fila.desde, lugar: fila.lugar + 1, minutos: Math.round((fila.hasta.getTime() - fila.desde.getTime()) / 60000) },
     }).catch(() => { });
 
@@ -204,6 +205,7 @@ export async function cerrarOcupacion(fila: Fila, cameraName: string) {
         modulo: "LPR", evento: "LEFT",
         deviceId: fila.deviceId, deviceName: cameraName,
         plate: fila.plate || "",
+        instante: fila.hasta.getTime(),
         extra: {
             desde: fila.desde, hasta: fila.hasta, lugar: fila.lugar + 1,
             minutos: Math.round((fila.hasta.getTime() - fila.desde.getTime()) / 60000),

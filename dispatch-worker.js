@@ -90,112 +90,130 @@ function fetchLocalBase64(path) {
     });
 }
 
-// ── Ring-buffer recorder ──────────────────────────────────────────────────
-// Graba continuamente las cámaras de fila (vía go2rtc RTSP, -c copy) en
-// segmentos cortos, para poder extraer el clip del momento EXACTO de la alerta
-// con pre-roll (se ve a la gente acercándose + el instante de las N personas).
+// ── Anillo de grabación local ──────────────────────────────────────────────
+// Graba en segmentos cortos (go2rtc RTSP, -c copy) las cámaras que NO están en ningún NVR y
+// que alguna regla de notificación activa alcanza, para que la alerta pueda llevar el clip del
+// momento exacto con pre-roll. Las que están en un NVR no lo necesitan: el clip sale de su
+// grabación (lib/clip-instante en la web, que también es quien corta el anillo).
+//
+// Antes sólo grababa las cámaras de fila (QUEUE_COUNTER, stream bosch_<ip>) y el clip lo
+// armaba este proceso con su propio ffmpeg; en San Nicolás no había ninguna, así que el
+// "Clip animado en alertas" nunca produjo nada. Las de fila siguen grabando como antes.
 const { spawn } = require("child_process");
-const RING_ROOT = "/opt/OmniAccess/public/clips/ring";
-const SEG_DUR = 2;      // seg por segmento
-const SEG_WRAP = 40;    // anillo (~80s de buffer)
-const CLIP_PRE = 5;     // seg antes de la alerta (pre-roll)
-const CLIP_POST = 3;    // seg después de la alerta
-const recorders = new Map(); // deviceId -> child
+const path = require("path");
+const os = require("os");
+// Mismo directorio que lee la web (lib/clip-instante: DIR_ANILLO). Fuera de public: no se sirve.
+const DIR_ANILLO = process.env.ANILLO_DIR || path.join(os.tmpdir(), "omniaccess-anillo");
+const SEG_DUR = 2;      // seg por segmento (= SEG_ANILLO_SEG de lib/clips: la web corta con este valor)
+const SEG_WRAP = 40;    // 40 × 2 s = 80 s de memoria: alcanza para el pre-roll más largo de una alerta (15 s) con margen
+const recorders = new Map(); // deviceId -> { ch, src }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-function streamNameForIp(ip) { return "bosch_" + String(ip).replace(/\./g, "_"); }
 
-function startRecorder(deviceId, ip) {
-    if (recorders.has(deviceId)) return;
-    const dir = `${RING_ROOT}/${deviceId}`;
+// Qué tipos de equipo alcanza una regla "de cualquier cámara" según su módulo (= TIPOS_POR_MODULO de lib/clips).
+const TIPOS_POR_MODULO = {
+    LPR: ["LPR_CAMERA", "LPR_INTERIOR"],
+    INTRUSION: ["CAMERA", "LPR_CAMERA", "LPR_INTERIOR"],
+    // FACE: los terminales faciales no exponen un stream que go2rtc republique; su alerta va con la foto.
+};
+
+function startRecorder(deviceId, src) {
+    const actual = recorders.get(deviceId);
+    if (actual && actual.src === src) return;
+    if (actual) stopRecorder(deviceId, false);
+    const dir = path.join(DIR_ANILLO, deviceId);
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-    const src = `rtsp://127.0.0.1:8554/${streamNameForIp(ip)}`;
     const args = ["-loglevel", "error", "-rtsp_transport", "tcp", "-fflags", "+genpts",
         "-i", src, "-an", "-c:v", "copy",
         "-f", "segment", "-segment_time", String(SEG_DUR), "-segment_wrap", String(SEG_WRAP),
-        "-segment_format", "mpegts", "-reset_timestamps", "1", `${dir}/seg_%03d.ts`];
+        "-segment_format", "mpegts", "-reset_timestamps", "1", path.join(dir, "seg_%03d.ts")];
     let ch; try { ch = spawn("ffmpeg", args, { stdio: "ignore" }); } catch { return; }
-    recorders.set(deviceId, ch);
-    ch.on("exit", () => { recorders.delete(deviceId); });
-    ch.on("error", () => { recorders.delete(deviceId); });
+    recorders.set(deviceId, { ch, src });
+    console.log(`[anillo] graba ${deviceId} (${src})`);
+    ch.on("exit", () => { const r = recorders.get(deviceId); if (r && r.ch === ch) recorders.delete(deviceId); });
+    ch.on("error", () => { const r = recorders.get(deviceId); if (r && r.ch === ch) recorders.delete(deviceId); });
+}
+
+function stopRecorder(deviceId, borrar) {
+    const r = recorders.get(deviceId);
+    if (r) { try { r.ch.kill("SIGKILL"); } catch {} recorders.delete(deviceId); }
+    if (borrar) { try { fs.rmSync(path.join(DIR_ANILLO, deviceId), { recursive: true, force: true }); } catch {} console.log(`[anillo] deja de grabar ${deviceId}`); }
+}
+
+/** El conjunto { deviceId → stream RTSP } que tiene que estar grabando ahora. */
+async function conjuntoAGrabar() {
+    const quiero = new Map();
+    // Cámaras de fila (Olivos): como siempre.
+    const filas = await prisma.device.findMany({ where: { deviceType: "QUEUE_COUNTER" }, select: { id: true, ip: true } });
+    for (const d of filas) if (d.ip) quiero.set(d.id, `rtsp://127.0.0.1:8554/bosch_${String(d.ip).replace(/\./g, "_")}`);
+    // Cámaras sin NVR alcanzadas por una regla activa, sólo si el clip en alertas está prendido:
+    // con el interruptor apagado ningún clip se va a pedir y grabar sería CPU y disco tirados.
+    if ((await getSetting("DISPATCH_ANIMATED", "false")) !== "true") return quiero;
+    let mapa = {};
+    try { mapa = JSON.parse(await getSetting("NVR_CHANNEL_MAP", "{}")) || {}; } catch {}
+    // Sólo las reglas que mandan por un canal que lleva video (un aviso por correo no pide clip).
+    const reglas = (await prisma.notificationRule.findMany({ where: { enabled: true }, select: { deviceId: true, modulo: true, channels: true } }))
+        .filter((r) => /whatsapp|telegram/.test(String(r.channels || "")));
+    const ids = new Set();
+    const tipos = new Set();
+    for (const r of reglas) {
+        if (r.deviceId) ids.add(r.deviceId);
+        else for (const t of (TIPOS_POR_MODULO[r.modulo] || [])) tipos.add(t);
+    }
+    if (!ids.size && !tipos.size) return quiero;
+    const devs = await prisma.device.findMany({
+        where: { OR: [{ id: { in: [...ids] } }, { deviceType: { in: [...tipos] } }] },
+        select: { id: true, ip: true },
+    });
+    for (const d of devs) {
+        if (d.ip && mapa[d.ip]) continue; // tiene NVR: el clip sale de la grabación
+        quiero.set(d.id, `rtsp://127.0.0.1:8554/lpr_${d.id}`);
+    }
+    return quiero;
 }
 
 async function ensureRecorders() {
     try {
-        const devs = await prisma.device.findMany({ where: { deviceType: "QUEUE_COUNTER" }, select: { id: true, ip: true } });
-        for (const d of devs) { if (d.ip && !recorders.has(d.id)) startRecorder(d.id, d.ip); }
-    } catch {}
+        const quiero = await conjuntoAGrabar();
+        for (const [id, src] of quiero) startRecorder(id, src);
+        for (const id of [...recorders.keys()]) if (!quiero.has(id)) stopRecorder(id, true);
+        // Carpetas huérfanas (de un arranque anterior o de una cámara que ya no corresponde).
+        let dirs = [];
+        try { dirs = fs.readdirSync(DIR_ANILLO); } catch {}
+        for (const d of dirs) if (!quiero.has(d)) { try { fs.rmSync(path.join(DIR_ANILLO, d), { recursive: true, force: true }); } catch {} }
+    } catch (e) { console.error("[anillo] " + ((e && e.message) || e)); }
 }
 
-function ringSegments(deviceId) {
-    const dir = `${RING_ROOT}/${deviceId}`;
-    let files = [];
-    try { files = fs.readdirSync(dir).filter(f => f.endsWith(".ts")); } catch { return []; }
-    return files.map(f => { const fp = `${dir}/${f}`; let m = 0; try { m = fs.statSync(fp).mtimeMs; } catch {} return { fp, m }; })
-        .filter(x => x.m > 0).sort((a, b) => a.m - b.m);
-}
-
-// Clip centrado en el momento de la alerta, extraído del anillo (pre-roll + post).
-async function buildClip(deviceId, alertTsMs) {
-    const T = alertTsMs && alertTsMs > 0 ? alertTsMs : Date.now();
-    try {
-        // esperar a que el segmento posterior a la alerta esté en disco
-        for (let i = 0; i < 14; i++) {
-            const segs = ringSegments(deviceId);
-            const newest = segs.length ? segs[segs.length - 1].m : 0;
-            if (newest >= T + CLIP_POST * 1000) break;
-            if (!segs.length && i > 4) break; // no hay grabador → fallback
-            await sleep(500);
-        }
-        const lo = T - CLIP_PRE * 1000;
-        const hi = T + (CLIP_POST + SEG_DUR) * 1000;
-        const segs = ringSegments(deviceId).filter(s => s.m >= lo && s.m <= hi);
-        if (segs.length) {
-            const stamp = Date.now();
-            const fname = `${deviceId}_${stamp}.mp4`;
-            const out = `/opt/OmniAccess/public/clips/${fname}`;
-            const listPath = `/opt/OmniAccess/public/clips/${deviceId}_${stamp}.txt`;
-            fs.writeFileSync(listPath, segs.map(s => `file '${s.fp}'`).join("\n"));
-            await new Promise((resolve, reject) => {
-                execFile("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", listPath,
-                    "-vf", "scale=480:-2,fps=10", "-an", "-movflags", "+faststart", out],
-                    { timeout: 25000 }, (err) => err ? reject(err) : resolve());
-            });
-            try { fs.unlinkSync(listPath); } catch {}
-            let st; try { st = fs.statSync(out); } catch { st = null; }
-            if (st && st.size >= 1500) {
-                const base64 = fs.readFileSync(out).toString("base64");
-                setTimeout(() => { try { fs.unlinkSync(out); } catch {} }, 120000);
-                return { base64, rel: "/clips/" + fname };
-            }
-            try { fs.unlinkSync(out); } catch {}
-        }
-        return await buildClipLive(deviceId);
-    } catch (e) { console.error("[clip] " + ((e && e.message) || e)); return await buildClipLive(deviceId).catch(() => null); }
-}
-
-// Fallback: graba 3s en vivo (comportamiento anterior, si el anillo no está listo).
-async function buildClipLive(deviceId) {
-    try {
-        const dev = await prisma.device.findUnique({ where: { id: deviceId }, select: { ip: true } });
-        if (!dev || !dev.ip) return null;
-        const input = `http://127.0.0.1:1984/api/stream.mp4?src=${streamNameForIp(dev.ip)}`;
-        const fname = `${deviceId}_live_${Date.now()}.mp4`;
-        const out = `/opt/OmniAccess/public/clips/${fname}`;
-        await new Promise((resolve, reject) => {
-            execFile("ffmpeg", ["-y", "-loglevel", "error", "-i", input, "-t", "3", "-vf", "scale=480:-2,fps=10", "-an", "-movflags", "+faststart", out],
-                { timeout: 18000 }, (err) => err ? reject(err) : resolve());
-        });
-        let st; try { st = fs.statSync(out); } catch { return null; }
-        if (!st || st.size < 1500) { try { fs.unlinkSync(out); } catch {} return null; }
-        const base64 = fs.readFileSync(out).toString("base64");
-        setTimeout(() => { try { fs.unlinkSync(out); } catch {} }, 120000);
-        return { base64, rel: "/clips/" + fname };
-    } catch (e) { console.error("[clip-live] " + ((e && e.message) || e)); return null; }
-}
-
-// arrancar grabadores del anillo
+// El anillo viejo vivía dentro de public/clips (se podía servir): se borra.
+try { fs.rmSync(path.join(__dirname, "public", "clips", "ring"), { recursive: true, force: true }); } catch {}
 ensureRecorders();
 setInterval(ensureRecorders, 30000);
+
+// ── Clip de la alerta: lo corta la web (lib/clip-instante) ─────────────────
+// Un solo lugar que sabe sacar video (NVR o anillo), el mismo del playback. Acá sólo se pide.
+const DIR_CLIPS = process.env.CLIPS_DIR || path.join(__dirname, "public", "clips");
+let _token = null;
+async function trackingToken() {
+    if (_token === null) _token = process.env.TRACKING_TOKEN || await getSetting("TRACKING_TOKEN", "");
+    return _token;
+}
+/** → { ok:true, nombre, url, fuente } | { ok:false, motivo } — nunca lanza. */
+function pedirClip(deviceId, instante) {
+    return new Promise(async (resolve) => {
+        const data = JSON.stringify({ deviceId, instante, para: "alerta" });
+        const token = await trackingToken();
+        const req = http.request({ hostname: "127.0.0.1", port: 10001, path: "/api/clip/instante", method: "POST",
+            // Espera del tramo (≤30 s) + corte a tiempo real (≤45 s) + margen.
+            timeout: 100000,
+            headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(data), "x-tracking-token": token || "" } },
+            (res) => { let d = ""; res.on("data", c => d += c); res.on("end", () => {
+                try { const j = JSON.parse(d); resolve(j && typeof j === "object" ? j : { ok: false, motivo: "respuesta inválida" }); }
+                catch { resolve({ ok: false, motivo: `la web contestó ${res.statusCode}` }); }
+            }); });
+        req.on("error", (e) => resolve({ ok: false, motivo: "la web no respondió: " + e.message }));
+        req.on("timeout", () => { req.destroy(); resolve({ ok: false, motivo: "el clip tardó demasiado" }); });
+        req.write(data); req.end();
+    });
+}
 
 // OpenWA send-video (base64 mp4).
 // ── WhatsApp por WAHA ──────────────────────────────────────────────────────
@@ -315,6 +333,9 @@ async function handle(job) {
     await prisma.dispatchJob.update({ where: { id: dj.id }, data: { status: "PROCESSING", startedAt: new Date(), attempts: { increment: 1 } } });
     const p = dj.payload || {};
     let sentText = null;
+    // Nota que acompaña un envío exitoso (p. ej. "sin video: …"): se guarda en lastError con
+    // estado SENT y despachos la muestra como aviso, no como falla.
+    let notaVideoFinal = null;
     try {
         if (dj.type === "ALERT") {
             const text = p.text || (
@@ -325,9 +346,20 @@ async function handle(job) {
             sentText = text;
             const base = await getSetting("PUBLIC_BASE_URL", "https://omniaccess.infratec.com.uy");
             const animated = (await getSetting("DISPATCH_ANIMATED", "false")) === "true";
-            // Build the animated clip once (reused across channels of the same job)
+            // El clip se pide una vez por despacho. Si el interruptor está prendido y no hay clip,
+            // la alerta igual sale (con la foto) y el despacho guarda POR QUÉ no hubo video:
+            // antes eso sólo quedaba en el log como "SIN CLIP (null)" y el panel decía "activo".
             let clip = null;
-            if (animated && dj.deviceId) clip = await buildClip(dj.deviceId, p.alertTs || (p.timestamp ? Date.parse(p.timestamp) : Date.now()));
+            let notaVideo = null;
+            // Sin cámara (una prueba de canal, un aviso de sistema) no hay video que pedir ni nada que anotar.
+            if (animated && dj.deviceId && (dj.channel === "whatsapp" || dj.channel === "telegram")) {
+                {
+                    const inst = Date.parse(p.instante || p.timestamp || "") || Number(p.alertTs) || new Date(dj.createdAt).getTime();
+                    const r = await pedirClip(dj.deviceId, inst);
+                    if (r && r.ok && r.nombre) clip = r;
+                    else notaVideo = "sin video: " + ((r && r.motivo) || "no se pudo armar el clip");
+                }
+            }
             if (dj.channel === "telegram") {
                 const token = await getSetting("TELEGRAM_BOT_TOKEN", process.env.TELEGRAM_BOT_TOKEN);
                 const chat = p.chatId || await getSetting("TELEGRAM_CHAT_ID", process.env.TELEGRAM_CHAT_ID);
@@ -338,7 +370,10 @@ async function handle(job) {
                     `Valor <b>${p.count}</b> (umbral ${p.threshold})`
                 );
                 let r;
-                if (clip) r = await telegramSendAnimation(token, chat, base.replace(/\/+$/, "") + "/api/clip/" + ((clip.rel || "").split("/").pop()), htmlText);
+                if (clip) {
+                    r = await telegramSendAnimation(token, chat, base.replace(/\/+$/, "") + "/api/clip/" + clip.nombre, htmlText);
+                    if (!r || !r.ok) notaVideo = "sin video: Telegram rechazó el clip (" + String((r && r.body) || "").slice(0, 80) + ")";
+                }
                 if (!r || !r.ok) {
                     const img = imageUrlFor(base, p.snapshotPath, dj.deviceId);
                     r = img ? await telegramSendPhoto(token, chat, img, htmlText) : await telegramSend(token, chat, htmlText);
@@ -352,18 +387,23 @@ async function handle(job) {
                 if (!chatId) throw new Error("Falta destinatario WhatsApp (OPENWA_DEFAULT_CHAT o payload.chatId)");
                 let r;
                 if (clip) {
-                    const fileName = (clip.rel || "").split("/").pop();
-                    const internalBase = await getSetting("INTERNAL_BASE_URL", "http://192.168.99.99:10001");
-                    const vurl = internalBase.replace(/\/+$/, "") + "/api/clip/" + fileName;
+                    // WAHA corre en el mismo equipo: baja el clip por la red interna. El valor por
+                    // defecto era un IP de Olivos (192.168.99.99), inalcanzable desde otro barrio.
+                    const internalBase = await getSetting("INTERNAL_BASE_URL", "http://127.0.0.1:10001");
+                    const vurl = internalBase.replace(/\/+$/, "") + "/api/clip/" + clip.nombre;
                     r = await openwaSendVideoUrl(url, key, session, chatId, vurl, text);
                     if (!r || !r.ok) {
                         console.error("[wa-video] url fail", r && r.status, ((r && r.body) || "").slice(0, 200), "(" + vurl + ")");
-                        // ultimo recurso: base64 (suele superar el limite de body de OpenWA)
-                        r = await openwaSendVideo(url, key, session, chatId, clip.base64, text);
-                        if (!r || !r.ok) console.error("[wa-video] base64 fail", r && r.status, ((r && r.body) || "").slice(0, 200));
-                        else console.log("[wa-video] OK por base64", clip.rel);
-                    } else { console.log("[wa-video] OK por URL", vurl); }
-                } else { console.log("[wa-video] SIN CLIP (null) device=" + dj.deviceId); }
+                        // Último recurso: el archivo en base64 (está en el mismo disco).
+                        let b64 = null;
+                        try { b64 = fs.readFileSync(path.join(DIR_CLIPS, clip.nombre)).toString("base64"); } catch {}
+                        if (b64) r = await openwaSendVideo(url, key, session, chatId, b64, text);
+                        if (!r || !r.ok) {
+                            console.error("[wa-video] base64 fail", r && r.status, ((r && r.body) || "").slice(0, 200));
+                            notaVideo = "sin video: WhatsApp rechazó el clip (" + String((r && (r.body || r.status)) || "").slice(0, 80) + ")";
+                        } else console.log("[wa-video] OK por base64", clip.nombre);
+                    } else { console.log("[wa-video] OK por URL", vurl, "fuente=" + clip.fuente); }
+                } else if (notaVideo) { console.log("[wa-video] " + notaVideo + " device=" + dj.deviceId); }
                 if (!r || !r.ok) {
                     const imgPath = imagePathFor(p.snapshotPath, dj.deviceId);
                     const b64 = imgPath ? await fetchLocalBase64(imgPath) : null;
@@ -428,6 +468,7 @@ async function handle(job) {
             } else {
                 throw new Error("Canal no soportado: " + dj.channel);
             }
+            notaVideoFinal = notaVideo;
         } else if (dj.type === "REPORT") {
             // Reuse the existing report generation/send endpoint (GET ?period=&deviceId=).
             const period = p.period || "daily";
@@ -438,7 +479,7 @@ async function handle(job) {
         } else {
             throw new Error("Tipo desconocido: " + dj.type);
         }
-        await prisma.dispatchJob.update({ where: { id: dj.id }, data: { status: "SENT", sentAt: new Date(), lastError: null, payload: { ...p, sentText } } });
+        await prisma.dispatchJob.update({ where: { id: dj.id }, data: { status: "SENT", sentAt: new Date(), lastError: notaVideoFinal, payload: { ...p, sentText } } });
     } catch (e) {
         const willRetry = (job.attemptsMade + 1) < (dj.maxAttempts || 5);
         await prisma.dispatchJob.update({ where: { id: dj.id }, data: { status: willRetry ? "PENDING" : "FAILED", lastError: String((e && e.message) || e) } });
@@ -449,15 +490,17 @@ async function handle(job) {
 const worker = new Worker("dispatch", handle, { connection, concurrency: 4 });
 
 // ── Clip sweeper: descarta clips generados viejos (robusto ante reinicios) ──
-const CLIPS_DIR = "/opt/OmniAccess/public/clips";
+// Mismo directorio que la web; 10 min = CLIP_RETENCION_MIN de lib/clips (lo que WAHA/Telegram
+// tardan en bajar el clip por URL, con margen). El anillo vive en otra carpeta y no se toca.
+const CLIPS_DIR = DIR_CLIPS;
 function sweepClips() {
     try {
         if (!fs.existsSync(CLIPS_DIR)) return;
         const now = Date.now();
         for (const f of fs.readdirSync(CLIPS_DIR)) {
-            if (!f.endsWith(".mp4")) continue;
-            const fp = CLIPS_DIR + "/" + f;
-            try { const st = fs.statSync(fp); if (now - st.mtimeMs > 5 * 60 * 1000) fs.unlinkSync(fp); } catch {}
+            if (!/\.(mp4|txt)$/.test(f)) continue;
+            const fp = path.join(CLIPS_DIR, f);
+            try { const st = fs.statSync(fp); if (now - st.mtimeMs > 10 * 60 * 1000) fs.unlinkSync(fp); } catch {}
         }
     } catch {}
 }

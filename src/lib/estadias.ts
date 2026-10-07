@@ -143,6 +143,8 @@ export async function confirmarEstadia(fila: {
         deviceName: fila.cameraName,
         plate: fila.plate,
         snapshotPath: fila.snapshotUrl,
+        // El clip del aviso muestra cuando el auto llegó, no cuando la estadía se consolidó.
+        instante: fila.estDesde ? new Date(fila.estDesde).getTime() : null,
         extra: { desde: fila.estDesde, minutos: Math.round(duracionMin(fila.estDesde, fila.estHasta)) },
     }).catch(() => { });
 
@@ -185,6 +187,7 @@ export async function cerrarEstadia(fila: {
         deviceName: fila.cameraName,
         plate: fila.plate,
         snapshotPath: fila.snapshotUrl,
+        instante: fila.estHasta ? new Date(fila.estHasta).getTime() : null,
         extra: {
             desde: fila.estDesde,
             hasta: fila.estHasta,

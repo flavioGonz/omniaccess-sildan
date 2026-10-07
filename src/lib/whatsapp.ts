@@ -83,3 +83,44 @@ export async function sendWahaImage(chatId: string, image: { url?: string; base6
 
 export const sendOpenWAText = sendWahaText;
 export const sendOpenWAImage = sendWahaImage;
+
+// ── Video por WAHA ─────────────────────────────────────────────────────────────────────
+// Las funciones de arriba hablan el dialecto de OpenWA (/api/sessions/<s>/messages/...),
+// que ya no corre en ningún barrio. El video va por la API de WAHA, igual que el worker de
+// despachos: POST /api/sendVideo { session, chatId, file:{ mimetype, filename, url|data }, caption }.
+
+/** Uruguay: 09x xxx xxx → 598 9x xxx xxx. Si ya viene con país, se respeta. Sólo dígitos. */
+export function telefonoWhatsApp(raw?: string | null): string {
+    const d = String(raw || "").replace(/\D/g, "");
+    if (!d) return "";
+    if (d.startsWith("598")) return d;
+    if (d.startsWith("0")) return "598" + d.slice(1);
+    return d.length >= 8 && d.length <= 9 ? "598" + d : d;
+}
+
+/** WAHA corre en el mismo equipo que la web: le pasamos el clip por la red interna. */
+const BASE_INTERNA_POR_DEFECTO = "http://127.0.0.1:10001";
+
+export async function enviarVideoWaha(p: { telefono: string; urlRelativa: string; base64?: () => Promise<string | null>; leyenda: string }): Promise<{ ok: boolean; error?: string }> {
+    const cfg = await getWhatsAppConfig();
+    const interna = ((await getSetting("INTERNAL_BASE_URL"))?.value || BASE_INTERNA_POR_DEFECTO).replace(/\/+$/, "");
+    const chatId = `${telefonoWhatsApp(p.telefono)}@c.us`;
+    const session = cfg.session;
+    const headers = authHeaders(cfg.apiKey);
+    const archivo = (extra: any) => ({ mimetype: "video/mp4", filename: "clip.mp4", ...extra });
+    try {
+        await axios.post(`${cfg.url}/api/sendVideo`, { session, chatId, file: archivo({ url: interna + p.urlRelativa }), caption: p.leyenda }, { headers, timeout: 60000 });
+        return { ok: true };
+    } catch (e: any) {
+        const porUrl = e?.response?.data?.message || e?.message || String(e);
+        // Último recurso: el archivo en el cuerpo (más pesado, pero no depende de que WAHA llegue a la web).
+        const data = p.base64 ? await p.base64() : null;
+        if (!data) return { ok: false, error: porUrl };
+        try {
+            await axios.post(`${cfg.url}/api/sendVideo`, { session, chatId, file: archivo({ data }), caption: p.leyenda }, { headers, timeout: 90000, maxBodyLength: Infinity, maxContentLength: Infinity });
+            return { ok: true };
+        } catch (e2: any) {
+            return { ok: false, error: e2?.response?.data?.message || e2?.message || porUrl };
+        }
+    }
+}

@@ -15,6 +15,7 @@ import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import EntregaClips from "./EntregaClips";
+import VentanaAlerta from "./VentanaAlerta";
 import { getSetting, updateSetting } from "@/app/actions/settings";
 import {
     AJUSTE_SEG_ANTES, AJUSTE_SEG_DESPUES, ANTES_POR_DEFECTO, DESPUES_POR_DEFECTO,
@@ -111,6 +112,8 @@ export default function PlaybackSection() {
                     </div>
                 </div>
             )}
+            {/* El clip que lleva un aviso: ventana propia, más corta (cada segundo es demora del aviso). */}
+            <VentanaAlerta />
             {/* Cómo se entrega el clip: resolución, calidad, formato y nombre. Cierra la parte de video. */}
             <EntregaClips />
         </div>

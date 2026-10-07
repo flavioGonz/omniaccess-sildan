@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { DurationPicker } from "@/components/ui/duration-picker";
 import { fecha, fechaCorta, hora, horaSeg } from "@/lib/fechas";
+import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 
 type Tab = "grabacion" | "vivo" | "evidencia";
 
@@ -146,7 +147,10 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
 
     const [tab, setTab] = useState<Tab>("grabacion");
     const [PRE_SEC, setPreSec] = useState(PRE_SEC_POR_DEFECTO);
-    useEffect(() => { if (!open) return; fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (typeof d?.antes === "number") setPreSec(d.antes); }).catch(() => { }); }, [open]);
+    // La ventana de Ajustes entera (con topes): la usa el reproductor (segundos antes) y el diálogo de descarga/envío.
+    const [ventana, setVentana] = useState<VentanaClip | null>(null);
+    const [descarga, setDescarga] = useState(false);
+    useEffect(() => { if (!open) return; fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (typeof d?.antes === "number") { setPreSec(d.antes); if (d.topes) setVentana(d); } }).catch(() => { }); }, [open]);
     const [winMin, setWinMin] = useState(60);
     const [anchorMs, setAnchorMs] = useState(() => Math.max(Date.now(), eventTimeMs));
     const [playheadMs, setPlayheadMs] = useState(eventTimeMs);
@@ -248,11 +252,13 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
     };
 
     const playbackSrc = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&pre=${PRE_SEC}&dur=120${nvrQ}${forceTx ? "&tx=1" : ""}` : "";
-    const downloadHref = channel != null ? `/api/nvr/playback?ch=${channel}&t=${Math.floor(committedMs)}&download=1${nvrQ}` : "";
 
     const startWallMs = committedMs - PRE_SEC * 1000;
     const displayMs = (dragging || tab !== "grabacion") ? playheadMs : startWallMs + videoCur * 1000;
     const clock = new Date(displayMs);
+    // Descargar desde el instante que se está viendo, con la ventana que se elija en el diálogo.
+    const instanteClip = Math.floor(displayMs);
+    const hrefDescarga = (antes: number, despues: number) => `/api/nvr/playback?ch=${channel}&t=${instanteClip}&pre=${antes}&dur=${antes + despues}&download=1${nvrQ}${plate ? `&matricula=${encodeURIComponent(plate)}` : ""}`;
     const hh = horaSeg(clock);
     const dd = fechaCorta(clock);
 
@@ -281,6 +287,10 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
 
     return (
         <div className="fixed inset-0 z-[3200] bg-black/85 backdrop-blur-md flex text-white select-none" onClick={onClose}>
+            {descarga && ventana && channel != null && (
+                <DescargaClip instante={instanteClip} ventana={ventana} href={hrefDescarga} onClose={() => setDescarga(false)}
+                    deviceId={deviceId} camara={deviceName} matricula={plate || null} />
+            )}
             <div className="flex-1 flex overflow-hidden" onClick={(e) => e.stopPropagation()}>
 
                 {/* ─── PANEL IZQUIERDO (regla estilo UniFi) ─── */}
@@ -536,10 +546,13 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
                             <button onClick={gotoNext} title="Evento siguiente" className={cn("p-2 rounded-xl", glassBtn)}><ChevronRight size={15} /></button>
                             <button onClick={() => commit(committedMs + 30000)} title="+30s" className={cn("flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold", glassBtn)}>30 <FastForward size={13} /></button>
                             <div className="w-px h-5 bg-white/15 mx-0.5" />
-                            <a href={downloadHref || undefined} download title="Descargar clip (60s alrededor de este instante)"
-                                className={cn("flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold", channel != null ? glassBtn : "opacity-30 pointer-events-none " + glassBtn)}>
+                            {/* Antes bajaba sin preguntar un clip "de 60 s" que medía lo de Ajustes. Ahora abre el
+                                diálogo que dice qué trae, deja cambiarlo y mandarlo por WhatsApp. */}
+                            <button onClick={(e) => { e.stopPropagation(); setDescarga(true); }} disabled={channel == null || !ventana}
+                                title={ventana ? `Clip de ${ventana.antes} s antes y ${ventana.despues} s después de este instante` : "Clip"}
+                                className={cn("flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold", channel != null && ventana ? glassBtn : "opacity-30 pointer-events-none " + glassBtn)}>
                                 <Download size={13} /> Clip
-                            </a>
+                            </button>
                         </div>
                         <div className="absolute right-1 top-1/2 -translate-y-1/2 text-right">
                             <div className="text-2xl font-bold font-mono tabular-nums leading-none drop-shadow">{hh}</div>
