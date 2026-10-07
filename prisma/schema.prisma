@@ -668,6 +668,9 @@ model GuestEntry {
   method        String   @default("LPR")   // LPR | QR | SEARCH | MANUAL
   validatedBy   String?  // guardia (User.id / nombre)
   plate         String?
+  lat           Float?   // GPS de la lectura del QR
+  lng           Float?
+  accuracy      Float?
   timestamp     DateTime @default(now())
   guest         Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
 

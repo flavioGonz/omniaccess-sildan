@@ -5,7 +5,7 @@ import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import {
     Ticket, Search, UserPlus, LogIn, LogOut, Circle, Clock, Home, Car, ShieldCheck, ShieldAlert,
-    X, Trash2, Loader2, Users, MessageCircle, Globe, UserCheck, CalendarClock, QrCode, ScanLine, Download, Copy, Camera, KeyRound, Home as HomeIcon,
+    X, Trash2, Loader2, Users, MessageCircle, Globe, UserCheck, CalendarClock, QrCode, ScanLine, Download, Copy, Camera, KeyRound, Home as HomeIcon, MapPin,
 } from "lucide-react";
 import {
     listActiveGuests, searchGuests, markEntry, revokeInvitation, quickInvite, getQrSvg, resolveByQr,
@@ -208,6 +208,10 @@ function ScanModal({ onClose, onMarked }: { onClose: () => void; onMarked: () =>
     const [res, setRes] = useState<QrResolve | null>(null);
     const [err, setErr] = useState("");
     const [busy, setBusy] = useState(false);
+    const [geo, setGeo] = useState<{ lat: number; lng: number; accuracy: number } | null>(null);
+    const [geoErr, setGeoErr] = useState("");
+    const geoWatch = useRef<number | null>(null);
+    const [guardName] = useState<string>(() => { try { return localStorage.getItem("guard_name") || "Guardia"; } catch { return "Guardia"; } });
     const hasBarcode = typeof window !== "undefined" && "BarcodeDetector" in window;
 
     const stop = useCallback(() => { try { cancelAnimationFrame(rafRef.current); } catch { } try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch { } streamRef.current = null; }, []);
@@ -238,45 +242,67 @@ function ScanModal({ onClose, onMarked }: { onClose: () => void; onMarked: () =>
     }, [hasBarcode, stop]);
 
     useEffect(() => { start(); return stop; }, [start, stop]);
+    // GPS obligatorio para registrar la lectura del QR
+    useEffect(() => {
+        if (typeof navigator === "undefined" || !("geolocation" in navigator)) { setGeoErr("Este equipo no tiene GPS"); return; }
+        try {
+            geoWatch.current = navigator.geolocation.watchPosition(
+                (p) => { setGeo({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }); setGeoErr(""); },
+                (e) => { setGeoErr(e.code === 1 ? "Permiso de ubicacion denegado" : "No se pudo obtener GPS"); },
+                { enableHighAccuracy: true, maximumAge: 8000, timeout: 15000 }
+            );
+        } catch { setGeoErr("No se pudo iniciar GPS"); }
+        return () => { if (geoWatch.current != null) { try { navigator.geolocation.clearWatch(geoWatch.current); } catch { } } };
+    }, []);
 
     const mark = async (direction: "ENTRY" | "EXIT") => {
-        if (!res?.card) return; setBusy(true);
-        try { await markEntry({ guestId: res.card.guestId, direction, method: "QR", validatedBy: "Guardia" }); onMarked(); onClose(); } finally { setBusy(false); }
+        if (!res?.card || !geo) return; setBusy(true);
+        try { await markEntry({ guestId: res.card.guestId, direction, method: "QR", validatedBy: guardName, lat: geo.lat, lng: geo.lng, accuracy: geo.accuracy }); onMarked(); onClose(); } finally { setBusy(false); }
     };
 
     const statusView = () => {
         if (!res) return null;
         const c = res.card;
-        const map: Record<string, { t: string; cls: string; ok: boolean }> = {
-            valid: { t: "PASE VIGENTE", cls: "bg-emerald-600", ok: true },
-            notyet: { t: "AÚN NO VIGENTE", cls: "bg-amber-500", ok: false },
-            expired: { t: "VENCIDO", cls: "bg-zinc-500", ok: false },
-            revoked: { t: "REVOCADO", cls: "bg-red-600", ok: false },
-            notfound: { t: "QR NO RECONOCIDO", cls: "bg-zinc-600", ok: false },
+        const map: Record<string, { t: string; theme: "ok" | "warn" | "bad"; ok: boolean }> = {
+            valid: { t: "ACCESO AUTORIZADO", theme: "ok", ok: true },
+            notyet: { t: "AÚN NO VIGENTE", theme: "warn", ok: false },
+            expired: { t: "PASE VENCIDO", theme: "bad", ok: false },
+            revoked: { t: "PASE REVOCADO", theme: "bad", ok: false },
+            notfound: { t: "QR NO RECONOCIDO", theme: "bad", ok: false },
         };
         const s = map[res.status] || map.notfound;
+        const band = s.theme === "ok" ? "bg-emerald-600" : s.theme === "warn" ? "bg-amber-500" : "bg-red-600";
+        const panel = s.theme === "ok" ? "bg-emerald-50 dark:bg-emerald-950/40 ring-emerald-500/30" : s.theme === "warn" ? "bg-amber-50 dark:bg-amber-950/40 ring-amber-500/30" : "bg-red-50 dark:bg-red-950/40 ring-red-500/30";
+        const row = "flex items-center gap-2.5 text-sm";
+        const ico = "shrink-0 text-muted-foreground";
         return (
-            <div className="text-center">
-                <div className={cn("mx-auto w-16 h-16 rounded-full grid place-items-center text-white mb-3", s.cls)}>{s.ok ? <ShieldCheck size={32} /> : <ShieldAlert size={32} />}</div>
-                <div className={cn("inline-block px-3 py-1 rounded-full text-white text-xs font-extrabold mb-3", s.cls)}>{s.t}</div>
-                {c ? (
-                    <>
-                        <div className="font-extrabold text-lg">{c.name || "Invitado"}</div>
-                        <div className="text-sm text-muted-foreground">{c.hostLabel || c.hostName}</div>
-                        {c.plates.length > 0 && <div className="mt-1 text-sm font-bold tracking-wide">{c.plates.join(", ")}</div>}
-                        <div className="text-xs text-muted-foreground mt-1">{fmtDT(c.validFrom)} → {fmtDT(c.validTo)}</div>
-                    </>
-                ) : <p className="text-sm text-muted-foreground">No encontramos este código en el sistema.</p>}
-                <div className="flex items-center gap-2 mt-4">
-                    {res.ok && c ? (
-                        <>
-                            <button disabled={busy} onClick={() => mark("ENTRY")} className="flex-1 inline-flex items-center justify-center gap-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold disabled:opacity-50"><LogIn size={16} /> Ingreso</button>
-                            <button disabled={busy} onClick={() => mark("EXIT")} className="flex-1 inline-flex items-center justify-center gap-1 h-11 rounded-xl bg-muted hover:bg-accent font-extrabold disabled:opacity-50"><LogOut size={16} /> Egreso</button>
-                        </>
-                    ) : (
-                        <button onClick={start} className="flex-1 h-11 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold">Escanear otro</button>
+            <div className={cn("rounded-2xl ring-1 overflow-hidden", panel)}>
+                <div className={cn("px-4 py-4 text-white text-center", band)}>
+                    <div className="mx-auto w-14 h-14 rounded-full bg-white/20 grid place-items-center mb-2">{s.ok ? <ShieldCheck size={30} /> : <ShieldAlert size={30} />}</div>
+                    <div className="text-base font-extrabold tracking-wide">{s.t}</div>
+                </div>
+                <div className="p-4 space-y-2.5">
+                    {c ? (<>
+                        <div className={row}><UserCheck size={16} className={ico} /><span className="font-bold">{c.name || "Invitado"}</span></div>
+                        <div className={row}><HomeIcon size={16} className={ico} /><span>{c.hostLabel || c.hostName || "—"}</span></div>
+                        {c.plates.length > 0 && <div className={row}><Car size={16} className={ico} /><span className="font-bold tracking-wide">{c.plates.join(", ")}</span></div>}
+                        <div className={row}><CalendarClock size={16} className={ico} /><span className="text-muted-foreground">{fmtDT(c.validFrom)} → {fmtDT(c.validTo)}</span></div>
+                    </>) : <p className="text-sm text-muted-foreground">No encontramos este código en el sistema.</p>}
+                    <div className="h-px bg-border my-1" />
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Datos de la lectura</div>
+                    <div className={row}><Clock size={16} className={ico} /><span className="tabular-nums">{new Date().toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span></div>
+                    <div className={row}><ShieldCheck size={16} className={ico} /><span>{guardName}</span></div>
+                    <div className={row}><MapPin size={16} className={cn("shrink-0", geo ? "text-emerald-600" : "text-red-500")} />{geo ? <span className="tabular-nums">{geo.lat.toFixed(5)}, {geo.lng.toFixed(5)} <span className="text-muted-foreground">(±{Math.round(geo.accuracy)} m)</span></span> : <span className="text-red-600 font-semibold">{geoErr || "Obteniendo ubicación GPS…"}</span>}</div>
+                </div>
+                <div className="flex items-center gap-2 p-4 pt-0">
+                    {res.ok && c ? (<>
+                        <button disabled={busy || !geo} onClick={() => mark("ENTRY")} className="flex-1 inline-flex items-center justify-center gap-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold disabled:opacity-40"><LogIn size={16} /> Ingreso</button>
+                        <button disabled={busy || !geo} onClick={() => mark("EXIT")} className="flex-1 inline-flex items-center justify-center gap-1 h-11 rounded-xl bg-muted hover:bg-accent font-extrabold disabled:opacity-40"><LogOut size={16} /> Egreso</button>
+                    </>) : (
+                        <button onClick={start} className="flex-1 h-11 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-extrabold">Escanear otro</button>
                     )}
                 </div>
+                {res.ok && c && !geo && <div className="px-4 pb-4 -mt-1 text-[11px] text-red-600 font-semibold text-center">GPS obligatorio para registrar la lectura. Activá la ubicación.</div>}
             </div>
         );
     };

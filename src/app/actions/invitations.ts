@@ -218,7 +218,7 @@ export async function searchGuests(q: string): Promise<GuestCard[]> {
 }
 
 // ── Registrar un paso manual (QR / búsqueda / a mano) ──
-export async function markEntry(input: { guestId: string; direction?: "ENTRY" | "EXIT"; method?: "QR" | "SEARCH" | "MANUAL"; gate?: string; validatedBy?: string; plate?: string }): Promise<{ ok: boolean; id?: string; error?: string }> {
+export async function markEntry(input: { guestId: string; direction?: "ENTRY" | "EXIT"; method?: "QR" | "SEARCH" | "MANUAL"; gate?: string; validatedBy?: string; plate?: string; lat?: number; lng?: number; accuracy?: number }): Promise<{ ok: boolean; id?: string; error?: string }> {
     try {
         const g = await prisma.guest.findUnique({ where: { id: input.guestId }, include: { invitation: true } });
         if (!g) return { ok: false, error: "Invitado inexistente" };
@@ -227,7 +227,7 @@ export async function markEntry(input: { guestId: string; direction?: "ENTRY" | 
         if (now < g.invitation.validFrom) return { ok: false, error: "Aún no vigente" };
         if (now > g.invitation.validTo) return { ok: false, error: "Vencida" };
         const e = await prisma.guestEntry.create({
-            data: { guestId: g.id, invitationId: g.invitationId, direction: input.direction || "ENTRY", method: input.method || "MANUAL", gate: input.gate || null, validatedBy: input.validatedBy || null, plate: input.plate ? normPlate(input.plate) : null },
+            data: { guestId: g.id, invitationId: g.invitationId, direction: input.direction || "ENTRY", method: input.method || "MANUAL", gate: input.gate || null, validatedBy: input.validatedBy || null, plate: input.plate ? normPlate(input.plate) : null, lat: input.lat ?? null, lng: input.lng ?? null, accuracy: input.accuracy ?? null },
         });
         return { ok: true, id: e.id };
     } catch (e: any) { return { ok: false, error: e?.message || "error" }; }
