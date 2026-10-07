@@ -11,6 +11,15 @@ const fmtSize = (n: number) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).to
 const baseName = (key: string) => { const parts = key.replace(/\/$/, "").split("/"); return parts[parts.length - 1]; };
 const isImg = (k: string) => /\.(jpe?g|png|webp|gif|bmp)$/i.test(k);
 
+/**
+ * Las miniaturas se piden reducidas (/api/files/...?w=): la foto original pesa 1–2 MB y la
+ * grilla muestra 60 por página; pedirlas enteras era 100+ MB por pantalla y segundos de
+ * espera. A 240 px una miniatura pesa ~12 KB, y el servidor la guarda en caché de disco
+ * (lib/miniaturas) así que la segunda visita no toca ni MinIO ni sharp.
+ */
+const ANCHO_MINIATURA_GRILLA = 240;
+const ANCHO_MINIATURA_LISTA = 64;
+
 export default function StorageBrowser() {
     const [buckets, setBuckets] = useState<any[]>([]);
     const [bucket, setBucket] = useState("");
@@ -134,7 +143,7 @@ export default function StorageBrowser() {
                                 const href = `/api/files/${bucket}/${encodeURIComponent(o.key)}`;
                                 return (
                                     <a key={o.key} href={href} target="_blank" rel="noreferrer" title={`${baseName(o.key)} · ${fmtSize(o.size)}`} className="group relative aspect-square rounded-lg overflow-hidden border border-border bg-black flex items-center justify-center">
-                                        {isImg(o.key) ? <img src={href} alt="" loading="lazy" className="w-full h-full object-cover" /> : <FileText size={18} className="text-muted-foreground" />}
+                                        {isImg(o.key) ? <img src={`${href}?w=${ANCHO_MINIATURA_GRILLA}`} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" /> : <FileText size={18} className="text-muted-foreground" />}
                                         <span className="absolute inset-x-0 bottom-0 px-1 pt-2 pb-0.5 bg-gradient-to-t from-black/85 to-transparent text-[7px] leading-tight text-white/90 truncate">{baseName(o.key)}</span>
                                         <span className="absolute top-0 right-0 px-1 py-0.5 bg-black/55 text-[7px] text-white/80 rounded-bl">{fmtSize(o.size)}</span>
                                     </a>
@@ -166,7 +175,7 @@ export default function StorageBrowser() {
                             return (
                                 <div key={o.key} className="flex items-center gap-3 px-5 py-2.5 group">
                                     <div className="w-8 h-8 rounded-lg bg-muted/60 flex items-center justify-center shrink-0 overflow-hidden">
-                                        {isImg(o.key) ? <img src={href} alt="" className="w-full h-full object-cover" loading="lazy" /> : <FileText size={15} className="text-muted-foreground" />}
+                                        {isImg(o.key) ? <img src={`${href}?w=${ANCHO_MINIATURA_LISTA}`} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" /> : <FileText size={15} className="text-muted-foreground" />}
                                     </div>
                                     <div className="min-w-0 flex-1">
                                         <div className="text-sm text-foreground truncate">{baseName(o.key)}</div>

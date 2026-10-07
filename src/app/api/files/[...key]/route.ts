@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getS3Client } from "@/lib/s3";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
+import fs from "fs/promises";
+import { rutaMiniatura, guardarMiniatura } from "@/lib/miniaturas";
 
 const BUCKET_NAME = process.env.S3_BUCKET || "lpr-prod";
 // Alias de buckets legacy: paths viejos guardaron /api/files/lpr/... cuando el
@@ -31,6 +33,20 @@ export async function GET(
         bucketName = BUCKET_ALIASES[bucketName] || bucketName;
         const fileKey = keyParts.slice(1).join("/");
 
+        // Miniatura ya hecha: se sirve del disco sin ir a MinIO ni a sharp. Es lo que hace que la
+        // segunda visita al explorador (200 fotos de 1–2 MB) sea instantánea en vez de volver a
+        // bajar y reducir todo. Las claves son inmutables (una captura no cambia), así que la
+        // caché no vence; se limpia por tamaño en limpiarCacheMiniaturas().
+        const wParamPrevio = req.nextUrl.searchParams.get("w");
+        const wPrevio = wParamPrevio ? parseInt(wParamPrevio) : 0;
+        const rutaCache = wPrevio > 0 && wPrevio <= 2000 ? rutaMiniatura(bucketName, fileKey, wPrevio) : null;
+        if (rutaCache) {
+            try {
+                const cacheada = await fs.readFile(rutaCache);
+                return new Response(cacheada as any, { status: 200, headers: { "Content-Type": "image/jpeg", "Content-Length": String(cacheada.length), "Cache-Control": "public, max-age=31536000, immutable", "X-Miniatura": "cache" } });
+            } catch { /* no está: se genera abajo */ }
+        }
+
         const command = new GetObjectCommand({ Bucket: bucketName, Key: fileKey });
         const response = await s3Client.send(command);
 
@@ -57,6 +73,7 @@ export async function GET(
                     const sharp = (await import("sharp")).default;
                     outBuf = await sharp(byteArray).rotate().resize({ width: w, withoutEnlargement: true }).jpeg({ quality: 72 }).toBuffer();
                     outType = "image/jpeg";
+                    if (rutaCache) guardarMiniatura(rutaCache, outBuf).catch(() => null);
                 } catch (e) { outBuf = byteArray; }
             }
         }

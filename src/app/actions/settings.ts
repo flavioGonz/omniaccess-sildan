@@ -182,7 +182,17 @@ export async function testS3Connection(bucketType: "lpr" | "face" = "lpr") {
     }
 }
 
+/**
+ * El tamaño y la cantidad de un bucket se cuentan recorriéndolo entero (hasta 50.000
+ * objetos): en lpr-prod son segundos. Se recuerda unos minutos en memoria: el número no
+ * cambia tan rápido como para medirlo en cada clic del explorador.
+ */
+const CACHE_STATS_MS = 5 * 60 * 1000;
+const cacheStats = new Map<string, { en: number; valor: any }>();
+
 export async function getBucketStats(bucketName: string) {
+    const guardado = cacheStats.get(bucketName);
+    if (guardado && Date.now() - guardado.en < CACHE_STATS_MS) return guardado.valor;
     try {
         const client = await getS3InternalClient();
         let totalSize = 0;
@@ -220,12 +230,9 @@ export async function getBucketStats(bucketName: string) {
 
         await fetchObjects();
 
-        return {
-            success: true,
-            size: totalSize,
-            count: fileCount,
-            truncated
-        };
+        const valor = { success: true, size: totalSize, count: fileCount, truncated };
+        cacheStats.set(bucketName, { en: Date.now(), valor });
+        return valor;
     } catch (error: any) {
         console.error("Error getting stats for bucket " + bucketName + ":", error);
         return { success: false, message: error.message };
@@ -1053,11 +1060,14 @@ export async function listBuckets() {
     } catch (e: any) { console.error("listBuckets", e.message); return { success: false, message: e.message, buckets: [] as any[] }; }
 }
 
+/** Objetos por página del explorador: 60 miniaturas entran en una pantalla; el resto va con "Cargar más". Antes 200. */
+const PAGINA_EXPLORADOR = 60;
+
 export async function listBucketObjects(bucket: string, prefix: string = "", token?: string) {
     try {
         const client = await getS3InternalClient();
         const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
-        const res: any = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: "/", MaxKeys: 200, ContinuationToken: token }));
+        const res: any = await client.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: "/", MaxKeys: PAGINA_EXPLORADOR, ContinuationToken: token }));
         const folders = (res.CommonPrefixes || []).map((p: any) => p.Prefix as string);
         const objects = (res.Contents || []).filter((o: any) => o.Key !== prefix).map((o: any) => ({ key: o.Key as string, size: (o.Size || 0) as number, lastModified: o.LastModified as Date }));
         return { success: true, folders, objects, nextToken: res.IsTruncated ? (res.NextContinuationToken as string) : null };
