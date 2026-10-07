@@ -284,16 +284,31 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             return null;
         };
         const parseWhen = (text) => {
-            const t=(text||'').toLowerCase(); const now=new Date(); const base=new Date(now);
+            const t=(text||'').toLowerCase().trim(); const now=new Date(); const base=new Date(now);
             const wd={ 'domingo':0,'lunes':1,'martes':2,'miercoles':3,'miércoles':3,'jueves':4,'viernes':5,'sabado':6,'sábado':6 };
-            if(/\bma(ñ|n)ana\b/.test(t)){ base.setDate(base.getDate()+1); }
+            const WORDN={ 'media':0.5,'medio':0.5,'un':1,'una':1,'uno':1,'dos':2,'tres':3,'cuatro':4,'cinco':5,'seis':6,'siete':7,'ocho':8,'nueve':9,'diez':10 };
+            const num=(w)=>{ if(WORDN[w]!=null) return WORDN[w]; const n=parseFloat(String(w).replace(',','.')); return isNaN(n)?null:n; };
+            const eod=(x)=>{ const y=new Date(x); y.setHours(23,59,0,0); return y; };
+            // fecha base: pasado mañana / mañana / día de semana
+            if(/pasado\s*ma(ñ|n)ana/.test(t)) base.setDate(base.getDate()+2);
+            else if(/\bma(ñ|n)ana\b/.test(t)) base.setDate(base.getDate()+1);
             else { for(const k in wd){ if(t.includes(k)){ let d=(wd[k]-base.getDay()+7)%7; if(d===0) d=7; base.setDate(base.getDate()+d); break; } } }
+            // 1) rango explícito HH a HH
             const m=t.match(/(\d{1,2})(?:[:.](\d{2}))?\s*(?:a|hasta|al|-)\s*(\d{1,2})(?:[:.](\d{2}))?/);
-            let fromD, toD;
-            if(m){ const sh=+m[1], sm=+(m[2]||0), eh=+m[3], em=+(m[4]||0); fromD=new Date(base); fromD.setHours(sh,sm,0,0); toD=new Date(base); toD.setHours(eh,em,0,0); if(toD<=fromD) toD.setDate(toD.getDate()+1); }
-            else { const sameDay = base.toDateString()===now.toDateString(); fromD = sameDay ? new Date(now) : new Date(base.setHours(8,0,0,0)); toD = new Date(fromD.getTime()+12*3600*1000); }
-            if(fromD < new Date(now.getTime()-60000)) fromD = new Date(now);
-            return { from:fromD, to:toD };
+            if(m){ const sh=+m[1], sm=+(m[2]||0), eh=+m[3], em=+(m[4]||0); let fromD=new Date(base); fromD.setHours(sh,sm,0,0); let toD=new Date(base); toD.setHours(eh,em,0,0); if(toD<=fromD) toD.setDate(toD.getDate()+1); if(fromD < new Date(now.getTime()-60000)) fromD=new Date(now); return { from:fromD, to:toD }; }
+            // 2) hasta las 18 / hasta las 18:30
+            const mh=t.match(/hasta (?:las? )?(\d{1,2})(?:[:.](\d{2}))?/);
+            if(mh){ const fromD=new Date(now); const toD=new Date(base); toD.setHours(+mh[1], +(mh[2]||0),0,0); if(toD<=fromD) toD.setDate(toD.getDate()+1); return { from:fromD, to:toD }; }
+            // 3) duración: (por) N horas/días/semanas/minutos (admite palabras: una, dos, media…)
+            const md=t.match(/(?:por\s*)?(\d+(?:[.,]\d+)?|media|medio|una?|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*(semanas?|sem|d[ií]as?|horas?|hs?|minutos?|mins?|h|d|m)\b/);
+            if(md){ const n=num(md[1]); const u=md[2]; if(n!=null){ const fromD=new Date(now); const toD=new Date(fromD); if(/^sem/.test(u)) toD.setDate(toD.getDate()+Math.round(n*7)); else if(/^d/.test(u)) toD.setDate(toD.getDate()+Math.round(n)); else if(/^h/.test(u)) toD.setTime(toD.getTime()+n*3600*1000); else toD.setTime(toD.getTime()+n*60*1000); return { from:fromD, to:toD }; } }
+            // 4) todo el día / medio día
+            if(/todo el d[ií]a/.test(t)){ const sameDay = base.toDateString()===now.toDateString(); const fromD = sameDay ? new Date(now) : (function(){const y=new Date(base);y.setHours(0,0,0,0);return y;})(); return { from:fromD, to:eod(base) }; }
+            if(/medio d[ií]a/.test(t)){ const fromD=new Date(now); return { from:fromD, to:new Date(fromD.getTime()+6*3600*1000) }; }
+            // 5) hoy / default: ese día hasta 23:59 (hoy desde ahora; futuro desde 08:00)
+            const sameDay = base.toDateString()===now.toDateString();
+            const fromD = sameDay ? new Date(now) : (function(){const y=new Date(base);y.setHours(8,0,0,0);return y;})();
+            return { from:fromD, to:eod(base) };
         };
 
         const inviteTrigger = /^(?:invitar|invito|invitaci(o|ó)n|invitacion|visita|pase)\b/i;
@@ -455,7 +470,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                 const raw = body_text.trim();
                 d.plate = /sin\s*auto|no|a pie|ninguna/i.test(raw) ? "" : raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
                 await prisma.whatsAppSession.update({ where:{ phoneNumber:from }, data:{ step:'INV_WHEN', data:JSON.stringify(d) } });
-                await sendText(`📅 ¿*Para cuándo*? Ejemplos:\n• *hoy*\n• *sábado 20 a 02*\n• *mañana 10 a 14*`);
+                await sendText(`📅 ¿*Cuánto vale el pase*? Escribilo con tus palabras, por ejemplo:\n• *2 horas*\n• *hoy* (hasta esta noche)\n• *todo el día*\n• *hasta las 18*\n• *mañana 10 a 14*\n• *3 días* · *1 semana*`);
                 res.writeHead(200); res.end('OK'); return;
             }
             // STEP: INV_WHEN  → crea la invitación
