@@ -159,16 +159,26 @@ function CajonContenido({
  * como uno solo largo y hay que apoyarse en la línea divisoria para separarlos. La línea
  * ayuda; el aire es lo que hace el trabajo.
  */
-function CajonSeccion({ titulo, ayuda, icono: Icono, children, className }: {
+function CajonSeccion({ titulo, ayuda, pista, icono: Icono, children, className, compacta }: {
     titulo: string;
     /** Para qué sirve esto. Una línea, y sólo cuando no es obvio. */
     ayuda?: string;
+    /**
+     * La explicación larga, detrás de un signo de pregunta al lado del título. Es el mismo
+     * criterio que en `CajonCampo`: lo que hay que saber antes de tocar va visible
+     * (`ayuda`); lo que explica POR QUÉ existe y qué va a pasar, escondido pero a mano.
+     * Lo pidió el cajón de filtros del historial: ocho secciones con un párrafo visible
+     * cada una era un texto con botones intercalados.
+     */
+    pista?: React.ReactNode;
     icono?: React.ComponentType<{ size?: number; className?: string }>;
     children: React.ReactNode;
     className?: string;
+    /** Menos aire vertical (20px): para cajones de muchas secciones cortas, como filtros. */
+    compacta?: boolean;
 }) {
     return (
-        <section className={cn("px-6 py-8 border-b border-border last:border-0", className)}>
+        <section className={cn("px-6 border-b border-border last:border-0", compacta ? "py-5" : "py-8", className)}>
             {/* Título vacío = no hay rótulo. Pasa cuando el encabezado del cajón ya dice de
                 qué es la hoja: repetirlo abajo con otras palabras hace leer dos veces lo
                 mismo antes de llegar a lo único que hay para hacer. */}
@@ -176,10 +186,16 @@ function CajonSeccion({ titulo, ayuda, icono: Icono, children, className }: {
                 <h3 className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                     {Icono && <Icono size={13} className="text-muted-foreground/70" />}
                     {titulo}
+                    {pista && (
+                        <Pista titulo={titulo} texto={pista} lado="abajo" ancho={280}>
+                            <HelpCircle size={12.5}
+                                className="normal-case tracking-normal text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
+                        </Pista>
+                    )}
                 </h3>
             )}
             {ayuda && <p className="text-[12px] text-muted-foreground/80 mt-1.5 max-w-prose">{ayuda}</p>}
-            <div className={cn("space-y-4", (titulo || ayuda) && "mt-4")}>{children}</div>
+            <div className={cn(compacta ? "space-y-3" : "space-y-4", (titulo || ayuda) && (compacta ? "mt-3" : "mt-4"))}>{children}</div>
         </section>
     );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
+import { limitesDelDia } from "@/lib/fechas";
 
 export const dynamic = "force-dynamic";
 
@@ -42,11 +43,36 @@ type Fila = {
     detalles: string | null;
     /** Solo en las salidas: cuánto estuvo adentro desde su propia entrada. */
     permanencia: number | null;
+    /**
+     * Solo en las entradas permitidas: cuándo salió ese vehículo después de esta entrada.
+     * `null` con `adentro: true` es "sigue adentro" y el contador de la tabla corre en vivo;
+     * `adentro: false` sin salida es una entrada vieja a la que nunca se le registró la
+     * salida, y ahí no hay nada que contar.
+     */
+    salida?: string | null;
+    adentro?: boolean;
     /** El evento completo, para la ficha. Solo en los accesos. */
     raw: any | null;
 };
 
 const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/**
+ * Hasta cuánto atrás se busca la entrada de una salida, y hasta cuánto se da por "sigue
+ * adentro" una entrada sin salida. Pasado eso lo más probable es que la salida no se haya
+ * leído (cámara caída, chapa sucia), y un contador corriendo en 9 días sería una mentira
+ * con aire de dato.
+ */
+const VENTANA_PERMANENCIA_MS = 36 * 3600 * 1000;
+
+/** Una fecha de `<input type="date">` (día entero del barrio) o un instante completo. */
+const leerLimite = (v: string | null, extremo: "inicio" | "fin"): Date | null => {
+    if (!v) return null;
+    const dia = limitesDelDia(v);
+    if (dia) return dia[extremo];
+    const d = new Date(v);
+    return isNaN(+d) ? null : d;
+};
 
 export async function GET(req: NextRequest) {
     const auth = await verifyApiAuth();
@@ -56,8 +82,19 @@ export async function GET(req: NextRequest) {
     const take = Math.min(Number(sp.get("take") || 60), 200);
     const skip = Math.max(Number(sp.get("skip") || 0), 0);
     const buscar = (sp.get("search") || "").trim();
-    const desde = sp.get("from") ? new Date(sp.get("from") as string) : null;
-    const hasta = sp.get("to") ? new Date(sp.get("to") as string) : null;
+    const desde = leerLimite(sp.get("from"), "inicio");
+    const hasta = leerLimite(sp.get("to"), "fin");
+
+    /**
+     * Los filtros de acceso: con qué se identificó, si abrió, en qué sentido.
+     *
+     * La página los tenía como botones desde que se unificó el historial, pero nunca
+     * viajaban hasta acá: cambiaban un estado que alimentaba la consulta vieja. Se apretaba
+     * "Denegados" y seguían saliendo todos, con el botón encendido.
+     */
+    const identificacion = sp.get("type") || "ALL";
+    const decision = sp.get("decision") || "ALL";
+    const sentido = sp.get("direction") || "ALL";
 
     // Qué tipos se quieren ver. Sin filtro, todos.
     const tipos = (sp.get("tipos") || "").split(",").map((t) => t.trim()).filter(Boolean);
@@ -104,6 +141,10 @@ export async function GET(req: NextRequest) {
             ? prisma.accessEvent.findMany({
                 where: {
                     ...porFecha,
+                    // Son enums de Prisma; un valor inventado en la URL no rompe la consulta, se ignora.
+                    ...(["PLATE", "FACE", "TAG"].includes(identificacion) ? { accessType: identificacion as any } : {}),
+                    ...(["GRANT", "DENY"].includes(decision) ? { decision: decision as any } : {}),
+                    ...(["ENTRY", "EXIT"].includes(sentido) ? { direction: sentido as any } : {}),
                     ...(buscar
                         ? {
                             OR: [
@@ -199,7 +240,7 @@ export async function GET(req: NextRequest) {
     const salidas = pagina.filter((f) => f.tipo === "ACCESO" && f.sentido === "EXIT" && f.plate);
     if (salidas.length) {
         const chapas = [...new Set(salidas.map((f) => norm(f.plate as string)))];
-        const masVieja = new Date(Math.min(...salidas.map((f) => +new Date(f.momento))) - 36 * 3600 * 1000);
+        const masVieja = new Date(Math.min(...salidas.map((f) => +new Date(f.momento))) - VENTANA_PERMANENCIA_MS);
         const entradas = await prisma.accessEvent.findMany({
             where: { direction: "ENTRY", timestamp: { gte: masVieja }, plateDetected: { in: chapas } },
             orderBy: { timestamp: "desc" },
@@ -211,6 +252,33 @@ export async function GET(req: NextRequest) {
             const salio = +new Date(f.momento);
             const entro = entradas.find((e) => norm(e.plateDetected || "") === chapa && +e.timestamp < salio);
             if (entro) f.permanencia = Math.round((salio - +entro.timestamp) / 1000);
+        }
+    }
+
+    /**
+     * Tiempo adentro de las entradas: la salida posterior de ese mismo vehículo, si la hubo.
+     *
+     * Es el dato que alimenta la columna "Tiempo": una entrada sin salida dentro de la
+     * ventana cuenta en vivo; con salida, queda quieta en su total. Misma idea que la
+     * permanencia pero mirada desde la entrada, y con una sola consulta por página.
+     */
+    const entradas = pagina.filter((f) => f.tipo === "ACCESO" && f.sentido === "ENTRY" && f.decision !== "DENY" && f.plate);
+    if (entradas.length) {
+        const chapas = [...new Set(entradas.map((f) => norm(f.plate as string)))];
+        const masVieja = new Date(Math.min(...entradas.map((f) => +new Date(f.momento))));
+        const salidasPost = await prisma.accessEvent.findMany({
+            where: { direction: "EXIT", timestamp: { gte: masVieja }, plateDetected: { in: chapas } },
+            orderBy: { timestamp: "asc" },
+            select: { plateDetected: true, timestamp: true },
+            take: 500,
+        });
+        const ahora = Date.now();
+        for (const f of entradas) {
+            const chapa = norm(f.plate as string);
+            const entro = +new Date(f.momento);
+            const salio = salidasPost.find((e) => norm(e.plateDetected || "") === chapa && +e.timestamp > entro);
+            if (salio) { f.salida = salio.timestamp.toISOString(); f.adentro = false; }
+            else { f.salida = null; f.adentro = ahora - entro <= VENTANA_PERMANENCIA_MS; }
         }
     }
 

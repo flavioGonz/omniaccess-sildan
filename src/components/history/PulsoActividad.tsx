@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { actividadPorDia } from "@/app/actions/alertas";
 import { Pista } from "@/components/ui/pista";
-import { fecha, fechaCorta } from "@/lib/fechas";
+import { fechaCorta, IDIOMA } from "@/lib/fechas";
 
 /**
  * El pulso del registro: cuántas lecturas hubo cada día, en una tira.
@@ -74,7 +74,9 @@ export function PulsoActividad({ dias = 60 }: { dias?: number }) {
                     ))}
                 </div>
                 <span className="text-[11px] text-muted-foreground whitespace-nowrap tabular-nums">
-                    <span className="font-bold text-foreground">{fecha(total)}</span> en {dias} días
+                    {/* `total` es una cantidad. Pasaba por `fecha()`, que lo tomaba como
+                        milisegundos desde 1970: 31 lecturas se leían "31 dic. 1969". */}
+                    <span className="font-bold text-foreground">{total.toLocaleString(IDIOMA)}</span> lecturas en {dias} días
                 </span>
             </div>
         </Pista>

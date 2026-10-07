@@ -1,122 +1,19 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { PulsoActividad } from "@/components/history/PulsoActividad";
 import { getAccessEvents } from "@/app/actions/history";
 import { getEnabledModules } from "@/app/actions/modules";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
-import { Input } from "@/components/ui/input";
-import { History, Search, Filter, Calendar as CalendarIcon, User as UserIcon, HardDrive, ArrowRightCircle, ArrowLeftCircle, Download, Camera, Loader2, Clock, Car, CreditCard, Building2, ArrowUpRight, ArrowDownLeft, Phone, MapPin, CheckCircle2, XCircle, X, MoreHorizontal, TrendingUp, ShieldAlert, Activity, Fingerprint, ScanFace, BadgeAlert, Cpu, Wifi, ChevronDown, RefreshCw, AlertTriangle, Film, Upload, FileJson, Users, Zap, ChevronLeft, ChevronRight, Route, ParkingCircle } from "lucide-react";
-import { AccessEvent, User, Device } from "@prisma/client";
-import Image from "next/image";
-import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
-import { cn } from "@/lib/utils";
-import { Pista, Columna } from "@/components/ui/pista";
-import { VisorCuadro } from "@/components/VisorCuadro";
-import { getCarLogo } from "@/lib/car-logos";
-import { getVehicleBrandName } from "@/lib/hikvision-codes";
-import { VehicleMetaChips } from "@/components/VehicleMeta";
-import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
+import { History, Download, RefreshCw, Upload, FileJson, X } from "lucide-react";
+import { Pista } from "@/components/ui/pista";
+import { Seek } from "@/components/ui/search";
 import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { TablaUnificada } from "@/components/history/TablaUnificada";
-import { Filtros } from "@/components/ui/filtros";
-import { io } from "socket.io-client";
+import { CajonFiltros, BotonFiltros, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/CajonFiltros";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { getSocketUrl } from "@/lib/socket-config";
-import { getImagePath } from "@/lib/image-path";
-import { horaSeg } from "@/lib/fechas";
-
-const formatDuration = (ms: number) => {
-    const minutes = Math.floor(ms / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (days > 0) return `${days}d ${hours % 24}h`;
-    if (hours > 0) return `${hours}h ${minutes % 60}m`;
-    if (minutes > 0) return `${minutes}m`;
-    return `< 1m`;
-};
-
-function formatTime(date: Date): string {
-    return horaSeg(new Date(date));
-}
-
-const MotionTableRow = motion(TableRow);
-
-type FullAccessEvent = any;
-
-const cleanPlate = (p: any) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-
-function fmtDur(ms: number): string {
-    const sec = Math.floor(ms / 1000); const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60);
-    return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`;
-}
-
-/**
- * Avistamientos de las camaras interiores. Reusa el buscador y el rango de fechas
- * de la barra de arriba; lo demas (permitido/denegado, entrada/salida) no aplica,
- * porque una lectura interior no decide nada.
- */
-/**
- * Un grupo de filtros.
- *
- * Tenía su rótulo en una línea aparte arriba —CLASE DE REGISTRO, IDENTIFICACIÓN,
- * RESULTADO, SENTIDO— y cuatro grupos así apilaban dos renglones cada uno, con aire entre
- * medio, dentro de una tarjeta con su propio relleno. El resultado era un bloque más alto
- * que seis filas de la tabla para decir qué se está mirando, arriba de la tabla que hay
- * que mirar.
- *
- * Ahora es un renglón. El rótulo no se pierde: vive en la explicación que aparece al pasar
- * el mouse por el grupo, que además es donde ya estaba lo que de verdad hacía falta saber.
- */
-function GrupoFiltro({ rotulo, ayuda, children, oculto }: { rotulo: string; ayuda: string; children: React.ReactNode; oculto?: boolean }) {
-    if (oculto) return null;
-    return (
-        <Pista titulo={rotulo} texto={ayuda} lado="abajo">
-            <span className="flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5 border border-border/50">{children}</span>
-        </Pista>
-    );
-}
-
-/**
- * Un botón de un grupo de filtros.
- *
- * El tono encendido NO es decoración: adelanta lo que se va a ver. "Permitidos" prendido en
- * verde y "Denegados" en rojo dicen qué trae el filtro antes de apretarlo, que es
- * exactamente para lo que existen los cinco tonos del sistema. Lo que no puede pasar es
- * que un botón que no dice nada sobre el estado — "Todo", "Entrada" — se pinte de un color
- * cualquiera: ese va con el único azul de acción.
- *
- * Los cuatro colores estaban escritos como `bg-blue-600`, `bg-emerald-600`, `bg-rose-600` y
- * `bg-orange-600`. Los mismos significados aparecían en otras pantallas como emerald-500,
- * red-500 y violet-600, y ninguna de esas diferencias quería decir nada.
- */
-function Opcion({ activo, onClick, tono = "accion", children }: {
-    activo: boolean; onClick: () => void; tono?: "accion" | "bien" | "mal" | "salida"; children: React.ReactNode;
-}) {
-    const encendido = {
-        accion: "accion",
-        bien: "pleno-bien",
-        mal: "pleno-mal",
-        salida: "pleno-aviso",
-    }[tono];
-    return (
-        <button onClick={onClick}
-            className={cn("h-7 px-2.5 rounded-md text-[11.5px] font-semibold whitespace-nowrap transition-colors",
-                activo ? encendido : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
-            {children}
-        </button>
-    );
-}
+import { horaSeg, fechaCorta } from "@/lib/fechas";
 
 /** Lo que está filtrando ahora, y cómo sacarlo de encima. */
 function ChipFiltro({ children, onQuitar }: { children: React.ReactNode; onQuitar: () => void }) {
@@ -133,267 +30,113 @@ function ChipFiltro({ children, onQuitar }: { children: React.ReactNode; onQuita
     );
 }
 
+/** Sin nada puesto: todo el registro. */
+const SIN_FILTROS: FiltrosHistorial = {
+    desde: "", hasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
+    camaras: [], color: "ALL", tipoVeh: "ALL", merodeo: false,
+};
+
+const NOMBRE_CLASE: Record<string, string> = { ACCESO: "accesos", PASO: "avistamientos", ESTACIONADO: "estacionados", VISTO: "vistos" };
+const NOMBRE_IDENT: Record<string, string> = { PLATE: "matrícula", FACE: "rostro", TAG: "RFID" };
+
+/**
+ * El historial: accesos y seguimiento en un solo registro.
+ *
+ * Esta página cargaba, por debajo, una segunda consulta entera — `getAccessEvents` con su
+ * propio paginado, su propio socket y su propio contador — que dejó de alimentar la tabla
+ * cuando se unificó el historial. Quedó un año así: el botón de refrescar recargaba esa
+ * lista fantasma (la tabla no se enteraba), tres grupos de filtros cambiaban un estado que
+ * la tabla no leía, y el reloj de "última actualización" marcaba la hora de la consulta
+ * que nadie veía. Todo eso se fue; lo que queda alimenta lo que se ve.
+ */
 export default function HistoryPage() {
-    const [events, setEvents] = useState<FullAccessEvent[]>([]);
-    const [totalEvents, setTotalEvents] = useState(0);
-    const [loading, setLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const _urlSearch = useSearchParams();
     useEffect(() => { const _q = _urlSearch.get("search"); if (_q) setSearchTerm(_q); /* eslint-disable-next-line */ }, []);
-    const [filterDecision, setFilterDecision] = useState<"ALL" | "GRANT" | "DENY">("ALL");
-    const [filterType, setFilterType] = useState<"ALL" | "PLATE" | "FACE" | "TAG">("ALL");
+
+    const [f, setF] = useState<FiltrosHistorial>(SIN_FILTROS);
+    const cambiar = useCallback<CambiarFiltros>((clave, valor) => setF((p) => ({ ...p, [clave]: valor })), []);
+    const [cajonAbierto, setCajonAbierto] = useState(false);
+
     const [activeMode, setActiveMode] = useState<"LPR" | "FACE" | "QUEUE" | null>(null);
-    const [filterDirection, setFilterDirection] = useState<"ALL" | "ENTRY" | "EXIT">("ALL");
-    const [filterColor, setFilterColor] = useState<string>("ALL");
-    const [filterVehType, setFilterVehType] = useState<string>("ALL");
-    const [startDate, setStartDate] = useState("");
-    const [endDate, setEndDate] = useState("");
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
-    const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-    useEffect(() => { setLastUpdate(new Date()); }, []);
-    const [merodeoSet, setMerodeoSet] = useState<Set<string>>(new Set());
-    const [mappedSet, setMappedSet] = useState<Set<string>>(new Set());
-    const [mappedNameSet, setMappedNameSet] = useState<Set<string>>(new Set());
-    const [mappedIpSet, setMappedIpSet] = useState<Set<string>>(new Set());
-    const [filterMerodeo, setFilterMerodeo] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);
-    // Accesos (AccessEvent) y seguimiento (PlateSighting) son dos registros distintos:
-    // se miran por separado en vez de mezclarse en la misma tabla.
-    /**
-     * Qué clases de registro se muestran. Vacío es todas.
-     *
-     * Antes había dos pestañas, Accesos y Seguimiento, y eso obligaba a buscar la misma
-     * matrícula dos veces en dos pantallas para reconstruir un solo recorrido. La
-     * diferencia entre un acceso y un avistamiento sigue importando — y por eso cada fila
-     * dice de qué clase es — pero es una propiedad de la fila, no un lugar aparte.
-     */
-    const [tipos, setTipos] = useState<string[]>([]);
+    const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+    /** Subirlo recarga la tabla desde la primera página. */
+    const [version, setVersion] = useState(0);
     const [chapasMerodeo, setChapasMerodeo] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         getEnabledModules().then(modules => {
-            if (modules.MODULE_QUEUE) {
-                setActiveMode("QUEUE");
-                setFilterType("ALL");
-            } else if (modules.MODULE_FACE && !modules.MODULE_LPR) {
-                setActiveMode("FACE");
-                setFilterType("FACE");
-            } else if (modules.MODULE_LPR && !modules.MODULE_FACE) {
-                setActiveMode("LPR");
-                setFilterType("PLATE");
-            } else {
-                setActiveMode(null);
-            }
+            if (modules.MODULE_QUEUE) { setActiveMode("QUEUE"); }
+            else if (modules.MODULE_FACE && !modules.MODULE_LPR) { setActiveMode("FACE"); cambiar("identificacion", "FACE"); }
+            else if (modules.MODULE_LPR && !modules.MODULE_FACE) { setActiveMode("LPR"); cambiar("identificacion", "PLATE"); }
+            else setActiveMode(null);
         });
-    }, []);
-
-    useEffect(() => {
-        const load = () => {
-            fetch("/api/history/merodeo").then(r => r.json()).then(d => setMerodeoSet(new Set((d.plates || []).map((p: string) => cleanPlate(p))))).catch(() => {});
-        };
-        load();
-        const iv = setInterval(load, 60000);
-        const loadMapped = () => fetch("/api/nvr/mapped-devices").then(r => r.json()).then(d => {
-            setMappedSet(new Set(d.deviceIds || []));
-            setMappedNameSet(new Set(d.deviceNames || []));
-            setMappedIpSet(new Set(d.deviceIps || []));
-        }).catch(() => {});
-        loadMapped();
-        const iv2 = setInterval(loadMapped, 30000);
-        window.addEventListener("focus", loadMapped);
-        return () => { clearInterval(iv); clearInterval(iv2); window.removeEventListener("focus", loadMapped); };
-    }, []);
+    }, [cambiar]);
 
     const exportJson = async () => {
         try {
-            const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: filterDecision, type: filterType, direction: filterDirection, from: startDate ? new Date(startDate) : undefined, to: endDate ? new Date(endDate) : undefined });
+            const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: f.resultado, type: f.identificacion, direction: f.sentido, from: f.desde ? new Date(f.desde) : undefined, to: f.hasta ? new Date(f.hasta) : undefined });
             const evs = (resp.events || []).map((e: any) => ({ id: e.id, timestamp: e.timestamp, createdAt: e.createdAt, accessType: e.accessType, credentialId: e.credentialId, decision: e.decision, direction: e.direction, plateDetected: e.plateDetected, plateNumber: e.plateNumber, location: e.location, snapshotPath: e.snapshotPath, imagePath: e.imagePath, details: e.details, deviceName: e.device?.name || null }));
             const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), count: evs.length, events: evs }, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `omniaccess-historial-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
         } catch (e) { console.error(e); }
     };
 
-    const [page, setPage] = useState(0);
-    const [hasMore, setHasMore] = useState(true);
-    const ITEMS_PER_PAGE = 50;
-
-    const filtersRef = useRef({ searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page });
-    useEffect(() => {
-        filtersRef.current = { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page };
-    }, [searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page]);
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setPage(0);
-            loadData(0, true);
-        }, 500);
-        return () => clearTimeout(timer);
-    }, [searchTerm, filterDecision, filterType, filterDirection, startDate, endDate]);
-
-    const observer = useRef<IntersectionObserver | null>(null);
-    const lastElementRef = useCallback((node: HTMLTableRowElement) => {
-        if (loading || !hasMore) return;
-        if (observer.current) observer.current.disconnect();
-        observer.current = new IntersectionObserver(entries => {
-            if (entries[0].isIntersecting && !loading && hasMore) {
-                setPage(prev => {
-                    const nextPage = prev + 1;
-                    setTimeout(() => loadData(nextPage, false), 0);
-                    return nextPage;
-                });
-            }
-        });
-        if (node) observer.current.observe(node);
-    }, [loading, hasMore]);
-
-    async function loadData(pageIndex: number, reset: boolean) {
-        setLoading(true);
-        try {
-            const response = await getAccessEvents({
-                take: ITEMS_PER_PAGE,
-                skip: pageIndex * ITEMS_PER_PAGE,
-                search: searchTerm,
-                decision: filterDecision,
-                type: filterType,
-                direction: filterDirection,
-                from: startDate ? new Date(startDate) : undefined,
-                to: endDate ? new Date(endDate) : undefined
-            });
-            // @ts-ignore
-            const { events: newEvents, total } = response;
-            setTotalEvents(total);
-            setLastUpdate(new Date());
-
-            if (reset) {
-                setEvents(newEvents);
-            } else {
-                setEvents(prev => {
-                    const existingIds = new Set(prev.map(e => e.id));
-                    const uniqueNewEvents = newEvents.filter((e: any) => !existingIds.has(e.id));
-                    return [...prev, ...uniqueNewEvents];
-                });
-            }
-            setHasMore(newEvents.length >= ITEMS_PER_PAGE);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    }
-
-    useEffect(() => {
-        const socketUrl = getSocketUrl();
-        // Reconexión explícita (traída de main 8f7ac4e): detrás del proxy el socket se cae y sin esto la tabla quedaba muda hasta recargar.
-        const socket = io(socketUrl, { path: "/io/socket.io", transports: ["polling"], upgrade: false, reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000, reconnectionDelayMax: 8000 });
-
-        socket.on("access_event", (event: FullAccessEvent) => {
-            const { searchTerm, filterDecision, filterType, filterDirection, startDate, endDate, page } = filtersRef.current;
-            const matchesSearch = !searchTerm ||
-                (event.plateDetected?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (event.user?.name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                (event.device?.name?.toLowerCase().includes(searchTerm.toLowerCase()));
-            const matchesDecision = filterDecision === "ALL" || event.decision === filterDecision;
-            const matchesType = filterType === "ALL" || event.accessType === filterType;
-            const matchesDirection = filterDirection === "ALL" || event.direction === filterDirection;
-            const eventDate = new Date(event.timestamp);
-            const matchesStartDate = !startDate || eventDate >= new Date(startDate);
-            const matchesEndDate = !endDate || eventDate <= new Date(endDate);
-
-            if (matchesSearch && matchesDecision && matchesType && matchesDirection && matchesStartDate && matchesEndDate) {
-                setEvents(prev => {
-                    if (prev.find(e => e.id === event.id)) return prev;
-                    return [event, ...prev].slice(0, ITEMS_PER_PAGE * (page + 1));
-                });
-                setTotalEvents(prev => prev + 1);
-                setLastUpdate(new Date());
-            }
-        });
-
-        return () => { socket.disconnect(); };
-    }, []);
-
-    const getImageUrl = (path: string | null | undefined): string => {
-        return getImagePath(path) || "";
-    };
-
-    // Compute stats
     /**
-     * Los contadores y los selectores de color y tipo salen de LO QUE HAY EN LA TABLA.
-     *
-     * Antes salían de `events`, que es la consulta vieja: los selectores ofrecían colores
-     * que no estaban en pantalla y los contadores hablaban de otro conjunto de registros
-     * que el que se estaba mirando. Dos datos correctos sobre cosas distintas, presentados
-     * como si fueran del mismo.
+     * Lo que se puede decir de lo que está cargado: cuántos permitidos, cuántos denegados,
+     * y qué colores, tipos de vehículo y cámaras aparecen. Sale de la tabla: un filtro
+     * tiene que ofrecer lo que hay en pantalla, no lo que había en otra consulta.
      */
     const [resumen, setResumen] = useState<{ grant: number; deny: number; colores: string[]; tipos: string[]; camaras: string[] }>(
         { grant: 0, deny: 0, colores: [], tipos: [], camaras: [] },
     );
-    /** Cámaras elegidas por nombre. Vacío = todas. */
-    const [camaras, setCamaras] = useState<string[]>([]);
-    const grantCount = resumen.grant;
-    const denyCount = resumen.deny;
-    const vehFacets = useMemo(() => ({ colors: resumen.colores, types: resumen.tipos }), [resumen]);
 
     /**
      * Cuando se eligió mirar sólo avistamientos o estacionados, los filtros de acceso no
      * aplican: una lectura interior no decide nada, así que no hay permitido ni denegado
-     * ni sentido. La condición estaba escrita cuatro veces igual.
+     * ni sentido.
      */
-    const soloSeguimiento = tipos.length > 0 && !tipos.includes("ACCESO");
+    const soloSeguimiento = f.tipos.length > 0 && !f.tipos.includes("ACCESO");
 
     /** Los filtros activos, en palabras, cada uno con su forma de sacarlo. */
     const filtrosPuestos = useMemo(() => {
         const l: { id: string; texto: string; quitar: () => void }[] = [];
-        if (searchTerm.trim()) l.push({ id: "q", texto: `«${searchTerm.trim()}»`, quitar: () => setSearchTerm("") });
-        if (startDate) l.push({ id: "d1", texto: `desde ${startDate}`, quitar: () => setStartDate("") });
-        if (endDate) l.push({ id: "d2", texto: `hasta ${endDate}`, quitar: () => setEndDate("") });
-        // Las clases elegidas también son un filtro puesto: si no se ven acá, la barra
-        // miente sobre por qué la tabla muestra lo que muestra.
-        for (const t of tipos) {
-            const nombre: Record<string, string> = { ACCESO: "accesos", PASO: "avistamientos", ESTACIONADO: "estacionados", VISTO: "vistos" };
-            l.push({ id: "cl_" + t, texto: nombre[t] || t, quitar: () => setTipos((p) => p.filter((x) => x !== t)) });
+        const diaDe = (s: string) => fechaCorta(new Date(`${s}T12:00:00`));
+        if (f.desde && f.hasta && f.desde === f.hasta) l.push({ id: "d", texto: `el ${diaDe(f.desde)}`, quitar: () => { cambiar("desde", ""); cambiar("hasta", ""); } });
+        else {
+            if (f.desde) l.push({ id: "d1", texto: `desde ${diaDe(f.desde)}`, quitar: () => cambiar("desde", "") });
+            if (f.hasta) l.push({ id: "d2", texto: `hasta ${diaDe(f.hasta)}`, quitar: () => cambiar("hasta", "") });
         }
+        for (const t of f.tipos) l.push({ id: "cl_" + t, texto: NOMBRE_CLASE[t] || t, quitar: () => cambiar("tipos", f.tipos.filter((x) => x !== t)) });
         if (!soloSeguimiento) {
-            const ident: Record<string, string> = { PLATE: "matrícula", FACE: "rostro", TAG: "RFID" };
-            if (filterType !== "ALL" && ident[filterType]) l.push({ id: "t", texto: ident[filterType], quitar: () => setFilterType("ALL") });
-            if (filterDecision !== "ALL") l.push({ id: "dec", texto: filterDecision === "GRANT" ? "permitidos" : "denegados", quitar: () => setFilterDecision("ALL") });
-            if (filterDirection !== "ALL") l.push({ id: "dir", texto: filterDirection === "ENTRY" ? "entradas" : "salidas", quitar: () => setFilterDirection("ALL") });
-            if (filterColor !== "ALL") l.push({ id: "col", texto: `color ${filterColor}`, quitar: () => setFilterColor("ALL") });
-            if (filterVehType !== "ALL") l.push({ id: "veh", texto: filterVehType, quitar: () => setFilterVehType("ALL") });
-            if (filterMerodeo) l.push({ id: "mer", texto: "merodeo", quitar: () => setFilterMerodeo(false) });
+            // Con un solo módulo la identificación viene fija y no es algo que el operador haya puesto.
+            if (f.identificacion !== "ALL" && activeMode === null && NOMBRE_IDENT[f.identificacion]) l.push({ id: "t", texto: NOMBRE_IDENT[f.identificacion], quitar: () => cambiar("identificacion", "ALL") });
+            if (f.resultado !== "ALL") l.push({ id: "dec", texto: f.resultado === "GRANT" ? "permitidos" : "denegados", quitar: () => cambiar("resultado", "ALL") });
+            if (f.sentido !== "ALL") l.push({ id: "dir", texto: f.sentido === "ENTRY" ? "entradas" : "salidas", quitar: () => cambiar("sentido", "ALL") });
+            if (f.color !== "ALL") l.push({ id: "col", texto: `color ${f.color}`, quitar: () => cambiar("color", "ALL") });
+            if (f.tipoVeh !== "ALL") l.push({ id: "veh", texto: f.tipoVeh, quitar: () => cambiar("tipoVeh", "ALL") });
+            if (f.merodeo) l.push({ id: "mer", texto: "merodeo", quitar: () => cambiar("merodeo", false) });
         }
-        for (const c of camaras) l.push({ id: "cam_" + c, texto: c, quitar: () => setCamaras((p) => p.filter((x) => x !== c)) });
+        for (const c of f.camaras) l.push({ id: "cam_" + c, texto: c, quitar: () => cambiar("camaras", f.camaras.filter((x) => x !== c)) });
         return l;
-    }, [searchTerm, startDate, endDate, tipos, soloSeguimiento, filterType, filterDecision, filterDirection, filterColor, filterVehType, filterMerodeo, camaras]);
+    }, [f, soloSeguimiento, activeMode, cambiar]);
 
     const limpiarFiltros = useCallback(() => {
-        setSearchTerm(""); setStartDate(""); setEndDate("");
-        setFilterType("ALL"); setFilterDecision("ALL"); setFilterDirection("ALL");
-        setFilterColor("ALL"); setFilterVehType("ALL"); setFilterMerodeo(false); setTipos([]); setCamaras([]);
-    }, []);
-    /*
-     * Acá se calculaba `displayEvents`, que filtraba por color y tipo de vehículo y
-     * **no lo leía nadie**: el arreglo que filtraba dejó de alimentar la tabla cuando se
-     * unificó el historial. El resultado eran dos selectores en pantalla, con su chip de
-     * "quitar filtro" y todo, que no filtraban nada. Ahora los dos viajan a la tabla, que
-     * es la que tiene las filas, y filtran de verdad.
-     */
+        setSearchTerm("");
+        setF({ ...SIN_FILTROS, identificacion: activeMode === "FACE" ? "FACE" : activeMode === "LPR" ? "PLATE" : "ALL" });
+    }, [activeMode]);
+
+    const recargar = useCallback(() => setVersion((v) => v + 1), []);
+    const alCargar = useCallback(() => setLastUpdate(new Date()), []);
 
     return (
         <div className="p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
             {/*
-                Encabezado: una sola barra.
-                =========================
-
-                Antes eran tres bloques sueltos apilados —título, un mapa de actividad que
-                ocupaba un rectángulo grande para decir "0 contributions", y una fila de
-                botones de cuatro estilos distintos— que juntos se comían un tercio de la
-                pantalla antes de mostrar un solo registro.
-
-                Ahora es una sola superficie con dos zonas: qué es esta pantalla a la
-                izquierda, con qué se la opera a la derecha. Los controles van en un riel
-                único, separados por hairlines en vez de por aire, para que se lean como un
-                instrumento y no como botones que quedaron ahí.
+                Encabezado: una sola barra. Qué es esta pantalla a la izquierda, con qué se
+                la opera a la derecha, en un riel único. Las fechas ya no están acá: son un
+                filtro más y viven en el cajón con los otros, con sus atajos.
             */}
             <div className="rounded-xl border border-border/50 bg-card/60 px-4 py-3">
                 <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -415,19 +158,6 @@ export default function HistoryPage() {
 
                     {/* El riel de controles: un solo objeto, no cinco */}
                     <div className="flex items-center rounded-lg border border-border/50 bg-muted/40 overflow-hidden shrink-0">
-
-                        <div className="flex items-center gap-1.5 px-2.5 h-9">
-                            <CalendarIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                                aria-label="Desde"
-                                className="bg-transparent border-none text-[11.5px] text-muted-foreground focus:outline-none focus:text-foreground w-[96px]" />
-                            <span className="text-muted-foreground/40 text-[11px]">—</span>
-                            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                                aria-label="Hasta"
-                                className="bg-transparent border-none text-[11.5px] text-muted-foreground focus:outline-none focus:text-foreground w-[96px]" />
-                        </div>
-
-                        <span className="w-px h-9 bg-border/50" />
 
                         {/* Exportar conserva su rótulo: es la acción que la gente viene a
                             buscar. Las otras dos son de mantenimiento y van con ícono. */}
@@ -455,12 +185,12 @@ export default function HistoryPage() {
                         <span className="w-px h-9 bg-border/50" />
 
                         <Pista titulo="Última actualización"
-                            texto="El registro se refresca solo. El botón fuerza una consulta ahora, por si estás esperando un evento puntual.">
-                            <button onClick={() => { setPage(0); loadData(0, true); }}
+                            texto="El registro se refresca solo con cada evento nuevo. El botón vuelve a consultar ahora, por si estás esperando algo puntual.">
+                            <button onClick={recargar}
                                 className="flex items-center gap-1.5 h-9 px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                                 <span className="text-[11px] tabular-nums" suppressHydrationWarning>
-                                    {lastUpdate ? formatTime(lastUpdate) : "--:--:--"}
+                                    {lastUpdate ? horaSeg(lastUpdate) : "--:--:--"}
                                 </span>
                                 <RefreshCw className="w-3 h-3 ml-0.5" />
                             </button>
@@ -470,129 +200,28 @@ export default function HistoryPage() {
             </div>
 
             {/*
-                LOS CONTROLES DE LA TABLA
-                =========================
-
-                Estaban en una tarjeta aparte de 170 píxeles de alto, con más de la mitad
-                vacía, flotando entre el encabezado y la tabla. Y adentro había tres piezas
-                que se calculaban y no se dibujaban nunca: la lista de filtros puestos, su
-                botón de quitar y el de limpiar todo. Tres controles diseñados, escritos,
-                mantenidos — e invisibles.
-
-                Ahora es un renglón, pegado al borde de arriba de la tabla, adentro de su
-                mismo marco: son SUS controles, no una tarjeta que casualmente está cerca.
-                Y debajo, sólo cuando hay algo puesto, la línea que dice qué se está
-                filtrando — que es la que contesta "¿por qué no aparece lo que busco?".
+                LOS CONTROLES DE LA TABLA: el buscador, UN botón de filtros que dice cuántos
+                hay puestos, y debajo — sólo cuando hay algo — la línea que dice qué se está
+                filtrando, que es la que contesta "¿por qué no aparece lo que busco?".
             */}
             <TablaUnificada
                 barra={
                     <div>
-                        <Filtros
-                            busqueda={searchTerm} alBuscar={setSearchTerm}
-                            placeholder="Matrícula, nombre o cámara"
-                            grupos={[
-                                {
-                                    clave: "clase", multiple: true,
-                                    titulo: "Entradas y salidas las decide una cámara LPR y abren la barrera. Un avistamiento lo hace una cámara interior y sólo deja constancia. Estacionado es un vehículo quieto dentro del encuadre.",
-                                    valor: tipos,
-                                    alElegir: (v) => {
-                                        if (!v) { setTipos([]); return; }
-                                        setTipos((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v]);
-                                    },
-                                    opciones: [
-                                        { valor: "", rotulo: "Todo" },
-                                        { valor: "ACCESO", rotulo: "Accesos" },
-                                        { valor: "PASO", rotulo: "Avistamientos" },
-                                        { valor: "ESTACIONADO", rotulo: "Estacionados" },
-                                        { valor: "VISTO", rotulo: "Vistos" },
-                                    ],
-                                },
-                                {
-                                    clave: "identificacion", oculto: soloSeguimiento,
-                                    titulo: "Con qué se identificó: la matrícula (LPR), el rostro, o una tarjeta o llavero (RFID).",
-                                    valor: filterType, alElegir: (v) => setFilterType(v as any),
-                                    opciones: [
-                                        ...(activeMode === null ? [{ valor: "ALL", rotulo: "Todos" }] : []),
-                                        ...((activeMode === null || activeMode === "LPR") ? [{ valor: "PLATE", rotulo: "LPR" }] : []),
-                                        ...((activeMode === null || activeMode === "FACE") ? [{ valor: "FACE", rotulo: "Rostros" }] : []),
-                                        ...(activeMode !== "QUEUE" ? [{ valor: "TAG", rotulo: "RFID" }] : []),
-                                    ],
-                                },
-                                {
-                                    clave: "resultado", oculto: soloSeguimiento,
-                                    titulo: "Si el sistema abrió o no. Los denegados son los que conviene revisar: matrícula desconocida, permiso vencido u horario fuera de rango.",
-                                    valor: filterDecision, alElegir: (v) => setFilterDecision(v as any),
-                                    opciones: [
-                                        { valor: "ALL", rotulo: "Todos" },
-                                        { valor: "GRANT", rotulo: "Permitidos", tono: "bien" },
-                                        { valor: "DENY", rotulo: "Denegados", tono: "mal" },
-                                    ],
-                                },
-                                {
-                                    clave: "sentido", oculto: soloSeguimiento,
-                                    titulo: "Entradas o salidas. Sirve para responder quién está adentro, o para mirar sólo el movimiento de una punta.",
-                                    valor: filterDirection, alElegir: (v) => setFilterDirection(v as any),
-                                    opciones: [
-                                        { valor: "ALL", rotulo: "Todos" },
-                                        { valor: "ENTRY", rotulo: "Entradas" },
-                                        { valor: "EXIT", rotulo: "Salidas" },
-                                    ],
-                                },
-                                {
-                                    // Sólo aparece cuando hay más de una cámara en lo cargado: con una
-                                    // sola, el control no decide nada. Las opciones son las cámaras que
-                                    // están en pantalla, no el padrón de dispositivos.
-                                    clave: "camara", multiple: true, oculto: resumen.camaras.length < 2,
-                                    titulo: "Qué cámara registró el movimiento.",
-                                    valor: camaras,
-                                    alElegir: (v) => {
-                                        if (!v) { setCamaras([]); return; }
-                                        setCamaras((p) => p.includes(v) ? p.filter((x) => x !== v) : [...p, v]);
-                                    },
-                                    opciones: [
-                                        { valor: "", rotulo: "Todas las cámaras" },
-                                        ...resumen.camaras.map((c) => ({ valor: c, rotulo: c })),
-                                    ],
-                                },
-                            ]}
-                            acciones={
-                                <button onClick={() => setFilterMerodeo(v => !v)}
-                                    title="Matrículas que aparecen muchas veces en poco tiempo sin llegar a entrar"
-                                    className={cn("shrink-0 flex items-center gap-1.5 h-[34px] px-3 rounded-lg text-[12px] font-semibold transition-colors",
-                                        filterMerodeo ? "pleno-mal" : "bg-muted/60 text-muted-foreground hover:text-foreground")}>
-                                    <ShieldAlert size={13} /> Merodeo{chapasMerodeo.size > 0 ? ` (${chapasMerodeo.size})` : ""}
-                                </button>
-                            }>
-                            {/* Color y tipo aparecen sólo si hay de dónde elegir: un selector
-                                con una sola opción es un control que no decide nada. */}
-                            {!soloSeguimiento && vehFacets.colors.length > 0 && (
-                                <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
-                                    className="h-[34px] shrink-0 bg-muted/60 border-0 rounded-lg px-2.5 text-[12px] font-semibold text-foreground outline-none">
-                                    <option value="ALL">Color: todos</option>
-                                    {vehFacets.colors.map((cl) => <option key={cl} value={cl}>{cl}</option>)}
-                                </select>
-                            )}
-                            {!soloSeguimiento && vehFacets.types.length > 0 && (
-                                <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
-                                    className="h-[34px] shrink-0 bg-muted/60 border-0 rounded-lg px-2.5 text-[12px] font-semibold text-foreground outline-none">
-                                    <option value="ALL">Tipo: todos</option>
-                                    {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                            )}
-                        </Filtros>
+                        <div className="flex items-center flex-wrap gap-2 min-h-[34px]">
+                            <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Matrícula, nombre o cámara" startOpen width={280} alto={34} />
+                            <BotonFiltros puestos={filtrosPuestos.length} onClick={() => setCajonAbierto(true)} />
+                        </div>
 
-                        {/* Qué se está filtrando. Aparece sólo cuando hay algo puesto, así
-                            que no reserva alto: un renglón vacío permanente es lo que hacía
-                            que el bloque anterior pareciera roto. */}
                         <AnimatePresence initial={false}>
-                            {filtrosPuestos.length > 0 && (
+                            {(filtrosPuestos.length > 0 || searchTerm.trim()) && (
                                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                                     transition={{ duration: 0.18 }} className="overflow-hidden">
                                     <div className="flex items-center gap-1.5 flex-wrap pt-2">
                                         <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mr-0.5">Filtrando</span>
                                         <AnimatePresence initial={false}>
-                                            {filtrosPuestos.map((f) => (
-                                                <ChipFiltro key={f.id} onQuitar={f.quitar}>{f.texto}</ChipFiltro>
+                                            {searchTerm.trim() && <ChipFiltro key="q" onQuitar={() => setSearchTerm("")}>«{searchTerm.trim()}»</ChipFiltro>}
+                                            {filtrosPuestos.map((x) => (
+                                                <ChipFiltro key={x.id} onQuitar={x.quitar}>{x.texto}</ChipFiltro>
                                             ))}
                                         </AnimatePresence>
                                         <button onClick={limpiarFiltros}
@@ -606,28 +235,35 @@ export default function HistoryPage() {
                     </div>
                 }
                 buscar={searchTerm}
-                desde={startDate}
-                hasta={endDate}
-                tipos={tipos}
-                merodeo={filterMerodeo ? chapasMerodeo : undefined}
-                color={filterColor}
-                tipoVeh={filterVehType}
-                camaras={camaras}
+                desde={f.desde}
+                hasta={f.hasta}
+                tipos={f.tipos}
+                identificacion={soloSeguimiento ? "ALL" : f.identificacion}
+                resultado={soloSeguimiento ? "ALL" : f.resultado}
+                sentido={soloSeguimiento ? "ALL" : f.sentido}
+                version={version}
+                merodeo={f.merodeo && !soloSeguimiento ? chapasMerodeo : undefined}
+                color={soloSeguimiento ? "ALL" : f.color}
+                tipoVeh={soloSeguimiento ? "ALL" : f.tipoVeh}
+                camaras={f.camaras}
                 onMerodeo={setChapasMerodeo}
                 onResumen={setResumen}
+                onCargado={alCargar}
+            />
+
+            <CajonFiltros
+                abierto={cajonAbierto} onOpenChange={setCajonAbierto}
+                f={f} cambiar={cambiar} limpiar={limpiarFiltros}
+                camarasDisponibles={resumen.camaras} colores={resumen.colores} tiposVeh={resumen.tipos}
+                soloSeguimiento={soloSeguimiento} modo={activeMode} merodeando={chapasMerodeo.size}
             />
 
             <ExportHistoryDialog
                 open={isExportDialogOpen}
                 onOpenChange={setIsExportDialogOpen}
-                filters={{
-                    search: searchTerm,
-                    decision: filterDecision,
-                    type: filterType,
-                    direction: filterDirection
-                }}
+                filters={{ search: searchTerm, decision: f.resultado, type: f.identificacion, direction: f.sentido }}
             />
-            <ImportHistoryDialog open={isImportOpen} onOpenChange={setIsImportOpen} onDone={() => { setPage(0); loadData(0, true); }} />
+            <ImportHistoryDialog open={isImportOpen} onOpenChange={setIsImportOpen} onDone={recargar} />
         </div>
     );
 }

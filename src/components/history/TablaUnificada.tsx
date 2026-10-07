@@ -16,6 +16,8 @@ import { VisorCuadro } from "@/components/VisorCuadro";
 import { FlujoMatricula, type PasoFlujo } from "@/components/history/FlujoMatricula";
 import { parseVehicleMeta } from "@/lib/vehicle-details";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
+import { Cronometro, useTranscurrido, leerDuracion } from "@/components/tracking/Cronometro";
+import { Timer } from "lucide-react";
 
 export type FilaHistorial = {
     id: string;
@@ -36,6 +38,9 @@ export type FilaHistorial = {
     estHasta: string | null;
     detalles: string | null;
     permanencia: number | null;
+    /** Entradas permitidas: cuándo salió después (null = no salió), y si se lo da por adentro. */
+    salida?: string | null;
+    adentro?: boolean;
     raw: any | null;
 };
 
@@ -101,12 +106,31 @@ function desdeEvento(ev: any): FilaHistorial | null {
         foto: ev.snapshotPath || ev.imagePath || null,
         estDesde: null, estHasta: null, bbox: null, estCerrada: false,
         detalles: ev.details || null, permanencia: null,
+        // Un acceso que acaba de ocurrir: si es entrada permitida, está adentro desde ahora.
+        salida: null, adentro: ev.direction === "ENTRY" && ev.decision !== "DENY",
         raw: ev,
     };
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, tipoVeh, camaras, barra, onMerodeo, onResumen }: {
+/**
+ * El tiempo transcurrido desde una lectura, en vivo y en voz baja.
+ *
+ * Para un avistamiento o un visto no hay intervalo que medir — fue un instante —, así que
+ * no va el cronómetro con sus tonos de estadía, que pintarían de rojo cualquier lectura de
+ * hace tres horas. Lo que sí sirve al que barre la tabla en vivo es saber hace cuánto fue.
+ */
+function HaceCuanto({ desde }: { desde: string }) {
+    const ms = useTranscurrido(desde);
+    if (ms == null) return <Nada />;
+    return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
+}
+
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, barra, onMerodeo, onResumen, onCargado }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
+    /** Los filtros de acceso: con qué se identificó, si abrió, en qué sentido. Viajan al servidor. */
+    identificacion?: string; resultado?: string; sentido?: string;
+    /** Subirlo fuerza una recarga desde la primera página (el botón de refrescar, una importación). */
+    version?: number;
     /** Matrículas marcadas por merodeo; si viene vacío no se filtra. */
     merodeo?: Set<string>;
     /** Color y tipo de vehículo, sacados de los detalles de cada registro. */
@@ -128,6 +152,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
      * distinto del que se estaba mirando. Un filtro tiene que ofrecer lo que hay.
      */
     onResumen?: (r: { grant: number; deny: number; colores: string[]; tipos: string[]; camaras: string[] }) => void;
+    /** Cada vez que llegó una respuesta del servidor: para el reloj de "última actualización". */
+    onCargado?: () => void;
 }) {
     const [filas, setFilas] = useState<FilaHistorial[]>([]);
     const [hay, setHay] = useState(false);
@@ -151,7 +177,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
     const [recargar, setRecargar] = useState(0);
     const { marcar, es: esNueva } = useDestello();
 
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(",")]);
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version]);
 
     useEffect(() => {
         let vivo = true;
@@ -161,6 +187,9 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
         if (desde) q.set("from", desde);
         if (hasta) q.set("to", hasta);
         if (tipos.length) q.set("tipos", tipos.join(","));
+        if (identificacion !== "ALL") q.set("type", identificacion);
+        if (resultado !== "ALL") q.set("decision", resultado);
+        if (sentido !== "ALL") q.set("direction", sentido);
         const esta = q.toString();
         clave.current = esta;
 
@@ -174,6 +203,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
                 setError(null);
                 setFilas((prev) => (pagina === 0 ? (j.filas || []) : [...prev, ...(j.filas || [])]));
                 setHay(!!j.hay);
+                onCargado?.();
             })
             .catch((e) => {
                 if (!vivo || clave.current !== esta) return;
@@ -185,7 +215,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
             })
             .finally(() => { if (vivo) setCargando(false); });
         return () => { vivo = false; };
-    }, [buscar, desde, hasta, tipos, pagina, recargar]);
+    // `version` entra por el reset de página; si ya estaba en 0 hace falta igual volver a pedir.
+    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version]);
 
     /**
      * En vivo.
@@ -202,6 +233,9 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
         if (pagina !== 0) return;
         if (ev?.accessType && ev.accessType !== "PLATE") return;
         if (tipos.length && !tipos.includes("ACCESO")) return;
+        if (identificacion !== "ALL" && ev?.accessType !== identificacion) return;
+        if (resultado !== "ALL" && ev?.decision !== resultado) return;
+        if (sentido !== "ALL" && ev?.direction !== sentido) return;
         // Un evento es de ahora: sólo entra si el rango llega hasta hoy.
         if (hasta && new Date(hasta) < new Date(new Date().toDateString())) return;
         const f = desdeEvento(ev);
@@ -213,7 +247,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
         }
         setFilas((prev) => (prev.some((x) => x.id === f.id) ? prev : [f, ...prev]));
         marcar(f.id);
-    }, [pagina, tipos, hasta, buscar, marcar]));
+    }, [pagina, tipos, identificacion, resultado, sentido, hasta, buscar, marcar]));
 
     const alternar = useCallback((f: FilaHistorial) => {
         if (!f.plate) return;
@@ -440,25 +474,68 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, merodeo, color, ti
             },
         },
         {
-            clave: "senales", titulo: "Señales", icono: ShieldAlert, ancho: 140,
-            tituloAyuda: "Señales y permanencia",
-            ayuda: "Permanencia es cuánto estuvo adentro el vehículo, y sale solo en las salidas. Merodeo marca una matrícula que aparece muchas veces en poco tiempo sin llegar a entrar.",
-            valor: (f) => [
-                f.permanencia != null ? lapso(f.permanencia) : null,
-                f.plate && merodeo?.has(f.plate) ? "Merodeo" : null,
-            ].filter(Boolean).join(" · "),
+            clave: "tiempo", titulo: "Tiempo", icono: Timer, ancho: 150,
+            tituloAyuda: "El contador de tiempo",
+            ayuda: "Depende de la fila. Entrada: cuánto lleva adentro ese vehículo; corre en vivo hasta que se registra su salida. Salida: cuánto estuvo adentro, quieto. Estacionado: la estadía, en vivo si sigue ahí. Avistamiento o visto: hace cuánto fue la lectura.",
+            valor: (f) => {
+                if (f.tipo === "ESTACIONADO" && f.estDesde) return leerDuracion(+new Date(f.estCerrada && f.estHasta ? f.estHasta : f.momento) - +new Date(f.estDesde));
+                if (f.tipo === "ACCESO" && f.sentido === "EXIT") return f.permanencia != null ? leerDuracion(f.permanencia * 1000) : "";
+                if (f.tipo === "ACCESO" && f.sentido === "ENTRY") return f.salida ? leerDuracion(+new Date(f.salida) - +new Date(f.momento)) : f.adentro ? "adentro" : "";
+                return "";
+            },
+            celda: (f) => {
+                if (f.tipo === "ESTACIONADO" && f.estDesde) {
+                    // Si la estadía sigue abierta el reloj corre; la última vez visto no es el fin.
+                    return (
+                        <Pista titulo={f.estCerrada ? "Estadía" : "Sigue estacionado"} texto={f.estCerrada ? "Cuánto estuvo detenido en ese lugar, de principio a fin." : "Lleva este tiempo detenido en el mismo lugar del cuadro, y la cámara lo sigue viendo ahí."}>
+                            <Cronometro tamano="chico" desde={f.estDesde} hasta={f.estCerrada ? (f.estHasta || f.momento) : null} />
+                        </Pista>
+                    );
+                }
+                if (f.tipo === "ACCESO" && f.sentido === "EXIT") {
+                    if (f.permanencia == null) return <Nada />;
+                    return (
+                        <Pista titulo="Permanencia" texto="Cuánto estuvo adentro este vehículo, desde su propia entrada hasta esta salida.">
+                            <Cronometro tamano="chico" desde={new Date(+new Date(f.momento) - f.permanencia * 1000)} hasta={f.momento} />
+                        </Pista>
+                    );
+                }
+                if (f.tipo === "ACCESO" && f.sentido === "ENTRY") {
+                    if (f.decision === "DENY") return <Nada />;
+                    if (f.salida) {
+                        return (
+                            <Pista titulo="Ya salió" texto={`Entró y volvió a salir a las ${horaSeg(new Date(f.salida))}. El reloj quedó quieto en lo que estuvo adentro.`}>
+                                <Cronometro tamano="chico" desde={f.momento} hasta={f.salida} />
+                            </Pista>
+                        );
+                    }
+                    if (f.adentro) {
+                        return (
+                            <Pista titulo="Adentro" texto="No hay una salida registrada después de esta entrada: el vehículo sigue adentro y el reloj corre en vivo.">
+                                <Cronometro tamano="chico" desde={f.momento} />
+                            </Pista>
+                        );
+                    }
+                    return (
+                        <Pista titulo="Sin salida registrada" texto="Pasó más de un día y medio sin que una cámara de salida leyera esta matrícula. Lo más probable es que la salida no se haya leído; por eso el reloj no corre.">
+                            <span className="text-[11px] text-muted-foreground/70">sin salida</span>
+                        </Pista>
+                    );
+                }
+                return <HaceCuanto desde={f.momento} />;
+            },
+        },
+        {
+            clave: "senales", titulo: "Señales", icono: ShieldAlert, ancho: 110,
+            tituloAyuda: "Señales",
+            // La permanencia se mudó a la columna Tiempo, que es donde se la busca; acá queda lo que es una alerta.
+            ayuda: "Merodeo marca una matrícula que aparece muchas veces en poco tiempo sin llegar a entrar.",
+            valor: (f) => (f.plate && merodeo?.has(f.plate) ? "Merodeo" : ""),
             celda: (f) => {
                 const merodea = !!(f.plate && merodeo?.has(f.plate));
-                if (f.permanencia == null && !merodea) return <Nada />;
+                if (!merodea) return <Nada />;
                 return (
                     <div className="flex flex-col gap-0.5">
-                        {f.permanencia != null && (
-                            <Pista titulo="Permanencia" texto="Cuánto estuvo adentro este vehículo, desde su propia entrada hasta esta salida.">
-                                <span className="inline-flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-300/85 tabular-nums">
-                                    <Clock className="w-3 h-3 opacity-70" /> {lapso(f.permanencia)}
-                                </span>
-                            </Pista>
-                        )}
                         {merodea && (
                             <Pista titulo="Merodeo" texto="Esta matrícula aparece muchas veces en poco tiempo sin llegar a entrar. Es una señal para mirar, no una conclusión.">
                                 <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-rose-500 dark:text-rose-300">

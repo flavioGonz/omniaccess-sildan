@@ -123,3 +123,29 @@ export const duracionEntre = (desde: any, hasta: any) => {
     const a = leer(desde), b = leer(hasta);
     return a && b ? duracion((b.getTime() - a.getTime()) / 1000) : "—";
 };
+
+/**
+ * Los dos extremos de un día del barrio, a partir de lo que entrega un `<input type="date">`.
+ *
+ * `new Date("2026-10-06")` es la medianoche de Greenwich, que en Montevideo son las 21:00
+ * del día anterior: un filtro "hasta el 6" que termina el 5 a las 21 deja afuera todo el
+ * día 6, y "desde el 6" arranca con tres horas del 5. Acá se calcula la medianoche EN LA
+ * ZONA, sin depender de en qué huso esté el servidor ni el navegador.
+ */
+export function limitesDelDia(aaaammdd: string): { inicio: Date; fin: Date } | null {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(aaaammdd || "")) return null;
+    const medianocheEnZona = (s: string) => {
+        const aprox = new Date(`${s}T00:00:00Z`);
+        if (isNaN(+aprox)) return null;
+        // Qué hora de pared es en la zona cuando en UTC son las 00:00: la diferencia es el desfase.
+        const partes = new Intl.DateTimeFormat("en-US", { timeZone: ZONA, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(aprox);
+        const p = (t: string) => Number(partes.find((x) => x.type === t)?.value);
+        const pared = Date.UTC(p("year"), p("month") - 1, p("day"), p("hour"), p("minute"));
+        return new Date(aprox.getTime() - (pared - aprox.getTime()));
+    };
+    const inicio = medianocheEnZona(aaaammdd);
+    if (!inicio) return null;
+    const sig = new Date(inicio.getTime() + 36 * 3600 * 1000); // pasa seguro al día siguiente aunque cambie el horario de verano
+    const finSig = medianocheEnZona(paraInput(sig));
+    return { inicio, fin: new Date((finSig ? finSig.getTime() : inicio.getTime() + 86400000) - 1) };
+}
