@@ -14,6 +14,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Tooltip as RTooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
 import { LiveModal } from "@/components/intrusion/LiveModal";
+import { HorarioArmadoDialog, ResumenArmado, type HorariosCamara } from "@/components/intrusion/HorarioArmado";
 
 type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
 type AlarmChip = { id: string; type: string; label: string; ts: string };
@@ -92,10 +93,12 @@ function Dots() {
     );
 }
 
-function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending, onCalibrate, onAlarm, onAck, onResolve, onFicha, onLive, onClip }: {
+function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending, onCalibrate, onAlarm, onAck, onResolve, onFicha, onLive, onClip, horarios, onHorario }: {
     cam: IntrusionCam; alarms?: AlarmChip[]; last?: DetItem; geom?: Geom; hasAnalytics: boolean; alarmActive?: boolean; attending?: boolean;
     onCalibrate: (c: IntrusionCam) => void; onAlarm: (c: IntrusionCam) => void; onAck: (c: IntrusionCam) => void; onResolve?: (id: string) => void;
     onFicha: (c: IntrusionCam) => void; onLive: (c: IntrusionCam) => void; onClip: (c: IntrusionCam) => void;
+    /** El horario de armado de cada regla, leído de la cámara; se muestra debajo del nombre. */
+    horarios?: HorariosCamara | null; onHorario?: (c: IntrusionCam) => void;
 }) {
     const active = !!(alarms && alarms.length);
     const [rk, setRk] = useState(0);
@@ -167,6 +170,13 @@ function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending
                             {cam.ch != null && <span className="text-[8.5px] font-bold text-white/55">CH {cam.ch}</span>}
                         </div>
                     )}
+                    {/* El horario de armado de CADA regla, siempre a la vista: una perimetral "activa"
+                        que está desarmada a esta hora no avisa, y eso antes no se veía desde acá. */}
+                    {hasAnalytics && horarios !== undefined && (
+                        <button type="button" onClick={(e) => { e.stopPropagation(); onHorario?.(cam); }} className="mt-1 block text-left pointer-events-auto hover:underline decoration-white/40" data-tooltip-id="mi-tip" data-tooltip-content="Horario de armado de cada regla · clic para cambiarlo">
+                            <ResumenArmado h={horarios} compacto />
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -207,6 +217,7 @@ function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending
                             { Icon: FileText, label: "Eventos", fn: () => onFicha(cam), hl: false },
                             { Icon: PencilRuler, label: "Calibrar", fn: () => onCalibrate(cam), hl: hasAnalytics },
                             { Icon: BellRing, label: "Alertas", fn: () => onAlarm(cam), hl: false },
+                            { Icon: Clock, label: "Horario de armado", fn: () => onHorario?.(cam), hl: false },
                         ] as const).map(({ Icon, label, fn, hl }) => (
                             <button key={label} onClick={() => { setMenu(false); fn(); }}
                                 className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-[12px] font-semibold text-white/85 hover:bg-white/10 transition-colors">
@@ -843,6 +854,14 @@ export default function MonitorIntrusion() {
     const [q, setQ] = useState("");
     const [calibrateDev, setCalibrateDev] = useState<IntrusionCam | null>(null);
     const [alarmDev, setAlarmDev] = useState<IntrusionCam | null>(null);
+    // Horarios de armado leídos de las cámaras (una llamada para todas), y el cajón para cambiarlos.
+    const [horarios, setHorarios] = useState<Record<string, HorariosCamara>>({});
+    const [horarioGeneral, setHorarioGeneral] = useState<any>(null);
+    const [horarioDev, setHorarioDev] = useState<{ cam: IntrusionCam | null; todas: boolean } | null>(null);
+    const cargarHorarios = useCallback(() => {
+        fetch("/api/intrusion/horarios?todas=1", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d?.camaras) setHorarios(d.camaras); setHorarioGeneral(d?.general || null); }).catch(() => { });
+    }, []);
+    useEffect(() => { cargarHorarios(); const iv = setInterval(cargarHorarios, 5 * 60 * 1000); return () => clearInterval(iv); }, [cargarHorarios]);
     const [detail, setDetail] = useState<any>(null);
     const [showHistory, setShowHistory] = useState(false);
     const [showEvidence, setShowEvidence] = useState(false);
@@ -1008,6 +1027,7 @@ export default function MonitorIntrusion() {
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-400"><Circle size={8} className="fill-emerald-500 text-emerald-500 animate-pulse" /> En vivo</span>
                     <button onClick={() => setShowHistory(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><History size={13} /> Historial</button>
                     <button onClick={() => setShowEvidence(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><Camera size={13} /> Evidencia</button>
+                    <button onClick={() => setHorarioDev({ cam: null, todas: true })} data-tooltip-id="mi-tip" data-tooltip-content={horarioGeneral ? `Criterio general: ${horarioGeneral.texto}` : "Un mismo horario de armado para todas las cámaras (opcional)"} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"><Clock size={13} /> Horario general{horarioGeneral ? <span className="text-foreground/80 font-semibold">· {horarioGeneral.texto}</span> : null}</button>
                     <div className="inline-flex rounded-xl border border-border p-0.5 bg-card">
                         {(["ANALYTIC", "MOTION", "ALL"] as const).map((f) => (
                             <button key={f} onClick={() => setFilter(f)} className={cn("px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wide transition-colors", filter === f ? "bg-red-500/20 text-red-300" : "text-muted-foreground hover:text-foreground")}>
@@ -1039,7 +1059,7 @@ export default function MonitorIntrusion() {
                                     <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
                                         {topRow.map((cam) => (
                                             <CamTile key={cam.id} cam={cam} alarms={alarms[cam.id]} last={lastByDev[cam.id]} geom={geom[cam.id]} hasAnalytics={analyticsIds.has(cam.id)} alarmActive={cam.alarmOk || alarmIds.has(cam.id)} onFicha={openFicha} onLive={openLive} onClip={openClip}
-                                                onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => openAlarmFicha(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
+                                                onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => openAlarmFicha(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} horarios={horarios[cam.id] ?? null} onHorario={(c) => setHorarioDev({ cam: c, todas: false })} />
                                         ))}
                                     </div>
                                 </div>
@@ -1048,7 +1068,7 @@ export default function MonitorIntrusion() {
                                 <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
                                     {restRow.map((cam) => (
                                         <CamTile key={cam.id} cam={cam} alarms={alarms[cam.id]} last={lastByDev[cam.id]} geom={geom[cam.id]} hasAnalytics={analyticsIds.has(cam.id)} alarmActive={cam.alarmOk || alarmIds.has(cam.id)} onFicha={openFicha} onLive={openLive} onClip={openClip}
-                                            onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => openAlarmFicha(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} />
+                                            onCalibrate={setCalibrateDev} onAlarm={setAlarmDev} onAck={(c) => openAlarmFicha(c)} attending={attendingIds.has(cam.id)} onResolve={resolveAttending} horarios={horarios[cam.id] ?? null} onHorario={(c) => setHorarioDev({ cam: c, todas: false })} />
                                     ))}
                                 </div>
                             )}
@@ -1116,6 +1136,7 @@ export default function MonitorIntrusion() {
                 getAnalyticsGeometryBatch([id]).then((g) => setGeom((prev) => ({ ...prev, ...g }))).catch(() => { });
                 setAnalyticsIds((s) => new Set(s).add(id));
             }} />}
+            {horarioDev && <HorarioArmadoDialog cam={horarioDev.cam} todasLasCamaras={horarioDev.todas} actual={horarioDev.cam ? horarios[horarioDev.cam.id] ?? null : null} general={horarioGeneral} onClose={() => setHorarioDev(null)} onAplicado={cargarHorarios} />}
             {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
                 hasAlarm={!!(detail?.deviceId && alarms[detail.deviceId]?.length)} onResolveAlarm={(id, k) => { ackAlarm(id, k); const nx = Object.keys(alarms).find((d) => d !== id && alarms[d]?.length); if (nx && camById[nx]) openAlarmFicha(camById[nx]); else setDetail(null); }} />}

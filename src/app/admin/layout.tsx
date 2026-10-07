@@ -50,6 +50,7 @@ import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
 import { hasAcuSeekNvr } from "@/app/actions/acuseek";
 import { logout } from "@/app/actions/auth";
 import AforoAlertOverlay from "@/components/AforoAlertOverlay";
+import AlertaIntrusionGlobal from "@/components/intrusion/AlertaIntrusionGlobal";
 import { VivoProvider } from "@/components/vivo/PanelVivo";
 
 interface SidebarItemProps {
@@ -336,6 +337,8 @@ export default function AdminLayout({
             </main>
 
             <AforoAlertOverlay />
+            {/* Intrusión confirmada por una cámara: respira en rojo en TODA la aplicación hasta que alguien decida real / falsa. */}
+            <AlertaIntrusionGlobal />
             <LiveEdgeKeeper />
 
             <style jsx global>{`

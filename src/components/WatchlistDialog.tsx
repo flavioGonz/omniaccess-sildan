@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, ShieldAlert, Plus, Loader2, Bell, BellOff, Search, RotateCcw, Ban, ExternalLink, Info } from "lucide-react";
+import { ShieldAlert, Plus, Loader2, Bell, BellOff, Search, RotateCcw, Ban, ExternalLink, Info } from "lucide-react";
 import Link from "next/link";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { getWatchlist, addWatch, deactivateWatch, reactivateWatch, type FilaVigilancia } from "@/app/actions/watchlist";
 import { WATCH_CATEGORY_LIST, WATCH_EFECTOS, watchCatMeta, type WatchCategory } from "@/lib/watch-categories";
 import { Pista } from "@/components/ui/pista";
+import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { resumirCamaras } from "@/lib/lista-negra";
 
 /**
- * El atajo del monitor LPR a la lista de vigilancia. Escribe la MISMA lista que la pestaña de
- * /admin/users (que es donde se administra en serio); acá se carga rápido y se ve lo activo.
+ * El atajo del monitor LPR a la lista de vigilancia, como cajón lateral (ui/cajon), igual que las
+ * demás fichas de la aplicación. Escribe la MISMA lista que la pestaña de /admin/users (que es
+ * donde se administra en serio); acá se carga rápido y se ve lo activo.
  *
  * Lo que cambió el 7/10 y por qué: la baja desactiva en vez de borrar (queda quién, cuándo y
  * por qué); si la matrícula ya está en otra categoría se pregunta antes de pisarla; y cada
@@ -90,25 +92,19 @@ export function WatchlistDialog({ onClose }: { onClose: () => void }) {
     const activas = rows.filter((r) => r.active).length;
 
     return (
-        <div className="fixed inset-0 z-[3300] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-150" onClick={onClose}>
-            <div className="relative w-full max-w-lg max-h-[88vh] flex flex-col rounded-2xl bg-card border border-border overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
-                    <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-lg bg-[var(--mal-suave)] border border-border"><ShieldAlert size={16} className="text-[var(--mal)]" /></div>
-                        <div>
-                            <h3 className="text-sm font-bold text-foreground">Lista de vigilancia</h3>
-                            <p className="text-[10px] text-muted-foreground">Una sola lista para la barrera, las cámaras, el monitor y el bot</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-1">
+        <Cajon open onOpenChange={(o) => { if (!o) onClose(); }}>
+            <CajonContenido ancho="intermedio" titulo="Lista de vigilancia"
+                descripcion="Una sola lista para la barrera, las cámaras, el monitor y el bot."
+                encabezado={
+                    <div className="flex items-center justify-between px-6 py-2">
+                        <span className="text-[11px] text-muted-foreground tabular-nums">{activas} activa{activas === 1 ? "" : "s"}</span>
                         <Pista titulo="Administrar" texto="La misma lista, completa: motivo, quién la cargó, persona vinculada, inactivas y las que vienen por rol." lado="abajo">
-                            <Link href="/admin/users?tab=vigilancia" className="h-8 px-2 rounded-lg hover:bg-accent text-[11px] font-semibold text-[var(--accion)] flex items-center gap-1"><ExternalLink size={13} /> Usuarios</Link>
+                            <Link href="/admin/users?tab=vigilancia" className="h-8 px-2 rounded-lg hover:bg-accent text-[11px] font-semibold text-[var(--accion)] flex items-center gap-1"><ExternalLink size={13} /> Abrir en Usuarios</Link>
                         </Pista>
-                        <button onClick={onClose} className="h-8 w-8 rounded-lg hover:bg-accent text-muted-foreground flex items-center justify-center shrink-0"><X size={16} /></button>
                     </div>
-                </div>
-
-                <div className="p-4 border-b border-border space-y-3 shrink-0">
+                }>
+                <CajonSeccion titulo="Agregar" icono={ShieldAlert} ayuda="Pasá el mouse por cada categoría para ver exactamente qué hace en la barrera, las cámaras, el monitor y los avisos.">
+                <div className="space-y-3">
                     <div className="flex gap-2">
                         <input value={plate} onChange={(e) => { setPlate(e.target.value.toUpperCase()); setConflicto(null); }} onKeyDown={(e) => { if (e.key === "Enter") onAdd(); }} placeholder="MATRÍCULA"
                             className="w-32 shrink-0 bg-background border border-border rounded-[6px] px-3 h-9 text-sm font-bold uppercase tracking-wider tabular-nums outline-none focus:ring-1 focus:ring-[var(--accion)]" />
@@ -158,7 +154,9 @@ export function WatchlistDialog({ onClose }: { onClose: () => void }) {
                     </div>
                 </div>
 
-                <div className="px-4 pt-3 pb-2 flex items-center gap-2 shrink-0">
+                </CajonSeccion>
+                <CajonSeccion titulo="En la lista" icono={Search}>
+                <div className="pb-2 flex items-center gap-2">
                     <div className="relative flex-1 min-w-0">
                         <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar matrícula, motivo o persona…"
@@ -167,10 +165,10 @@ export function WatchlistDialog({ onClose }: { onClose: () => void }) {
                     <button onClick={() => setVerInactivas((v) => !v)} className={cn("h-8 px-2 rounded-full border text-[10px] font-bold uppercase tracking-wide whitespace-nowrap", verInactivas ? "bg-accent text-foreground border-border" : "bg-background text-muted-foreground border-border")}>
                         {verInactivas ? "Con inactivas" : "Sólo activas"}
                     </button>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-nowrap tabular-nums">{activas} activa{activas === 1 ? "" : "s"}</span>
+                    
                 </div>
 
-                <div className="flex-1 min-h-0 overflow-y-auto">
+                <div className="-mx-6">
                     {loading ? (
                         <div className="flex items-center justify-center py-8 text-muted-foreground gap-2"><Loader2 size={16} className="animate-spin" /> Cargando…</div>
                     ) : error ? (
@@ -184,7 +182,7 @@ export function WatchlistDialog({ onClose }: { onClose: () => void }) {
                             {visibles.map((r) => {
                                 const m = watchCatMeta(r.category);
                                 return (
-                                    <div key={r.id} className={cn("flex items-center gap-3 px-4 py-2.5", !r.active && "opacity-50")}>
+                                    <div key={r.id} className={cn("flex items-center gap-3 px-6 py-2.5", !r.active && "opacity-50")}>
                                         <span className="font-bold text-sm tracking-wider tabular-nums w-24 shrink-0">{r.plate}</span>
                                         <span className={cn("text-[9px] font-black uppercase px-1.5 py-0.5 rounded border shrink-0 whitespace-nowrap", m.badge)}>{m.label}</span>
                                         <span className="text-xs text-muted-foreground flex-1 min-w-0 truncate" title={`${r.motivo || r.label || ""}${r.userName ? ` · ${r.userName}` : ""}${r.createdBy ? ` · ${r.createdBy}` : ""}`}>
@@ -206,8 +204,9 @@ export function WatchlistDialog({ onClose }: { onClose: () => void }) {
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+                </CajonSeccion>
+            </CajonContenido>
+        </Cajon>
     );
 }
 
