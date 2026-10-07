@@ -97,6 +97,9 @@ interface UserWithRelations {
 /* ROLE_LABELS se mudó a `TablaUsuarios` como `ROLES`, con los tonos del sistema en vez de
    siete colores inventados. Acá quedaba sólo porque la tabla vivía en esta página. */
 
+/** El rol que no se ofrece como filtro de Personas: su lugar es la pestaña Lista de vigilancia. */
+const ROL_LISTA_NEGRA = "BLACKLISTED";
+
 /** Cuántas filas entran de una. Con la tabla midiendo su propio scroll, 40 llena una
  *  pantalla grande sin pedir la siguiente enseguida. */
 const PAGINA = 40;
@@ -322,7 +325,11 @@ export default function UsersPage() {
                                 alElegir: (v) => setFilterRole(v === "todos" ? null : v),
                                 opciones: [
                                     { valor: "todos", rotulo: "Todos" },
-                                    ...Object.entries(ROLES).map(([clave, info]) => ({
+                                    /* Sin «Lista negra»: las personas en lista negra se ven y se
+                                       manejan en la pestaña Lista de vigilancia, junto a las
+                                       matrículas. Tenerlas también acá era un segundo lugar para lo
+                                       mismo, con menos datos (sin motivo, sin detecciones). */
+                                    ...Object.entries(ROLES).filter(([clave]) => clave !== ROL_LISTA_NEGRA).map(([clave, info]) => ({
                                         valor: clave, rotulo: info.label,
                                     })),
                                 ],

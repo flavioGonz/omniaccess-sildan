@@ -82,24 +82,29 @@ export function watchCatMeta(x: string | null | undefined): WatchCatMeta {
  * matrícula (tooltip en el diálogo del monitor, bloque en la pestaña de Usuarios), y tiene que
  * decir la verdad de lo que el sistema hace, no lo que uno desearía que hiciera.
  */
-export type EfectoCategoria = { barrera: string; camaras: string; monitor: string; avisos: string };
+/* `monitores` es la pantalla Control LPR del centro de monitoreo (/monitores), distinta del
+   «monitor» de la consola de accesos: el operador las mira a las dos y hacen cosas distintas. */
+export type EfectoCategoria = { barrera: string; camaras: string; monitor: string; monitores: string; avisos: string };
 export const WATCH_EFECTOS: Record<WatchCategory, EfectoCategoria> = {
     BLACKLISTED: {
         barrera: "Toda lectura de esta matrícula se registra DENEGADA, aunque tenga credencial, aunque el modo LPR la permita y aunque la cámara la haya devuelto como permitida.",
         camaras: "Se saca de la lista blanca de las lectoras Hikvision y se carga en su lista negra, en el momento. Si una lectora no responde, se avisa: la barrera la deniega igual por servidor.",
         monitor: "La tarjeta aparece en rojo y en la pila de alertas críticas, con sonido urgente, también al recargar la pantalla.",
+        monitores: "En Control LPR la lectura sale en grande como LISTA NEGRA con su motivo, queda 24 h en la fila de atención y suena si la vista tiene el sonido prendido.",
         avisos: "Dispara el evento WATCHLIST del motor de notificaciones (WhatsApp, Telegram) con la foto.",
     },
     WHITELISTED: {
         barrera: "No cambia la decisión: sigue mandando la credencial y el modo LPR. Es una marca para el operador, no un permiso.",
         camaras: "No toca las listas de la cámara.",
         monitor: "La tarjeta se destaca en violeta como VIP / autorizado.",
+        monitores: "Las pantallas de Monitores no la distinguen: se ve como una lectura más.",
         avisos: "Aviso suave en el monitor; no dispara alertas críticas.",
     },
     SEARCH: {
         barrera: "No cambia la decisión: sigue mandando la credencial y el modo LPR.",
         camaras: "No toca las listas de la cámara.",
         monitor: "La tarjeta se destaca en ámbar y suena el aviso normal: alguien la está buscando.",
+        monitores: "En Control LPR queda 24 h en la fila de atención como EN BÚSQUEDA, con su motivo. No suena.",
         avisos: "Dispara el evento WATCHLIST del motor de notificaciones si hay una regla que lo escuche.",
     },
 };

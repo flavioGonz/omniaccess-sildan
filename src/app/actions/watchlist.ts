@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { normalizeWatchCat, type WatchCategory } from "@/lib/watch-categories";
 import { getSession } from "@/app/actions/auth";
+import { getImagePath } from "@/lib/image-path";
 import {
     aplicarListaNegraEnCamaras, normalizarMatricula, vigilanciaDe,
     type ResultadoCamaras, type OrigenVigilancia,
@@ -34,6 +35,8 @@ export type FilaVigilancia = {
     notify: boolean; active: boolean; createdAt: Date; updatedAt: Date; deactivatedAt: Date | null;
     createdBy: string | null; userId: string | null; userName: string | null; unidad: string | null;
     origen: OrigenVigilancia;
+    /** Foto del registro (rostro), si se cargó al marcar a la persona. */
+    fotoUrl: string | null;
 };
 
 /** Toda la lista (activas e inactivas), con la persona vinculada, para la pestaña de Usuarios. */
@@ -48,7 +51,7 @@ export async function getWatchlist(): Promise<FilaVigilancia[]> {
             id: r.id, plate: r.plate, category: normalizeWatchCat(r.category) || "SEARCH", label: r.label, motivo: r.motivo, color: r.color,
             notify: r.notify, active: r.active, createdAt: r.createdAt, updatedAt: r.updatedAt, deactivatedAt: r.deactivatedAt,
             createdBy: r.createdBy, userId: r.userId, userName: u?.name || null, unidad: u?.unit?.name || null,
-            origen: r.userId ? "persona" : "manual",
+            origen: r.userId ? "persona" : "manual", fotoUrl: r.fotoUrl ?? null,
         };
     });
 }
@@ -114,7 +117,7 @@ export type ResultadoAlta = {
  */
 export async function addWatch(data: {
     plate: string; label?: string; category?: string; notify?: boolean; color?: string;
-    motivo?: string; userId?: string | null; force?: boolean; createdBy?: string;
+    motivo?: string; userId?: string | null; force?: boolean; createdBy?: string; fotoUrl?: string | null;
 }): Promise<ResultadoAlta> {
     const plate = norm(data.plate);
     if (!plate) return { ok: false, error: "Matrícula vacía" };
@@ -132,6 +135,7 @@ export async function addWatch(data: {
             color: data.color ?? previa?.color ?? null, motivo: data.motivo ?? previa?.motivo ?? null,
             userId: data.userId === undefined ? (previa?.userId ?? null) : data.userId,
             active: true, deactivatedAt: null, createdBy,
+            fotoUrl: data.fotoUrl === undefined ? (previa?.fotoUrl ?? null) : data.fotoUrl,
         };
         const row = await prisma.plateWatch.upsert({ where: { plate }, create: { plate, ...comunes }, update: comunes });
         // Entró a (o salió de) lista negra: la cámara tiene que saberlo ya.
@@ -143,7 +147,7 @@ export async function addWatch(data: {
     } catch (e: any) { return { ok: false, error: e?.message }; }
 }
 
-export async function updateWatch(id: string, data: { label?: string; category?: string; notify?: boolean; color?: string; motivo?: string | null }) {
+export async function updateWatch(id: string, data: { label?: string; category?: string; notify?: boolean; color?: string; motivo?: string | null; fotoUrl?: string | null }) {
     try {
         const previa = await prisma.plateWatch.findUnique({ where: { id } });
         if (!previa) return { ok: false, error: "La entrada ya no existe" };
@@ -210,7 +214,7 @@ async function matriculasDe(userId: string): Promise<string[]> {
  * Marcar a una PERSONA en lista negra = todas sus matrículas, vinculadas a ella, con el motivo.
  * No le cambia el rol: eso es del módulo facial.
  */
-export async function marcarPersonaEnListaNegra(userId: string, motivo: string, force = false) {
+export async function marcarPersonaEnListaNegra(userId: string, motivo: string, force = false, fotoUrl?: string | null) {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true } });
     if (!user) return { ok: false, error: "La persona no existe" };
     const plates = await matriculasDe(userId);
@@ -218,7 +222,7 @@ export async function marcarPersonaEnListaNegra(userId: string, motivo: string, 
     const conflictos: string[] = [];
     const camaras: ResultadoCamaras = { ok: [], fallo: [] };
     for (const plate of plates) {
-        const r = await addWatch({ plate, category: "BLACKLISTED", label: user.name, motivo, userId, force });
+        const r = await addWatch({ plate, category: "BLACKLISTED", label: user.name, motivo, userId, force, ...(fotoUrl ? { fotoUrl } : {}) });
         if (r.conflicto) conflictos.push(`${plate} (${r.conflicto.category})`);
         if (r.camaras) { camaras.ok.push(...r.camaras.ok); camaras.fallo.push(...r.camaras.fallo); }
     }
@@ -263,4 +267,57 @@ export async function heredarListaNegraSiCorresponde(userId: string, plate: stri
 export async function getPersonasEnListaNegra(): Promise<string[]> {
     const filas = await prisma.plateWatch.findMany({ where: { active: true, category: "BLACKLISTED", userId: { not: null } }, select: { userId: true }, distinct: ["userId"] });
     return filas.map((f) => f.userId!).filter(Boolean);
+}
+
+
+// ── Foto del registro y ficha ──────────────────────────────────────────────────────────
+
+/** Tope de la foto del rostro: una cara alcanza con mucho menos; evita subir fotos de 12 MP del celular. */
+const FOTO_MAX_BYTES = 6 * 1024 * 1024;
+
+/**
+ * Sube la foto (rostro) de una persona que se marca en la lista. Va al bucket de rostros de
+ * MinIO y queda como foto del registro (decisión del 7/10: todavía no es una credencial facial
+ * ni se carga en los equipos; queda preparada para eso).
+ */
+export async function subirFotoVigilancia(form: FormData): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+    const archivo = form.get("foto") as File | null;
+    // Sube a MinIO: sin sesión no se acepta nada, aunque la acción se llame desde fuera de la página.
+    if (!(await getSession().catch(() => null))) return { ok: false, error: "Sesión vencida: volvé a entrar." };
+    if (!archivo || typeof archivo === "string") return { ok: false, error: "No llegó ninguna imagen." };
+    if (!/^image\/(jpeg|png|webp)$/.test(archivo.type)) return { ok: false, error: "La foto tiene que ser JPG, PNG o WebP." };
+    if (archivo.size > FOTO_MAX_BYTES) return { ok: false, error: "La foto pesa más de 6 MB." };
+    try {
+        const { uploadToS3 } = await import("@/lib/s3");
+        const ext = archivo.type === "image/png" ? "png" : archivo.type === "image/webp" ? "webp" : "jpg";
+        const url = await uploadToS3(Buffer.from(await archivo.arrayBuffer()), `vigilancia_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`, archivo.type, "face");
+        return { ok: true, url };
+    } catch (e: any) { return { ok: false, error: "No se pudo guardar la foto: " + (e?.message || e) }; }
+}
+
+export type DeteccionFicha = { id: string; ts: string; camara: string | null; direccion: string | null; decision: string | null; foto: string | null };
+
+/**
+ * Lo que la ficha de una entrada muestra además de sus datos: dónde y cuándo se vio esa
+ * matrícula (accesos de las lectoras), y las capturas como evidencias. Las más recientes primero.
+ */
+export async function fichaVigilancia(plate: string): Promise<{ detecciones: DeteccionFicha[]; total: number }> {
+    const p = norm(plate);
+    if (!p || !(await getSession().catch(() => null))) return { detecciones: [], total: 0 };
+    const [filas, total] = await Promise.all([
+        prisma.accessEvent.findMany({
+            where: { plateDetected: p },
+            orderBy: { timestamp: "desc" }, take: 60,
+            select: { id: true, timestamp: true, direction: true, decision: true, snapshotPath: true, location: true, device: { select: { name: true } } },
+        }),
+        prisma.accessEvent.count({ where: { plateDetected: p } }),
+    ]);
+    return {
+        total,
+        detecciones: filas.map((e: any) => ({
+            id: e.id, ts: e.timestamp.toISOString(), camara: e.device?.name || e.location || null,
+            direccion: e.direction || null, decision: e.decision || null,
+            foto: getImagePath(e.snapshotPath),
+        })),
+    };
 }

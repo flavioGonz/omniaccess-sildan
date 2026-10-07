@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ShieldAlert, Plus, Loader2, Bell, BellOff, Ban, RotateCcw, Pencil, Check, X, User as UserIco, Camera, Monitor, MessageSquare, DoorClosed } from "lucide-react";
+import { ShieldAlert, Plus, Loader2, Bell, BellOff, Ban, RotateCcw, PanelRightOpen, User as UserIco, Camera, Monitor, MonitorPlay, MessageSquare, DoorClosed } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
@@ -12,34 +12,28 @@ import { Input } from "@/components/ui/input";
 import { Pista } from "@/components/ui/pista";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-    getWatchlist, getNegrasPorRol, addWatch, updateWatch, deactivateWatch, reactivateWatch,
+    getWatchlist, getNegrasPorRol, addWatch, deactivateWatch, reactivateWatch,
     marcarPersonaEnListaNegra, type FilaVigilancia,
 } from "@/app/actions/watchlist";
 import { WATCH_CATEGORY_LIST, WATCH_EFECTOS, watchCatMeta, type WatchCategory } from "@/lib/watch-categories";
-import { resumirCamaras } from "@/lib/lista-negra";
 import { ExplicacionCategoria } from "@/components/WatchlistDialog";
+import { FichaVigilancia, FotoRegistro, avisarCamaras, subirFoto, type Fila } from "@/components/users/FichaVigilancia";
 
 /**
  * La pestaña "Lista de vigilancia" de /admin/users: el lugar donde se administra la lista
  * entera. El diálogo del monitor, la ficha del evento y el bot son atajos a esta misma lista.
  *
  * Tiene, además de la tabla, el bloque "Qué hace esta lista": el operador tiene que saber qué
- * va a pasar en la barrera, en las cámaras, en el monitor y en WhatsApp antes de cargar a
- * alguien. Lo que dice ese bloque es lo que el sistema hace (lib/watch-categories →
- * WATCH_EFECTOS); si cambia el comportamiento, cambia el texto en el mismo commit.
+ * va a pasar en la barrera, en las cámaras, en el monitor, en las pantallas de Monitores y en
+ * WhatsApp. Lo que dice ese bloque es lo que el sistema hace (lib/watch-categories →
+ * WATCH_EFECTOS); si cambia el comportamiento, cambia el texto en el mismo commit. Va DEBAJO
+ * de la tabla: arriba empujaba la lista fuera de la vista y es referencia, no el trabajo.
+ *
+ * Cada entrada se abre en su ficha (FichaVigilancia): datos, edición, detecciones y capturas.
  */
 
 type Persona = { id: string; name: string; unit?: { name?: string | null } | null; credentials?: { type: string; value: string }[] };
-type Fila = FilaVigilancia | { id: string; plate: string; category: "BLACKLISTED"; label: string; motivo: null; color: null; notify: true; active: true; createdAt: null; updatedAt: null; deactivatedAt: null; createdBy: null; userId: string; userName: string; unidad: string | null; origen: "rol" };
-
-function avisarCamaras(camaras?: { ok: any[]; fallo: any[] }) {
-    if (!camaras) return;
-    const texto = resumirCamaras(camaras);
-    if (camaras.fallo.length) toast.warning({ title: "Lectoras: alguna no respondió", description: texto });
-    else toast.success({ title: "Lectoras actualizadas", description: texto });
-}
-
-/** El bloque de explicación: cuatro columnas (barrera, cámaras, monitor, avisos) por categoría. */
+/** El bloque de explicación: cinco columnas (barrera, lectoras, monitor, Monitores, avisos) por categoría. */
 function QueHaceEstaLista() {
     const [abierta, setAbierta] = useState<WatchCategory>("BLACKLISTED");
     const e = WATCH_EFECTOS[abierta];
@@ -65,14 +59,15 @@ function QueHaceEstaLista() {
                     ))}
                 </div>
             </div>
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-4">
                 <Celda icono={DoorClosed} titulo="En la barrera" texto={e.barrera} />
                 <Celda icono={Camera} titulo="En las lectoras" texto={e.camaras} />
                 <Celda icono={Monitor} titulo="En el monitor" texto={e.monitor} />
+                <Celda icono={MonitorPlay} titulo="En Monitores" texto={e.monitores} />
                 <Celda icono={MessageSquare} titulo="En los avisos" texto={e.avisos} />
             </div>
             <p className="mt-3 text-[11px] text-muted-foreground">
-                Una <b>persona</b> marcada en lista negra desde su ficha arrastra <b>todas</b> sus matrículas, y las nuevas que se le carguen después. Dar de baja no borra: la entrada queda inactiva, con quién y cuándo. Las marcadas <b>por rol</b> vienen del módulo facial y se sacan desde allí.
+                Una <b>persona</b> marcada en lista negra desde su ficha arrastra <b>todas</b> sus matrículas, y las nuevas que se le carguen después. Dar de baja no borra: la entrada queda inactiva, con quién y cuándo. Las marcadas <b>por rol</b> vienen del módulo facial y se sacan desde allí. La foto del rostro queda como foto del registro: todavía no se carga en las cámaras faciales.
             </p>
         </section>
     );
@@ -96,11 +91,10 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
     const [notify, setNotify] = useState(true);
     const [guardando, setGuardando] = useState(false);
     const [conflicto, setConflicto] = useState<string | null>(null);
+    const [fotoPersona, setFotoPersona] = useState<File | null>(null);
 
-    // edición en línea
-    const [editando, setEditando] = useState<string | null>(null);
-    const [editMotivo, setEditMotivo] = useState("");
-    const [editCat, setEditCat] = useState<WatchCategory>("BLACKLISTED");
+    // la ficha abierta (cajón): reemplaza la edición en la misma fila
+    const [abierta, setAbierta] = useState<Fila | null>(null);
 
     const cargar = useCallback(() => {
         setCargando(true); setError(null);
@@ -113,7 +107,7 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
 
     const todas: Fila[] = useMemo(() => [
         ...filas,
-        ...porRol.map((r) => ({ id: `rol-${r.plate}`, plate: r.plate, category: "BLACKLISTED" as const, label: r.userName, motivo: null, color: null, notify: true as const, active: true as const, createdAt: null, updatedAt: null, deactivatedAt: null, createdBy: null, userId: r.userId, userName: r.userName, unidad: r.unidad, origen: "rol" as const })),
+        ...porRol.map((r) => ({ id: `rol-${r.plate}`, plate: r.plate, category: "BLACKLISTED" as const, label: r.userName, motivo: null, color: null, notify: true as const, active: true as const, createdAt: null, updatedAt: null, deactivatedAt: null, createdBy: null, userId: r.userId, userName: r.userName, unidad: r.unidad, origen: "rol" as const, fotoUrl: null })),
     ], [filas, porRol]);
 
     const visibles = useMemo(() => {
@@ -131,7 +125,9 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
         try {
             if (modoAlta === "persona") {
                 if (!personaId) return;
-                const r: any = await marcarPersonaEnListaNegra(personaId, motivo.trim(), force);
+                let fotoUrl: string | undefined;
+                if (fotoPersona) { const u = await subirFoto(fotoPersona); if (!u) return; fotoUrl = u; }
+                const r: any = await marcarPersonaEnListaNegra(personaId, motivo.trim(), force, fotoUrl);
                 if (r.conflicto && !force) { setConflicto(r.error); return; }
                 if (!r.ok) { toast.error({ title: "No se pudo marcar", description: r.error }); return; }
                 toast.success({ title: "Persona en lista negra", description: `${r.plates.length} matrícula${r.plates.length === 1 ? "" : "s"}: ${r.plates.join(", ")}. Toda lectura se registra DENEGADA.` });
@@ -145,27 +141,16 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
                 toast.success({ title: `${p} · ${watchCatMeta(category).label}`, description: WATCH_EFECTOS[category].barrera });
                 avisarCamaras(r.camaras);
             }
-            setPlate(""); setMotivo(""); setPersonaId("");
+            setPlate(""); setMotivo(""); setPersonaId(""); setFotoPersona(null);
             cargar();
         } finally { setGuardando(false); }
-    }
-
-    async function guardarEdicion(f: FilaVigilancia) {
-        const r = await updateWatch(f.id, { motivo: editMotivo.trim() || null, label: editMotivo.trim(), category: editCat });
-        if (!r.ok) { toast.error({ title: "No se pudo guardar", description: r.error }); return; }
-        avisarCamaras(r.camaras); setEditando(null); cargar();
     }
 
     const columnas: ColumnaTabla<Fila>[] = [
         { clave: "plate", titulo: "Matrícula", ancho: 120, valor: (f) => f.plate, celda: (f) => <Matricula p={f.plate} className={!f.active ? "opacity-50" : ""} /> },
         {
             clave: "category", titulo: "Categoría", ancho: 150, valor: (f) => watchCatMeta(f.category).label,
-            celda: (f) => editando === f.id ? (
-                <Select value={editCat} onValueChange={(v) => setEditCat(v as WatchCategory)}>
-                    <SelectTrigger className="h-7 text-[11px]"><SelectValue /></SelectTrigger>
-                    <SelectContent>{WATCH_CATEGORY_LIST.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
-                </Select>
-            ) : (
+            celda: (f) => (
                 <Pista titulo={watchCatMeta(f.category).label} texto={<ExplicacionCategoria cat={f.category} />} ancho={340}>
                     <span className={cn("inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wider", watchCatMeta(f.category).badge, !f.active && "opacity-50")}>{watchCatMeta(f.category).label}</span>
                 </Pista>
@@ -173,14 +158,15 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
         },
         {
             clave: "motivo", titulo: "Motivo", valor: (f) => f.motivo || f.label || "",
-            celda: (f) => editando === f.id
-                ? <Input value={editMotivo} onChange={(e) => setEditMotivo(e.target.value)} className="h-7 text-[12px]" autoFocus onKeyDown={(e) => { if (e.key === "Enter" && f.origen !== "rol") guardarEdicion(f as FilaVigilancia); if (e.key === "Escape") setEditando(null); }} />
-                : (f.motivo || f.label) ? <span className="text-[12px]">{f.motivo || f.label}</span> : <Nada />,
+            celda: (f) => (f.motivo || f.label) ? <span className="text-[12px]">{f.motivo || f.label}</span> : <Nada />,
         },
         {
             clave: "persona", titulo: "Persona", ayuda: "A quién está vinculada. Si tiene persona, desmarcarla desde su ficha la saca.", valor: (f) => f.userName || "",
             celda: (f) => f.userName
-                ? <span className="inline-flex items-center gap-1.5 text-[12px]"><UserIco size={12} className="text-muted-foreground" /> {f.userName}{f.unidad ? <span className="text-muted-foreground"> · {f.unidad}</span> : null}</span>
+                ? <span className="inline-flex items-center gap-1.5 text-[12px]">{f.fotoUrl
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    ? <img src={f.fotoUrl} alt="" className="w-5 h-5 rounded-full object-cover border border-border" />
+                    : <UserIco size={12} className="text-muted-foreground" />} {f.userName}{f.unidad ? <span className="text-muted-foreground"> · {f.unidad}</span> : null}</span>
                 : <Nada />,
         },
         {
@@ -200,18 +186,13 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
         {
             clave: "acciones", titulo: "", ancho: 120, auxiliar: true,
             celda: (f) => {
-                if (f.origen === "rol") return null;
+                const abrir = <Pista titulo="Abrir la ficha" texto={f.origen === "rol" ? "Detecciones y capturas. Sólo lectura: se edita desde el módulo facial." : "Datos, motivo, categoría, foto, detecciones y capturas."}><button onClick={(e) => { e.stopPropagation(); setAbierta(f); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground"><PanelRightOpen size={14} /></button></Pista>;
+                if (f.origen === "rol") return <div className="flex items-center gap-1 justify-end">{abrir}</div>;
                 const fila = f as FilaVigilancia;
-                if (editando === f.id) return (
-                    <div className="flex items-center gap-1 justify-end">
-                        <button onClick={() => guardarEdicion(fila)} className="p-1.5 rounded hover:bg-accent text-[var(--bien)]"><Check size={14} /></button>
-                        <button onClick={() => setEditando(null)} className="p-1.5 rounded hover:bg-accent text-muted-foreground"><X size={14} /></button>
-                    </div>
-                );
                 return (
-                    <div className="flex items-center gap-1 justify-end">
+                    <div className="flex items-center gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
                         {f.active && <span title={f.notify ? "Avisa" : "En silencio"} className="p-1.5 text-muted-foreground">{f.notify ? <Bell size={13} className="text-[var(--info)]" /> : <BellOff size={13} />}</span>}
-                        <Pista titulo="Editar" texto="Motivo y categoría."><button onClick={() => { setEditando(f.id); setEditMotivo(f.motivo || f.label || ""); setEditCat(f.category); }} className="p-1.5 rounded hover:bg-accent text-muted-foreground"><Pencil size={14} /></button></Pista>
+                        {abrir}
                         {f.active ? (
                             <Pista titulo="Dar de baja" texto={f.category === "BLACKLISTED" ? "Deja de denegar; si tiene credencial vuelve a la lista blanca de las lectoras. Queda como inactiva." : "Deja de destacarse. Queda como inactiva."} lado="izquierda">
                                 <button onClick={async () => { const r = await deactivateWatch(fila.id); if (!r.ok) toast.error({ title: "No se pudo dar de baja", description: r.error }); avisarCamaras(r.camaras); cargar(); }} className="p-1.5 rounded hover:bg-[var(--mal-suave)] text-[var(--mal)]"><Ban size={14} /></button>
@@ -232,7 +213,6 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
 
     return (
         <div className="flex flex-col gap-4 h-full min-h-0">
-            <QueHaceEstaLista />
 
             {/* Alta: por matrícula suelta o por persona (todas sus matrículas) */}
             <section className="rounded-[10px] border border-border bg-card p-4">
@@ -253,6 +233,7 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
                             </SelectContent>
                         </Select>
                     )}
+                    {modoAlta === "persona" && <FotoRegistro archivo={fotoPersona} alElegir={setFotoPersona} deshabilitada={guardando} tam={36} compacta />}
                     <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (queda en el registro)" className="flex-1 min-w-[200px] h-9" onKeyDown={(e) => { if (e.key === "Enter") alta(); }} />
                     {modoAlta === "matricula" && (
                         <div className="flex gap-1.5">
@@ -287,6 +268,7 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
                     filas={visibles}
                     clave={(f) => f.id}
                     columnas={columnas}
+                    alClickFila={setAbierta}
                     cargando={cargando}
                     error={error}
                     alReintentar={cargar}
@@ -303,6 +285,10 @@ export function ListaVigilancia({ personas }: { personas: Persona[] }) {
                     }
                 />
             </div>
+
+            <QueHaceEstaLista />
+
+            <FichaVigilancia fila={abierta} alCerrar={() => setAbierta(null)} alCambiar={cargar} />
         </div>
     );
 }

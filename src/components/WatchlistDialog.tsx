@@ -27,7 +27,7 @@ import { resumirCamaras } from "@/lib/lista-negra";
 export function ExplicacionCategoria({ cat }: { cat: WatchCategory }) {
     const e = WATCH_EFECTOS[cat];
     const Fila = ({ k, v }: { k: string; v: string }) => (
-        <div className="grid grid-cols-[64px_1fr] gap-2 text-[11px] leading-snug">
+        <div className="grid grid-cols-[72px_1fr] gap-2 text-[11px] leading-snug">
             <span className="font-bold uppercase tracking-wide text-muted-foreground">{k}</span>
             <span className="text-foreground/90">{v}</span>
         </div>
@@ -37,6 +37,7 @@ export function ExplicacionCategoria({ cat }: { cat: WatchCategory }) {
             <Fila k="Barrera" v={e.barrera} />
             <Fila k="Cámaras" v={e.camaras} />
             <Fila k="Monitor" v={e.monitor} />
+            <Fila k="Monitores" v={e.monitores} />
             <Fila k="Avisos" v={e.avisos} />
         </div>
     );

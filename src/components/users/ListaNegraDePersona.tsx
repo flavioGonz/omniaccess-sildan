@@ -81,6 +81,7 @@ export function ListaNegraDePersona({ userId, chapas, onCambio }: { userId: stri
                             <p><b>Barrera:</b> {e.barrera}</p>
                             <p><b>Cámaras:</b> {e.camaras}</p>
                             <p><b>Monitor:</b> {e.monitor}</p>
+                            <p><b>Monitores:</b> {e.monitores}</p>
                             <p><b>Avisos:</b> {e.avisos}</p>
                         </div>
                     }>

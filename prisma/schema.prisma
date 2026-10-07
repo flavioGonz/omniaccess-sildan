@@ -698,6 +698,9 @@ model PlateWatch {
   userId        String?
   /// La baja no borra: queda cuando se saco, para el historial.
   deactivatedAt DateTime?
+  /// Foto de la persona (rostro) cargada al marcarla, como foto del registro. Queda lista para
+  /// cargarla mas adelante en la biblioteca de rostros de los equipos; hoy no se sincroniza.
+  fotoUrl       String?
 
   @@index([userId])
   @@index([active, category])
