@@ -12,12 +12,12 @@
 
 ## 2. El helper de lista negra (los dos procesos)
 
-- [ ] 2.1 `src/lib/lista-negra.ts`: `estaEnListaNegra(plate)` (fila activa `BLACKLISTED` o credencial
+- [x] 2.1 `src/lib/lista-negra.ts`: `estaEnListaNegra(plate)` (fila activa `BLACKLISTED` o credencial
       de usuario con rol `BLACKLISTED`; devuelve `{negra, motivo, origen, watch}`),
       `listasParaCamara()` (blancas = credenciales − negras; negras = manuales ∪ por rol) y
       `aplicarListaNegraEnCamaras(plate, negra)` con resultado por cámara. Verificar: script
       `npx tsx` contra la base con tres matrículas (negra manual, negra por rol, limpia).
-- [ ] 2.2 `lib-lista-negra.js` (CommonJS) con **la misma consulta SQL** que 2.1, para `server.js` y
+- [x] 2.2 `lib-lista-negra.js` (CommonJS) con **la misma consulta SQL** que 2.1, para `server.js` y
       `waha-handler.js`. Verificar: `node -e` con las tres matrículas devuelve lo mismo que 2.1.
 - [x] 2.3 Ruta interna `POST /api/vigilancia/camaras` (token `x-tracking-token`) que ejecuta
       `aplicarListaNegraEnCamaras` para que el bot/`server.js` actualicen cámaras sin importar
@@ -51,7 +51,7 @@
       construyen las listas con `listasParaCamara()`: negras a `blackList`, nunca a `whiteList`.
       Verificar: "sincronizar matrículas" en .8 y lectura ISAPI: ninguna negra en `whiteList`, todas
       en `blackList`.
-- [ ] 4.4 Alta/baja de lista negra (acciones, bot, atajos) llaman `aplicarListaNegraEnCamaras` y
+- [x] 4.4 Alta/baja de lista negra (acciones, bot, atajos) llaman `aplicarListaNegraEnCamaras` y
       la UI/bot muestran el resultado por cámara (hecho / no respondió). Verificar: apagar una
       lectora de prueba (o IP inexistente) y comprobar que la entrada queda y el fallo se informa.
 
@@ -100,12 +100,12 @@
 
 ## 8. Despliegue y verificación
 
-- [ ] 8.1 Bundle → LXC: `prisma migrate deploy`, `prisma generate`, build en background
+- [x] 8.1 Bundle → LXC: `prisma migrate deploy`, `prisma generate`, build en background
       (`BUILD_EXIT=0`), `pm2 restart omniaccess-web omniaccess-webhooks --update-env`, `/login` 200,
       `/admin/users` 200, `/admin/monitor-lpr` 200; `git push origin san-nicolas`.
-- [ ] 8.2 Sincronizar matrículas en .7 y .8 y verificar por ISAPI las dos listas; pasar una
+- [x] 8.2 Sincronizar matrículas en .7 y .8 y verificar por ISAPI las dos listas; pasar una
       matrícula de prueba en lista negra (push ANPR sintético o auto real) → `DENY` con `Lista
       negra:` en `/admin/history` y en el monitor; luego sacarla y repetir → decisión normal.
-- [ ] 8.3 Actualizar `claude/pendientes-san-nicolas.md` (sacar el ítem "matrículas BLACKLISTED a la
+- [x] 8.3 Actualizar `claude/pendientes-san-nicolas.md` (sacar el ítem "matrículas BLACKLISTED a la
       lista blanca de la cámara") y anotar en la entrega que desde este despliegue la lista negra
       **no entra**.
