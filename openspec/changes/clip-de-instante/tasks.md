@@ -1,0 +1,32 @@
+# Tasks
+
+## 1. Una sola pieza que corta clips
+
+- [ ] 1.1 Extraer de `api/nvr/playback/route.ts` el armado de la URL RTSP de playback y el corte a archivo (`whole=1`) a `lib/clips.ts` como `cortarDesdeNvr({ ch, nvrId, inicioMs, durSeg, altura, calidad, destino })`, sin cambiar la salida; la ruta la llama. Verificar: `curl -o /tmp/a.mp4 '/api/nvr/playback?ch=…&t=…&whole=1'` da el mismo tamaño ±5 % que antes y `ffprobe` lo lee; el streaming normal de `/admin/monitor-intrusion` sigue arrancando.
+- [ ] 1.2 `fuenteDeVideo(deviceId)` en `lib/clips.ts`: IP de la cámara en `NVR_CHANNEL_MAP` → `{ tipo:"nvr", ch, nvrId }`; si hay anillo en `tmp/omniaccess-anillo/<deviceId>` → `{ tipo:"anillo" }`; si no → `{ tipo:null, motivo }`. Verificar: prueba con `lpr-entrada` (nvr-6), `lpr-interior` (anillo o motivo) y un id inexistente.
+- [ ] 1.3 `cortarDesdeAnillo` (concat de segmentos que cubren `[inicio, fin]` + `-ss/-t` exacto, H.264 480p faststart) y `clipDeInstante({ deviceId, instante, antes, despues, para })` que acota la ventana, espera hasta `instante + despues + MARGEN_GRABACION_SEG` con tope, elige la fuente y devuelve `{ archivo, url, fuente, motivo, ventana }`; escribe en `public/clips` con `nombreDeClip`. Verificar: con segmentos sintéticos (ffmpeg `testsrc` en el directorio del anillo) devuelve un MP4 de la duración pedida ±1 s.
+- [ ] 1.4 `ventanaAlerta()` (Setting `ALERTA_CLIP_ANTES_SEG`/`ALERTA_CLIP_DESPUES_SEG`, defecto 5/5, topes 15/15) y purga: los clips de `public/clips` se borran a los `CLIP_RETENCION_MIN` (10) de creados, con barrido al arrancar y cada hora. Verificar: un archivo viejo en `public/clips` desaparece tras el barrido y `/api/clip/<él>` da 404.
+- [ ] 1.5 Ruta interna `POST /api/clip/instante` (token `x-tracking-token` o sesión con permiso) que envuelve `clipDeInstante`. Verificar: sin token → 401; con token y `lpr-entrada` → `{ ok:true, fuente:"nvr", url:"/api/clip/…" }` y la URL responde 200 `video/mp4`.
+
+## 2. Anillo y alerta en el worker
+
+- [ ] 2.1 `dispatch-worker.js`: `ensureRecorders` calcula el conjunto a grabar = cámaras alcanzadas por reglas activas sin IP en `NVR_CHANNEL_MAP` (stream `lpr_<deviceId>`) ∪ `QUEUE_COUNTER` Bosch (`bosch_<ip>`); arranca los que faltan, mata y borra los que sobran; directorio `tmp/omniaccess-anillo/<deviceId>`. Verificar: con `regla-intrusion-wa` apagada no hay ffmpeg de anillo; al habilitar una regla de prueba que alcance `lpr-interior` aparece `seg_*.ts` en su carpeta antes de 10 s y desaparece al apagarla.
+- [ ] 2.2 Retirar `buildClip`/`buildClipLive` y el ffmpeg de corte del worker; el manejador de `ALERT` pide `POST /api/clip/instante` con `ventanaAlerta` y `p.instante || p.timestamp`, manda `sendVideo` por URL (`INTERNAL_BASE_URL`, defecto `http://127.0.0.1:10001`) y base64 de respaldo, y si no hay clip o falla el video manda la foto en el mismo despacho dejando `lastError = "sin video: <motivo>"` con estado `SENT`. Verificar: `POST /api/notifications/test` por WhatsApp con `DISPATCH_ANIMATED=true` → llega video (cámara con NVR) o foto con la nota en `/admin/despachos`.
+- [ ] 2.3 `EventoNotificable.instante` y `delayMs = (despues + MARGEN_GRABACION_SEG) * 1000` en `notificarEvento` sólo cuando el clip animado está activo y el canal es WhatsApp/Telegram; `paso-por-acceso.ts`, `estadias.ts`, `ocupaciones.ts` pasan el instante. Verificar: con el clip apagado el `DispatchJob` se procesa en < 2 s; con el clip prendido, a los `despues + margen` s.
+- [ ] 2.4 `/admin/despachos`: la nota `sin video: …` se muestra como aviso (no como error) en las filas `SENT`, y el tipo `CLIP` se lista con quién lo mandó. Verificar: una fila de 2.2 y una de 3.3 se ven con su nota y su autor.
+
+## 3. Envío desde el playback
+
+- [ ] 3.1 `lib/whatsapp.ts: enviarVideoWaha(chatId, url|base64, leyenda)` compartida (misma semántica que el worker). `actions/clips.ts: buscarDestinatariosClip(q)` (destinatarios WhatsApp de `DISPATCH_RECIPIENTS` + `User` con teléfono por nombre/lote/teléfono) y `enviarClipPorWhatsApp(...)` (D7: permiso de sesión, destinatarios validados, `DispatchJob` tipo `CLIP` con `createdBy`, clip, envío, tope 90 s, resultado por destinatario). Verificar: desde una sesión de operador sin permiso → rechazado; un número que no es destinatario ni usuario → rechazado sin producir clip; con un destinatario válido → `DispatchJob CLIP SENT` y el video llega.
+- [ ] 3.2 `DescargaClip` en `LiveModal.tsx`: acción "Enviar por WhatsApp" con casillas de destinatarios (habilitados ya tildados), `Seek` para sumar usuario/residente, leyenda previsualizada (cámara · fecha hora · matrícula si vino de una lectura), estados "Armando el clip… / Enviando a N… / Enviado a … / error concreto". Verificar: en `/admin/monitor-intrusion` → grabación, con 15/5 s elegidos, el video recibido dura 20 s ±1 y la leyenda coincide; el error de un destinatario falso se muestra con su motivo.
+- [ ] 3.3 La ficha del evento (`/admin/history` → video) pasa la matrícula al diálogo para la leyenda y el nombre. Verificar: el archivo y la leyenda llevan la chapa.
+
+## 4. Ajustes e interruptor honesto
+
+- [ ] 4.1 Ajustes → Video del evento: segundos antes/después **de la alerta** junto a los del playback, con texto que explique la diferencia. Verificar: guardar 3/7 cambia `ventanaAlerta()` sin reiniciar y el worker la usa en la próxima alerta.
+- [ ] 4.2 `AnimatedAlertToggle`: texto nuevo (ventana vigente + respaldo con foto) y cobertura por cámara alcanzada por reglas activas (`coberturaClipAlertas()` → `nvr`/`anillo`/sin video) con `Chip` de tono; sin reglas activas lo dice. Verificar: en SN hoy muestra "no hay reglas activas"; al habilitar una regla de prueba lista `lpr-interior · anillo` y las perimetrales con su NVR.
+
+## 5. Cierre
+
+- [ ] 5.1 Despliegue en San Nicolás: build `BUILD_EXIT=0`, `pm2 restart omniaccess-web --update-env` y `pm2 restart dispatch-worker` (no `omniaccess-webhooks`); HTTP 200 en `/login`, `/admin/notificaciones`, `/admin/settings`, `/admin/monitor-intrusion`, `/admin/history`, `/admin/despachos`; `?whole=1` entrega MP4; un envío manual real a Flavio y una alerta de prueba con clip; medir el tiempo de corte HEVC (perimetral) y H.264 (LPR Entrada) y anotarlo.
+- [ ] 5.2 Documentar en `claude/pendientes-san-nicolas.md` y en `claude/whatsapp-san-nicolas.md` (cómo funciona el clip de alerta, el anillo, cómo enviar desde el playback, tiempos medidos); push de `san-nicolas`.
