@@ -864,7 +864,7 @@ export async function getDispatchHistory(options?: { take?: number }) {
             attempts: j.attempts, maxAttempts: j.maxAttempts, lastError: j.lastError,
             recipient: p.recipientName || p.chatId || p.to || p.email || null,
             recipientChannel: p.recipientChannel || j.channel,
-            ruleName: p.ruleName || (j.type === "REPORT" ? "Reporte" : "Alerta"),
+            ruleName: j.type === "CLIP" ? `Clip · ${p.deviceName || "cámara"}` : (p.ruleName || (j.type === "REPORT" ? "Reporte" : "Alerta")),
             deviceName: p.deviceName || null, count: p.count ?? null, threshold: p.threshold ?? null,
             channelName: p.channelName || null, snapshotPath: p.snapshotPath || null,
             message: p.sentText || p.text || (j.type === "REPORT" ? `Reporte ${p.period || "diario"}${p.deviceName ? " - " + p.deviceName : ""}` : (p.ruleName ? `${p.ruleName}${p.count != null ? ` - aforo ${p.count}/${p.threshold ?? "?"}` : ""}` : null)),
