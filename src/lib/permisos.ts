@@ -61,6 +61,26 @@ export const GRUPOS_PERMISOS: GrupoPermiso[] = ["Operación", "Padrón", "Equipo
 /** Lo que tenía el viejo rol OPERATOR ("opera, no edita"): todo lo de operación, nada de administración ni padrón. */
 export const PERMISOS_OPERADOR = ["monitor", "intrusion", "historial", "mapa", "invitados", "vigilancia", "guardia", "acuseek", "plazas", "filas"];
 
+/** El id fijo del rol Administrador (lo siembra la migración de roles). */
+export const ROL_ADMINISTRADOR_ID = "rol-administrador";
+
+/**
+ * Los permisos que valen para una sesión, a partir de lo que trae el JWT.
+ *
+ * Un administrador ve TODO, siempre, aunque su sesión sea de antes de que existiera un
+ * permiso: el 7/10 se agregó `monitores` al catálogo y a los administradores les apareció
+ * "tu rol no incluye el permiso Monitores" hasta volver a entrar, porque el middleware
+ * miraba la lista congelada en el token. Acá el rol Administrador (por id, o el rol legado
+ * ADMIN) devuelve el catálogo completo de hoy; los demás, lo que traiga el token, y una
+ * sesión vieja sin `perms` lo del operador.
+ */
+export function permisosDeSesion(payload: { perms?: unknown; role?: unknown; rolApp?: unknown } | null | undefined): string[] {
+    if (!payload) return [];
+    if (payload.rolApp === ROL_ADMINISTRADOR_ID || payload.role === "ADMIN") return CLAVES_PERMISOS;
+    if (Array.isArray(payload.perms)) return payload.perms as string[];
+    return PERMISOS_OPERADOR;
+}
+
 /** Un rol con todos los permisos es un administrador a los efectos de las pantallas viejas que preguntan `role === "ADMIN"`. */
 export const esAdministrador = (permisos: string[] | null | undefined) =>
     !!permisos && CLAVES_PERMISOS.every((c) => permisos.includes(c));

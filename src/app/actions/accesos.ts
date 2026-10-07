@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import { getSession } from "@/app/actions/auth";
-import { CLAVES_PERMISOS, PERMISOS_OPERADOR, esAdministrador } from "@/lib/permisos";
+import { CLAVES_PERMISOS, PERMISOS_OPERADOR, esAdministrador, permisosDeSesion } from "@/lib/permisos";
 import { uploadToS3 } from "@/lib/s3";
 import bcrypt from "bcryptjs";
 
@@ -24,9 +24,8 @@ const ROL_OPERADOR_ID = "rol-operador";
 
 async function exigirAccesos() {
     const s: any = await getSession();
-    const perms: string[] = Array.isArray(s?.perms) ? s.perms : [];
     // Compatibilidad: una sesión vieja (sin perms) de un ADMIN legado también puede.
-    if (!perms.includes("accesos") && s?.role !== "ADMIN") throw new Error("No tenés permiso para administrar los accesos al panel.");
+    if (!permisosDeSesion(s).includes("accesos")) throw new Error("No tenés permiso para administrar los accesos al panel.");
     return s;
 }
 

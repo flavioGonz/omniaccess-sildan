@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getSession } from "@/app/actions/auth";
 import { nuevoToken, hashToken, olvidarVigencia } from "@/lib/pantalla-auth";
 import { esVista, vistaPorClave, CLAVES_VISTAS, type ClaveVista } from "@/lib/monitor/vistas";
+import { permisosDeSesion } from "@/lib/permisos";
 import { AJUSTE_ROTACION_VISTAS, AJUSTE_ROTACION_SEG, ROTACION_SEG_MIN, ROTACION_SEG_POR_DEFECTO, ROTACION_VISTAS_POR_DEFECTO } from "@/lib/monitor/ajustes";
 
 /**
@@ -18,8 +19,7 @@ import { AJUSTE_ROTACION_VISTAS, AJUSTE_ROTACION_SEG, ROTACION_SEG_MIN, ROTACION
 
 async function exigirMonitores() {
     const s: any = await getSession();
-    const perms: string[] = Array.isArray(s?.perms) ? s.perms : [];
-    if (!perms.includes("monitores") && s?.role !== "ADMIN") throw new Error("No tenés permiso para administrar los monitores.");
+    if (!permisosDeSesion(s).includes("monitores")) throw new Error("No tenés permiso para administrar los monitores.");
     return s;
 }
 

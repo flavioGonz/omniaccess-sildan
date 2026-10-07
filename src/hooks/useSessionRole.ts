@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getSession } from "@/app/actions/auth";
-import { puedeAbrir, PERMISOS_OPERADOR } from "@/lib/permisos";
+import { puedeAbrir, permisosDeSesion } from "@/lib/permisos";
 
 /**
  * Lee la sesión (rol legado, nombre, permisos del rol de aplicación) en el cliente.
@@ -30,7 +30,9 @@ export function useSessionRole() {
         return () => { vivo = false; };
     }, []);
     const isAdmin = role === "ADMIN";
-    const tiene = (clave: string) => (perms ? perms.includes(clave) : isAdmin || PERMISOS_OPERADOR.includes(clave));
-    const puede = (ruta: string) => (perms ? puedeAbrir(perms, ruta) : true);
+    // Mismo criterio que el middleware: Administrador ve todo, incluso lo agregado después de entrar.
+    const efectivos = loaded ? permisosDeSesion({ perms, role, rolApp }) : null;
+    const tiene = (clave: string) => (efectivos ? efectivos.includes(clave) : false);
+    const puede = (ruta: string) => (efectivos ? puedeAbrir(efectivos, ruta) : true);
     return { role, name, perms, rolApp, loaded, isAdmin, tiene, puede };
 }
