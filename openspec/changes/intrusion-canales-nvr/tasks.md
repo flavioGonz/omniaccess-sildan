@@ -23,7 +23,7 @@ Por fases; cada fase compila, se despliega y se verifica antes de la siguiente.
   `/api/intrusion/geometry`, `isapi-smart-rules.ts`, botón `ShieldAlert` en devices, listener
   `intrusion_alert` en monitor-lpr. (El modelo `IntrusionEvent` queda; migración aparte.)
 - [x] 2.4 Conservar `detectionTarget = human` en `writeLine`/`writeField` de la pila nueva.
-- [ ] 2.5 Verificar: un cruce real en una perimetral → fila en `Detection` con la cámara correcta,
+- [x] 2.5 Verificar: un cruce real en una perimetral → fila en `Detection` con la cámara correcta,
   `general_detection` en el monitor, captura guardada. `IntrusionEvent` sigue en 0.
 
 ## Fase 3 — Hikvision a través del NVR + alarm host
