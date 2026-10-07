@@ -34,7 +34,7 @@
 ## 6. Logo de OmniAccess en lo que sale por WhatsApp (agregado el 7/10)
 
 - [x] 6.1 `public/marca-agua-omniaccess.png`: logo blanco sin la bajada, sobre placa oscura translúcida con borde y sombra. Verificar: legible sobre cielo y sobre arbustos en un cuadro real de LPR Entrada.
-- [ ] 6.2 Foto de la alerta (dispatch-worker, `fetchLocalBase64`): composite con sharp, 18 % del ancho, margen 2 %, según `MARCA_AGUA_WHATSAPP`. Verificar: alerta de prueba por WhatsApp con la foto y el logo.
+- [x] 6.2 Foto de la alerta (dispatch-worker, `fetchLocalBase64`): composite con sharp, 18 % del ancho, margen 2 %, según `MARCA_AGUA_WHATSAPP`. Verificar: alerta de prueba por WhatsApp con la foto y el logo.
 - [ ] 6.3 Clip enviado a mano (`cortarDesdeNvr` con `marcaAgua`, sólo `para: "envio"`): overlay por software. Verificar: el MP4 enviado tiene el logo en todo el clip; la descarga del mismo tramo no.
-- [ ] 6.4 Ajustes → Video del evento: «Logo en lo que sale por WhatsApp» con vista previa sobre fondo claro y oscuro. Verificar: apagarlo y la próxima foto sale sin logo.
-- [ ] 6.5 `DISPATCH_ANIMATED=false` en San Nicolás (sin video en alertas). Verificar: el interruptor aparece apagado y una alerta de prueba sale con foto sin esperar.
+- [x] 6.4 Ajustes → Video del evento: «Logo en lo que sale por WhatsApp» con vista previa sobre fondo claro y oscuro. Verificar: apagarlo y la próxima foto sale sin logo.
+- [x] 6.5 `DISPATCH_ANIMATED=false` en San Nicolás (sin video en alertas). Verificar: el interruptor aparece apagado y una alerta de prueba sale con foto sin esperar.

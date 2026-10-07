@@ -147,15 +147,23 @@ export const CORTE_TOPE_MS = 45_000;
 export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, opciones: { forceTx?: boolean; cfg?: ConfigClip; topeMs?: number; marcaAgua?: string | null } = {}): Promise<boolean> {
     const { url, canCopy, DEC, SWUP, VF, ENC } = await planDeCorte(conn, ch, startMs, durSeg, opciones);
     const cfg = opciones.cfg || await configClips();
+    // Altura "tal cual graba el NVR" (0) no se conoce sin sondear: se asume 1080, la de estos equipos.
+    const altoSalida = cfg.altura || 1080;
+    const anchoSalida = Math.round(altoSalida * 16 / 9);
+    const logoAncho = Math.round(anchoSalida * MARCA_AGUA_ANCHO / 2) * 2;
+    const logoMargen = Math.round(anchoSalida * MARCA_AGUA_MARGEN);
     // Con logo: siempre por software (copy no puede dibujar nada encima, y VAAPI no compone un
     // PNG con transparencia). En San Nicolás ya se recodificaba (los NVR graban HEVC), así que
     // no agrega espera; donde se copiaba, cuesta un transcode de un clip corto.
     const args = opciones.marcaAgua
         ? ["-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-i", opciones.marcaAgua, "-t", String(durSeg),
            "-filter_complex",
-           `[0:v]${cfg.altura ? `scale=-2:${cfg.altura},` : ""}format=yuv420p[v];` +
-           `[1:v][v]scale2ref=w=main_w*${MARCA_AGUA_ANCHO}:h=ow*ih/iw[m][v2];` +
-           `[v2][m]overlay=x=W-w-W*${MARCA_AGUA_MARGEN}:y=H-h-W*${MARCA_AGUA_MARGEN},format=yuv420p`,
+           // El logo se dimensiona en píxeles a partir de la altura de salida (16:9 de las cámaras):
+           // con scale2ref las variables main_w/iw quedaban al revés en este ffmpeg y el logo salía
+           // a un 8 % y aplastado (visto el 7/10 en el primer clip enviado).
+           `[1:v]scale=${logoAncho}:-1[m];` +
+           `[0:v]scale=-2:${altoSalida},format=yuv420p[v];` +
+           `[v][m]overlay=x=W-w-${logoMargen}:y=H-h-${logoMargen},format=yuv420p`,
            "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-threads", "4",
            "-movflags", "+faststart", "-y", destino]
         : canCopy
