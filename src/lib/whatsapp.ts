@@ -20,7 +20,7 @@ export async function getWhatsAppConfig() {
         getSetting("EVENT_HOST_IP"),
     ]);
     // A dónde tiene que avisar WAHA cuando llega un mensaje: el server de webhooks (:10000,
-    // ruta /api/waha/webhook en server.js). Antes era un texto fijo con el IP de Olivos
+    // ruta /api/waha/webhook en server.js). Antes era un texto fijo con el IP del primer barrio
     // dentro de la pantalla de Ajustes, que no configuraba nada y mentía en cada barrio.
     // Sale de Settings; si no está, se deriva del host de eventos; si tampoco, queda vacío
     // y la pantalla lo dice (no se inventa).

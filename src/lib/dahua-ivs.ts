@@ -95,7 +95,7 @@ export async function writeDahuaField(c: DahuaConn, channel: number, points: Pt[
     const txt = await get(c, "VideoAnalyseRule");
     const rules = parseChannel(txt, chIdx);
     let r = findRule(rules, "CrossRegionDetection");
-    if (r == null) r = 0; // sin regla: usar índice 0 (Olivos ya trae una por canal)
+    if (r == null) r = 0; // sin regla: usar índice 0 (el primer barrio ya trae una por canal)
     const oldN = rules[r] ? Object.keys(rules[r].region).length : 0;
     const dpts = points.map(toDahua);
     const targetN = Math.max(dpts.length, oldN); // Dahua no borra índices: padeamos con el último punto

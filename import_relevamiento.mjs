@@ -1,4 +1,4 @@
-// Importador del relevamiento de vehículos de Los Olivos -> OmniAccess (CT200)
+// Importador del relevamiento de vehículos del primer barrio -> OmniAccess (CT200)
 // Uso:  node import_relevamiento.mjs --dry   (solo plan, no escribe)
 //       node import_relevamiento.mjs --apply (aplica en una transacción)
 // Requiere: import_payload.json en el mismo dir, y correr desde /opt/OmniAccess
@@ -49,7 +49,7 @@ async function findUnitByLote(lote) {
 }
 
 async function run() {
-  console.log(`\n==== IMPORT relevamiento Los Olivos — MODO: ${MODE.toUpperCase()}${CLEANUP ? ' +cleanup' : ''} ====\n`);
+  console.log(`\n==== IMPORT relevamiento el primer barrio — MODO: ${MODE.toUpperCase()}${CLEANUP ? ' +cleanup' : ''} ====\n`);
 
   // índice normalizado de todas las units (para no duplicar)
   const allUnits = await prisma.unit.findMany({ select: { id: true, name: true } });

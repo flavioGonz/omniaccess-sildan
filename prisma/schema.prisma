@@ -937,7 +937,7 @@ model Detection {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  Invitaciones y visitas temporales (Los Olivos) — F1
+//  Invitaciones y visitas temporales (el primer barrio) — F1
 //  FKs a User/Unit/AccessEvent como String simple (sin back-relation).
 // ══════════════════════════════════════════════════════════════════
 model Invitation {

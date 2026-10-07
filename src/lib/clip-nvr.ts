@@ -9,11 +9,11 @@ import { configClips, filtroEscala, CRF_POR_CALIDAD, MARCA_AGUA_ANCHO, MARCA_AGU
  * Vivía adentro de /api/nvr/playback. Salió de ahí para que el clip de una alerta y el que
  * un operador manda por WhatsApp (lib/clip-instante) salgan del MISMO corte que el que se ve
  * y se baja en el panel: antes el worker de despachos tenía su propio ffmpeg, atado a las
- * cámaras de fila de Olivos, y en San Nicolás no producía nada. Es un módulo sólo de
+ * cámaras de fila del primer barrio, y en San Nicolás no producía nada. Es un módulo sólo de
  * servidor (lib/clips lo importa también una pantalla del navegador, y esto lanza procesos).
  */
 
-// El NVR Hikvision (DS-7732NXI de Los Olivos) interpreta starttime/endtime como HORA LOCAL
+// El NVR Hikvision (DS-7732NXI del primer barrio) interpreta starttime/endtime como HORA LOCAL
 // del equipo aunque lleven sufijo Z (verificado: ContentMgmt/search devuelve los
 // segmentos con hora local "Z"). Formateamos en la zona del NVR (America/Montevideo).
 const NVR_TZ = "America/Montevideo";
@@ -116,7 +116,7 @@ export async function planDeCorte(conn: NvrConn, ch: string, startMs: number, du
     // Sin GPU no hay VAAPI: el contenedor de San Nicolás no tiene /dev/dri, y con los
     // argumentos de VAAPI ffmpeg moría al arrancar → TODO playback HEVC daba 502 (y acá
     // los dos NVR graban todo en H.265). Se decide por lo que hay en el equipo, no por
-    // lo que tenía el de Olivos: con GPU, VAAPI; sin GPU, libx264 ultrafast a 720p, que
+    // lo que tenía el del primer barrio: con GPU, VAAPI; sin GPU, libx264 ultrafast a 720p, que
     // en 8 núcleos rinde un clip a la vez sin despeinarse.
     const hayGpu = tieneGpu();
     // Resolución y calidad: Ajustes → Video del evento (lib/clips). Antes 720p y crf 26 fijos.

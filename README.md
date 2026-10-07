@@ -14,8 +14,8 @@ sube a la suya, y solo las correcciones transversales se llevan a las demás.
 
 | Rama | Barrio | Estado |
 |---|---|---|
-| `los-olivos` | Los Olivos | En producción. Es la línea viva del proyecto. |
-| `san-nicolas` | San Nicolás | En montaje. Deriva de `los-olivos`. |
+| la rama del primer barrio | el primer barrio | En producción. Es la línea viva del proyecto. |
+| `san-nicolas` | San Nicolás | En montaje. Deriva de la rama del primer barrio. |
 
 > `main` quedó atrás respecto de lo que hay desplegado; no tomarla como referencia.
 

@@ -4,7 +4,7 @@
 
 El motor de WhatsApp del barrio (contenedor Docker **WAHA**, `devlikeapro/waha`, en
 `127.0.0.1:3000`) ya está corriendo y el envío de avisos funciona, pero el panel de
-**Ajustes → WhatsApp** (`/admin/settings`) quedó, tras el merge de Olivos, leyendo claves
+**Ajustes → WhatsApp** (`/admin/settings`) quedó, tras el merge del primer barrio, leyendo claves
 `WAHA_*` que en esta instancia no existen —la configuración real vive en claves `OPENWA_*`—,
 así que el panel se ve **desconectado** y no se puede ver el estado de la sesión, el QR ni
 editar la configuración desde la interfaz.

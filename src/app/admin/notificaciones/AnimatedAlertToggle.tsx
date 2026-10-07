@@ -13,7 +13,7 @@ import { AJUSTE_ALERTA_ANTES, AJUSTE_ALERTA_DESPUES, ALERTA_ANTES_POR_DEFECTO, A
  * «Clip animado en alertas».
  *
  * Antes decía "envía un video corto en vivo de la cámara" y en San Nicolás no mandó ninguno:
- * el clip sólo sabía salir de las cámaras de fila de Olivos, y cada alerta se iba con la foto
+ * el clip sólo sabía salir de las cámaras de fila del primer barrio, y cada alerta se iba con la foto
  * mientras este interruptor seguía prendido. Ahora dice qué hace de verdad (un clip del
  * momento, desde la grabación) y, debajo, de dónde saldría el video de cada cámara que
  * alcanzan las reglas activas — incluidas las que no tienen y van con foto.

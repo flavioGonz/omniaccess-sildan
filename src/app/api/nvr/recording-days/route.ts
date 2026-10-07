@@ -7,7 +7,7 @@ import { resolveNvrById } from "@/lib/nvr-resolve";
 import crypto from "crypto";
 
 // GET /api/nvr/recording-days?ch=12&year=2026&month=8 -> { days: [1,2,15,...] }
-// El NVR (DS-7732NXI de Los Olivos) reporta los tiempos en HORA LOCAL etiquetada Z:
+// El NVR (DS-7732NXI del primer barrio) reporta los tiempos en HORA LOCAL etiquetada Z:
 // buscamos con el mes "local-Z" y extraemos los días directamente de los strings.
 export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;

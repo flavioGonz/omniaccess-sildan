@@ -1718,7 +1718,7 @@ function WhatsAppSection() {
         setLoading(true);
         try {
             // Fuente única: en San Nicolás la config vive en OPENWA_* (lo que prioriza
-            // getWhatsAppConfig()); se mantiene el respaldo a WAHA_* para no romper Olivos.
+            // getWhatsAppConfig()); se mantiene el respaldo a WAHA_* para no romper el primer barrio.
             const [url, apiKey, cmdConfig, allowEn, allowLs, cbEn, wUrl, wKey, hook, wHook] = await Promise.all([
                 getSetting("OPENWA_URL"), getSetting("OPENWA_API_KEY"), getSetting("WAHA_COMMANDS"),
                 getSetting("WHATSAPP_ALLOWLIST_ENABLED"), getSetting("WHATSAPP_ALLOWLIST"), getSetting("CHATBOT_ENABLED"),

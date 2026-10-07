@@ -163,7 +163,7 @@ function stopRecorder(deviceId, borrar) {
 /** El conjunto { deviceId → stream RTSP } que tiene que estar grabando ahora. */
 async function conjuntoAGrabar() {
     const quiero = new Map();
-    // Cámaras de fila (Olivos): como siempre.
+    // Cámaras de fila (el primer barrio): como siempre.
     const filas = await prisma.device.findMany({ where: { deviceType: "QUEUE_COUNTER" }, select: { id: true, ip: true } });
     for (const d of filas) if (d.ip) quiero.set(d.id, `rtsp://127.0.0.1:8554/bosch_${String(d.ip).replace(/\./g, "_")}`);
     // Cámaras sin NVR alcanzadas por una regla activa, sólo si el clip en alertas está prendido:
@@ -410,7 +410,7 @@ async function handle(job) {
                 let r;
                 if (clip) {
                     // WAHA corre en el mismo equipo: baja el clip por la red interna. El valor por
-                    // defecto era un IP de Olivos (192.168.99.99), inalcanzable desde otro barrio.
+                    // defecto era un IP del primer barrio (192.168.99.99), inalcanzable desde otro barrio.
                     const internalBase = await getSetting("INTERNAL_BASE_URL", "http://127.0.0.1:10001");
                     const vurl = internalBase.replace(/\/+$/, "") + "/api/clip/" + clip.nombre;
                     r = await openwaSendVideoUrl(url, key, session, chatId, vurl, text);

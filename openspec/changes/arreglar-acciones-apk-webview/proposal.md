@@ -41,5 +41,5 @@ el síntoma en la tablet. Son acciones críticas de operación diaria.
 - APK: el wrapper Android (proyecto externo, fuera de este repo) — settings del WebView
   (JavaScript, DOM storage, `setFocusable`, soft input mode) y, si hace falta, métodos del
   puente `AndroidGuard` para foco/teclado. Se coordina, no se edita acá.
-- Operación: afecta a los guardias en las tablets de Los Olivos. Riesgo controlado: las
+- Operación: afecta a los guardias en las tablets del primer barrio. Riesgo controlado: las
   acciones ya existen en web; se trata de hacerlas funcionar en el WebView.

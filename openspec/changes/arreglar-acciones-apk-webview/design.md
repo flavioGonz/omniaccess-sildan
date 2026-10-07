@@ -52,5 +52,5 @@ verificar HTTP 200) y se prueba en la tablet. Rollback = revertir el commit del 
 
 ## Open Questions
 
-- ¿Qué versión de la APK corre hoy en las tablets de Los Olivos y expone el puente? (Define si
+- ¿Qué versión de la APK corre hoy en las tablets del primer barrio y expone el puente? (Define si
   el fix puede ser solo-web o requiere un release de APK.)

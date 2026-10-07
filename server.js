@@ -1037,7 +1037,7 @@ const handleWebhook = async (req, res, logPrefix) => {
         // (Detection + general_detection + captura), que es la que miran monitor-intrusion,
         // el mapa y Evidencia. Hasta el 6/10 acá se interceptaba con handlers/intrusion-handler
         // (IntrusionEvent + intrusion_alert), y el monitor nuevo nunca veía nada: dos pilas,
-        // cada pantalla escuchando a la otra. Decisión del 3/10: queda la de Olivos.
+        // cada pantalla escuchando a la otra. Decisión del 3/10: queda la del primer barrio.
 
         if (!plateNumber && !hasAnprData) {
             if (isHeartbeat) {

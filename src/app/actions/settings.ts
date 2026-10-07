@@ -965,7 +965,9 @@ export async function saveGuardBranding(settings: Record<string, string>) {
 }
 
 // ─── App Branding (login) ──────────────────────────────────────────────────
-const APP_BRAND_KEYS = ["APP_BRAND_NAME", "APP_BRAND_SUBTITLE", "APP_BRAND_LOGO_URL", "APP_BRAND_LOGIN_BG_URL", "APP_BRAND_PRIMARY", "APP_BRAND_TESTIMONIALS"];
+// APP_BRAND_BARRIO: el nombre del barrio para lo que ve un residente o un invitado (pase, portal).
+// Estaba escrito a mano el nombre de otro barrio en esas pantallas, y salía así en cualquiera.
+const APP_BRAND_KEYS = ["APP_BRAND_NAME", "APP_BRAND_BARRIO", "APP_BRAND_SUBTITLE", "APP_BRAND_LOGO_URL", "APP_BRAND_LOGIN_BG_URL", "APP_BRAND_PRIMARY", "APP_BRAND_TESTIMONIALS"];
 
 export async function getAppBranding() {
     const rows = await prisma.setting.findMany({ where: { key: { in: APP_BRAND_KEYS } } });
@@ -973,6 +975,7 @@ export async function getAppBranding() {
     for (const r of rows) map[r.key] = r.value;
     return {
         name: map.APP_BRAND_NAME || "OmniAccess",
+        barrio: map.APP_BRAND_BARRIO || "",
         subtitle: map.APP_BRAND_SUBTITLE || "Plataforma unificada de control de acceso",
         logoUrl: map.APP_BRAND_LOGO_URL || "",
         loginBgUrl: map.APP_BRAND_LOGIN_BG_URL || "",

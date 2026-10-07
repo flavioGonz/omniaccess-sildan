@@ -3,7 +3,7 @@
 Genera los íconos y las imágenes de marca de OmniAccess a partir del isotipo
 (src/components/brand/OmniLogo.tsx — el mismo dibujo, en SVG).
 
-Por qué existe: public/ venía con la marca de Sildan (el cliente de Olivos) en el
+Por qué existe: public/ venía con la marca del cliente anterior en el
 favicon, los íconos de las PWA, la vista previa al compartir el link y los logos de la
 consola del guardia. Un barrio nuevo heredaba la marca de otro cliente. Esto deja la
 marca del PRODUCTO en todo lo fijo; la marca del cliente (nombre, logo, fondo del login)

@@ -139,7 +139,7 @@ export async function syncLprStream(dev: Dev): Promise<void> {
             return;
         }
 
-        // LPR: sólo Hikvision (flota Los Olivos); otras marcas quedan manuales.
+        // LPR: sólo Hikvision (flota del primer barrio); otras marcas quedan manuales.
         if (dev.deviceType !== "LPR_CAMERA") return;
         if (dev.brand && dev.brand !== "HIKVISION") return;
         await writeStreams(name, nameHd, rtspDirect(dev, "102"), rtspDirect(dev, "101"));

@@ -38,7 +38,7 @@ export const viewport = {
 };
 
 // La marca del PRODUCTO, no la del cliente: el favicon, el ícono de la PWA y la tarjeta
-// que WhatsApp arma al compartir el link salían con el logo del cliente de Olivos en todos los
+// que WhatsApp arma al compartir el link salían con el logo del cliente anterior en todos los
 // barrios. Lo del cliente (nombre, logo, fondo del login) vive en
 // Ajustes → Marca (APP_BRAND_*); esto es lo fijo. Los PNG se regeneran con
 // scripts/iconos-marca.py a partir del isotipo de brand/OmniLogo.tsx.

@@ -1,9 +1,9 @@
-# Intrusión con cámaras de canales de NVR (como Olivos), una sola pila
+# Intrusión con cámaras de canales de NVR (como el primer barrio), una sola pila
 
 ## Why
 
 El monitor de intrusión está vacío en San Nicolás porque sólo muestra dispositivos tipo
-`CAMERA` y en esta rama no existe forma de crearlos: en Olivos los 79 canales se cargaron a
+`CAMERA` y en esta rama no existe forma de crearlos: en el primer barrio los 79 canales se cargaron a
 mano en la base. Las cámaras perimetrales de San Nicolás **ya están** como canales del NVR 2
 (16 canales, DS-7616NI-M2/16P) pero no son dispositivos de OmniAccess. Además conviven dos
 pilas de intrusión que se pisan: la vieja de SN (`IntrusionEvent`) intercepta en `server.js`
@@ -16,7 +16,7 @@ monitor. Resultado: cero cámaras y cero eventos, con dos tablas vacías.
   escanear un NVR (`/ISAPI/ContentMgmt/InputProxy/channels`), elegir canales y crearlos como
   `Device` tipo `CAMERA` con el mapeo `{nvr, ch}` en `NVR_CHANNEL_MAP` y el stream en go2rtc.
   `CAMERA` pasa a verse y poder elegirse en `/admin/devices`.
-- **Una sola pila de intrusión, la de Olivos** (`monitor-intrusion` + `Detection` +
+- **Una sola pila de intrusión, la del primer barrio** (`monitor-intrusion` + `Detection` +
   `general_detection`). `server.js` deja de cortar en el handler viejo: los eventos de línea y
   zona de Hikvision crean `Detection`. **BREAKING interno**: se retira la pila vieja de SN
   (`IntrusionCalibrator`, `/api/intrusion/geometry`, `intrusion-handler`, alerta

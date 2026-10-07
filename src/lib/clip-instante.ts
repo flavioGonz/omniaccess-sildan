@@ -19,7 +19,7 @@ import {
  *
  * Lo usan la alerta con video (el worker de despachos lo pide por /api/clip/instante) y el
  * envío por WhatsApp desde el playback. Antes cada uno tenía su ffmpeg: el del worker sólo
- * conocía las cámaras de fila de Olivos y en San Nicolás no produjo un solo clip, mientras el
+ * conocía las cámaras de fila del primer barrio y en San Nicolás no produjo un solo clip, mientras el
  * toggle del panel decía que sí.
  *
  * Orden de fuentes:

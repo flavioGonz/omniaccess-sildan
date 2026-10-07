@@ -26,7 +26,7 @@ El arreglo vive en la UI y en el helper:
    `getWhatsAppConfig()`); el formulario de configuración lee/escribe las claves canónicas
    `OPENWA_*` (que es lo que `getWhatsAppConfig()` prioriza).
 2. **Compatibilidad de claves.** `getWhatsAppConfig()` ya acepta ambas; se mantiene ese respaldo
-   para no romper Olivos (que usa `WAHA_*`). La UI guarda en `OPENWA_*` en San Nicolás.
+   para no romper el primer barrio (que usa `WAHA_*`). La UI guarda en `OPENWA_*` en San Nicolás.
    (Alternativa descartada: migrar todo a `WAHA_*` — obliga a tocar server.js y dispatch-worker y
    arriesga el despacho que hoy funciona, sin beneficio real.)
 3. **Limpieza.** Quitar el comentario de IA pegado en `settings/page.tsx`.

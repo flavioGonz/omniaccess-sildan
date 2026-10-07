@@ -175,7 +175,7 @@ export async function saveNvrChannelMap(
 }
 
 // ── Importar canales de un NVR como cámaras ───────────────────────────────────
-// Lo que Olivos hizo a mano en la base (79 canales) acá es una acción. Cada canal elegido
+// Lo que el primer barrio hizo a mano en la base (79 canales) acá es una acción. Cada canal elegido
 // pasa a ser un Device tipo CAMERA con las credenciales del NVR, queda mapeado {nvr, ch} en
 // NVR_CHANNEL_MAP (formato nuevo) y con su stream en go2rtc (rama CAMERA: HD vía NVR).
 // Idempotente por IP: un canal ya importado se actualiza, no se duplica.

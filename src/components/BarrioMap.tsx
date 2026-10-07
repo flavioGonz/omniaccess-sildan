@@ -238,9 +238,9 @@ function BoundsTracker({ onBounds }: { onBounds: (b: L.LatLngBounds) => void }) 
 }
 // Recuerda el último encuadre del mapa (centro/zoom) y lo restaura al recargar.
 function ViewPersist() {
-    const save = (map: L.Map) => { try { const c = map.getCenter(); localStorage.setItem("olivos.mapView", JSON.stringify({ lat: c.lat, lng: c.lng, z: map.getZoom() })); } catch { } };
+    const save = (map: L.Map) => { try { const c = map.getCenter(); localStorage.setItem("omni.mapView", JSON.stringify({ lat: c.lat, lng: c.lng, z: map.getZoom() })); } catch { } };
     const map = useMapEvents({ moveend: () => save(map), zoomend: () => save(map) });
-    useEffect(() => { try { const v = JSON.parse(localStorage.getItem("olivos.mapView") || "null"); if (v && Number.isFinite(v.lat) && Number.isFinite(v.lng)) map.setView([v.lat, v.lng], Number.isFinite(v.z) ? v.z : map.getZoom(), { animate: false }); } catch { } /* eslint-disable-next-line */ }, []);
+    useEffect(() => { try { const v = JSON.parse(localStorage.getItem("omni.mapView") || "null"); if (v && Number.isFinite(v.lat) && Number.isFinite(v.lng)) map.setView([v.lat, v.lng], Number.isFinite(v.z) ? v.z : map.getZoom(), { animate: false }); } catch { } /* eslint-disable-next-line */ }, []);
     return null;
 }
 
@@ -692,8 +692,8 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
     const [autoResaltar, setAutoResaltar] = useState(false);
     autoRef.current = autoResaltar;
     // Persistimos el toggle de auto-resaltado (botón casa) para que sobreviva al F5.
-    useEffect(() => { try { if (localStorage.getItem("olivos.autoResaltar") === "1") setAutoResaltar(true); } catch { } }, []);
-    useEffect(() => { try { localStorage.setItem("olivos.autoResaltar", autoResaltar ? "1" : "0"); } catch { } }, [autoResaltar]);
+    useEffect(() => { try { if (localStorage.getItem("omni.autoResaltar") === "1") setAutoResaltar(true); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("omni.autoResaltar", autoResaltar ? "1" : "0"); } catch { } }, [autoResaltar]);
     const [ruta, setRuta] = useState<{ path: LL[]; key: number; dir?: string } | null>(null);
     const [draftStreet, setDraftStreet] = useState<LL[]>([]);
     const [importingOsm, setImportingOsm] = useState(false);
@@ -706,16 +706,16 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
     const [intrCounts, setIntrCounts] = useState<Record<string, number>>({});
     useEffect(() => { F.conteosIntrusion().then(setIntrCounts).catch(() => { }); const iv = setInterval(() => F.conteosIntrusion().then(setIntrCounts).catch(() => { }), 120000); return () => clearInterval(iv); }, []);
     const [feedOpen, setFeedOpen] = useState(false);
-    useEffect(() => { try { if (localStorage.getItem("olivos.intrFeed") === "1") setFeedOpen(true); } catch { } }, []);
-    useEffect(() => { try { localStorage.setItem("olivos.intrFeed", feedOpen ? "1" : "0"); } catch { } }, [feedOpen]);
+    useEffect(() => { try { if (localStorage.getItem("omni.intrFeed") === "1") setFeedOpen(true); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("omni.intrFeed", feedOpen ? "1" : "0"); } catch { } }, [feedOpen]);
     const [lprFeedOn, setLprFeedOn] = useState(true);
-    useEffect(() => { try { const v = localStorage.getItem("olivos.lprFeed"); if (v != null) setLprFeedOn(v === "1"); } catch { } }, []);
-    useEffect(() => { try { localStorage.setItem("olivos.lprFeed", lprFeedOn ? "1" : "0"); } catch { } }, [lprFeedOn]);
+    useEffect(() => { try { const v = localStorage.getItem("omni.lprFeed"); if (v != null) setLprFeedOn(v === "1"); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("omni.lprFeed", lprFeedOn ? "1" : "0"); } catch { } }, [lprFeedOn]);
     useEffect(() => { F.detecciones({ pageSize: 14 }).then((r: any) => setRecentIntr((r.items || []).map((it: any) => ({ id: it.id, deviceId: it.deviceId, name: it.deviceName, type: it.type, label: it.label, ms: new Date(it.timestamp).getTime() })))).catch(() => { }); }, []);
     const soundRef = useRef(true);
     useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
-    useEffect(() => { try { if (localStorage.getItem("olivos.intrSound") === "0") setSoundOn(false); } catch { } }, []);
-    useEffect(() => { try { localStorage.setItem("olivos.intrSound", soundOn ? "1" : "0"); } catch { } }, [soundOn]);
+    useEffect(() => { try { if (localStorage.getItem("omni.intrSound") === "0") setSoundOn(false); } catch { } }, []);
+    useEffect(() => { try { localStorage.setItem("omni.intrSound", soundOn ? "1" : "0"); } catch { } }, [soundOn]);
     const [draftIntr, setDraftIntr] = useState<LL[]>([]);
     const [intrDraw, setIntrDraw] = useState<{ kind: "line" | "zone"; deviceId: string } | null>(null);
     const [intrPick, setIntrPick] = useState<{ kind: "line" | "zone" } | null>(null);

@@ -7,7 +7,7 @@
 ## 2. UI: fuente única en el panel de Ajustes
 - [ ] 2.1 En `WhatsAppSection` (`settings/page.tsx`), reemplazar las lecturas crudas
   `getSetting("WAHA_URL"/"WAHA_API_KEY"/"WAHA_COMMANDS")` por las claves canónicas `OPENWA_*`
-  (con respaldo a `WAHA_*` para no romper Olivos).
+  (con respaldo a `WAHA_*` para no romper el primer barrio).
 - [ ] 2.2 Guardar desde el panel escribe `OPENWA_*`; confirmar que `getWhatsAppConfig()` devuelve
   lo guardado.
 - [ ] 2.3 Mostrar estado de sesión y QR usando las rutas `/api/wa/*` existentes.

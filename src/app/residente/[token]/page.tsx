@@ -7,7 +7,7 @@ import {
     PartyPopper, UserPlus, Copy, Download, ShieldCheck, Home, Check,
 } from "lucide-react";
 import {
-    listMyInvitations, createMyInvitation, addMyGuest, revokeMyInvitation, extendMyInvitation, getQrSvg,
+    listMyInvitations, createMyInvitation, addMyGuest, revokeMyInvitation, extendMyInvitation, getQrSvg, nombreDelBarrio,
     type MyInvitation, type MyGuest, type PortalHost,
 } from "@/app/actions/invitations";
 
@@ -30,6 +30,9 @@ export default function ResidentePortal() {
     const params = useParams();
     const token = String((params as any)?.token || "");
     const [host, setHost] = useState<PortalHost | null>(null);
+    // El nombre del barrio (Ajustes → Marca); antes decía a mano el nombre de otro barrio.
+    const [barrio, setBarrio] = useState("");
+    useEffect(() => { nombreDelBarrio().then(setBarrio).catch(() => { }); }, []);
     const [items, setItems] = useState<MyInvitation[]>([]);
     const [loading, setLoading] = useState(true);
     const [bad, setBad] = useState(false);
@@ -52,7 +55,7 @@ export default function ResidentePortal() {
             <header className="rp-topbar">
                 <div className="rp-brand">
                     <span className="rp-logo" aria-hidden="true"><Ticket size={18} /></span>
-                    <span className="rp-brandname">Los Olivos</span>
+                    <span className="rp-brandname">{barrio || "Mis invitados"}</span>
                 </div>
             </header>
 

@@ -1029,7 +1029,7 @@ export default function DevicesPage() {
                                             </TooltipProvider>
                                             )}
 
-                                            {/* Poner a punto (portado de Olivos): deja lista la cámara LPR de una. */}
+                                            {/* Poner a punto (portado del primer barrio): deja lista la cámara LPR de una. */}
                                             {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' && (
                                                 <ProvisionButton deviceId={dev.id} deviceName={dev.name} onDone={() => handleRefreshStats(dev.id)} />
                                             )}

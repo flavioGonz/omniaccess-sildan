@@ -301,6 +301,11 @@ export async function resolveByQr(raw: string): Promise<QrResolve> {
 }
 
 /** Datos públicos mínimos de un pase para la página /invitado/[token] (sin auth). */
+/** El nombre del barrio (Ajustes → Marca). Lo ven residentes e invitados; vacío si no se cargó. */
+export async function nombreDelBarrio(): Promise<string> {
+    try { return (await prisma.setting.findUnique({ where: { key: "APP_BRAND_BARRIO" } }))?.value?.trim() || ""; } catch { return ""; }
+}
+
 export async function getPublicPass(token: string): Promise<{ ok: boolean; name?: string; host?: string; hostName?: string; hostLabel?: string; title?: string; plates?: string[]; validFrom?: string; validTo?: string; status?: string; qrToken?: string; geo?: { lat: number; lng: number } | null; poly?: [number, number][] | null }> {
     const r = await resolveByQr(token);
     if (!r.card) return { ok: false };
@@ -437,7 +442,7 @@ async function sendGuestQrToHostInternal(hostUserId: string, g: any, inv: any): 
     const digits = normPhoneUy(u?.phone || "");
     if (!digits || digits.length < 10) return;
     const baseRow = await prisma.setting.findUnique({ where: { key: "BASE_URL" } });
-    // Sin BASE_URL no hay link que valga: antes caía al dominio de Olivos y un barrio
+    // Sin BASE_URL no hay link que valga: antes caía al dominio del primer barrio y un barrio
     // nuevo mandaba QR de otro cliente. Mejor no mandar y decirlo en el log.
     if (!baseRow?.value) { console.error("[invitaciones] falta BASE_URL en Ajustes: no se envía el QR"); return; }
     const base = baseRow.value.replace(/\/+$/, "");
@@ -509,8 +514,8 @@ export async function sendPassToHost(token: string, qrToken: string): Promise<{ 
         const b64 = (await qrPasePng(link)).toString("base64");
         const fmt = (x: Date) => new Date(x).toLocaleString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
         const plates = (g.plates || []).map((p: any) => p.plate);
-        // El nombre del barrio sale de Ajustes → Marca; estaba escrito "Los Olivos" a mano.
-        const marca = (await prisma.setting.findUnique({ where: { key: "APP_BRAND_NAME" } }))?.value?.trim();
+        // El nombre del barrio sale de Ajustes → Marca (estaba escrito a mano con el de otro barrio).
+        const marca = (await nombreDelBarrio()) || (await prisma.setting.findUnique({ where: { key: "APP_BRAND_NAME" } }))?.value?.trim();
         const caption = `🎟️ *Pase de visita${marca ? ` — ${marca}` : ""}*\n\n👤 ${g.name || "Invitado"}${plates.length ? ` (${plates.join(", ")})` : ""}\n🕒 ${fmt(inv.validFrom)} → ${fmt(inv.validTo)}\n\nReenviale este QR a tu invitado para que lo muestre en la garita.\n${link}`;
         const cfg = await getWhatsAppConfig();
         const headers: any = { "Content-Type": "application/json" };

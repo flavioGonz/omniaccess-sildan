@@ -136,7 +136,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     /** Color y tipo de vehículo, sacados de los detalles de cada registro. */
     color?: string;
     tipoVeh?: string;
-    /** Cámaras elegidas (por nombre); vacío = todas. Traído del historial de Olivos (355749f),
+    /** Cámaras elegidas (por nombre); vacío = todas. Traído del historial del primer barrio (355749f),
      *  pero resuelto como los otros dos: sobre lo cargado, con las opciones que hay en pantalla. */
     camaras?: string[];
     /** Los controles de esta tabla, dentro de su mismo marco. */

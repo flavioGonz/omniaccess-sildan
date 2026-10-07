@@ -26,7 +26,7 @@ const DEFAULT: BarrioMapData = {
 };
 
 // Los lotes de San Nicolás se guardaron durante meses bajo `lots` (con `label` y `unitId`);
-// el mapa de Olivos los llama `lotes` (con `name` y `parkingSlotId`). El 3/10/2026 esta
+// el mapa del primer barrio los llama `lotes` (con `name` y `parkingSlotId`). El 3/10/2026 esta
 // función leía SOLO `lotes`, devolvió una lista vacía, y el siguiente guardado escribió esa
 // lista vacía encima: 81 lotes dibujados a mano desaparecieron (se recuperaron del dump de
 // la mudanza). De acá sale la regla: se acepta la clave vieja, y nunca se tira una clave
@@ -91,8 +91,8 @@ export async function saveBarrioMap(data: BarrioMapData): Promise<{ ok: boolean;
 }
 
 // ── Vínculo lote↔unidad (portado de San Nicolás) ───────────────────────────
-// San Nicolás vincula cada lote del mapa con una UNIDAD; Olivos los vincula con una
-// PLAZA. Al traer el mapa de Olivos gana su modelo (los lotes viven en `lotes`), pero
+// San Nicolás vincula cada lote del mapa con una UNIDAD; el primer barrio los vincula con una
+// PLAZA. Al traer el mapa del primer barrio gana su modelo (los lotes viven en `lotes`), pero
 // no se pierde el vínculo con unidades: estas dos funciones operan sobre `lotes`
 // (con respaldo al viejo `lots`) y conservan el campo `unitId` en la misma entrada.
 export async function getLotes(): Promise<{ id: string; label: string; unitId?: string | null; parkingSlotId?: string | null; points: [number, number][] }[]> {
@@ -112,7 +112,7 @@ export async function asignarLoteAUnidad(loteId: string | null, unitId: string) 
         const row = await prisma.setting.findUnique({ where: { key: "BARRIO_MAP" } });
         if (!row?.value) return { ok: false, error: "Todavía no hay un mapa guardado." };
         const d = JSON.parse(row.value);
-        const key = Array.isArray(d.lotes) ? "lotes" : "lots"; // modelo de Olivos primero
+        const key = Array.isArray(d.lotes) ? "lotes" : "lots"; // modelo del primer barrio primero
         const arr = Array.isArray(d[key]) ? d[key] : [];
         const nuevos = arr
             .map((l: any) => (l.unitId === unitId ? { ...l, unitId: null } : l))   // soltar el anterior

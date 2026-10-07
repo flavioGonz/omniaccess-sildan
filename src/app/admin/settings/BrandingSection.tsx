@@ -67,7 +67,7 @@ export default function BrandingSection({ activeTab }: { activeTab?: string } = 
         setSaving(true);
         try {
             const res = await saveAppBranding({
-                APP_BRAND_NAME: form.name, APP_BRAND_SUBTITLE: form.subtitle,
+                APP_BRAND_NAME: form.name, APP_BRAND_BARRIO: form.barrio || "", APP_BRAND_SUBTITLE: form.subtitle,
                 APP_BRAND_LOGO_URL: form.logoUrl, APP_BRAND_LOGIN_BG_URL: form.loginBgUrl,
                 APP_BRAND_PRIMARY: form.primary,
                 APP_BRAND_TESTIMONIALS: JSON.stringify(form.testimonials || []),
@@ -152,6 +152,10 @@ export default function BrandingSection({ activeTab }: { activeTab?: string } = 
                         <div className="space-y-4">
                             <label className="block text-sm font-medium text-foreground/80">Nombre de la app
                                 <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="OmniAccess" className="mt-1.5 w-full bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground outline-none focus:border-violet-500" />
+                            </label>
+                            <label className="block text-sm font-medium text-foreground/80">Nombre del barrio
+                                <input value={form.barrio || ""} onChange={e => setForm({ ...form, barrio: e.target.value })} placeholder="San Nicolás" className="mt-1.5 w-full bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground outline-none focus:border-violet-500" />
+                                <span className="block mt-1 text-[11px] text-muted-foreground">Lo ven los residentes y los invitados: en el pase de visita y en el portal del residente.</span>
                             </label>
                             <label className="block text-sm font-medium text-foreground/80">Subtítulo / eslogan
                                 <input value={form.subtitle} onChange={e => setForm({ ...form, subtitle: e.target.value })} placeholder="Plataforma unificada de control de acceso" className="mt-1.5 w-full bg-muted/50 border border-border rounded-lg px-3 py-2.5 text-sm text-foreground outline-none focus:border-violet-500" />

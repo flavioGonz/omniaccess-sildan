@@ -14,22 +14,22 @@
   `InputProxy/channels` varía entre V4.63 y V4.83 — `parseInputProxy` debe tolerar ambos (el
   conteo por `<InputProxyChannel>` falló en el NXI; los `<ipAddress>` sí aparecen).
 
-## Decisión 1 — Una sola pila: la de Olivos
+## Decisión 1 — Una sola pila: la del primer barrio
 
 Se adopta `monitor-intrusion` + `Detection` + `general_detection` como única verdad y se retira la
 pila vieja de SN. Motivo: hoy, en `server.js`, `if (esEventoIntrusion(eventType)) { await
-handleIntrusionEvent(...); return; }` corre **antes** de la rama de analíticas de Olivos y se traga
+handleIntrusionEvent(...); return; }` corre **antes** de la rama de analíticas del primer barrio y se traga
 todo cruce Hikvision; además ambas escriben `LineDetection/1` con valores distintos. Mantener las
 dos obliga a sincronizar dos calibradores y dos tablas para siempre.
 
-Se conserva de SN lo que era mejor: `detectionTarget = human` al escribir la regla (Olivos no lo
+Se conserva de SN lo que era mejor: `detectionTarget = human` al escribir la regla (el primer barrio no lo
 fija). Se retiran: `handlers/intrusion-handler.js`, `src/components/IntrusionCalibrator.tsx`,
 `src/app/api/intrusion/geometry/route.ts`, `src/lib/isapi-smart-rules.ts`, el botón `ShieldAlert`
 de devices y el listener `intrusion_alert` en monitor-lpr. `IntrusionEvent` y
 `Device.intrusionEnabled/intrusionGeometry` **quedan en el schema sin uso** en este cambio
 (retirarlos es una migración aparte, para poder volver atrás si hace falta).
 
-## Decisión 2 — Importar canales como `CAMERA` (lo que Olivos hizo a mano)
+## Decisión 2 — Importar canales como `CAMERA` (lo que el primer barrio hizo a mano)
 
 Nueva acción `importarCanalesNvr(nvrDeviceId, canales[])` en `src/app/actions/nvr.ts`:
 1. Para cada canal: `createDevice` con `deviceType: CAMERA`, `brand` del NVR, `ip` del canal,

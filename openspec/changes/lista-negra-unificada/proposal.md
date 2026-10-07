@@ -24,7 +24,7 @@ barrera la respete.**
 - **El rol `BLACKLISTED` deja de ser el modelo para LPR.** Marcar a una persona en lista negra desde
   `/admin/users` pone **todas sus matrículas** en la lista de vigilancia como `BLACKLISTED` (con el
   vínculo al usuario y el motivo) y no toca su rol. Sacarla las desactiva. Para no romper el módulo
-  facial de Olivos, el rol `BLACKLISTED` sigue existiendo y **también** se lee como lista negra
+  facial del primer barrio, el rol `BLACKLISTED` sigue existiendo y **también** se lee como lista negra
   (compatibilidad), pero ya nada nuevo lo escribe desde LPR.
 - **La barrera respeta la lista negra.** En toda decisión de acceso por matrícula (lectoras ANPR en
   `server.js`, lecturas por RTSP en cámaras de acceso, carga manual de matrícula en un evento), una

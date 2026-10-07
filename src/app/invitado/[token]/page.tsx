@@ -1,4 +1,4 @@
-import { getPublicPass, getQrSvg } from "@/app/actions/invitations";
+import { getPublicPass, getQrSvg, nombreDelBarrio } from "@/app/actions/invitations";
 import PassMapLazy from "./PassMapLazy";
 
 export const dynamic = "force-dynamic";
@@ -20,12 +20,14 @@ export default async function InvitadoPassPage({ params }: { params: Promise<{ t
     const st = STATUS[pass.status || "notfound"] || STATUS.notfound;
     const hostName = pass.hostName || pass.host || "";
     const hostLabel = pass.hostLabel || "";
+    // El barrio sale de Ajustes → Marca; estaba escrito a mano con el nombre de otro barrio.
+    const barrio = await nombreDelBarrio();
 
     return (
         <div style={{ minHeight: "100dvh", display: "grid", placeItems: "center", padding: "20px", background: "linear-gradient(160deg,#0b1220,#111827)", fontFamily: "system-ui, sans-serif" }}>
             <div style={{ width: "100%", maxWidth: 380, background: "#fff", borderRadius: 24, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,.5)" }}>
                 <div style={{ background: "linear-gradient(135deg,#f59e0b,#ea580c)", color: "#fff", padding: "20px 22px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", opacity: .9 }}>PASE DE VISITA · LOS OLIVOS</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", opacity: .9 }}>PASE DE VISITA{barrio ? ` · ${barrio.toUpperCase()}` : ""}</div>
                     <div style={{ fontSize: 24, fontWeight: 800, marginTop: 4 }}>{pass.name || "Invitado"}</div>
                     {hostName && <div style={{ fontSize: 13, opacity: .95, marginTop: 3 }}>Te invita: <b>{hostName}</b></div>}
                     {hostLabel && <div style={{ fontSize: 13, opacity: .95, marginTop: 1 }}>🏠 {hostLabel}</div>}

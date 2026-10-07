@@ -15,7 +15,7 @@ Ver `proposal.md` → Why. Lo que condiciona el cómo:
 - Las lectoras Hikvision (iDS-2CD7A46G0/P) exponen `licensePlateAuditData/record` con `listType`
   `whiteList|blackList` y `DelLicensePlateAuditData` que borra **todo**, sin distinguir lista. Hoy
   `HikvisionDriver.addPlateToCamera` tiene `whiteList` escrito fijo.
-- El módulo facial (Olivos) usa el rol `BLACKLISTED` como lista negra de **personas** y
+- El módulo facial (el primer barrio) usa el rol `BLACKLISTED` como lista negra de **personas** y
   `syncAllBlacklistAction` las manda a los terminales. No se toca.
 - El monitor LPR rehidrata eventos desde la base sin campo `watch`; la pila crítica depende del
   socket en vivo o del rol.
@@ -42,7 +42,7 @@ Alternativas: (a) migrar el rol `BLACKLISTED` a un campo `User.listaNegra` y der
 `userId` opcional para "esta entrada existe porque la persona está marcada", y el rol leído sólo
 por compatibilidad.** Se elige (c): la lista negra en LPR es de **vehículos** (una matrícula sin
 dueño conocido es el caso típico), y el módulo facial sigue funcionando sin tocarlo. (a) rompe
-Olivos; (b) es lo que hay hoy y es lo que falla.
+el primer barrio; (b) es lo que hay hoy y es lo que falla.
 
 Schema: `PlateWatch` suma `userId String?`, `motivo String?`, `createdBy String?` (nombre o número
 de quien cargó), `updatedAt DateTime @updatedAt`, `deactivatedAt DateTime?`. Migración de datos en

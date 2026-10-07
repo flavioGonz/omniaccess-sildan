@@ -1,10 +1,11 @@
 /**
  * La APK de la consola del guardia.
  *
- * El archivo en public/ se llama como se compiló en Olivos (el cliente era Sildan); el nombre
- * con el que se DESCARGA es el del producto, para que San Nicolás o cualquier otro barrio no
- * reciba un instalador con la marca de otro cliente. Cuando se recompile la APK con la marca
- * del producto, alcanza con cambiar ARCHIVO_APK acá.
+ * El archivo y el nombre de descarga son los del producto. OJO: la APK por dentro todavía se
+ * compiló con el nombre del cliente anterior (es el nombre que muestra la tablet debajo del
+ * ícono y el paquete Android); eso sólo se cambia recompilándola. /api/apk/version informa la
+ * fecha del archivo: renombrarlo en el servidor con `mv` la conserva y no dispara una
+ * "actualización" falsa en las tablets.
  */
-export const ARCHIVO_APK = "GuardiaSildan.apk";
+export const ARCHIVO_APK = "OmniAccess-Guardia.apk";
 export const NOMBRE_DESCARGA_APK = "OmniAccess-Guardia.apk";
