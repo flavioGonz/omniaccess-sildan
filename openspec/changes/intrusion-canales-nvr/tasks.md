@@ -11,18 +11,18 @@ Por fases; cada fase compila, se despliega y se verifica antes de la siguiente.
   seleccionados"; `crearCamaraDeCanal` deja de crear `LPR_CAMERA`.
 - [x] 1.4 `CAMERA` visible/elegible en `/admin/devices`: `allowedTypes`, `TYPE_META`, `tipos.ts`,
   `esCamara`.
-- [ ] 1.5 Verificar: importar las perimetrales del NVR 2 → aparecen en Dispositivos y en
+- [x] 1.5 Verificar: importar las perimetrales del NVR 2 → aparecen en Dispositivos y en
   `monitor-intrusion` con "NVR 2 · ch N" y vivo.
 
 ## Fase 2 — Una sola pila de intrusión
-- [ ] 2.1 `server.js`: quitar el despacho a `handleIntrusionEvent`; la rama ANALÍTICAS crea
+- [x] 2.1 `server.js`: quitar el despacho a `handleIntrusionEvent`; la rama ANALÍTICAS crea
   `Detection` para `linedetection`/`fielddetection`/`regionentrance`/`regionexiting`.
-- [ ] 2.2 Atribución por canal: leer `channelID`/`dynChannelID`; si el emisor es NVR, resolver la
+- [x] 2.2 Atribución por canal: leer `channelID`/`dynChannelID`; si el emisor es NVR, resolver la
   cámara por `getChannelMap()`; sin mapeo → `Detection` sobre el NVR con `label "canal N sin mapear"`.
-- [ ] 2.3 Retirar la pila vieja: `handlers/intrusion-handler.js`, `IntrusionCalibrator.tsx`,
+- [x] 2.3 Retirar la pila vieja: `handlers/intrusion-handler.js`, `IntrusionCalibrator.tsx`,
   `/api/intrusion/geometry`, `isapi-smart-rules.ts`, botón `ShieldAlert` en devices, listener
   `intrusion_alert` en monitor-lpr. (El modelo `IntrusionEvent` queda; migración aparte.)
-- [ ] 2.4 Conservar `detectionTarget = human` en `writeLine`/`writeField` de la pila nueva.
+- [x] 2.4 Conservar `detectionTarget = human` en `writeLine`/`writeField` de la pila nueva.
 - [ ] 2.5 Verificar: un cruce real en una perimetral → fila en `Detection` con la cámara correcta,
   `general_detection` en el monitor, captura guardada. `IntrusionEvent` sigue en 0.
 

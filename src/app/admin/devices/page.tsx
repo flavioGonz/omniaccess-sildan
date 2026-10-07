@@ -87,7 +87,6 @@ import { hora, horaSeg } from "@/lib/fechas";
 import { DRIVER_MODELS, DEVICE_MODELS } from "@/lib/driver-models";
 import { CameraCalibrator } from "@/components/CameraCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
-import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
 import { ProvisionButton } from "@/components/ProvisionButton";
 import { HealthHistoryDialog } from "@/components/HealthHistoryDialog";
 import { ReadRateDialog } from "@/components/ReadRateDialog";
@@ -100,7 +99,7 @@ import {
     DropdownMenuLabel,
     DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, DownloadCloud, UploadCloud, Info, ShieldAlert } from "lucide-react";
+import { MoreHorizontal, DownloadCloud, UploadCloud, Info } from "lucide-react";
 import { Radar } from "lucide-react";
 import { getDevicesWithAnalytics } from "@/app/actions/detections";
 import {
@@ -255,7 +254,6 @@ export default function DevicesPage() {
     const [managingPlates, setManagingPlates] = useState<any>(null);
     const [calibrating, setCalibrating] = useState<any>(null);
     const [calibrandoInterior, setCalibrandoInterior] = useState<any>(null);
-    const [calibrandoIntrusion, setCalibrandoIntrusion] = useState<any>(null);
     const [health, setHealth] = useState<Record<string, any>>({});
     const [syncing, setSyncing] = useState<string | null>(null);
     const [streamBusy, setStreamBusy] = useState<string | null>(null);
@@ -1036,27 +1034,9 @@ export default function DevicesPage() {
                                                 <ProvisionButton deviceId={dev.id} deviceName={dev.name} onDone={() => handleRefreshStats(dev.id)} />
                                             )}
 
-                                            {/* Intrusión: dibujar línea/zona en cámaras AcuSense Hikvision. Incluye CAMERA,
-                                                que es justamente el tipo de las perimetrales de intrusión: sin esto, pasarlas
-                                                a "cámara de vigilancia" las dejaba sin forma de armarlas desde acá. */}
-                                            {dev.brand === 'HIKVISION' && (dev.deviceType === 'LPR_INTERIOR' || dev.deviceType === 'LPR_CAMERA' || dev.deviceType === 'CAMERA') && (
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            onClick={() => setCalibrandoIntrusion(dev)}
-                                                            className="h-8 w-8 rounded-md bg-card/50 text-muted-foreground border border-border/50 transition-all hover:bg-[var(--mal-suave)]"
-                                                        >
-                                                            <ShieldAlert size={15} />
-                                                        </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent><p>Intrusión: dibujar línea/zona</p></TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                            )}
-
+                                            {/* Las líneas y zonas de intrusión se dibujan desde /admin/monitor-intrusion
+                                                (Calibrar), que es la pila que quedó. El botón que había acá abría el
+                                                calibrador viejo, que escribía las reglas por otro camino. */}
                                             {/* El ojo abre el vivo pelado. En una cámara de seguimiento eso es el
                                                 mismo video que ya abre el calibrador, pero SIN la franja, las zonas
                                                 ni el sentido dibujados encima: la misma imagen con menos información.
@@ -1329,9 +1309,6 @@ export default function DevicesPage() {
 
             {calibrandoInterior && (
                 <InteriorCalibrator device={calibrandoInterior} onClose={() => setCalibrandoInterior(null)} />
-            )}
-            {calibrandoIntrusion && (
-                <IntrusionCalibrator device={calibrandoIntrusion} onClose={() => setCalibrandoIntrusion(null)} />
             )}
 
             {/* La ficha del equipo, al nivel de la página y con el mismo patrón que el resto

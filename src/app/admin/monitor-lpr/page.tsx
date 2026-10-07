@@ -975,9 +975,13 @@ export default function MonitorLPR() {
         });
         // Intrusión: cruce de línea / zona del perímetro. Entra al mismo stream de alertas
         // críticas que merodeo/lista negra, con kind "intrusion" para que se pinte distinto.
-        newSocket.on("intrusion_alert", (a: any) => {
-            const id = a?.id || `intr_${Date.now()}`;
-            setCriticals((prev) => [{ id, kind: "intrusion", timestamp: a?.timestamp || new Date().toISOString(), ...a }, ...prev].slice(0, 24));
+        // Escucha `general_detection`, que es lo que emite la pila de intrusión que quedó
+        // (Detection); `intrusion_alert` era de la pila vieja y ya no lo emite nadie, así que
+        // este monitor estuvo meses sin enterarse de una intrusión.
+        const NOMBRE_DETECCION: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión en zona", REGION_ENTER: "Entró a la zona", REGION_EXIT: "Salió de la zona" };
+        newSocket.on("general_detection", (a: any) => {
+            if (!a?.id || a.type === "MOTION") return;
+            setCriticals((prev) => prev.some((x) => x.id === a.id) ? prev : [{ id: a.id, kind: "intrusion", timestamp: a.timestamp || new Date().toISOString(), deviceName: a.deviceName, details: NOMBRE_DETECCION[a.type] || "Detección", snapshotPath: a.snapshotPath || null }, ...prev].slice(0, 24));
             if (soundOnRef.current) beep(true);
         });
         setSocket(newSocket);

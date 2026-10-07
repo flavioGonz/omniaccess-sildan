@@ -1079,7 +1079,25 @@ const handleWebhook = async (req, res, logPrefix) => {
                     const orq = [];
                     if (cleanMac) orq.push({ mac: { contains: cleanMac } });
                     if (ipAddress) orq.push({ ip: ipAddress });
-                    const dev = orq.length ? await prisma.device.findFirst({ where: { OR: orq } }) : null;
+                    let dev = orq.length ? await prisma.device.findFirst({ where: { OR: orq } }) : null;
+                    // Si quien avisa es un NVR, la cámara es el CANAL que trae el evento (channelID /
+                    // dynChannelID), resuelto por el mapa de canales (Setting NVR_CHANNEL_MAP:
+                    // { ipCámara: { nvr, ch } }). Sin esto, los cruces de una perimetral conectada por
+                    // el NVR quedaban atribuidos al NVR entero y el monitor no sabía qué cámara era.
+                    // Canal sin mapear: la detección queda sobre el NVR, rotulada, para que se vea.
+                    let etiquetaCanal = null;
+                    if (dev && String(dev.deviceType) === "NVR") {
+                        const canal = Number(eventAlert.channelID || xmlData.channelID || eventAlert.dynChannelID || xmlData.dynChannelID || 0);
+                        if (canal > 0) {
+                            try {
+                                const fila = await prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } });
+                                const mapa = fila && fila.value ? JSON.parse(fila.value) : {};
+                                const ipCam = Object.keys(mapa).find((ip) => { const v = mapa[ip]; const ch = typeof v === "object" ? Number(v.ch) : Number(v); const nvr = typeof v === "object" ? (v.nvr || v.nvrId || null) : null; return ch === canal && (!nvr || nvr === dev.id); });
+                                const cam = ipCam ? await prisma.device.findFirst({ where: { ip: ipCam } }) : null;
+                                if (cam) dev = cam; else etiquetaCanal = "canal " + canal + " sin mapear";
+                            } catch (e) { etiquetaCanal = "canal " + canal + " sin mapear"; }
+                        }
+                    }
                     // Clase de objeto que clasificó la cámara (AcuSense): human | vehicle. Viene en
                     // DetectionRegionList > DetectionRegionEntry > detectionTarget del push Hik.
                     let targetClass = null;
@@ -1090,7 +1108,7 @@ const handleWebhook = async (req, res, logPrefix) => {
                         const dt = entry && (entry.detectionTarget || entry.targetType || entry.objectType);
                         if (dt) { const t = String(dt).toLowerCase(); targetClass = t.includes("vehicle") || t.includes("car") ? "vehicle" : t.includes("human") || t.includes("person") || t.includes("pedestrian") ? "human" : null; }
                     } catch (e) {}
-                    const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, label: targetClass, timestamp: new Date() } });
+                    const det = await prisma.detection.create({ data: { deviceId: dev ? dev.id : null, type: genType, eventType: eventType || null, label: etiquetaCanal || targetClass, timestamp: new Date() } });
                     if (dev) { await prisma.device.update({ where: { id: dev.id }, data: { lastOnlinePush: new Date() } }).catch(() => {}); }
                     if (global.io) global.io.emit("general_detection", { id: det.id, deviceId: det.deviceId, deviceName: dev ? dev.name : null, type: genType, eventType: eventType || null, label: targetClass, timestamp: det.timestamp });
                     console.log(logPrefix + " 🟣 [ANALYTIC] " + genType + " (" + eventType + ") dev=" + (dev ? dev.name : "?"));
