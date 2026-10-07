@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { sileo as toast } from "sileo";
 import { VisorCuadro, leerDetalles } from "@/components/VisorCuadro";
 import NvrTimeMachine from "@/components/dashboard/NvrTimeMachine";
@@ -57,6 +58,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
     const [cargandoHistorial, setCargandoHistorial] = useState(false);
     const [vigilada, setVigilada] = useState<{ id: string; category: string } | null>(null);
     const [ocupadoLista, setOcupadoLista] = useState(false);
+    /** La chapa ya está en otra categoría de la lista: qué era, para preguntar antes de pisarla. */
+    const [conflicto, setConflicto] = useState<{ etiqueta: string; cat: string; motivo: string | null } | null>(null);
 
     const chapa = limpiar(event?.plateDetected);
     const conChapa = hayChapa(event?.plateDetected);
@@ -143,11 +146,12 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                 toast.success({ title: `${chapa} salió de la lista negra`, description: r?.camaras ? resumirCamaras(r.camaras) : "Vuelve a decidir la credencial y el modo LPR." });
             } else {
                 const etiqueta = [meta.Marca, meta.Color].filter(Boolean).join(" ");
-                let r: any = await addWatch({ plate: chapa, label: etiqueta, category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento" });
+                const r: any = await addWatch({ plate: chapa, label: etiqueta, category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento" });
                 if (r?.conflicto) {
-                    const cat = watchCatMeta(r.conflicto.category).label;
-                    if (!window.confirm(`${chapa} ya está como ${cat}${r.conflicto.motivo ? ` (${r.conflicto.motivo})` : ""}. ¿Pasarla a lista negra?`)) return;
-                    r = await addWatch({ plate: chapa, label: etiqueta, category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento", force: true });
+                    // Ya está como VIP / en búsqueda: se pregunta con el diálogo del sistema, no con
+                    // window.confirm (que no se podía estilizar ni leer bien en la tablet).
+                    setConflicto({ etiqueta, cat: watchCatMeta(r.conflicto.category).label, motivo: r.conflicto.motivo || null });
+                    return;
                 }
                 if (r?.ok === false) throw new Error(r.error);
                 setVigilada({ id: r?.row?.id || "?", category: "BLACKLISTED" });
@@ -257,6 +261,19 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                     onCerrar={() => setAbierto(false)}
                 />
             )}
+
+            <ConfirmarAccion id={chapa} open={!!conflicto} onOpenChange={(o) => { if (!o) setConflicto(null); }}
+                title={`Pasar ${chapa} a lista negra`}
+                description={`Hoy está como ${conflicto?.cat || ""}${conflicto?.motivo ? ` (${conflicto.motivo})` : ""}. Al pasarla a lista negra deja de ser eso: toda lectura se registra denegada, la barrera no abre y las lectoras la reciben en su lista negra.`}
+                etiquetaAccion="Pasar a lista negra"
+                onDelete={async () => {
+                    const r: any = await addWatch({ plate: chapa, label: conflicto?.etiqueta || "", category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento", force: true });
+                    if (r?.ok === false) return { success: false, error: r.error };
+                    setVigilada({ id: r?.row?.id || "?", category: "BLACKLISTED" });
+                    toast.warning({ title: `${chapa} en lista negra`, description: `Toda lectura se registra DENEGADA y avisa.${r?.camaras ? ` Lectoras: ${resumirCamaras(r.camaras)}` : ""}` });
+                    return { success: true };
+                }}
+                onSuccess={() => setConflicto(null)} />
 
             {verGrabacion && canalNvr != null && dispositivo?.id && (
                 <NvrTimeMachine

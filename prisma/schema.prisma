@@ -65,6 +65,8 @@ model User {
   updatedAt       DateTime      @updatedAt
   observations    String?
   blacklistReason String?
+  /// El rol que tenia antes de pasar a BLACKLISTED, para devolverselo al sacarla de la lista.
+  rolAnterior     UserRole?
   createdBy       String?
   accessEvents    AccessEvent[]
   credentials     Credential[]

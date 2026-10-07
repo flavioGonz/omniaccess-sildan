@@ -66,7 +66,8 @@ export function Vacio({ icono: Icono = Inbox, titulo, ayuda, accion, className }
  */
 export function ErrorEstado({ mensaje, alReintentar, titulo = "No se pudieron traer los datos", className }: {
     mensaje?: string | null;
-    alReintentar: () => void;
+    /** Si no viene, no se dibuja el botón: la tabla lo rellenaba con una función vacía y quedaba un "Reintentar" que no reintentaba. */
+    alReintentar?: () => void;
     titulo?: string;
     className?: string;
 }) {
@@ -75,10 +76,12 @@ export function ErrorEstado({ mensaje, alReintentar, titulo = "No se pudieron tr
             <AlertTriangle size={22} className="tono-aviso" />
             <p className="text-[13px] font-semibold text-foreground">{titulo}</p>
             {mensaje && <p className="text-[11.5px] text-muted-foreground max-w-sm">{mensaje}</p>}
-            <button type="button" onClick={alReintentar}
-                className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[12px] font-semibold hover:bg-accent transition-colors">
-                <RefreshCw size={12} /> Reintentar
-            </button>
+            {alReintentar && (
+                <button type="button" onClick={alReintentar}
+                    className="mt-1 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-[12px] font-semibold hover:bg-accent transition-colors">
+                    <RefreshCw size={12} /> Reintentar
+                </button>
+            )}
         </div>
     );
 }

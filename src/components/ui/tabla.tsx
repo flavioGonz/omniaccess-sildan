@@ -472,7 +472,7 @@ export function Tabla<T>({
                         {error && (
                             <tr>
                                 <td colSpan={nCol}>
-                                    <ErrorEstado mensaje={error} alReintentar={alReintentar || (() => { })} />
+                                    <ErrorEstado mensaje={error} alReintentar={alReintentar} />
                                 </td>
                             </tr>
                         )}

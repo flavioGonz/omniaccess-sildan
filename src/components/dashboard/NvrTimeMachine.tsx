@@ -33,7 +33,12 @@ interface Props {
     plate?: string;
 }
 
-const PRE_SEC = 3;
+/**
+ * Segundos antes del instante elegido. Es lo de Ajustes → Video del evento (se lee al abrir);
+ * estaba fijo en 3 acá mientras la ficha del evento y el monitor usaban 10: la misma
+ * grabación arrancaba en momentos distintos según desde dónde se la abriera.
+ */
+const PRE_SEC_POR_DEFECTO = 10;
 const WINDOWS = [15, 30, 60, 180, 360, 1440];
 const WIN_LABEL: Record<number, string> = { 15: "15m", 30: "30m", 60: "1h", 180: "3h", 360: "6h", 1440: "24h" };
 /** La ventana ya no esta limitada a los presets: puede ser cualquier duracion. */
@@ -140,6 +145,8 @@ export function NvrTimeMachine({ open, onClose, deviceId, channel: channelProp, 
     const nvrQ = nvrId ? `&nvr=${nvrId}` : "";
 
     const [tab, setTab] = useState<Tab>("grabacion");
+    const [PRE_SEC, setPreSec] = useState(PRE_SEC_POR_DEFECTO);
+    useEffect(() => { if (!open) return; fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (typeof d?.antes === "number") setPreSec(d.antes); }).catch(() => { }); }, [open]);
     const [winMin, setWinMin] = useState(60);
     const [anchorMs, setAnchorMs] = useState(() => Math.max(Date.now(), eventTimeMs));
     const [playheadMs, setPlayheadMs] = useState(eventTimeMs);

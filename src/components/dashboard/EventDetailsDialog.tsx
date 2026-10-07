@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { getCarLogo } from "@/lib/car-logos";
 import { getRelatedSessionEvents } from "@/app/actions/history";
 import { getImagePath } from "@/lib/image-path";
@@ -113,6 +114,8 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     const [stats, setStats] = useState<PlateStats | null>(null);
     const [watch, setWatch] = useState<{ id: string; category: string } | null>(null);
     const [watchBusy, setWatchBusy] = useState(false);
+    /** La chapa ya está en otra categoría de la lista: qué era, para preguntar antes de pisarla. */
+    const [conflicto, setConflicto] = useState<{ etiqueta: string; cat: string; motivo: string | null } | null>(null);
     const [exporting, setExporting] = useState(false);
     const [logoErr, setLogoErr] = useState(false);
 
@@ -262,11 +265,11 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                 setWatch(null); toast.success({ title: `${plateText} salió de la lista negra`, description: r?.camaras ? resumirCamaras(r.camaras) : "Vuelve a decidir la credencial y el modo LPR." });
             } else {
                 const etiqueta = brandName ? `${brandName} ${meta.Color || ""}`.trim() : "";
-                let r: any = await addWatch({ plate: plateText, label: etiqueta, category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento" });
+                const r: any = await addWatch({ plate: plateText, label: etiqueta, category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento" });
                 if (r?.conflicto) {
-                    const cat = watchCatMeta(r.conflicto.category).label;
-                    if (!window.confirm(`${plateText} ya está como ${cat}${r.conflicto.motivo ? ` (${r.conflicto.motivo})` : ""}. ¿Pasarla a lista negra?`)) return;
-                    r = await addWatch({ plate: plateText, label: etiqueta, category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento", force: true });
+                    // Ya está como VIP / en búsqueda: se pregunta con el diálogo del sistema, no con window.confirm.
+                    setConflicto({ etiqueta, cat: watchCatMeta(r.conflicto.category).label, motivo: r.conflicto.motivo || null });
+                    return;
                 }
                 if (r?.ok === false) throw new Error(r.error);
                 setWatch({ id: r?.row?.id || "?", category: "BLACKLISTED" });
@@ -632,6 +635,18 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
             </Dialog>
             <NvrTimeMachine open={showVideo} onClose={() => setShowVideo(false)} deviceId={(event as any).device?.id} channel={nvrChannel} eventTimeMs={eventMs} deviceName={(event as any).device?.name} evidenceUrl={displayImage || undefined} plate={event.plateDetected} />
             {tm && <NvrTimeMachine open onClose={() => setTm(null)} deviceId={tm.deviceId} channel={tm.channel} eventTimeMs={tm.eventTimeMs} deviceName={tm.deviceName} />}
+            <ConfirmarAccion id={plateText} open={!!conflicto} onOpenChange={(o) => { if (!o) setConflicto(null); }}
+                title={`Pasar ${plateText} a lista negra`}
+                description={`Hoy está como ${conflicto?.cat || ""}${conflicto?.motivo ? ` (${conflicto.motivo})` : ""}. Al pasarla a lista negra deja de ser eso: toda lectura se registra denegada, la barrera no abre y las lectoras la reciben en su lista negra.`}
+                etiquetaAccion="Pasar a lista negra"
+                onDelete={async () => {
+                    const r: any = await addWatch({ plate: plateText, label: conflicto?.etiqueta || "", category: "BLACKLISTED", notify: true, motivo: "Cargada desde la ficha del evento", force: true });
+                    if (r?.ok === false) return { success: false, error: r.error };
+                    setWatch({ id: r?.row?.id || "?", category: "BLACKLISTED" });
+                    toast.warning({ title: `${plateText} en lista negra`, description: `Toda lectura se registra DENEGADA y avisa.${r?.camaras ? ` Lectoras: ${resumirCamaras(r.camaras)}` : ""}` });
+                    return { success: true };
+                }}
+                onSuccess={() => setConflicto(null)} />
         </>
     );
 }

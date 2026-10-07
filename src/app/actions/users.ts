@@ -697,24 +697,27 @@ export async function getWhitelist() {
 }
 
 export async function toggleBlacklist(userId: string, isBlacklisted: boolean, reason?: string, creator?: string) {
-    // If we are un-blacklisting, check if we should go to WHITELISTED or just VISITOR
-    // For now, if called with isBlacklisted=false, we move to WHITELISTED by default if it was initiated from dashboard as "Promover"
-
-    // Actually, let's look at the current role first
-    const currentUser = await prisma.user.findUnique({ where: { id: userId } });
-
-    let newRole: UserRole = isBlacklisted ? 'BLACKLISTED' : 'WHITELISTED';
-
-    // If it was already STAFF or ADMIN, we shouldn't downgrade it to WHITELISTED/VISITOR unless specified
-    if (!isBlacklisted && currentUser && ['STAFF', 'ADMIN', 'RESIDENT'].includes(currentUser.role)) {
-        newRole = currentUser.role;
-    }
+    /*
+     * El rol de la persona para el módulo facial (las lectoras de rostro deciden por rol).
+     *
+     * Al sacarla de la lista negra se la pasaba a WHITELISTED a secas: una VISITOR que entró
+     * a la lista por error salía con acceso permanente. Ahora al entrar se guarda el rol que
+     * tenía (`rolAnterior`) y al salir se le devuelve ese; sin dato (personas marcadas antes
+     * de este cambio) vuelve a VISITOR, que es el rol que menos concede.
+     */
+    const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, rolAnterior: true } });
+    if (!currentUser) throw new Error("La persona no existe");
+    const yaEstaba = currentUser.role === 'BLACKLISTED';
+    const newRole: UserRole = isBlacklisted
+        ? 'BLACKLISTED'
+        : (currentUser.rolAnterior && currentUser.rolAnterior !== 'BLACKLISTED' ? currentUser.rolAnterior : 'VISITOR');
 
     const user = await prisma.user.update({
         where: { id: userId },
         data: {
             role: newRole,
-            blacklistReason: reason || null,
+            rolAnterior: isBlacklisted ? (yaEstaba ? currentUser.rolAnterior : currentUser.role) : null,
+            blacklistReason: isBlacklisted ? (reason || null) : null,
             createdBy: creator || null,
             updatedAt: new Date()
         }

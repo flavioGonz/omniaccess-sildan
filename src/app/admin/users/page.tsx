@@ -78,6 +78,7 @@ interface UserWithRelations {
     role: UserRole;
     observations: string | null;
     blacklistReason: string | null;
+    rolAnterior: UserRole | null;
     createdBy: string | null;
     apartment: string | null;
     accessTags: string[];
