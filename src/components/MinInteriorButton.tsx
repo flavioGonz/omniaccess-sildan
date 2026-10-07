@@ -4,9 +4,9 @@ import { useState } from "react";
 import { ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MinInteriorDialog } from "@/components/MinInteriorDialog";
+import { normalizarMatricula } from "@/lib/min-interior";
 
-export const MIN_INTERIOR_URL = "https://matriculas-requeridas.minterior.gub.uy/index.php";
-const normPlate = (p?: string | null) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+export { MIN_INTERIOR_URL } from "@/lib/min-interior";
 
 /** Botón que abre la consulta asistida de "Matrículas Requeridas" del Min. del Interior
  * dentro de OmniAccess: el guardia resuelve el captcha (humano en el medio) y el sistema
@@ -21,7 +21,7 @@ export function MinInteriorButton({
     className?: string;
 }) {
     const [open, setOpen] = useState(false);
-    const p = normPlate(plate);
+    const p = normalizarMatricula(plate);
 
     return (
         <>
@@ -31,9 +31,10 @@ export function MinInteriorButton({
                 title={p ? `Consultar ${p} en Matrículas Requeridas (Min. Interior)` : "Sin matrícula"}
                 className={cn(
                     "inline-flex items-center gap-1.5 rounded-md text-[11px] font-semibold transition-colors disabled:opacity-40",
+                    // Es una acción: va en el azul de acción, no en un índigo propio (era el único índigo del sistema).
                     label
-                        ? "px-2 py-1 bg-indigo-600/15 text-indigo-500 hover:bg-indigo-600/25"
-                        : "p-1 text-indigo-500 hover:text-indigo-400 hover:bg-indigo-500/10",
+                        ? "px-2 py-1 bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] tono-accion hover:bg-[color-mix(in_oklab,var(--accion)_22%,transparent)]"
+                        : "p-1 tono-accion hover:bg-[color-mix(in_oklab,var(--accion)_12%,transparent)]",
                     className
                 )}
             >

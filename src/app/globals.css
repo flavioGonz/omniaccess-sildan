@@ -2143,3 +2143,18 @@ video::-webkit-media-controls { display: none !important; }
   60%      { box-shadow: 0 0 0 9px color-mix(in oklab, var(--accion) 0%, transparent); }
 }
 .boton-armar { animation: botonArmar 1.8s ease-out infinite; }
+
+/* Consulta al Min. Interior: mientras la consulta viaja, anillos que salen del escudo en el azul de
+   acción (es "estoy haciendo algo tuyo", no un estado). Antes era un spinner de 16 px en el botón y
+   el guardia no sabía si había mandado algo. */
+@keyframes miAnillo {
+  0%   { transform: scale(.55); opacity: .55; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.mi-anillo { position: absolute; inset: 1.25rem; border-radius: 9999px; border: 2px solid var(--accion); animation: miAnillo 2.1s ease-out infinite; }
+/* El resultado "requerida" late con el tono mal: es el único resultado que exige actuar. */
+@keyframes miRequerida {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--mal) 60%, transparent); }
+  60%      { box-shadow: 0 0 0 12px color-mix(in oklab, var(--mal) 0%, transparent); }
+}
+.mi-requerida { animation: miRequerida 1.5s ease-out infinite; }

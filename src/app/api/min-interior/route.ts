@@ -23,6 +23,9 @@ const UA = "Mozilla/5.0 (OmniAccess LPR; consulta asistida por operador)";
 type Sess = { cookie: string; csrf: string; created: number };
 const store: Map<string, Sess> = (globalThis as any).__miStore ?? new Map<string, Sess>();
 (globalThis as any).__miStore = store;
+// Cuánto vale la imagen antes de pedir otra. Es el tiempo que la sesión PHP del sitio
+// aguanta sin uso en la práctica; se devuelve al cliente (`venceEnMs`) para que el diálogo
+// muestre la cuenta regresiva y renueve la imagen solo, en vez de fallar al enviar.
 const TTL = 5 * 60 * 1000;
 
 function gc() {
@@ -74,7 +77,7 @@ export async function GET(req: NextRequest) {
         );
       const sid = rid();
       store.set(sid, { cookie, csrf, created: Date.now() });
-      return NextResponse.json({ ok: true, sid, image });
+      return NextResponse.json({ ok: true, sid, image, venceEnMs: TTL });
     }
     if (action === "reload") {
       const sid = req.nextUrl.searchParams.get("sid") || "";
@@ -89,7 +92,7 @@ export async function GET(req: NextRequest) {
       // La respuesta trae también "captchaPhrase" (la solución): se ignora a propósito.
       if (!image) return NextResponse.json({ ok: false, error: "No se pudo recargar el captcha." }, { status: 502 });
       s.created = Date.now();
-      return NextResponse.json({ ok: true, image });
+      return NextResponse.json({ ok: true, image, venceEnMs: TTL });
     }
     return NextResponse.json({ ok: false, error: "acción inválida" }, { status: 400 });
   } catch (e: any) {
