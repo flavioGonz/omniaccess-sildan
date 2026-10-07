@@ -9,7 +9,7 @@ import {
     Loader2, MapPin, Undo2, Radio, Pencil as PencilIcon, LandPlot,
     Layers3, ChevronDown, Plus, Minus, Crosshair, Maximize2, Minimize2, Search, Eye, EyeOff, SquareParking, Move, RotateCw,
     Camera as CamIco, Hexagon as PerimIco, Shield as GuardIco, Type as TypeIco, LandPlot as LoteIco,
-    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route, ShieldAlert, Volume2, VolumeX, Play, Activity, ListFilter,
+    BookText, LocateFixed, Tag, User as UserIcon, Fence, Car, Clock, StickyNote, Palette, Compass, Home, Route, ShieldAlert, Volume2, VolumeX, Play, Activity, ListFilter, Gauge,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,7 @@ import { LogIn, LogOut } from "lucide-react";
 import { getDevices } from "@/app/actions/devices";
 import { getIntrusionCameras, getAnalyticsGeometryBatch, ackAlarms, getDetectionHistory, getTodayIntrusionCounts, type IntrusionCam } from "@/app/actions/detections";
 import { LiveModal } from "@/components/intrusion/LiveModal";
+import SystemHealthPanel from "@/components/SystemHealthPanel";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { montarVivo } from "@/lib/vivo";
@@ -684,6 +685,7 @@ export default function BarrioMap() {
     const [lprFeedOn, setLprFeedOn] = useState(true);
     useEffect(() => { try { const v = localStorage.getItem("olivos.lprFeed"); if (v != null) setLprFeedOn(v === "1"); } catch { } }, []);
     useEffect(() => { try { localStorage.setItem("olivos.lprFeed", lprFeedOn ? "1" : "0"); } catch { } }, [lprFeedOn]);
+    const [healthOpen, setHealthOpen] = useState(false);
     useEffect(() => { getDetectionHistory({ pageSize: 14 }).then((r: any) => setRecentIntr((r.items || []).map((it: any) => ({ id: it.id, deviceId: it.deviceId, name: it.deviceName, type: it.type, label: it.label, ms: new Date(it.timestamp).getTime() })))).catch(() => { }); }, []);
     const soundRef = useRef(true);
     useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
@@ -1037,7 +1039,7 @@ export default function BarrioMap() {
     const centrar = () => { const m = mapRef.current; if (m) m.setView(data.center, data.zoom); };
     const hasActiveAlert = !!alertCard || Object.keys(intrAlerts).length > 0;
     const eventosHoy = Object.values(intrCounts).reduce((a, b) => a + (b || 0), 0);
-    const rightPanelOpen = feedOpen || !!camCustom || placeDrawer || !!intrDrawer;
+    const rightPanelOpen = feedOpen || !!camCustom || placeDrawer || !!intrDrawer || healthOpen;
     const alternarPantalla = () => {
         const el = wrapRef.current; if (!el) return;
         if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
@@ -1297,6 +1299,8 @@ export default function BarrioMap() {
                 <button onClick={() => setSoundOn((v) => !v)} title={soundOn ? "Silenciar alertas" : "Activar sonido de alertas"} className={cn("absolute top-4 left-4 z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", soundOn ? "bg-card/80 text-foreground hover:bg-card" : "bg-red-600/90 text-white")}>{soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}</button>
                 <button onClick={() => setFeedOpen((v) => !v)} title="Feed de intrusiones" className={cn("absolute top-4 left-[3.5rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", feedOpen ? "bg-red-600/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Activity size={16} /></button>
                 <button onClick={() => setLprFeedOn((v) => !v)} title="Feed LPR (entradas / salidas)" className={cn("absolute top-4 left-[6rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", lprFeedOn ? "bg-amber-500/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Car size={16} /></button>
+                <button onClick={() => setHealthOpen((v) => !v)} title="Estado del sistema (NVR / cámaras)" className={cn("absolute top-4 left-[8.5rem] z-[601] h-9 w-9 grid place-items-center rounded-xl backdrop-blur-sm shadow-lg transition-colors", healthOpen ? "bg-sky-600/90 text-white" : "bg-card/80 text-foreground hover:bg-card")}><Gauge size={16} /></button>
+                {healthOpen && <SystemHealthPanel onClose={() => setHealthOpen(false)} />}
                 {feedOpen && !camCustom && !placeDrawer && !intrDrawer && (
                     <div className="absolute top-4 right-4 bottom-4 z-[600] w-[270px] bg-card/95 backdrop-blur-xl border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden">
                         <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">

@@ -233,3 +233,24 @@ export async function ackAlarms(deviceId: string, kind: "real" | "false" = "real
         return { ok: true, count: r.count };
     } catch { return { ok: false, count: 0 }; }
 }
+
+// ── Métricas del panel de salud / SOC: eventos hoy, pendientes, % falsas alarmas, tiempo de reacción ──
+export async function getIntrusionStats(windowHours = 24): Promise<{ eventsToday: number; pending: number; ackedReal: number; ackedFalse: number; falsePct: number | null; avgReactionSec: number | null; lastEventMs: number | null }> {
+    const now = new Date();
+    const startDay = new Date(now); startDay.setHours(0, 0, 0, 0);
+    const since = new Date(now.getTime() - windowHours * 3600 * 1000);
+    const nm = { type: { not: "MOTION" } };
+    const [eventsToday, pending, acked, last] = await Promise.all([
+        prisma.detection.count({ where: { ...nm, timestamp: { gte: startDay } } }),
+        prisma.detection.count({ where: { ...nm, acknowledged: false, timestamp: { gte: since } } }),
+        prisma.detection.findMany({ where: { ...nm, acknowledged: true, ackAt: { not: null }, timestamp: { gte: since } }, select: { ackKind: true, timestamp: true, ackAt: true }, take: 3000 }),
+        prisma.detection.findFirst({ where: nm, orderBy: { timestamp: "desc" }, select: { timestamp: true } }),
+    ]);
+    let real = 0, falseN = 0, sum = 0, n = 0;
+    for (const a of acked) {
+        if (a.ackKind === "false") falseN++; else real++;
+        if (a.ackAt) { const dt = (a.ackAt.getTime() - a.timestamp.getTime()) / 1000; if (dt >= 0 && dt < 86400) { sum += dt; n++; } }
+    }
+    const total = real + falseN;
+    return { eventsToday, pending, ackedReal: real, ackedFalse: falseN, falsePct: total ? Math.round((falseN / total) * 100) : null, avgReactionSec: n ? Math.round(sum / n) : null, lastEventMs: last?.timestamp ? last.timestamp.getTime() : null };
+}

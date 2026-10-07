@@ -73,7 +73,7 @@ async function probeDahua(d: any, res: any) {
 
 async function probe(d: any, streams: Record<string, { consumers: number; producers: number; configured: boolean }>) {
     const st = streams[`lpr_${d.id}`];
-    const res: any = { id: d.id, reachable: false, latencyMs: null, viewers: st?.consumers ?? 0, streamConfigured: !!st?.configured, streamProducers: st?.producers ?? 0 };
+    const res: any = { id: d.id, name: d.name, deviceType: d.deviceType, brand: d.brand, ip: d.ip, reachable: false, latencyMs: null, viewers: st?.consumers ?? 0, streamConfigured: !!st?.configured, streamProducers: st?.producers ?? 0 };
     if (String(d.brand || "").toUpperCase().includes("DAHUA")) return probeDahua(d, res);
     // --- reachability + latencia + estado (System/status trae hora+uptime+mem en un tiro)
     const t0 = Date.now();
@@ -146,10 +146,10 @@ export async function GET() {
     try {
         const devices = await prisma.device.findMany({
             where: { brand: { in: ["HIKVISION", "DAHUA"] }, deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
-            select: { id: true, ip: true, username: true, password: true, authType: true, deviceType: true, brand: true },
+            select: { id: true, name: true, ip: true, username: true, password: true, authType: true, deviceType: true, brand: true },
         });
         const streams = await go2rtcStreams();
-        const results = await Promise.all(devices.map((d) => probe(d, streams).catch(() => ({ id: d.id, reachable: false }))));
+        const results = await Promise.all(devices.map((d) => probe(d, streams).catch(() => ({ id: d.id, name: d.name, deviceType: d.deviceType, brand: d.brand, ip: d.ip, reachable: false }))));
         const map: Record<string, any> = {};
         for (const r of results) map[r.id] = r;
         return NextResponse.json({ ok: true, ts: Date.now(), devices: map });
