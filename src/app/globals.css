@@ -1002,6 +1002,12 @@ video::-webkit-media-controls { display: none !important; }
  * el visor en el selector para ganarle a la regla de la librería sin depender del orden en
  * que se junten los dos CSS.
  */
+/* Encima de todo lo que tapa la pantalla. La librería trae z-index 50: un aviso que sale
+   al guardar desde un cajón o un diálogo quedaba DEBAJO de su fondo oscuro, borroso. El
+   diálogo vive en --capa-panel + 500; el aviso va sobre eso y sobre los menús, y debajo
+   de las pistas (que siguen siendo lo de más arriba). */
+[data-sileo-viewport] { z-index: calc(var(--capa-menu) + 100) !important; }
+
 [data-sileo-viewport][data-position^="bottom"] [data-sileo-toast]:not([data-ready=true]),
 [data-sileo-viewport][data-position^="bottom"] [data-sileo-toast][data-ready=true][data-exiting=true] {
     transform: translateY(1.5rem) scale(.95);
