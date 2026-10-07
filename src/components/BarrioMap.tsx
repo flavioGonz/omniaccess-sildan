@@ -268,7 +268,7 @@ const emptyPin = L.divIcon({ className: "bg-transparent border-0", html: "", ico
 // Manija (vértice) para editar los puntos de una división guardada.
 const vertexIcon = L.divIcon({ className: "bg-transparent border-0", html: `<span style="display:block;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.55);cursor:grab"></span>`, iconSize: [14, 14], iconAnchor: [7, 7] });
 // Ficha del evento de intrusión: imagen a sangre (sin borde) con datos y botones como overlay, borde rojo animado.
-function IntrAlertCard({ card, clip, onAck, onClose, onViewRec }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void }) {
+function IntrAlertCard({ card, clip, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; clip: string | null; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
     return (
         <div className="intr-alert-card">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -280,17 +280,21 @@ function IntrAlertCard({ card, clip, onAck, onClose, onViewRec }: { card: { devi
             <div className="absolute bottom-0 inset-x-0 px-3 pt-10 pb-2.5 bg-gradient-to-t from-black/90 via-black/55 to-transparent z-10">
                 <div className="text-[13px] font-bold text-white truncate" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}>{card.name || "Cámara"}</div>
                 <div className="text-[11px] text-white/80 tabular-nums" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}>{new Date(card.ms).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</div>
-                <div className="mt-2 flex gap-2">
-                    <button onClick={() => onAck(card.deviceId, "real")} className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500 shadow-lg">Real</button>
-                    <button onClick={() => onAck(card.deviceId, "false")} className="flex-1 py-1.5 rounded-lg bg-white/15 backdrop-blur-sm text-white text-xs font-bold hover:bg-white/25 border border-white/20">Falsa alarma</button>
-                    <button onClick={(e) => { e.stopPropagation(); onViewRec?.(); }} title="Ver grabación del evento" className="shrink-0 w-9 py-1.5 grid place-items-center rounded-lg bg-sky-600 text-white hover:bg-sky-500 shadow-lg"><Eye size={15} /></button>
-                </div>
+                {soloLectura ? (
+                    <div className="mt-2 text-[11px] font-bold uppercase tracking-wide text-red-200">Se resuelve desde el panel</div>
+                ) : (
+                    <div className="mt-2 flex gap-2">
+                        <button onClick={() => onAck(card.deviceId, "real")} className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-xs font-bold hover:bg-red-500 shadow-lg">Real</button>
+                        <button onClick={() => onAck(card.deviceId, "false")} className="flex-1 py-1.5 rounded-lg bg-white/15 backdrop-blur-sm text-white text-xs font-bold hover:bg-white/25 border border-white/20">Falsa alarma</button>
+                        <button onClick={(e) => { e.stopPropagation(); onViewRec?.(); }} title="Ver grabación del evento" className="shrink-0 w-9 py-1.5 grid place-items-center rounded-lg bg-sky-600 text-white hover:bg-sky-500 shadow-lg"><Eye size={15} /></button>
+                    </div>
+                )}
             </div>
         </div>
     );
 }
 // Burbuja HTML anclada por proyección sobre la cámara (no usa Popup de Leaflet -> no parpadea).
-function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void }) {
+function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec, soloLectura }: { card: { deviceId: string; ms: number; id?: string; type: string; label?: string | null; name?: string }; camList: any[]; cam: { lat: number; lng: number }; onAck: (id: string, k: string) => void; onClose: () => void; onViewRec?: () => void; soloLectura?: boolean }) {
     const map = useMap();
     const ref = useRef<HTMLDivElement | null>(null);
     const posRef = useRef({ lat: cam.lat, lng: cam.lng });
@@ -310,7 +314,7 @@ function IntrAlertBubble({ card, camList, cam, onAck, onClose, onViewRec }: { ca
     const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(card.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null;
     return createPortal(
         <div ref={ref} className="absolute left-0 top-0 pointer-events-auto" style={{ zIndex: 660, willChange: "transform" }}>
-            <IntrAlertCard card={card} clip={clip} onAck={onAck} onClose={onClose} onViewRec={onViewRec} />
+            <IntrAlertCard card={card} clip={clip} onAck={onAck} onClose={onClose} onViewRec={onViewRec} soloLectura={soloLectura} />
             <span className="block mx-auto w-3 h-3 rotate-45 -mt-1.5 bg-red-600 shadow-lg" />
         </div>,
         map.getContainer()
@@ -607,7 +611,30 @@ function BurbujasVivo({ camaras, nombre, onCerrarUna }: {
     );
 }
 
-export default function BarrioMap() {
+/**
+ * De dónde saca sus datos el mapa.
+ *
+ * En el panel, de los server actions. En una pantalla de pared abierta con un enlace de
+ * pantalla NO hay sesión y el middleware rechaza todo POST (que es como viajan las server
+ * actions), así que la vista Mapa le pasa una fuente que lee de /api/monitor/mapa. Las
+ * firmas son las de las actions para que el resto del componente no sepa la diferencia.
+ */
+export type FuenteMapa = {
+    barrio: typeof getBarrioMap;
+    dispositivos: typeof getDevices;
+    plazas: typeof getParkingSlots;
+    chapasPorPlaza: typeof getPlateSlotMap;
+    camarasIntrusion: typeof getIntrusionCameras;
+    geometria: typeof getAnalyticsGeometryBatch;
+    detecciones: typeof getDetectionHistory;
+    conteosIntrusion: typeof getTodayIntrusionCounts;
+};
+const FUENTE_PANEL: FuenteMapa = { barrio: getBarrioMap, dispositivos: getDevices, plazas: getParkingSlots, chapasPorPlaza: getPlateSlotMap, camarasIntrusion: getIntrusionCameras, geometria: getAnalyticsGeometryBatch, detecciones: getDetectionHistory, conteosIntrusion: getTodayIntrusionCounts };
+
+export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" | "pantalla"; fuente?: FuenteMapa } = {}) {
+    /** Pantalla de pared: sin edición, sin buscador, sin menús, sin acciones. Sólo mirar. */
+    const pared = modo === "pantalla";
+    const F = fuente || FUENTE_PANEL;
     const router = useRouter();
     const [data, setData] = useState<BarrioMapData | null>(null);
     const [devices, setDevices] = useState<any[]>([]);
@@ -677,14 +704,14 @@ export default function BarrioMap() {
     const [soundOn, setSoundOn] = useState(true);
     const [recentIntr, setRecentIntr] = useState<any[]>([]);
     const [intrCounts, setIntrCounts] = useState<Record<string, number>>({});
-    useEffect(() => { getTodayIntrusionCounts().then(setIntrCounts).catch(() => { }); const iv = setInterval(() => getTodayIntrusionCounts().then(setIntrCounts).catch(() => { }), 120000); return () => clearInterval(iv); }, []);
+    useEffect(() => { F.conteosIntrusion().then(setIntrCounts).catch(() => { }); const iv = setInterval(() => F.conteosIntrusion().then(setIntrCounts).catch(() => { }), 120000); return () => clearInterval(iv); }, []);
     const [feedOpen, setFeedOpen] = useState(false);
     useEffect(() => { try { if (localStorage.getItem("olivos.intrFeed") === "1") setFeedOpen(true); } catch { } }, []);
     useEffect(() => { try { localStorage.setItem("olivos.intrFeed", feedOpen ? "1" : "0"); } catch { } }, [feedOpen]);
     const [lprFeedOn, setLprFeedOn] = useState(true);
     useEffect(() => { try { const v = localStorage.getItem("olivos.lprFeed"); if (v != null) setLprFeedOn(v === "1"); } catch { } }, []);
     useEffect(() => { try { localStorage.setItem("olivos.lprFeed", lprFeedOn ? "1" : "0"); } catch { } }, [lprFeedOn]);
-    useEffect(() => { getDetectionHistory({ pageSize: 14 }).then((r: any) => setRecentIntr((r.items || []).map((it: any) => ({ id: it.id, deviceId: it.deviceId, name: it.deviceName, type: it.type, label: it.label, ms: new Date(it.timestamp).getTime() })))).catch(() => { }); }, []);
+    useEffect(() => { F.detecciones({ pageSize: 14 }).then((r: any) => setRecentIntr((r.items || []).map((it: any) => ({ id: it.id, deviceId: it.deviceId, name: it.deviceName, type: it.type, label: it.label, ms: new Date(it.timestamp).getTime() })))).catch(() => { }); }, []);
     const soundRef = useRef(true);
     useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
     useEffect(() => { try { if (localStorage.getItem("olivos.intrSound") === "0") setSoundOn(false); } catch { } }, []);
@@ -697,8 +724,8 @@ export default function BarrioMap() {
     const [intrGeomPrev, setIntrGeomPrev] = useState<Record<string, MiniGeom>>({});
     const [geomLoading, setGeomLoading] = useState(false);
     const geomLoadedRef = useRef(false);
-    useEffect(() => { getIntrusionCameras().then((c) => setIntrCamList(c || [])).catch(() => { }); }, []);
-    useEffect(() => { if (!intrPickCam || intrGeomPrev[intrPickCam]) return; getAnalyticsGeometryBatch([intrPickCam]).then((g: any) => setIntrGeomPrev((p) => ({ ...p, ...g }))).catch(() => { }); }, [intrPickCam, intrGeomPrev]);
+    useEffect(() => { F.camarasIntrusion().then((c) => setIntrCamList(c || [])).catch(() => { }); }, []);
+    useEffect(() => { if (!intrPickCam || intrGeomPrev[intrPickCam]) return; F.geometria([intrPickCam]).then((g: any) => setIntrGeomPrev((p) => ({ ...p, ...g }))).catch(() => { }); }, [intrPickCam, intrGeomPrev]);
     // En modo edición, en segundo plano, traemos la analítica (línea/zona) real de cada canal para
     // poder listar/clasificar SOLO las cámaras que tienen un cruce o una zona configurada.
     useEffect(() => {
@@ -707,7 +734,7 @@ export default function BarrioMap() {
         const ids = intrCamList.filter((c) => c.ch != null).map((c) => c.id);
         (async () => {
             for (let i = 0; i < ids.length; i += 10) {
-                try { const g = await getAnalyticsGeometryBatch(ids.slice(i, i + 10)); setIntrGeomPrev((p) => ({ ...p, ...g })); } catch { }
+                try { const g = await F.geometria(ids.slice(i, i + 10)); setIntrGeomPrev((p) => ({ ...p, ...g })); } catch { }
             }
             setGeomLoading(false);
         })();
@@ -726,7 +753,7 @@ export default function BarrioMap() {
     const lastBeepRef = useRef<Record<string, number>>({});
     const playBeep = useCallback((label?: string | null) => { try { const AC = (window.AudioContext || (window as any).webkitAudioContext); if (!AC) return; const ac = beepRef.current || (beepRef.current = new AC()); if (ac.state === "suspended") ac.resume().catch(() => { }); const seq: [number, number, number][] = label === "human" ? [[1046, 0, 0.13], [1318, 0.17, 0.13]] : [[660, 0, 0.2]]; for (const [f, at, du] of seq) { const o = ac.createOscillator(); const g = ac.createGain(); o.type = "square"; o.frequency.value = f; o.connect(g); g.connect(ac.destination); const t = ac.currentTime + at; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(label === "human" ? 0.28 : 0.2, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + du); o.start(t); o.stop(t + du + 0.03); } } catch { } }, []);
     const speakAlert = useCallback((label?: string | null, name?: string | null) => { try { const w: any = window; if (!w.speechSynthesis) return; const who = label === "vehicle" ? "Vehículo" : label === "human" ? "Persona" : "Detección"; const u = new SpeechSynthesisUtterance(`${who} en ${name || "cámara"}`); u.lang = "es-UY"; u.rate = 1.08; w.speechSynthesis.cancel(); w.speechSynthesis.speak(u); } catch { } }, []);
-    const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); alertDevRef.current = null; setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); setRecentIntr((prev) => prev.filter((it) => it.deviceId !== deviceId)); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
+    const ackAlert = useCallback(async (deviceId: string, kind: "real" | "false") => { if (pared) return; try { await ackAlarms(deviceId, kind); } catch { } setAlertCard(null); alertDevRef.current = null; setIntrAlerts((p) => { const o = { ...p }; delete o[deviceId]; return o; }); setRecentIntr((prev) => prev.filter((it) => it.deviceId !== deviceId)); toast.success({ title: kind === "real" ? "Alarma confirmada" : "Marcada como falsa" }); }, []);
     useEffect(() => { const iv = setInterval(() => { setIntrAlerts((prev) => { const now = Date.now(); const out: typeof prev = {}; let ch = false; for (const k in prev) { if (now - prev[k].ts < 9000) out[k] = prev[k]; else ch = true; } return ch ? out : prev; }); }, 1000); return () => clearInterval(iv); }, []);
     useEffect(() => { const iv = setInterval(() => setNowMin((m) => (m + 1) % 1440), 30000); return () => clearInterval(iv); }, []);
 
@@ -755,10 +782,10 @@ export default function BarrioMap() {
     }, []);
 
     useEffect(() => {
-        getBarrioMap().then((d) => { setData(d); setZoom(d.zoom || 16); }).catch(() => setData(null));
-        getDevices().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA" || x.deviceType === "CAMERA" || x.deviceType === "LPR_INTERIOR"))).catch(() => { });
-        getParkingSlots().then((s: any) => setSlots(s || [])).catch(() => { });
-        getPlateSlotMap().then((m: any) => { plateMapRef.current = m || {}; }).catch(() => { });
+        F.barrio().then((d) => { setData(d); setZoom(d.zoom || 16); }).catch(() => setData(null));
+        F.dispositivos().then((d: any) => setDevices((d || []).filter((x: any) => x.deviceType === "LPR_CAMERA" || x.deviceType === "CAMERA" || x.deviceType === "LPR_INTERIOR"))).catch(() => { });
+        F.plazas().then((s: any) => setSlots(s || [])).catch(() => { });
+        F.chapasPorPlaza().then((m: any) => { plateMapRef.current = m || {}; }).catch(() => { });
     }, []);
     useEffect(() => {
         const close = () => { setCtx(null); setIntrMenu(false); setSchedEdit(null); };
@@ -804,6 +831,7 @@ export default function BarrioMap() {
         });
     }, []);
     const abrirLoteDetalle = useCallback((id: string) => {
+        if (pared) return; // la ficha del lote pide datos con sesión; en la pared no hay ficha
         const lo = lotesRef.current.find((x: any) => x.id === id);
         if (!lo) return;
         setLoteDetail({ lote: lo, loading: !!lo.parkingSlotId, data: null });
@@ -814,6 +842,7 @@ export default function BarrioMap() {
         }
     }, []);
     const abrirBitacora = useCallback(async (guardName: string) => {
+        if (pared) return;
         setBitacora({ guardName, loading: true, entries: [] });
         try {
             const r: any = await getBitacoraPage(0, 40, "", guardName);
@@ -1261,7 +1290,7 @@ export default function BarrioMap() {
                     {Object.keys(intrAlerts).map((devId) => { const cam = data.cameras.find((c) => c.deviceId === devId); if (!cam) return null; return <Marker key={`intr_${devId}`} position={[cam.lat, cam.lng]} icon={intrPulseIcon} interactive={false} zIndexOffset={2000} />; })}
                     {/* Ficha del evento anclada sobre la cámara (overlay HTML por proyección, sin popup) */}
                     {alertCard && (() => { const cam = data.cameras.find((c) => c.deviceId === alertCard.deviceId); if (!cam) return null; return (
-                        <IntrAlertBubble key={`alert_${alertCard.deviceId}`} card={alertCard} camList={intrCamList} cam={cam} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => { const cm = intrCamList.find((c) => c.id === alertCard.deviceId); if (cm) setRecModal({ cam: cm, ms: alertCard.ms }); }} />
+                        <IntrAlertBubble key={`alert_${alertCard.deviceId}`} card={alertCard} camList={intrCamList} cam={cam} onAck={ackAlert} onClose={() => setAlertCard(null)} soloLectura={pared} onViewRec={() => { if (pared) return; const cm = intrCamList.find((c) => c.id === alertCard.deviceId); if (cm) setRecModal({ cam: cm, ms: alertCard.ms }); }} />
                     ); })()}
                     {/* Ruta animada cámara → casa (estilo Uber: azul sólido con casing blanco) */}
                     {ruta && ruta.path.length >= 2 && (
@@ -1325,7 +1354,7 @@ export default function BarrioMap() {
                 {/* Fallback: ficha fija SOLO si la cámara no está colocada en el mapa */}
                 {alertCard && !data.cameras.find((c) => c.deviceId === alertCard.deviceId) && (() => { const meta = intrCamList.find((c) => c.id === alertCard.deviceId); const clip = meta && meta.ch != null && meta.nvrId ? `/api/nvr/playback?ch=${meta.ch}&t=${Math.floor(alertCard.ms)}&pre=4&dur=12&nvr=${meta.nvrId}` : null; return (
                     <div className="absolute top-16 left-4 z-[690]">
-                        <IntrAlertCard card={alertCard} clip={clip} onAck={ackAlert} onClose={() => setAlertCard(null)} onViewRec={() => { const cm = intrCamList.find((c) => c.id === alertCard.deviceId); if (cm) setRecModal({ cam: cm, ms: alertCard.ms }); }} />
+                        <IntrAlertCard card={alertCard} clip={clip} onAck={ackAlert} onClose={() => setAlertCard(null)} soloLectura={pared} onViewRec={() => { if (pared) return; const cm = intrCamList.find((c) => c.id === alertCard.deviceId); if (cm) setRecModal({ cam: cm, ms: alertCard.ms }); }} />
                     </div>
                 ); })()}
                 {recModal && <LiveModal cam={recModal.cam} cams={intrCamList} initialTab="rec" initialRecMs={recModal.ms} onClose={() => setRecModal(null)} />}
@@ -1351,7 +1380,7 @@ export default function BarrioMap() {
                     <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[540] flex items-center gap-2 bg-amber-500 text-white rounded-xl shadow-2xl px-3 py-2 text-xs font-bold">
                         <Move size={14} /> Arrastrá los puntos · clic derecho en un punto para quitarlo
                         <button onClick={() => { const d = data; setEditDivPts(null); persistNow(d, "Línea actualizada"); }} className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30">Listo</button>
-                        <button onClick={() => { setEditDivPts(null); getBarrioMap().then(setData); }} className="px-2 py-0.5 rounded bg-black/20 hover:bg-black/30">Cancelar</button>
+                        <button onClick={() => { setEditDivPts(null); F.barrio().then(setData); }} className="px-2 py-0.5 rounded bg-black/20 hover:bg-black/30">Cancelar</button>
                     </div>
                 )}
 
@@ -1363,8 +1392,8 @@ export default function BarrioMap() {
                     </>
                 )}
 
-                {/* ── Barra superior glass ── */}
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] flex flex-col items-center">
+                {/* ── Barra superior glass ── (no en la pared: ahí no se edita ni se elige nada) */}
+                {!pared && <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[530] flex flex-col items-center">
                     <div className="flex items-center gap-1 bg-card/90 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl p-1.5">
                         <button onClick={(e) => { e.stopPropagation(); setMenuCapas((v) => !v); }}
                             className={cn("h-9 px-3 flex items-center gap-1.5 rounded-xl text-xs font-bold transition-colors", menuCapas ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/10")}>
@@ -1397,7 +1426,7 @@ export default function BarrioMap() {
                                 <div className="w-px h-6 bg-border mx-0.5" />
                                 <Tooltip><TooltipTrigger asChild><button onClick={deleteSelected} disabled={!selected} className={cn(gbtn, selected && "text-red-400 hover:text-red-300 hover:bg-red-500/10")}><Trash2 size={16} /></button></TooltipTrigger><TooltipContent>Borrar seleccionado</TooltipContent></Tooltip>
                                 <button onClick={save} disabled={saving} className="h-9 px-3.5 ml-0.5 flex items-center gap-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-500 transition-colors">{saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Guardar</button>
-                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setDraftDivision([]); setDraftStreet([]); setSelected(null); getBarrioMap().then(setData); }} className={gbtn}><X size={16} /></button>
+                                <button onClick={() => { setEditing(false); setTool("select"); setDraftPerimeter([]); setDraftLote([]); setDraftDivision([]); setDraftStreet([]); setSelected(null); F.barrio().then(setData); }} className={gbtn}><X size={16} /></button>
                             </>
                         ) : (
                             <>
@@ -1438,10 +1467,10 @@ export default function BarrioMap() {
                             </div>
                         </div>
                     )}
-                </div>
+                </div>}
 
                 {/* Buscador inferior glass */}
-                {!editing && (
+                {!editing && !pared && (
                     <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-[520] w-[min(520px,calc(100%-2rem))]">
                         <div className="flex items-center gap-2 bg-card/90 backdrop-blur-2xl border border-border rounded-2xl shadow-2xl px-3 h-12">
                             <Search size={16} className="text-muted-foreground shrink-0" />
@@ -1491,7 +1520,7 @@ export default function BarrioMap() {
                 )}
 
                 {/* Menú contextual */}
-                {ctx && (
+                {ctx && !pared && (
                     <div className="fixed z-[600] bg-popover border border-border rounded-lg shadow-xl py-1 text-xs min-w-[180px]" style={{ left: ctx.x, top: ctx.y }} onClick={(e) => e.stopPropagation()}>
                         {ctx.type === "camera" ? (<>
                             <button onClick={() => { const cam = data.cameras.find((c) => c.deviceId === ctx.id); if (cam && mapRef.current) mapRef.current.setView([cam.lat, cam.lng], Math.max(mapRef.current.getZoom(), 18)); setCtx(null); }} className="w-full text-left px-3 py-1.5 hover:bg-accent flex items-center gap-2"><Radio size={13} className="text-red-400" /> Centrar / ver</button>

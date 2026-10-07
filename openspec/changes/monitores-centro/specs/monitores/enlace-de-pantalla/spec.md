@@ -25,7 +25,7 @@ Un token de pantalla SHALL dar acceso únicamente a la vista para la que fue emi
 
 #### Scenario: Token de rotación
 - **WHEN** un token emitido para Rotación se usa
-- **THEN** abre la rotación y las vistas que la componen, y ninguna otra
+- **THEN** abre la rotación y cualquiera de las vistas de pantalla (la rotación puede componerse con cualquiera, y su composición se cambia en cualquier momento), y nada del panel
 
 ### Requirement: Persistencia en el navegador del monitor
 Al abrir una vista con `?pantalla=<token>` válido, el sistema SHALL recordar el token en ese navegador (cookie propia, distinta de la sesión del panel) para que la vista pueda recargarse y navegar la rotación sin el parámetro en la URL, y MUST quitar el token de la barra de direcciones.

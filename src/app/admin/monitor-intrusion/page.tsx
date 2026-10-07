@@ -12,6 +12,8 @@ import { PlaybackTimeline } from "@/components/PlaybackTimeline";
 import { Scrub } from "@/components/Scrub";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tooltip as RTooltip } from "react-tooltip";
+import { CanalEnAlarma } from "@/components/intrusion/CanalEnAlarma";
+import { META_DETECCION, GeomOverlay } from "@/components/intrusion/comun";
 import "react-tooltip/dist/react-tooltip.css";
 import { LiveModal } from "@/components/intrusion/LiveModal";
 import { HorarioArmadoDialog, ResumenArmado, type HorariosCamara } from "@/components/intrusion/HorarioArmado";
@@ -28,14 +30,7 @@ type AlarmChip = { id: string; type: string; label: string; ts: string };
 const MINIATURA_ANTES_SEG = 3;
 const MINIATURA_DUR_SEG = 14;
 
-const META: Record<string, { label: string; cls: string; ring: string; dot: string; Icon: any }> = {
-    LINECROSS: { label: "Cruce de línea", cls: "text-red-300 border-red-500/40 bg-red-500/10", ring: "ring-red-500", dot: "bg-red-500", Icon: Radar },
-    INTRUSION: { label: "Intrusión", cls: "text-red-300 border-red-500/40 bg-red-500/10", ring: "ring-red-500", dot: "bg-red-500", Icon: ShieldAlert },
-    REGION_ENTER: { label: "Entra a zona", cls: "text-amber-300 border-amber-500/40 bg-amber-500/10", ring: "ring-amber-500", dot: "bg-amber-500", Icon: LogIn },
-    REGION_EXIT: { label: "Sale de zona", cls: "text-amber-300 border-amber-500/40 bg-amber-500/10", ring: "ring-amber-500", dot: "bg-amber-500", Icon: LogOut },
-    MOTION: { label: "Movimiento", cls: "text-sky-300 border-sky-500/40 bg-sky-500/10", ring: "ring-sky-500", dot: "bg-sky-500", Icon: Activity },
-    OTHER: { label: "Evento", cls: "text-slate-300 border-slate-500/40 bg-slate-500/10", ring: "ring-slate-500", dot: "bg-slate-500", Icon: Activity },
-};
+const META = META_DETECCION;
 
 function ago(ts: string) {
     const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
@@ -60,26 +55,6 @@ function Tip({ label, children, side = "top" }: { label: string; children: any; 
                 )}
             </AnimatePresence>
         </span>
-    );
-}
-
-function GeomOverlay({ geom, alert }: { geom?: Geom; alert?: boolean }) {
-    if (!geom || ((!geom.line || geom.line.length < 2) && (!geom.field || geom.field.length < 3))) return null;
-    const lineC = alert ? "#f87171" : "#38bdf8";
-    const zoneStroke = alert ? "#ef4444" : "#f43f5e";
-    const zoneFill = alert ? "rgba(239,68,68,0.30)" : "rgba(244,63,94,0.16)";
-    return (
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className={cn("absolute inset-0 w-full h-full pointer-events-none", alert && "animate-pulse")}>
-            {alert && (
-                <defs><filter id="detglow" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="1.1" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
-            )}
-            {geom.field && geom.field.length >= 3 && (
-                <polygon points={geom.field.map((p) => `${p.x},${p.y}`).join(" ")} fill={zoneFill} stroke={zoneStroke} strokeWidth={alert ? 2.2 : 1.4} strokeLinejoin="round" vectorEffect="non-scaling-stroke" filter={alert ? "url(#detglow)" : undefined} />
-            )}
-            {geom.line && geom.line.length === 2 && (
-                <line x1={geom.line[0].x} y1={geom.line[0].y} x2={geom.line[1].x} y2={geom.line[1].y} stroke={lineC} strokeWidth={alert ? 3 : 2} strokeLinecap="round" vectorEffect="non-scaling-stroke" filter={alert ? "url(#detglow)" : undefined} />
-            )}
-        </svg>
     );
 }
 
@@ -124,47 +99,23 @@ function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending
         <div ref={boxRef} onContextMenu={(e) => { e.preventDefault(); setMenu(true); }}
             className={cn("relative rounded-2xl overflow-hidden aspect-video bg-neutral-900 group/tile transition-all duration-300",
                 (active || attending) ? "" : "ring-1 ring-white/[0.06] hover:ring-white/25")}>
-            {/*
-                UN solo tratamiento para los dos estados de alarma del canal.
-
-                Pendiente (hay eventos sin aceptar) y confirmada (el operador dijo que es real
-                y nadie la resolvió) se dibujaban distinto: la pendiente con un tinte y chips
-                apilados, la confirmada con un borde fino y una píldora de 9px. Ninguno de los
-                dos tenía la presencia del único hecho que importa en esta pantalla: hay
-                alguien donde no debería. Ahora el canal entero se tiñe con el mismo degradé
-                rojo que se mueve, el rótulo late en el centro —DETECTADA o CONFIRMADA, que es
-                la única diferencia que el operador tiene que leer— y hay UN botón: ver el
-                evento. Lo que se decide (real/falsa, o resuelta/falsa) se decide en la ficha,
-                con la foto grande delante, no desde una píldora a ciegas.
-            */}
-            {(active || attending) && (() => {
-                const primera = active ? alarms![0] : null;
-                const tipo = primera ? primera.label : m ? m.label : "Intrusión";
-                const hace = primera ? primera.ts : last ? last.timestamp : null;
-                return (
-                    <div className="absolute inset-0 z-[41] rounded-2xl overflow-hidden pointer-events-none">
-                        <div className="intr-conf" />
-                        <div className="intr-conf-borde" />
-                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-black/35 backdrop-blur-sm text-red-100 text-[9px] font-extrabold uppercase tracking-[0.18em]">
-                                <ShieldAlert size={10} /> {tipo}{hace ? ` · hace ${ago(hace)}` : ""}{active && alarms!.length > 1 ? ` · ${alarms!.length} eventos` : ""}
-                            </span>
-                            <div className="intr-conf-rotulo text-white font-black uppercase leading-none tracking-[0.12em] text-[clamp(14px,2.1vw,24px)] drop-shadow-lg">
-                                {active ? "Intrusión detectada" : "Intrusión confirmada"}
-                            </div>
-                            <div className="text-[10.5px] font-semibold text-white/85 drop-shadow truncate max-w-full">
-                                {cam.name}{cam.nvrName ? ` · ${cam.nvrName}` : ""}{cam.ch != null ? ` · CH ${cam.ch}` : ""}
-                                <span className="text-white/60"> · {active ? "sin confirmar" : "sin resolver"}</span>
-                            </div>
-                            <button onClick={(e) => { e.stopPropagation(); onAck(cam); }} data-tooltip-id="mi-tip"
-                                data-tooltip-content={active ? "Abre la ficha del evento: desde ahí se confirma como real o se marca como falsa alarma" : "Abre la ficha del evento: desde ahí se acepta como resuelta o se marca como falsa alarma"}
-                                className="pointer-events-auto mt-1 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white text-red-700 text-[12px] font-extrabold uppercase tracking-wide shadow-[0_8px_24px_rgba(0,0,0,.45)] hover:bg-red-50 active:scale-95 transition">
-                                <Eye size={15} /> Ver evento
-                            </button>
-                        </div>
-                    </div>
-                );
-            })()}
+            {/* El overlay de alarma es la misma pieza que usa la pantalla del centro de monitoreo
+                (components/intrusion/CanalEnAlarma): acá va con el botón "Ver evento". */}
+            {(active || attending) && (
+                <CanalEnAlarma
+                    estado={active ? "pendiente" : "confirmada"}
+                    tipo={active ? alarms![0].label : m ? m.label : "Intrusión"}
+                    desde={active ? alarms![0].ts : last ? last.timestamp : null}
+                    eventos={active ? alarms!.length : 1}
+                    camara={`${cam.name}${cam.nvrName ? ` · ${cam.nvrName}` : ""}${cam.ch != null ? ` · CH ${cam.ch}` : ""}`}
+                    accion={
+                        <button onClick={(e) => { e.stopPropagation(); onAck(cam); }} data-tooltip-id="mi-tip"
+                            data-tooltip-content={active ? "Abre la ficha del evento: desde ahí se confirma como real o se marca como falsa alarma" : "Abre la ficha del evento: desde ahí se acepta como resuelta o se marca como falsa alarma"}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white text-red-700 text-[12px] font-extrabold uppercase tracking-wide shadow-[0_8px_24px_rgba(0,0,0,.45)] hover:bg-red-50 active:scale-95 transition">
+                            <Eye size={15} /> Ver evento
+                        </button>
+                    } />
+            )}
             {!loaded && <div className="absolute inset-0 sk" />}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={src} alt={cam.name} loading="lazy" decoding="async" onLoad={() => setLoaded(true)}

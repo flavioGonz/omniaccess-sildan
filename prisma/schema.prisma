@@ -80,6 +80,22 @@ model User {
 
 /// Un rol de la aplicacion: un nombre y la lista de permisos (claves de lib/permisos.ts).
 /// Los dos de sistema (Administrador, Operador) no se borran; el resto los arma el barrio.
+// Un enlace de pantalla: la credencial con la que una PC del centro de monitoreo abre UNA
+// vista de /monitor sin usuario ni contraseña. Se guarda el hash del token, nunca el token.
+model EnlacePantalla {
+  id           String    @id @default(cuid())
+  nombre       String
+  vista        String
+  tokenHash    String    @unique
+  creadoPor    String?
+  creadoEn     DateTime  @default(now())
+  ultimoUsoEn  DateTime?
+  ultimoUsoIp  String?
+  revocadoEn   DateTime?
+
+  @@index([vista])
+}
+
 model AppRole {
   id          String   @id @default(cuid())
   nombre      String   @unique

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
-import { leerHorario, escribirHorario, describirHorario, armadaAhora, type Horario, type TipoRegla } from "@/lib/isapi-horarios";
+import { escribirHorario, describirHorario, type Horario, type TipoRegla } from "@/lib/isapi-horarios";
+import { camarasDeIntrusion, leerDeCamara, olvidarHorarios } from "@/lib/horarios-camaras";
 
 export const dynamic = "force-dynamic";
 
@@ -14,24 +15,6 @@ export const dynamic = "force-dynamic";
  *       Con `todas`, además guarda el criterio general en Setting INTRUSION_HORARIO_GENERAL
  *       para que el monitor lo muestre como "criterio general".
  */
-
-/** Las cámaras que vigilan intrusión: Hikvision, de tipo CAMERA o interior. */
-async function camarasDeIntrusion(deviceId?: string) {
-    return prisma.device.findMany({
-        where: { brand: "HIKVISION", ...(deviceId ? { id: deviceId } : { deviceType: { in: ["CAMERA", "LPR_INTERIOR"] as any } }) },
-        select: { id: true, name: true, ip: true, username: true, password: true, authType: true },
-        orderBy: { name: "asc" },
-    });
-}
-
-async function leerDeCamara(cam: any) {
-    const out: Record<TipoRegla, { horario: Horario; texto: string; armadaAhora: boolean } | null> = { linea: null, zona: null };
-    for (const tipo of ["linea", "zona"] as TipoRegla[]) {
-        try { const h = await leerHorario(cam, tipo); out[tipo] = h ? { horario: h, texto: describirHorario(h), armadaAhora: armadaAhora(h) } : null; }
-        catch { out[tipo] = null; }
-    }
-    return out;
-}
 
 export async function GET(req: NextRequest) {
     const auth = await verifyApiAuth();
@@ -56,6 +39,7 @@ export async function POST(req: NextRequest) {
     if (!b.horario || !Array.isArray(b.horario.bloques) || tipos.length === 0) return NextResponse.json({ error: "Falta el horario o los tipos" }, { status: 400 });
     const cams = await camarasDeIntrusion(b.todas ? undefined : b.deviceId);
     if (cams.length === 0) return NextResponse.json({ error: "No hay cámaras" }, { status: 404 });
+    olvidarHorarios();
 
     const resultado: { id: string; name: string; ok: TipoRegla[]; fallo: { tipo: TipoRegla; error: string }[]; texto: string }[] = [];
     await Promise.all(cams.map(async (c) => {

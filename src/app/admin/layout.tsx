@@ -42,6 +42,7 @@ import {
     Map as MapIcon,
     Sparkles,
     Ticket,
+    MonitorPlay,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import AlertBell from "@/components/AlertBell";
@@ -198,6 +199,7 @@ export default function AdminLayout({
                     {!modules.MODULE_QUEUE && (
                         ve("mapa") && (<SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />)
                     )}
+                    {ve("monitores") && (<SidebarItem icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />)}
 
                     {!modules.MODULE_QUEUE && (
                         <>

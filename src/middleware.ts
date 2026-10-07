@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
 import { puedeAbrir, CLAVES_PERMISOS, PERMISOS_OPERADOR } from '@/lib/permisos'
+import { esVista, alcanceCubre, enlaceAbre, COOKIE_PANTALLA, PARAM_PANTALLA, type ClaveVista } from '@/lib/monitor/vistas'
 
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null
@@ -40,7 +41,6 @@ export async function middleware(request: NextRequest) {
         // quien preguntara, el historial de accesos de cualquier matricula. Ahora exige
         // sesion como el resto de la aplicacion.
         pathname.startsWith('/api/files/') ||
-        pathname === '/api/system-status' ||
         pathname.startsWith('/api/topology/') ||
         pathname === '/api/queue-report' ||
         pathname.startsWith('/api/queue/poll') ||
@@ -67,6 +67,61 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/facepad/')
     ) {
         return NextResponse.next()
+    }
+
+    // --- MONITORES: las vistas de pantalla y sus APIs aceptan sesión O enlace de pantalla ---
+    // El enlace llega una vez como ?pantalla=<token> y se canjea por una cookie firmada en
+    // /api/monitor/pantalla/entrar (Node: ahí se mira la base). Acá sólo se verifica la firma
+    // y el alcance: qué vista abre y qué APIs puede leer (lib/monitor/vistas).
+    if (pathname === '/api/monitor/pantalla/entrar' || pathname.startsWith('/monitor/enlace-invalido')) {
+        return NextResponse.next()
+    }
+    const esApiMonitor = pathname.startsWith('/api/monitor/') || pathname === '/api/system-status'
+    if (pathname.startsWith('/monitor') || esApiMonitor) {
+        const token = request.nextUrl.searchParams.get(PARAM_PANTALLA)
+        if (token && !esApiMonitor) {
+            const url = new URL('/api/monitor/pantalla/entrar', request.url)
+            url.searchParams.set(PARAM_PANTALLA, token)
+            url.searchParams.set('volver', pathname)
+            return NextResponse.redirect(url)
+        }
+        const session = request.cookies.get('session')?.value
+        if (session && key) {
+            try {
+                const { payload } = await jwtVerify(session, key, { algorithms: ['HS256'] })
+                const perms = Array.isArray((payload as any).perms) ? (payload as any).perms as string[]
+                    : ((payload as any).role === 'ADMIN' ? CLAVES_PERMISOS : PERMISOS_OPERADOR)
+                if (esApiMonitor || puedeAbrir(perms, pathname)) return NextResponse.next()
+                if (!esApiMonitor) {
+                    const url = new URL('/admin/sin-permiso', request.url); url.searchParams.set('ruta', pathname)
+                    return NextResponse.redirect(url)
+                }
+            } catch { /* sesión vencida: se prueba con el enlace de pantalla */ }
+        }
+        const cookiePantalla = request.cookies.get(COOKIE_PANTALLA)?.value
+        if (cookiePantalla && key) {
+            try {
+                const { payload } = await jwtVerify(cookiePantalla, key, { algorithms: ['HS256'] })
+                const vista = payload.tipo === 'pantalla' && esVista(payload.vista as string) ? (payload.vista as ClaveVista) : null
+                if (vista) {
+                    // Un enlace de pantalla sólo LEE. Las server actions viajan como POST a la
+                    // propia página: sin esta línea, quien tuviera el token podría invocar
+                    // cualquier acción del servidor desde /monitor/<vista>.
+                    if (request.method !== 'GET' && request.method !== 'HEAD') {
+                        return NextResponse.json({ error: 'Un enlace de pantalla sólo puede leer' }, { status: 403 })
+                    }
+                    if (esApiMonitor) {
+                        if (alcanceCubre(vista, pathname)) return NextResponse.next()
+                        return NextResponse.json({ error: 'Este enlace de pantalla no abre esta información' }, { status: 403 })
+                    }
+                    const destino = pathname.split('/')[2] || ''
+                    if (destino === '' || enlaceAbre(vista, destino)) return NextResponse.next()
+                    return NextResponse.redirect(new URL('/monitor/enlace-invalido?motivo=otra-vista', request.url))
+                }
+            } catch { /* cookie inválida o vencida */ }
+        }
+        if (esApiMonitor) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+        return NextResponse.redirect(new URL('/login?volver=' + encodeURIComponent(pathname), request.url))
     }
 
     // --- PROTECTED API ROUTES (need session) ---

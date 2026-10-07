@@ -31,6 +31,8 @@ const CLASES: Record<string, string> = { human: "persona", vehicle: "vehículo" 
 const INTERVALO_SONIDO_MS = 6000;
 /** Cada cuánto se reconfirma contra la base, por si se aceptó desde otra pantalla. */
 const INTERVALO_RELECTURA_MS = 30000;
+/** En la pared se relee más seguido: es la única forma en que se entera de que la resolvieron. */
+const INTERVALO_RELECTURA_PARED_MS = 10000;
 
 type Alarma = ActiveAlarm & { deviceName?: string | null; label?: string | null; snapshotPath?: string | null };
 
@@ -42,7 +44,13 @@ function pitido(urgente = true) {
     } catch { /* sin audio */ }
 }
 
-export default function AlertaIntrusionGlobal() {
+/**
+ * `soloLectura`: la misma alerta en una pantalla de pared (/monitor). Ahí no hay quien
+ * decida: se ve la intrusión, pendiente o confirmada sin resolver, y se retira sola cuando
+ * alguien la resuelve en el panel. Los datos llegan por /api/monitor/alarmas y no por
+ * server actions, porque un enlace de pantalla no puede invocarlas.
+ */
+export default function AlertaIntrusionGlobal({ soloLectura = false }: { soloLectura?: boolean } = {}) {
     const pathname = usePathname();
     const router = useRouter();
     const [alarmas, setAlarmas] = useState<Alarma[]>([]);
@@ -52,20 +60,33 @@ export default function AlertaIntrusionGlobal() {
     const [snapshots, setSnapshots] = useState<Record<string, string>>({});
     const enMonitor = pathname?.startsWith("/admin/monitor-intrusion");
 
+    /** Pared: las confirmadas sin resolver también se imponen (en el panel ya las muestra el monitor). */
+    const [confirmadas, setConfirmadas] = useState<{ deviceId: string; deviceName: string; id: string | null; type: string; ts: string | null; snapshotPath: string | null }[]>([]);
+
     const releer = useCallback(() => {
-        getActiveAlarms().then((rows) => setAlarmas((prev) => {
+        const juntar = (rows: ActiveAlarm[]) => setAlarmas((prev) => {
             // Conservar lo que ya se sabía de cada alarma (nombre, foto) y quedarse con las vigentes.
             const previas = new Map(prev.map((a) => [a.id, a]));
             return rows.map((r) => ({ ...r, ...(previas.get(r.id) || {}) }));
-        })).catch(() => { });
-    }, []);
+        });
+        if (soloLectura) {
+            fetch("/api/monitor/alarmas", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+                if (!j) return;
+                juntar(j.pendientes || []);
+                setNombres((n) => ({ ...n, ...Object.fromEntries((j.pendientes || []).map((a: any) => [a.deviceId, a.deviceName])) }));
+                setConfirmadas(j.confirmadas || []);
+            }).catch(() => { });
+            return;
+        }
+        getActiveAlarms().then(juntar).catch(() => { });
+    }, [soloLectura]);
 
     useEffect(() => {
-        getIntrusionCameras().then((cams) => setNombres(Object.fromEntries(cams.map((c: any) => [c.id, c.name])))).catch(() => { });
+        if (!soloLectura) getIntrusionCameras().then((cams) => setNombres(Object.fromEntries(cams.map((c: any) => [c.id, c.name])))).catch(() => { });
         releer();
-        const iv = setInterval(releer, INTERVALO_RELECTURA_MS);
+        const iv = setInterval(releer, soloLectura ? INTERVALO_RELECTURA_PARED_MS : INTERVALO_RELECTURA_MS);
         return () => clearInterval(iv);
-    }, [releer]);
+    }, [releer, soloLectura]);
 
     useEffect(() => {
         let s: any = null;
@@ -86,7 +107,7 @@ export default function AlertaIntrusionGlobal() {
         for (const a of alarmas) m.set(a.deviceId, [...(m.get(a.deviceId) || []), a]);
         return [...m.entries()].map(([deviceId, lista]) => ({ deviceId, lista: lista.sort((x, y) => y.ts.localeCompare(x.ts)) })).sort((x, y) => y.lista[0].ts.localeCompare(x.lista[0].ts));
     }, [alarmas]);
-    const visible = porCamara.length > 0 && !enMonitor;
+    const visible = soloLectura ? (porCamara.length > 0 || confirmadas.length > 0) : (porCamara.length > 0 && !enMonitor);
 
     // Suena al aparecer y cada tanto mientras siga sin aceptar.
     const ultimaCantidad = useRef(0);
@@ -109,7 +130,9 @@ export default function AlertaIntrusionGlobal() {
     };
 
     if (!visible) return null;
-    const actual = porCamara[0];
+    // En la pared, sin pendientes, se muestra la confirmada más reciente.
+    const confirmada = porCamara.length === 0 ? confirmadas[0] : null;
+    const actual = porCamara[0] || { deviceId: confirmada!.deviceId, lista: [{ id: confirmada!.id || confirmada!.deviceId, deviceId: confirmada!.deviceId, type: confirmada!.type, ts: confirmada!.ts || new Date().toISOString(), deviceName: confirmada!.deviceName, snapshotPath: confirmada!.snapshotPath } as Alarma] };
     const primera = actual.lista[0];
     const nombre = primera.deviceName || nombres[actual.deviceId] || "Cámara";
     const foto = getImagePath(snapshots[primera.id] || primera.snapshotPath) || `/api/snapshot/${actual.deviceId}?t=${Math.floor(Date.now() / 15000)}`;
@@ -128,7 +151,7 @@ export default function AlertaIntrusionGlobal() {
                         <div className="absolute top-0 inset-x-0 p-4 flex items-start gap-3">
                             <span className="w-11 h-11 rounded-xl bg-[var(--mal)] grid place-items-center shrink-0 respirar-icono"><ShieldAlert size={22} className="text-white" /></span>
                             <div className="min-w-0">
-                                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-red-200">Intrusión · requiere confirmación</div>
+                                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-red-200">{confirmada ? "Intrusión confirmada · sin resolver" : soloLectura ? "Intrusión detectada · esperando confirmación en el panel" : "Intrusión · requiere confirmación"}</div>
                                 <div className="text-xl font-extrabold text-white leading-tight truncate">{TIPOS[primera.type] || TIPOS.OTHER}{primera.label && CLASES[primera.label] ? ` · ${CLASES[primera.label]}` : ""}</div>
                                 <div className="text-[13px] text-white/80 truncate">{nombre} · {hace(primera.ts)}{actual.lista.length > 1 ? ` · ${actual.lista.length} detecciones en esta cámara` : ""}</div>
                             </div>
@@ -144,16 +167,22 @@ export default function AlertaIntrusionGlobal() {
                         )}
                         <div className="absolute bottom-0 inset-x-0 p-4 sm:p-5 flex flex-wrap items-end gap-3">
                             <div className="min-w-0 flex-1">
-                                <p className="text-[13px] text-white/85 leading-snug">La cámara confirmó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b>. Decidí qué es: la alerta no se cierra sola.</p>
-                                <button onClick={() => router.push("/admin/monitor-intrusion")} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-semibold text-red-200 hover:text-white underline decoration-dotted"><ExternalLink size={12} /> Ver en el monitor de intrusión (vivo, grabación, otras cámaras)</button>
+                                {soloLectura ? (
+                                    <p className="text-[15px] text-white/85 leading-snug">{confirmada ? <>Un operador confirmó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b> y todavía no la resolvió.</> : <>La cámara detectó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b>. Se decide desde el panel; esta pantalla se libera sola.</>}</p>
+                                ) : (<>
+                                    <p className="text-[13px] text-white/85 leading-snug">La cámara confirmó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b>. Decidí qué es: la alerta no se cierra sola.</p>
+                                    <button onClick={() => router.push("/admin/monitor-intrusion")} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-semibold text-red-200 hover:text-white underline decoration-dotted"><ExternalLink size={12} /> Ver en el monitor de intrusión (vivo, grabación, otras cámaras)</button>
+                                </>)}
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                                <button onClick={() => resolver(actual.deviceId, "false")} disabled={!!resolviendo} className="inline-flex items-center gap-1.5 px-5 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-amber-200 text-[13px] font-extrabold ring-1 ring-white/15 disabled:opacity-50">{resolviendo === actual.deviceId ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />} Falsa alarma</button>
-                                <button onClick={() => resolver(actual.deviceId, "real")} disabled={!!resolviendo} className="inline-flex items-center gap-2 px-6 h-11 rounded-[10px] bg-[var(--mal)] hover:opacity-90 text-white text-[14px] font-extrabold disabled:opacity-50"><Check size={17} /> Intrusión real: la atiendo</button>
-                            </div>
+                            {!soloLectura && (
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button onClick={() => resolver(actual.deviceId, "false")} disabled={!!resolviendo} className="inline-flex items-center gap-1.5 px-5 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-amber-200 text-[13px] font-extrabold ring-1 ring-white/15 disabled:opacity-50">{resolviendo === actual.deviceId ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />} Falsa alarma</button>
+                                    <button onClick={() => resolver(actual.deviceId, "real")} disabled={!!resolviendo} className="inline-flex items-center gap-2 px-6 h-11 rounded-[10px] bg-[var(--mal)] hover:opacity-90 text-white text-[14px] font-extrabold disabled:opacity-50"><Check size={17} /> Intrusión real: la atiendo</button>
+                                </div>
+                            )}
                         </div>
                     </div>
-                    <div className="px-4 py-2 bg-neutral-950 text-[11px] text-white/55 flex items-center gap-2"><Clock size={11} /> Al confirmarla como real, la cámara queda "en atención" en el monitor hasta que se resuelva. Falsa alarma la archiva como tal en el historial.</div>
+                    <div className="px-4 py-2 bg-neutral-950 text-[11px] text-white/55 flex items-center gap-2"><Clock size={11} /> {soloLectura ? "Esta pantalla es de sólo lectura: la alerta se retira cuando se resuelve desde el panel de OmniAccess." : "Al confirmarla como real, la cámara queda \"en atención\" en el monitor hasta que se resuelva. Falsa alarma la archiva como tal en el historial."}</div>
                 </div>
             </div>
             <style jsx global>{`

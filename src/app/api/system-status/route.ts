@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import axios from "axios";
 import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { autorizarMonitor } from "@/lib/monitor/servidor";
 
 export async function GET(req: NextRequest) {
+    // Era pública (estaba en la lista blanca del middleware) y devolvía host, versión y tamaño
+    // de la base, y el endpoint del MinIO, a quien preguntara. Exige sesión, o el enlace de
+    // pantalla de la vista Salud, que es la única que la consume sin usuario.
+    const puerta = await autorizarMonitor("/api/system-status");
+    if (puerta.error) return puerta.error;
     const status: any = {};
 
     // 1. Check Primary Database
