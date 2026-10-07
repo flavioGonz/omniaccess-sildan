@@ -662,6 +662,14 @@ const fetchAkuvoxFaceImage = async (device, options = {}) => {
 
 const debounceCache = new Map();
 const DEBOUNCE_TIME = 5000;
+// Antirrebote LPR por la HORA DEL EVENTO (la de la cámara), por cámara + matrícula. Medido el
+// 7/10 en San Nicolás: LPR Salida manda 3-4 avisos de la misma pasada en 3 s (18:30:09, :10,
+// :10, :12) y el servidor tarda ~5,5 s en procesar cada uno (sube la foto antes), así que el
+// antirrebote de 5 s contado al PROCESAR los dejaba pasar a todos: 1.087 de 2.060 eventos del
+// día eran repeticiones de menos de 30 s. Dos pasadas reales de la misma chapa por la misma
+// cámara en 20 s no ocurren (la barrera tarda más que eso en cerrar).
+const ANTIRREBOTE_LPR_EVENTO_MS = 20000;
+const ultimoEventoLpr = new Map(); // "ip|chapa" -> hora del evento (ms)
 
 // Debug Logs History (In-memory)
 const debugLogsHistory = [];
@@ -1343,6 +1351,21 @@ const handleWebhook = async (req, res, logPrefix) => {
         // Debounce
         const now = Date.now();
         const lastSeen = debounceCache.get(finalPlate);
+        // Además del antirrebote al recibir, el de la hora del evento (ver ANTIRREBOTE_LPR_EVENTO_MS).
+        // NO_LEIDA no se agrupa: dos lecturas sin chapa pueden ser dos autos.
+        const claveEvento = `${ipAddress || "?"}|${finalPlate}`;
+        const tEvento = eventTimestamp.getTime();
+        const tPrevio = finalPlate !== "NO_LEIDA" ? ultimoEventoLpr.get(claveEvento) : undefined;
+        if (tPrevio != null && Math.abs(tEvento - tPrevio) < ANTIRREBOTE_LPR_EVENTO_MS) {
+            console.log(`${logPrefix} Debounced (misma pasada, ${Math.round(Math.abs(tEvento - tPrevio) / 1000)} s): ${finalPlate}`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ message: "Debounced", plate: finalPlate }));
+            return;
+        }
+        if (finalPlate !== "NO_LEIDA") {
+            ultimoEventoLpr.set(claveEvento, tEvento);
+            if (ultimoEventoLpr.size > 5000) { for (const [k, v] of ultimoEventoLpr) if (now - v > 10 * 60 * 1000) ultimoEventoLpr.delete(k); }
+        }
         if (lastSeen && now - lastSeen < DEBOUNCE_TIME) {
             console.log(`${logPrefix} Debounced: ${finalPlate}`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
