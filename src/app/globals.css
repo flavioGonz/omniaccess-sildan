@@ -2136,3 +2136,10 @@ video::-webkit-media-controls { display: none !important; }
 }
 .intr-conf-borde { position: absolute; inset: 0; border-radius: 1rem; box-shadow: inset 0 0 0 3px rgba(254,202,202,.9), 0 0 0 2px rgba(239,68,68,.9), 0 0 38px rgba(239,68,68,.85); animation: intrConfRespira 1.4s ease-in-out infinite; }
 .intr-conf-rotulo { animation: intrConfLatido 1.4s ease-in-out infinite; }
+
+/* El botón de armar del horario de intrusión: respira mientras se puede apretar. Un halo del azul de acción, no un color nuevo. */
+@keyframes botonArmar {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accion) 55%, transparent); }
+  60%      { box-shadow: 0 0 0 9px color-mix(in oklab, var(--accion) 0%, transparent); }
+}
+.boton-armar { animation: botonArmar 1.8s ease-out infinite; }
