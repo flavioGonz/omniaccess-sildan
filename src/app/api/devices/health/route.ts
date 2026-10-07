@@ -36,9 +36,45 @@ async function go2rtcStreams(): Promise<Record<string, { consumers: number; prod
     } catch { return {}; }
 }
 
+async function probeDahua(d: any, res: any) {
+    const t0 = Date.now();
+    try {
+        await authenticatedRequest("GET", "/cgi-bin/magicBox.cgi?action=getSystemInfo", auth(d), { responseType: "text", timeout: 5000 });
+        res.reachable = true; res.latencyMs = Date.now() - t0;
+    } catch { res.reachable = false; return res; }
+    const jobs: Promise<void>[] = [];
+    jobs.push((async () => {
+        try { const tr = await authenticatedRequest("GET", "/cgi-bin/global.cgi?action=getCurrentTime", auth(d), { responseType: "text", timeout: 4000 }); const m = /result=([\d\-: ]+)/.exec(tr); if (m) res.localTime = m[1].trim(); } catch { }
+        try { const nt = await authenticatedRequest("GET", "/cgi-bin/configManager.cgi?action=getConfig&name=NTP", auth(d), { responseType: "text", timeout: 4000 }); res.timeMode = /\.Enable=true/i.test(nt) ? "NTP" : "manual"; } catch { }
+    })());
+    jobs.push((async () => {
+        try {
+            const txt = await authenticatedRequest("GET", "/cgi-bin/storageDevice.cgi?action=getDeviceAllInfo", auth(d), { responseType: "text", timeout: 6000 });
+            const disks: any[] = [];
+            const names = [...txt.matchAll(/list\.info\[(\d+)\]\.Name=(.+)/g)];
+            for (const nm of names) {
+                const idx = nm[1]; const name = String(nm[2]).trim();
+                const stM = new RegExp("list\\.info\\[" + idx + "\\]\\.State=(\\w+)").exec(txt);
+                const state = stM ? stM[1] : "";
+                const err = new RegExp("list\\.info\\[" + idx + "\\]\\.Detail\\[\\d+\\]\\.IsError=true").test(txt);
+                let tot = 0, used = 0, mm: any;
+                const trx = new RegExp("list\\.info\\[" + idx + "\\]\\.Detail\\[\\d+\\]\\.TotalBytes=([\\d.]+)", "g");
+                const urx = new RegExp("list\\.info\\[" + idx + "\\]\\.Detail\\[\\d+\\]\\.UsedBytes=([\\d.]+)", "g");
+                while ((mm = trx.exec(txt))) tot += parseFloat(mm[1]);
+                while ((mm = urx.exec(txt))) used += parseFloat(mm[1]);
+                disks.push({ name, status: (state === "Success" && !err) ? "ok" : "error", model: "", serial: "", capacityGB: tot ? Math.round(tot / 1e9) : 0, usedPct: tot ? Math.round((used / tot) * 100) : 0 });
+            }
+            res.disks = disks;
+        } catch { res.disks = []; }
+    })());
+    await Promise.all(jobs);
+    return res;
+}
+
 async function probe(d: any, streams: Record<string, { consumers: number; producers: number; configured: boolean }>) {
     const st = streams[`lpr_${d.id}`];
     const res: any = { id: d.id, reachable: false, latencyMs: null, viewers: st?.consumers ?? 0, streamConfigured: !!st?.configured, streamProducers: st?.producers ?? 0 };
+    if (String(d.brand || "").toUpperCase().includes("DAHUA")) return probeDahua(d, res);
     // --- reachability + latencia + estado (System/status trae hora+uptime+mem en un tiro)
     const t0 = Date.now();
     let statusXml = "";
@@ -109,8 +145,8 @@ async function probe(d: any, streams: Record<string, { consumers: number; produc
 export async function GET() {
     try {
         const devices = await prisma.device.findMany({
-            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
-            select: { id: true, ip: true, username: true, password: true, authType: true, deviceType: true },
+            where: { brand: { in: ["HIKVISION", "DAHUA"] }, deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
+            select: { id: true, ip: true, username: true, password: true, authType: true, deviceType: true, brand: true },
         });
         const streams = await go2rtcStreams();
         const results = await Promise.all(devices.map((d) => probe(d, streams).catch(() => ({ id: d.id, reachable: false }))));

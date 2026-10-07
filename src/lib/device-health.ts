@@ -39,6 +39,12 @@ async function probe(d: any, viewers: Record<string, number>): Promise<HealthRes
         reachable: false, latencyMs: null, memPct: null, uptimeSec: null,
         driftSec: null, disksOk: null, viewers: viewers[`lpr_${d.id}`] ?? 0, vcaMode: null,
     };
+    if (String(d.brand || "").toUpperCase().includes("DAHUA")) {
+        const td0 = Date.now();
+        try { await authenticatedRequest("GET", "/cgi-bin/magicBox.cgi?action=getSystemInfo", auth(d), { responseType: "text", timeout: 5000 }); res.reachable = true; res.latencyMs = Date.now() - td0; } catch { return res; }
+        try { const txt = await authenticatedRequest("GET", "/cgi-bin/storageDevice.cgi?action=getDeviceAllInfo", auth(d), { responseType: "text", timeout: 6000 }); const states = [...txt.matchAll(/list\.info\[\d+\]\.State=(\w+)/g)].map((x) => x[1]); const anyErr = /\.IsError=true/i.test(txt); res.disksOk = states.length ? (states.every((x) => x === "Success") && !anyErr) : null; } catch { res.disksOk = null; }
+        return res;
+    }
     const t0 = Date.now();
     let statusXml = "";
     try {
@@ -91,8 +97,8 @@ async function probe(d: any, viewers: Record<string, number>): Promise<HealthRes
 
 export async function probeAllDevices(): Promise<HealthResult[]> {
     const devices = await prisma.device.findMany({
-        where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
-        select: { id: true, name: true, ip: true, username: true, password: true, authType: true, deviceType: true },
+        where: { brand: { in: ["HIKVISION", "DAHUA"] }, deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
+        select: { id: true, name: true, ip: true, username: true, password: true, authType: true, deviceType: true, brand: true },
     });
     const viewers = await go2rtcViewers();
     return Promise.all(devices.map((d) => probe(d, viewers).catch((): HealthResult => ({
