@@ -5,6 +5,7 @@ import { pantallaInicio } from '@/lib/landing'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { SignJWT, jwtVerify } from 'jose'
+import { CLAVES_PERMISOS, PERMISOS_OPERADOR, esAdministrador } from '@/lib/permisos'
 import bcrypt from 'bcryptjs'
 
 // JWT_SECRET MUST come from environment - no hardcoded fallback
@@ -84,7 +85,8 @@ export async function login(formData: FormData) {
             name: username
         },
         include: {
-            credentials: true
+            credentials: true,
+            appRole: true,
         }
     })
 
@@ -122,11 +124,18 @@ export async function login(formData: FormData) {
     // Success - reset rate limit
     resetRateLimit(username.toLowerCase())
 
-    // OA-LOGIN-ROL-CLARO: clave correcta, pero sólo ADMIN entra al panel.
-    // Las cuentas de guardia (STAFF) usan la consola /guard, no este login.
-    if (user.role !== 'ADMIN' && user.role !== 'OPERATOR') {
+    // Entra al panel quien tiene un rol de la aplicación (Ajustes → Accesos) o, por
+    // compatibilidad, el role legado ADMIN/OPERATOR sin migrar. Las cuentas de guardia (STAFF)
+    // usan la consola /guard, no este login.
+    const esDelPanel = !!user.appRole || user.role === 'ADMIN' || user.role === 'OPERATOR'
+    if (!esDelPanel) {
         return { error: 'Esta cuenta no tiene acceso al panel de administración. Las cuentas de guardia ingresan por la consola (/guard).' }
     }
+    // Los permisos viajan en la sesión: el middleware corta rutas y el menú se arma con esto
+    // sin consultar la base en cada navegación. Cambiar un rol pide volver a entrar.
+    const perms: string[] = user.appRole ? user.appRole.permisos : (user.role === 'ADMIN' ? CLAVES_PERMISOS : PERMISOS_OPERADOR)
+    const rolApp = user.appRole?.nombre || (user.role === 'ADMIN' ? 'Administrador' : 'Operador')
+    const roleSesion = esAdministrador(perms) ? 'ADMIN' : 'OPERATOR'
 
     if (!secretKey) {
         return { error: 'Error de configuración del servidor. Contacte al administrador.' }
@@ -134,7 +143,7 @@ export async function login(formData: FormData) {
 
     const expiresCtx = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
-    const token = await new SignJWT({ sub: user.id, role: user.role, name: user.name })
+    const token = await new SignJWT({ sub: user.id, role: roleSesion, name: user.name, perms, rolApp })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
         .setExpirationTime('24h')

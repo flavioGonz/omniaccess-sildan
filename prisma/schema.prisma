@@ -72,6 +72,23 @@ model User {
   unit            Unit?         @relation(fields: [unitId], references: [id])
   vehicles        Vehicle[]
   accessGroups    AccessGroup[] @relation("AccessGroupToUser")
+  /// Acceso al panel: el rol de la aplicacion (que pantallas puede abrir). `role` sigue
+  /// diciendo que es la persona en el barrio; esto dice que puede hacer en el sistema.
+  appRoleId       String?
+  appRole         AppRole?      @relation(fields: [appRoleId], references: [id])
+}
+
+/// Un rol de la aplicacion: un nombre y la lista de permisos (claves de lib/permisos.ts).
+/// Los dos de sistema (Administrador, Operador) no se borran; el resto los arma el barrio.
+model AppRole {
+  id          String   @id @default(cuid())
+  nombre      String   @unique
+  descripcion String   @default("")
+  permisos    String[] @default([])
+  esSistema   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  users       User[]
 }
 
 model Credential {

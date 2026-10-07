@@ -85,6 +85,7 @@ interface UserWithRelations {
     updatedAt: Date;
     unitId: string | null;
     parkingSlotId: string | null;
+    appRoleId: string | null;
     unit: any | null;
     credentials: any[];
     accessGroups: any[];
