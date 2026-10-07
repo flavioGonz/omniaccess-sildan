@@ -22,6 +22,10 @@ import { ZONA } from "@/lib/fechas";
  *  · Pantalla completa al primer gesto, y el cursor y los botones se esconden a los 5 s.
  *  · Oscuro fijo: el `div.dark` de afuera hace que los tokens y los `dark:` apliquen sin
  *    tocar la preferencia del panel en ese navegador.
+ *  · Táctil: la misma vista puede estar en una tablet o en una pantalla táctil del puesto.
+ *    Ahí no hay mouse que mover para que aparezcan los botones, así que con un puntero
+ *    "grueso" (dedo) los controles quedan siempre a la vista y miden 48 px, el cursor no se
+ *    esconde, y la página no se deja arrastrar ni recargar con el gesto de tirar hacia abajo.
  */
 
 /** Sin datos ni socket por más de esto, la pantalla lo dice en ámbar. */
@@ -38,6 +42,8 @@ type Marco = {
     pantalla: { enlaceId: string; vista: string } | null;
     /** Llamar cada vez que llega un dato: es lo que sostiene "En vivo". */
     latir: () => void;
+    /** Hay un dedo y no un mouse: las vistas agrandan lo tocable y no dependen del hover. */
+    tactil: boolean;
     conectado: boolean;
     /** El nombre de la vista para el encabezado; lo pone cada vista. */
     setTitulo: (t: string) => void;
@@ -56,6 +62,15 @@ export function MarcoMonitor({ children }: { children: React.ReactNode }) {
     const [quieto, setQuieto] = useState(false);
     const [silencio, setSilencio] = useState<boolean>(() => { try { return localStorage.getItem("oa.monitor.silencio") === "1"; } catch { return false; } });
     const [bloqueado, setBloqueado] = useState(true);
+    const [tactil, setTactil] = useState(false);
+    useEffect(() => {
+        try {
+            const mq = window.matchMedia("(any-pointer: coarse)");
+            const leer = () => setTactil(mq.matches);
+            leer(); mq.addEventListener?.("change", leer);
+            return () => mq.removeEventListener?.("change", leer);
+        } catch { /* sin matchMedia: se asume mouse */ }
+    }, []);
     const latir = useCallback(() => setUltimoDato(Date.now()), []);
 
     const { datos: marco, revocado } = usarDatos<{ barrio: string; ajustes: Ajustes; pantalla: Marco["pantalla"] }>("/api/monitor/marco", INTERVALO_MARCO_MS, latir);
@@ -76,11 +91,12 @@ export function MarcoMonitor({ children }: { children: React.ReactNode }) {
             if (await habilitarAudio()) setBloqueado(false);
         };
         const cambioLleno = () => setLleno(!!document.fullscreenElement);
-        window.addEventListener("pointermove", despertar); window.addEventListener("keydown", despertar);
+        // pointerdown también despierta: un dedo no genera pointermove si no arrastra.
+        window.addEventListener("pointermove", despertar); window.addEventListener("pointerdown", despertar); window.addEventListener("keydown", despertar);
         window.addEventListener("pointerdown", primerGesto); window.addEventListener("keydown", primerGesto);
         document.addEventListener("fullscreenchange", cambioLleno);
         despertar(); setBloqueado(audioBloqueado());
-        return () => { clearTimeout(reloj); window.removeEventListener("pointermove", despertar); window.removeEventListener("keydown", despertar); window.removeEventListener("pointerdown", primerGesto); window.removeEventListener("keydown", primerGesto); document.removeEventListener("fullscreenchange", cambioLleno); };
+        return () => { clearTimeout(reloj); window.removeEventListener("pointermove", despertar); window.removeEventListener("pointerdown", despertar); window.removeEventListener("keydown", despertar); window.removeEventListener("pointerdown", primerGesto); window.removeEventListener("keydown", primerGesto); document.removeEventListener("fullscreenchange", cambioLleno); };
     }, []);
 
     const sinDatos = ahora - ultimoDato > SIN_DATOS_MS && (!conectado || ahora - ultimoDato > SIN_DATOS_MS * 2);
@@ -89,8 +105,8 @@ export function MarcoMonitor({ children }: { children: React.ReactNode }) {
 
     const valor = useMemo<Marco>(() => ({
         barrio: marco?.barrio || "OmniAccess", ajustes: marco?.ajustes || null, pantalla: marco?.pantalla || null,
-        latir, conectado, setTitulo, silencio, audioBloqueado: bloqueado,
-    }), [marco, latir, conectado, silencio, bloqueado]);
+        latir, tactil, conectado, setTitulo, silencio, audioBloqueado: bloqueado,
+    }), [marco, latir, tactil, conectado, silencio, bloqueado]);
 
     const hora = new Date(ahora).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: ZONA });
     const fecha = new Date(ahora).toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long", timeZone: ZONA });
@@ -113,9 +129,9 @@ export function MarcoMonitor({ children }: { children: React.ReactNode }) {
 
     return (
         <Ctx.Provider value={valor}>
-            <div className={cn("dark min-h-screen bg-background text-foreground flex flex-col select-none", quieto && "cursor-none")}>
+            <div className={cn("dark h-[100dvh] overflow-hidden bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent]", quieto && !tactil && "cursor-none")}>
                 {/* Encabezado: barrio, vista, vitalidad y reloj. En "sin datos" se pinta ENTERO de ámbar. */}
-                <header className={cn("shrink-0 flex items-center gap-6 px-8 h-[64px] border-b transition-colors",
+                <header className={cn("shrink-0 flex items-center gap-4 lg:gap-6 px-4 lg:px-8 h-[64px] border-b transition-colors",
                     sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : "bg-card/60 border-border")}>
                     <div className="min-w-0 flex items-baseline gap-3">
                         <span className="text-[22px] font-bold truncate">{valor.barrio}</span>
@@ -127,18 +143,20 @@ export function MarcoMonitor({ children }: { children: React.ReactNode }) {
                                 : <><span className="h-3 w-3 rounded-full bg-[var(--bien)] animate-pulse" /> En vivo</>}
                     </div>
                     <div className="flex items-baseline gap-3 tabular-nums">
-                        <span className={cn("text-[16px] capitalize", sinDatos ? "opacity-80" : "text-muted-foreground")}>{fecha}</span>
+                        <span className={cn("hidden md:inline text-[16px] capitalize", sinDatos ? "opacity-80" : "text-muted-foreground")}>{fecha}</span>
                         <span className="text-[30px] font-bold leading-none">{hora}</span>
                     </div>
-                    <div className={cn("flex items-center gap-1 transition-opacity", quieto ? "opacity-0" : "opacity-100")}>
-                        <button onClick={alternarSilencio} title={silencio ? "Activar sonido" : "Silenciar esta pantalla"} className="h-10 w-10 grid place-items-center rounded-md hover:bg-accent">{silencio ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
-                        <button onClick={alternarLleno} title={lleno ? "Salir de pantalla completa" : "Pantalla completa"} className="h-10 w-10 grid place-items-center rounded-md hover:bg-accent">{lleno ? <Minimize2 size={20} /> : <Maximize2 size={20} />}</button>
+                    <div className={cn("flex items-center gap-1 transition-opacity duration-300", quieto && !tactil ? "opacity-0" : "opacity-100")}>
+                        <button onClick={alternarSilencio} title={silencio ? "Activar sonido" : "Silenciar esta pantalla"} aria-label={silencio ? "Activar sonido" : "Silenciar"}
+                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : "h-10 w-10")}>{silencio ? <VolumeX size={tactil ? 24 : 20} /> : <Volume2 size={tactil ? 24 : 20} />}</button>
+                        <button onClick={alternarLleno} title={lleno ? "Salir de pantalla completa" : "Pantalla completa"} aria-label="Pantalla completa"
+                            className={cn("grid place-items-center rounded-xl hover:bg-accent active:scale-95 active:bg-accent transition-transform duration-150", tactil ? "h-12 w-12" : "h-10 w-10")}>{lleno ? <Minimize2 size={tactil ? 24 : 20} /> : <Maximize2 size={tactil ? 24 : 20} />}</button>
                     </div>
                 </header>
                 {bloqueado && !silencio && (
                     <div className="shrink-0 bg-[var(--info-suave)] text-[var(--info-texto)] text-[15px] font-semibold text-center py-1.5">Tocá la pantalla para habilitar el sonido y la pantalla completa</div>
                 )}
-                <main className="flex-1 min-h-0 relative">{children}</main>
+                <main className="flex-1 min-h-0 relative overflow-y-auto overscroll-contain">{children}</main>
                 {!conectado && (
                     <div className="fixed bottom-4 left-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-card border border-border text-[14px] text-muted-foreground"><WifiOff size={16} /> Sin conexión en vivo: se actualiza por consulta</div>
                 )}

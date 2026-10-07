@@ -2,12 +2,16 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, inicioDelDia, SIN_CACHE } from "@/lib/monitor/servidor";
 import { normalizarMatricula } from "@/lib/lista-negra";
-import { metodoDeLectura } from "@/lib/lectura-metodo";
+import { formaLectura as forma, INCLUIR_LECTURA } from "@/lib/monitor/lecturas";
 
 export const dynamic = "force-dynamic";
 
-/** Cuántas lecturas van en la tira de la pared, además de la protagonista. */
-const ULTIMAS_EN_TIRA = 10;
+/**
+ * Cuántas lecturas van en la tira, además de la protagonista. Eran 10, todas a la vista y sin
+ * poder moverse: con la pantalla táctil la tira se desliza y se filtra (entradas, salidas,
+ * denegadas), y diez no alcanzan para que un filtro muestre algo.
+ */
+const ULTIMAS_EN_TIRA = 30;
 /** Ventana de la fila de atención. */
 const ATENCION_HORAS = 24;
 /** Una matrícula denegada esta cantidad de veces en la ventana es merodeo: mismo umbral que el historial. */
@@ -17,11 +21,6 @@ const MERODEO_DENEGADOS = 4;
 const NO_ES_CHAPA = new Set(["", "NOLEIDA", "NOLEIDO", "UNKNOWN", "SINLECTURA", "SINMATRICULA", "NONE", "NULL"]);
 const esChapa = (ch: string | null | undefined): ch is string => !!ch && !NO_ES_CHAPA.has(ch);
 
-const forma = (e: any) => ({
-    id: e.id, ts: e.timestamp.toISOString(), plate: e.plateDetected || e.plateNumber || null, persona: e.user?.name || null,
-    camara: e.device?.name || e.location || null, sentido: e.direction, decision: e.decision, accessType: e.accessType,
-    foto: e.snapshotPath || e.imagePath || null, detalles: e.details || null, metodo: metodoDeLectura(e.details || null),
-});
 
 /**
  * GET /api/monitor/lpr → la última lectura, la tira, los contadores del día del barrio y la
@@ -32,7 +31,7 @@ export async function GET() {
     if (p.error) return p.error;
     const hoy = inicioDelDia();
     const desdeAtencion = new Date(Date.now() - ATENCION_HORAS * 3600 * 1000);
-    const inc = { user: { select: { name: true } }, device: { select: { name: true } } };
+    const inc = INCLUIR_LECTURA;
     const [ultimas, entradas, salidas, denegados, recientes] = await Promise.all([
         prisma.accessEvent.findMany({ orderBy: { timestamp: "desc" }, take: ULTIMAS_EN_TIRA + 1, include: inc }),
         prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "ENTRY", decision: "GRANT" } }),
@@ -53,12 +52,12 @@ export async function GET() {
     const denegadasPorChapa = new Map<string, number>();
     for (const e of recientes) { const ch = normalizarMatricula(e.plateDetected); if (esChapa(ch) && e.decision === "DENY") denegadasPorChapa.set(ch, (denegadasPorChapa.get(ch) || 0) + 1); }
     const vistas = new Set<string>();
-    const atencion: { plate: string; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO"; motivo: string; ts: string; camara: string | null; veces?: number }[] = [];
+    const atencion: { id: string; plate: string; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO"; motivo: string; ts: string; camara: string | null; veces?: number }[] = [];
     for (const e of recientes) {
         const ch = normalizarMatricula(e.plateDetected); if (!esChapa(ch) || vistas.has(ch)) continue;
         const v = porChapa.get(ch);
-        if (v) { vistas.add(ch); atencion.push({ plate: ch, tipo: v.category === "SEARCH" ? "EN_BUSQUEDA" : "LISTA_NEGRA", motivo: v.motivo || v.label || "sin motivo cargado", ts: e.timestamp.toISOString(), camara: e.device?.name || null }); continue; }
-        if ((denegadasPorChapa.get(ch) || 0) >= MERODEO_DENEGADOS) { vistas.add(ch); atencion.push({ plate: ch, tipo: "MERODEO", motivo: `${denegadasPorChapa.get(ch)} lecturas denegadas en ${ATENCION_HORAS} h`, ts: e.timestamp.toISOString(), camara: e.device?.name || null, veces: denegadasPorChapa.get(ch) }); }
+        if (v) { vistas.add(ch); atencion.push({ id: e.id, plate: ch, tipo: v.category === "SEARCH" ? "EN_BUSQUEDA" : "LISTA_NEGRA", motivo: v.motivo || v.label || "sin motivo cargado", ts: e.timestamp.toISOString(), camara: e.device?.name || null }); continue; }
+        if ((denegadasPorChapa.get(ch) || 0) >= MERODEO_DENEGADOS) { vistas.add(ch); atencion.push({ id: e.id, plate: ch, tipo: "MERODEO", motivo: `${denegadasPorChapa.get(ch)} lecturas denegadas en ${ATENCION_HORAS} h`, ts: e.timestamp.toISOString(), camara: e.device?.name || null, veces: denegadasPorChapa.get(ch) }); }
     }
     return NextResponse.json({
         ultima: ultimas[0] ? forma(ultimas[0]) : null,

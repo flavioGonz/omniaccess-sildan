@@ -1,31 +1,73 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { LogIn, LogOut, ShieldCheck, ShieldX, ShieldAlert, Search, Repeat, Camera, Clock, Users } from "lucide-react";
+import {
+    LogIn, LogOut, ShieldCheck, ShieldX, ShieldAlert, Search, Repeat, Camera, Clock, Users, X, Radio,
+    PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2,
+} from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { sonar } from "@/lib/sonido-monitor";
 import { getImagePath } from "@/lib/image-path";
 import { metodoDeLectura } from "@/lib/lectura-metodo";
+import { watchCatMeta } from "@/lib/watch-categories";
 import { cn } from "@/lib/utils";
 
 /**
- * La vista Control LPR de la pared: la última lectura grande y clara, si se abrió y por qué,
- * la tira de las últimas, los números del día y la fila de atención.
+ * La vista Control LPR: la última lectura grande y clara, si se abrió y por qué, la tira de
+ * las últimas, los números del día y la fila de atención.
  *
- * Lo urgente llega por el socket (`access_event`) y reemplaza la protagonista en el acto;
- * la consulta periódica trae los contadores y la fila de atención, que necesitan la base.
+ * Sirve para una pared que nadie toca y para una tablet o pantalla táctil en el puesto. La
+ * pared sigue igual: si nadie toca, la protagonista es siempre la última lectura. Lo táctil
+ * se suma sin quitarle eso:
+ *
+ *  · Tocar una lectura de la tira (o de la fila de atención) la FIJA como protagonista. Arriba
+ *    queda claro que se está mirando el pasado ("Viendo 10:32:05") con un botón grande para
+ *    volver al vivo, y a los VOLVER_AL_VIVO_MS sin tocar nada vuelve solo: una tablet que
+ *    alguien dejó mirando una lectura vieja no puede quedarse así toda la noche.
+ *  · Mientras está fijada, lo nuevo no se pierde: aparece un aviso "Nueva lectura" para saltar.
+ *  · La ficha (cajón desde la derecha) contesta lo que se pregunta de un auto: de quién es, de
+ *    qué lote, si es invitado y a dónde va, si está vigilado, cuándo entró y qué hizo hoy. Se
+ *    cierra sola a los FICHA_SE_CIERRA_MS sin tocar.
+ *  · Los contadores filtran la tira (tocar "Denegados hoy" deja sólo las denegadas).
+ *  · Todo lo tocable mide 48 px o más y responde al dedo (se hunde un poco); nada depende
+ *    del hover. Las transiciones son cortas (≤ 300 ms): informan, no adornan.
+ *
+ * Lo urgente llega por el socket (`access_event`); la consulta periódica trae los contadores y
+ * la fila de atención, que necesitan la base.
  */
 const INTERVALO_MS = 20_000;
-const ULTIMAS_EN_TIRA = 10;
+const ULTIMAS_EN_TIRA = 30;
+/** Sin tocar nada este tiempo, una lectura fijada vuelve al vivo. */
+const VOLVER_AL_VIVO_MS = 30_000;
+/** Sin tocar nada este tiempo, la ficha se cierra. */
+const FICHA_SE_CIERRA_MS = 60_000;
+/** Las transiciones: cortas y con la misma curva en toda la vista. */
+const SUAVE = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
+const RESORTE = { type: "spring" as const, stiffness: 420, damping: 40 };
 
-type Lectura = { id: string; ts: string; plate: string | null; persona: string | null; camara: string | null; sentido: string; decision: string; accessType: string | null; foto: string | null; detalles: string | null; metodo: { metodo: string | null; confianza: number | null } };
-type Datos = { ultima: Lectura | null; tira: Lectura[]; contadores: { entradas: number; salidas: number; denegados: number; adentro: number; actualizado: string; dia: string }; atencion: { plate: string; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO"; motivo: string; ts: string; camara: string | null }[]; ahora: string };
+type Lectura = { id: string; ts: string; plate: string | null; persona: string | null; unidad?: string | null; camara: string | null; sentido: string; decision: string; accessType: string | null; foto: string | null; detalles: string | null; metodo: { metodo: string | null; confianza: number | null } };
+type Atencion = { id: string; plate: string; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO"; motivo: string; ts: string; camara: string | null };
+type Datos = { ultima: Lectura | null; tira: Lectura[]; contadores: { entradas: number; salidas: number; denegados: number; adentro: number; actualizado: string; dia: string }; atencion: Atencion[]; ahora: string };
+type Ficha = {
+    lectura: Lectura;
+    persona: { nombre: string; rol: string; unidad: string | null } | null;
+    vehiculo: { marca: string | null; modelo: string | null; color: string | null; tipo: string | null } | null;
+    vigilancia: { categoria: string; motivo: string | null } | null;
+    invitado: { nombre: string | null; anfitrion: string | null; lote: string | null; desde: string; hasta: string } | null;
+    hoy: { id: string; ts: string; sentido: string; decision: string; camara: string | null }[];
+    adentroDesde: string | null;
+};
+type Filtro = "todas" | "entradas" | "salidas" | "denegadas";
+
+const ROL: Record<string, string> = { RESIDENT: "Residente", VISITOR: "Visitante", STAFF: "Personal", PROVIDER: "Proveedor", ADMIN: "Administración", WHITELISTED: "Lista blanca", BLACKLISTED: "Lista negra" };
+const FILTROS: { v: Filtro; l: string }[] = [{ v: "todas", l: "Todas" }, { v: "entradas", l: "Entradas" }, { v: "salidas", l: "Salidas" }, { v: "denegadas", l: "Denegadas" }];
+const pasaFiltro = (l: Lectura, f: Filtro) => f === "todas" ? true : f === "denegadas" ? l.decision !== "GRANT" : l.decision === "GRANT" && (f === "salidas" ? l.sentido === "EXIT" : l.sentido !== "EXIT");
 
 const desdeEvento = (e: any): Lectura | null => e?.id && e?.timestamp ? ({
-    id: e.id, ts: e.timestamp, plate: (e.plateDetected || e.plateNumber || "").toUpperCase() || null, persona: e.user?.name || null,
+    id: e.id, ts: e.timestamp, plate: (e.plateDetected || e.plateNumber || "").toUpperCase() || null, persona: e.user?.name || null, unidad: e.user?.unit?.name || null,
     camara: e.device?.name || e.location || null, sentido: e.direction || "ENTRY", decision: e.decision || "DENY", accessType: e.accessType || null,
     foto: e.snapshotPath || e.imagePath || null, detalles: e.details || null, metodo: metodoDeLectura(e.details || null),
 }) : null;
@@ -33,10 +75,8 @@ const desdeEvento = (e: any): Lectura | null => e?.id && e?.timestamp ? ({
 const esListaNegra = (l: Lectura) => /lista negra/i.test(l.detalles || "");
 /**
  * El motivo del denegado, sacado de `details`. Ese campo mezcla el motivo con la ficha del
- * vehículo que leyó la cámara ("Marca: …, Modelo: …, Color: …, Tipo: …, Source: …, Metodo:
- * …, Confianza: …, PlateRect: …"): se descartan esos pares y queda lo que explica la
- * decisión ("Lista negra: …", "ALERTA: Matrícula No Reconocida"). Si no queda nada, es el
- * caso corriente: la matrícula no tiene credencial.
+ * vehículo que leyó la cámara ("Marca: …, Modelo: …, Color: …"): se descartan esos pares y
+ * queda lo que explica la decisión. Si no queda nada, es el caso corriente: no tiene credencial.
  */
 const CLAVES_FICHA = /^(Marca|Modelo|Color|Tipo|Source|Metodo|Método|Confianza|PlateRect|PlateCrop|Camara|Cámara)\s*:/i;
 const motivoDenegado = (l: Lectura) => {
@@ -47,26 +87,67 @@ const motivoDenegado = (l: Lectura) => {
     if (/no reconocida/i.test(texto)) return "Matrícula no reconocida";
     return texto.replace(/^ALERTA:\s*/i, "") || "Sin credencial vigente";
 };
+const estadoDe = (l: Lectura) => esListaNegra(l) ? { t: "Lista negra", Ic: ShieldAlert, c: "pleno-mal" } : l.decision === "GRANT" ? { t: "Permitido", Ic: ShieldCheck, c: "pleno-bien" } : { t: "Denegado", Ic: ShieldX, c: "pleno-mal" };
+const quien = (l: Lectura) => [l.persona || (l.decision === "GRANT" ? "Autorizado" : "Desconocido"), l.unidad].filter(Boolean).join(" · ");
+/** "en 2 h 10 min" / "vencido": para la vigencia de un pase. */
+const faltan = (ts: string) => {
+    const m = Math.round((new Date(ts).getTime() - Date.now()) / 60000);
+    if (m <= 0) return "vencido";
+    if (m < 60) return `en ${m} min`;
+    const h = Math.floor(m / 60); return h < 48 ? `en ${h} h${m % 60 ? ` ${m % 60} min` : ""}` : `en ${Math.floor(h / 24)} d`;
+};
 
-function Contador({ rotulo, valor, Icono, tono }: { rotulo: string; valor: number; Icono: any; tono?: "bien" | "mal" | "info" }) {
+/** Se hunde un poco al tocar: la respuesta inmediata que un dedo necesita para saber que tocó. */
+const tocable = "transition-transform duration-150 ease-out active:scale-[0.97] touch-manipulation";
+
+/** Vence `ms` después del último toque en cualquier parte de la pantalla, mientras `activo`. */
+function usarInactividad(activo: boolean, ms: number, alVencer: () => void) {
+    const [vuelta, setVuelta] = useState(0);
+    const vencer = useRef(alVencer); vencer.current = alVencer;
+    useEffect(() => {
+        if (!activo) return;
+        let t = setTimeout(() => vencer.current(), ms);
+        const tocar = () => { clearTimeout(t); t = setTimeout(() => vencer.current(), ms); setVuelta((v) => v + 1); };
+        window.addEventListener("pointerdown", tocar);
+        return () => { clearTimeout(t); window.removeEventListener("pointerdown", tocar); };
+    }, [activo, ms]);
+    return vuelta; // cambia en cada toque: sirve de `key` para reiniciar la barra de cuenta atrás
+}
+
+/** La barra que se vacía hasta que algo vuelve solo. */
+function CuentaAtras({ ms, vuelta, className }: { ms: number; vuelta: number; className?: string }) {
     return (
-        <div className="flex items-center gap-4 rounded-2xl bg-card border border-border px-5 py-4">
-            <span className={cn("grid h-12 w-12 place-items-center rounded-full shrink-0", tono === "bien" ? "pleno-bien" : tono === "mal" ? "pleno-mal" : tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><Icono size={24} /></span>
-            <div>
-                <div className="text-[40px] font-bold leading-none tabular-nums">{valor}</div>
-                <div className="text-[14px] text-muted-foreground mt-1">{rotulo}</div>
+        <span className={cn("block h-[3px] w-full overflow-hidden rounded-full bg-white/15", className)}>
+            <motion.span key={vuelta} className="block h-full origin-left bg-white/70" initial={{ scaleX: 1 }} animate={{ scaleX: 0 }} transition={{ duration: ms / 1000, ease: "linear" }} />
+        </span>
+    );
+}
+
+function Contador({ rotulo, valor, Icono, tono, activo, alTocar }: { rotulo: string; valor: number; Icono: any; tono?: "bien" | "mal" | "info"; activo?: boolean; alTocar?: () => void }) {
+    return (
+        <button type="button" onClick={alTocar} disabled={!alTocar} aria-pressed={activo}
+            className={cn("flex items-center gap-3 lg:gap-4 rounded-2xl bg-card border px-4 lg:px-5 py-3 lg:py-4 text-left min-h-[72px]", tocable,
+                activo ? "border-[var(--accion-en-oscuro)] ring-2 ring-[var(--accion-en-oscuro)]/40" : "border-border", !alTocar && "active:scale-100")}>
+            <span className={cn("grid h-11 w-11 lg:h-12 lg:w-12 place-items-center rounded-full shrink-0", tono === "bien" ? "pleno-bien" : tono === "mal" ? "pleno-mal" : tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><Icono size={22} /></span>
+            <div className="min-w-0">
+                <div className="text-[32px] lg:text-[40px] font-bold leading-none tabular-nums">{valor}</div>
+                <div className="text-[13px] lg:text-[14px] text-muted-foreground mt-1 truncate">{rotulo}</div>
             </div>
-        </div>
+        </button>
     );
 }
 
 export function VistaLpr() {
-    const { latir, setTitulo, ajustes, silencio } = useMarco();
+    const { latir, setTitulo, ajustes, silencio, tactil } = useMarco();
     useEffect(() => { setTitulo("Control LPR"); }, [setTitulo]);
     usarReloj();
     const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/lpr", INTERVALO_MS, latir);
     const [ultima, setUltima] = useState<Lectura | null>(null);
     const [tira, setTira] = useState<Lectura[]>([]);
+    const [fijada, setFijada] = useState<Lectura | null>(null);
+    const [filtro, setFiltro] = useState<Filtro>("todas");
+    const [fichaId, setFichaId] = useState<string | null>(null);
+    const [ampliada, setAmpliada] = useState<string | null>(null);
     useEffect(() => { if (!datos) return; setUltima((u) => (u && datos.ultima && u.ts > datos.ultima.ts ? u : datos.ultima)); setTira((t) => { const base = datos.tira; const ids = new Set(base.map((x) => x.id)); return [...t.filter((x) => !ids.has(x.id) && (!datos.ultima || x.id !== datos.ultima.id) && (!base[0] || x.ts > base[0].ts)), ...base].slice(0, ULTIMAS_EN_TIRA); }); }, [datos]);
 
     const modo = ajustes?.sonido?.lpr || "off";
@@ -85,101 +166,333 @@ export function VistaLpr() {
     const diaRef = useRef<string>("");
     useEffect(() => { const iv = setInterval(() => { const d = new Date().toDateString(); if (diaRef.current && diaRef.current !== d) recargar(); diaRef.current = d; }, 30_000); return () => clearInterval(iv); }, [recargar]);
 
+    const volverAlVivo = useCallback(() => setFijada(null), []);
+    const vueltaFijada = usarInactividad(!!fijada && !fichaId, VOLVER_AL_VIVO_MS, volverAlVivo);
+
     const c = datos?.contadores;
-    const foto = ultima ? getImagePath(ultima.foto) : null;
-    const negra = ultima ? esListaNegra(ultima) : false;
-    const permitido = ultima?.decision === "GRANT";
+    const protagonista = fijada || ultima;
+    const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
+    const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro)), [tira, filtro]);
+    const alternarFiltro = (f: Filtro) => setFiltro((x) => (x === f ? "todas" : f));
 
     return (
-        <div className="absolute inset-0 grid grid-cols-[1fr_380px] gap-4 p-4">
-            <div className="min-w-0 flex flex-col gap-4">
+        <div className="absolute inset-0 flex flex-col lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4">
+            <div className="min-w-0 min-h-0 flex-1 flex flex-col gap-3 lg:gap-4">
                 {/* Protagonista */}
-                <div className={cn("relative flex-1 min-h-0 rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-colors", !ultima ? "ring-white/10" : negra ? "ring-[var(--mal)]" : permitido ? "ring-[var(--bien)]" : "ring-[var(--mal)]")}>
-                    <AnimatePresence mode="wait">
-                        {ultima ? (
-                            <motion.div key={ultima.id} initial={{ opacity: 0, scale: 1.02 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }} className="absolute inset-0">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                {foto ? <img src={foto} alt="" className="absolute inset-0 w-full h-full object-contain bg-black" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><Camera size={64} /></div>}
-                                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/40 pointer-events-none" />
-                                <div className="absolute top-0 inset-x-0 p-6 flex items-start justify-between gap-4">
-                                    <div className="flex items-center gap-3 text-[18px] text-white/85">
-                                        {ultima.sentido === "EXIT" ? <LogOut size={22} /> : <LogIn size={22} />}
-                                        <span className="font-bold">{ultima.sentido === "EXIT" ? "Salida" : "Entrada"}</span>
-                                        <span className="text-white/55">· {ultima.camara || "—"}</span>
-                                    </div>
-                                    <div className="text-right text-white/85">
-                                        <div className="text-[30px] font-bold tabular-nums leading-none">{horaCorta(ultima.ts)}</div>
-                                        <div className="text-[14px] text-white/55 mt-1">{hace(ultima.ts)}{ultima.metodo.metodo ? ` · ${ultima.metodo.metodo}` : ""}{ultima.metodo.confianza != null ? ` · ${Math.round(ultima.metodo.confianza)} %` : ""}</div>
-                                    </div>
-                                </div>
-                                <div className="absolute bottom-0 inset-x-0 p-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-                                    <div className="min-w-0">
-                                        <div className="inline-block px-5 py-2 rounded-xl bg-white text-black text-[clamp(36px,5.5vw,72px)] font-bold tabular-nums tracking-[0.14em] leading-none shadow-[0_8px_30px_rgba(0,0,0,.6)]">{ultima.plate || "S/L"}</div>
-                                        <div className="mt-3 text-[22px] font-semibold text-white truncate">{ultima.persona || (permitido ? "Autorizado" : "Desconocido")}</div>
-                                    </div>
-                                    <div className={cn("ml-auto flex items-center gap-3 px-6 py-4 rounded-2xl text-white", negra || !permitido ? "pleno-mal" : "pleno-bien")}>
-                                        {negra ? <ShieldAlert size={40} /> : permitido ? <ShieldCheck size={40} /> : <ShieldX size={40} />}
-                                        <div>
-                                            <div className="text-[clamp(22px,2.6vw,34px)] font-black uppercase tracking-[0.08em] leading-none">{negra ? "Lista negra" : permitido ? "Permitido" : "Denegado"}</div>
-                                            {!permitido && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{motivoDenegado(ultima)}</div>}
-                                        </div>
-                                    </div>
-                                </div>
+                <div className={cn("relative flex-1 min-h-[38vh] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
+                    !protagonista ? "ring-white/10" : protagonista.decision === "GRANT" && !esListaNegra(protagonista) ? "ring-[var(--bien)]" : "ring-[var(--mal)]")}>
+                    <AnimatePresence mode="popLayout" initial={false}>
+                        {protagonista ? (
+                            <motion.div key={protagonista.id} initial={{ opacity: 0, scale: 1.015 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={SUAVE} className="absolute inset-0">
+                                <Protagonista l={protagonista} tactil={tactil}
+                                    alAmpliar={(f) => setAmpliada(f)} alAbrirFicha={() => setFichaId(protagonista.id)} />
                             </motion.div>
                         ) : (
                             <div className="absolute inset-0 grid place-items-center text-[22px] text-muted-foreground">{error && !datos ? `No se pudo leer: ${error}` : datos ? "Todavía no hay lecturas" : "Cargando…"}</div>
                         )}
                     </AnimatePresence>
-                </div>
-                {/* Tira */}
-                <div className="shrink-0 h-[120px] flex gap-3 overflow-hidden">
-                    <AnimatePresence initial={false}>
-                        {tira.map((l) => {
-                            const f = getImagePath(l.foto); const ok = l.decision === "GRANT";
-                            return (
-                                <motion.div key={l.id} layout initial={{ opacity: 0, x: -40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.3 }}
-                                    className={cn("relative w-[200px] shrink-0 rounded-xl overflow-hidden bg-neutral-900 ring-1", ok ? "ring-[color-mix(in_oklab,var(--bien)_50%,transparent)]" : "ring-[color-mix(in_oklab,var(--mal)_60%,transparent)]")}>
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    {f && <img src={f} alt="" className="absolute inset-0 w-full h-full object-cover" />}
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent" />
-                                    <div className="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
-                                        <div><div className="text-[18px] font-bold text-white tabular-nums tracking-[0.1em]">{l.plate || "S/L"}</div><div className="text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</div></div>
-                                        {ok ? <ShieldCheck size={18} className="text-[var(--bien)]" /> : <ShieldX size={18} className="text-[var(--mal)]" />}
+
+                    {/* Mirando el pasado: se dice, y se vuelve con un toque o solo. */}
+                    <AnimatePresence>
+                        {fijada && (
+                            <motion.div key="fijada" initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} transition={SUAVE}
+                                className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-stretch gap-1.5 rounded-2xl bg-black/75 backdrop-blur-md px-2 pt-2 pb-2.5 text-white min-w-[min(92%,520px)]">
+                                <div className="flex items-center gap-3 pl-3">
+                                    <History size={20} className="text-white/70 shrink-0" />
+                                    <div className="min-w-0 flex-1 text-[15px] leading-tight">
+                                        <div className="font-semibold truncate">Viendo la lectura de las {horaCorta(fijada.ts)}</div>
+                                        <div className="text-white/60 text-[13px]">Vuelve al vivo sola en {Math.round(VOLVER_AL_VIVO_MS / 1000)} s sin tocar</div>
                                     </div>
-                                </motion.div>
-                            );
-                        })}
+                                    <button type="button" onClick={volverAlVivo} className={cn("h-12 px-5 rounded-xl inline-flex items-center gap-2 font-bold text-[15px] bg-[var(--accion)] text-white shrink-0", tocable)}>
+                                        <Radio size={18} /> En vivo
+                                    </button>
+                                </div>
+                                <CuentaAtras ms={VOLVER_AL_VIVO_MS} vuelta={vueltaFijada} className="px-1" />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                    <AnimatePresence>
+                        {nuevaMientrasFijada && (
+                            <motion.button key={nuevaMientrasFijada.id} type="button" onClick={volverAlVivo}
+                                initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={SUAVE}
+                                className={cn("absolute bottom-28 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-3 h-14 pl-3 pr-5 rounded-full text-white font-semibold text-[16px] bg-black/80 backdrop-blur-md border border-white/15", tocable)}>
+                                <span className={cn("grid h-9 w-9 place-items-center rounded-full", estadoDe(nuevaMientrasFijada).c)}>{(() => { const I = estadoDe(nuevaMientrasFijada).Ic; return <I size={18} />; })()}</span>
+                                Nueva lectura · <span className="tabular-nums tracking-[0.1em] font-bold">{nuevaMientrasFijada.plate || "S/L"}</span>
+                                <ChevronRight size={18} className="text-white/60" />
+                            </motion.button>
+                        )}
                     </AnimatePresence>
                 </div>
+
+                {/* Filtro y tira: se desliza con el dedo, cada lectura se toca. */}
+                <div className="shrink-0 flex flex-col gap-2">
+                    <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        {FILTROS.map((f) => (
+                            <button key={f.v} type="button" onClick={() => setFiltro(f.v)} aria-pressed={filtro === f.v}
+                                className={cn("h-11 px-5 rounded-full border text-[15px] font-semibold whitespace-nowrap", tocable,
+                                    filtro === f.v ? "bg-foreground text-background border-transparent" : "bg-card text-muted-foreground border-border")}>
+                                {f.l}
+                            </button>
+                        ))}
+                        <span className="ml-auto pl-3 text-[13px] text-muted-foreground whitespace-nowrap tabular-nums">{visibles.length} de las últimas {tira.length}</span>
+                    </div>
+                    <div className="h-[124px] flex gap-3 overflow-x-auto overscroll-x-contain snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        {visibles.length === 0 && <div className="grid place-items-center w-full rounded-xl border border-dashed border-border text-[15px] text-muted-foreground">{tira.length ? "Ninguna con este filtro" : "Sin lecturas anteriores"}</div>}
+                        <AnimatePresence initial={false}>
+                            {visibles.map((l) => {
+                                const f = getImagePath(l.foto); const ok = l.decision === "GRANT" && !esListaNegra(l); const sel = fijada?.id === l.id;
+                                return (
+                                    <motion.button key={l.id} type="button" layout="position" onClick={() => setFijada(l)}
+                                        initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.94 }} transition={SUAVE}
+                                        className={cn("relative w-[200px] shrink-0 snap-start rounded-xl overflow-hidden bg-neutral-900 text-left", tocable,
+                                            sel ? "ring-[3px] ring-[var(--accion-en-oscuro)]" : ok ? "ring-1 ring-[color-mix(in_oklab,var(--bien)_50%,transparent)]" : "ring-1 ring-[color-mix(in_oklab,var(--mal)_60%,transparent)]")}>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        {f && <img src={f} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
+                                        <span className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent" />
+                                        <span className="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
+                                            <span><span className="block text-[18px] font-bold text-white tabular-nums tracking-[0.1em]">{l.plate || "S/L"}</span><span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</span></span>
+                                            {ok ? <ShieldCheck size={18} className="text-[var(--bien)]" /> : <ShieldX size={18} className="text-[var(--mal)]" />}
+                                        </span>
+                                    </motion.button>
+                                );
+                            })}
+                        </AnimatePresence>
+                    </div>
+                </div>
             </div>
-            {/* Columna derecha: contadores y atención */}
-            <aside className="flex flex-col gap-3 min-h-0">
-                <div className="grid grid-cols-2 gap-3">
+
+            {/* Contadores (filtran la tira) y fila de atención (abre la ficha). */}
+            <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
                     <Contador rotulo="Adentro ahora" valor={c?.adentro ?? 0} Icono={Users} tono="info" />
-                    <Contador rotulo="Entradas hoy" valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" />
-                    <Contador rotulo="Salidas hoy" valor={c?.salidas ?? 0} Icono={LogOut} />
-                    <Contador rotulo="Denegados hoy" valor={c?.denegados ?? 0} Icono={ShieldX} tono="mal" />
+                    <Contador rotulo="Entradas hoy" valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" activo={filtro === "entradas"} alTocar={() => alternarFiltro("entradas")} />
+                    <Contador rotulo="Salidas hoy" valor={c?.salidas ?? 0} Icono={LogOut} activo={filtro === "salidas"} alTocar={() => alternarFiltro("salidas")} />
+                    <Contador rotulo="Denegados hoy" valor={c?.denegados ?? 0} Icono={ShieldX} tono="mal" activo={filtro === "denegadas"} alTocar={() => alternarFiltro("denegadas")} />
                 </div>
                 <div className="text-[12px] text-muted-foreground px-1 inline-flex items-center gap-1.5"><Clock size={12} /> contadores del día del barrio · actualizados {c ? hace(c.actualizado) : "—"}</div>
-                <div className="flex-1 min-h-0 rounded-2xl bg-card border border-border p-4 flex flex-col gap-3 overflow-hidden">
+                <div className="flex-1 min-h-[120px] max-h-[30vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
                     <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><ShieldAlert size={14} /> Atención · últimas 24 h</div>
                     {datos && datos.atencion.length === 0 && <div className="text-[18px] text-muted-foreground">Sin novedades</div>}
-                    <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-2">
+                    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
                         {(datos?.atencion || []).map((a) => {
                             const est = a.tipo === "LISTA_NEGRA" ? { t: "Lista negra", Ic: ShieldAlert, c: "pleno-mal" } : a.tipo === "EN_BUSQUEDA" ? { t: "En búsqueda", Ic: Search, c: "pleno-aviso" } : { t: "Merodeo", Ic: Repeat, c: "pleno-info" };
                             return (
-                                <div key={a.plate + a.tipo} className="flex items-center gap-3 rounded-xl bg-muted/40 border border-border px-3 py-2.5">
+                                <button key={a.plate + a.tipo} type="button" onClick={() => setFichaId(a.id)}
+                                    className={cn("flex items-center gap-3 rounded-xl bg-muted/40 border border-border px-3 py-2.5 min-h-[60px] text-left", tocable)}>
                                     <span className={cn("grid h-10 w-10 place-items-center rounded-full shrink-0", est.c)}><est.Ic size={18} /></span>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-2"><span className="text-[18px] font-bold tabular-nums tracking-[0.1em]">{a.plate}</span><span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{est.t}</span></div>
-                                        <div className="text-[13px] text-muted-foreground truncate">{a.motivo} · {hace(a.ts)}{a.camara ? ` · ${a.camara}` : ""}</div>
-                                    </div>
-                                </div>
+                                    <span className="min-w-0 flex-1">
+                                        <span className="flex items-center gap-2"><span className="text-[18px] font-bold tabular-nums tracking-[0.1em]">{a.plate}</span><span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{est.t}</span></span>
+                                        <span className="block text-[13px] text-muted-foreground truncate">{a.motivo} · {hace(a.ts)}{a.camara ? ` · ${a.camara}` : ""}</span>
+                                    </span>
+                                    <ChevronRight size={18} className="text-muted-foreground/60 shrink-0" />
+                                </button>
                             );
                         })}
                     </div>
                 </div>
             </aside>
+
+            <FichaLectura id={fichaId} alCerrar={() => setFichaId(null)} alVerOtra={setFichaId} alAmpliar={setAmpliada}
+                alFijar={(l) => { setFijada(ultima && l.id === ultima.id ? null : l); setFichaId(null); }} />
+
+            {/* La captura a pantalla completa: un toque la cierra. */}
+            <AnimatePresence>
+                {ampliada && (
+                    <motion.button key="ampliada" type="button" onClick={() => setAmpliada(null)} aria-label="Cerrar la captura"
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE}
+                        className="fixed inset-0 z-[60] bg-black grid place-items-center">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <motion.img src={ampliada} alt="" draggable={false} initial={{ scale: 0.96 }} animate={{ scale: 1 }} exit={{ scale: 0.96 }} transition={SUAVE} className="max-w-full max-h-full object-contain" />
+                        <span className="absolute top-4 right-4 grid h-14 w-14 place-items-center rounded-full bg-white/10 text-white"><X size={28} /></span>
+                    </motion.button>
+                )}
+            </AnimatePresence>
         </div>
+    );
+}
+
+/** La lectura grande. Tocar la foto la amplía; "Ficha" abre todo lo que se sabe de ese auto. */
+function Protagonista({ l, tactil, alAmpliar, alAbrirFicha }: { l: Lectura; tactil: boolean; alAmpliar: (f: string) => void; alAbrirFicha: () => void }) {
+    const foto = getImagePath(l.foto);
+    const est = estadoDe(l);
+    const permitido = l.decision === "GRANT" && !esListaNegra(l);
+    return (
+        <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {foto ? <img src={foto} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><Camera size={64} /></div>}
+            {foto && <button type="button" onClick={() => alAmpliar(foto)} aria-label="Ver la captura grande" className="absolute inset-0 cursor-zoom-in" />}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/40 pointer-events-none" />
+            <div className="absolute top-0 inset-x-0 p-4 lg:p-6 flex items-start justify-between gap-4 pointer-events-none">
+                <div className="flex items-center gap-3 text-[18px] text-white/85">
+                    {l.sentido === "EXIT" ? <LogOut size={22} /> : <LogIn size={22} />}
+                    <span className="font-bold">{l.sentido === "EXIT" ? "Salida" : "Entrada"}</span>
+                    <span className="text-white/55 truncate">· {l.camara || "—"}</span>
+                </div>
+                <div className="text-right text-white/85">
+                    <div className="text-[26px] lg:text-[30px] font-bold tabular-nums leading-none">{horaCorta(l.ts)}</div>
+                    <div className="text-[14px] text-white/55 mt-1">{hace(l.ts)}{l.metodo.metodo ? ` · ${l.metodo.metodo}` : ""}{l.metodo.confianza != null ? ` · ${Math.round(l.metodo.confianza)} %` : ""}</div>
+                </div>
+            </div>
+            <div className="absolute bottom-0 inset-x-0 p-4 lg:p-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pointer-events-none">
+                <div className="min-w-0">
+                    <div className="inline-block px-5 py-2 rounded-xl bg-white text-black text-[clamp(36px,5.5vw,72px)] font-bold tabular-nums tracking-[0.14em] leading-none shadow-[0_8px_30px_rgba(0,0,0,.6)]">{l.plate || "S/L"}</div>
+                    <div className="mt-3 flex items-center gap-3">
+                        <span className="text-[20px] lg:text-[22px] font-semibold text-white truncate">{quien(l)}</span>
+                        <button type="button" onClick={alAbrirFicha}
+                            className={cn("pointer-events-auto inline-flex items-center gap-2 rounded-full bg-white/15 backdrop-blur-md text-white font-semibold border border-white/20 shrink-0", tactil ? "h-12 px-5 text-[16px]" : "h-10 px-4 text-[14px]", tocable)}>
+                            <PanelRightOpen size={18} /> Ficha
+                        </button>
+                    </div>
+                </div>
+                <div className={cn("ml-auto flex items-center gap-3 px-5 lg:px-6 py-3 lg:py-4 rounded-2xl text-white", est.c)}>
+                    <est.Ic size={40} />
+                    <div>
+                        <div className="text-[clamp(22px,2.6vw,34px)] font-black uppercase tracking-[0.08em] leading-none">{est.t}</div>
+                        {!permitido && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{motivoDenegado(l)}</div>}
+                    </div>
+                </div>
+            </div>
+        </>
+    );
+}
+
+/**
+ * La ficha de una lectura, desde la derecha. Contesta, en este orden, lo que se pregunta de un
+ * auto en la entrada: ¿se abrió y por qué?, ¿de quién es y de qué lote?, ¿es invitado y a dónde
+ * va?, ¿está vigilado?, ¿qué auto es?, ¿qué hizo hoy? Nunca muestra teléfono ni documento.
+ */
+function FichaLectura({ id, alCerrar, alVerOtra, alAmpliar, alFijar }: { id: string | null; alCerrar: () => void; alVerOtra: (id: string) => void; alAmpliar: (f: string) => void; alFijar: (l: Lectura) => void }) {
+    const [ficha, setFicha] = useState<Ficha | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const vuelta = usarInactividad(!!id, FICHA_SE_CIERRA_MS, alCerrar);
+    const cargar = useCallback(async (x: string) => {
+        setFicha(null); setError(null);
+        try {
+            const r = await fetch(`/api/monitor/lpr/lectura/${encodeURIComponent(x)}`, { cache: "no-store" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || `El servidor respondió ${r.status}`);
+            setFicha(j);
+        } catch (e: any) { setError(e?.message || "sin respuesta"); }
+    }, []);
+    useEffect(() => { if (id) cargar(id); }, [id, cargar]);
+
+    const l = ficha?.lectura;
+    const foto = l ? getImagePath(l.foto) : null;
+    const est = l ? estadoDe(l) : null;
+    const vig = ficha?.vigilancia ? watchCatMeta(ficha.vigilancia.categoria) : null;
+
+    return (
+        <AnimatePresence>
+            {id && (
+                <>
+                    <motion.button key="fondo" type="button" aria-label="Cerrar la ficha" onClick={alCerrar}
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE}
+                        className="fixed inset-0 z-40 bg-black/55" />
+                    <motion.aside key="ficha" role="dialog" aria-label="Ficha de la lectura"
+                        initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={RESORTE}
+                        className="fixed inset-y-0 right-0 z-50 w-[min(560px,100vw)] bg-background border-l border-border flex flex-col">
+                        <div className="shrink-0 flex items-center gap-3 px-5 pt-4 pb-3 border-b border-border">
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Ficha de la lectura</div>
+                                <div className="text-[15px] text-muted-foreground">Se cierra sola al minuto sin tocar</div>
+                            </div>
+                            <button type="button" onClick={alCerrar} aria-label="Cerrar" className={cn("grid h-14 w-14 place-items-center rounded-2xl bg-muted text-foreground shrink-0", tocable)}><X size={26} /></button>
+                        </div>
+                        <CuentaAtras ms={FICHA_SE_CIERRA_MS} vuelta={vuelta} className="rounded-none bg-transparent [&>span]:bg-[var(--accion-en-oscuro)]/60" />
+
+                        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+                            {error ? (
+                                <div className="p-6 space-y-4">
+                                    <p className="text-[17px]">No se pudo leer la ficha: {error}</p>
+                                    <button type="button" onClick={() => id && cargar(id)} className={cn("h-12 px-6 rounded-xl bg-[var(--accion)] text-white font-bold", tocable)}>Reintentar</button>
+                                </div>
+                            ) : !ficha || !l || !est ? (
+                                <div className="p-10 grid place-items-center text-muted-foreground"><Loader2 size={28} className="animate-spin" /></div>
+                            ) : (
+                                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={SUAVE} className="p-5 space-y-5">
+                                    {/* La captura */}
+                                    <button type="button" disabled={!foto} onClick={() => foto && alAmpliar(foto)}
+                                        className={cn("relative block w-full aspect-video rounded-2xl overflow-hidden bg-neutral-900", foto && tocable)}>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        {foto ? <img src={foto} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <span className="absolute inset-0 grid place-items-center text-white/30"><Camera size={40} /></span>}
+                                        {foto && <span className="absolute bottom-3 right-3 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white"><Maximize2 size={18} /></span>}
+                                    </button>
+
+                                    {/* Matrícula y decisión */}
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <span className="px-4 py-1.5 rounded-xl bg-white text-black text-[34px] font-bold tabular-nums tracking-[0.14em] leading-none">{l.plate || "S/L"}</span>
+                                        <span className={cn("inline-flex items-center gap-2 h-11 px-4 rounded-xl font-black uppercase tracking-[0.06em] text-[17px]", est.c)}><est.Ic size={20} /> {est.t}</span>
+                                    </div>
+                                    <div className="text-[15px] text-muted-foreground -mt-2">
+                                        {l.sentido === "EXIT" ? "Salida" : "Entrada"} · {l.camara || "—"} · <span className="tabular-nums">{horaCorta(l.ts)}</span> · {hace(l.ts)}
+                                        {l.decision !== "GRANT" && <div className="mt-1 text-foreground font-semibold">{motivoDenegado(l)}</div>}
+                                    </div>
+
+                                    {/* Quién */}
+                                    <Bloque Icono={Home} titulo="De quién es">
+                                        {ficha.persona ? (
+                                            <div className="space-y-0.5">
+                                                <div className="text-[20px] font-bold">{ficha.persona.nombre}</div>
+                                                <div className="text-[15px] text-muted-foreground">{ROL[ficha.persona.rol] || ficha.persona.rol}{ficha.persona.unidad ? <> · <b className="text-foreground">{ficha.persona.unidad}</b></> : " · sin lote asignado"}</div>
+                                            </div>
+                                        ) : <div className="text-[16px] text-muted-foreground">No está en el padrón.</div>}
+                                        {ficha.adentroDesde && <div className="mt-2 inline-flex items-center gap-2 text-[15px]"><span className="h-2.5 w-2.5 rounded-full bg-[var(--bien)]" /> Adentro desde las <b className="tabular-nums">{horaCorta(ficha.adentroDesde)}</b> ({hace(ficha.adentroDesde).replace("hace ", "")})</div>}
+                                    </Bloque>
+
+                                    {ficha.invitado && (
+                                        <Bloque Icono={Ticket} titulo="Invitado">
+                                            <div className="text-[18px] font-semibold">{ficha.invitado.nombre || "Invitado"}{ficha.invitado.lote ? <> → <b>{ficha.invitado.lote}</b></> : null}</div>
+                                            <div className="text-[15px] text-muted-foreground">{ficha.invitado.anfitrion ? `Lo invitó ${ficha.invitado.anfitrion} · ` : ""}el pase vence {faltan(ficha.invitado.hasta)} (<span className="tabular-nums">{horaCorta(ficha.invitado.hasta)}</span>)</div>
+                                        </Bloque>
+                                    )}
+
+                                    {ficha.vigilancia && vig && (
+                                        <Bloque Icono={ShieldAlert} titulo="Lista de vigilancia">
+                                            <span className={cn("inline-flex items-center px-2.5 py-1 rounded-md border text-[12px] font-bold uppercase tracking-wider", vig.badge)}>{vig.label}</span>
+                                            <div className="mt-1.5 text-[16px]">{ficha.vigilancia.motivo || "Sin motivo cargado"}</div>
+                                        </Bloque>
+                                    )}
+
+                                    {ficha.vehiculo && (ficha.vehiculo.marca || ficha.vehiculo.modelo || ficha.vehiculo.color) && (
+                                        <Bloque Icono={Car} titulo="Vehículo">
+                                            <div className="text-[17px]">{[ficha.vehiculo.marca, ficha.vehiculo.modelo, ficha.vehiculo.color].filter(Boolean).join(" · ")}</div>
+                                        </Bloque>
+                                    )}
+
+                                    {/* Hoy: cada paso se toca para verlo en grande */}
+                                    <Bloque Icono={History} titulo={`Hoy · ${ficha.hoy.length} lectura${ficha.hoy.length === 1 ? "" : "s"}`}>
+                                        <div className="flex flex-col gap-1.5">
+                                            {ficha.hoy.map((x) => (
+                                                <button key={x.id} type="button" onClick={() => x.id === l.id ? alFijar(l) : alVerOtra(x.id)}
+                                                    className={cn("flex items-center gap-3 min-h-[52px] px-3 rounded-xl border text-left", tocable, x.id === l.id ? "border-[var(--accion-en-oscuro)] bg-muted/50" : "border-border bg-card")}>
+                                                    {x.sentido === "EXIT" ? <LogOut size={18} className="text-muted-foreground" /> : <LogIn size={18} className="text-muted-foreground" />}
+                                                    <span className="tabular-nums font-semibold text-[16px] w-[86px]">{horaCorta(x.ts)}</span>
+                                                    <span className="flex-1 min-w-0 truncate text-[14px] text-muted-foreground">{x.camara || "—"}</span>
+                                                    <span className={cn("text-[12px] font-bold uppercase tracking-wider", x.decision === "GRANT" ? "tono-bien" : "tono-mal")}>{x.decision === "GRANT" ? "permitido" : "denegado"}</span>
+                                                </button>
+                                            ))}
+                                            {!ficha.hoy.length && <div className="text-[15px] text-muted-foreground">Hoy no pasó.</div>}
+                                        </div>
+                                    </Bloque>
+
+                                    <button type="button" onClick={() => alFijar(l)} className={cn("w-full h-14 rounded-2xl bg-[var(--accion)] text-white font-bold text-[17px] inline-flex items-center justify-center gap-2", tocable)}>
+                                        <History size={20} /> Ver esta lectura en grande
+                                    </button>
+                                </motion.div>
+                            )}
+                        </div>
+                    </motion.aside>
+                </>
+            )}
+        </AnimatePresence>
+    );
+}
+
+function Bloque({ Icono, titulo, children }: { Icono: any; titulo: string; children: React.ReactNode }) {
+    return (
+        <section className="rounded-2xl border border-border bg-card p-4">
+            <div className="mb-2 flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><Icono size={14} /> {titulo}</div>
+            {children}
+        </section>
     );
 }
