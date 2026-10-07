@@ -48,3 +48,10 @@ El control "Clip animado en alertas" SHALL describir la ventana de alerta vigent
 #### Scenario: Ventana de alerta configurable
 - **WHEN** el administrador cambia los segundos antes/después de la alerta en Ajustes → Video del evento
 - **THEN** el control refleja la nueva ventana y las alertas siguientes la usan sin reiniciar procesos.
+
+### Requirement: La foto de la alerta lleva el logo de OmniAccess
+La foto que acompaña una alerta por WhatsApp SHALL llevar el logo de OmniAccess abajo a la derecha mientras el ajuste «Logo en lo que sale por WhatsApp» esté activo; apagado, la foto sale como la entrega la cámara.
+
+#### Scenario: Alerta con foto
+- **WHEN** una alerta sale por WhatsApp con la foto del evento y el ajuste está activo
+- **THEN** la imagen recibida tiene el logo en la esquina inferior derecha, legible sobre fondo claro u oscuro.

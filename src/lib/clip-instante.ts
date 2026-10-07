@@ -10,6 +10,7 @@ import { ventanaPlayback } from "@/lib/ventana-playback";
 import {
     AJUSTE_ALERTA_ANTES, AJUSTE_ALERTA_DESPUES, ALERTA_ANTES_POR_DEFECTO, ALERTA_DESPUES_POR_DEFECTO,
     ALERTA_ANTES_MAX, ALERTA_DESPUES_MAX, ENVIO_MAX_SEG, SEG_ANILLO_SEG, MARGEN_GRABACION_SEG, CLIP_RETENCION_MIN,
+    AJUSTE_MARCA_AGUA, ARCHIVO_MARCA_AGUA,
 } from "@/lib/clips";
 
 /**
@@ -33,6 +34,14 @@ import {
 export const DIR_CLIPS = process.env.CLIPS_DIR || path.join(process.cwd(), "public", "clips");
 /** Dónde graba el worker el anillo. Fuera de public: nada del anillo se sirve. Igual en los dos procesos. */
 export const DIR_ANILLO = process.env.ANILLO_DIR || path.join(os.tmpdir(), "omniaccess-anillo");
+
+/** El logo a pegar en lo que sale por WhatsApp, o null si está apagado en Ajustes (o falta el archivo). */
+export async function marcaAgua(): Promise<string | null> {
+    const v = (await prisma.setting.findUnique({ where: { key: AJUSTE_MARCA_AGUA } }).catch(() => null))?.value;
+    if (v === "false") return null;
+    const fp = path.join(process.cwd(), "public", ARCHIVO_MARCA_AGUA);
+    return fs.existsSync(fp) ? fp : null;
+}
 
 /** Quién puede pedir o mandar un clip: los que ya ven video en el panel (monitor, intrusión, historial). */
 export const PERMISOS_VIDEO = ["monitor", "intrusion", "historial"] as const;
@@ -192,7 +201,9 @@ export async function clipDeInstante(p: { deviceId: string; instante: number; an
     let motivo = "";
     if (fuente.tipo === "nvr") {
         const cfgCorte: ConfigClip = p.para === "alerta" ? { ...cfg, altura: ALTURA_ALERTA } : cfg;
-        ok = await cortarDesdeNvr(fuente.conn, String(fuente.ch), inicioMs, (finMs - inicioMs) / 1000, destino, { cfg: cfgCorte });
+        // El clip que se manda a mano por WhatsApp lleva el logo; el de una alerta sigue su ajuste aparte.
+        const marca = p.para === "envio" ? await marcaAgua() : null;
+        ok = await cortarDesdeNvr(fuente.conn, String(fuente.ch), inicioMs, (finMs - inicioMs) / 1000, destino, { cfg: cfgCorte, marcaAgua: marca, topeMs: marca ? 75_000 : undefined });
         if (!ok) motivo = "el grabador no entregó grabación de ese horario";
     } else {
         const r = await cortarDesdeAnillo(fuente.dir, inicioMs, finMs, destino);

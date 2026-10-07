@@ -31,3 +31,9 @@ El interruptor "Clip animado en alertas" del Centro de Notificaciones está pren
 - **Procesos PM2 a reiniciar:** `omniaccess-web` (build + restart) y `dispatch-worker` (restart). **No** se reinicia `omniaccess-webhooks` (no se toca `server.js`).
 - **Páginas a verificar:** `/admin/notificaciones` (interruptor y cobertura), `/admin/settings` → Video del evento, `/admin/monitor-intrusion` → grabación → Descargar/Enviar, `/admin/history` → ficha → video → enviar, `/admin/despachos` (fila `CLIP`), y `/api/nvr/playback?whole=1` sigue entregando el clip al WebView.
 - **Riesgo principal:** la CPU del CT 200 sin GPU transcodifica HEVC por software (perimetrales en NVR 2): un clip de 10 s tarda del orden de 10–20 s. La alerta se demora eso; la foto sigue siendo el respaldo.
+
+## Decisiones durante la aplicación (7/10)
+
+- **Sin video en las alertas de San Nicolás.** Medido: el NVR 6 entrega la grabación ~85 s después de que pasa (el NVR 2, menos de 48 s), así que un clip de alerta desde el NVR llegaría 1,5–2 min tarde; la alternativa (grabación local del sub-stream) no compensa para el cliente. El interruptor «Clip animado en alertas» queda **apagado** en SN; el código queda (honesto y probado) para un barrio que lo quiera. Las alertas salen con foto.
+- **El clip sigue siendo manual**: desde el botón de la grabación, con su diálogo (descargar o enviar por WhatsApp).
+- **Logo de OmniAccess** sobre lo que sale por WhatsApp: la foto de cada alerta y el clip enviado a mano. Con placa oscura translúcida (el primer intento, logo blanco suelto, no se leía sobre fondos claros). Se apaga en Ajustes → Video del evento. Las descargas no lo llevan.

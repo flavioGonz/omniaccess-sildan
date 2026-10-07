@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import type { NvrConn } from "@/lib/nvr-resolve";
-import { configClips, filtroEscala, CRF_POR_CALIDAD, type ConfigClip } from "@/lib/clips";
+import { configClips, filtroEscala, CRF_POR_CALIDAD, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN, type ConfigClip } from "@/lib/clips";
 
 /**
  * Cortar video de la grabación de un NVR: la URL RTSP de playback, el códec del canal y los
@@ -144,9 +144,21 @@ export const CORTE_TOPE_MS = 45_000;
  * playback: el que reproduce el WebView de Android y el que acepta WhatsApp. Devuelve si
  * quedó un archivo; no inventa nada si el NVR no tiene ese tramo.
  */
-export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, opciones: { forceTx?: boolean; cfg?: ConfigClip; topeMs?: number } = {}): Promise<boolean> {
+export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, opciones: { forceTx?: boolean; cfg?: ConfigClip; topeMs?: number; marcaAgua?: string | null } = {}): Promise<boolean> {
     const { url, canCopy, DEC, SWUP, VF, ENC } = await planDeCorte(conn, ch, startMs, durSeg, opciones);
-    const args = canCopy
+    const cfg = opciones.cfg || await configClips();
+    // Con logo: siempre por software (copy no puede dibujar nada encima, y VAAPI no compone un
+    // PNG con transparencia). En San Nicolás ya se recodificaba (los NVR graban HEVC), así que
+    // no agrega espera; donde se copiaba, cuesta un transcode de un clip corto.
+    const args = opciones.marcaAgua
+        ? ["-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-i", opciones.marcaAgua, "-t", String(durSeg),
+           "-filter_complex",
+           `[0:v]${cfg.altura ? `scale=-2:${cfg.altura},` : ""}format=yuv420p[v];` +
+           `[1:v][v]scale2ref=w=main_w*${MARCA_AGUA_ANCHO}:h=ow*ih/iw[m][v2];` +
+           `[v2][m]overlay=x=W-w-W*${MARCA_AGUA_MARGEN}:y=H-h-W*${MARCA_AGUA_MARGEN},format=yuv420p`,
+           "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-threads", "4",
+           "-movflags", "+faststart", "-y", destino]
+        : canCopy
         ? ["-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(durSeg),
            "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", destino]
         : [...DEC, "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(durSeg),

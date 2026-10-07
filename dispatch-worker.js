@@ -67,6 +67,13 @@ function imagePathFor(snapshotPath, deviceId) {
     return null;
 }
 
+// El logo para la foto de las alertas por WhatsApp, o null si está apagado (MARCA_AGUA_WHATSAPP=false).
+async function marcaAguaFoto() {
+    if ((await getSetting("MARCA_AGUA_WHATSAPP", "true")) === "false") return null;
+    const fp = require("path").join(__dirname, "public", "marca-agua-omniaccess.png");
+    return fs.existsSync(fp) ? fp : null;
+}
+
 // Fetch an image from the local web process and return base64 (no data-uri prefix).
 function fetchLocalBase64(path) {
     return new Promise((resolve) => {
@@ -80,7 +87,21 @@ function fetchLocalBase64(path) {
                     if (buf.length <= 100) return resolve(null);
                     // Achicar a 1280 px / JPEG 82: una captura LPR de 2 MB llega a WhatsApp como
                     // "HD" con miniatura borrosa y botón de descarga; a ~200 KB se ve al instante.
-                    try { const sharp = require("sharp"); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { console.error("[dispatch] sharp:", e.message); }
+                    try {
+                        const sharp = require("sharp");
+                        let img = sharp(await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).toBuffer());
+                        // Logo de OmniAccess (Ajustes → Video del evento; = AJUSTE_MARCA_AGUA y
+                        // MARCA_AGUA_ANCHO/MARGEN de lib/clips). Con placa oscura: se lee sobre cualquier fondo.
+                        const marca = await marcaAguaFoto();
+                        if (marca) {
+                            const { width = 1280, height = 720 } = await img.metadata();
+                            const ancho = Math.round(width * 0.18), margen = Math.round(width * 0.02);
+                            const logo = await sharp(marca).resize({ width: ancho }).toBuffer();
+                            const alto = (await sharp(logo).metadata()).height || 0;
+                            img = img.composite([{ input: logo, left: width - ancho - margen, top: Math.max(0, height - alto - margen) }]);
+                        }
+                        buf = await img.jpeg({ quality: 82 }).toBuffer();
+                    } catch (e) { console.error("[dispatch] sharp:", e.message); }
                     resolve(buf.toString("base64"));
                 });
             });

@@ -11,7 +11,7 @@
 ## 2. Anillo y alerta en el worker
 
 - [x] 2.1 `dispatch-worker.js`: `ensureRecorders` calcula el conjunto a grabar = cámaras alcanzadas por reglas activas sin IP en `NVR_CHANNEL_MAP` (stream `lpr_<deviceId>`) ∪ `QUEUE_COUNTER` Bosch (`bosch_<ip>`); arranca los que faltan, mata y borra los que sobran; directorio `tmp/omniaccess-anillo/<deviceId>`. Verificar: con `regla-intrusion-wa` apagada no hay ffmpeg de anillo; al habilitar una regla de prueba que alcance `lpr-interior` aparece `seg_*.ts` en su carpeta antes de 10 s y desaparece al apagarla.
-- [ ] 2.2 Retirar `buildClip`/`buildClipLive` y el ffmpeg de corte del worker; el manejador de `ALERT` pide `POST /api/clip/instante` con `ventanaAlerta` y `p.instante || p.timestamp`, manda `sendVideo` por URL (`INTERNAL_BASE_URL`, defecto `http://127.0.0.1:10001`) y base64 de respaldo, y si no hay clip o falla el video manda la foto en el mismo despacho dejando `lastError = "sin video: <motivo>"` con estado `SENT`. Verificar: `POST /api/notifications/test` por WhatsApp con `DISPATCH_ANIMATED=true` → llega video (cámara con NVR) o foto con la nota en `/admin/despachos`.
+- [x] 2.2 Retirar `buildClip`/`buildClipLive` y el ffmpeg de corte del worker; el manejador de `ALERT` pide `POST /api/clip/instante` con `ventanaAlerta` y `p.instante || p.timestamp`, manda `sendVideo` por URL (`INTERNAL_BASE_URL`, defecto `http://127.0.0.1:10001`) y base64 de respaldo, y si no hay clip o falla el video manda la foto en el mismo despacho dejando `lastError = "sin video: <motivo>"` con estado `SENT`. Verificar: `POST /api/notifications/test` por WhatsApp con `DISPATCH_ANIMATED=true` → llega video (cámara con NVR) o foto con la nota en `/admin/despachos`.
 - [x] 2.3 `EventoNotificable.instante` y `delayMs = (despues + MARGEN_GRABACION_SEG) * 1000` en `notificarEvento` sólo cuando el clip animado está activo y el canal es WhatsApp/Telegram; `paso-por-acceso.ts`, `estadias.ts`, `ocupaciones.ts` pasan el instante. Verificar: con el clip apagado el `DispatchJob` se procesa en < 2 s; con el clip prendido, a los `despues + margen` s.
 - [ ] 2.4 `/admin/despachos`: la nota `sin video: …` se muestra como aviso (no como error) en las filas `SENT`, y el tipo `CLIP` se lista con quién lo mandó. Verificar: una fila de 2.2 y una de 3.3 se ven con su nota y su autor.
 
@@ -30,3 +30,11 @@
 
 - [ ] 5.1 Despliegue en San Nicolás: build `BUILD_EXIT=0`, `pm2 restart omniaccess-web --update-env` y `pm2 restart dispatch-worker` (no `omniaccess-webhooks`); HTTP 200 en `/login`, `/admin/notificaciones`, `/admin/settings`, `/admin/monitor-intrusion`, `/admin/history`, `/admin/despachos`; `?whole=1` entrega MP4; un envío manual real a Flavio y una alerta de prueba con clip; medir el tiempo de corte HEVC (perimetral) y H.264 (LPR Entrada) y anotarlo.
 - [ ] 5.2 Documentar en `claude/pendientes-san-nicolas.md` y en `claude/whatsapp-san-nicolas.md` (cómo funciona el clip de alerta, el anillo, cómo enviar desde el playback, tiempos medidos); push de `san-nicolas`.
+
+## 6. Logo de OmniAccess en lo que sale por WhatsApp (agregado el 7/10)
+
+- [x] 6.1 `public/marca-agua-omniaccess.png`: logo blanco sin la bajada, sobre placa oscura translúcida con borde y sombra. Verificar: legible sobre cielo y sobre arbustos en un cuadro real de LPR Entrada.
+- [ ] 6.2 Foto de la alerta (dispatch-worker, `fetchLocalBase64`): composite con sharp, 18 % del ancho, margen 2 %, según `MARCA_AGUA_WHATSAPP`. Verificar: alerta de prueba por WhatsApp con la foto y el logo.
+- [ ] 6.3 Clip enviado a mano (`cortarDesdeNvr` con `marcaAgua`, sólo `para: "envio"`): overlay por software. Verificar: el MP4 enviado tiene el logo en todo el clip; la descarga del mismo tramo no.
+- [ ] 6.4 Ajustes → Video del evento: «Logo en lo que sale por WhatsApp» con vista previa sobre fondo claro y oscuro. Verificar: apagarlo y la próxima foto sale sin logo.
+- [ ] 6.5 `DISPATCH_ANIMATED=false` en San Nicolás (sin video en alertas). Verificar: el interruptor aparece apagado y una alerta de prueba sale con foto sin esperar.

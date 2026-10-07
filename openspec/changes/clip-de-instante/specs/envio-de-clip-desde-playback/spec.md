@@ -44,3 +44,14 @@ Cada envío manual SHALL quedar en la bandeja de despachos como un despacho de t
 #### Scenario: Fila en despachos
 - **WHEN** un operador envía un clip desde el playback
 - **THEN** la bandeja de despachos muestra una fila de tipo clip con su nombre de usuario, la cámara, la hora del instante y el estado del envío.
+
+### Requirement: Lo que sale por WhatsApp lleva el logo de OmniAccess
+El clip enviado a mano por WhatsApp SHALL llevar el logo de OmniAccess abajo a la derecha, con fondo propio que lo haga legible sobre cualquier imagen, mientras el ajuste «Logo en lo que sale por WhatsApp» esté activo; el clip descargado SHALL salir sin logo.
+
+#### Scenario: Envío con logo
+- **WHEN** el ajuste está activo y un operador manda un clip por WhatsApp
+- **THEN** el video recibido muestra el logo de OmniAccess en la esquina inferior derecha durante todo el clip.
+
+#### Scenario: Descarga sin logo
+- **WHEN** el operador descarga el mismo tramo
+- **THEN** el archivo no tiene logo.

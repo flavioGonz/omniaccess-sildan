@@ -109,3 +109,15 @@ export const TIPOS_POR_MODULO: Record<string, string[]> = {
     LPR: ["LPR_CAMERA", "LPR_INTERIOR"],
     INTRUSION: ["CAMERA", "LPR_CAMERA", "LPR_INTERIOR"],
 };
+
+/**
+ * Logo de OmniAccess sobre lo que sale por WhatsApp (la foto de una alerta y el clip mandado a
+ * mano). Prendido por defecto; se apaga en Ajustes → Video del evento. Las descargas NO lo
+ * llevan: son evidencia y salen tal cual las entrega el grabador.
+ */
+export const AJUSTE_MARCA_AGUA = "MARCA_AGUA_WHATSAPP";
+/** El logo con placa oscura translúcida (public/): se lee igual sobre cielo, pasto o asfalto. */
+export const ARCHIVO_MARCA_AGUA = "marca-agua-omniaccess.png";
+/** Ancho del logo respecto del ancho de la imagen, y margen al borde: visible sin tapar la escena. */
+export const MARCA_AGUA_ANCHO = 0.18;
+export const MARCA_AGUA_MARGEN = 0.02;
