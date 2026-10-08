@@ -131,7 +131,8 @@ function Contador({ rotulo, valor, Icono, tono, activo, alTocar }: { rotulo: str
             <span className={cn("grid h-11 w-11 lg:h-12 lg:w-12 place-items-center rounded-full shrink-0", tono === "bien" ? "pleno-bien" : tono === "mal" ? "pleno-mal" : tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><Icono size={22} /></span>
             <div className="min-w-0">
                 <div className="text-[32px] lg:text-[40px] font-bold leading-none tabular-nums">{valor}</div>
-                <div className="text-[13px] lg:text-[14px] text-muted-foreground mt-1 truncate">{rotulo}</div>
+                {/* Sin recortar: "Denegado…" con 1668 al lado no dice qué cuenta. Baja a dos renglones si hace falta. */}
+                <div className="text-[13px] lg:text-[14px] text-muted-foreground mt-1 leading-tight">{rotulo}</div>
             </div>
         </button>
     );
@@ -179,7 +180,7 @@ export function VistaLpr() {
         <div className="absolute inset-0 flex flex-col lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4">
             <div className="min-w-0 min-h-0 flex-1 flex flex-col gap-3 lg:gap-4">
                 {/* Protagonista */}
-                <div className={cn("relative flex-1 min-h-[38vh] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
+                <div className={cn("relative flex-1 min-h-[220px] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
                     !protagonista ? "ring-white/10" : protagonista.decision === "GRANT" && !esListaNegra(protagonista) ? "ring-[var(--bien)]" : "ring-[var(--mal)]")}>
                     <AnimatePresence mode="popLayout" initial={false}>
                         {protagonista ? (
@@ -214,8 +215,8 @@ export function VistaLpr() {
                     <AnimatePresence>
                         {nuevaMientrasFijada && (
                             <motion.button key={nuevaMientrasFijada.id} type="button" onClick={volverAlVivo}
-                                initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 16 }} transition={SUAVE}
-                                className={cn("absolute bottom-28 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-3 h-14 pl-3 pr-5 rounded-full text-white font-semibold text-[16px] bg-black/80 backdrop-blur-md border border-white/15", tocable)}>
+                                initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={SUAVE}
+                                className={cn("absolute top-[104px] left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-3 h-14 pl-3 pr-5 rounded-full text-white font-semibold text-[16px] bg-black/80 backdrop-blur-md border border-white/15", tocable)}>
                                 <span className={cn("grid h-9 w-9 place-items-center rounded-full", estadoDe(nuevaMientrasFijada).c)}>{(() => { const I = estadoDe(nuevaMientrasFijada).Ic; return <I size={18} />; })()}</span>
                                 Nueva lectura · <span className="tabular-nums tracking-[0.1em] font-bold">{nuevaMientrasFijada.plate || "S/L"}</span>
                                 <ChevronRight size={18} className="text-white/60" />

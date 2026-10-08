@@ -63,6 +63,10 @@ export function MarcoMonitor({ children }: { children: React.ReactNode }) {
     const [silencio, setSilencio] = useState<boolean>(() => { try { return localStorage.getItem("oa.monitor.silencio") === "1"; } catch { return false; } });
     const [bloqueado, setBloqueado] = useState(true);
     const [tactil, setTactil] = useState(false);
+    /* La hora se dibuja recién en el navegador: la del servidor (al armar la página) nunca
+       coincide al segundo con la del cliente, y React lo marcaba como error de hidratación. */
+    const [montado, setMontado] = useState(false);
+    useEffect(() => { setMontado(true); }, []);
     useEffect(() => {
         try {
             const mq = window.matchMedia("(any-pointer: coarse)");
@@ -137,14 +141,14 @@ export function MarcoMonitor({ children }: { children: React.ReactNode }) {
                         <span className="text-[22px] font-bold truncate">{valor.barrio}</span>
                         {titulo && <span className={cn("text-[18px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}
                     </div>
-                    <div className={cn("ml-auto flex items-center gap-2 text-[16px] font-bold uppercase tracking-[0.12em]", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
+                    <div className={cn("ml-auto flex items-center gap-2 text-[14px] lg:text-[16px] font-bold uppercase tracking-[0.12em] whitespace-nowrap", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
                         {sinDatos ? <><AlertTriangle size={22} /> Sin datos hace {minutosSin} min</>
                             : reconectando ? <><RefreshCw size={18} className="animate-spin" /> Reconectando</>
                                 : <><span className="h-3 w-3 rounded-full bg-[var(--bien)] animate-pulse" /> En vivo</>}
                     </div>
                     <div className="flex items-baseline gap-3 tabular-nums">
-                        <span className={cn("hidden md:inline text-[16px] capitalize", sinDatos ? "opacity-80" : "text-muted-foreground")}>{fecha}</span>
-                        <span className="text-[30px] font-bold leading-none">{hora}</span>
+                        <span className={cn("hidden lg:inline text-[16px] capitalize whitespace-nowrap", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>
+                        <span className="text-[26px] lg:text-[30px] font-bold leading-none" suppressHydrationWarning>{montado ? hora : "--:--:--"}</span>
                     </div>
                     <div className={cn("flex items-center gap-1 transition-opacity duration-300", quieto && !tactil ? "opacity-0" : "opacity-100")}>
                         <button onClick={alternarSilencio} title={silencio ? "Activar sonido" : "Silenciar esta pantalla"} aria-label={silencio ? "Activar sonido" : "Silenciar"}
