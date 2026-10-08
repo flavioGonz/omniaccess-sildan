@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Box, CalendarClock, Cpu, FileText, History, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, Terminal, Timer } from "lucide-react";
+import { AlertTriangle, Box, HelpCircle, CalendarClock, Cpu, FileText, History, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, Terminal, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pista } from "@/components/ui/pista";
@@ -33,13 +33,21 @@ const tonoDeLinea = (l: string) => /\b(error|err!|fatal|exception|✗|failed|fal
     : /\b(warn|warning|aviso|advertencia)\b/i.test(l) ? "tono-aviso" : "";
 
 function Dato({ rotulo, valor, pista }: { rotulo: string; valor: React.ReactNode; pista?: string }) {
-    const cuerpo = (
+    // La pista va en el rótulo y no envolviendo el recuadro: envuelto, el globo es un
+    // `span` en línea y el recuadro se achica al ancho de su número.
+    return (
         <div className="rounded-[10px] border border-border bg-card px-3 py-2.5 min-w-0">
             <p className="text-[15px] font-bold tabular-nums leading-tight truncate">{valor}</p>
-            <p className="text-[11px] text-muted-foreground mt-1">{rotulo}</p>
+            <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
+                {rotulo}
+                {pista && (
+                    <Pista titulo={rotulo} texto={pista} ancho={260}>
+                        <HelpCircle size={11.5} className="text-muted-foreground/60 hover:text-[var(--accion)] cursor-help" />
+                    </Pista>
+                )}
+            </p>
         </div>
     );
-    return pista ? <Pista titulo={rotulo} texto={pista} ancho={260}>{cuerpo}</Pista> : cuerpo;
 }
 
 // ───────────────────────────── Servicio ─────────────────────────────
@@ -61,9 +69,10 @@ export function CajonServicio({ servicio, alCerrar, alCambiar }: { servicio: Ser
         setCargando(false);
         if (!r.ok) { setError(r.error); return; }
         setLog({ lineas: r.lineas, archivo: r.archivo });
-        // Al final, que es donde está lo último que pasó.
-        requestAnimationFrame(() => { if (caja.current) caja.current.scrollTop = caja.current.scrollHeight; });
     };
+    // Al final, que es donde está lo último que pasó. En un efecto y no al recibir: recién
+    // después de dibujar las líneas la caja tiene su alto real.
+    useEffect(() => { if (caja.current) caja.current.scrollTop = caja.current.scrollHeight; }, [log]);
     useEffect(() => { setLog(null); setFiltro(""); if (s?.conLogs) traer(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [s?.nombre, cual, lineas]);
     useEffect(() => { setCual("salida"); }, [s?.nombre]);
 

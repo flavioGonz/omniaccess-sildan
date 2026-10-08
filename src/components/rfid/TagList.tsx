@@ -87,7 +87,7 @@ export function TagList({ initialTags, users }: { initialTags: TagWithUser[]; us
                                     title="Eliminar todos los tags"
                                     description={`Se borran los ${initialTags.length} tags del sistema. Las ${asignados} asignadas están cargadas en los porteros: sus dueños dejan de poder abrir con la tarjeta en cuanto se quitan.`}
                                     cifras={[
-                                        { rotulo: "tags en total", valor: initialTags.length, tono: "mal" },
+                                        { rotulo: "tags en total", valor: initialTags.length, tono: initialTags.length ? "mal" : "neutro" },
                                         { rotulo: "asignadas a alguien", valor: asignados, tono: asignados ? "aviso" : "neutro" },
                                         { rotulo: "en el cajón", valor: initialTags.length - asignados },
                                     ]}
