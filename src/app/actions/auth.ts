@@ -94,7 +94,11 @@ export async function login(formData: FormData) {
         return { error: 'Usuario o contraseña incorrectos' }
     }
 
-    const passwordCred = user.credentials.find(c => c.type === 'PASSWORD' || c.type === 'PIN')
+    /* Sólo la CONTRASEÑA abre el panel. Antes también valía el PIN (el primero que apareciera
+       de los dos): el PIN se guarda en claro y es el código del teclado de la entrada, así que
+       quien lo viera en la tabla de usuarios podía entrar al panel con él. La consola del
+       guardia sigue aceptando su PIN por su propio camino (verifyGuardCredential). */
+    const passwordCred = user.credentials.find(c => c.type === 'PASSWORD')
     if (!passwordCred) {
         return { error: 'Usuario o contraseña incorrectos' }
     }

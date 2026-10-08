@@ -119,6 +119,9 @@ export function CajonUsuario({
     const [chapas, setChapas] = useState<string[]>([]);
     const [chapaNueva, setChapaNueva] = useState("");
     const [pin, setPin] = useState("");
+    /* El PIN de otra cuenta del panel no llega (lib/credenciales-visibles): hay uno, pero no se
+       muestra. El campo arranca vacío y sólo se manda si se escribe uno nuevo — vacío no borra. */
+    const [pinOculto, setPinOculto] = useState(false);
     const [gruposElegidos, setGruposElegidos] = useState<string[]>([]);
     const [lprElegidos, setLprElegidos] = useState<string[]>([]);
     const [facialesElegidos, setFacialesElegidos] = useState<string[]>([]);
@@ -165,6 +168,7 @@ export function CajonUsuario({
         ].map(limpiarChapa).filter(Boolean))]);
         setChapaNueva("");
         setPin(user?.credentials?.find((c) => c.type === "PIN")?.value || "");
+        setPinOculto(!!(user?.credentials as any[])?.some((c) => c.type === "PIN" && c.oculto));
         setArchivoFoto(null);
         setGruposElegidos(user?.accessGroups?.map((g) => g.id) || []);
         setUnidadId(user?.unitId || "none");
@@ -603,10 +607,13 @@ export function CajonUsuario({
                                         || user?.credentials?.find((c) => c.type === "TAG")?.value || ""}
                                     placeholder="Varios, separados por coma" className="tabular-nums" />
                             </CajonCampo>
-                            <CajonCampo etiqueta="Código PIN"
-                                pista="Queda oculto al escribirlo, pero se guarda tal cual: cualquiera con acceso al panel puede verlo. No sirve como contraseña de nada más.">
-                                <PasswordInput name="pin" value={pin} onChange={(e) => setPin(e.target.value)}
-                                    placeholder="Para el teclado de la entrada" className="tabular-nums" />
+                            <CajonCampo etiqueta={pinOculto ? "Resetear código PIN" : "Código PIN"}
+                                ayuda={pinOculto ? "Tiene un PIN que sólo ve su dueño. Escribí uno nuevo para resetearlo; vacío lo deja como está." : undefined}
+                                pista={pinOculto
+                                    ? "Es una cuenta del panel: cada uno ve su propio PIN y a los demás sólo se lo puede cambiar."
+                                    : "Queda oculto al escribirlo, pero se guarda tal cual: cualquiera con acceso al panel puede verlo, salvo el de las cuentas del panel, que sólo ve su dueño. No abre el panel: para eso está la contraseña."}>
+                                <PasswordInput name={pinOculto && !pin ? undefined : "pin"} value={pin} onChange={(e) => setPin(e.target.value)}
+                                    placeholder={pinOculto ? "•••• (oculto)" : "Para el teclado de la entrada"} className="tabular-nums" />
                             </CajonCampo>
                         </div>
 

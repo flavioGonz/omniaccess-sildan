@@ -172,7 +172,10 @@ function CajonUsuarioSistema({ usuario, roles, abierto, onOpenChange, onGuardado
                 </CajonSeccion>
 
                 <CajonSeccion titulo="Cómo entra" icono={Lock}>
-                    <CajonCampo etiqueta={esAlta ? "Contraseña" : "Nueva contraseña"} ayuda={esAlta ? "Se guarda cifrada." : "Dejar vacío para no cambiarla. Se guarda cifrada."}>
+                    {/* Nadie ve la contraseña de nadie (está cifrada). A uno mismo se le ofrece cambiarla;
+                        a otro administrador, resetearla: ponerle una nueva sin conocer la actual. */}
+                    <CajonCampo etiqueta={esAlta ? "Contraseña" : soyYo ? "Cambiar mi contraseña" : "Resetear contraseña"}
+                        ayuda={esAlta ? "Se guarda cifrada." : soyYo ? "Dejar vacío para no cambiarla. Se guarda cifrada." : "La actual no se puede ver: se guarda cifrada. Escribí una nueva para resetearla y pasásela por un canal seguro; vacío la deja como está."}>
                         <PasswordInput value={f.password} onChange={(e) => set("password", e.target.value)} placeholder={esAlta ? "mínimo 6 caracteres" : "••••••"} />
                     </CajonCampo>
                     {!esAlta && (

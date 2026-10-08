@@ -8,6 +8,8 @@ import { addDevicePlate } from "./devices";
 import fs from "fs/promises";
 import path from "path";
 import { uploadToS3 } from "@/lib/s3";
+import { credencialesVisibles, esCuentaDelPanel } from "@/lib/credenciales-visibles";
+import { getSession } from "@/app/actions/auth";
 
 /**
  * Las matrículas de una persona. Varias, no una.
@@ -100,7 +102,15 @@ export async function getUsers(options?: { take?: number, skip?: number }) {
         take: options?.take,
         skip: options?.skip
     });
-    return users;
+    // Ningún secreto ajeno sale al navegador: sin contraseñas, y el PIN de otra cuenta del
+    // panel llega vacío y marcado `oculto` (ver lib/credenciales-visibles).
+    const yo = await quienSoy();
+    return users.map((u) => ({ ...u, credentials: credencialesVisibles(u.credentials, u, yo) }));
+}
+
+/** El id del usuario de la sesión, o null. */
+async function quienSoy(): Promise<string | null> {
+    try { const s: any = await getSession(); return (s?.sub as string) || null; } catch { return null; }
 }
 
 export async function getUsersCount() {
@@ -498,7 +508,10 @@ export async function updateUser(id: string, formData: FormData) {
     }
 
     // Update or Create PIN
-    if (pin !== null) {
+    // El PIN de otra cuenta del panel le llega oculto (vacío) a quien edita: un campo vacío
+    // ahí no quiere decir "borralo", quiere decir "no lo toqué". Sólo se resetea escribiendo uno.
+    const pinAjenoOculto = esCuentaDelPanel(updatedUser as any) && updatedUser.id !== (await quienSoy());
+    if (pin !== null && !(pinAjenoOculto && pin.trim() === "")) {
         const existingPin = await prisma.credential.findFirst({
             where: { userId: id, type: 'PIN' }
         });

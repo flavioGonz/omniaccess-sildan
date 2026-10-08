@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import {
-    Briefcase, CreditCard, Edit, Hash, KeyRound, Mail, MapPin, Phone, ScanFace,
+    Briefcase, CreditCard, Edit, Hash, KeyRound, Lock, Mail, MapPin, Phone, ScanFace,
     Shield, ShieldAlert, Trash2, Truck, UserCheck, UserX, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -187,8 +187,12 @@ export function TablaUsuarios({
             clave: "pines", titulo: "PIN", alinear: "centro", ancho: 110,
             tituloAyuda: "Códigos de teclado",
             ayuda: "Los códigos con los que puede abrir desde un teclado, sin llevar nada encima.",
-            valor: (u) => credenciales(u).pines.map((p: any) => p.value).join(" "),
-            celda: (u) => <Pila items={credenciales(u).pines.map((p: any) => p.value)} icono={KeyRound} rotulo="Códigos PIN" mono />,
+            valor: (u) => credenciales(u).pines.map((p: any) => p.oculto ? "oculto" : p.value).join(" "),
+            celda: (u) => credenciales(u).pines.some((p: any) => p.oculto)
+                ? <Pista titulo="PIN de otra cuenta del panel" texto="Sólo lo ve su dueño. Desde la ficha se le puede poner uno nuevo (resetearlo), no leer el actual.">
+                    <span><Chip tono="quieto" icono={Lock} className="tracking-[0.2em]">••••</Chip></span>
+                  </Pista>
+                : <Pila items={credenciales(u).pines.map((p: any) => p.value)} icono={KeyRound} rotulo="Códigos PIN" mono />,
         },
         {
             clave: "rostro", titulo: "Rostro", alinear: "centro", ancho: 90,

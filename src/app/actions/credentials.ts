@@ -6,9 +6,11 @@ import { heredarListaNegraSiCorresponde } from "@/app/actions/watchlist";
 import { revalidatePath } from "next/cache";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
 import { Credential } from "@prisma/client";
+import { credencialesVisibles } from "@/lib/credenciales-visibles";
+import { getSession } from "@/app/actions/auth";
 
 export async function getCredentials() {
-    return await prisma.credential.findMany({
+    const filas = await prisma.credential.findMany({
         include: {
             user: {
                 include: {
@@ -20,6 +22,11 @@ export async function getCredentials() {
             createdAt: 'desc'
         }
     });
+    // Las contraseñas no se listan (ni su hash) y el PIN de otra cuenta del panel sale oculto:
+    // ver lib/credenciales-visibles.
+    let yo: string | null = null;
+    try { const s: any = await getSession(); yo = (s?.sub as string) || null; } catch { /* sin sesión: nada propio */ }
+    return filas.flatMap((c) => credencialesVisibles([c], (c.user as any) ?? { id: String(c.userId ?? "") }, yo));
 }
 
 export async function deleteCredential(id: string) {
