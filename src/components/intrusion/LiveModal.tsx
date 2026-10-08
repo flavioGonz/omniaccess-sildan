@@ -30,6 +30,15 @@ const DUR_NAVEGACION_SEG = 180;
 /** Si el tramo murió antes de esto, no era el final del tramo: no había grabación. */
 const MIN_SEG_PARA_ENCADENAR = 3;
 
+/**
+ * Cuánto video por delante se espera antes de darle play a la grabación, y cuánto como mucho.
+ * Eran 2,5 s y 1,5 s: con el NVR entregando a tiempo real, eso era un segundo y medio mirando
+ * "Buscando grabación" en cada apertura. El visor viejo arrancaba en cuanto tenía un cuadro y
+ * se sentía instantáneo; 1 s de colchón alcanza para no trabarse al arrancar.
+ */
+const COLCHON_SEG = 1;
+const ARRANQUE_FORZADO_MS = 600;
+
 type Ventana = { antes: number; despues: number; topes: { antesMax: number; despuesMax: number; despuesMin: number } };
 const VENTANA_INICIAL: Ventana = { antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } };
 const horaSeg = (ms: number) => new Date(ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
@@ -208,7 +217,9 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
     const [snap, setSnap] = useState(`/api/snapshot/${cam.id}?t=${Date.now()}`);
     const [qFlash, setQFlash] = useState(0);
     // grabación
-    const [nvrId, setNvrId] = useState<string | null>(null);
+    // Si quien abre ya sabe de qué NVR es el canal (cam.nvrId), se usa de entrada: pedirlo de
+    // nuevo era una vuelta al servidor ANTES de poder siquiera pedir la grabación.
+    const [nvrId, setNvrId] = useState<string | null>(cam.nvrId || null);
     const [recT, setRecT] = useState(initialRecMs || (Date.now() - 60000));      // posición del slider (inmediata)
     const [recLoadT, setRecLoadT] = useState(initialRecMs || (Date.now() - 60000)); // tiempo confirmado (debounced) que se reproduce
     const [globalEnd] = useState(() => initialRecMs ? Math.max(Date.now(), initialRecMs + 60000) : Date.now());
@@ -253,14 +264,14 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
     const tryPlayCushion = useCallback(() => {
         const v = recVideo.current; if (!v || recStartedRef.current || pausadoPorUsuario.current) return;
         let cushion = 0; try { if (v.buffered.length) cushion = v.buffered.end(v.buffered.length - 1) - (v.currentTime || 0); } catch { }
-        if (cushion >= 2.5 || v.readyState >= 4) { v.play().catch(() => { }); }
+        if (cushion >= COLCHON_SEG || v.readyState >= 4) { v.play().catch(() => { }); }
     }, []);
     // evidencia
     const [evi, setEvi] = useState<DetHistItem[]>([]);
     const [eviBig, setEviBig] = useState<string | null>(null);
 
     useEffect(() => { fetch(`/api/devices/stream?deviceId=${cam.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ensure" }) }).catch(() => { }); }, [cam.id]);
-    useEffect(() => { fetch(`/api/nvr/channel?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNvrId(d && d.nvr ? String(d.nvr) : null)).catch(() => { }); }, [cam.id]);
+    useEffect(() => { if (cam.nvrId) return; fetch(`/api/nvr/channel?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNvrId(d && d.nvr ? String(d.nvr) : null)).catch(() => { }); }, [cam.id, cam.nvrId]);
     useEffect(() => { if (tab !== "evi") return; getDetectionHistory({ deviceId: cam.id, pageSize: 30 }).then((r) => setEvi(r.items)).catch(() => { }); }, [tab, cam.id]);
     // Los eventos del DÍA que se está mirando (no los últimos 100 de siempre): son las marcas de la regla.
     useEffect(() => {
@@ -279,8 +290,16 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
     // ── LIVE loader (paciencia > warmup del transcode HW, sin churn) ──
     // NO depende de `tab`: el vivo sigue corriendo aunque estés en Grabación/Evidencia,
     // así volver a "Vivo" es instantáneo (no recarga el stream).
+    /**
+     * El vivo arranca recién cuando se mira la pestaña Vivo. Abierto directo en Grabación (el
+     * botón de grabación de un evento), el vivo a pantalla completa corría escondido detrás y
+     * competía con la grabación por el mismo transcodificador: dos flujos de video para mostrar
+     * uno. Ese era el segundo de espera que el visor viejo no tenía. El PiP de vivo sí sigue.
+     */
+    const [vivoVisto, setVivoVisto] = useState(initialTab === "live");
+    useEffect(() => { if (tab === "live") setVivoVisto(true); }, [tab]);
     useEffect(() => {
-        const video = videoRef.current; if (!video) return;
+        const video = videoRef.current; if (!video || !vivoVisto) return;
         let stopped = false, tries = 0; let wd: any = null, st: any = null;
         const base = `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=h264`;
         setReadyV(false); setStalled(false);
@@ -295,7 +314,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
         video.addEventListener("playing", onPlaying); video.addEventListener("waiting", onWaiting); video.addEventListener("stalled", onWaiting); video.addEventListener("ended", onEnded); video.addEventListener("error", onErr); video.addEventListener("progress", onProgress);
         const boot = setTimeout(start, 120);
         return () => { stopped = true; cancelAnimationFrame(paintRAF.current); clearTimeout(wd); clearTimeout(st); clearTimeout(boot); video.removeEventListener("playing", onPlaying); video.removeEventListener("waiting", onWaiting); video.removeEventListener("stalled", onWaiting); video.removeEventListener("ended", onEnded); video.removeEventListener("error", onErr); video.removeEventListener("progress", onProgress); try { video.pause(); video.removeAttribute("src"); video.load(); } catch { } };
-    }, [streamName, cam.id]);
+    }, [streamName, cam.id, vivoVisto]);
     const toggleHd = () => { setHd((h) => !h); setQFlash(Date.now()); };
     useEffect(() => { if (!qFlash) return; const t = setTimeout(() => setQFlash(0), 1200); return () => clearTimeout(t); }, [qFlash]);
 
@@ -306,7 +325,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
     useEffect(() => {
         if (tab !== "rec") return; setNoRec(false); setRecRebuf(false); setRecPlaying(false); recStartedRef.current = false; const v = recVideo.current;
         // Si a los 1,5 s el colchón no llegó, se arranca igual: esperar más se leía como "no anda".
-        const fp = setTimeout(() => { const vv = recVideo.current; if (vv && !recStartedRef.current && !pausadoPorUsuario.current) vv.play().catch(() => { }); }, 1500);
+        const fp = setTimeout(() => { const vv = recVideo.current; if (vv && !recStartedRef.current && !pausadoPorUsuario.current) vv.play().catch(() => { }); }, ARRANQUE_FORZADO_MS);
         const wd = setTimeout(() => {
             if (v && v.readyState < 2) {
                 if (recTriesRef.current < 2) { recTriesRef.current++; setRecRetry((r) => r + 1); }

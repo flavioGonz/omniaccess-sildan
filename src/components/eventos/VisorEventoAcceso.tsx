@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { sileo as toast } from "sileo";
 import { VisorCuadro, leerDetalles } from "@/components/VisorCuadro";
-import NvrTimeMachine from "@/components/dashboard/NvrTimeMachine";
+import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { getImagePath } from "@/lib/image-path";
 import { addWatch, deactivateWatch, getWatchlist } from "@/app/actions/watchlist";
@@ -291,16 +291,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
             )}
 
             {verGrabacion && canalNvr != null && dispositivo?.id && (
-                <NvrTimeMachine
-                    open={verGrabacion}
-                    onClose={() => setVerGrabacion(false)}
-                    deviceId={dispositivo.id}
-                    channel={canalNvr}
-                    eventTimeMs={msEvento}
-                    deviceName={dispositivo?.name}
-                    evidenceUrl={foto || undefined}
-                    plate={conChapa ? event.plateDetected : undefined}
-                />
+                <VerGrabacion deviceId={dispositivo.id} nombre={dispositivo?.name} canal={canalNvr} nvrId={nvrId}
+                    instanteMs={msEvento} onClose={() => setVerGrabacion(false)} />
             )}
         </>
     );

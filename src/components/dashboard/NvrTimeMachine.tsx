@@ -1,5 +1,11 @@
 "use client";
 
+/*
+ * SIN USO desde el 8/10. El visor único de grabación es components/intrusion/LiveModal, que
+ * se abre por components/video/VerGrabacion. Este archivo queda sólo como referencia hasta
+ * que se decida borrarlo; no se importa en ningún lado.
+ */
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     X, Play, Pause, ChevronLeft, ChevronRight, Radio, Film, ImageIcon,
