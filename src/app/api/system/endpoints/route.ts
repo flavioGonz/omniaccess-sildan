@@ -53,7 +53,7 @@ export async function GET() {
         "webhook-api": { ip: "localhost", port: hookPort, sub: "Event Gateway" },
         redis: { ip: redis.ip, port: redis.port, sub: "Redis + BullMQ" },
         media: { ip: "127.0.0.1", port: "1984", sub: "ffmpeg + go2rtc" },
-        "omni-lpr": { ip: lpr.ip, port: lpr.port, sub: "Lector de matrículas" },
-        tracking: { ip: "localhost", port: "pm2", sub: "Cámaras comunes" },
+        "omni-lpr": { ip: lpr.ip, port: lpr.port, sub: "Contenedor Docker" },
+        tracking: { ip: "tracking-worker", port: "pm2", sub: "Pasarela de cuadros · PM2" },
     });
 }

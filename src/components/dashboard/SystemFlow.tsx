@@ -156,24 +156,22 @@ const initialNodes: Node[] = [
         style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #f59e0b', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
-    // --- Carril de captura: camara comun -> pasarela -> Omni-LPR -> nucleo ---
-    {
-        id: 'cams-track',
-        data: { label: 'Cámaras interiores', icon: Video, sub: 'RTSP por canal', ip: 'LAN', port: '554', status: 'unknown' },
-        position: { x: 980, y: 60 },
-        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #64748b', width: 200, borderRadius: 12, padding: 12 },
-        type: 'default',
-    },
+    // --- Carril de captura: pasarela -> Omni-LPR -> nucleo ---
+    // Eran tres nodos y parecían tres copias del lector. Son dos servicios: la pasarela
+    // (proceso PM2 `tracking-worker`, saca cuadros de las cámaras) y Omni-LPR (contenedor
+    // Docker, lee la matrícula del cuadro). Fallan por separado y se arreglan distinto, por
+    // eso siguen siendo dos. "Cámaras interiores" no era un servicio sino la entrada de la
+    // pasarela, contada con el mismo dato: pasó a ser una línea dentro de Seguimiento.
     {
         id: 'tracking',
-        data: { label: 'Seguimiento', icon: Route, sub: 'Pasarela de cuadros', ip: 'localhost', port: 'pm2', status: 'unknown' },
+        data: { label: 'Seguimiento', icon: Route, sub: 'Pasarela de cuadros · PM2', ip: 'tracking-worker', port: 'pm2', status: 'unknown' },
         position: { x: 980, y: 270 },
         style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #a78bfa', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {
         id: 'omni-lpr',
-        data: { label: 'Omni-LPR', icon: ScanLine, sub: 'Lector de matrículas', ip: '127.0.0.1', port: '8000', status: 'unknown' },
+        data: { label: 'Omni-LPR', icon: ScanLine, sub: 'Contenedor Docker', ip: '127.0.0.1', port: '8000', status: 'unknown' },
         position: { x: 980, y: 480 },
         style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #14b8a6', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
@@ -209,7 +207,6 @@ const ENLACES_BASE: Edge[] = [
     { id: 'e-webhook-core', source: 'webhook-api', target: 'lpr-node', type: 'floating', animated: false, data: { latency: 0, status: 'idle' } },
     // Carril de captura: la camara entrega video a la pasarela, la pasarela
     // consulta al lector y el avistamiento vuelve al nucleo.
-    { id: 'e-cams-track', source: 'cams-track', target: 'tracking', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
     { id: 'e-track-lpr', source: 'tracking', target: 'omni-lpr', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
     { id: 'e-track-core', source: 'tracking', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
 ];
@@ -580,7 +577,7 @@ export default function SystemFlow() {
                     } else if (edge.id === 'e-track-lpr' && data.omniLpr) {
                         status = data.omniLpr.status === 'connected' ? 'connected' : 'error';
                         latency = data.omniLpr.latency || 0;
-                    } else if ((edge.id === 'e-cams-track' || edge.id === 'e-track-core') && data.tracking) {
+                    } else if (edge.id === 'e-track-core' && data.tracking) {
                         status = data.tracking.status === 'connected'
                             ? 'connected'
                             : data.tracking.status === 'disabled' ? 'disabled' : 'error';
@@ -661,14 +658,9 @@ export default function SystemFlow() {
                         const d = data.tracking.details;
                         if (d) {
                             stats = d.cameras === 0
-                                ? 'Sin cámaras cargadas'
-                                : `${d.cameras} cám · ${d.sightings24h} lecturas 24h`;
+                                ? 'Sin cámaras interiores'
+                                : `${d.cameras} cám. interior${d.cameras === 1 ? '' : 'es'} · ${d.sightings24h} lect. 24h`;
                         }
-                    } else if (node.id === 'cams-track' && data.tracking) {
-                        const cant = data.tracking.details?.cameras ?? 0;
-                        nodeStatus = cant > 0 ? 'connected' : 'disabled';
-                        borderColor = cant > 0 ? '#22c55e' : '#6b7280';
-                        stats = cant > 0 ? `${cant} canal(es)` : 'Ninguna configurada';
                     } else if (node.id === 'lpr-node') {
                         nodeStatus = 'connected';
                         borderColor = '#22c55e';
@@ -705,7 +697,7 @@ export default function SystemFlow() {
         return () => clearInterval(interval);
     }, []);
 
-    const DEL_CARRIL = ['cams-track', 'tracking', 'omni-lpr'];
+    const DEL_CARRIL = ['tracking', 'omni-lpr'];
     const nodesVisibles = conCaptura ? nodes : nodes.filter(n => !DEL_CARRIL.includes(n.id));
     const edgesVisibles = conCaptura
         ? edges
