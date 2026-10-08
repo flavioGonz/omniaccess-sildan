@@ -24,7 +24,7 @@ const EXPLICACION: Record<ClaveAviso, string> = {
     FUERA_DE_RUTINA: "Una matrícula con rutina aparece un día que no es de su rutina, o lejos de su hora.",
     PERMANENCIA_INUSUAL: "Una visita con matrícula lleva más de lo que se queda 9 de cada 10 veces. Sólo con salidas reales leídas: nunca con tiempos estimados.",
     PRIMERA_VEZ_NOCHE: "Una matrícula que nunca se vio entra dentro de la franja nocturna.",
-    DA_VUELTAS: "Una matrícula sin registro ni rutina se lee muchas veces en poco tiempo. No cuenta a residentes, visitas, rutinas ni frecuentes (como un ómnibus que cruza el barrio).",
+    DA_VUELTAS: "Una matrícula sin registro ni rutina pasa muchas veces en poco tiempo (lecturas a menos de 2 min de la anterior cuentan como una sola pasada). No cuenta a residentes, visitas, rutinas ni frecuentes (como un ómnibus que cruza el barrio).",
     SIN_REGISTRAR: "Sólo en barrio abierto: entra una matrícula que no está en el padrón, ni en una visita, ni en una invitación. En un barrio abierto entra mucha gente así: apagado por defecto.",
 };
 
@@ -111,7 +111,7 @@ export default function VisitasSection() {
                                     <p className="text-[12px] text-muted-foreground">{EXPLICACION[k]}</p>
                                     {k === "FUERA_DE_RUTINA" && <Campo etiqueta="a más de" sufijo="min de su hora"><Input type="number" value={a.margenMin} onChange={(e) => setAviso(k, { margenMin: Number(e.target.value) } as any)} className="w-20 h-8 tabular-nums" /></Campo>}
                                     {k === "PRIMERA_VEZ_NOCHE" && <Campo etiqueta="entre" sufijo=""><Input type="time" value={a.desde} onChange={(e) => setAviso(k, { desde: e.target.value } as any)} className="w-28 h-8" /><span className="text-[12px]">y</span><Input type="time" value={a.hasta} onChange={(e) => setAviso(k, { hasta: e.target.value } as any)} className="w-28 h-8" /></Campo>}
-                                    {k === "DA_VUELTAS" && <Campo etiqueta="" sufijo="min"><Input type="number" value={a.lecturas} onChange={(e) => setAviso(k, { lecturas: Number(e.target.value) } as any)} className="w-16 h-8 tabular-nums" /><span className="text-[12px]">lecturas en</span><Input type="number" value={a.minutos} onChange={(e) => setAviso(k, { minutos: Number(e.target.value) } as any)} className="w-20 h-8 tabular-nums" /></Campo>}
+                                    {k === "DA_VUELTAS" && <Campo etiqueta="" sufijo="min"><Input type="number" value={a.lecturas} onChange={(e) => setAviso(k, { lecturas: Number(e.target.value) } as any)} className="w-16 h-8 tabular-nums" /><span className="text-[12px]">pasadas en</span><Input type="number" value={a.minutos} onChange={(e) => setAviso(k, { minutos: Number(e.target.value) } as any)} className="w-20 h-8 tabular-nums" /></Campo>}
                                 </div>
                             </div>
                         );

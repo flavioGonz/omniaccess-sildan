@@ -42,6 +42,12 @@ async function camaraDe(deviceId: string | null | undefined, direccion: string |
     return { tipo: direccion === "EXIT" ? "salida" : "entrada", nombre: null };
 }
 
+/**
+ * Lecturas de la misma matrícula separadas por menos que esto son UNA pasada (el auto frenado o
+ * lento delante de la cámara). 2 min: más que una ráfaga, menos que dar la vuelta a una manzana.
+ */
+const PASADA_SEG = 120;
+
 /** Las decisiones de una lectura que el motor procesa. "WATCHLIST" es un segundo aviso de la MISMA lectura. */
 const EVENTOS_DE_LECTURA = new Set(["ALLOW", "DENY", "UNKNOWN"]);
 
@@ -118,7 +124,12 @@ export async function alLeerMatricula(l: Lectura): Promise<void> {
         // varias veces por hora se lee en Entrada y Salida y no está dando vueltas.
         const dv = aj.avisos.DA_VUELTAS;
         if (dv.activo && !registrada && !rutina && perfil?.clase !== "RESIDENTE" && perfil?.clase !== "FRECUENTE") {
-            const n = await prisma.accessEvent.count({ where: { plateDetected: plate, timestamp: { gte: new Date(instante.getTime() - dv.minutos * 60_000) } } }).catch(() => 0);
+            // Se cuentan PASADAS, no lecturas: un auto que frena delante de la cámara se lee cuatro
+            // veces en un minuto (medido el 8/10: NAX6384, 4 lecturas en 72 s en Entrada) y eso no
+            // es dar vueltas. Lecturas a menos de PASADA_SEG de la anterior son la misma pasada.
+            const lecturas = await prisma.accessEvent.findMany({ where: { plateDetected: plate, timestamp: { gte: new Date(instante.getTime() - dv.minutos * 60_000) } }, select: { timestamp: true }, orderBy: { timestamp: "asc" } }).catch(() => []);
+            let n = 0, anterior = 0;
+            for (const x of lecturas) { const t = x.timestamp.getTime(); if (t - anterior > PASADA_SEG * 1000) n++; anterior = t; }
             if (n >= dv.lecturas) await crearAviso({ tipo: "DA_VUELTAS", plate, accessEventId, camara: camaraNombre, motivo: motivo.daVueltas({ lecturas: n, minutos: dv.minutos }), datos: { lecturas: n, minutos: dv.minutos } }, ventana);
         }
     } catch (e: any) {

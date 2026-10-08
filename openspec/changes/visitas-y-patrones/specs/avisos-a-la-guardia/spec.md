@@ -21,7 +21,7 @@ Cada aviso SHALL incluir el tipo, la matrícula o la visita, la hora, la cámara
 - **THEN** el texto compara la lectura con la rutina guardada
 
 ### Requirement: Patrones que generan aviso
-El sistema SHALL generar estos avisos, cada uno habilitable y con su umbral configurable: visita excedida; fuera de rutina (por defecto, a más de 90 min de su rutina o en un día que no es de su rutina); permanencia mayor a la habitual (supera su p90); primera vez de noche (por defecto 23:00–06:00); da vueltas (por defecto 4 lecturas en 60 min); y, sólo en modo ABIERTO, entró sin registrarse.
+El sistema SHALL generar estos avisos, cada uno habilitable y con su umbral configurable: visita excedida; fuera de rutina (por defecto, a más de 90 min de su rutina o en un día que no es de su rutina); permanencia mayor a la habitual (supera su p90); primera vez de noche (por defecto 23:00–06:00); da vueltas (por defecto 4 pasadas en 60 min; lecturas a menos de 2 min de la anterior son la misma pasada); y, sólo en modo ABIERTO, entró sin registrarse.
 
 #### Scenario: Primera vez de noche
 - **WHEN** a las 02:30 entra una matrícula que nunca fue vista

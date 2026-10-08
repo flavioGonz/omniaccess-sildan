@@ -45,6 +45,6 @@ export const motivo = {
         `Llegó ${v.por === "dia" ? "un día que no es de su rutina" : "a una hora que no es la suya"}, a las ${v.hora}; su rutina es ${v.rutina}.`,
     permanencia: (v: { lleva: string; p90: string }) => `Lleva ${v.lleva} adentro; 9 de cada 10 veces se va antes de ${v.p90}.`,
     primeraVezNoche: (v: { hora: string; camara: string | null }) => `Nunca vista antes; entró a las ${v.hora}${v.camara ? ` por ${v.camara}` : ""}.`,
-    daVueltas: (v: { lecturas: number; minutos: number }) => `Leída ${v.lecturas} veces en ${v.minutos} min, sin visita registrada ni rutina conocida.`,
+    daVueltas: (v: { lecturas: number; minutos: number }) => `Pasó ${v.lecturas} veces en ${v.minutos} min, sin visita registrada ni rutina conocida.`,
     sinRegistrar: (v: { hora: string; camara: string | null }) => `Entró a las ${v.hora}${v.camara ? ` por ${v.camara}` : ""} sin registrarse en la garita.`,
 };
