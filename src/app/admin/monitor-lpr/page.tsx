@@ -44,7 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
-import { VerGrabacion } from "@/components/video/VerGrabacion";
+import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
@@ -359,12 +359,10 @@ function parseMeta(details: string | null) {
     return meta;
 }
 
-const _nvrChCache = new Map<string, Promise<number | null>>();
+/* El canal y el NVR de cada cámara, con la misma caché que usa el visor de grabación: al
+   tocar el botón el visor ya los tiene y pide la grabación en el acto, sin otra vuelta. */
 function fetchNvrChannel(deviceId: string): Promise<number | null> {
-    if (!_nvrChCache.has(deviceId)) {
-        _nvrChCache.set(deviceId, fetch(`/api/nvr/channel?deviceId=${deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((d) => (d && d.channel != null ? Number(d.channel) : null)).catch(() => null));
-    }
-    return _nvrChCache.get(deviceId)!;
+    return canalDe(deviceId).then((c) => c.ch);
 }
 
 function VehicleCardSkeleton() {

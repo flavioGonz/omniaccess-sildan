@@ -21,11 +21,13 @@ import type { IntrusionCam } from "@/app/actions/detections";
 
 type Canal = { ch: number | null; nvr: string | null };
 const canales = new Map<string, Promise<Canal>>();
+/** Los ya resueltos, para que el visor arranque en el primer render y no en el siguiente. */
+const resueltos = new Map<string, Canal>();
 export function canalDe(deviceId: string): Promise<Canal> {
     if (!canales.has(deviceId)) {
         canales.set(deviceId, fetch(`/api/nvr/channel?deviceId=${deviceId}`, { cache: "no-store" })
             .then((r) => r.json())
-            .then((d) => ({ ch: d?.channel != null ? Number(d.channel) : null, nvr: d?.nvr ? String(d.nvr) : null }))
+            .then((d) => { const c = { ch: d?.channel != null ? Number(d.channel) : null, nvr: d?.nvr ? String(d.nvr) : null }; resueltos.set(deviceId, c); return c; })
             .catch(() => { canales.delete(deviceId); return { ch: null, nvr: null }; }));
     }
     return canales.get(deviceId)!;
@@ -40,7 +42,11 @@ export function VerGrabacion({ deviceId, nombre, instanteMs, canal, nvrId, onClo
     nvrId?: string | null;
     onClose: () => void;
 }) {
-    const [c, setC] = useState<Canal | null>(canal != null && nvrId ? { ch: canal, nvr: nvrId } : null);
+    const [c, setC] = useState<Canal | null>(() => {
+        if (canal != null && nvrId) return { ch: canal, nvr: nvrId };
+        const r = resueltos.get(deviceId);
+        return r ? { ch: canal ?? r.ch, nvr: nvrId || r.nvr } : null;
+    });
     useEffect(() => {
         if (c) return;
         let vivo = true;
