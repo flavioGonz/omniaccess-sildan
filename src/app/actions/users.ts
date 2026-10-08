@@ -377,6 +377,18 @@ export async function getQuickCreateData() {
     return { units, groups, devices, parkingSlots };
 }
 
+/**
+ * Los grupos elegidos en la ficha de la persona.
+ *
+ * La ficha mandaba un `groupId` por cada píldora prendida y ni createUser ni updateUser lo
+ * leían: se elegía un grupo, se guardaba, y al reabrir la ficha no estaba. `null` = el
+ * formulario no trae grupos (otros diálogos más viejos), y entonces no se tocan.
+ */
+function leerGrupos(formData: FormData): { id: string }[] | null {
+    if (!formData.has("gruposEnviados")) return null;
+    return [...new Set(formData.getAll("groupId").map(String).filter(Boolean))].map((id) => ({ id }));
+}
+
 export async function createUser(formData: FormData) {
     const name = formData.get("name") as string;
     const email = formData.get("email") as string;
@@ -406,6 +418,8 @@ export async function createUser(formData: FormData) {
     if (unitId && unitId !== "none") {
         userPayload.unitId = unitId;
     }
+    const gruposNuevos = leerGrupos(formData);
+    if (gruposNuevos?.length) userPayload.accessGroups = { connect: gruposNuevos };
 
     const newUser = await prisma.user.create({
         data: userPayload,
@@ -476,6 +490,8 @@ export async function updateUser(id: string, formData: FormData) {
     } else {
         userPayload.unitId = null;
     }
+    const grupos = leerGrupos(formData);
+    if (grupos) userPayload.accessGroups = { set: grupos };
 
     const updatedUser = await prisma.user.update({
         where: { id },

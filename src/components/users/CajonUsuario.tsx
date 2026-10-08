@@ -621,7 +621,7 @@ export function CajonUsuario({
                             <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
                                 Grupos de acceso
                                 <Pista titulo="Grupos de acceso" ancho={280}
-                                    texto="El grupo dice POR DÓNDE y CUÁNDO puede pasar: qué equipos y en qué horarios. Sin ningún grupo, la persona queda cargada pero no abre nada.">
+                                    texto="El grupo dice POR DÓNDE puede pasar: qué equipos le corresponden. Los equipos de cada grupo se eligen en Grupos de acceso.">
                                     <HelpCircle size={12.5} className="text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
                                 </Pista>
                             </span>
@@ -645,6 +645,8 @@ export function CajonUsuario({
                                 {!groups.length && <span className="text-[12px] text-muted-foreground">Todavía no hay grupos creados.</span>}
                             </div>
                             {gruposElegidos.map((id) => <input key={id} type="hidden" name="groupId" value={id} />)}
+                            {/* Dice "este formulario trae grupos": sin ninguno elegido, eso es "sacalo de todos". */}
+                            <input type="hidden" name="gruposEnviados" value="1" />
                         </div>
                     </CajonSeccion>
 

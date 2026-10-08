@@ -1,18 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createAccessGroup, deleteAccessGroup, getAccessGroups } from "@/app/actions/groups";
+import { deleteAccessGroup, getAccessGroups } from "@/app/actions/groups";
+import { CajonGrupo } from "@/components/groups/CajonGrupo";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Filtros } from "@/components/ui/filtros";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Momento } from "@/components/ui/celdas";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
-import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
-} from "@/components/ui/dialog";
-import { Cpu, Loader2, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
+import { Cpu, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
 
 /**
  * Los grupos de acceso.
@@ -50,7 +46,8 @@ export default function GroupsPage() {
     const [busqueda, setBusqueda] = useState("");
     const [cargando, setCargando] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [enviando, setEnviando] = useState(false);
+    /** El grupo abierto en el cajón; null con el cajón abierto = grupo nuevo. */
+    const [elegido, setElegido] = useState<string | null>(null);
 
     const cargar = useCallback(async () => {
         setCargando(true);
@@ -66,17 +63,6 @@ export default function GroupsPage() {
     }, []);
 
     useEffect(() => { cargar(); }, [cargar]);
-
-    async function crear(formData: FormData) {
-        setEnviando(true);
-        try {
-            await createAccessGroup(formData);
-            setAbierto(false);
-            await cargar();
-        } finally {
-            setEnviando(false);
-        }
-    }
 
     const visibles = useMemo(() => {
         const q = busqueda.trim().toLowerCase();
@@ -137,7 +123,9 @@ export default function GroupsPage() {
         {
             clave: "acciones", titulo: "", ancho: 70, alinear: "der", auxiliar: true,
             celda: (g) => (
-                <div className="flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                /* Sin el stopPropagation, borrar abría además el cajón de la fila — y los clics
+                   adentro del diálogo también, porque un portal de React burbujea por el árbol. */
+                <div onClick={(e) => e.stopPropagation()} className="flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                     <DeleteConfirmDialog
                         id={g.id}
                         title={g.name}
@@ -187,6 +175,7 @@ export default function GroupsPage() {
                         cargando={cargando}
                         error={error}
                         alReintentar={cargar}
+                        alClickFila={(g) => { setElegido(g.id); setAbierto(true); }}
                         vacio={{
                             icono: ShieldCheck,
                             titulo: busqueda ? "Ningún grupo coincide" : "Todavía no hay grupos",
@@ -202,42 +191,19 @@ export default function GroupsPage() {
                                 busqueda={busqueda} alBuscar={setBusqueda}
                                 placeholder="Nombre del grupo"
                                 acciones={
-                                <Dialog open={abierto} onOpenChange={setAbierto}>
-                                    <DialogTrigger asChild>
-                                        <Button size="sm" className="accion h-8 px-4 rounded-md font-semibold text-[12px] gap-1.5">
-                                            <Plus size={15} /> Crear grupo
-                                        </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="max-w-sm">
-                                        <DialogHeader>
-                                            <span className="w-10 h-10 rounded-xl bg-muted border border-border flex items-center justify-center text-muted-foreground mb-2">
-                                                <ShieldCheck size={18} />
-                                            </span>
-                                            <DialogTitle>Nuevo grupo de acceso</DialogTitle>
-                                        </DialogHeader>
-                                        <form action={crear} className="space-y-4 pt-2">
-                                            <div className="space-y-1.5">
-                                                <Label htmlFor="name" className="text-[12px] font-medium">Nombre del grupo</Label>
-                                                <Input id="name" name="name" required className="h-10"
-                                                    placeholder="Ej: Residentes Torre Norte" />
-                                                <p className="text-[11px] text-muted-foreground">
-                                                    Conviene que diga a quiénes junta, no qué abre: las puertas cambian más seguido que la gente.
-                                                </p>
-                                            </div>
-                                            <Button type="submit" disabled={enviando}
-                                                className="accion w-full h-10 font-semibold gap-2">
-                                                {enviando ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
-                                                Crear grupo
-                                            </Button>
-                                        </form>
-                                    </DialogContent>
-                                </Dialog>
+                                <Button size="sm" onClick={() => { setElegido(null); setAbierto(true); }}
+                                    className="accion h-8 px-4 rounded-md font-semibold text-[12px] gap-1.5">
+                                    <Plus size={15} /> Crear grupo
+                                </Button>
                                 }
                             />
                         }
                     />
                 </div>
             </main>
+
+            <CajonGrupo abierto={abierto} grupoId={elegido}
+                alCerrar={() => setAbierto(false)} alGuardar={cargar} />
         </div>
     );
 }
