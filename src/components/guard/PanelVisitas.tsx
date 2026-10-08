@@ -106,7 +106,7 @@ export function PanelVisitas({ guardName, socket, onPendientes }: { guardName: s
                                         className={cn("flex items-center gap-4 rounded-2xl border p-4 bg-white", et.tono === "mal" ? "border-red-300" : et.tono === "aviso" ? "border-amber-300" : "border-black/10")}>
                                         <span className={cn("grid h-11 w-11 place-items-center rounded-full shrink-0", et.tono === "mal" ? "bg-red-600 text-white" : et.tono === "aviso" ? "bg-amber-400 text-black" : "bg-black/10 text-black/60")}><AlertTriangle size={20} /></span>
                                         <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-2 flex-wrap"><span className="font-bold text-black">{et.titulo}</span>{a.plate && <span className="px-2 py-0.5 rounded-md bg-black/5 font-bold tracking-widest tabular-nums text-sm">{a.plate}</span>}<span className="text-xs text-black/40 tabular-nums">{new Date(a.creado).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}</span></div>
+                                            <div className="flex items-center gap-2 flex-wrap"><span className="font-bold text-black">{et.titulo}</span>{a.plate && <span className="px-2 py-0.5 rounded-md bg-black/5 font-bold tracking-widest tabular-nums text-sm">{a.plate}</span>}<span className="text-xs text-black/40 tabular-nums">{new Date(a.creado).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}</span></div>
                                             <div className="text-sm text-black/70">{a.motivo}</div>
                                         </div>
                                         <button onClick={() => atender(a)} className={cn("h-12 px-5 rounded-xl bg-black text-white font-bold inline-flex items-center gap-2 shrink-0", tocable)}><Check size={18} /> Atendido</button>
@@ -141,7 +141,7 @@ export function PanelVisitas({ guardName, socket, onPendientes }: { guardName: s
                                                     {v.plate && <span className="px-2 py-0.5 rounded-md bg-black/5 font-bold tracking-widest tabular-nums text-sm">{v.plate}</span>}
                                                 </div>
                                                 <div className="text-sm text-black/60 truncate">{v.loteNombre ? `→ ${v.loteNombre}` : "sin lote"}{v.nombre ? ` · ${v.nombre}` : ""}{v.empresa ? ` · ${v.empresa}` : ""}</div>
-                                                <div className="text-xs text-black/40">entró {new Date(v.entra).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit" })}{v.registradaPor ? ` · ${v.registradaPor}` : ""}</div>
+                                                <div className="text-xs text-black/40">entró {new Date(v.entra).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}{v.registradaPor ? ` · ${v.registradaPor}` : ""}</div>
                                             </div>
                                             <div className={cn("text-right tabular-nums font-bold leading-none", estado === "excedida" ? "text-red-600" : estado === "cerca" ? "text-amber-600" : "text-black")}>
                                                 <div className="text-3xl">{mmss(resta)}</div>

@@ -519,7 +519,9 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                                                     {x.sentido === "EXIT" ? <LogOut size={18} className="text-muted-foreground" /> : <LogIn size={18} className="text-muted-foreground" />}
                                                     <span className="tabular-nums font-semibold text-[16px] w-[86px]">{horaCorta(x.ts)}</span>
                                                     <span className="flex-1 min-w-0 truncate text-[14px] text-muted-foreground">{x.camara || "—"}</span>
-                                                    <span className={cn("text-[12px] font-bold uppercase tracking-wider", x.decision === "GRANT" ? "tono-bien" : "tono-mal")}>{x.decision === "GRANT" ? "permitido" : "denegado"}</span>
+                                                    {modo === "ABIERTO"
+                                                        ? <span className="text-[12px] font-bold uppercase tracking-wider text-muted-foreground">{x.sentido === "EXIT" ? "salida" : "entrada"}</span>
+                                                        : <span className={cn("text-[12px] font-bold uppercase tracking-wider", x.decision === "GRANT" ? "tono-bien" : "tono-mal")}>{x.decision === "GRANT" ? "permitido" : "denegado"}</span>}
                                                 </button>
                                             ))}
                                             {!ficha.hoy.length && <div className="text-[15px] text-muted-foreground">Hoy no pasó.</div>}
