@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resetQueueCounters } from "@/lib/onvif-polling";
+import { conRegistro } from "@/lib/tareas/ejecucion";
 
 // GET /api/queue/schedule/tick → checks schedules; at openTime (today) triggers counter reset.
-export async function GET(_req: NextRequest) {
+async function ejecutar(_req: NextRequest) {
     try {
         const now = new Date();
         // El servidor corre en UTC; los horarios los carga el usuario en hora de Montevideo (UTC-3).
@@ -40,3 +41,6 @@ export async function GET(_req: NextRequest) {
         return NextResponse.json({ status: "error", message: e.message }, { status: 500 });
     }
 }
+
+/** Cada corrida queda registrada y la tarea se puede pausar desde Ajustes → Procesos y tareas. */
+export const GET = conRegistro("horarios-filas", ejecutar);

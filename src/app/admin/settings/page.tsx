@@ -74,6 +74,7 @@ import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import ModosSection from "./ModosSection";
 import VisitasSection from "./VisitasSection";
+import ProcesosSection from "./procesos/ProcesosSection";
 import CentroNotificaciones, { TABS_NOTIFICACIONES } from "../notificaciones/CentroNotificaciones";
 import AlmacenamientoSection from "./AlmacenamientoSection";
 import { FUNCIONES, type FuncionId } from "@/lib/funciones";
@@ -181,6 +182,7 @@ const SETTINGS_SECTIONS = [
 const NAV_GROUPS = [
     { id: "sistema", label: "Sistema", icon: Server, items: [
         { sec: "system_status", btab: "", label: "Estado del Sistema", icon: Activity },
+        { sec: "procesos", btab: "", label: "Procesos y tareas", icon: Server },
         { sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
         { sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
         { sec: "database", btab: "", label: "Database", icon: Database },
@@ -594,6 +596,7 @@ export default function SettingsPage() {
                     {activeSection === "playback" && <PlaybackSection />}
                     {activeSection === "notificaciones" && <CentroNotificaciones tab={notifTab} />}
                     {activeSection === "visitas" && <VisitasSection />}
+                    {activeSection === "procesos" && <ProcesosSection />}
                 </div>
             </div>
 

@@ -4,10 +4,11 @@
  */
 import { NextResponse } from "next/server";
 import { probeAllDevices, persistAndAlert } from "@/lib/device-health";
+import { conRegistro } from "@/lib/tareas/ejecucion";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+async function ejecutar() {
     try {
         const results = await probeAllDevices();
         await persistAndAlert(results);
@@ -16,3 +17,6 @@ export async function GET() {
         return NextResponse.json({ ok: false, error: e?.message || "tick error" }, { status: 500 });
     }
 }
+
+/** Cada corrida queda registrada y la tarea se puede pausar desde Ajustes → Procesos y tareas. */
+export const GET = conRegistro("salud-equipos", ejecutar);

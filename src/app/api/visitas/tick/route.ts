@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { tick } from "@/lib/visitas/tick";
+import { conRegistro } from "@/lib/tareas/ejecucion";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
  * mismo token interno de /api/notifications/event). Vence visitas, avisa permanencias,
  * cierra el día y recalcula perfiles. Ver lib/visitas/tick.
  */
-export async function GET(req: NextRequest) {
+async function ejecutar(req: NextRequest) {
     let token = process.env.TRACKING_TOKEN || "";
     if (!token) { try { token = (await prisma.setting.findUnique({ where: { key: "TRACKING_TOKEN" } }))?.value || ""; } catch { } }
     if (!token || req.headers.get("x-tracking-token") !== token) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
@@ -19,3 +20,6 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ ok: false, error: e?.message || "tick" }, { status: 500 });
     }
 }
+
+/** Cada corrida queda registrada y la tarea se puede pausar desde Ajustes → Procesos y tareas. */
+export const GET = conRegistro("visitas", ejecutar);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
+import { conRegistro } from "@/lib/tareas/ejecucion";
 
 /**
  * GET /api/queue/report/tick
@@ -8,7 +9,7 @@ import { enqueueDispatch } from "@/lib/dispatch-queue";
  * alguno coincide con la hora (y día, si es semanal), encola un reporte.
  * Dedupe: no vuelve a disparar el mismo schedule dentro de ~90s.
  */
-export async function GET() {
+async function ejecutar() {
     const now = new Date();
     const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
     const isoDay = now.getDay() === 0 ? 7 : now.getDay();
@@ -34,3 +35,6 @@ export async function GET() {
     }
     return NextResponse.json({ ok: true, hhmm, isoDay, fired });
 }
+
+/** Cada corrida queda registrada y la tarea se puede pausar desde Ajustes → Procesos y tareas. */
+export const GET = conRegistro("reportes-filas", ejecutar);

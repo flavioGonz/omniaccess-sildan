@@ -1107,3 +1107,35 @@ model AvisoGuardia {
   @@index([tipo, plate, creado])
   @@index([visitaId])
 }
+
+/// Una corrida de una tarea programada (las rutas /api/.../tick que llama el cron).
+/// Se guarda para poder ver cuándo corrió, cuánto tardó y si falló: antes el cron tiraba
+/// la salida a /dev/null y una tarea podía estar fallando hace días sin que nadie lo supiera.
+/// Se poda sola (lib/tareas/ejecucion.ts): sólo los últimos días.
+model EjecucionTarea {
+  id      String    @id @default(cuid())
+  tarea   String
+  inicio  DateTime  @default(now())
+  fin     DateTime?
+  ok      Boolean?
+  /// Qué hizo (resumen corto) o por qué falló.
+  detalle String?
+  /// "cron" o el nombre de quien la corrió a mano desde el panel.
+  origen  String    @default("cron")
+
+  @@index([tarea, inicio])
+}
+
+/// Lo que alguien hizo desde Procesos y tareas: reiniciar un servicio, correr o pausar una
+/// tarea. Es la auditoría de esa pantalla: quién, qué, cuándo y cómo salió.
+model AccionSistema {
+  id       String   @id @default(cuid())
+  cuando   DateTime @default(now())
+  quien    String
+  accion   String
+  objetivo String
+  ok       Boolean
+  detalle  String?
+
+  @@index([cuando])
+}
