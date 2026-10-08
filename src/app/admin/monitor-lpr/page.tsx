@@ -59,7 +59,7 @@ import { getWatchMap } from "@/app/actions/watchlist";
 import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
-import { UserFormDialog } from "@/components/UserFormDialog";
+import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
 interface FullAccessEvent extends AccessEvent {
@@ -1290,7 +1290,12 @@ export default function MonitorLPR() {
             </div>
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
                 <CriticalAlerts items={criticals} onDismiss={dismissCritical} onClear={() => setCriticals([])} onRegister={openRegister} />
-                <UserFormDialog open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
+                {/* Registrar pregunta primero qué es la matrícula (persona del barrio o seguimiento)
+                    y recién ahí abre el cajón que corresponde. Antes abría el alta vieja de persona. */}
+                <RegistrarMatricula plate={registerOpen ? registerInit?.plate || null : null}
+                    alCerrar={() => { setRegisterOpen(false); setRegisterInit(undefined); }}
+                    alTerminar={() => { loadInitialData(); refreshWatch(); }}
+                    units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} />
         </TooltipProvider>
     );
 }

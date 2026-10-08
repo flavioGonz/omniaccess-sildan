@@ -50,12 +50,16 @@ function avisarCamaras(camaras?: { ok: any[]; fallo: any[] }) {
     else toast.success({ title: "Lectoras actualizadas", description: texto });
 }
 
-export function WatchlistDialog({ onClose }: { onClose: () => void }) {
+export function WatchlistDialog({ onClose, plateInicial }: {
+    onClose: () => void;
+    /** Viene del «Registrar» del monitor: la matrícula ya escrita, sólo falta el motivo y la categoría. */
+    plateInicial?: string;
+}) {
     const [rows, setRows] = useState<FilaVigilancia[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
-    const [plate, setPlate] = useState("");
+    const [plate, setPlate] = useState(plateInicial || "");
     const [motivo, setMotivo] = useState("");
     const [category, setCategory] = useState<WatchCategory>("BLACKLISTED");
     const [notify, setNotify] = useState(true);
@@ -109,7 +113,7 @@ export function WatchlistDialog({ onClose }: { onClose: () => void }) {
                     <div className="flex gap-2">
                         <input value={plate} onChange={(e) => { setPlate(e.target.value.toUpperCase()); setConflicto(null); }} onKeyDown={(e) => { if (e.key === "Enter") onAdd(); }} placeholder="MATRÍCULA"
                             className="w-32 shrink-0 bg-background border border-border rounded-[6px] px-3 h-9 text-sm font-bold uppercase tracking-wider tabular-nums outline-none focus:ring-1 focus:ring-[var(--accion)]" />
-                        <input value={motivo} onChange={(e) => setMotivo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onAdd(); }} placeholder="Motivo (queda en el registro)"
+                        <input autoFocus={!!plateInicial} value={motivo} onChange={(e) => setMotivo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") onAdd(); }} placeholder="Motivo (queda en el registro)"
                             className="flex-1 min-w-0 bg-background border border-border rounded-[6px] px-3 h-9 text-sm outline-none focus:ring-1 focus:ring-[var(--accion)]" />
                     </div>
 
