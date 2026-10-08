@@ -34,7 +34,7 @@ import {
     TrendingUp,
     Bell,
     Send,
-    FileBarChart,
+    FileBarChart, Clock,
     Rows3,
     LogOut,
     SlidersHorizontal,
@@ -263,6 +263,7 @@ export default function AdminLayout({
                             {collapsed && <div className="my-2 border-t border-border" />}
                             {ve("guardia") && (<SidebarItem icon={<ShieldCheck size={18} />} label="Consola de Guardia" href="/guard" active={pathname === "/guard"} collapsed={collapsed} />)}
                             {ve("guardia") && (<SidebarItem icon={<FileBarChart size={18} />} label="Bitácora" href="/admin/bitacora" active={pathname === "/admin/bitacora"} collapsed={collapsed} />)}
+                            {ve("guardia") && (<SidebarItem icon={<Clock size={18} />} label="Visitas" href="/admin/visitas" active={pathname === "/admin/visitas"} collapsed={collapsed} />)}
                             {ve("guardia") && (<SidebarItem icon={<ShieldCheck size={18} />} label="Consola / Puesto" href="/admin/consolas" active={pathname === "/admin/consolas"} collapsed={collapsed} />)}
                         </>
                     )}

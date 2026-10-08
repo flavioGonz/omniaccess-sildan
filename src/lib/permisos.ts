@@ -32,7 +32,7 @@ export const PERMISOS: Permiso[] = [
     { clave: "mapa", rotulo: "Mapa y seguimiento", grupo: "Operación", descripcion: "Mapa del barrio, recorrido de vehículos, estacionados, evidencia.", rutas: ["/admin/mapa", "/admin/mapas", "/admin/seguimiento", "/admin/evidencia"] },
     { clave: "invitados", rotulo: "Invitados", grupo: "Operación", descripcion: "Pases de visita: crear, aprobar, ver quién entró.", rutas: ["/admin/invitados", "/admin/calendar"] },
     { clave: "vigilancia", rotulo: "Lista de vigilancia", grupo: "Operación", descripcion: "Poner y sacar matrículas de la lista negra / VIP / en búsqueda (también desde el monitor y la ficha del evento).", rutas: [] },
-    { clave: "guardia", rotulo: "Consola de guardia y bitácora", grupo: "Operación", descripcion: "La consola del puesto, la bitácora y los puestos de guardia.", rutas: ["/admin/bitacora", "/admin/consolas", "/admin/guardias"] },
+    { clave: "guardia", rotulo: "Consola de guardia y bitácora", grupo: "Operación", descripcion: "La consola del puesto, la bitácora, los puestos de guardia y las visitas con sus avisos.", rutas: ["/admin/bitacora", "/admin/consolas", "/admin/guardias", "/admin/visitas"] },
     { clave: "acuseek", rotulo: "Búsqueda inteligente", grupo: "Operación", descripcion: "Buscar en las grabaciones por descripción (AcuSeek).", rutas: ["/admin/acuseek"] },
     { clave: "monitores", rotulo: "Monitores", grupo: "Operación", descripcion: "Las vistas de pantalla para el centro de monitoreo y los enlaces que las abren sin usuario. Quien tiene esto puede dar acceso permanente a una pantalla.", rutas: ["/admin/monitores", "/monitor"] },
 

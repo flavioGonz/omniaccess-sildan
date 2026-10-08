@@ -1033,3 +1033,77 @@ enum GuestStatus {
   APPROVED
   DENIED
 }
+
+// ── Visitas y patrones (cambio OpenSpec visitas-y-patrones) ──────────────────
+// Una visita: alguien que entró al barrio con un tipo, un lote y un tiempo. La registra
+// la guardia o la abre una invitación; la cierra la cámara de Salida, la guardia o el
+// corte del día. Los lotes van como texto cacheado + unitId sin FK: una unidad borrada
+// no puede borrar el historial de quién entró.
+model Visita {
+  id                    String    @id @default(cuid())
+  plate                 String?   // normalizada; null = sin matrícula visible (motos)
+  tipo                  String    // clave de VISITA_TIPOS (DELIVERY, SERVICIO, OBRA, VISITA…)
+  unitId                String?
+  loteNombre            String?
+  nombre                String?
+  empresa               String?
+  origen                String    @default("GUARDIA") // GUARDIA | INVITACION
+  registradaPor         String?
+  invitationId          String?
+  entra                 DateTime  @default(now())
+  vence                 DateTime
+  sale                  DateTime?
+  cierre                String?   // CAMARA_SALIDA | GUARDIA | FIN_DEL_DIA
+  cerradaPor            String?
+  extensiones           Json?     // [{ quien, minutos, cuando }]
+  vistoAdentroAt        DateTime? // última lectura de una cámara interior
+  accessEventEntradaId  String?
+  accessEventSalidaId   String?
+  avisadaExcedidaAt     DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([plate, sale])
+  @@index([sale, vence])
+  @@index([entra])
+}
+
+// El resumen del comportamiento de una matrícula, recalculado en lote por el tick.
+model PerfilMatricula {
+  plate                  String    @id
+  primeraVez             DateTime
+  ultimaVez              DateTime
+  diasVistos             Int       @default(0)
+  entradas               Int       @default(0)
+  salidas                Int       @default(0)
+  visitasConSalida       Int       @default(0)
+  permanenciaMedianaMin  Int?
+  permanenciaP90Min      Int?
+  entradaNoVista         Boolean   @default(false) // leída en salida sin ninguna entrada leída (Entrada no lee de noche)
+  rutina                 Json?     // { dows: number[], minutoMedio, desvioMin, dias }
+  clase                  String    // RESIDENTE | HABITUAL | FRECUENTE | OCASIONAL | PRIMERA_VEZ
+  unitIdProbable         String?
+  actualizado            DateTime  @default(now())
+
+  @@index([clase])
+}
+
+// Un aviso a la guardia (nunca sale por WhatsApp): tipo, motivo legible y quién lo atendió.
+model AvisoGuardia {
+  id             String    @id @default(cuid())
+  tipo           String    // VISITA_EXCEDIDA | FUERA_DE_RUTINA | PERMANENCIA_INUSUAL | PRIMERA_VEZ_NOCHE | DA_VUELTAS | SIN_REGISTRAR
+  plate          String?
+  visitaId       String?
+  accessEventId  String?
+  camara         String?
+  motivo         String
+  datos          Json?
+  creado         DateTime  @default(now())
+  atendidoPor    String?
+  atendidoAt     DateTime?
+  nota           String?
+
+  @@index([atendidoAt, creado])
+  @@index([tipo, plate, creado])
+  @@index([visitaId])
+}

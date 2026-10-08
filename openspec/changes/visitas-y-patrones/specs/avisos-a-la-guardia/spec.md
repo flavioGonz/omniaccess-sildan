@@ -32,7 +32,7 @@ El sistema SHALL generar estos avisos, cada uno habilitable y con su umbral conf
 - **THEN** se genera un aviso "fuera de rutina"
 
 ### Requirement: Quién no genera "da vueltas"
-El aviso "da vueltas" MUST NOT generarse para residentes, matrículas con visita en curso o con rutina detectada, ni para las marcadas "pasa por la calle".
+El aviso "da vueltas" MUST NOT generarse para residentes, matrículas con visita en curso o con rutina detectada, ni para las frecuentes (vistas 4 días o más, como un ómnibus que cruza el barrio).
 
 #### Scenario: Habitual que da vueltas no avisa
 - **WHEN** una matrícula con rutina pasa 5 veces en una hora

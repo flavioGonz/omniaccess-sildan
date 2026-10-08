@@ -75,6 +75,9 @@ import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
+import { PanelVisitas } from "@/components/guard/PanelVisitas";
+import { avisosPendientes as avisosPendientesAccion } from "@/app/actions/visitas";
+import { ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { io } from "socket.io-client";
 import { useInView } from "react-intersection-observer";
 import { saveGuardBranding, uploadBrandingFile } from "@/app/actions/settings";
@@ -100,10 +103,10 @@ interface GuardConsoleProps {
     guards: any[];
 }
 
-type TabType = "control" | "history" | "alerts" | "lpr" | "map" | "guardmap" | "face";
+type TabType = "control" | "history" | "visitas" | "alerts" | "lpr" | "map" | "guardmap" | "face";
 
 // Orden para swipe + dirección de transición (excluye alerts/face)
-const TAB_ORDER: TabType[] = ["control", "history", "lpr", "map", "guardmap"];
+const TAB_ORDER: TabType[] = ["control", "history", "visitas", "lpr", "map", "guardmap"];
 const tabVariants = {
     enter: (d: number) => ({ x: d > 0 ? 28 : -28, opacity: 0 }),
     center: { x: 0, opacity: 1 },
@@ -114,6 +117,16 @@ const tabTransition = { type: "tween" as const, ease: [0.22, 1, 0.36, 1] as [num
 
 export default function GuardConsole({ initialEntries, logo, headerColor, initialIcons, units, guards }: GuardConsoleProps) {
     const [activeTab, setActiveTab] = useState<TabType>("control");
+    /** Avisos a la guardia sin atender: el número rojo sobre la pestaña Visitas. */
+    const [avisosPendientes, setAvisosPendientes] = useState(0);
+    // Los avisos llegan aunque el guardia esté en otra pestaña: se cuentan y se muestran acá,
+    // no en el panel de Visitas (que sólo existe mientras está abierto).
+    useEffect(() => {
+        const contar = () => avisosPendientesAccion().then((a) => setAvisosPendientes(a.length)).catch(() => { });
+        contar();
+        const iv = setInterval(contar, 60_000);
+        return () => clearInterval(iv);
+    }, []);
     const [entries, setEntries] = useState(initialEntries);
     const [type, setType] = useState<"ENTRY" | "EXIT">("ENTRY");
     const [plate, setPlate] = useState("");
@@ -453,6 +466,14 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             hadSession = true;
         });
         newSocket.on('disconnect', () => setIsConnected(false));
+        // Avisos a la guardia (visitas y patrones): aviso en pantalla y el número de la pestaña.
+        newSocket.on('aviso_guardia', (d: any) => {
+            avisosPendientesAccion().then((a) => setAvisosPendientes(a.length)).catch(() => { });
+            if (d?.accion === 'nuevo' && d.aviso) {
+                toast.warning({ title: ETIQUETA_AVISO[d.aviso.tipo as TipoAviso]?.titulo || 'Aviso', description: [d.aviso.plate, d.aviso.motivo].filter(Boolean).join(' · ') });
+                try { playTactileSound(); } catch { }
+            }
+        });
         newSocket.on('connect_error', () => setIsConnected(false));
 
         // Attempt to get Local IP via WebRTC
@@ -1841,6 +1862,11 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                 />
                             </motion.div>
                         )}
+                        {activeTab === "visitas" && (
+                            <motion.div key="visitas" custom={tabDir} variants={tabVariants} initial="enter" animate="center" exit="exit" transition={tabTransition} className="h-full w-full relative z-0">
+                                <PanelVisitas guardName={guardName} socket={socket} onPendientes={setAvisosPendientes} />
+                            </motion.div>
+                        )}
                         {activeTab === "face" && (
                             <FaceScannerOverlay
                                 onClose={() => handleTabChange("control")}
@@ -2825,6 +2851,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                     <nav className="flex items-center justify-center gap-1.5 md:gap-4 mx-auto">
                         <BottomTab icon={customIcons.control ? <Image src={customIcons.control} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <FileText size={20} className="md:w-6 md:h-6" />} active={activeTab === "control"} onClick={() => handleTabChange("control")} label="Acceso" alertActive={isAlertMode} />
                         <BottomTab icon={customIcons.history ? <Image src={customIcons.history} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <HistoryIcon size={20} className="md:w-6 md:h-6" />} active={activeTab === "history"} onClick={() => handleTabChange("history")} label="Historial" alertActive={isAlertMode} />
+                        <div className="relative">
+                            <BottomTab icon={<Clock size={20} className="md:w-6 md:h-6" />} active={activeTab === "visitas"} onClick={() => handleTabChange("visitas")} label="Visitas" alertActive={isAlertMode} />
+                            {avisosPendientes > 0 && <span className="absolute -top-1 -right-1 min-w-[22px] h-[22px] px-1 rounded-full bg-red-600 text-white text-[11px] font-bold grid place-items-center tabular-nums pointer-events-none z-20">{avisosPendientes}</span>}
+                        </div>
 
                                 <div className="relative -mt-12 md:-mt-14 mx-2 md:mx-4">
                                 <div>

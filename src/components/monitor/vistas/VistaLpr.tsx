@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     LogIn, LogOut, ShieldCheck, ShieldX, ShieldAlert, Search, Repeat, Camera, Clock, Users, X, Radio,
-    PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2,
+    PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2, CircleDashed, AlertTriangle, Timer, Activity,
 } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
@@ -13,6 +13,8 @@ import { sonar } from "@/lib/sonido-monitor";
 import { getImagePath } from "@/lib/image-path";
 import { metodoDeLectura } from "@/lib/lectura-metodo";
 import { watchCatMeta } from "@/lib/watch-categories";
+import { presentarLectura, rotulosContadores, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
+import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
 
 /**
@@ -48,9 +50,17 @@ const FICHA_SE_CIERRA_MS = 60_000;
 const SUAVE = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
 const RESORTE = { type: "spring" as const, stiffness: 420, damping: 40 };
 
-type Lectura = { id: string; ts: string; plate: string | null; persona: string | null; unidad?: string | null; camara: string | null; sentido: string; decision: string; accessType: string | null; foto: string | null; detalles: string | null; metodo: { metodo: string | null; confianza: number | null } };
-type Atencion = { id: string; plate: string; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO"; motivo: string; ts: string; camara: string | null };
-type Datos = { ultima: Lectura | null; tira: Lectura[]; contadores: { entradas: number; salidas: number; denegados: number; adentro: number; actualizado: string; dia: string }; atencion: Atencion[]; ahora: string };
+type Modo = "ABIERTO" | "CERRADO";
+type Lectura = { id: string; ts: string; plate: string | null; persona: string | null; unidad?: string | null; registrada?: boolean; camara: string | null; sentido: string; decision: string; accessType: string | null; foto: string | null; detalles: string | null; metodo: { metodo: string | null; confianza: number | null } };
+type Atencion = { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; avisoId?: string; avisoTipo?: string };
+type VisitaEnBarrio = { tipo: "VISITA"; id: string; plate: string | null; tipoNombre: string; lote: string | null; nombre: string | null; empresa: string | null; origen: string; desde: string; vence: string; accessEventId: string | null };
+type NoRegistrada = { tipo: "NO_REGISTRADA"; plate: string; desde: string; estimado: true; camara: string | null; accessEventId: string };
+type Datos = {
+    modo?: Modo; ultima: Lectura | null; tira: Lectura[];
+    contadores: { entradas: number; salidas: number; denegados: number; noRegistrados?: number; adentro: number; actualizado: string; dia: string };
+    enBarrio?: { visitas: VisitaEnBarrio[]; noRegistradas: NoRegistrada[] };
+    atencion: Atencion[]; ahora: string;
+};
 type Ficha = {
     lectura: Lectura;
     persona: { nombre: string; rol: string; unidad: string | null } | null;
@@ -59,15 +69,27 @@ type Ficha = {
     invitado: { nombre: string | null; anfitrion: string | null; lote: string | null; desde: string; hasta: string } | null;
     hoy: { id: string; ts: string; sentido: string; decision: string; camara: string | null }[];
     adentroDesde: string | null;
+    registradaPor?: string | null;
+    perfil?: { clase: string; diasVistos: number; entradas: number; salidas: number; primeraVez: string; ultimaVez: string; permanenciaMedianaMin: number | null; permanenciaP90Min: number | null; visitasConSalida: number; entradaNoVista: boolean; rutina: Rutina | null } | null;
+    franja?: number[][]; franjaDias?: number;
+    visita?: { id: string; tipo: string; loteNombre: string | null; entra: string; vence: string; origen: string } | null;
 };
 type Filtro = "todas" | "entradas" | "salidas" | "denegadas";
 
 const ROL: Record<string, string> = { RESIDENT: "Residente", VISITOR: "Visitante", STAFF: "Personal", PROVIDER: "Proveedor", ADMIN: "Administración", WHITELISTED: "Lista blanca", BLACKLISTED: "Lista negra" };
-const FILTROS: { v: Filtro; l: string }[] = [{ v: "todas", l: "Todas" }, { v: "entradas", l: "Entradas" }, { v: "salidas", l: "Salidas" }, { v: "denegadas", l: "Denegadas" }];
-const pasaFiltro = (l: Lectura, f: Filtro) => f === "todas" ? true : f === "denegadas" ? l.decision !== "GRANT" : l.decision === "GRANT" && (f === "salidas" ? l.sentido === "EXIT" : l.sentido !== "EXIT");
+const filtrosDe = (modo: Modo): { v: Filtro; l: string }[] => [{ v: "todas", l: "Todas" }, { v: "entradas", l: "Entradas" }, { v: "salidas", l: "Salidas" }, { v: "denegadas", l: modo === "ABIERTO" ? "No registradas" : "Denegadas" }];
+/** En abierto "denegadas" son las no registradas, y entradas/salidas cuentan todas (no hay "permitidas"). */
+const pasaFiltro = (l: Lectura, f: Filtro, modo: Modo) => {
+    if (f === "todas") return true;
+    if (f === "denegadas") return modo === "ABIERTO" ? !l.registrada && !esListaNegra(l) : l.decision !== "GRANT";
+    const sentido = f === "salidas" ? l.sentido === "EXIT" : l.sentido !== "EXIT";
+    return modo === "ABIERTO" ? sentido : l.decision === "GRANT" && sentido;
+};
 
 const desdeEvento = (e: any): Lectura | null => e?.id && e?.timestamp ? ({
     id: e.id, ts: e.timestamp, plate: (e.plateDetected || e.plateNumber || "").toUpperCase() || null, persona: e.user?.name || null, unidad: e.user?.unit?.name || null,
+    // Aproximado hasta que la consulta (1,2 s después) traiga el registro completo (visita, invitación).
+    registrada: !!(e.user || e.guest),
     camara: e.device?.name || e.location || null, sentido: e.direction || "ENTRY", decision: e.decision || "DENY", accessType: e.accessType || null,
     foto: e.snapshotPath || e.imagePath || null, detalles: e.details || null, metodo: metodoDeLectura(e.details || null),
 }) : null;
@@ -87,7 +109,12 @@ const motivoDenegado = (l: Lectura) => {
     if (/no reconocida/i.test(texto)) return "Matrícula no reconocida";
     return texto.replace(/^ALERTA:\s*/i, "") || "Sin credencial vigente";
 };
-const estadoDe = (l: Lectura) => esListaNegra(l) ? { t: "Lista negra", Ic: ShieldAlert, c: "pleno-mal" } : l.decision === "GRANT" ? { t: "Permitido", Ic: ShieldCheck, c: "pleno-bien" } : { t: "Denegado", Ic: ShieldX, c: "pleno-mal" };
+/** El texto, el ícono y el tono de una lectura según el modo (lib/visitas/presentacion). */
+const estadoDe = (l: Lectura, modo: Modo) => {
+    const p = presentarLectura({ modo, decision: l.decision, registrada: !!l.registrada, listaNegra: esListaNegra(l) });
+    const Ic = esListaNegra(l) ? ShieldAlert : p.tono === "bien" ? ShieldCheck : modo === "ABIERTO" ? CircleDashed : ShieldX;
+    return { t: p.texto, Ic, c: p.pleno, ok: p.tono === "bien", error: p.error };
+};
 const quien = (l: Lectura) => [l.persona || (l.decision === "GRANT" ? "Autorizado" : "Desconocido"), l.unidad].filter(Boolean).join(" · ");
 /** "en 2 h 10 min" / "vencido": para la vigencia de un pase. */
 const faltan = (ts: string) => {
@@ -151,17 +178,23 @@ export function VistaLpr() {
     const [ampliada, setAmpliada] = useState<string | null>(null);
     useEffect(() => { if (!datos) return; setUltima((u) => (u && datos.ultima && u.ts > datos.ultima.ts ? u : datos.ultima)); setTira((t) => { const base = datos.tira; const ids = new Set(base.map((x) => x.id)); return [...t.filter((x) => !ids.has(x.id) && (!datos.ultima || x.id !== datos.ultima.id) && (!base[0] || x.ts > base[0].ts)), ...base].slice(0, ULTIMAS_EN_TIRA); }); }, [datos]);
 
-    const modo = ajustes?.sonido?.lpr || "off";
+    const modoSonido = ajustes?.sonido?.lpr || "off";
+    /** Barrio abierto o cerrado (Ajustes → Visitas y patrones); lo trae la consulta. */
+    const modo: Modo = datos?.modo === "ABIERTO" ? "ABIERTO" : "CERRADO";
     useTiempoReal("access_event", (e: any) => {
         const l = desdeEvento(e); if (!l) return;
         latir();
         setUltima((prev) => { if (prev && prev.id !== l.id) setTira((t) => [prev, ...t.filter((x) => x.id !== prev.id)].slice(0, ULTIMAS_EN_TIRA)); return l; });
-        if (!silencio && modo !== "off") {
+        if (!silencio && modoSonido !== "off") {
             if (esListaNegra(l)) sonar("lista");
-            else if (l.decision === "DENY" && modo === "denegado") sonar("denegado");
+            // En abierto nadie deniega nada: el tono de "denegado" sonaría con cada auto sin padrón.
+            else if (modo === "CERRADO" && l.decision === "DENY" && modoSonido === "denegado") sonar("denegado");
         }
         setTimeout(recargar, 1200);
     });
+    // Visitas que se abren o cierran, y avisos a la guardia: se vuelve a pedir el estado.
+    useTiempoReal("visita", () => recargar());
+    useTiempoReal("aviso_guardia", (d: any) => { recargar(); if (d?.accion === "nuevo" && !silencio && modoSonido !== "off") sonar("denegado"); });
 
     // Los contadores vuelven a cero a la medianoche del barrio sin recargar: se pide de nuevo al cambiar el día.
     const diaRef = useRef<string>("");
@@ -173,7 +206,9 @@ export function VistaLpr() {
     const c = datos?.contadores;
     const protagonista = fijada || ultima;
     const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
-    const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro)), [tira, filtro]);
+    const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro, modo)), [tira, filtro, modo]);
+    const rotulos = rotulosContadores(modo);
+    const FILTROS = filtrosDe(modo);
     const alternarFiltro = (f: Filtro) => setFiltro((x) => (x === f ? "todas" : f));
 
     return (
@@ -181,11 +216,11 @@ export function VistaLpr() {
             <div className="min-w-0 min-h-0 flex-1 flex flex-col gap-3 lg:gap-4">
                 {/* Protagonista */}
                 <div className={cn("relative flex-1 min-h-[220px] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
-                    !protagonista ? "ring-white/10" : protagonista.decision === "GRANT" && !esListaNegra(protagonista) ? "ring-[var(--bien)]" : "ring-[var(--mal)]")}>
+                    !protagonista ? "ring-white/10" : estadoDe(protagonista, modo).ok ? "ring-[var(--bien)]" : estadoDe(protagonista, modo).error ? "ring-[var(--mal)]" : "ring-white/25")}>
                     <AnimatePresence mode="popLayout" initial={false}>
                         {protagonista ? (
                             <motion.div key={protagonista.id} initial={{ opacity: 0, scale: 1.015 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={SUAVE} className="absolute inset-0">
-                                <Protagonista l={protagonista} tactil={tactil}
+                                <Protagonista l={protagonista} tactil={tactil} modo={modo}
                                     alAmpliar={(f) => setAmpliada(f)} alAbrirFicha={() => setFichaId(protagonista.id)} />
                             </motion.div>
                         ) : (
@@ -217,7 +252,7 @@ export function VistaLpr() {
                             <motion.button key={nuevaMientrasFijada.id} type="button" onClick={volverAlVivo}
                                 initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={SUAVE}
                                 className={cn("absolute top-[104px] left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-3 h-14 pl-3 pr-5 rounded-full text-white font-semibold text-[16px] bg-black/80 backdrop-blur-md border border-white/15", tocable)}>
-                                <span className={cn("grid h-9 w-9 place-items-center rounded-full", estadoDe(nuevaMientrasFijada).c)}>{(() => { const I = estadoDe(nuevaMientrasFijada).Ic; return <I size={18} />; })()}</span>
+                                <span className={cn("grid h-9 w-9 place-items-center rounded-full", estadoDe(nuevaMientrasFijada, modo).c)}>{(() => { const I = estadoDe(nuevaMientrasFijada, modo).Ic; return <I size={18} />; })()}</span>
                                 Nueva lectura · <span className="tabular-nums tracking-[0.1em] font-bold">{nuevaMientrasFijada.plate || "S/L"}</span>
                                 <ChevronRight size={18} className="text-white/60" />
                             </motion.button>
@@ -241,18 +276,18 @@ export function VistaLpr() {
                         {visibles.length === 0 && <div className="grid place-items-center w-full rounded-xl border border-dashed border-border text-[15px] text-muted-foreground">{tira.length ? "Ninguna con este filtro" : "Sin lecturas anteriores"}</div>}
                         <AnimatePresence initial={false}>
                             {visibles.map((l) => {
-                                const f = getImagePath(l.foto); const ok = l.decision === "GRANT" && !esListaNegra(l); const sel = fijada?.id === l.id;
+                                const f = getImagePath(l.foto); const est = estadoDe(l, modo); const ok = est.ok; const sel = fijada?.id === l.id;
                                 return (
                                     <motion.button key={l.id} type="button" layout="position" onClick={() => setFijada(l)}
                                         initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.94 }} transition={SUAVE}
                                         className={cn("relative w-[200px] shrink-0 snap-start rounded-xl overflow-hidden bg-neutral-900 text-left", tocable,
-                                            sel ? "ring-[3px] ring-[var(--accion-en-oscuro)]" : ok ? "ring-1 ring-[color-mix(in_oklab,var(--bien)_50%,transparent)]" : "ring-1 ring-[color-mix(in_oklab,var(--mal)_60%,transparent)]")}>
+                                            sel ? "ring-[3px] ring-[var(--accion-en-oscuro)]" : ok ? "ring-1 ring-[color-mix(in_oklab,var(--bien)_50%,transparent)]" : est.error ? "ring-1 ring-[color-mix(in_oklab,var(--mal)_60%,transparent)]" : "ring-1 ring-white/15")}>
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {f && <img src={f} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
                                         <span className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent" />
                                         <span className="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
                                             <span><span className="block text-[18px] font-bold text-white tabular-nums tracking-[0.1em]">{l.plate || "S/L"}</span><span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</span></span>
-                                            {ok ? <ShieldCheck size={18} className="text-[var(--bien)]" /> : <ShieldX size={18} className="text-[var(--mal)]" />}
+                                            <est.Ic size={18} className={ok ? "text-[var(--bien)]" : est.error ? "text-[var(--mal)]" : "text-white/50"} />
                                         </span>
                                     </motion.button>
                                 );
@@ -265,27 +300,31 @@ export function VistaLpr() {
             {/* Contadores (filtran la tira) y fila de atención (abre la ficha). */}
             <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
-                    <Contador rotulo="Adentro ahora" valor={c?.adentro ?? 0} Icono={Users} tono="info" />
-                    <Contador rotulo="Entradas hoy" valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" activo={filtro === "entradas"} alTocar={() => alternarFiltro("entradas")} />
-                    <Contador rotulo="Salidas hoy" valor={c?.salidas ?? 0} Icono={LogOut} activo={filtro === "salidas"} alTocar={() => alternarFiltro("salidas")} />
-                    <Contador rotulo="Denegados hoy" valor={c?.denegados ?? 0} Icono={ShieldX} tono="mal" activo={filtro === "denegadas"} alTocar={() => alternarFiltro("denegadas")} />
+                    <Contador rotulo={rotulos.adentro} valor={c?.adentro ?? 0} Icono={Users} tono="info" />
+                    <Contador rotulo={rotulos.entradas} valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" activo={filtro === "entradas"} alTocar={() => alternarFiltro("entradas")} />
+                    <Contador rotulo={rotulos.salidas} valor={c?.salidas ?? 0} Icono={LogOut} activo={filtro === "salidas"} alTocar={() => alternarFiltro("salidas")} />
+                    <Contador rotulo={rotulos.rechazos} valor={(modo === "ABIERTO" ? c?.noRegistrados : c?.denegados) ?? 0} Icono={modo === "ABIERTO" ? CircleDashed : ShieldX} tono={modo === "ABIERTO" ? undefined : "mal"} activo={filtro === "denegadas"} alTocar={() => alternarFiltro("denegadas")} />
                 </div>
                 <div className="text-[12px] text-muted-foreground px-1 inline-flex items-center gap-1.5"><Clock size={12} /> contadores del día del barrio · actualizados {c ? hace(c.actualizado) : "—"}</div>
-                <div className="flex-1 min-h-[120px] max-h-[30vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
+                {/* En el barrio ahora: visitas con su cuenta atrás y, en abierto, las no registradas (estimado). */}
+                <EnElBarrio datos={datos?.enBarrio} modo={modo} alAbrir={(id) => id && setFichaId(id)} />
+                <div className="flex-1 min-h-[120px] max-h-[26vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
                     <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><ShieldAlert size={14} /> Atención · últimas 24 h</div>
                     {datos && datos.atencion.length === 0 && <div className="text-[18px] text-muted-foreground">Sin novedades</div>}
                     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
                         {(datos?.atencion || []).map((a) => {
-                            const est = a.tipo === "LISTA_NEGRA" ? { t: "Lista negra", Ic: ShieldAlert, c: "pleno-mal" } : a.tipo === "EN_BUSQUEDA" ? { t: "En búsqueda", Ic: Search, c: "pleno-aviso" } : { t: "Merodeo", Ic: Repeat, c: "pleno-info" };
+                            const av = a.tipo === "AVISO" ? ETIQUETA_AVISO[a.avisoTipo as TipoAviso] : null;
+                            const est = av ? { t: av.titulo, Ic: AlertTriangle, c: av.tono === "mal" ? "pleno-mal" : av.tono === "aviso" ? "pleno-aviso" : av.tono === "info" ? "pleno-info" : "bg-neutral-700 text-white" }
+                                : a.tipo === "LISTA_NEGRA" ? { t: "Lista negra", Ic: ShieldAlert, c: "pleno-mal" } : a.tipo === "EN_BUSQUEDA" ? { t: "En búsqueda", Ic: Search, c: "pleno-aviso" } : { t: "Merodeo", Ic: Repeat, c: "pleno-info" };
                             return (
-                                <button key={a.plate + a.tipo} type="button" onClick={() => setFichaId(a.id)}
-                                    className={cn("flex items-center gap-3 rounded-xl bg-muted/40 border border-border px-3 py-2.5 min-h-[60px] text-left", tocable)}>
+                                <button key={a.avisoId || (a.plate || "") + a.tipo} type="button" disabled={!a.id} onClick={() => a.id && setFichaId(a.id)}
+                                    className={cn("flex items-center gap-3 rounded-xl bg-muted/40 border border-border px-3 py-2.5 min-h-[60px] text-left", a.id && tocable)}>
                                     <span className={cn("grid h-10 w-10 place-items-center rounded-full shrink-0", est.c)}><est.Ic size={18} /></span>
                                     <span className="min-w-0 flex-1">
-                                        <span className="flex items-center gap-2"><span className="text-[18px] font-bold tabular-nums tracking-[0.1em]">{a.plate}</span><span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{est.t}</span></span>
-                                        <span className="block text-[13px] text-muted-foreground truncate">{a.motivo} · {hace(a.ts)}{a.camara ? ` · ${a.camara}` : ""}</span>
+                                        <span className="flex items-center gap-2">{a.plate && <span className="text-[18px] font-bold tabular-nums tracking-[0.1em]">{a.plate}</span>}<span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{est.t}</span></span>
+                                        <span className={cn("block text-[13px] text-muted-foreground", av ? "line-clamp-2" : "truncate")}>{a.motivo} · {hace(a.ts)}{a.camara ? ` · ${a.camara}` : ""}</span>
                                     </span>
-                                    <ChevronRight size={18} className="text-muted-foreground/60 shrink-0" />
+                                    {a.id && <ChevronRight size={18} className="text-muted-foreground/60 shrink-0" />}
                                 </button>
                             );
                         })}
@@ -293,7 +332,7 @@ export function VistaLpr() {
                 </div>
             </aside>
 
-            <FichaLectura id={fichaId} alCerrar={() => setFichaId(null)} alVerOtra={setFichaId} alAmpliar={setAmpliada}
+            <FichaLectura id={fichaId} modo={modo} alCerrar={() => setFichaId(null)} alVerOtra={setFichaId} alAmpliar={setAmpliada}
                 alFijar={(l) => { setFijada(ultima && l.id === ultima.id ? null : l); setFichaId(null); }} />
 
             {/* La captura a pantalla completa: un toque la cierra. */}
@@ -313,10 +352,11 @@ export function VistaLpr() {
 }
 
 /** La lectura grande. Tocar la foto la amplía; "Ficha" abre todo lo que se sabe de ese auto. */
-function Protagonista({ l, tactil, alAmpliar, alAbrirFicha }: { l: Lectura; tactil: boolean; alAmpliar: (f: string) => void; alAbrirFicha: () => void }) {
+function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha }: { l: Lectura; tactil: boolean; modo: Modo; alAmpliar: (f: string) => void; alAbrirFicha: () => void }) {
     const foto = getImagePath(l.foto);
-    const est = estadoDe(l);
-    const permitido = l.decision === "GRANT" && !esListaNegra(l);
+    const est = estadoDe(l, modo);
+    // El motivo sólo se explica cuando hubo un rechazo de verdad (barrera, o lista negra).
+    const conMotivo = est.error;
     return (
         <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -349,7 +389,7 @@ function Protagonista({ l, tactil, alAmpliar, alAbrirFicha }: { l: Lectura; tact
                     <est.Ic size={40} />
                     <div>
                         <div className="text-[clamp(22px,2.6vw,34px)] font-black uppercase tracking-[0.08em] leading-none">{est.t}</div>
-                        {!permitido && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{motivoDenegado(l)}</div>}
+                        {conMotivo && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{motivoDenegado(l)}</div>}
                     </div>
                 </div>
             </div>
@@ -362,7 +402,7 @@ function Protagonista({ l, tactil, alAmpliar, alAbrirFicha }: { l: Lectura; tact
  * auto en la entrada: ¿se abrió y por qué?, ¿de quién es y de qué lote?, ¿es invitado y a dónde
  * va?, ¿está vigilado?, ¿qué auto es?, ¿qué hizo hoy? Nunca muestra teléfono ni documento.
  */
-function FichaLectura({ id, alCerrar, alVerOtra, alAmpliar, alFijar }: { id: string | null; alCerrar: () => void; alVerOtra: (id: string) => void; alAmpliar: (f: string) => void; alFijar: (l: Lectura) => void }) {
+function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { id: string | null; modo: Modo; alCerrar: () => void; alVerOtra: (id: string) => void; alAmpliar: (f: string) => void; alFijar: (l: Lectura) => void }) {
     const [ficha, setFicha] = useState<Ficha | null>(null);
     const [error, setError] = useState<string | null>(null);
     const vuelta = usarInactividad(!!id, FICHA_SE_CIERRA_MS, alCerrar);
@@ -379,7 +419,7 @@ function FichaLectura({ id, alCerrar, alVerOtra, alAmpliar, alFijar }: { id: str
 
     const l = ficha?.lectura;
     const foto = l ? getImagePath(l.foto) : null;
-    const est = l ? estadoDe(l) : null;
+    const est = l ? estadoDe(l, modo) : null;
     const vig = ficha?.vigilancia ? watchCatMeta(ficha.vigilancia.categoria) : null;
 
     return (
@@ -426,7 +466,8 @@ function FichaLectura({ id, alCerrar, alVerOtra, alAmpliar, alFijar }: { id: str
                                     </div>
                                     <div className="text-[15px] text-muted-foreground -mt-2">
                                         {l.sentido === "EXIT" ? "Salida" : "Entrada"} · {l.camara || "—"} · <span className="tabular-nums">{horaCorta(l.ts)}</span> · {hace(l.ts)}
-                                        {l.decision !== "GRANT" && <div className="mt-1 text-foreground font-semibold">{motivoDenegado(l)}</div>}
+                                        {est.error && <div className="mt-1 text-foreground font-semibold">{motivoDenegado(l)}</div>}
+                                        {modo === "ABIERTO" && ficha.registradaPor && <div className="mt-1 text-foreground">Registrada por {({ padron: "el padrón", visita: "una visita en curso", invitacion: "una invitación vigente", lista_blanca: "la lista blanca" } as Record<string, string>)[ficha.registradaPor] || ficha.registradaPor}</div>}
                                     </div>
 
                                     {/* Quién */}
@@ -439,6 +480,15 @@ function FichaLectura({ id, alCerrar, alVerOtra, alAmpliar, alFijar }: { id: str
                                         ) : <div className="text-[16px] text-muted-foreground">No está en el padrón.</div>}
                                         {ficha.adentroDesde && <div className="mt-2 inline-flex items-center gap-2 text-[15px]"><span className="h-2.5 w-2.5 rounded-full bg-[var(--bien)]" /> Adentro desde las <b className="tabular-nums">{horaCorta(ficha.adentroDesde)}</b> ({hace(ficha.adentroDesde).replace("hace ", "")})</div>}
                                     </Bloque>
+
+                                    {ficha.visita && (
+                                        <Bloque Icono={Timer} titulo="Visita en curso">
+                                            <div className="text-[18px] font-semibold">{ficha.visita.tipo}{ficha.visita.loteNombre ? <> → <b>{ficha.visita.loteNombre}</b></> : null}</div>
+                                            <div className="text-[15px] text-muted-foreground">entró {horaCorta(ficha.visita.entra)} · vence {horaCorta(ficha.visita.vence)}{ficha.visita.origen === "INVITACION" ? " · por invitación" : ""}</div>
+                                        </Bloque>
+                                    )}
+
+                                    {ficha.perfil && <BloquePerfil perfil={ficha.perfil} franja={ficha.franja} dias={ficha.franjaDias} />}
 
                                     {ficha.invitado && (
                                         <Bloque Icono={Ticket} titulo="Invitado">
@@ -486,6 +536,102 @@ function FichaLectura({ id, alCerrar, alVerOtra, alAmpliar, alFijar }: { id: str
                 </>
             )}
         </AnimatePresence>
+    );
+}
+
+/** Fracción final del tiempo en la que la cuenta atrás pasa a ámbar (spec "Visitas en el barrio a la vista"). */
+const FRACCION_AVISO = 0.2;
+const mmss = (ms: number) => { const s = Math.floor(Math.abs(ms) / 1000); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60; return `${ms < 0 ? "-" : ""}${h ? `${h}:` : ""}${String(m).padStart(h ? 2 : 1, "0")}:${String(ss).padStart(2, "0")}`; };
+
+/**
+ * "En el barrio ahora". Las visitas registradas, con su cuenta atrás (corre en el navegador
+ * contra `vence`; el reloj de la vista refresca cada segundo), ordenadas por lo que vence
+ * antes. En abierto, además, las matrículas no registradas que entraron hoy y no se vieron
+ * salir, con el tiempo que llevan marcado como ESTIMADO: el 55 % de las entradas no se ve
+ * salir, así que ese número no es un cronómetro, es una cota.
+ */
+function EnElBarrio({ datos, modo, alAbrir }: { datos: Datos["enBarrio"]; modo: Modo; alAbrir: (accessEventId: string | null) => void }) {
+    const visitas = datos?.visitas || [];
+    const noReg = modo === "ABIERTO" ? datos?.noRegistradas || [] : [];
+    const ahora = Date.now();
+    return (
+        <div className="flex-1 min-h-[120px] max-h-[26vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
+            <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><Timer size={14} /> En el barrio ahora · {visitas.length}{noReg.length ? ` + ${noReg.length} sin registrar` : ""}</div>
+            {!visitas.length && !noReg.length && <div className="text-[18px] text-muted-foreground">Nadie registrado</div>}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
+                {visitas.map((v) => {
+                    const resta = +new Date(v.vence) - ahora, total = Math.max(1, +new Date(v.vence) - +new Date(v.desde));
+                    const estado = resta < 0 ? "excedida" : resta < total * FRACCION_AVISO ? "cerca" : "ok";
+                    return (
+                        <button key={v.id} type="button" disabled={!v.accessEventId} onClick={() => alAbrir(v.accessEventId)}
+                            className={cn("flex items-center gap-3 rounded-xl border px-3 py-2.5 min-h-[60px] text-left", v.accessEventId && tocable,
+                                estado === "excedida" ? "border-[var(--mal)] bg-[var(--mal-suave)]" : estado === "cerca" ? "border-[var(--aviso)] bg-muted/40" : "border-border bg-muted/40")}>
+                            <span className="min-w-0 flex-1">
+                                <span className="flex items-center gap-2"><span className="font-bold text-[15px]">{v.tipoNombre}</span>{v.plate && <span className="text-[15px] font-bold tabular-nums tracking-[0.1em]">{v.plate}</span>}</span>
+                                <span className="block text-[13px] text-muted-foreground truncate">{v.lote ? `→ ${v.lote}` : "sin lote"}{v.empresa ? ` · ${v.empresa}` : v.nombre ? ` · ${v.nombre}` : ""}{v.origen === "INVITACION" ? " · por invitación" : ""}</span>
+                            </span>
+                            <span className={cn("text-right tabular-nums font-bold leading-none shrink-0", estado === "excedida" ? "text-[var(--mal-texto)]" : estado === "cerca" ? "text-[var(--aviso-texto)]" : "")}>
+                                <span className="block text-[22px]">{mmss(resta)}</span>
+                                <span className="block text-[10px] uppercase tracking-wider mt-0.5 opacity-70">{estado === "excedida" ? "excedida" : "restan"}</span>
+                            </span>
+                        </button>
+                    );
+                })}
+                {noReg.map((n) => (
+                    <button key={n.plate} type="button" onClick={() => alAbrir(n.accessEventId)} className={cn("flex items-center gap-3 rounded-xl border border-dashed border-border px-3 py-2 min-h-[52px] text-left", tocable)}>
+                        <CircleDashed size={18} className="text-muted-foreground shrink-0" />
+                        <span className="min-w-0 flex-1">
+                            <span className="text-[15px] font-bold tabular-nums tracking-[0.1em]">{n.plate}</span>
+                            <span className="block text-[12px] text-muted-foreground truncate">no registrada{n.camara ? ` · ${n.camara}` : ""}</span>
+                        </span>
+                        <span className="text-[14px] tabular-nums text-muted-foreground shrink-0">~{duracion((ahora - +new Date(n.desde)) / 60000)} <span className="text-[11px]">(estimado)</span></span>
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+const DIAS_CORTOS = ["L", "M", "X", "J", "V", "S", "D"];
+
+/**
+ * El perfil de la matrícula en la ficha: qué clase es, cada cuánto viene, cuánto se queda y su
+ * rutina. La rutina se DIBUJA con las lecturas reales (7 días × 24 horas, más oscuro = más
+ * veces), no sólo con el resumen: así se ve también lo que no llega a ser rutina.
+ */
+function BloquePerfil({ perfil, franja, dias }: { perfil: NonNullable<Ficha["perfil"]>; franja?: number[][]; dias?: number }) {
+    const max = Math.max(1, ...(franja || []).flat());
+    return (
+        <Bloque Icono={Activity} titulo="Comportamiento">
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center h-8 px-3 rounded-lg bg-muted text-[14px] font-bold">{NOMBRE_CLASE[perfil.clase as Clase] || perfil.clase}</span>
+                <span className="text-[15px] text-muted-foreground">vino {perfil.diasVistos} de los últimos {dias || 30} días</span>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-[14px]">
+                <div><div className="text-muted-foreground text-[12px]">Se queda, normalmente</div><div className="font-semibold">{perfil.permanenciaMedianaMin != null ? duracion(perfil.permanenciaMedianaMin) : perfil.entradaNoVista ? "sin entrada leída" : "sin salidas leídas"}</div></div>
+                <div><div className="text-muted-foreground text-[12px]">9 de cada 10 veces, menos de</div><div className="font-semibold">{perfil.permanenciaP90Min != null ? duracion(perfil.permanenciaP90Min) : "—"}</div></div>
+            </div>
+            <div className="mt-2 text-[15px]">{perfil.rutina ? <>Rutina: <b>{describirRutina(perfil.rutina)}</b></> : <span className="text-muted-foreground">Sin rutina detectada</span>}</div>
+            {perfil.entradaNoVista && <div className="mt-1 text-[12px] text-muted-foreground">Sólo se la leyó saliendo: la cámara de Entrada casi no lee de noche.</div>}
+            {franja && (
+                <div className="mt-3">
+                    <div className="grid grid-cols-[18px_repeat(24,minmax(0,1fr))] gap-[2px]">
+                        {franja.map((fila, d) => (
+                            <div key={d} className="contents">
+                                <span className="text-[10px] text-muted-foreground leading-[14px]">{DIAS_CORTOS[d]}</span>
+                                {fila.map((n, h) => (
+                                    <span key={h} title={`${DIAS_CORTOS[d]} ${String(h).padStart(2, "0")}h · ${n} lectura${n === 1 ? "" : "s"}`}
+                                        className="h-[14px] rounded-[3px]" style={{ background: n ? `color-mix(in oklab, var(--accion-en-oscuro) ${Math.round(25 + 75 * (n / max))}%, transparent)` : "var(--muted)" }} />
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                    <div className="mt-1 grid grid-cols-[18px_repeat(24,minmax(0,1fr))] text-[9px] text-muted-foreground tabular-nums">
+                        <span />{Array.from({ length: 24 }, (_, h) => <span key={h} className="text-center">{h % 6 === 0 ? h : ""}</span>)}
+                    </div>
+                </div>
+            )}
+        </Bloque>
     );
 }
 

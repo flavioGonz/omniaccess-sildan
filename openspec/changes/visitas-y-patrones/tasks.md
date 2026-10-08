@@ -4,13 +4,13 @@
 
 ## 1. Datos y ajustes
 
-- [ ] 1.1 Agregar a `prisma/schema.prisma` los modelos `Visita`, `PerfilMatricula` y `AvisoGuardia` con sus índices (design D2) y crear la migración con `./node_modules/.bin/prisma migrate dev --create-only`; verificar que el SQL sólo crea tablas e índices nuevos y que `prisma generate` compila.
-- [ ] 1.2 Crear `src/lib/visitas/ajustes.ts`: valores por defecto con su porqué (`MODO_ACCESO` CERRADO; tipos Delivery 15 / Servicio 120 / Obra 480 / Visita 180; avisos y umbrales; hora de corte 05:00; rutina 4 días / 30 min; ventana de perfil 30 días; antirrebote 60 min), lectura de `Setting` con caché de 30 s y validación de los JSON; verificar con `tests/visitas/ajustes.test.ts` (JSON roto o ausente → defaults; valores fuera de rango → acotados).
+- [x] 1.1 Agregar a `prisma/schema.prisma` los modelos `Visita`, `PerfilMatricula` y `AvisoGuardia` con sus índices (design D2) y crear la migración con `./node_modules/.bin/prisma migrate dev --create-only`; verificar que el SQL sólo crea tablas e índices nuevos y que `prisma generate` compila.
+- [x] 1.2 Crear `src/lib/visitas/ajustes.ts`: valores por defecto con su porqué (`MODO_ACCESO` CERRADO; tipos Delivery 15 / Servicio 120 / Obra 480 / Visita 180; avisos y umbrales; hora de corte 05:00; rutina 4 días / 30 min; ventana de perfil 30 días; antirrebote 60 min), lectura de `Setting` con caché de 30 s y validación de los JSON; verificar con `tests/visitas/ajustes.test.ts` (JSON roto o ausente → defaults; valores fuera de rango → acotados).
 
 ## 2. Cálculos puros (perfiles, rutinas, presentación)
 
-- [ ] 2.1 `src/lib/visitas/calculos.ts`: mediana y p90 de permanencias, rutina a partir de las primeras entradas por día (días de semana, minuto medio, desvío, mínimo de días y desvío máximo), clase de la matrícula y "fuera de rutina" (día no habitual o a más de X min); verificar con `tests/visitas/calculos.test.ts` usando los casos medidos (06:48–06:53 lun–vie → "lun a vie · 06:50 ±2 min"; 3 días → Ocasional; sólo salidas → soloCalle).
-- [ ] 2.2 `src/lib/visitas/presentacion.ts`: texto y tono de una lectura según modo + registrado + lista negra (D10) y textos de cada aviso con su motivo; verificar con `tests/visitas/presentacion.test.ts` que en ABIERTO nunca sale "Permitido"/"Denegado" y en CERRADO sale como hoy.
+- [x] 2.1 `src/lib/visitas/calculos.ts`: mediana y p90 de permanencias, rutina a partir de la primera lectura de cada día (días de semana, minuto medio, desvío, mínimo de días y desvío máximo), clase de la matrícula y "fuera de rutina" (día no habitual o a más de X min); verificar con `tests/visitas/calculos.test.ts` usando los casos medidos (06:48–06:53 lun–vie → "lun a vie · 06:50 ±2 min"; 3 días → Ocasional; sólo salidas → entrada no vista, pero cuenta).
+- [x] 2.2 `src/lib/visitas/presentacion.ts`: texto y tono de una lectura según modo + registrado + lista negra (D10) y textos de cada aviso con su motivo; verificar con `tests/visitas/presentacion.test.ts` que en ABIERTO nunca sale "Permitido"/"Denegado" y en CERRADO sale como hoy.
 
 ## 3. Motor de visitas y avisos
 
@@ -34,7 +34,7 @@
 
 - [ ] 6.1 Ajustes → "Visitas y patrones" (modo de acceso con su explicación, tipos y tiempos, cada aviso con su interruptor y umbral, hora de corte) con las piezas del sistema de diseño; verificar que guardar cambia el comportamiento sin reiniciar (cambiar a ABIERTO → el monitor pasa a "Registrado / No registrado").
 - [ ] 6.2 `/admin/visitas` (permiso `guardia`, entrada en el menú): tabla de visitas del día (tipo, lote, entra, sale, duración, cómo cerró, quién registró) y tabla de avisos (tipo, motivo, estado, quién atendió), con `ui/tabla`, filtros y estados de carga/vacío/error; verificar 200 y que una visita registrada desde la consola aparece.
-- [ ] 6.3 Documentar en el doc del proyecto `claude/visitas-y-patrones.md`: modos, tipos, avisos y umbrales, cómo se calcula cada patrón, límites medidos (45 % de salidas leídas, tránsito de calle, motos) y la línea de cron del tick; verificar que el doc nombra cada ajuste tal como aparece en Ajustes.
+- [ ] 6.3 Documentar en el doc del proyecto `claude/visitas-y-patrones.md`: modos, tipos, avisos y umbrales, cómo se calcula cada patrón, límites medidos (45 % de salidas leídas, Entrada que no lee de noche, motos) y la línea de cron del tick; verificar que el doc nombra cada ajuste tal como aparece en Ajustes.
 
 ## 7. Despliegue y verificación integrada
 

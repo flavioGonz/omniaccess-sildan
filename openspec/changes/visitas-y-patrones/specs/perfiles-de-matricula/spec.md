@@ -13,18 +13,18 @@ El sistema SHALL mantener para cada matrícula leída un perfil con primera y ú
 - **WHEN** una matrícula tiene 6 visitas con entrada y salida leídas de entre 7 y 9 horas
 - **THEN** su perfil muestra una permanencia habitual cercana a 8 h y un p90 de alrededor de 9 h
 
-### Requirement: Tránsito de calle separado
-Una matrícula vista sólo por cámaras de salida y nunca por una de entrada SHALL marcarse como "pasa por la calle" y MUST NOT contar para rutinas, permanencias ni avisos de permanencia.
+### Requirement: Lecturas sin entrada vista
+Una matrícula leída en salida sin una entrada leída antes SHALL contar igual para frecuencia y rutina (la cámara de entrada casi no lee de noche y el auto sí entró), y su perfil MUST indicar "entrada no vista". Sin entrada leída no hay permanencia calculable para esa visita.
 
-#### Scenario: Ómnibus que pasa todos los días
-- **WHEN** una matrícula se lee 40 veces en Salida y ninguna en Entrada
-- **THEN** su perfil dice "pasa por la calle" y no aparece como habitual con rutina
+#### Scenario: Entró de noche sin ser leído
+- **WHEN** una matrícula se lee 7 días en Salida y ninguna en Entrada
+- **THEN** su perfil dice "entrada no vista", cuenta sus 7 días y puede tener rutina, pero no tiene permanencia habitual
 
 ### Requirement: Rutina detectada
-El sistema SHALL detectar una rutina cuando una matrícula entra al barrio en al menos N días distintos (por defecto 4) con una variación de la hora de llegada menor a M minutos (por defecto 30), y MUST describirla con los días de la semana, la hora típica, la variación y la permanencia habitual.
+El sistema SHALL detectar una rutina cuando una matrícula se ve en al menos N días distintos (por defecto 4) con una variación de la hora de su primera lectura del día menor a M minutos (por defecto 30), y MUST describirla con los días de la semana, la hora típica, la variación y la permanencia habitual si se conoce.
 
 #### Scenario: Llegada de lunes a viernes
-- **WHEN** una matrícula entró lunes a viernes durante dos semanas entre las 06:48 y las 06:53
+- **WHEN** una matrícula se vio por primera vez en el día, lunes a viernes durante dos semanas, entre las 06:48 y las 06:53
 - **THEN** su rutina se describe "lun a vie · 06:50 ±2 min" con su permanencia habitual
 
 ### Requirement: Clase de la matrícula

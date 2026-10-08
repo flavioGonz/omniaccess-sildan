@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { avisarPorSocket } from "@/lib/avisar";
 import { notificarEvento } from "@/lib/reglas-notificacion";
+import { alLeerMatricula } from "@/lib/visitas/motor";
 import { estaEnListaNegra, detalleListaNegra } from "@/lib/lista-negra";
 
 /**
@@ -106,6 +107,8 @@ export async function registrarPasoPorAcceso(l: Lectura): Promise<string | null>
             plate: l.plate, direction: event.direction, snapshotPath: event.snapshotPath,
             instante: l.timestamp.getTime(),
         }).catch(() => 0);
+        // Visitas y patrones (cámara interior / de acceso del contenedor). Sin await, como arriba.
+        void alLeerMatricula({ modulo: "LPR", evento: credential ? (decision === "GRANT" ? "ALLOW" : "DENY") : "UNKNOWN", deviceId: device.id, deviceName: device.name, plate: l.plate, direction: event.direction, instante: l.timestamp.getTime(), accessEventId: event.id });
         if (negra.watch && (negra.watch.category === "BLACKLISTED" || negra.watch.category === "SEARCH")) {
             notificarEvento({
                 modulo: "LPR", evento: "WATCHLIST", deviceId: device.id, deviceName: device.name,

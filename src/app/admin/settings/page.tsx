@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import {
     Settings,
     Users,
-    Bell,
+    Bell, Clock,
     Database,
     Camera,
     ShieldCheck,
@@ -73,6 +73,7 @@ import { OtpInput, type OtpStatus } from "@/components/ui/otp-input";
 import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import ModosSection from "./ModosSection";
+import VisitasSection from "./VisitasSection";
 import CentroNotificaciones, { TABS_NOTIFICACIONES } from "../notificaciones/CentroNotificaciones";
 import AlmacenamientoSection from "./AlmacenamientoSection";
 import { FUNCIONES, type FuncionId } from "@/lib/funciones";
@@ -199,6 +200,7 @@ const NAV_GROUPS = [
     )) },
     { id: "modos", label: "Modos", icon: Layers, items: [
         { sec: "modo", btab: "", label: "Modos (LPR / Face / Cola)", icon: Layers },
+        { sec: "visitas", btab: "", label: "Visitas y patrones", icon: Clock },
     ]},
     { id: "avanzado", label: "Avanzado", icon: SlidersHorizontal, items: [
         { sec: "drivers", btab: "", label: "Drivers & Protocolos", icon: Camera },
@@ -591,6 +593,7 @@ export default function SettingsPage() {
                     {activeSection === "tracking" && <TrackingSection />}
                     {activeSection === "playback" && <PlaybackSection />}
                     {activeSection === "notificaciones" && <CentroNotificaciones tab={notifTab} />}
+                    {activeSection === "visitas" && <VisitasSection />}
                 </div>
             </div>
 

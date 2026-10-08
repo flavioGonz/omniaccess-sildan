@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { notificarEvento, type EventoNotificable } from "@/lib/reglas-notificacion";
+import { alLeerMatricula } from "@/lib/visitas/motor";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Falta modulo o evento" }, { status: 400 });
     }
 
+    // Visitas y patrones: cerrar/abrir visitas y mirar patrones con cada lectura LPR. Sin
+    // await: el motor nunca demora ni rompe la respuesta a server.js.
+    void alLeerMatricula(b as any);
     const encolados = await notificarEvento(b as EventoNotificable);
     return NextResponse.json({ ok: true, encolados });
 }

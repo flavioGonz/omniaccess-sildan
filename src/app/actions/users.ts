@@ -143,7 +143,11 @@ export async function verifyGuardCredential(identifier: string, secret: string):
     const guard = guards.find((g) => ((g.username || '').toLowerCase() === id) || ((g.name || '').toLowerCase() === id));
     if (!guard) return { ok: false };
     const secretVal = guard.credentials.find((c) => c.type === 'PASSWORD')?.value || guard.credentials.find((c) => c.type === 'PIN')?.value || '';
-    return secretVal && secretVal === secret ? { ok: true, name: guard.name, cara: guard.cara } : { ok: false };
+    if (!(secretVal && secretVal === secret)) return { ok: false };
+    // La identidad del guardia queda firmada en una cookie: es con lo que el servidor sabe quién
+    // registra una visita o atiende un aviso desde la consola (lib/sesion-guardia).
+    try { const { firmarGuardia } = await import("@/lib/sesion-guardia"); await firmarGuardia(guard.name); } catch { /* fuera de una acción no hay cookies; la verificación igual vale */ }
+    return { ok: true, name: guard.name, cara: guard.cara };
 }
 
 export async function getAdminsList() {
