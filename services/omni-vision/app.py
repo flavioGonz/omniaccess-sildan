@@ -207,10 +207,14 @@ def _soltar(t: str) -> None:
     Bajo el turno de GPU, para no sacarle la sesión a una inferencia que está corriendo. Si
     después se prende, la próxima foto la vuelve a abrir (paga la carga una vez)."""
     with motor.GPU:
+        # `entradas` también: los NodeArg de ONNX Runtime mantienen viva la sesión de C++, y con
+        # sólo `sesion = None` la VRAM no volvía (medido: 3 GB retenidos con 1,4 GB de tareas).
         if t in modelos:
             modelos[t].sesion = None
+            modelos[t].entradas = []
         elif t == "atributos":
             describidor.modelo.sesion = None
+            describidor.modelo.entradas = []
         elif t == "texto":
             lector.motor = None
             lector._parchado = False
