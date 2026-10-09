@@ -318,7 +318,9 @@ function CenterShot({ ev, onRegister, dir, className }: { ev: any; onRegister?: 
                 </div>
                 <div className="absolute top-3 right-3 z-10"><Badge className={cn("text-xs shadow-lg", ok ? "bg-emerald-600" : "bg-red-600")}>{ok ? "PERMITIDO" : "DENEGADO"}</Badge></div>
                 {crop && (
-                    <div className="absolute top-14 right-3 z-20 w-40 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
+                    /* Proporcional al recuadro: con 160 px fijos, en una pantalla de 1366 el recorte
+                       de la patente tapaba la matrícula leída, que es lo que se vino a ver. */
+                    <div className="absolute top-12 right-3 z-20 w-[26%] max-w-40 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
                         <div className="px-1.5 py-0.5 bg-black/70 text-[8px] font-bold text-white/90 uppercase tracking-wide">Patente</div>
                         <ThumbImg src={crop} className="w-full h-auto object-contain bg-black" />
                     </div>
@@ -330,7 +332,7 @@ function CenterShot({ ev, onRegister, dir, className }: { ev: any; onRegister?: 
                             {ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
                         </div>
                     ) : (
-                        <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-3xl font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
+                        <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-[clamp(18px,1.9vw,30px)] font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
                     )}
                     <div className="mt-1.5 text-[11px] text-white/80 flex items-center gap-2">
                         {marca && <span className="font-semibold">{marca}</span>}
