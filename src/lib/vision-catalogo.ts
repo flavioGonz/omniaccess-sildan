@@ -94,15 +94,16 @@ export const CAPACIDADES: Capacidad[] = [
 
 export type Grupo = "persona" | "vehiculo" | "animal" | "objeto" | "calle" | "casa" | "comida" | "deporte";
 
-export const GRUPOS: { id: Grupo; nombre: string; icono: string }[] = [
-    { id: "persona", nombre: "Personas", icono: "User" },
-    { id: "vehiculo", nombre: "Vehículos", icono: "Car" },
-    { id: "animal", nombre: "Animales", icono: "PawPrint" },
-    { id: "objeto", nombre: "Bultos y objetos personales", icono: "Backpack" },
-    { id: "calle", nombre: "Calle y mobiliario", icono: "TrafficCone" },
-    { id: "casa", nombre: "Dentro de una casa", icono: "Sofa" },
-    { id: "comida", nombre: "Comida y vajilla", icono: "Utensils" },
-    { id: "deporte", nombre: "Deporte y juego", icono: "Volleyball" },
+/** `corto` es el rótulo del filtro, donde no entra el nombre entero. */
+export const GRUPOS: { id: Grupo; nombre: string; corto: string; icono: string }[] = [
+    { id: "persona", nombre: "Personas", corto: "Personas", icono: "User" },
+    { id: "vehiculo", nombre: "Vehículos", corto: "Vehículos", icono: "Car" },
+    { id: "animal", nombre: "Animales", corto: "Animales", icono: "PawPrint" },
+    { id: "objeto", nombre: "Bultos y objetos personales", corto: "Bultos", icono: "Backpack" },
+    { id: "calle", nombre: "Calle y mobiliario", corto: "Calle", icono: "TrafficCone" },
+    { id: "casa", nombre: "Dentro de una casa", corto: "Casa", icono: "Sofa" },
+    { id: "comida", nombre: "Comida y vajilla", corto: "Comida", icono: "Utensils" },
+    { id: "deporte", nombre: "Deporte y juego", corto: "Deporte", icono: "Volleyball" },
 ];
 
 /**

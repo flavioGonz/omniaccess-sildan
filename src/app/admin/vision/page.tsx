@@ -58,6 +58,8 @@ function Ic({ n, size = 16, className }: { n: string; size?: number; className?:
 const REFRESCO_SALUD_MS = 10_000;
 /** Los umbrales que se ofrecen: debajo de 0,3 el detector inventa; arriba de 0,6 se pierden personas de noche. */
 const UMBRALES = [0.3, 0.4, 0.5, 0.6];
+/** Alto máximo de la foto analizada, en px. */
+const ALTO_MAX_FOTO = 520;
 
 const TONO_CAPACIDAD: Record<EstadoCapacidad, { tono: "bien" | "info" | "aviso" | "quieto"; texto: string }> = {
     corre: { tono: "bien", texto: "Corre hoy" },
@@ -304,7 +306,7 @@ export default function VisionLab() {
                     ayuda="Las clases COCO, las mismas para YOLO26 y para RF-DETR. Vienen prendidas las que le sirven a un barrio; las apagadas no se dibujan en la prueba." />
                 <Filtros className="mb-3" busqueda={busqueda} alBuscar={setBusqueda} placeholder="Buscar una clase"
                     grupos={[
-                        { clave: "grupo", titulo: "Grupo", valor: grupo, alElegir: (v) => setGrupo(v as any), opciones: [{ valor: "todos", rotulo: "Todas", cuenta: CLASES.length }, ...GRUPOS.map((g) => ({ valor: g.id, rotulo: g.nombre.split(" ")[0], cuenta: CLASES.filter((c) => c.grupo === g.id).length }))] },
+                        { clave: "grupo", titulo: "Grupo", valor: grupo, alElegir: (v) => setGrupo(v as any), opciones: [{ valor: "todos", rotulo: "Todas", cuenta: CLASES.length }, ...GRUPOS.map((g) => ({ valor: g.id, rotulo: g.corto, cuenta: CLASES.filter((c) => c.grupo === g.id).length }))] },
                         { clave: "mostrar", titulo: "Mostrar", valor: mostrar, alElegir: (v) => setMostrar(v as any), opciones: [
                             { valor: "todas", rotulo: "Todas" },
                             { valor: "prendidas", rotulo: "Prendidas", cuenta: CLASES.filter((c) => prendidas[c.clase]).length },
@@ -404,7 +406,8 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, alAbrirClase, sin
     return (
         <div className="grid lg:grid-cols-[1fr_320px]">
             <div className="p-3 min-w-0">
-                <div className="relative rounded-md overflow-hidden bg-black" style={{ aspectRatio: `${prueba.ancho} / ${prueba.alto}` }}>
+                {/* Topada de alto: a lo ancho de la pantalla, una foto 4:3 empujaba todo lo demás una pantalla entera hacia abajo. */}
+                <div className="relative rounded-md overflow-hidden bg-black mx-auto w-full" style={{ aspectRatio: `${prueba.ancho} / ${prueba.alto}`, maxWidth: Math.round(ALTO_MAX_FOTO * prueba.ancho / prueba.alto) }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={prueba.imagen} alt={`Cuadro de ${prueba.camara.name}`} className={cn("absolute inset-0 w-full h-full object-contain", probando && "opacity-60")} />
                     {visibles.map((o, i) => {
