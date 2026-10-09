@@ -18,7 +18,9 @@
   - 9/10: `services/omni-vision/` (Dockerfile en dos etapas + `run.sh`, igual que omni-lpr, sin compose). Corriendo en el CT 200 en 127.0.0.1:8010, `unless-stopped`, 2 CPU, 3 GB RAM, VRAM topada a 1,5 GB. **SigLIP todavía no**: entra con la fase 3 (búsqueda).
 - [ ] 2.2 Endpoints `POST /detectar`, `POST /describir`, `POST /texto`, `GET /salud` (modelo, versión, licencia, VRAM, cola), una inferencia en vuelo; verificar con 3 imágenes de prueba (persona, auto, calle vacía) y anotar latencias.
   - 9/10: `/detectar` y `/salud` andando y verificados (persona en Salida 0,88, auto en LPR Interior 0,81, perimetrales vacías sin objetos; ~30 ms de inferencia en la 3050). Faltan `/describir` y `/texto` (con SigLIP, fase 3).
+  - 9/10 (tarde): `/detectar` suma `tarea=segmentar|pose`, `atributos=1` (SigLIP 2 con frases precalculadas) y `sesion=` (ByteTrack por grupo). Siguen faltando `/describir` y `/texto` en vivo (vector libre y frase libre) para la búsqueda.
 - [ ] 2.3 Medición con omni-lpr trabajando: VRAM total, latencia de lectura de matrículas antes/después y ningún `cudaError` en 30 min; resultado en `claude/vision.md`. Elegir Nano o Small con ese número.
+  - 9/10: medición de 30 s en reposo y con omni-vision sin pausa (`herramientas/medir.py`): omni-lpr 29 → 42 ms por cuadro, la web sin cambio, GPU 72 %, VRAM total 2,9 GB. Falta la de 30 min sin `cudaError`.
 
 ## 3. `vision-worker` (PM2) y cliente
 
@@ -41,6 +43,7 @@
 - [ ] 5.3 "Posible colado" (dos vehículos, una lectura) y "acompañado" en Face; verificar con eventos reales o grabados.
 - [ ] 5.4 Conteo de personas en zona dibujada para Filas, con la misma pantalla de calibración de zonas; verificar que el módulo de Filas recibe el número.
 - [ ] 5.5 Confirmar que ninguna decisión de barrera cambió: misma tasa de GRANT/DENY antes y después en un día comparable.
+- [ ] 5.6 Lectura "primero el vehículo": omni-vision recorta cada vehículo y omni-lpr lee el recorte. Medido el 9/10 sobre 80 capturas de barrera (`herramientas/comparar_lpr.py`): coincide con la cámara 70 % exacta / 85 % a un carácter, contra 42 % / 55 % leyendo la foto entera; y lee 26 de los 40 NO_LEIDA de la cámara. Aplicarlo en `tracking-worker` y como segunda lectura de los NO_LEIDA, sin tocar la decisión de barrera.
 
 ## 6. Índice y búsqueda (fase 3)
 
