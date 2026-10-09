@@ -49,11 +49,13 @@ type Marco = {
     setTitulo: (t: string) => void;
     silencio: boolean;
     audioBloqueado: boolean;
+    /** Quien mira entró al panel con el permiso del monitor de intrusión: puede confirmar y resolver desde acá. */
+    puedeDecidir: boolean;
 };
 const Ctx = createContext<Marco | null>(null);
 export const useMarco = () => { const c = useContext(Ctx); if (!c) throw new Error("useMarco fuera de MarcoMonitor"); return c; };
 
-export function MarcoMonitor({ children }: { children: React.ReactNode }) {
+export function MarcoMonitor({ children, puedeDecidir = false }: { children: React.ReactNode; puedeDecidir?: boolean }) {
     const [titulo, setTitulo] = useState("");
     const [ultimoDato, setUltimoDato] = useState<number>(() => Date.now());
     const [desconectadoDesde, setDesconectadoDesde] = useState<number | null>(null);
@@ -109,8 +111,8 @@ export function MarcoMonitor({ children }: { children: React.ReactNode }) {
 
     const valor = useMemo<Marco>(() => ({
         barrio: marco?.barrio || "OmniAccess", ajustes: marco?.ajustes || null, pantalla: marco?.pantalla || null,
-        latir, tactil, conectado, setTitulo, silencio, audioBloqueado: bloqueado,
-    }), [marco, latir, tactil, conectado, silencio, bloqueado]);
+        latir, tactil, conectado, setTitulo, silencio, audioBloqueado: bloqueado, puedeDecidir,
+    }), [marco, latir, tactil, conectado, silencio, bloqueado, puedeDecidir]);
 
     const hora = new Date(ahora).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: ZONA });
     const fecha = new Date(ahora).toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long", timeZone: ZONA });

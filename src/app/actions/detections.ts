@@ -12,6 +12,9 @@ export type DetItem = {
     timestamp: string;
     /** Lo que clasificó la cámara: "human" | "vehicle", o "canal N sin mapear" si avisó un NVR. */
     label?: string | null;
+    /** Si un operador ya la miró, y qué dijo: "real" | "false". */
+    acknowledged?: boolean;
+    ackKind?: string | null;
 };
 
 /** Últimas detecciones generales (analíticas). Por defecto excluye MOTION (ruidoso). */
@@ -31,6 +34,8 @@ export async function getRecentDetections(limit = 40, includeMotion = false): Pr
         snapshotPath: r.snapshotPath,
         timestamp: r.timestamp.toISOString(),
         label: r.label,
+        acknowledged: r.acknowledged,
+        ackKind: r.ackKind,
     }));
 }
 
@@ -303,6 +308,21 @@ export async function reclasificarComoFalsa(deviceId: string): Promise<{ ok: boo
         });
         return { ok: true, count: r.count };
     } catch { return { ok: false, count: 0 }; }
+}
+
+/**
+ * Corregir UNA detección: real o falsa alarma. Las otras acciones de esta pantalla van por
+ * cámara (aceptan todo lo pendiente de un canal); esta es para el registro de un evento ya
+ * mirado — "esa de las 09:20 no era nadie" — sin tocar las demás.
+ */
+export async function marcarDeteccion(id: string, kind: "real" | "false"): Promise<{ ok: boolean; error?: string }> {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return { ok: false, error: "Hace falta una sesión del panel." };
+    if (kind !== "real" && kind !== "false") return { ok: false, error: "Estado inválido" };
+    try {
+        await prisma.detection.update({ where: { id }, data: { acknowledged: true, ackKind: kind, ackAt: new Date() } });
+        return { ok: true };
+    } catch { return { ok: false, error: "No se encontró la detección" }; }
 }
 
 export async function ackAlarms(deviceId: string, kind: "real" | "false" = "real"): Promise<{ ok: boolean; count: number }> {

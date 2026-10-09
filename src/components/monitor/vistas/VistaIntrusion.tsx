@@ -11,6 +11,7 @@ import { GeomOverlay, metaDe, type Geom } from "@/components/intrusion/comun";
 import { ResumenArmado } from "@/components/intrusion/HorarioArmado";
 import { SUAVE, tocable, Ampliada, CajonPared } from "@/components/monitor/tactil";
 import { sonar } from "@/lib/sonido-monitor";
+import { ackAlarms, setAttending, reclasificarComoFalsa, marcarDeteccion } from "@/app/actions/detections";
 import { getImagePath } from "@/lib/image-path";
 import { fecha } from "@/lib/fechas";
 import { conAncho } from "@/lib/ancho-foto";
@@ -138,7 +139,7 @@ function Renglon({ d, alTocar }: { d: Det; alTocar: () => void }) {
 }
 
 export function VistaIntrusion() {
-    const { latir, setTitulo, ajustes, silencio } = useMarco();
+    const { latir, setTitulo, ajustes, silencio, puedeDecidir } = useMarco();
     useEffect(() => { setTitulo("Intrusión"); }, [setTitulo]);
     usarReloj();
     const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/intrusion", INTERVALO_MS, latir);
@@ -241,8 +242,16 @@ export function VistaIntrusion() {
             </div>
 
             <FichaCamara cam={camAbierta} pendientes={camAbierta ? porCamara.get(camAbierta.id) || [] : []} confirmada={!!camAbierta && atendiendo.has(camAbierta.id)}
-                alCerrar={() => setCamId(null)} alAmpliar={setAmpliada} alVerDeteccion={(d) => { setCamId(null); setDet(d); }} />
-            <FichaDeteccion d={det} alCerrar={() => setDet(null)} alAmpliar={setAmpliada} alVerCamara={(id) => abrirCamara(id)} />
+                alCerrar={() => setCamId(null)} alAmpliar={setAmpliada} alVerDeteccion={(d) => { setCamId(null); setDet(d); }}
+                decidir={puedeDecidir ? async (accion) => {
+                    if (!camAbierta) return;
+                    const id = camAbierta.id;
+                    if (accion === "real" || accion === "false") { await ackAlarms(id, accion); if (accion === "real") await setAttending(id, true); setVivas((p) => p.filter((a) => a.deviceId !== id)); }
+                    else { await setAttending(id, false); if (accion === "era-falsa") await reclasificarComoFalsa(id); }
+                    recargar();
+                } : undefined} />
+            <FichaDeteccion d={det} alCerrar={() => setDet(null)} alAmpliar={setAmpliada} alVerCamara={(id) => abrirCamara(id)}
+                marcar={puedeDecidir ? async (id, kind) => { const r = await marcarDeteccion(id, kind); if (r.ok) { setDet((d) => (d && d.id === id ? { ...d, acknowledged: true, ackKind: kind } : d)); recargar(); } } : undefined} />
             <Ampliada src={ampliada} alCerrar={() => setAmpliada(null)} />
         </div>
     );
@@ -266,9 +275,15 @@ function Cifras({ items }: { items: { l: string; v: number | null; c?: string }[
  * La ficha de una cámara: el vivo grande con su línea y su zona, si está en alarma y si está
  * armada, los números de hoy y sus últimas detecciones. Se lee de /api/monitor/intrusion/camara.
  */
-function FichaCamara({ cam, pendientes, confirmada, alCerrar, alAmpliar, alVerDeteccion }: {
+type Decision = "real" | "false" | "resuelta" | "era-falsa";
+
+function FichaCamara({ cam, pendientes, confirmada, alCerrar, alAmpliar, alVerDeteccion, decidir }: {
     cam: Cam | null; pendientes: Alarma[]; confirmada: boolean; alCerrar: () => void; alAmpliar: (f: string) => void; alVerDeteccion: (d: Det) => void;
+    /** Sólo con sesión del panel y permiso de intrusión (ver monitor/layout). Sin esto, la ficha no decide. */
+    decidir?: (accion: Decision) => Promise<void>;
 }) {
+    const [haciendo, setHaciendo] = useState<Decision | null>(null);
+    const hacer = async (a: Decision) => { if (!decidir) return; setHaciendo(a); try { await decidir(a); } finally { setHaciendo(null); } };
     const [info, setInfo] = useState<{ detecciones: Det[]; hoy: Hoy } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [k, setK] = useState(0);
@@ -306,9 +321,20 @@ function FichaCamara({ cam, pendientes, confirmada, alCerrar, alAmpliar, alVerDe
                         {enAlarma ? <ShieldAlert size={28} className="shrink-0" /> : <ShieldCheck size={28} className="shrink-0 tono-bien" />}
                         <div className="min-w-0">
                             <div className="text-[18px] font-bold leading-tight">{pendientes.length ? `Intrusión detectada · ${pendientes.length} sin confirmar` : confirmada ? "Intrusión confirmada · sin resolver" : "Sin alarma"}</div>
-                            <div className={cn("text-[14px] mt-0.5", enAlarma ? "opacity-90" : "text-muted-foreground")}>{enAlarma ? "Se confirma y se resuelve desde el panel de OmniAccess." : "La cámara avisa sola si algo cruza su línea o entra a su zona."}</div>
+                            <div className={cn("text-[14px] mt-0.5", enAlarma ? "opacity-90" : "text-muted-foreground")}>{enAlarma ? (decidir ? "Decidí desde acá: queda registrado igual que en el panel." : "Se confirma y se resuelve desde el panel de OmniAccess.") : "La cámara avisa sola si algo cruza su línea o entra a su zona."}</div>
                         </div>
                     </div>
+                    {decidir && enAlarma && (
+                        <div className="grid grid-cols-2 gap-2">
+                            {pendientes.length ? (<>
+                                <BotonDecision onClick={() => hacer("false")} cargando={haciendo === "false"} Icono={Ban} texto="Falsa alarma" />
+                                <BotonDecision onClick={() => hacer("real")} cargando={haciendo === "real"} Icono={ShieldAlert} texto="Es real: la atiendo" tono="mal" />
+                            </>) : (<>
+                                <BotonDecision onClick={() => hacer("era-falsa")} cargando={haciendo === "era-falsa"} Icono={Ban} texto="Era falsa alarma" />
+                                <BotonDecision onClick={() => hacer("resuelta")} cargando={haciendo === "resuelta"} Icono={ShieldCheck} texto="Resuelta" tono="accion" />
+                            </>)}
+                        </div>
+                    )}
                     {cam.horarios && <div className="rounded-xl bg-neutral-900 px-4 py-3 [&_span]:!text-[13px]"><div className="text-[12px] font-bold uppercase tracking-[0.14em] text-white/55 mb-1">Armado</div><ResumenArmado h={cam.horarios} /></div>}
 
                     <Cifras items={[{ l: "Detecciones hoy", v: info?.hoy.total ?? null }, { l: "Reales hoy", v: info?.hoy.reales ?? null, c: info?.hoy.reales ? "tono-mal" : undefined }, { l: "Falsas hoy", v: info?.hoy.falsas ?? null }]} />
@@ -345,7 +371,9 @@ function FichaCamara({ cam, pendientes, confirmada, alCerrar, alAmpliar, alVerDe
 }
 
 /** La ficha de una detección: la captura, qué fue, cuándo exactamente, de qué cámara y su estado. */
-function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara }: { d: Det | null; alCerrar: () => void; alAmpliar: (f: string) => void; alVerCamara: (id: string) => void }) {
+function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara, marcar }: { d: Det | null; alCerrar: () => void; alAmpliar: (f: string) => void; alVerCamara: (id: string) => void; marcar?: (id: string, kind: "real" | "false") => Promise<void> }) {
+    const [haciendo, setHaciendo] = useState<"real" | "false" | null>(null);
+    const hacer = async (k: "real" | "false") => { if (!marcar || !d) return; setHaciendo(k); try { await marcar(d.id, k); } finally { setHaciendo(null); } };
     const m = d ? metaDe(d.type) : null;
     const e = d ? estadoDe(d) : null;
     const foto = d ? fotoGrande(d) : null;
@@ -376,9 +404,15 @@ function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara }: { d: Det | null
                         <div className="rounded-xl bg-card border border-border px-4 py-3">
                             <div className="text-[12.5px] text-muted-foreground">Estado</div>
                             <div className="text-[18px] font-bold leading-tight mt-1">{!d.acknowledged ? "Esperando confirmación" : d.ackKind === "false" ? "Archivada como falsa alarma" : "Confirmada como real"}</div>
-                            <div className="text-[13px] text-muted-foreground mt-0.5">Se decide desde el panel</div>
+                            <div className="text-[13px] text-muted-foreground mt-0.5">{marcar ? "Se puede corregir abajo" : "Se decide desde el panel"}</div>
                         </div>
                     </div>
+                    {marcar && (
+                        <div className="grid grid-cols-2 gap-2">
+                            {d.ackKind !== "false" && <BotonDecision onClick={() => hacer("false")} cargando={haciendo === "false"} Icono={Ban} texto={d.acknowledged ? "Era falsa alarma" : "Falsa alarma"} />}
+                            {(d.ackKind === "false" || !d.acknowledged) && <BotonDecision onClick={() => hacer("real")} cargando={haciendo === "real"} Icono={ShieldAlert} texto={d.acknowledged ? "Era real" : "Fue real"} tono="mal" />}
+                        </div>
+                    )}
                     {d.deviceId && (
                         <button type="button" onClick={() => alVerCamara(d.deviceId!)} className={cn("w-full h-14 rounded-2xl bg-muted text-foreground text-[16px] font-semibold inline-flex items-center justify-center gap-2", tocable)}>
                             <Camera size={20} /> Ver la cámara en vivo
@@ -387,5 +421,15 @@ function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara }: { d: Det | null
                 </div>
             )}
         </CajonPared>
+    );
+}
+
+/** Un botón de decisión de 56 px: grande para el dedo, con su espera mientras el servidor contesta. */
+function BotonDecision({ onClick, cargando, Icono, texto, tono }: { onClick: () => void; cargando: boolean; Icono: any; texto: string; tono?: "mal" | "accion" }) {
+    return (
+        <button type="button" onClick={onClick} disabled={cargando}
+            className={cn("h-14 rounded-2xl text-[16px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-60", tocable, tono === "mal" ? "pleno-mal" : tono === "accion" ? "bg-[var(--accion)] text-white" : "bg-muted text-foreground")}>
+            {cargando ? <Loader2 size={20} className="animate-spin" /> : <Icono size={20} />} {texto}
+        </button>
     );
 }

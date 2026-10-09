@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Loader2, Check, X } from "lucide-react";
 import { getAnalyticsGeometryBatch, type DetItem, type ResumenDetecciones } from "@/app/actions/detections";
 import { useDestello, useTiempoReal } from "@/lib/tiempo-real";
 import { Estado, type Tono } from "@/components/ui/celdas";
@@ -12,6 +12,7 @@ import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
 import { fechaHoraSeg, hace, horaSeg, paraInput, ZONA } from "@/lib/fechas";
 import { conAncho } from "@/lib/ancho-foto";
 import { cn } from "@/lib/utils";
+import type { AlarmasIntrusion } from "@/components/intrusion/usarAlarmas";
 
 /**
  * Las detecciones de las cámaras (cruces de línea, intrusión, zonas), en el cajón del
@@ -66,7 +67,7 @@ function rotuloDia(ymd: string) {
     return new Date(`${ymd}T12:00:00Z`).toLocaleDateString("es-UY", { timeZone: ZONA, weekday: "short", day: "2-digit", month: "short" });
 }
 
-export function IntrusionPanel({ alAbrir }: {
+export function IntrusionPanel({ alAbrir, alarmas }: {
     /** Se acepta por compatibilidad: el panel vive sólo en el cajón desde que el monitor dejó la columna central. */
     enCajon?: boolean;
     /**
@@ -75,6 +76,8 @@ export function IntrusionPanel({ alAbrir }: {
      * abre la pantalla, después de cerrar el cajón.
      */
     alAbrir?: (d: DetItem) => void;
+    /** Las alarmas y sus acciones (usarAlarmasIntrusion). Con esto el cajón deja confirmar, marcar falsa y resolver. */
+    alarmas?: AlarmasIntrusion;
 } = {}) {
     const [items, setItems] = useState<DetItem[] | null>(null);
     const [resumen, setResumen] = useState<ResumenDetecciones | null>(null);
@@ -98,6 +101,9 @@ export function IntrusionPanel({ alAbrir }: {
             .finally(() => setTrayendo(false));
     }, [conMovimiento]);
     useEffect(() => { cargar(cuantas); }, [cargar]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Después de confirmar, marcar o resolver, la lista y los contadores se vuelven a pedir: el estado de cada renglón cambió.
+    const version = alarmas?.version || 0;
+    useEffect(() => { if (version) cargar(cuantas); }, [version]); // eslint-disable-line react-hooks/exhaustive-deps
     // Los "hace 3 min" se mueven solos.
     useEffect(() => { const iv = setInterval(() => tic((x) => x + 1), 15_000); return () => clearInterval(iv); }, []);
 
@@ -146,6 +152,8 @@ export function IntrusionPanel({ alAbrir }: {
 
     return (
         <div className="flex flex-col gap-4 px-6 py-5">
+            {alarmas && <Atencion alarmas={alarmas} nombre={(id) => resumen?.camaras.find((c) => c.id === id)?.nombre || items?.find((d) => d.deviceId === id)?.deviceName || "Cámara"} />}
+
             {/* Contadores. «Hoy» es también «todas»: tocarlo saca el filtro. */}
             <div className="grid grid-cols-4 gap-2">
                 <Contador titulo="Hoy" valor={resumen ? sumaTodo(resumen.hoy) : null} dia={resumen ? sumaTodo(resumen.dia) : null} activo={filtro === null}
@@ -242,6 +250,7 @@ export function IntrusionPanel({ alAbrir }: {
                                                 </span>
                                                 <span className="block mt-0.5 text-[12.5px] font-semibold text-foreground truncate">{d.deviceName || "Cámara sin identificar"}</span>
                                             </span>
+                                            <EstadoRevision d={d} />
                                             <span className="shrink-0 text-right leading-tight" title={fechaHoraSeg(d.timestamp)}>
                                                 <span className="block text-[13px] font-semibold tabular-nums text-foreground">{horaSeg(d.timestamp)}</span>
                                                 <span className="block text-[10.5px] text-muted-foreground tabular-nums">{hace(d.timestamp)}</span>
@@ -284,5 +293,63 @@ function Contador({ titulo, valor, dia, activo, onClick, pista, Icono }: {
                 <span className="block text-[10px] text-muted-foreground tabular-nums">24 h: {dia ?? "—"}</span>
             </button>
         </Pista>
+    );
+}
+
+/** Si alguien ya miró la detección, y qué dijo. Sin mirar todavía no lleva nada: es lo normal en una lista. */
+function EstadoRevision({ d }: { d: DetItem }) {
+    if (!d.acknowledged) return null;
+    return d.ackKind === "false"
+        ? <Estado tono="quieto" className="shrink-0">Falsa</Estado>
+        : <Estado tono="mal" className="shrink-0">Real</Estado>;
+}
+
+/**
+ * Lo que espera una decisión, arriba de todo: las cámaras con detecciones sin confirmar (¿es
+ * real o falsa alarma?) y las confirmadas que nadie cerró (¿ya se resolvió?). Las mismas
+ * acciones que el monitor de intrusión, para no tener que ir hasta allá.
+ */
+function Atencion({ alarmas, nombre }: { alarmas: AlarmasIntrusion; nombre: (deviceId: string) => string }) {
+    const pendientes = [...alarmas.porCamara.entries()];
+    const enAtencion = [...alarmas.atencion].filter((id) => !alarmas.porCamara.has(id));
+    if (!pendientes.length && !enAtencion.length) return null;
+    const boton = "h-9 px-3 rounded-md text-[12.5px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors";
+    return (
+        <div className="rounded-[10px] border border-[var(--mal)] bg-[var(--mal-suave)] overflow-hidden">
+            <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5">
+                <ShieldAlert size={14} className="tono-mal" />
+                <span className="text-[9px] font-bold uppercase tracking-[0.14em] tono-mal">Esperan una decisión</span>
+            </div>
+            <div className="divide-y divide-[color-mix(in_oklab,var(--mal)_25%,transparent)]">
+                {pendientes.map(([id, lista]) => (
+                    <div key={id} className="flex items-center gap-2.5 px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-semibold text-foreground truncate">{nombre(id)}</div>
+                            <div className="text-[11px] text-muted-foreground tabular-nums">Sin confirmar · {lista.length} {lista.length === 1 ? "detección" : "detecciones"} · la última {horaSeg(lista[0].ts)}</div>
+                        </div>
+                        <Pista texto="Archiva lo pendiente de esta cámara como falsa alarma. Queda así en el historial.">
+                            <button type="button" disabled={alarmas.ocupado === id} onClick={() => alarmas.resolver(id, "false")} className={cn(boton, "border border-border bg-card text-foreground hover:bg-accent")}><X size={14} /> Falsa alarma</button>
+                        </Pista>
+                        <Pista texto="Es una intrusión de verdad: la cámara queda «en atención» hasta que alguien la dé por resuelta.">
+                            <button type="button" disabled={alarmas.ocupado === id} onClick={() => alarmas.resolver(id, "real")} className={cn(boton, "pleno-mal hover:opacity-90")}><Check size={14} /> Es real</button>
+                        </Pista>
+                    </div>
+                ))}
+                {enAtencion.map((id) => (
+                    <div key={id} className="flex items-center gap-2.5 px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-semibold text-foreground truncate">{nombre(id)}</div>
+                            <div className="text-[11px] text-muted-foreground">Confirmada como real · sin resolver</div>
+                        </div>
+                        <Pista texto="Si con la foto delante no lo era: se corrige como falsa en el historial y la cámara vuelve a la normalidad.">
+                            <button type="button" disabled={alarmas.ocupado === id} onClick={() => alarmas.cerrarAtencion(id, "falsa")} className={cn(boton, "border border-border bg-card text-foreground hover:bg-accent")}><X size={14} /> Era falsa</button>
+                        </Pista>
+                        <Pista texto="Fue real y ya se atendió: la cámara vuelve a la normalidad y el registro queda como real.">
+                            <button type="button" disabled={alarmas.ocupado === id} onClick={() => alarmas.cerrarAtencion(id, "resuelta")} className={cn(boton, "bg-[var(--accion)] text-white hover:opacity-90")}><Check size={14} /> Resuelta</button>
+                        </Pista>
+                    </div>
+                ))}
+            </div>
+        </div>
     );
 }

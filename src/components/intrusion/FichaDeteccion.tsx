@@ -27,13 +27,15 @@ function ago(ts: string) {
     return new Date(ts).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" });
 }
 
-export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion }: {
+export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar }: {
     det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
     onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean;
     /** La cámara tiene una intrusión confirmada como real y sin resolver. */
     enAtencion?: boolean;
     /** Cerrarla: aceptarla como resuelta, o reclasificarla como falsa alarma. */
     onCerrarAtencion?: (deviceId: string, como: "resuelta" | "falsa") => void;
+    /** Corregir ESTA detección (no la cámara entera): real o falsa alarma. */
+    onMarcar?: (id: string, kind: "real" | "false") => Promise<{ ok: boolean; error?: string } | void>;
 }) {
     const [cur, setCur] = useState<any>(det);
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
@@ -129,6 +131,25 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Aceptar · resuelta <kbd className="ml-1 px-1 rounded bg-black/25 text-[10px]">A</kbd></button>
                             </div>
                             <p className="text-[10.5px] text-white/55 drop-shadow max-w-md">Fue confirmada como real. Si con la foto delante ves que no lo era, marcála como falsa: queda corregido en el historial.</p>
+                        </div>
+                    ) : onMarcar && cur.id && !String(cur.id).startsWith("live-") ? (
+                        /* Ni pendiente ni en atención: un evento ya mirado (o viejo). Se puede corregir uno por uno. */
+                        <div className="flex flex-col gap-1.5">
+                            <span className={cn("w-fit inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-[0.14em]",
+                                !cur.acknowledged ? "bg-amber-500 text-black" : cur.ackKind === "false" ? "bg-white/20 text-white" : "bg-red-600 text-white")}>
+                                {!cur.acknowledged ? "Sin revisar" : cur.ackKind === "false" ? "Marcada falsa alarma" : "Marcada real"}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                {cur.ackKind !== "false" && (
+                                    <button onClick={async (e) => { e.stopPropagation(); const r = await onMarcar(cur.id, "false"); if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: "false" })); }}
+                                        className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> {cur.acknowledged ? "Era falsa alarma" : "Falsa alarma"}</button>
+                                )}
+                                {(cur.ackKind === "false" || !cur.acknowledged) && (
+                                    <button onClick={async (e) => { e.stopPropagation(); const r = await onMarcar(cur.id, "real"); if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: "real" })); }}
+                                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold active:scale-95 transition"><Check size={16} /> {cur.acknowledged ? "Era real" : "Fue real"}</button>
+                                )}
+                            </div>
+                            <p className="text-[10.5px] text-white/55 drop-shadow max-w-md">Corrige sólo este evento en el historial; no cambia el estado de la cámara.</p>
                         </div>
                     ) : <span />}
                     {/* datos apilados a la derecha, sin chips */}

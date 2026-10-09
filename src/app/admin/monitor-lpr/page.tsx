@@ -13,6 +13,7 @@ import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { CajonPlaza } from "@/components/parking/CajonPlaza";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
+import { usarAlarmasIntrusion } from "@/components/intrusion/usarAlarmas";
 import type { Geom } from "@/components/intrusion/comun";
 import { getAnalyticsGeometryBatch, type DetItem } from "@/app/actions/detections";
 import {
@@ -778,6 +779,9 @@ export default function MonitorLPR() {
     /** La detección abierta desde el cajón. Al cerrarla se vuelve al cajón, como en la ficha del evento. */
     const [fichaDet, setFichaDet] = useState<DetItem | null>(null);
     const [geomDet, setGeomDet] = useState<Geom | undefined>(undefined);
+    // Las alarmas de intrusión y sus acciones (confirmar, falsa, resolver), las mismas que el
+    // monitor de intrusión: la ficha y el cajón de Detecciones dejan de ser sólo para mirar.
+    const alarmas = usarAlarmasIntrusion();
     useEffect(() => {
         setGeomDet(undefined);
         if (!fichaDet?.deviceId) return;
@@ -1149,8 +1153,10 @@ export default function MonitorLPR() {
                         {/* Cluster de acciones (íconos) */}
                         <div className="flex items-center h-9 bg-card border border-border rounded-lg divide-x divide-border overflow-hidden">
                             {/* Las detecciones de las cámaras (cruces, zonas) vivían en la columna del centro; ahora en un cajón. */}
-                            <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="h-full px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                            <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="relative h-full px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
                                 <Radar size={16} />
+                                {/* Cámaras que esperan una decisión (sin confirmar o confirmadas sin resolver). */}
+                                {(alarmas.porCamara.size + alarmas.atencion.size) > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full pleno-mal text-[8px] font-bold flex items-center justify-center">{new Set([...alarmas.porCamara.keys(), ...alarmas.atencion]).size}</span>}
                             </button>
                             <button onClick={() => setShowWatch(true)} title="Lista de vigilancia" className="relative h-full px-2.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
                                 <ShieldAlert size={16} />
@@ -1174,7 +1180,7 @@ export default function MonitorLPR() {
 
                         <Cajon open={verDetecciones} onOpenChange={setVerDetecciones}>
                             <CajonContenido ancho="intermedio" titulo="Detecciones" descripcion="Cruces de línea, intrusiones y zonas de las cámaras, con la hora exacta. Tocá una para ver la captura y la grabación.">
-                                {verDetecciones && <IntrusionPanel enCajon alAbrir={(d) => { setVerDetecciones(false); setFichaDet(d); }} />}
+                                {verDetecciones && <IntrusionPanel enCajon alarmas={alarmas} alAbrir={(d) => { setVerDetecciones(false); setFichaDet(d); }} />}
                             </CajonContenido>
                         </Cajon>
                         {showWatch && <WatchlistDialog onClose={() => { setShowWatch(false); refreshWatch(); }} />}
@@ -1189,7 +1195,10 @@ export default function MonitorLPR() {
                         cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} logos={logos} />
                 </div>
             </div>
-                {fichaDet && <FichaDeteccion det={fichaDet} geom={geomDet} onClose={() => { setFichaDet(null); setVerDetecciones(true); }} />}
+                {fichaDet && <FichaDeteccion det={fichaDet} geom={geomDet} onClose={() => { setFichaDet(null); setVerDetecciones(true); }}
+                    hasAlarm={alarmas.tieneAlarma(fichaDet.deviceId)} onResolveAlarm={(id, k) => { alarmas.resolver(id, k); setFichaDet(null); setVerDetecciones(true); }}
+                    enAtencion={alarmas.enAtencion(fichaDet.deviceId)} onCerrarAtencion={(id, como) => { alarmas.cerrarAtencion(id, como); setFichaDet(null); setVerDetecciones(true); }}
+                    onMarcar={alarmas.marcar} />}
                 <CajonPlaza plate={plazaDe} onClose={() => setPlazaDe(null)}
                     onRegistrar={(p) => { setPlazaDe(null); openRegister(p); }}
                     alCambiar={() => getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => { })} />

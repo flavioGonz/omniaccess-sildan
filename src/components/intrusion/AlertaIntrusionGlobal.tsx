@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import io from "socket.io-client";
 import { ShieldAlert, Check, X, Volume2, VolumeX, Radar, Clock, ExternalLink, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getActiveAlarms, ackAlarms, setAttending, getIntrusionCameras, type ActiveAlarm } from "@/app/actions/detections";
+import { getActiveAlarms, ackAlarms, setAttending, getIntrusionCameras, reclasificarComoFalsa, type ActiveAlarm } from "@/app/actions/detections";
 import { getImagePath } from "@/lib/image-path";
 
 /**
@@ -50,7 +50,15 @@ function pitido(urgente = true) {
  * alguien la resuelve en el panel. Los datos llegan por /api/monitor/alarmas y no por
  * server actions, porque un enlace de pantalla no puede invocarlas.
  */
-export default function AlertaIntrusionGlobal({ soloLectura = false }: { soloLectura?: boolean } = {}) {
+export default function AlertaIntrusionGlobal({ soloLectura = false, decide = false }: {
+    soloLectura?: boolean;
+    /**
+     * Pared mirada por alguien que entró al panel con el permiso del monitor de intrusión:
+     * los datos siguen llegando por /api/monitor/alarmas, pero se muestran los botones para
+     * decidir (pendiente: real / falsa; confirmada: resuelta / era falsa).
+     */
+    decide?: boolean;
+} = {}) {
     const pathname = usePathname();
     const router = useRouter();
     const [alarmas, setAlarmas] = useState<Alarma[]>([]);
@@ -140,7 +148,16 @@ export default function AlertaIntrusionGlobal({ soloLectura = false }: { soloLec
             await ackAlarms(deviceId, kind);
             if (kind === "real") await setAttending(deviceId, true).catch(() => null);
             setAlarmas((prev) => prev.filter((a) => a.deviceId !== deviceId));
-        } finally { setResolviendo(null); }
+        } finally { setResolviendo(null); if (soloLectura) releer(); }
+    };
+    /** Cerrar una confirmada desde la pared: resuelta la deja como real; falsa corrige el registro. */
+    const cerrarConfirmada = async (deviceId: string, como: "resuelta" | "falsa") => {
+        setResolviendo(deviceId);
+        try {
+            await setAttending(deviceId, false);
+            if (como === "falsa") await reclasificarComoFalsa(deviceId).catch(() => null);
+            setConfirmadas((prev) => prev.filter((c) => c.deviceId !== deviceId));
+        } finally { setResolviendo(null); releer(); }
     };
 
     if (quedanOcultas) {
@@ -193,14 +210,20 @@ export default function AlertaIntrusionGlobal({ soloLectura = false }: { soloLec
                         )}
                         <div className="absolute bottom-0 inset-x-0 p-4 sm:p-5 flex flex-wrap items-end gap-3">
                             <div className="min-w-0 flex-1">
-                                {soloLectura ? (
+                                {soloLectura && !decide ? (
                                     <p className="text-[15px] text-white/85 leading-snug">{confirmada ? <>Un operador confirmó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b> y todavía no la resolvió.</> : <>La cámara detectó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b>. Se decide desde el panel; esta pantalla se libera sola.</>}</p>
                                 ) : (<>
                                     <p className="text-[13px] text-white/85 leading-snug">La cámara confirmó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b>. Decidí qué es: la alerta no se cierra sola.</p>
                                     <button onClick={() => router.push("/admin/monitor-intrusion")} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-semibold text-red-200 hover:text-white underline decoration-dotted"><ExternalLink size={12} /> Ver en el monitor de intrusión (vivo, grabación, otras cámaras)</button>
                                 </>)}
                             </div>
-                            {!soloLectura && (
+                            {decide && confirmada && (
+                                <div className="flex items-center gap-2 shrink-0">
+                                    <button onClick={() => cerrarConfirmada(confirmada.deviceId, "falsa")} disabled={!!resolviendo} className="inline-flex items-center gap-1.5 px-5 h-12 rounded-[10px] bg-white/10 hover:bg-white/20 text-amber-200 text-[14px] font-extrabold ring-1 ring-white/15 disabled:opacity-50 active:scale-[0.97] transition-transform">{resolviendo === confirmada.deviceId ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />} Era falsa alarma</button>
+                                    <button onClick={() => cerrarConfirmada(confirmada.deviceId, "resuelta")} disabled={!!resolviendo} className="inline-flex items-center gap-2 px-6 h-12 rounded-[10px] bg-[var(--accion)] hover:opacity-90 text-white text-[15px] font-extrabold disabled:opacity-50 active:scale-[0.97] transition-transform"><Check size={17} /> Resuelta</button>
+                                </div>
+                            )}
+                            {(!soloLectura || (decide && !confirmada)) && (
                                 <div className="flex items-center gap-2 shrink-0">
                                     <button onClick={() => resolver(actual.deviceId, "false")} disabled={!!resolviendo} className="inline-flex items-center gap-1.5 px-5 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-amber-200 text-[13px] font-extrabold ring-1 ring-white/15 disabled:opacity-50">{resolviendo === actual.deviceId ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />} Falsa alarma</button>
                                     <button onClick={() => resolver(actual.deviceId, "real")} disabled={!!resolviendo} className="inline-flex items-center gap-2 px-6 h-11 rounded-[10px] bg-[var(--mal)] hover:opacity-90 text-white text-[14px] font-extrabold disabled:opacity-50"><Check size={17} /> Intrusión real: la atiendo</button>
@@ -208,7 +231,7 @@ export default function AlertaIntrusionGlobal({ soloLectura = false }: { soloLec
                             )}
                         </div>
                     </div>
-                    <div className="px-4 py-2 bg-neutral-950 text-[11px] text-white/55 flex items-center gap-2"><Clock size={11} /> {soloLectura ? "Esta pantalla no decide: la alarma se resuelve desde el panel de OmniAccess. Con la X se cierra esta ventana; vuelve si llega una detección nueva." : "Al confirmarla como real, la cámara queda \"en atención\" en el monitor hasta que se resuelva. Falsa alarma la archiva como tal en el historial."}</div>
+                    <div className="px-4 py-2 bg-neutral-950 text-[11px] text-white/55 flex items-center gap-2"><Clock size={11} /> {soloLectura && !decide ? "Esta pantalla no decide: la alarma se resuelve desde el panel de OmniAccess. Con la X se cierra esta ventana; vuelve si llega una detección nueva." : soloLectura && confirmada ? "Resuelta: fue real y ya se atendió. Era falsa: se corrige en el historial. Con la X sólo se cierra esta ventana." : "Al confirmarla como real, la cámara queda \"en atención\" en el monitor hasta que se resuelva. Falsa alarma la archiva como tal en el historial."}</div>
                 </div>
             </div>
             <style jsx global>{`
