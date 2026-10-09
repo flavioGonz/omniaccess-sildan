@@ -183,9 +183,12 @@ export async function getAnalyticsGeometryBatch(ids: string[], fresco = false): 
             const dev = { ip: d.ip, username: d.username, password: d.password, authType: d.authType || "DIGEST" } as any;
             const sup = await getSmartSupport(dev);
             if (!sup.line && !sup.field) { store(empty); return; }
-            const line = sup.line ? await readLine(dev, 1) : { points: [] as any[] };
-            const field = sup.field ? await readField(dev, 1) : { points: [] as any[] };
-            store({ supported: true, line: (line.points || []).map(camToScreen), field: (field.points || []).map(camToScreen) });
+            const line = sup.line ? await readLine(dev, 1) : { enabled: false, points: [] as any[] };
+            const field = sup.field ? await readField(dev, 1) : { enabled: false, points: [] as any[] };
+            // Sólo lo que está PRENDIDO: una regla apagada conserva sus coordenadas en la cámara, y
+            // dibujarlas en el vivo hacía creer que la línea seguía vigilando (9/10: la de la LPR
+            // Interior se quitó y seguía apareciendo en el vivo del monitor de intrusión).
+            store({ supported: true, line: line.enabled ? (line.points || []).map(camToScreen) : [], field: field.enabled ? (field.points || []).map(camToScreen) : [] });
         } catch { /* transitorio: no cachear, reintentar en la próxima carga */ }
     };
     for (let i = 0; i < devs.length; i += 6) await Promise.all(devs.slice(i, i + 6).map(one));
