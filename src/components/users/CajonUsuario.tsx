@@ -189,7 +189,12 @@ export function CajonUsuario({
         setPasos(null);
         setTerminado(false);
         setIdGuardado(undefined);
-    }, [open, user, initialData]);
+        // Por VALOR y no por objeto: quien abre el cajón suele pasar `initialData={{ plate }}`,
+        // un objeto nuevo en cada render. El monitor LPR se vuelve a dibujar con cada lectura,
+        // y con el objeto en las dependencias este efecto vaciaba el formulario a mitad de
+        // carga: elegir «Proveedor» volvía solo a «Residente» a los pocos segundos.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, user?.id, initialData?.plate, initialData?.cara, initialData?.name, initialData?.dni]);
 
     // Los tipos se piden recién cuando hace falta (rol Proveedor) y una sola vez.
     useEffect(() => {

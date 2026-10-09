@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Check, ExternalLink, Eye, Info, Loader2, ShieldAlert, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -76,6 +76,8 @@ export function RegistrarMatricula({ plate, alCerrar, alTerminar, units, groups,
     units: any[]; groups: any[]; devices: any[]; parkingSlots: any[];
 }) {
     const [paso, setPaso] = useState<Paso>("elegir");
+    // El mismo objeto mientras no cambie la matrícula: ver la nota en CajonUsuario.
+    const datosIniciales = useMemo(() => ({ plate: plate || undefined }), [plate]);
     const [sabido, setSabido] = useState<Awaited<ReturnType<typeof queSeSabeDeMatricula>> | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -160,7 +162,7 @@ export function RegistrarMatricula({ plate, alCerrar, alTerminar, units, groups,
 
             {paso === "persona" && (
                 <CajonUsuario open onOpenChange={(o) => { if (!o) alCerrar(); }}
-                    initialData={{ plate }} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots}
+                    initialData={datosIniciales} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots}
                     onSuccess={() => { alTerminar(); alCerrar(); }} />
             )}
             {paso === "vigilancia" && (
