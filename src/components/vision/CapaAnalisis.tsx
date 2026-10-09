@@ -123,7 +123,8 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const c = tocan[i] ? COLOR_TOCA : COLOR_GRUPO[o.grupo] || COLOR_OTRO;
                 const extra = atributos ? (o.atributos || []).filter((a) => !a.dudoso && (a.id === "color" || a.id === "carroceria" || a.id === "tipo")).map((a) => a.valor).slice(0, 2) : [];
                 const texto = [NOMBRE_GRUPO[o.grupo] ? (o.grupo === "persona" ? NOMBRE_GRUPO[o.grupo] : o.nombre[0]?.toUpperCase() + o.nombre.slice(1)) : o.nombre, ...extra].join(" · ") + ` ${Math.round(o.confianza * 100)} %`;
-                const ancho = texto.length * fuente * 0.56 + fuente;
+                // Ancho estimado de la pastilla: con margen, porque si la pantalla no tiene Outfit la letra de reemplazo es más ancha.
+                const ancho = texto.length * fuente * 0.62 + fuente * 1.6;
                 const x = Math.min(Math.max(0, o.caja[0] * W), W - ancho);
                 let y = Math.max(fuente * 1.6, o.caja[1] * H - fuente * 0.4);
                 while (puestos.some(([px, py, pw]) => Math.abs(py - y) < fuente * 1.7 && x < px + pw && px < x + ancho)) y += fuente * 1.8;
