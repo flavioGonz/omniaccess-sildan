@@ -1,0 +1,17 @@
+#!/bin/sh
+# Construye y (re)levanta omni-vision en el CT. Igual que omni-lpr: puerto sólo en localhost
+# (lo consume la app del mismo CT, no se publica), GPU compartida, reinicio salvo parada manual.
+#
+#   sh services/omni-vision/run.sh            → construye y levanta
+#   VISION_MODELO=rfdetr-nano sh .../run.sh   → otro tamaño (nano | small | medium)
+#
+# La construcción usa CPU unos minutos (exporta los modelos); no toca la app ni omni-lpr.
+set -e
+cd "$(dirname "$0")"
+docker build -t omni-vision:gpu .
+docker rm -f omni-vision 2>/dev/null || true
+docker run -d --name omni-vision --gpus all --restart unless-stopped \
+  -p 127.0.0.1:8010:8010 \
+  -e VISION_MODELO="${VISION_MODELO:-rfdetr-small}" \
+  --cpus 2 --memory 3g \
+  omni-vision:gpu
