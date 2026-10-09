@@ -8,6 +8,7 @@ import { getDevices, getAvailableStreams } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { IntrusionPanel } from "@/components/IntrusionPanel";
+import { CajonPlaza } from "@/components/parking/CajonPlaza";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
 import type { Geom } from "@/components/intrusion/comun";
@@ -59,7 +60,7 @@ import { getImagePath } from "@/lib/image-path";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getUnits } from "@/app/actions/units";
 import { getAccessGroups } from "@/app/actions/groups";
-import { getParkingSlots, getPlateParking, getPlatesWithParking } from "@/app/actions/parking";
+import { getParkingSlots, getPlatesWithParking } from "@/app/actions/parking";
 import { getWatchMap } from "@/app/actions/watchlist";
 import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
@@ -398,7 +399,7 @@ function VehicleCardSkeleton() {
     );
 }
 
-const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking, watchMap }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string>; watchMap?: Record<string, any> }) {
+const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking, watchMap, onPlaza }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string>; watchMap?: Record<string, any>; onPlaza?: (plate: string) => void }) {
     const router = useRouter();
     const meta = parseMeta(event.details);
     const logoUrl = getCarLogo(meta.Marca);
@@ -410,7 +411,6 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const watchMeta = watch ? watchCatMeta(watch.category) : null;
     const watchStyle = watchMeta ? { ring: watchMeta.ring, badge: watchMeta.badge, label: watchMeta.label.toUpperCase() } : null;
     const tipo = tipoDeteccion(event, watch);
-    const [showPark, setShowPark] = useState(false);
     const [nvrCh, setNvrCh] = useState<number | null>(null);
     const [showVid, setShowVid] = useState(false);
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
@@ -459,180 +459,17 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             {event.decision !== "GRANT" && <button onClick={(e) => { e.stopPropagation(); onRegister(event.plateDetected!); }} title="Registrar" className="p-2 rounded-lg text-emerald-500 hover:bg-emerald-500/15 transition-colors"><UserPlus size={17} /></button>}
                         </>)}
                         {nvrCh != null && <button onClick={(e) => { e.stopPropagation(); setShowVid(true); }} title="Ver grabación" className="p-2 rounded-lg text-cyan-400 hover:bg-cyan-500/15 transition-colors"><PlayCircle size={17} /></button>}
-                        <button onClick={(e) => { e.stopPropagation(); setShowPark(true); }} title={hasPlaza ? "Ver plaza y camino al lote" : "Sin plaza asignada"} className={cn("p-2 rounded-lg transition-colors", hasPlaza ? "text-emerald-500 hover:bg-emerald-500/15" : "text-red-500 hover:bg-red-500/15")}><SquareParking size={18} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); if (!isAnomalous && event.plateDetected) onPlaza?.(String(event.plateDetected).toUpperCase()); }} disabled={isAnomalous} title={isAnomalous ? "Sin matrícula leída: no hay plaza que buscar" : hasPlaza ? "Ver su plaza y el camino" : "Sin plaza: tocá para asignarle una"} className={cn("p-2 rounded-lg transition-colors", hasPlaza ? "text-emerald-500 hover:bg-emerald-500/15" : "text-red-500 hover:bg-red-500/15")}><SquareParking size={18} /></button>
                     </div>
                 </div>
             </div>
         </EventDetailsDialog>
-        {showPark && <ParkingLocationDialog plate={event.plateDetected || ""} onClose={() => setShowPark(false)} />}
         {/* El visor único (vivo · grabación · evidencias), abierto en Grabación en el instante de la lectura. */}
         {showVid && nvrCh != null && (event as any).device?.id && <VerGrabacion deviceId={(event as any).device.id} nombre={(event as any).device?.name} canal={nvrCh} instanteMs={new Date(event.timestamp).getTime()} onClose={() => setShowVid(false)} />}
       </>
     );
 });
 
-/** Une los puntos con las esquinas redondeadas, como una ruta de mapa. */
-function trazoRedondeado(pts: { x: number; y: number }[], radio = 14) {
-    if (!pts.length) return "";
-    if (pts.length < 3) return pts.map((p, i) => (i ? "L" : "M") + ` ${p.x} ${p.y}`).join(" ");
-    let d = `M ${pts[0].x} ${pts[0].y}`;
-    for (let i = 1; i < pts.length - 1; i++) {
-        const a = pts[i - 1], b = pts[i], c = pts[i + 1];
-        const v1 = { x: b.x - a.x, y: b.y - a.y }, v2 = { x: c.x - b.x, y: c.y - b.y };
-        const l1 = Math.hypot(v1.x, v1.y) || 1, l2 = Math.hypot(v2.x, v2.y) || 1;
-        const r = Math.min(radio, l1 / 2, l2 / 2);
-        d += ` L ${b.x - (v1.x / l1) * r} ${b.y - (v1.y / l1) * r}`;
-        d += ` Q ${b.x} ${b.y} ${b.x + (v2.x / l2) * r} ${b.y + (v2.y / l2) * r}`;
-    }
-    const f = pts[pts.length - 1];
-    return d + ` L ${f.x} ${f.y}`;
-}
-
-function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () => void }) {
-    const [data, setData] = useState<any>(null);
-    const [elems, setElems] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
-    // El overlay se dibuja en píxeles, no en un viewBox 0-100 deformado: si no, los
-    // círculos salen elípticos y los guiones de la ruta quedan de largo distinto
-    // según hacia dónde vaya la línea.
-    const imgRef = useRef<HTMLImageElement>(null);
-    const [caja, setCaja] = useState({ w: 0, h: 0 });
-    useEffect(() => {
-        const el = imgRef.current; if (!el) return;
-        const medir = () => setCaja({ w: el.clientWidth, h: el.clientHeight });
-        medir();
-        const ro = new ResizeObserver(medir); ro.observe(el);
-        return () => ro.disconnect();
-    }, [data?.mapUrl, loading]);
-    useEffect(() => {
-        let alive = true;
-        Promise.all([getPlateParking(plate), getParkingElements().catch(() => null)])
-            .then(([d, e]) => { if (alive) { setData(d); setElems(e); setLoading(false); } })
-            .catch(() => { if (alive) setLoading(false); });
-        return () => { alive = false; };
-    }, [plate]);
-
-    const points: any[] | null = (() => { try { return data?.points ? (typeof data.points === "string" ? JSON.parse(data.points) : data.points) : null; } catch { return null; } })();
-    const norm = (p: any) => ({ x: p.x <= 1 ? p.x * 100 : p.x, y: p.y <= 1 ? p.y * 100 : p.y });
-    const centroid = points && points.length ? { x: points.reduce((a: number, p: any) => a + norm(p).x, 0) / points.length, y: points.reduce((a: number, p: any) => a + norm(p).y, 0) / points.length } : null;
-
-    // Camino desde la entrada más cercana hasta el lote, ruteado por las calles dibujadas.
-    const route = useMemo<any[] | null>(() => {
-        if (!centroid || !elems) return null;
-        const entradas = (elems.entradas || []).map(norm);
-        const calles = (elems.calles || []);
-        const D = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y);
-        if (!entradas.length) return null;
-        let ent = entradas[0]; for (const e of entradas) if (D(e, centroid) < D(ent, centroid)) ent = e;
-        // grafo euclidiano de las calles
-        const nodes: any[] = [];
-        const push = (p: any) => { const n = norm(p); for (let i = 0; i < nodes.length; i++) if (D(nodes[i], n) < 1.4) return i; nodes.push(n); return nodes.length - 1; };
-        const adj = new Map<number, { to: number; w: number }[]>();
-        const link = (a: number, b: number) => { const w = D(nodes[a], nodes[b]); (adj.get(a) || adj.set(a, []).get(a)!).push({ to: b, w }); (adj.get(b) || adj.set(b, []).get(b)!).push({ to: a, w }); };
-        for (const c of calles) { let prev = -1; for (const pt of c.points) { const id = push(pt); if (prev >= 0 && prev !== id) link(prev, id); prev = id; } }
-        if (nodes.length < 2) return [ent, centroid];
-        const nearest = (pt: any) => { let bi = 0, bd = Infinity; for (let i = 0; i < nodes.length; i++) { const d = D(nodes[i], pt); if (d < bd) { bd = d; bi = i; } } return bi; };
-        const sI = nearest(ent), tI = nearest(centroid);
-        const dj = (s: number, t: number) => {
-            const dist = new Array(nodes.length).fill(Infinity); const prev = new Array(nodes.length).fill(-1); const vis = new Array(nodes.length).fill(false); dist[s] = 0;
-            for (let it = 0; it < nodes.length; it++) { let u = -1, bd = Infinity; for (let i = 0; i < nodes.length; i++) if (!vis[i] && dist[i] < bd) { bd = dist[i]; u = i; } if (u < 0) break; vis[u] = true; for (const e of (adj.get(u) || [])) if (dist[u] + e.w < dist[e.to]) { dist[e.to] = dist[u] + e.w; prev[e.to] = u; } }
-            const path: any[] = []; let cur = t; while (cur >= 0) { path.unshift(nodes[cur]); cur = prev[cur]; } return path.length > 1 ? path : null;
-        };
-        const mid = dj(sI, tI);
-        return mid ? [ent, ...mid, centroid] : [ent, centroid];
-    }, [centroid, elems]);
-
-    // Todo pasa a píxeles de la imagen ya renderizada
-    const aPx = (p: { x: number; y: number }) => ({ x: (p.x / 100) * caja.w, y: (p.y / 100) * caja.h });
-    const rutaPx = route && caja.w ? route.map(aPx) : null;
-    const routeD = rutaPx ? trazoRedondeado(rutaPx, Math.max(8, Math.min(caja.w, caja.h) * 0.02)) : "";
-    const largoRuta = rutaPx ? rutaPx.reduce((t, p, i) => (i ? t + Math.hypot(p.x - rutaPx[i - 1].x, p.y - rutaPx[i - 1].y) : 0), 0) : 0;
-    const destino = centroid && caja.w ? aPx(centroid) : null;
-    const origen = rutaPx?.[0] ?? null;
-    const escala = Math.max(0.7, Math.min(1.6, Math.min(caja.w, caja.h) / 700));
-
-    return (
-        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-200" onClick={onClose}>
-            <style>{`
-              @keyframes oaDibuja{from{stroke-dashoffset:var(--largo)}to{stroke-dashoffset:0}}
-              @keyframes oaFlujo{from{stroke-dashoffset:var(--largo)}to{stroke-dashoffset:calc(var(--largo) * -1)}}
-              @keyframes oaLatido{0%{transform:scale(.6);opacity:.55}70%{transform:scale(2.1);opacity:0}100%{opacity:0}}
-              @keyframes oaCae{0%{transform:translateY(-14px) scale(.85);opacity:0}60%{transform:translateY(2px) scale(1.03)}100%{transform:translateY(0) scale(1);opacity:1}}
-              @keyframes oaAura{0%,100%{opacity:.35}50%{opacity:.8}}
-            `}</style>
-            <div className="relative w-[92vw] max-w-[1400px] rounded-2xl overflow-hidden shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-                <button onClick={onClose} className="absolute top-3 right-3 z-20 p-2 rounded-full bg-black/50 backdrop-blur text-white/80 hover:text-white hover:bg-black/70 transition-colors"><X size={18} /></button>
-                {loading ? (
-                    <div className="bg-card p-20 flex flex-col items-center gap-3 text-muted-foreground"><Loader2 size={24} className="animate-spin" /><span className="text-xs font-bold uppercase tracking-widest">Buscando plaza…</span></div>
-                ) : !data?.found ? (
-                    <div className="bg-card p-14 text-center"><MapPin size={30} className="mx-auto text-red-400 mb-3" /><p className="text-base font-bold text-foreground">Sin plaza asignada</p><p className="text-xs text-muted-foreground mt-1">{data?.resident ? `${data.resident}${data.unitNumber ? " · Unidad " + data.unitNumber : ""}` : `${plate} no tiene una plaza en el barrio.`}</p></div>
-                ) : (
-                    <div className="relative bg-black">
-                        {data.mapUrl ? (
-                            <img ref={imgRef} src={data.mapUrl} alt="Plano del barrio" className="w-full max-h-[82vh] object-contain grayscale opacity-55 invert select-none pointer-events-none" draggable={false} onLoad={() => setCaja({ w: imgRef.current?.clientWidth || 0, h: imgRef.current?.clientHeight || 0 })} />
-                        ) : <div className="p-16 text-center text-xs text-muted-foreground">No hay plano del barrio cargado.</div>}
-                        {data.mapUrl && caja.w > 0 && (
-                            <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox={`0 0 ${caja.w} ${caja.h}`}>
-                                <defs>
-                                    <linearGradient id="oaRuta" x1="0" y1="0" x2="1" y2="1">
-                                        <stop offset="0%" stopColor="#38bdf8" /><stop offset="55%" stopColor="#3b82f6" /><stop offset="100%" stopColor="#6366f1" />
-                                    </linearGradient>
-                                    <filter id="oaBrillo" x="-40%" y="-40%" width="180%" height="180%">
-                                        <feGaussianBlur stdDeviation={3 * escala} result="b" />
-                                        <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-                                    </filter>
-                                    <filter id="oaSombra" x="-60%" y="-60%" width="220%" height="220%">
-                                        <feDropShadow dx="0" dy={2 * escala} stdDeviation={2.5 * escala} floodColor="#000" floodOpacity="0.55" />
-                                    </filter>
-                                </defs>
-
-                                {/* La ruta: contorno oscuro, línea llena y un destello que la recorre */}
-                                {routeD && <>
-                                    <path d={routeD} fill="none" stroke="#0b1220" strokeOpacity={0.55} strokeWidth={11 * escala} strokeLinecap="round" strokeLinejoin="round" />
-                                    <path d={routeD} fill="none" stroke="url(#oaRuta)" strokeWidth={6 * escala} strokeLinecap="round" strokeLinejoin="round"
-                                        style={{ ["--largo" as any]: largoRuta, strokeDasharray: largoRuta, animation: "oaDibuja 1.1s cubic-bezier(.4,0,.2,1) forwards" }} />
-                                    <path d={routeD} fill="none" stroke="#e0f2fe" strokeWidth={3 * escala} strokeLinecap="round" strokeLinejoin="round" filter="url(#oaBrillo)" opacity={0.9}
-                                        style={{ ["--largo" as any]: largoRuta, strokeDasharray: `${Math.max(18, largoRuta * 0.07)} ${largoRuta}`, animation: "oaFlujo 2.6s linear infinite 1s" }} />
-                                </>}
-
-                                {/* El lote de destino */}
-                                {points && caja.w > 0 && <path
-                                    d={points.map((p: any, i: number) => { const q = aPx(norm(p)); return (i === 0 ? "M" : "L") + ` ${q.x} ${q.y}`; }).join(" ") + " Z"}
-                                    fill="rgba(59,130,246,0.28)" stroke="#60a5fa" strokeWidth={2 * escala} strokeLinejoin="round"
-                                    style={{ animation: "oaAura 2.2s ease-in-out infinite" }} />}
-
-                                {/* Punto de partida: la entrada */}
-                                {origen && <g>
-                                    <circle cx={origen.x} cy={origen.y} r={9 * escala} fill="#38bdf8" style={{ transformOrigin: `${origen.x}px ${origen.y}px`, animation: "oaLatido 2s ease-out infinite" }} />
-                                    <circle cx={origen.x} cy={origen.y} r={7 * escala} fill="#fff" filter="url(#oaSombra)" />
-                                    <circle cx={origen.x} cy={origen.y} r={4.5 * escala} fill="#0ea5e9" />
-                                </g>}
-
-                                {/* Destino: pin de gota que cae al abrir */}
-                                {destino && <g style={{ transformOrigin: `${destino.x}px ${destino.y}px`, animation: "oaCae .5s cubic-bezier(.34,1.4,.64,1) .9s backwards" }}>
-                                    <ellipse cx={destino.x} cy={destino.y + 1.5 * escala} rx={5.5 * escala} ry={2 * escala} fill="#000" opacity={0.35} />
-                                    <path d={`M ${destino.x} ${destino.y} c ${-6 * escala} ${-9 * escala} ${-9.5 * escala} ${-13 * escala} ${-9.5 * escala} ${-18.5 * escala} a ${9.5 * escala} ${9.5 * escala} 0 1 1 ${19 * escala} 0 c 0 ${5.5 * escala} ${-3.5 * escala} ${9.5 * escala} ${-9.5 * escala} ${18.5 * escala} z`}
-                                        fill="#2563eb" stroke="#fff" strokeWidth={1.6 * escala} filter="url(#oaSombra)" />
-                                    <circle cx={destino.x} cy={destino.y - 18.5 * escala} r={3.6 * escala} fill="#fff" />
-                                </g>}
-                            </svg>
-                        )}
-                        {/* Datos en overlay — se ubica en el rincón opuesto a la plaza para no tapar el camino */}
-                        <div className={cn("absolute z-10 bg-black/55 backdrop-blur-xl rounded-xl px-4 py-3 border border-white/10 shadow-lg pointer-events-none", centroid ? cn(centroid.y < 50 ? "bottom-3" : "top-3", centroid.x < 50 ? "right-3" : "left-3") : "top-3 left-3")}>
-                            <div className="flex items-center gap-2 mb-2"><SquareParking size={16} className="text-blue-400" /><span className="text-xs font-bold uppercase tracking-widest text-white">Ubicación de <span className="font-mono text-blue-300">{plate}</span></span></div>
-                            <div className="flex items-center gap-5">
-                                <div><span className="text-[9px] text-white/50 uppercase tracking-widest block">Plaza</span><span className="text-xl font-bold text-blue-300 leading-none">{data.label}</span></div>
-                                {data.unitNumber && <div><span className="text-[9px] text-white/50 uppercase tracking-widest block">Unidad</span><span className="text-sm font-bold text-white">{data.unitNumber}</span></div>}
-                                {data.resident && <div className="min-w-0 max-w-[160px]"><span className="text-[9px] text-white/50 uppercase tracking-widest block">Residente</span><span className="text-sm font-bold text-white truncate block">{data.resident}</span></div>}
-                            </div>
-                            {route && <div className="mt-2 flex items-center gap-1.5 text-[10px] text-sky-300"><span className="inline-block w-4 h-[3px] rounded-full bg-gradient-to-r from-sky-400 to-indigo-500" /> Camino desde la entrada</div>}
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
 
 /** Mini-ventanas apiladas abajo a la derecha con las lecturas anómalas.
  *  Quedan FIJAS hasta que el guardia cierra cada una (o todas). */
@@ -826,7 +663,7 @@ function ResumenSentido({ eventos }: { eventos: any[] }) {
     );
 }
 
-function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRegister, platesPark, watchMap }: {
+function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRegister, platesPark, watchMap, onPlaza }: {
     dir: "ENTRY" | "EXIT";
     camaras: any[];
     eventos: any[];
@@ -835,6 +672,7 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
     onRegister: (p?: string) => void;
     platesPark: Set<string>;
     watchMap: Record<string, any>;
+    onPlaza: (plate: string) => void;
 }) {
     const entrada = dir === "ENTRY";
     const Icono = entrada ? LogIn : LogOut;
@@ -882,7 +720,7 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
                     </div>
                 ) : (
                     // La primera ya está en grande arriba: la lista arranca en la segunda.
-                    eventos.slice(1).map((e) => <VehicleCard key={e.id} event={e} onRegister={onRegister} platesWithParking={platesPark} watchMap={watchMap} />)
+                    eventos.slice(1).map((e) => <VehicleCard key={e.id} event={e} onRegister={onRegister} platesWithParking={platesPark} watchMap={watchMap} onPlaza={onPlaza} />)
                 )}
             </div>
         </section>
@@ -965,6 +803,8 @@ export default function MonitorLPR() {
         return () => clearInterval(iv);
     }, [hayInterioresDeAcceso]);
     const [platesPark, setPlatesPark] = useState<Set<string>>(new Set());
+    /** La matrícula cuya plaza se está mirando o asignando. Un solo cajón para toda la pantalla, no uno por fila. */
+    const [plazaDe, setPlazaDe] = useState<string | null>(null);
     useEffect(() => { Promise.all([getUnits(), getAccessGroups(), getParkingSlots()]).then(([u, g, p]: any) => { setUnits(u || []); setGroups(g || []); setParkingSlots(p || []); }).catch(() => {}); getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => {}); }, []);
 
     // Watchlist (lista negra / búsqueda / VIP) — resaltado + sonido
@@ -1319,12 +1159,15 @@ export default function MonitorLPR() {
                 {/* Dos columnas, un sentido cada una. */}
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden">
                     <ColumnaSentido dir="ENTRY" camaras={entryCams} eventos={entryEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
-                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} />
+                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} />
                     <ColumnaSentido dir="EXIT" camaras={exitCams} eventos={exitEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
-                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} />
+                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} />
                 </div>
             </div>
                 {fichaDet && <FichaDeteccion det={fichaDet} geom={geomDet} onClose={() => { setFichaDet(null); setVerDetecciones(true); }} />}
+                <CajonPlaza plate={plazaDe} onClose={() => setPlazaDe(null)}
+                    onRegistrar={(p) => { setPlazaDe(null); openRegister(p); }}
+                    alCambiar={() => getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => { })} />
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
                 <CriticalAlerts items={criticals} onDismiss={dismissCritical} onClear={() => setCriticals([])} onRegister={openRegister} />
                 {/* Registrar pregunta primero qué es la matrícula (persona del barrio o seguimiento)

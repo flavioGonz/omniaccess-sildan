@@ -82,3 +82,90 @@ export async function getPlateSlotMap(): Promise<Record<string, string>> {
     } catch (e) { console.error("[getPlateSlotMap]", e); }
     return map;
 }
+
+// ───────────────────────────── Asignar plaza desde el monitor ─────────────────────────────
+//
+// La plaza es de una PERSONA (User.parkingSlotId, una por persona y una persona por plaza),
+// y la matrícula llega a la plaza a través de su dueño (Vehicle.userId). Por eso asignar
+// "una plaza a una matrícula" son hasta dos pasos: decir de quién es la matrícula, si no se
+// sabía, y darle la plaza a esa persona.
+
+async function quienOpera(): Promise<string> {
+    const { getSession } = await import("@/app/actions/auth");
+    const s: any = await getSession().catch(() => null);
+    if (!s) throw new Error("Sesión vencida: volvé a entrar.");
+    return String(s.name || s.sub || "panel");
+}
+const normChapa = (p: string) => String(p || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/** Lo que el cajón necesita: el dueño de la matrícula (si hay), su plaza, y todas las plazas del plano. */
+export async function datosPlaza(plate: string) {
+    await quienOpera();
+    const P = normChapa(plate);
+    const [veh, slots, mapRow] = await Promise.all([
+        P ? prisma.vehicle.findFirst({ where: { plate: { equals: P, mode: "insensitive" } }, select: { user: { select: { id: true, name: true, role: true, parkingSlotId: true, unit: { select: { name: true, number: true } } } } } }) : null,
+        prisma.parkingSlot.findMany({ select: { id: true, label: true, points: true, user: { select: { id: true, name: true } } } }),
+        prisma.setting.findUnique({ where: { key: "parking_map_url" } }),
+    ]);
+    // Orden natural: P-2 antes que P-10.
+    slots.sort((a, b) => a.label.localeCompare(b.label, "es", { numeric: true }));
+    const u = veh?.user || null;
+    return {
+        plate: P,
+        mapUrl: mapRow?.value || null,
+        duenio: u ? { id: u.id, nombre: u.name, rol: String(u.role), unidad: u.unit?.name || null, plazaId: u.parkingSlotId } : null,
+        plazas: slots.map((s) => ({ id: s.id, label: s.label, points: s.points, ocupadaPor: s.user ? { id: s.user.id, nombre: s.user.name } : null })),
+    };
+}
+
+/** Personas para elegir dueño. Sin la lista negra: darle una plaza contradice la lista. */
+export async function buscarPersonasParaPlaza(q: string) {
+    await quienOpera();
+    const t = String(q || "").trim();
+    const filas = await prisma.user.findMany({
+        where: { role: { not: "BLACKLISTED" as any }, ...(t ? { OR: [{ name: { contains: t, mode: "insensitive" } }, { unit: { name: { contains: t, mode: "insensitive" } } }] } : {}) },
+        select: { id: true, name: true, role: true, parkingSlot: { select: { label: true } }, unit: { select: { name: true } } },
+        orderBy: { name: "asc" }, take: 20,
+    });
+    return filas.map((u) => ({ id: u.id, nombre: u.name, rol: String(u.role), unidad: u.unit?.name || null, plaza: u.parkingSlot?.label || null }));
+}
+
+/**
+ * Dar (o sacar, con slotId null) la plaza a la persona dueña de la matrícula. Si la
+ * matrícula no tenía dueño, se le pone `userId` como dueño. Si la plaza es de otra
+ * persona, no se pisa salvo `reasignar`: sacarle la plaza a un vecino tiene que ser a
+ * propósito.
+ */
+export async function asignarPlaza(d: { plate: string; userId: string; slotId: string | null; reasignar?: boolean }): Promise<{ ok: true; label: string | null } | { ok: false; error: string; ocupadaPor?: string }> {
+    try {
+        await quienOpera();
+        const P = normChapa(d.plate);
+        if (!P) return { ok: false, error: "Falta la matrícula." };
+        const user = await prisma.user.findUnique({ where: { id: d.userId }, select: { id: true, name: true, role: true } });
+        if (!user) return { ok: false, error: "Esa persona ya no existe." };
+        if (String(user.role) === "BLACKLISTED") return { ok: false, error: `${user.name} está en lista negra.` };
+
+        const veh = await prisma.vehicle.findFirst({ where: { plate: { equals: P, mode: "insensitive" } }, select: { id: true, userId: true, user: { select: { name: true } } } });
+        if (veh && veh.userId !== user.id) return { ok: false, error: `${P} ya es de ${veh.user?.name || "otra persona"}. Cambiala desde su ficha.` };
+
+        let label: string | null = null;
+        if (d.slotId) {
+            const slot = await prisma.parkingSlot.findUnique({ where: { id: d.slotId }, select: { id: true, label: true, user: { select: { id: true, name: true } } } });
+            if (!slot) return { ok: false, error: "Esa plaza ya no existe." };
+            if (slot.user && slot.user.id !== user.id && !d.reasignar) return { ok: false, error: `La plaza ${slot.label} es de ${slot.user.name}.`, ocupadaPor: slot.user.name };
+            label = slot.label;
+        }
+
+        await prisma.$transaction(async (tx) => {
+            if (!veh) await tx.vehicle.create({ data: { plate: P, userId: user.id } });
+            if (d.slotId) {
+                // La plaza es de una sola persona: si era de otra, se le saca primero.
+                await tx.user.updateMany({ where: { parkingSlotId: d.slotId, NOT: { id: user.id } }, data: { parkingSlotId: null } });
+            }
+            await tx.user.update({ where: { id: user.id }, data: { parkingSlotId: d.slotId } });
+        });
+        return { ok: true, label };
+    } catch (e: any) {
+        return { ok: false, error: e?.message || "No se pudo asignar la plaza." };
+    }
+}
