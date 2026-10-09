@@ -29,6 +29,15 @@ const RANGOS = [{ v: "24", r: "24 h" }, { v: "168", r: "7 días" }, { v: "720", 
 const GRUPOS = [{ v: "", r: "Todo" }, { v: "persona", r: "Personas" }, { v: "vehiculo", r: "Vehículos" }, { v: "animal", r: "Animales" }, { v: "objeto", r: "Bultos" }];
 /** Para arrancar: lo que se suele buscar en un barrio. */
 const EJEMPLOS = ["camioneta blanca", "persona con mochila", "moto de delivery", "auto rojo", "persona con chaleco reflectivo", "perro"];
+/**
+ * Probabilidad SigLIP (sigmoide con la escala y el sesgo del modelo) desde la que un resultado
+ * «se parece». Medido el 9/10 sobre ~400 pistas: los aciertos de verdad dieron 0,03-0,88
+ * (camioneta blanca 0,42, el segundo auto rojo 0,038) y las búsquedas sin nada que encontrar
+ * —perro, caballo, bicicleta— nunca pasaron de 0,007. Sin este corte la pantalla mostraba 60
+ * «parecidos» a un perro con la barra llena, que es mentir con aspecto de resultado.
+ * La búsqueda por imagen no tiene probabilidad (es imagen contra imagen): ahí no se corta.
+ */
+const PROB_PARECE = 0.02;
 
 export default function BuscarVision() {
     const [texto, setTexto] = useState("");
@@ -62,6 +71,24 @@ export default function BuscarVision() {
     const buscar = (q: string) => { const t = q.trim(); if (t) { setTexto(t); setPedido({ q: t }); } };
     const max = datos?.resultados[0]?.coseno || 1;
     const min = datos?.resultados[datos.resultados.length - 1]?.coseno ?? 0;
+    const conCorte = datos?.modo === "texto";
+    const parecen = !datos ? [] : conCorte ? datos.resultados.filter((r) => (r.prob ?? 0) >= PROB_PARECE) : datos.resultados;
+    const resto = !datos || !conCorte ? [] : datos.resultados.filter((r) => (r.prob ?? 0) < PROB_PARECE);
+    const grilla = (rs: Resultado[], lejos = false) => (
+        <div className={cn("grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3", (buscando || lejos) && "opacity-60")}>
+            {rs.map((r) => {
+                const rel = max > min ? (r.coseno - min) / (max - min) : 1;
+                return (
+                    <TarjetaObjeto key={r.id} f={r} alAbrir={() => setAbierta(r)} pie={
+                        <div className="flex items-center gap-1.5" title={`coseno ${r.coseno}${r.prob != null ? ` · probabilidad ${r.prob}` : ""}`}>
+                            <span className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden"><span className={cn("block h-full", lejos ? "bg-muted-foreground/40" : "bg-[var(--accion)]")} style={{ width: `${Math.max(6, rel * 100)}%` }} /></span>
+                            <span className="text-[10.5px] text-muted-foreground tabular-nums">{fecha(r.primeraVez)}</span>
+                        </div>
+                    } />
+                );
+            })}
+        </div>
+    );
 
     return (
         <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
@@ -109,25 +136,25 @@ export default function BuscarVision() {
                 ) : datos && (
                     <>
                         <p className="text-[12px] text-muted-foreground tabular-nums">
-                            {datos.resultados.length ? `Los ${datos.resultados.length} más parecidos` : "Nada"} entre {datos.comparados.toLocaleString("es-UY")} pistas de {RANGOS.find((r) => r.v === String(datos.h))?.r} · {datos.ms} ms
+                            {conCorte ? (parecen.length ? `${parecen.length} se parecen` : "Nada se parece") : datos.resultados.length ? `Los ${datos.resultados.length} más parecidos` : "Nada"} entre {datos.comparados.toLocaleString("es-UY")} pistas de {RANGOS.find((r) => r.v === String(datos.h))?.r} · {datos.ms} ms
                             {datos.sinHuella > 0 && ` · ${datos.sinHuella.toLocaleString("es-UY")} todavía sin procesar (se van sumando solas)`}
                         </p>
                         {datos.resultados.length === 0 ? (
                             <div className="rounded-[10px] border border-border bg-card p-10 text-center text-[13px] text-muted-foreground">No hay pistas con huella en este rango y con estos filtros.</div>
                         ) : (
-                            <div className={cn("grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3", buscando && "opacity-60")}>
-                                {datos.resultados.map((r) => {
-                                    const rel = max > min ? (r.coseno - min) / (max - min) : 1;
-                                    return (
-                                        <TarjetaObjeto key={r.id} f={r} alAbrir={() => setAbierta(r)} pie={
-                                            <div className="flex items-center gap-1.5" title={`coseno ${r.coseno}`}>
-                                                <span className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden"><span className="block h-full bg-[var(--accion)]" style={{ width: `${Math.max(6, rel * 100)}%` }} /></span>
-                                                <span className="text-[10.5px] text-muted-foreground tabular-nums">{fecha(r.primeraVez)}</span>
-                                            </div>
-                                        } />
-                                    );
-                                })}
-                            </div>
+                            <>
+                                {parecen.length > 0 ? grilla(parecen) : (
+                                    <div className="rounded-[10px] border border-border bg-card px-4 py-3 text-[13px]">
+                                        Nada de lo que vieron las cámaras en este rango se parece a «{pedido.q}». Abajo, lo menos lejano, por si sirve.
+                                    </div>
+                                )}
+                                {resto.length > 0 && (
+                                    <section className="space-y-2 pt-2">
+                                        <h2 className="text-[13px] font-bold">No se parecen mucho <span className="text-muted-foreground font-semibold tabular-nums">· {resto.length}</span></h2>
+                                        {grilla(resto, true)}
+                                    </section>
+                                )}
+                            </>
                         )}
                     </>
                 )}

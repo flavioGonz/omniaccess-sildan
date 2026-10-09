@@ -44,6 +44,18 @@ type Respuesta = {
 const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users, cruce: Fence, intrusion: ShieldAlert, merodeo: Footprints, retirado: PackageMinus };
 /** Lo que se cuenta hoy en la tarjeta de cada tipo que no es conteo. */
 const CUENTA_HOY: Partial<Record<TipoRegla, string>> = { sentido: "en contra hoy", permanencia: "se quedaron hoy", aglomeracion: "aglomeraciones hoy", cruce: "cruces hoy", intrusion: "intrusiones hoy", merodeo: "merodeos hoy", retirado: "retirados hoy" };
+/**
+ * Cómo aparece el nombre de la regla en el aviso, por tipo (los textos los arma vision-reglas.js).
+ * Antes la ayuda daba el ejemplo de sentido contrario para cualquier tipo, y en una regla de
+ * objeto retirado decía «Salida por la entrada»: no sirve para elegir un nombre.
+ * El conteo no avisa, así que su nombre sólo se ve en la tarjeta.
+ */
+const EJEMPLO_AVISO: Record<TipoRegla, (n: string) => string> = {
+    conteo: (n) => `La tarjeta se llama «${n}»`, sentido: (n) => `«Auto en sentido contrario · ${n}»`,
+    permanencia: (n) => `«Persona hace 5 min en ${n}»`, aglomeracion: (n) => `«6 personas juntas en ${n}»`,
+    cruce: (n) => `«Persona cruzó ${n}»`, intrusion: (n) => `«Persona en ${n}»`,
+    merodeo: (n) => `«Persona dando vueltas hace 2 min en ${n}»`, retirado: (n) => `«Se llevaron una bicicleta de ${n}»`,
+};
 /** El horario que se propone al armar de noche: lo más común en un barrio. */
 const HORARIO_NOCHE = { desde: "22:00", hasta: "06:00" };
 const REFRESCO_MS = 15_000;
@@ -322,7 +334,7 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                                 <SelectContent>{camaras.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                             </Select>
                         </CajonCampo>
-                        <CajonCampo etiqueta="Nombre" ayuda="Lo que dice el aviso: «… en sentido contrario · Salida por la entrada».">
+                        <CajonCampo etiqueta="Nombre" ayuda={r.tipo === "conteo" ? EJEMPLO_AVISO.conteo(r.nombre || "…") : `Así sale en el aviso: ${EJEMPLO_AVISO[r.tipo](r.nombre || "…")}.`}>
                             <Input value={r.nombre} onChange={(e) => cambiar({ nombre: e.target.value })} placeholder={`${t.nombre} · ${camaras.find((c) => c.id === r.deviceId)?.name || ""}`} />
                         </CajonCampo>
                     </div>
