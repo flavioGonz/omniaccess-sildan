@@ -18,7 +18,7 @@ import {
 } from "@/lib/vision-catalogo";
 import type { SaludVision, ObjetoVisto, TareaVision, TextoLeido } from "@/lib/vision";
 import { TAREAS_VISION } from "@/lib/vision-tareas";
-import { TAREA_DE_PESO, ESTIMADOS, NOMBRE_PESO, RITMO_RAPIDO, RITMO_RONDA, puntajePeso, fraccionGpu, mb, porc, type Medida } from "@/lib/vision-peso";
+import { TAREA_DE_PESO, ESTIMADOS, NOMBRE_PESO, MIN_PEDIDOS_GPU, RITMO_RAPIDO, RITMO_RONDA, puntajePeso, fraccionGpu, mb, porc, type Medida } from "@/lib/vision-peso";
 import { Pista } from "@/components/ui/pista";
 import { Ic, TONO_CAPACIDAD, TONO_ANALITICA, FichaAnalitica } from "@/components/vision/analiticas";
 
@@ -342,11 +342,14 @@ export default function VisionLab() {
         const t = TAREA_DE_PESO[id];
         if (!t) return null;
         const m = estado.medidas?.[t];
-        const gpuMs = t === "seguimiento" ? null : s?.tareas?.[t]?.latencia_ms?.p50 ?? null;
+        const lat = s?.tareas?.[t]?.latencia_ms;
+        const gpuMs = t === "seguimiento" ? null : (lat?.n || 0) >= MIN_PEDIDOS_GPU && lat?.p50 != null ? lat.p50 : m?.gpu_ms ?? null;
         const vram = t === "seguimiento" ? 0 : m?.vram_mb ?? null;
         return {
             puntaje: puntajePeso(vram, gpuMs), vram, gpuMs, cpuMs: m?.cpu_ms ?? null, ram: t === "seguimiento" ? 0 : m?.ram_mb ?? null,
             medido: m?.medido ?? null, vramTotal, sinGpu: t === "seguimiento", nucleos: s?.proceso?.nucleos ?? null,
+            // La detección se carga primero, al arrancar: lo suyo incluye el contexto de CUDA y sus librerías.
+            nota: t === "detectar" ? "Incluye el contexto de CUDA y sus librerías, que paga la primera tarea que se carga (ésta, al arrancar) y comparten todas." : undefined,
             ahora: apagadas.includes(t) ? "apagada" : t === "seguimiento" ? "corre" : s?.tareas?.[t]?.abierto ? "cargada" : "se carga al pedirla",
         };
     };
@@ -605,7 +608,7 @@ function Cifra({ v, l }: { v: number | string; l: string }) {
 type PesoTarjeta = {
     puntaje: number | null; vramTotal: number | null;
     vram?: number | null; gpuMs?: number | null; cpuMs?: number | null; ram?: number | null; medido?: number | null;
-    sinGpu?: boolean; ahora?: string; nucleos?: number | null;
+    sinGpu?: boolean; ahora?: string; nucleos?: number | null; nota?: string;
     estimado?: (typeof ESTIMADOS)[string];
 };
 
@@ -652,6 +655,7 @@ function DetallePeso({ p }: { p: PesoTarjeta }) {
                 {!e && p.cpuMs != null && <span className="block text-muted-foreground mt-0.5 tabular-nums">A {RITMO_RAPIDO} cuadros/s: {porc(Math.min(1, fraccionGpu(p.cpuMs, RITMO_RAPIDO)))} de un núcleo{p.nucleos ? ` (omni-vision tiene ${String(p.nucleos).replace(".", ",")})` : ""}.</span>}
             </span>
             <span className="flex justify-between gap-2"><b>RAM</b><span className="tabular-nums">{e ? rango(e.ram[0], e.ram[1], mb) : p.ram === 0 ? "casi nada" : p.ram != null ? mb(p.ram) : "sin medir"}</span></span>
+            {p.nota && <span className="block text-muted-foreground leading-snug">{p.nota}</span>}
             <span className="block text-muted-foreground border-t border-border pt-2 leading-snug">
                 {!e && (p.medido ? `Medido en esta placa al cargarla (${horaMedida(p.medido)}). ` : p.sinGpu ? "" : "Se mide la primera vez que se carga. ")}
                 {p.ahora && <>Ahora: <b className="text-foreground">{p.ahora}</b>. </>}
@@ -718,9 +722,10 @@ function TarjetaCapacidad({ c, alProbar, peso }: { c: Capacidad; alProbar?: () =
             <div className="flex items-start gap-3">
                 <span className={cn("grid h-10 w-10 place-items-center rounded-full shrink-0", c.estado === "corre" ? "bg-[var(--bien-suave)] text-[var(--bien-texto)]" : "bg-muted")}><Ic n={c.icono} size={19} /></span>
                 <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap"><h3 className="text-[14px] font-bold">{c.nombre}</h3><Chip tono={t.tono}>{t.texto}</Chip>{peso && <span className="ml-auto"><Peso p={peso} /></span>}</div>
+                    <div className="flex items-center gap-2 flex-wrap"><h3 className="text-[14px] font-bold">{c.nombre}</h3><Chip tono={t.tono}>{t.texto}</Chip></div>
                     <p className="text-[12.5px] mt-1 leading-snug">{c.queEs}</p>
                 </div>
+                {peso && <span className="shrink-0"><Peso p={peso} /></span>}
             </div>
             <p className="text-[12px] text-muted-foreground leading-snug"><b className="text-foreground/80 font-semibold">Para qué:</b> {c.paraQue}</p>
             <div className="mt-auto pt-1 border-t border-border flex items-end gap-3">

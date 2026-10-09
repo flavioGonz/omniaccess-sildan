@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
 import { saludVision, leerInterruptores, leerTareasApagadas, mandarTareas } from "@/lib/vision";
 import { leerAjuste, guardarAjuste } from "@/lib/ajustes-db";
-import { CLAVE_MEDIDAS, type Medida } from "@/lib/vision-peso";
+import { CLAVE_MEDIDAS, MIN_PEDIDOS_GPU, type Medida } from "@/lib/vision-peso";
 
 /**
  * Las medidas de peso de cada tarea viven en omni-vision sólo mientras el contenedor está
@@ -19,11 +19,12 @@ async function medidasGuardadas(vivas?: Record<string, Medida>): Promise<Record<
     for (const [t, m] of Object.entries(vivas)) {
         const g = guardadas[t];
         // La memoria, de la carga más reciente; el CPU, de lo que esté corriendo ahora.
-        const nueva = { ...g, ...(m.medido && m.medido !== g?.medido ? { vram_mb: m.vram_mb, ram_mb: m.ram_mb, medido: m.medido } : {}), ...(m.cpu_ms != null ? { cpu_ms: m.cpu_ms, n: m.n } : {}) };
+        const nueva = { ...g, ...(m.medido && m.medido !== g?.medido ? { vram_mb: m.vram_mb, ram_mb: m.ram_mb, medido: m.medido } : {}), ...(m.cpu_ms != null ? { cpu_ms: m.cpu_ms, n: m.n } : {}), ...(m.gpu_ms != null ? { gpu_ms: m.gpu_ms } : {}) };
         if (JSON.stringify(nueva) !== JSON.stringify(g)) { out[t] = nueva; cambio = true; }
     }
     // Sólo se escribe cuando cambia la memoria (el CPU se mueve en cada consulta y no vale una escritura cada 5 s).
-    const cambioMemoria = Object.entries(vivas).some(([t, m]) => m.medido && m.medido !== guardadas[t]?.medido);
+    // …o cuando aparece por primera vez el tiempo de GPU de una tarea (siluetas y pose se usan poco).
+    const cambioMemoria = Object.entries(vivas).some(([t, m]) => (m.medido && m.medido !== guardadas[t]?.medido) || (m.gpu_ms != null && guardadas[t]?.gpu_ms == null));
     if (cambio && cambioMemoria) await guardarAjuste(CLAVE_MEDIDAS, JSON.stringify(out)).catch(() => null);
     return out;
 }
@@ -52,6 +53,11 @@ export async function GET() {
     // falta esperar la próxima vuelta del worker para que la pantalla y el servicio coincidan.
     const enServicio = vision.salud?.apagadas;
     if (enServicio && [...enServicio].sort().join() !== [...tareasApagadas].sort().join()) await mandarTareas(tareasApagadas);
-    const medidas = await medidasGuardadas(vision.salud?.medidas);
+    // El tiempo de GPU por tarea lo da /salud aparte; se suma a la medida para guardarlo.
+    const vivas = vision.salud?.medidas ? { ...vision.salud.medidas } : undefined;
+    if (vivas) for (const [t, v] of Object.entries(vision.salud?.tareas || {})) {
+        if ((v.latencia_ms?.n || 0) >= MIN_PEDIDOS_GPU && v.latencia_ms?.p50 != null) vivas[t] = { ...vivas[t], gpu_ms: v.latencia_ms.p50 };
+    }
+    const medidas = await medidasGuardadas(vivas);
     return NextResponse.json({ ...vision, ...interruptores, camaras, tareasApagadas, medidas }, { headers: { "Cache-Control": "no-store" } });
 }

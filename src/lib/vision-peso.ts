@@ -12,7 +12,11 @@
 
 export const CLAVE_MEDIDAS = "VISION_MEDIDAS";
 
-export type Medida = { vram_mb?: number | null; ram_mb?: number | null; cpu_ms?: number | null; medido?: number | null; n?: number };
+export type Medida = { vram_mb?: number | null; ram_mb?: number | null; cpu_ms?: number | null; medido?: number | null; n?: number;
+    /** Mediana de GPU por cuadro, guardada para cuando la tarea no está cargada (con al menos MIN_PEDIDOS_GPU). */
+    gpu_ms?: number | null };
+/** Con menos pedidos la mediana todavía incluye el primero, que paga la carga y la búsqueda de algoritmos de cuDNN. */
+export const MIN_PEDIDOS_GPU = 3;
 
 /** Qué tarea de omni-vision mide a cada capacidad del laboratorio. */
 export const TAREA_DE_PESO: Record<string, string> = {
