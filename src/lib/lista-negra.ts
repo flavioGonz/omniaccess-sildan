@@ -153,7 +153,7 @@ export async function aplicarListaNegraEnCamaras(plate: string, negra: boolean):
 
 /** Una línea para mostrarle al operador o al bot qué pasó con las cámaras. */
 export function resumirCamaras(r: ResultadoCamaras): string {
-    if (r.ok.length === 0 && r.fallo.length === 0) return "Sin lectoras Hikvision cargadas: la barrera la decide el servidor.";
+    if (r.ok.length === 0 && r.fallo.length === 0) return "Sin lectoras LPR cargadas: la barrera la decide el servidor.";
     const partes: string[] = [];
     if (r.ok.length) partes.push(`${r.ok.map((c) => c.name).join(", ")}: actualizada${r.ok.length > 1 ? "s" : ""}`);
     if (r.fallo.length) partes.push(`${r.fallo.map((c) => `${c.name} (${c.error})`).join(", ")}: NO respondió — la barrera la deniega igual por servidor`);

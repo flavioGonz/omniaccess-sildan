@@ -21,26 +21,28 @@ export const WATCH_CATEGORIES: Record<WatchCategory, WatchCatMeta> = {
         label: "Lista negra",
         iconKey: "ban",
         ring: "ring-2 ring-red-500/70 shadow-[0_0_0_2px_rgba(239,68,68,0.35)]",
-        badge: "bg-red-500/10 text-red-400 border-red-500/20",
-        text: "text-red-400",
+        badge: "chip-mal",
+        text: "tono-mal",
         dot: "bg-red-500",
     },
     WHITELISTED: {
         value: "WHITELISTED",
         label: "VIP / Autorizado",
         iconKey: "star",
-        ring: "ring-2 ring-violet-500/70 shadow-[0_0_0_2px_rgba(139,92,246,0.35)]",
-        badge: "bg-violet-500/10 text-violet-400 border-violet-500/20",
-        text: "text-violet-400",
-        dot: "bg-violet-500",
+        // Verde y no violeta: es PERMITIDO, y el verde es el tono de "salió bien / pasa". El
+        // violeta no decía nada y se confundía con un aviso.
+        ring: "ring-2 ring-emerald-500/70 shadow-[0_0_0_2px_rgba(16,185,129,0.35)]",
+        badge: "chip-bien",
+        text: "tono-bien",
+        dot: "bg-emerald-500",
     },
     SEARCH: {
         value: "SEARCH",
         label: "En búsqueda",
         iconKey: "search",
         ring: "ring-2 ring-amber-500/70 shadow-[0_0_0_2px_rgba(245,158,11,0.35)]",
-        badge: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-        text: "text-amber-400",
+        badge: "chip-aviso",
+        text: "tono-aviso",
         dot: "bg-amber-500",
     },
 };
@@ -88,7 +90,7 @@ export type EfectoCategoria = { barrera: string; camaras: string; monitor: strin
 export const WATCH_EFECTOS: Record<WatchCategory, EfectoCategoria> = {
     BLACKLISTED: {
         barrera: "Toda lectura de esta matrícula se registra DENEGADA, aunque tenga credencial, aunque el modo LPR la permita y aunque la cámara la haya devuelto como permitida.",
-        camaras: "Se saca de la lista blanca de las lectoras Hikvision y se carga en su lista negra, en el momento. Si una lectora no responde, se avisa: la barrera la deniega igual por servidor.",
+        camaras: "Se saca de la lista blanca de las lectoras LPR y se carga en su lista negra, en el momento. Si una lectora no responde, se avisa: la barrera la deniega igual por servidor.",
         monitor: "La tarjeta aparece en rojo y en la pila de alertas críticas, con sonido urgente, también al recargar la pantalla.",
         monitores: "En Control LPR la lectura sale en grande como LISTA NEGRA con su motivo, queda 24 h en la fila de atención y suena si la vista tiene el sonido prendido.",
         avisos: "Dispara el evento WATCHLIST del motor de notificaciones (WhatsApp, Telegram) con la foto.",

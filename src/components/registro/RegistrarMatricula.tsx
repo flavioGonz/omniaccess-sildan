@@ -134,28 +134,13 @@ export function RegistrarMatricula({ plate, alCerrar, alTerminar, units, groups,
                             alerta alElegir={() => setPaso("vigilancia")} />
                     </CajonSeccion>
 
-                    {/* Qué cambia en el sistema con cada una: lo que el guardia ve después, no cómo se carga. */}
-                    <CajonSeccion titulo="Cómo se comporta el sistema" icono={Info}>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div className="rounded-[10px] border border-border bg-card p-3.5 space-y-2">
-                                <p className="text-[12.5px] font-bold flex items-center gap-1.5"><UserPlus size={13} className="text-muted-foreground" /> Persona del barrio</p>
-                                <ul className="space-y-1.5 text-[12px] text-foreground/80 leading-snug">
-                                    <li><b>Monitor:</b> sale como registrada, con su nombre y su lote.</li>
-                                    <li><b>Guardia:</b> no recibe «entró sin registrarse».</li>
-                                    <li><b>Barrera:</b> la deja pasar cuando la matrícula está en las lectoras.</li>
-                                    <li><b>Proveedor:</b> se le abre la visita sola, con su tiempo.</li>
-                                </ul>
-                            </div>
-                            <div className="rounded-[10px] border border-[color-mix(in_oklab,var(--mal)_34%,transparent)] bg-[var(--mal-suave)] p-3.5 space-y-2">
-                                <p className="text-[12.5px] font-bold flex items-center gap-1.5 tono-mal"><Eye size={13} /> Matrícula en seguimiento</p>
-                                <ul className="space-y-1.5 text-[12px] text-foreground/80 leading-snug">
-                                    <li><b>Monitor:</b> se destaca con su categoría cada vez que pasa.</li>
-                                    <li><b>Avisos:</b> si se marca «Avisa», sale el aviso al detectarla.</li>
-                                    <li><b>Lista negra:</b> toda lectura queda denegada y las lectoras la reciben.</li>
-                                    <li><b>VIP y En búsqueda:</b> se destacan, sin cambiar la decisión de la barrera.</li>
-                                </ul>
-                            </div>
-                        </div>
+                    {/* Una leyenda y no una tabla: el cajón tiene que entrar sin scroll. Lo
+                        detallado de cada opción ya está en su tarjeta. */}
+                    <CajonSeccion titulo="" className="py-5">
+                        <p className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                            <Info size={15} className="shrink-0 mt-0.5" />
+                            <span>Acá decidís si la matrícula es <b className="text-foreground">de confianza</b> o si hay que <b className="text-foreground">ponerle un ojo encima</b>. Con seguimiento, el sistema la sigue en cada cámara: calcula cuántas veces pasa, a qué horas, cuánto se queda, y avisa si algo se sale de lo normal.</span>
+                        </p>
                     </CajonSeccion>
                 </CajonContenido>
             </Cajon>

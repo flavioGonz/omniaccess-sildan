@@ -90,7 +90,10 @@ type TipoMeta = { key: string; label: string; badge: string; ring: string; dot: 
 function tipoDeteccion(event: any, watch?: any): TipoMeta | null {
     const cat = (watch?.category || "").toString().toLowerCase();
     if (cat === "negra" || cat === "blacklisted") return { key: "negra", label: "Lista Negra", badge: "bg-red-500/15 text-red-300 border border-red-500/40", ring: "ring-2 ring-red-500/70", dot: "bg-red-500" };
-    if (cat === "blanca" || cat === "whitelisted") return { key: "blanca", label: "Lista Blanca", badge: "bg-sky-500/15 text-sky-300 border border-sky-500/40", ring: "ring-2 ring-sky-400/70", dot: "bg-sky-400" };
+    // VIP en verde con su nombre de la lista: es PERMITIDO. Y «en búsqueda» no caía en ningún
+    // caso, así que una matrícula buscada se veía como un auto cualquiera.
+    if (cat === "blanca" || cat === "whitelisted") return { key: "blanca", label: "VIP / Autorizado", badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40", ring: "ring-2 ring-emerald-400/70", dot: "bg-emerald-400" };
+    if (cat === "search" || cat === "busca") return { key: "busqueda", label: "En búsqueda", badge: "bg-amber-500/20 text-amber-200 border border-amber-500/50", ring: "ring-2 ring-amber-400/70", dot: "bg-amber-400" };
     const role = (event?.user?.role || "").toString().toUpperCase();
     switch (role) {
         case "RESIDENT": return { key: "residente", label: "Residente", badge: "bg-blue-500/15 text-blue-300 border border-blue-500/40", ring: "ring-1 ring-blue-500/50", dot: "bg-blue-500" };
@@ -279,7 +282,7 @@ function PlateCommandBar() {
  * CUALQUIER sentido; ahora cada columna (Entradas, Salidas) tiene la suya arriba, así que
  * recibe el sentido (para el cartel cuando todavía no hay ninguna) y el alto de afuera.
  */
-function CenterShot({ ev, onRegister, dir, className }: { ev: any; onRegister?: (plate?: string) => void; dir?: "ENTRY" | "EXIT"; className?: string }) {
+function CenterShot({ ev, onRegister, dir, className, watchMap }: { ev: any; onRegister?: (plate?: string) => void; dir?: "ENTRY" | "EXIT"; className?: string; watchMap?: Record<string, any> }) {
     const router = useRouter();
     const [flash, setFlash] = useState(false);
     const last = useRef<string | undefined>(undefined);
@@ -304,7 +307,8 @@ function CenterShot({ ev, onRegister, dir, className }: { ev: any; onRegister?: 
     const marca = (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
     const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
     const sentido = ev.direction;
-    const tipo = tipoDeteccion(ev, (ev as any).watch);
+    const watch = (ev as any).watch || (watchMap && ev.plateDetected ? watchMap[String(ev.plateDetected).toUpperCase()] : null);
+    const tipo = tipoDeteccion(ev, watch);
     const ring = sentido === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
     return (
         <div>
@@ -315,6 +319,8 @@ function CenterShot({ ev, onRegister, dir, className }: { ev: any; onRegister?: 
                     {/* En la columna de su sentido el cartel ENTRADA/SALIDA sobra: lo dice la columna. Se deja la cámara. */}
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur text-[10.5px] font-semibold text-white/90">{ev.device?.name || "Cámara"} · <TimeAgo timestamp={ev.timestamp} /></span>
                     {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-lg backdrop-blur", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
+                    {/* El motivo de la lista viaja con la captura: en búsqueda es lo que el guardia tiene que saber. */}
+                    {watch?.motivo && <span className={cn("max-w-[60%] text-[11px] font-semibold px-2 py-1 rounded shadow-lg backdrop-blur leading-snug", tipo?.badge || "bg-black/60 text-white")}>{watch.motivo}</span>}
                     {rotuloLectura(ev.details) && <span className="text-[10px] tabular-nums px-2 py-0.5 rounded bg-black/55 text-white/85 backdrop-blur">{rotuloLectura(ev.details)}</span>}
                 </div>
                 <div className="absolute top-3 right-3 z-10"><Badge className={cn("text-xs shadow-lg", ok ? "bg-emerald-600" : "bg-red-600")}>{ok ? "PERMITIDO" : "DENEGADO"}</Badge></div>
@@ -441,6 +447,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
                             {!watchStyle && tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && event.user?.unit?.name ? ` · ${event.user.unit.name}` : ""}</span>}
                         </div>
+                        {watch?.motivo && <p className={cn("text-[11px] font-semibold mt-1 truncate", watchMeta?.text)} title={watch.motivo}>{watch.motivo}</p>}
                         <div className="flex items-center gap-2 mt-1">
                             {meta.Marca && <span className="text-[10px] text-muted-foreground font-semibold">{meta.Marca}{(meta.Modelo || meta.Tipo) ? ` · ${meta.Modelo || meta.Tipo}` : ""}</span>}
                             {event.user?.name && (<span className="text-[10px] text-blue-400 truncate">{event.user.name}</span>)}
@@ -696,7 +703,7 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
                 cámaras son 16:9; si el recuadro no lo es, se mira un pedazo. */}
             <div className="shrink-0 p-4 border-b border-border">
                 <div className="grid gap-3 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 31%)" }}>
-                    <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="aspect-video" />
+                    <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="aspect-video" watchMap={watchMap} />
                     <div className={cn("grid gap-2", camaras.length > 2 ? "grid-cols-2" : "grid-cols-1")}>
                         {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="aspect-video" />)}
                         {/* Con una sola cámara sobra la mitad del costado: ahí va el resumen del sentido. */}
