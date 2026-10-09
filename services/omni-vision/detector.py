@@ -19,10 +19,9 @@ El pre y posproceso replican los de `rfdetr` 1.11 (ver verificar_paridad.py):
 from __future__ import annotations
 
 import io
-import os
-import threading
+import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 from PIL import Image, ImageOps
@@ -34,9 +33,6 @@ DESVIOS = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(3, 1, 1)
 # Cuántos pares (consulta, clase) se miran antes de cortar por umbral; el modelo tiene 300 consultas.
 TOP_K = 300
 
-# Tope de memoria de GPU para el área de ONNX Runtime. La 3050 tiene 6 GB y omni-lpr vive ahí:
-# sin tope, el área crece a potencias de dos y puede quedarse con gigas que no devuelve.
-TOPE_VRAM_MB = int(os.environ.get("VISION_TOPE_VRAM_MB", "1536"))
 
 # Ids COCO (con huecos, 1..90) tal como los emite el modelo.
 CLASES_COCO = {
@@ -90,6 +86,8 @@ def nombre_y_grupo(clase: str) -> tuple[str, str]:
     return NOMBRES.get(clase, (clase, "otro"))
 
 
+
+
 @dataclass
 class Objeto:
     clase: str
@@ -101,6 +99,10 @@ class Objeto:
     # La segunda clase que el modelo vio en la MISMA caja (auto 0,52 / camioneta 0,44): se informa
     # en vez de devolver dos objetos, porque es uno solo y contarlo dos veces mentiría.
     alternativa: dict | None = None
+    # Qué consulta del modelo lo produjo: con eso se buscan su silueta o sus puntos. No se publica.
+    consulta: int = -1
+    # Lo que agregan las otras tareas: silueta, puntos, atributos, pista.
+    extra: dict = field(default_factory=dict)
 
     def a_dict(self) -> dict:
         return {
@@ -109,6 +111,7 @@ class Objeto:
             "confianza": round(self.confianza, 4),
             "caja": [round(v, 1) for v in self.caja],
             "caja_norm": [round(v, 4) for v in self.caja_norm],
+            **self.extra,
         }
 
 
@@ -116,24 +119,36 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
     return 1.0 / (1.0 + np.exp(-x))
 
 
-def preparar(imagen: Image.Image, resolucion: int) -> np.ndarray:
+def abrir_imagen(datos: bytes) -> Image.Image:
+    return ImageOps.exif_transpose(Image.open(io.BytesIO(datos))).convert("RGB")
+
+
+def preparar(imagen: Image.Image, resolucion: int, medias=MEDIAS, desvios=DESVIOS) -> np.ndarray:
     """La imagen como la espera el modelo: 1×3×R×R float32 normalizada."""
     rgb = imagen.convert("RGB").resize((resolucion, resolucion), Image.BILINEAR)
     x = np.asarray(rgb, dtype=np.float32).transpose(2, 0, 1) / 255.0
-    x = (x - MEDIAS) / DESVIOS
+    x = (x - medias) / desvios
     return x[None].astype(np.float32)
 
 
+def _caja(cajas: np.ndarray, consulta: int, ancho: int, alto: int):
+    cx, cy, w, h = (float(v) for v in cajas[0, consulta])
+    x1 = min(max((cx - w / 2), 0.0), 1.0); y1 = min(max((cy - h / 2), 0.0), 1.0)
+    x2 = min(max((cx + w / 2), 0.0), 1.0); y2 = min(max((cy + h / 2), 0.0), 1.0)
+    return [x1 * ancho, y1 * alto, x2 * ancho, y2 * alto], [x1, y1, x2, y2]
+
+
 def decodificar(cajas: np.ndarray, logits: np.ndarray, ancho: int, alto: int, umbral: float,
-                una_por_caja: bool = True) -> list[Objeto]:
-    """De las salidas crudas (1×300×4 cxcywh normalizado, 1×300×91 logits) a objetos.
+                una_por_caja: bool = True, clases: dict[int, str] | None = None) -> list[Objeto]:
+    """De las salidas crudas (1×Q×4 cxcywh normalizado, 1×Q×C logits) a objetos.
 
     `una_por_caja`: rfdetr devuelve cada par (consulta, clase) sobre el umbral, así que una misma
     caja puede salir como "auto" y como "camión". Para contar y verificar, una caja es un objeto:
     gana la clase más probable y la otra queda como `alternativa`. La comprobación de paridad
     lo apaga para comparar contra rfdetr tal cual.
     """
-    prob = _sigmoid(logits[0])  # 300×91
+    clases = clases or CLASES_COCO
+    prob = _sigmoid(logits[0])  # Q×C
     plano = prob.reshape(-1)
     k = min(TOP_K, plano.size)
     # Mismo desempate que rfdetr: puntaje descendente y, a igual puntaje, índice ascendente.
@@ -146,7 +161,7 @@ def decodificar(cajas: np.ndarray, logits: np.ndarray, ancho: int, alto: int, um
         if p <= umbral:
             break
         consulta, clase_id = divmod(int(idx), n_clases)
-        clase = CLASES_COCO.get(clase_id)
+        clase = clases.get(clase_id)
         if clase is None:
             continue  # ids vacíos del esquema COCO de 91: no son clases
         nombre, grupo = nombre_y_grupo(clase)
@@ -155,81 +170,134 @@ def decodificar(cajas: np.ndarray, logits: np.ndarray, ancho: int, alto: int, um
             if previo.alternativa is None:
                 previo.alternativa = {"clase": clase, "nombre": nombre, "confianza": round(p, 4)}
             continue
-        cx, cy, w, h = (float(v) for v in cajas[0, consulta])
-        x1 = min(max((cx - w / 2), 0.0), 1.0); y1 = min(max((cy - h / 2), 0.0), 1.0)
-        x2 = min(max((cx + w / 2), 0.0), 1.0); y2 = min(max((cy + h / 2), 0.0), 1.0)
-        o = Objeto(clase, nombre, grupo, p, [x1 * ancho, y1 * alto, x2 * ancho, y2 * alto], [x1, y1, x2, y2])
+        caja, norm = _caja(cajas, consulta, ancho, alto)
+        o = Objeto(clase, nombre, grupo, p, caja, norm, consulta=consulta)
         por_consulta[consulta] = o
         salida.append(o)
     return salida
 
 
-class Detector:
-    """Una sesión de ONNX Runtime y UNA inferencia a la vez.
+# ─────────────────────────── siluetas ───────────────────────────
 
-    Una sola en vuelo a propósito: con omni-lpr, dos inferencias simultáneas en la misma GPU
-    envenenaron el contexto de CUDA (cudaErrorIllegalAddress). El cerrojo serializa; quien
-    llama decide cuánto esperar.
+# Lado mayor al que se lleva la máscara antes de sacarle el contorno. La máscara del modelo es de
+# 96×96 sobre la imagen entera; agrandarla a la foto completa (2560 px) para dibujar un polígono
+# es gastar CPU en precisión que el operador no ve.
+LADO_MASCARA = 640
+# Simplificación del contorno, en fracción del perímetro: 0,4 % deja la silueta reconocible
+# con decenas de puntos en vez de cientos.
+SIMPLIFICAR = 0.004
+# Contornos más chicos que esto (fracción del área de la imagen) son ruido de la máscara.
+AREA_MIN = 0.0002
+
+
+def mascara(logits_96: np.ndarray, ancho: int, alto: int) -> np.ndarray:
+    """La máscara de una consulta (96×96 logits) llevada a ancho×alto, booleana (logit > 0)."""
+    import cv2
+    m = cv2.resize(logits_96.astype(np.float32), (ancho, alto), interpolation=cv2.INTER_LINEAR)
+    return m > 0.0
+
+
+def silueta(logits_96: np.ndarray, ancho: int, alto: int) -> dict:
+    """Polígonos normalizados de la silueta y la fracción de la imagen que ocupa."""
+    import cv2
+    escala = min(1.0, LADO_MASCARA / max(ancho, alto))
+    w, h = max(1, round(ancho * escala)), max(1, round(alto * escala))
+    m = mascara(logits_96, w, h).astype(np.uint8)
+    contornos, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    poligonos = []
+    for c in sorted(contornos, key=cv2.contourArea, reverse=True):
+        if cv2.contourArea(c) < AREA_MIN * w * h:
+            continue
+        a = cv2.approxPolyDP(c, SIMPLIFICAR * cv2.arcLength(c, True), True).reshape(-1, 2)
+        if len(a) >= 3:
+            poligonos.append([[round(float(x) / w, 4), round(float(y) / h, 4)] for x, y in a])
+    return {"silueta": poligonos, "area": round(float(m.sum()) / (w * h), 5)}
+
+
+# ─────────────────────────── pose ───────────────────────────
+
+PUNTOS = ["nariz", "ojo izq.", "ojo der.", "oreja izq.", "oreja der.", "hombro izq.", "hombro der.",
+          "codo izq.", "codo der.", "muñeca izq.", "muñeca der.", "cadera izq.", "cadera der.",
+          "rodilla izq.", "rodilla der.", "tobillo izq.", "tobillo der."]
+# El modelo de pose tiene dos clases: 0 (sin puntos) y 1 = persona con 17 puntos.
+CLASES_POSE = {1: "person"}
+PUNTOS_POR_CLASE = [0, 17]
+# Un punto con menos de esto de "se ve" no se usa para la postura (queda en la respuesta igual).
+PUNTO_VISIBLE = 0.3
+# Inclinación del torso respecto de la vertical a partir de la cual la persona está acostada.
+ACOSTADA_GRADOS = 60
+# Cadera-tobillo más corto que esto (en largos de torso) = agachada o sentada.
+AGACHADA_PIERNA = 0.6
+
+
+def _postura(p: np.ndarray) -> dict:
+    """De pie / agachada / acostada, con los puntos que se ven. Sin los cuatro del torso, no se dice."""
+    def medio(a, b):
+        if p[a, 2] < PUNTO_VISIBLE or p[b, 2] < PUNTO_VISIBLE:
+            return None
+        return (p[a, :2] + p[b, :2]) / 2
+    hombros, caderas = medio(5, 6), medio(11, 12)
+    if hombros is None or caderas is None:
+        return {"postura": None, "motivo": "no se ven hombros y caderas"}
+    dx, dy = caderas - hombros
+    torso = math.hypot(dx, dy)
+    if torso < 1e-6:
+        return {"postura": None, "motivo": "torso sin largo"}
+    grados = math.degrees(math.atan2(abs(dx), abs(dy)))
+    if grados >= ACOSTADA_GRADOS:
+        return {"postura": "acostada", "inclinacion": round(grados)}
+    tobillos = medio(15, 16)
+    if tobillos is not None and (tobillos[1] - caderas[1]) < AGACHADA_PIERNA * torso:
+        return {"postura": "agachada", "inclinacion": round(grados)}
+    return {"postura": "de pie", "inclinacion": round(grados)}
+
+
+def decodificar_pose(salidas: dict, ancho: int, alto: int, umbral: float) -> list[Objeto]:
+    """Personas con sus 17 puntos.
+
+    rfdetr además corrige el puntaje de la persona con la incertidumbre de sus puntos (trace
+    fusion); acá se usa el puntaje de clase tal cual, así que el umbral equivale a uno algo más
+    permisivo. Las coordenadas sí son las mismas (verificar_paridad.py).
     """
+    objetos = decodificar(salidas["dets"], salidas["labels"], ancho, alto, umbral, clases=CLASES_POSE)
+    kp = salidas["keypoints"][0]  # Q × (C·17) × D
+    q, slots, d = kp.shape
+    kp = kp.reshape(q, len(PUNTOS_POR_CLASE), max(PUNTOS_POR_CLASE), d)
+    for o in objetos:
+        crudo = kp[o.consulta, 1, :17]
+        p = np.stack([crudo[:, 0] * ancho, crudo[:, 1] * alto, _sigmoid(crudo[:, 2])], axis=1)
+        o.extra["puntos"] = [[round(float(x) / ancho, 4), round(float(y) / alto, 4), round(float(c), 3)] for x, y, c in p]
+        o.extra.update(_postura(p))
+    return objetos
+
+
+# ─────────────────────────── el servicio ───────────────────────────
+
+class Detector:
+    """Detección sola, con su modelo: lo que usa verificar_paridad.py en la construcción."""
 
     def __init__(self, ruta_onnx: str, usar_gpu: bool = True):
-        import onnxruntime as ort
-
-        self.ruta = ruta_onnx
-        opciones = ort.SessionOptions()
-        opciones.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        # Pocos hilos de CPU: el CT comparte núcleos con la app, go2rtc y el worker de seguimiento.
-        opciones.intra_op_num_threads = int(os.environ.get("VISION_HILOS_CPU", "2"))
-        proveedores: list = []
-        if usar_gpu and "CUDAExecutionProvider" in ort.get_available_providers():
-            proveedores.append(("CUDAExecutionProvider", {
-                "device_id": 0,
-                "gpu_mem_limit": TOPE_VRAM_MB * 1024 * 1024,
-                # Crecer sólo lo pedido, no al doble: la VRAM se comparte con omni-lpr.
-                "arena_extend_strategy": "kSameAsRequested",
-                "cudnn_conv_algo_search": "HEURISTIC",
-            }))
-        proveedores.append("CPUExecutionProvider")
-        self.sesion = ort.InferenceSession(ruta_onnx, opciones, providers=proveedores)
-        self.proveedor = self.sesion.get_providers()[0]
-        entrada = self.sesion.get_inputs()[0]
-        self.nombre_entrada = entrada.name
-        self.resolucion = int(entrada.shape[-1])
-        self.salidas = [o.name for o in self.sesion.get_outputs()]
-        self._cerrojo = threading.Lock()
-        self.en_vuelo = 0
-        self.esperando = 0
-        self.total = 0
-        self.errores = 0
-        self._ms: list[float] = []
+        from motor import Modelo
+        self.modelo = Modelo(ruta_onnx, "detectar", usar_gpu)
 
     def detectar(self, datos: bytes, umbral: float, una_por_caja: bool = True) -> dict:
-        imagen = Image.open(io.BytesIO(datos))
-        imagen = ImageOps.exif_transpose(imagen)
-        ancho, alto = imagen.size
-        x = preparar(imagen, self.resolucion)
-        self.esperando += 1
-        with self._cerrojo:
-            self.esperando -= 1
-            self.en_vuelo = 1
-            t0 = time.perf_counter()
-            try:
-                salidas = dict(zip(self.salidas, self.sesion.run(self.salidas, {self.nombre_entrada: x})))
-            except Exception:
-                self.errores += 1
-                raise
-            finally:
-                self.en_vuelo = 0
-            ms = (time.perf_counter() - t0) * 1000
-        self.total += 1
-        self._ms.append(ms)
-        if len(self._ms) > 200:
-            self._ms = self._ms[-200:]
-        objetos = decodificar(salidas["dets"], salidas["labels"], ancho, alto, umbral, una_por_caja)
-        return {"ancho": ancho, "alto": alto, "ms_inferencia": round(float(ms), 1), "objetos": [o.a_dict() for o in objetos]}
+        img = abrir_imagen(datos)
+        ancho, alto = img.size
+        s = self.modelo.correr(preparar(img, self.modelo.resolucion))
+        objetos = decodificar(s["dets"], s["labels"], ancho, alto, umbral, una_por_caja)
+        return {"ancho": ancho, "alto": alto, "ms_inferencia": round(float(self.modelo.ultimo_ms), 1),
+                "objetos": [o.a_dict() for o in objetos]}
 
-    def latencias(self) -> dict:
-        if not self._ms:
-            return {"n": 0}
-        a = np.array(self._ms)
-        return {"n": int(a.size), "p50": round(float(np.percentile(a, 50)), 1), "p95": round(float(np.percentile(a, 95)), 1)}
+
+def segmentar(modelo, img: Image.Image, umbral: float, una_por_caja: bool = True) -> list[Objeto]:
+    ancho, alto = img.size
+    s = modelo.correr(preparar(img, modelo.resolucion))
+    objetos = decodificar(s["dets"], s["labels"], ancho, alto, umbral, una_por_caja)
+    for o in objetos:
+        o.extra.update(silueta(s["masks"][0, o.consulta], ancho, alto))
+    return objetos
+
+
+def pose(modelo, img: Image.Image, umbral: float) -> list[Objeto]:
+    ancho, alto = img.size
+    return decodificar_pose(modelo.correr(preparar(img, modelo.resolucion)), ancho, alto, umbral)

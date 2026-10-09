@@ -13,5 +13,5 @@ docker rm -f omni-vision 2>/dev/null || true
 docker run -d --name omni-vision --gpus all --restart unless-stopped \
   -p 127.0.0.1:8010:8010 \
   -e VISION_MODELO="${VISION_MODELO:-rfdetr-small}" \
-  --cpus 2 --memory 3g \
+  --cpus 2 --memory 4g \
   omni-vision:gpu
