@@ -24,8 +24,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ clav
     if (auth.pantalla) return forbiddenResponse("El registro de detecciones no es una vista de pantalla.");
     const { clave } = await params;
     const key = (clave || []).join("/");
-    // Las del registro (día/id-r|f.jpg) y las de la relectura de NO_LEIDA (relectura/día/evento-v|c.jpg).
-    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-[rf]\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key))
+    // Las del registro (día/id-r|f.jpg), las de la relectura de NO_LEIDA (relectura/día/evento-v|c.jpg)
+    // y las de los eventos de las reglas (eventos/día/id.jpg).
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-[rf]\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key)
+        && !/^eventos\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key))
         return new NextResponse("Clave inválida", { status: 400 });
     try {
         const r = await (await getS3Client()).send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));

@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
 import { leerAjuste } from "@/lib/ajustes-db";
-import { saludVision } from "@/lib/vision";
+import { saludVision, empresasEnTextos } from "@/lib/vision";
+import { leerCatalogo } from "@/lib/empresas-servidor";
+import { normalizarNombre } from "@/lib/empresas";
+import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +37,9 @@ export async function GET(req: NextRequest) {
     const antes = q.get("antes") ? new Date(q.get("antes")!) : undefined;
 
     const base = { primeraVez: { gte: desde }, ...(camara ? { deviceId: camara } : {}) };
-    const filtro = { ...base, ...(grupo ? { grupo } : {}), ...(clase ? { clase } : {}) };
+    // «Con rotulado»: sólo las pistas donde se leyó texto (empresa por rotulado).
+    const rotulo = q.get("rotulo") === "1";
+    const filtro = { ...base, ...(grupo ? { grupo } : {}), ...(clase ? { clase } : {}), ...(rotulo ? { textos: { not: Prisma.AnyNull } } : {}) };
 
     const [filas, porClase, porCamara, estadoCrudo, camarasCrudo, camaras, vision] = await Promise.all([
         prisma.objetoVisto.findMany({
@@ -52,8 +57,17 @@ export async function GET(req: NextRequest) {
     try { estado = estadoCrudo?.value ? JSON.parse(estadoCrudo.value) : null; } catch { }
     let elegidas: string[] = [];
     try { elegidas = JSON.parse(camarasCrudo?.value || "[]"); } catch { }
+    // La empresa se cruza ahora con el catálogo (y no al guardar): un alias que se agregue
+    // mañana vale también para lo que ya se vio.
+    const catalogo = filas.some((f) => Array.isArray(f.textos) && (f.textos as any[]).length) ? await leerCatalogo().catch(() => []) : [];
+    const conEmpresa = filas.map((f) => {
+        const textos = Array.isArray(f.textos) ? (f.textos as any[]).map((t) => ({ ...t, sobreimpreso: false })) : null;
+        if (!textos || !textos.length) return { ...f, textos: textos && textos.length ? textos : null, empresa: null };
+        const marcados = empresasEnTextos(textos, catalogo as any, normalizarNombre);
+        return { ...f, textos: marcados, empresa: (marcados.find((t: any) => t.empresa) as any)?.empresa || null };
+    }).filter((f) => !rotulo || (f.textos && f.textos.length));
     return NextResponse.json({
-        filas, h, porPagina: POR_PAGINA,
+        filas: conEmpresa, h, porPagina: POR_PAGINA,
         porClase: porClase.map((x) => ({ clase: x.clase, grupo: x.grupo, n: x._count._all })).sort((a, b) => b.n - a.n),
         porCamara: Object.fromEntries(porCamara.map((x) => [x.deviceId || "", x._count._all])),
         // "Todas" se guarda como lista vacía: así una cámara nueva entra sola.

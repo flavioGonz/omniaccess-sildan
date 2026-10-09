@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ListVideo, ScanEye, ScanLine, Camera, Loader2, Video, Clock, Route, Activity, User, Car, PawPrint, Backpack, Shapes,
+    ListVideo, ScanEye, ScanLine, Spline, Type, Camera, Loader2, Video, Clock, Route, Activity, User, Car, PawPrint, Backpack, Shapes,
     type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
@@ -33,6 +33,9 @@ type Fila = {
     primeraVez: string; ultimaVez: string; cuadros: number; pista: number | null;
     recorte: string | null; foto: string | null; caja: [number, number, number, number] | null;
     atributos: Atributo[] | null; recorrido: [number, number, number][] | null;
+    /** Empresa por rotulado: el texto leído en el vehículo y la empresa del catálogo, si coincide. */
+    textos: { texto: string; confianza: number; tipo?: string; empresa?: { nombre: string; logo: string | null } }[] | null;
+    empresa: { nombre: string; logo: string | null } | null;
 };
 type EstadoCamara = { nombre: string; analizados: number; saltados: number; errores: number; objetos: number; ultimo: string | null; ms: number | null; error: string | null; cambio: { mediana: number; max: number; n: number } | null };
 type Respuesta = {
@@ -83,6 +86,7 @@ export default function DeteccionesVision() {
     const [grupo, setGrupo] = useState("");
     const [camara, setCamara] = useState("");
     const [clase, setClase] = useState("");
+    const [conRotulo, setConRotulo] = useState(false);
     const [cargandoMas, setCargandoMas] = useState(false);
     const [abierta, setAbierta] = useState<Fila | null>(null);
     const [, setTic] = useState(0);
@@ -92,9 +96,10 @@ export default function DeteccionesVision() {
         if (grupo) q.set("grupo", grupo);
         if (camara) q.set("camara", camara);
         if (clase) q.set("clase", clase);
+        if (conRotulo) q.set("rotulo", "1");
         if (antes) q.set("antes", antes);
         return `/api/vision/detecciones?${q}`;
-    }, [h, grupo, camara, clase]);
+    }, [h, grupo, camara, clase, conRotulo]);
 
     const cargar = useCallback(async () => {
         try {
@@ -168,7 +173,10 @@ export default function DeteccionesVision() {
                         {est && <> Mira cada cámara cada {Math.round(est.intervaloMs / 1000)} s cuando la imagen cambia, guarda desde {pct(est.umbral)} de confianza y borra a los {est.retencionDias} días.</>}
                     </p>
                 </div>
-<a href="/admin/vision/relecturas" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
+<a href="/admin/vision/reglas" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
+                    <Spline size={15} /> Reglas
+                </a>
+                <a href="/admin/vision/relecturas" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
                     <ScanLine size={15} /> Relecturas
                 </a>
                                 <a href="/admin/vision" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
@@ -213,6 +221,7 @@ export default function DeteccionesVision() {
             <section className="space-y-2">
                 <Filtros grupos={[
                     { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
+                    { clave: "rotulo", titulo: "Rotulado", valor: conRotulo ? "si" : "", alElegir: (v) => setConRotulo(v === "si"), opciones: [{ valor: "", rotulo: "Todo" }, { valor: "si", rotulo: "Con texto leído" }] },
                     { clave: "grupo", titulo: "Qué", valor: grupo, alElegir: (v) => { setGrupo(v); setClase(""); }, opciones: GRUPOS.map((g) => ({ valor: g.v, rotulo: g.r, cuenta: porGrupo(g.v) })) },
                 ]} />
                 {datos.porClase.length > 0 && (
@@ -288,6 +297,14 @@ function Tarjeta({ f, alAbrir }: { f: Fila; alAbrir: () => void }) {
                 </span>
                 <span className="absolute right-1.5 top-1.5 px-1.5 py-0.5 rounded-md bg-black/65 text-white text-[11px] font-bold tabular-nums">{pct(f.confianza)}</span>
                 {enCurso && <span className="absolute left-1.5 bottom-1.5"><Chip tono="bien" pleno>en curso</Chip></span>}
+                {/* Empresa por rotulado: el logo de la empresa del catálogo, abajo a la derecha. */}
+                {f.empresa && (
+                    <span className="absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-white text-black text-[10.5px] font-bold max-w-[80%]">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {f.empresa.logo ? <img src={f.empresa.logo} alt="" className="h-3.5 w-auto max-w-12 object-contain" /> : null}
+                        <span className="truncate">{f.empresa.nombre}</span>
+                    </span>
+                )}
             </div>
             <div className="p-2 flex flex-col gap-1 flex-1">
                 <div className="text-[12px] font-semibold truncate">{f.camara}</div>
@@ -295,6 +312,11 @@ function Tarjeta({ f, alAbrir }: { f: Fila; alAbrir: () => void }) {
                     <Clock size={11} /> {hora(f.primeraVez)} · {duracion(f.primeraVez, f.ultimaVez)}
                 </div>
                 <AtributosCortos a={f.atributos} />
+                {f.textos && f.textos.length > 0 && !f.empresa && (
+                    <div className="text-[10.5px] text-muted-foreground truncate" title={f.textos.map((t) => t.texto).join(" · ")}>
+                        <Type size={10} className="inline -mt-0.5 mr-1" />{f.textos.map((t) => t.texto).join(" · ")}
+                    </div>
+                )}
             </div>
         </button>
     );
@@ -330,6 +352,19 @@ function Ficha({ f }: { f: Fila }) {
                 </div>
                 <p className="text-[11px] text-muted-foreground">La foto es la del cuadro con mejor confianza; la línea amarilla es por dónde pasó (el pie de la caja, cuadro a cuadro).</p>
             </CajonSeccion>
+            {f.textos && (
+                <CajonSeccion titulo="Rotulado" compacta ayuda="El texto que omni-vision leyó en el vehículo, en un cuadro del stream principal. Si coincide con una empresa del catálogo (nombre o alias), se marca.">
+                    {f.textos.length === 0 ? <p className="text-[12.5px] text-muted-foreground">Se buscó y no tenía texto legible.</p> : (
+                        <div className="flex flex-wrap gap-1.5">
+                            {f.textos.map((t, i) => (
+                                <span key={i} className={cn("inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-[12.5px]", t.empresa ? "chip-bien" : "border-border")}>
+                                    <b>{t.texto}</b> <span className="text-[11px] opacity-70 tabular-nums">{pct(t.confianza)}</span>{t.empresa && <span className="text-[11px]">→ {t.empresa.nombre}</span>}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </CajonSeccion>
+            )}
             <CajonSeccion titulo="Atributos" compacta ayuda="De SigLIP 2 sobre el recorte del mejor cuadro. Lo dudoso va entre signos de pregunta.">
                 {!f.atributos?.length ? <p className="text-[12.5px] text-muted-foreground">Esta clase no tiene atributos, o el recorte era muy chico para describirlo.</p> : (
                     <div className="grid sm:grid-cols-2 gap-2">

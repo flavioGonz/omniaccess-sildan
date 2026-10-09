@@ -26,7 +26,9 @@ export function rotulosContadores(modo: "ABIERTO" | "CERRADO") {
         : { entradas: "Entradas hoy", salidas: "Salidas hoy", rechazos: "Denegados hoy", adentro: "Adentro ahora" };
 }
 
-export type TipoAviso = "VISITA_EXCEDIDA" | "FUERA_DE_RUTINA" | "PERMANENCIA_INUSUAL" | "PRIMERA_VEZ_NOCHE" | "DA_VUELTAS" | "SIN_REGISTRAR";
+export type TipoAviso = "VISITA_EXCEDIDA" | "FUERA_DE_RUTINA" | "PERMANENCIA_INUSUAL" | "PRIMERA_VEZ_NOCHE" | "DA_VUELTAS" | "SIN_REGISTRAR"
+    // Los de las reglas de visión (vision-worker → vision-reglas.js), con su foto en `datos.foto`.
+    | "VISION_SENTIDO" | "VISION_PERMANENCIA" | "VISION_AGLOMERACION";
 
 export const ETIQUETA_AVISO: Record<TipoAviso, { titulo: string; tono: Tono }> = {
     VISITA_EXCEDIDA: { titulo: "Visita excedida", tono: "mal" },
@@ -35,6 +37,9 @@ export const ETIQUETA_AVISO: Record<TipoAviso, { titulo: string; tono: Tono }> =
     PRIMERA_VEZ_NOCHE: { titulo: "Primera vez, de noche", tono: "aviso" },
     DA_VUELTAS: { titulo: "Da vueltas", tono: "info" },
     SIN_REGISTRAR: { titulo: "Entró sin registrarse", tono: "neutro" },
+    VISION_SENTIDO: { titulo: "Sentido contrario", tono: "mal" },
+    VISION_PERMANENCIA: { titulo: "Se quedó en la zona", tono: "aviso" },
+    VISION_AGLOMERACION: { titulo: "Aglomeración", tono: "aviso" },
 };
 
 /** Las frases de cada aviso: siempre con el dato que lo disparó. */

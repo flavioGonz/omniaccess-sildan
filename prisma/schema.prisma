@@ -1181,6 +1181,9 @@ model ObjetoVisto {
   atributos  Json?
   /// Puntos de apoyo [x, y, segundos desde primeraVez], normalizados; con tope de largo.
   recorrido  Json?
+  /// Texto que omni-vision leyó en el vehículo (rotulado): [{texto, confianza, tipo}]. La empresa
+  /// se cruza con el catálogo al mostrarlo.
+  textos     Json?
   createdAt  DateTime @default(now())
 
   @@index([primeraVez])
@@ -1215,4 +1218,30 @@ model Relectura {
 
   @@index([plate])
   @@index([createdAt])
+}
+
+/// Un hecho de una regla de vision (Setting VISION_REGLAS): CRUCE (conteo por linea),
+/// SENTIDO_CONTRARIO, PERMANENCIA o AGLOMERACION. Los escribe vision-worker.
+model EventoVision {
+  id       String   @id @default(cuid())
+  tipo     String
+  reglaId  String
+  deviceId String?
+  camara   String
+  clase    String?
+  pista    Int?
+  /// En un cruce: "ab" o "ba" (de que lado de la linea a cual)
+  sentido  String?
+  /// Segundos (permanencia) o personas (aglomeracion)
+  valor    Float?
+  /// Clave del cuadro en el bucket de vision (objetos)
+  foto     String?
+  /// Caja normalizada del objeto en la foto
+  caja     Json?
+  /// El aviso a la guardia que se creo, si la regla avisa
+  avisoId  String?
+  ts       DateTime @default(now())
+
+  @@index([reglaId, ts])
+  @@index([tipo, ts])
 }

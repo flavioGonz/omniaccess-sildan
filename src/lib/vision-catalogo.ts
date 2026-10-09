@@ -383,8 +383,8 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "aglomeracion", nombre: "Aglomeración", icono: "Users", modo: "Intrusión",
-        queHace: "Más de N personas juntas en una zona (una reunión en la plaza a la madrugada, gente en la garita).",
-        necesita: ["deteccion"], clases: ["person"], estado: "posible", porDefecto: false,
+        queHace: "Más de N personas juntas en una zona (o en todo el cuadro) durante un rato: una reunión en la plaza a la madrugada, gente en la garita. Avisa a la guardia con la foto. Se configura en Visión → Reglas.",
+        necesita: ["deteccion"], clases: ["person"], estado: "corre", porDefecto: true,
     },
     {
         id: "retirado", nombre: "Objeto retirado", icono: "PackageMinus", modo: "Intrusión",
@@ -393,8 +393,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "sentido-contrario", nombre: "Sentido contrario", icono: "ArrowLeftRight", modo: "LPR",
-        queHace: "Un vehículo que recorre la calle o el acceso en el sentido prohibido, por la dirección de su recorrido.",
-        necesita: ["deteccion", "seguimiento"], clases: ["car", "truck", "motorcycle", "bus"], estado: "posible", porDefecto: false,
+        queHace: "Algo que cruza una línea en el sentido que no corresponde (la mano contraria, la salida usada como entrada), por su recorrido. Avisa a la guardia con la foto. Se configura en Visión → Reglas.",
+        necesita: ["deteccion", "seguimiento"], clases: ["car", "truck", "motorcycle", "bus"], estado: "corre", porDefecto: true,
+        limite: "Cada cámara se mira cada ~2 s: un vehículo rápido puede perder su número de pista entre dos cuadros y no detectarse.",
     },
     {
         id: "velocidad", nombre: "Velocidad aproximada", icono: "Gauge", modo: "LPR",
@@ -404,8 +405,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "rotulados", nombre: "Empresa por rotulado", icono: "Type", modo: "LPR",
-        queHace: "Lee el texto pintado en camionetas, motos y uniformes y lo cruza con el catálogo de empresas (delivery, taxis, servicios): el proveedor queda identificado aunque no se registre. Ya se prueba en el laboratorio.",
-        necesita: ["deteccion", "texto"], clases: ["car", "truck", "motorcycle", "person"], estado: "posible", porDefecto: false,
+        queHace: "Lee el texto pintado en cada vehículo del registro de detecciones (en un cuadro del stream principal, una vez por vehículo) y lo cruza con el catálogo de empresas: el proveedor queda identificado aunque no se registre. Se ve en Visión → Detecciones.",
+        necesita: ["deteccion", "texto"], clases: ["car", "truck", "motorcycle", "bus"], estado: "corre", porDefecto: true,
+        limite: "Sólo vehículos y sólo en las cámaras del registro. Un rotulado chico o lejos no se lee.",
     },
     {
         id: "chapa-sin-lectora", nombre: "Matrícula sin lectora", icono: "ScanLine", modo: "LPR",
@@ -415,13 +417,14 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "permanencia", nombre: "Tiempo de permanencia", icono: "Timer", modo: "Conteo",
-        queHace: "Cuánto tiempo se quedó cada persona o vehículo en una zona: proveedores que se pasan del tiempo, autos estacionados donde no se puede.",
-        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle"], estado: "posible", porDefecto: false,
+        queHace: "Cuánto se quedó cada persona o vehículo en una zona; avisa a la guardia cuando pasa del tiempo indicado (autos estacionados donde no se puede, alguien parado en la garita). Se configura en Visión → Reglas.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle"], estado: "corre", porDefecto: true,
     },
     {
         id: "aforo", nombre: "Conteo por línea", icono: "ArrowLeftRight", modo: "Conteo",
-        queHace: "Cuántas personas, autos, motos y bicis cruzaron una línea, en cada sentido, por hora. Sin contar dos veces al mismo.",
-        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle", "bicycle"], estado: "posible", porDefecto: false,
+        queHace: "Cuántas personas, autos, motos y bicis cruzaron una línea, en cada sentido y por hora. Cada objeto se cuenta una vez por cruce. Se configura en Visión → Reglas.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle", "bicycle"], estado: "corre", porDefecto: true,
+        limite: "Cada cámara se mira cada ~2 s: lo que pasa rápido puede no contarse. Sirve para tendencias, no para un aforo exacto.",
     },
     {
         id: "mapa-calor", nombre: "Mapa de calor", icono: "Flame", modo: "Conteo",

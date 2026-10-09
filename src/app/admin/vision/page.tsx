@@ -352,9 +352,12 @@ export default function VisionLab() {
                         <Chip tono="info" icono={FlaskConical}>Laboratorio · sin menú</Chip>
                     </div>
                     <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
-                        El detector de objetos que se está sumando a OmniAccess: qué puede hacer, probarlo sobre las cámaras del barrio y decidir qué analíticas se prenden. Nada de esto toca todavía los monitores, las alarmas ni los accesos.
+                        El detector de objetos que se está sumando a OmniAccess: qué puede hacer, probarlo sobre las cámaras del barrio y decidir qué analíticas se prenden. Lo que ya llega a la operación: la relectura de NO_LEIDA (monitor LPR y Control LPR) y los avisos de las reglas (sentido contrario, permanencia, aglomeración) a la guardia. Nunca decide la barrera.
                     </p>
                 </div>
+                <a href="/admin/vision/reglas" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
+                    <Spline size={15} /> Reglas
+                </a>
                 <a href="/admin/vision/detecciones" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-[var(--accion)] text-[var(--accion-texto)] text-[13px] font-semibold hover:opacity-90">
                     <ListVideo size={15} /> Detecciones
                 </a>

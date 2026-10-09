@@ -32,6 +32,7 @@ const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, Dele
 
 const prisma = new PrismaClient();
 const relecturas = require("./vision-relectura");
+const reglasVision = require("./vision-reglas");
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
 const GO2RTC = (process.env.GO2RTC_API || "http://127.0.0.1:1984").replace(/\/$/, "");
@@ -69,6 +70,18 @@ const ESTADO_MS = 15_000;
 const LIMPIEZA_MS = 60 * 60_000;
 const LIMPIEZA_LOTE = 500;
 const RETENCION_DIAS_DEFECTO = 7;
+/** Los cruces (conteo por línea) no llevan foto y pesan poco: se guardan más para poder comparar semanas. */
+const RETENCION_CRUCES_DIAS = 90;
+/**
+ * Empresa por rotulado: el texto pintado en un vehículo no se lee en el substream (704×576),
+ * así que al aparecer un vehículo (y cuando mejora su foto) se pide un cuadro del stream
+ * principal, como mucho cada tanto por pista, y al cerrarse la pista se lee el texto de ese
+ * recorte con el OCR de omni-vision. Una lectura por vehículo, no por cuadro.
+ */
+const HD_CADA_MS = 4000;
+const MARGEN_ROTULO = 0.15;
+const ANCHO_MIN_ROTULO = 80;
+const CONF_TEXTO = 0.7;
 
 const log = (...a) => console.log(new Date().toISOString(), "[vision]", ...a);
 
@@ -91,11 +104,11 @@ const CLASES_APAGADAS_DEFECTO = new Set([
     "baseball bat", "baseball glove", "surfboard", "tennis racket",
 ]);
 
-let ajustes = { activo: false, relectura: false, clases: {}, camaras: [], retencionDias: RETENCION_DIAS_DEFECTO, leidos: 0 };
+let ajustes = { activo: false, relectura: false, rotulado: false, clases: {}, camaras: [], dispositivos: [], retencionDias: RETENCION_DIAS_DEFECTO, leidos: 0 };
 
 async function leerAjustes() {
-    const [a, c, cams, ret] = await Promise.all([
-        ajuste("VISION_ANALITICAS"), ajuste("VISION_CLASES"), ajuste("VISION_CAMARAS"), ajuste("VISION_RETENCION_DIAS"),
+    const [a, c, cams, ret, reglas] = await Promise.all([
+        ajuste("VISION_ANALITICAS"), ajuste("VISION_CLASES"), ajuste("VISION_CAMARAS"), ajuste("VISION_RETENCION_DIAS"), ajuste("VISION_REGLAS"),
     ]);
     const analiticas = json(a, {});
     const elegidas = json(cams, []);
@@ -104,11 +117,15 @@ async function leerAjustes() {
         activo: analiticas.registro !== false,
         // La relectura de NO_LEIDA tiene su propio interruptor (analítica «relectura», prendida por defecto).
         relectura: analiticas.relectura !== false,
+        // Empresa por rotulado (analítica «rotulados», prendida por defecto): sólo en las pistas del registro.
+        rotulado: analiticas.rotulados !== false,
+        dispositivos,
         clases: json(c, {}),
         camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
         retencionDias: Math.max(1, Number(ret) || RETENCION_DIAS_DEFECTO),
         leidos: Date.now(),
     };
+    reglero?.cargar(json(reglas, []), analiticas);
 }
 const clasePrendida = (c) => (c in ajustes.clases ? ajustes.clases[c] === true : !CLASES_APAGADAS_DEFECTO.has(c));
 
@@ -202,6 +219,7 @@ async function abrir(cam, o, jpeg, r, ahora) {
     await prisma.objetoVisto.create({ data: fila(p) });
     p.escrita = Date.now();
     abiertas.set(`${cam.id}:${o.pista}`, p);
+    await cuadroParaRotulo(cam, p, o);
     contadores.abiertas++;
 }
 
@@ -216,6 +234,7 @@ async function seguir(p, o, jpeg, r, ahora) {
         p.confianza = o.confianza; p.caja = o.caja_norm; p.atributos = o.atributos || p.atributos;
         await Promise.all([subir(p.recorte, await recortar(jpeg, o.caja_norm, r.ancho, r.alto)), subir(p.foto, jpeg)]);
         mejoro = true;
+        await cuadroParaRotulo({ id: p.deviceId }, p, o);
     }
     if (mejoro || Date.now() - p.escrita > REFRESCO_PISTA_MS) {
         await prisma.objetoVisto.update({ where: { id: p.id }, data: fila(p) });
@@ -223,8 +242,44 @@ async function seguir(p, o, jpeg, r, ahora) {
     }
 }
 
+/** Guarda un cuadro del stream principal de un vehículo, para leer su rotulado al cerrar la pista. */
+async function cuadroParaRotulo(cam, p, o) {
+    if (!ajustes.rotulado || p.grupo !== "vehiculo" || Date.now() - (p.hdT || 0) < HD_CADA_MS) return;
+    p.hdT = Date.now();
+    try {
+        const r = await fetch(`${GO2RTC}/api/frame.jpeg?src=${encodeURIComponent(`lpr_${cam.id}_hd`)}`, { signal: AbortSignal.timeout(6000) });
+        if (!r.ok) return;
+        const b = Buffer.from(await r.arrayBuffer());
+        if (b.length > 1000) p.hd = { jpeg: b, caja: o.caja_norm };
+    } catch { /* sin cuadro principal no hay rotulado: no es un error del registro */ }
+}
+
+/** Lee el texto del vehículo en el cuadro principal guardado (una vez por pista). */
+async function leerRotulo(p) {
+    const meta = await sharp(p.hd.jpeg).metadata();
+    const W = meta.width || 0, H = meta.height || 0;
+    const [x1, y1, x2, y2] = p.hd.caja;
+    const mw = (x2 - x1) * MARGEN_ROTULO, mh = (y2 - y1) * MARGEN_ROTULO;
+    const left = Math.max(0, Math.floor((x1 - mw) * W)), top = Math.max(0, Math.floor((y1 - mh) * H));
+    const width = Math.min(W - left, Math.ceil((x2 - x1 + 2 * mw) * W)), height = Math.min(H - top, Math.ceil((y2 - y1 + 2 * mh) * H));
+    if (width < ANCHO_MIN_ROTULO || height < 20) return null;
+    const recorte = await sharp(p.hd.jpeg).extract({ left, top, width, height }).jpeg({ quality: 92 }).toBuffer();
+    const r = await fetch(`${VISION}/detectar?texto=1&umbral=0.9`, { method: "POST", body: recorte, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(20000) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `omni-vision respondió ${r.status}`);
+    const textos = (j.textos || [])
+        .filter((t) => !t.sobreimpreso && t.confianza >= CONF_TEXTO && String(t.texto).replace(/[^A-Za-z0-9]/g, "").length >= 3)
+        .map((t) => ({ texto: t.texto, confianza: t.confianza, tipo: t.tipo }));
+    return textos.length ? textos.slice(0, 12) : [];
+}
+
 async function cerrar(clave, p) {
     abiertas.delete(clave);
+    if (p.hd && ajustes.rotulado) {
+        try { p.textos = await leerRotulo(p); contadores.rotulos++; if (p.textos?.length) contadores.conTexto++; }
+        catch (e) { contadores.errores++; }
+        p.hd = null;
+    }
     await prisma.objetoVisto.update({ where: { id: p.id }, data: fila(p) }).catch((e) => log("no se pudo cerrar", p.id, e.message));
     contadores.cerradas++;
 }
@@ -235,18 +290,20 @@ function fila(p) {
         id: p.id, deviceId: p.deviceId, camara: p.camara, clase: p.clase, grupo: p.grupo, confianza: p.confianza,
         primeraVez: p.primeraVez, ultimaVez: p.ultimaVez, cuadros: p.cuadros, pista: p.pista,
         recorte: p.recorte, foto: p.foto, caja: p.caja, atributos: p.atributos, recorrido: p.recorrido,
+        ...(p.textos !== undefined ? { textos: p.textos } : {}),
     };
 }
 
 // ─────────────────────────── ciclo ───────────────────────────
 
 const porCamara = {};   // estado para la pantalla
-const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0 };
+const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0, rotulos: 0, conTexto: 0 };
 const huellas = {};
 const ultimoAnalisis = {};
 let ultimoErrorLog = 0;
 
-async function mirar(cam) {
+/** `registra`: si esta cámara es del registro de detecciones (además puede estar por una regla). */
+async function mirar(cam, registra = true) {
     const est = (porCamara[cam.id] ||= { nombre: cam.name, analizados: 0, saltados: 0, errores: 0, objetos: 0, ultimo: null, ms: null, error: null });
     est.nombre = cam.name;
     const jpeg = await cuadro(cam.id);
@@ -258,7 +315,7 @@ async function mirar(cam) {
         (est.difs ||= []).push(Math.round(dif * 10) / 10);
         if (est.difs.length > 60) est.difs.shift();
     }
-    const conPistas = [...abiertas.values()].some((p) => p.deviceId === cam.id);
+    const conPistas = [...abiertas.values()].some((p) => p.deviceId === cam.id) || !!reglero?.enCurso(cam.id);
     const ahora = new Date();
     if (dif < CAMBIO_MIN && !conPistas && Date.now() - (ultimoAnalisis[cam.id] || 0) < ANALIZAR_IGUAL_MS) {
         est.saltados++; contadores.saltados++;
@@ -269,8 +326,10 @@ async function mirar(cam) {
     ultimoAnalisis[cam.id] = Date.now();
     est.analizados++; contadores.analizados++;
     est.ms = Date.now() - t0; est.ultimo = ahora.toISOString(); est.error = null;
-    const objetos = (r.objetos || []).filter((o) => clasePrendida(o.clase));
-    est.objetos = objetos.length;
+    // Las reglas miran todo lo que vio (cada una elige sus clases); el registro, sólo las clases prendidas.
+    try { await reglero?.procesar(cam, r.objetos || [], jpeg, ahora); } catch (e) { est.error = `reglas: ${e.message}`; }
+    const objetos = registra ? (r.objetos || []).filter((o) => clasePrendida(o.clase)) : [];
+    est.objetos = (r.objetos || []).length;
     for (const o of objetos) {
         if (o.pista == null) continue;  // todavía no confirmada por el seguimiento
         const clave = `${cam.id}:${o.pista}`;
@@ -301,12 +360,23 @@ async function escribirEstado() {
         t: new Date().toISOString(), activo: ajustes.activo, intervaloMs: INTERVALO_MS, umbral: UMBRAL, cambioMin: CAMBIO_MIN,
         camaras, contadores, pistasAbiertas: abiertas.size, retencionDias: ajustes.retencionDias,
         relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
+        reglas: reglero ? reglero.contadores : null, rotulado: ajustes.rotulado,
     });
     await prisma.setting.upsert({ where: { key: "VISION_REGISTRO_ESTADO" }, update: { value: valor }, create: { key: "VISION_REGISTRO_ESTADO", value: valor } }).catch(() => null);
 }
 
 async function limpiar() {
     const limite = new Date(Date.now() - ajustes.retencionDias * 86_400_000);
+    // Eventos de las reglas: los de foto viven lo que las detecciones; los cruces, más.
+    for (;;) {
+        const viejos = await prisma.eventoVision.findMany({ where: { tipo: { not: "CRUCE" }, ts: { lt: limite } }, select: { id: true, foto: true }, take: LIMPIEZA_LOTE });
+        if (!viejos.length) break;
+        const claves = viejos.map((v) => v.foto).filter(Boolean).map((Key) => ({ Key }));
+        if (claves.length) await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: claves, Quiet: true } })).catch((e) => log("limpieza S3 eventos:", e.message));
+        await prisma.eventoVision.deleteMany({ where: { id: { in: viejos.map((v) => v.id) } } });
+        if (viejos.length < LIMPIEZA_LOTE) break;
+    }
+    await prisma.eventoVision.deleteMany({ where: { tipo: "CRUCE", ts: { lt: new Date(Date.now() - RETENCION_CRUCES_DIAS * 86_400_000) } } }).catch(() => null);
     // Las relecturas viven lo mismo que las detecciones: son fotos de vehículos.
     for (;;) {
         const viejas = await prisma.relectura.findMany({ where: { createdAt: { lt: limite } }, select: { id: true, recorte: true, recorteChapa: true }, take: LIMPIEZA_LOTE });
@@ -333,20 +403,27 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 let corriendo = true;
 
 let relector = null;
+let reglero = null;
 
 async function principal() {
     log(`arranca · ${VISION} · cada ${INTERVALO_MS} ms · umbral ${UMBRAL} · cambio ${CAMBIO_MIN}`);
+    reglero = reglasVision.iniciar({ prisma, subir, log });
     await leerAjustes().catch((e) => log("ajustes:", e.message));
     relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura });
-    let ultEstado = 0, ultLimpieza = 0;
+    let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {
         const t0 = Date.now();
         try {
             if (Date.now() - ajustes.leidos > AJUSTES_MS) await leerAjustes();
-            if (ajustes.activo) {
-                for (const cam of ajustes.camaras) {
+            // Las cámaras del registro (si está prendido) más las que tienen una regla prendida.
+            const porReglas = reglero.camaras();
+            const registro = new Set(ajustes.activo ? ajustes.camaras.map((c) => c.id) : []);
+            const lista = ajustes.dispositivos.filter((d) => registro.has(d.id) || porReglas.has(d.id));
+            hayTrabajo = lista.length > 0;
+            if (hayTrabajo) {
+                for (const cam of lista) {
                     if (!corriendo) break;
-                    try { await mirar(cam); }
+                    try { await mirar(cam, registro.has(cam.id)); }
                     catch (e) {
                         contadores.errores++;
                         (porCamara[cam.id] ||= {}).error = e.message;
@@ -362,13 +439,14 @@ async function principal() {
             log("ciclo:", e.message);
         }
         // Apagado, se espera más: no hay nada que hacer salvo enterarse de que lo prendieron.
-        await dormir(Math.max(200, (ajustes.activo ? INTERVALO_MS : AJUSTES_MS) - (Date.now() - t0)));
+        await dormir(Math.max(200, (hayTrabajo ? INTERVALO_MS : AJUSTES_MS) - (Date.now() - t0)));
     }
 }
 
 async function salir() {
     corriendo = false;
     relector?.parar();
+    await reglero?.cerrarTodo().catch(() => null);
     log("cerrando pistas abiertas…");
     await cerrarVencidas(true).catch(() => null);
     await escribirEstado().catch(() => null);
