@@ -48,7 +48,9 @@ ANCHO_RENGLON = 960
 # por la posición: cada instalación pone el sobreimpreso en otro lado.
 SOBREIMPRESO = re.compile(
     r"(\d{2}[-/.]\d{2}[-/.]\d{2,4})|(\d{1,2}:\d{2}:\d{2})|camera\s*info|capture\s*time|device\s*no|"
-    r"vehicle\s*(color|type|brand)|moving\s*dire|conf\s*idence|plate\s*no|camera\s*no|matricula\s*-\s*p\d|^ip\s*\d",
+    r"vehicle\s*(color|type|brand)|moving\s*dire|conf\s*idence|plate\s*no|camera\s*no|matricula\s*-\s*p\d|^ip\s*\d|"
+    # El contador que sobreimprimen las LPR de acceso ("Automobile 149 / Motorbike 0").
+    r"^(automobile|motorbike|non-?motor|pedestrian)\b",
     re.IGNORECASE,
 )
 # Una matrícula uruguaya (3 letras + 4 números, con o sin espacio) o del formato viejo (letra + 6).

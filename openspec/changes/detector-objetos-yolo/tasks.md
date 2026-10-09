@@ -24,6 +24,8 @@
 
 ## 3. `vision-worker` (PM2) y cliente
 
+> 9/10: `vision-worker` ya existe como **registro de detecciones** (muestreo con compuerta de cambio de escena, una fila por pista en `ObjetoVisto`, recortes en el bucket `objetos`, retención 7 días, obedece a los interruptores) y se ve en `/admin/vision/detecciones`. Todavía no tiene la cola con prioridades ni la cesión a omni-lpr de 3.1: hoy es el único cliente continuo y usa 3-4 % de GPU.
+
 - [ ] 3.1 `lib/vision/cliente.ts`: pedidos al contenedor con timeout, cola con prioridades (verificación > acceso > muestreo), cesión a omni-lpr consultando su estado y presupuesto por minuto; prueba con un contenedor simulado que la verificación nunca se descarta y el muestreo sí.
 - [ ] 3.2 `vision-worker.js` en PM2 (`ecosystem` actualizado), apagado si `VISION_ENABLED=false`; métricas por minuto (pedidos, latencia, descartados) visibles en Procesos y tareas; verificar alta, parada y reinicio desde esa pantalla.
 - [ ] 3.3 Estado en Salud y en la topología (nodo `omni-vision`), en rojo si `/salud` falla; el vigía reinicia el contenedor tras 3 fallos; verificar apagando el contenedor a mano.
@@ -46,6 +48,8 @@
 - [ ] 5.6 Lectura "primero el vehículo": omni-vision recorta cada vehículo y omni-lpr lee el recorte. Medido el 9/10 sobre 80 capturas de barrera (`herramientas/comparar_lpr.py`): coincide con la cámara 70 % exacta / 85 % a un carácter, contra 42 % / 55 % leyendo la foto entera; y lee 26 de los 40 NO_LEIDA de la cámara. Aplicarlo en `tracking-worker` y como segunda lectura de los NO_LEIDA, sin tocar la decisión de barrera.
 
 ## 6. Índice y búsqueda (fase 3)
+
+> 9/10: la tabla de lo visto existe (`ObjetoVisto`, sin vector todavía: falta pgvector y la mitad de texto de SigLIP en vivo). 6.1 está hecha salvo el vector. También corre la lectura de texto (RapidOCR, Apache-2.0), que no estaba planificada: base de "empresa por rotulado" y "matrícula sin lectora".
 
 - [ ] 6.1 Muestreo por cambio de escena de las cámaras de `VISION_CAMARAS_INDICE`, detección, recorte ≤ 256 px a MinIO, vector SigLIP y `ObjetoVisto` con deduplicación; verificar que una calle vacía no genera filas y que un auto que pasa genera una.
 - [ ] 6.2 `POST /api/vision/buscar` (texto o imagen, cámaras, rango) con orden por distancia coseno, permiso `buscar` y registro en `AccionSistema`; prueba con un set de 30 frases reales anotadas (acierto en los 10 primeros ≥ 70 %).
