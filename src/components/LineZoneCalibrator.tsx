@@ -22,6 +22,13 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
     const [line, setLine] = useState<P[]>([]);
     const [zone, setZone] = useState<P[]>([]);
     const [dir, setDir] = useState<Dir>("both");
+    /**
+     * Si la regla está PRENDIDA en la cámara ahora. Antes se dibujaba lo que la cámara tuviera
+     * guardado aunque estuviera apagada, y no había cómo apagarla: «Limpiar» borraba el dibujo
+     * y «Guardar» contestaba «la línea necesita exactamente 2 puntos» (9/10, Nico). Ahora,
+     * con el dibujo vacío y la regla prendida, el botón es «Quitar de la cámara».
+     */
+    const [activa, setActiva] = useState<{ line: boolean; zone: boolean }>({ line: false, zone: false });
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState("");
     const svgRef = useRef<SVGSVGElement>(null);
@@ -36,8 +43,13 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
                 if (!alive) return;
                 if (!d.ok) { setMsg(d.error || "No se pudo leer la cámara"); setLoading(false); return; }
                 setSupport(d.support || { line: false, field: false });
-                setLine((d.line?.points || []).map(camToScreen));
-                setZone((d.field?.points || []).map(camToScreen));
+                // Sólo se dibuja lo que está prendido: una regla apagada que conserva sus
+                // coordenadas no vigila nada, y dibujarla hacía creer que sí.
+                const lineaOn = !!d.line?.enabled && (d.line?.points || []).length >= 2;
+                const zonaOn = !!d.field?.enabled && (d.field?.points || []).length >= 3;
+                setActiva({ line: lineaOn, zone: zonaOn });
+                setLine(lineaOn ? d.line.points.map(camToScreen) : []);
+                setZone(zonaOn ? d.field.points.map(camToScreen) : []);
                 if (d.line?.direction) setDir(d.line.direction as Dir);
                 setTab(d.support?.line ? "line" : d.support?.field ? "zone" : "line");
                 setLoading(false);
@@ -78,8 +90,28 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
         else setLine((l) => l.filter((_, k) => k !== i));
     };
 
+    /** Apaga la regla en la cámara (las coordenadas quedan guardadas en el equipo, apagadas). */
+    const quitar = async (kind: "line" | "zone") => {
+        setSaving(true); setMsg("");
+        try {
+            const r = await fetch(`/api/devices/analytics?deviceId=${device.id}`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ kind: kind === "line" ? "line" : "field", enabled: false }),
+            });
+            const d = await r.json();
+            if (d.ok) { setActiva((a) => ({ ...a, [kind]: false })); setMsg(kind === "line" ? "Línea quitada de la cámara ✓" : "Zona quitada de la cámara ✓"); }
+            else setMsg(d.error || "No se pudo quitar");
+        } catch (e: any) { setMsg(e?.message || "Error al quitar"); }
+        finally { setSaving(false); }
+    };
+
     const save = async (kind: "line" | "zone") => {
         const pts = kind === "line" ? line : zone;
+        if (pts.length === 0) {
+            if (activa[kind]) return quitar(kind);
+            setMsg(kind === "line" ? "La cámara no tiene línea: dibujá dos puntos para ponerle una." : "La cámara no tiene zona: marcá al menos 3 puntos.");
+            return;
+        }
         if (kind === "line" && pts.length !== 2) { setMsg("La línea necesita exactamente 2 puntos."); return; }
         if (kind === "zone" && pts.length < 3) { setMsg("La zona necesita al menos 3 puntos."); return; }
         setSaving(true); setMsg("");
@@ -89,6 +121,7 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
                 body: JSON.stringify({ kind: kind === "line" ? "line" : "field", enabled: true, points: pts.map(screenToCam), ...(kind === "line" ? { direction: dir } : {}) }),
             });
             const d = await r.json();
+            if (d.ok) setActiva((a) => ({ ...a, [kind]: true }));
             setMsg(d.ok ? "Guardado en la cámara ✓" : (d.error || "No se pudo guardar"));
         } catch (e: any) { setMsg(e?.message || "Error al guardar"); }
         finally { setSaving(false); }
@@ -252,8 +285,15 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
                                     </div>
                                 )}
 
-                                <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-black/45 backdrop-blur-md text-[11px] font-semibold text-white/80 pointer-events-auto ring-1 ring-white/10">
-                                    <MousePointer2 size={12} /> {pts.length} {pts.length === 1 ? "punto" : "puntos"}
+                                <span className="inline-flex items-center gap-2 pointer-events-auto">
+                                    <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full backdrop-blur-md text-[11px] font-semibold ring-1",
+                                        activa[tab] ? "bg-emerald-500/20 text-emerald-200 ring-emerald-400/30" : "bg-black/45 text-white/60 ring-white/10")}>
+                                        <span className={cn("w-1.5 h-1.5 rounded-full", activa[tab] ? "bg-emerald-400" : "bg-white/40")} />
+                                        {activa[tab] ? "Activa en la cámara" : tab === "line" ? "Sin línea en la cámara" : "Sin zona en la cámara"}
+                                    </span>
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-black/45 backdrop-blur-md text-[11px] font-semibold text-white/80 ring-1 ring-white/10">
+                                        <MousePointer2 size={12} /> {pts.length} {pts.length === 1 ? "punto" : "puntos"}
+                                    </span>
                                 </span>
                             </div>
 
@@ -269,9 +309,11 @@ export function LineZoneCalibrator({ device, onClose }: { device: any; onClose: 
                                         className="inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-black/45 backdrop-blur-md text-[11px] font-bold text-white/70 hover:text-red-300 hover:bg-red-500/20 uppercase tracking-wide transition-colors ring-1 ring-white/10">
                                         <Trash2 size={13} /> Limpiar
                                     </button>
-                                    <button onClick={() => save(tab)} disabled={saving}
+                                    {/* Dibujo vacío y regla prendida: el único paso que queda es quitarla. */}
+                                    <button onClick={() => save(tab)} disabled={saving || (pts.length === 0 && !activa[tab])}
                                         className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 hover:bg-red-500 text-white text-[12px] font-bold active:scale-95 transition-all shadow-lg shadow-red-900/40 disabled:opacity-60 ring-1 ring-red-400/30">
-                                        {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar
+                                        {saving ? <Loader2 size={15} className="animate-spin" /> : pts.length === 0 && activa[tab] ? <Trash2 size={15} /> : <Save size={15} />}
+                                        {pts.length === 0 && activa[tab] ? (tab === "line" ? "Quitar la línea de la cámara" : "Quitar la zona de la cámara") : "Guardar"}
                                     </button>
                                 </div>
                             </div>

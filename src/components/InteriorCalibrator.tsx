@@ -126,7 +126,15 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     const arrastre = useRef<{ x: number; y: number } | null>(null);
     const tirando = useRef<null | "a" | "b">(null);
 
-    const franja = useFranja(device.id, !!device.rtspUrl);
+    // Desde el monitor de intrusión llega sin la URL (lleva la clave): `tieneRtsp` dice lo mismo.
+    const franja = useFranja(device.id, !!(device.tieneRtsp ?? device.rtspUrl));
+    /**
+     * La línea que la cámara tiene puesta AHORA (la misma regla que usa intrusión). Antes este
+     * calibrador mostraba sólo la línea guardada en OmniAccess, y una línea dibujada desde el
+     * monitor de intrusión no aparecía acá: parecían dos calibradores con dos líneas (9/10).
+     * Ahora la de la cámara manda: se muestra, se mueve y se borra desde acá.
+     */
+    const lineaOriginal = useRef<string | null>(null);
 
     // ── Calibración guardada ────────────────────────────────────
     useEffect(() => {
@@ -137,7 +145,8 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                 setConfianza(r.data.confianza ?? 0.6);
                 setFps(r.data.fps ?? 2);
                 setRoi(r.data.roi || ROI_COMPLETA);
-                if (r.data.linea) setLinea(r.data.linea);
+                // Si ya llegó la línea de la cámara, manda ésa (es la que está vigilando).
+                if (r.data.linea && !lineaOriginal.current) setLinea(r.data.linea);
                 if (r.data.modo) setModo(r.data.modo);
             } catch {
                 toast.error({ title: "No se pudo leer la calibración" });
@@ -148,7 +157,14 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
     useEffect(() => {
         let vivo = true;
         axios.get(`/api/tracking/camera-rule?deviceId=${device.id}`)
-            .then((r) => { if (vivo) setRegla(r.data); })
+            .then((r) => {
+                if (!vivo) return;
+                setRegla(r.data);
+                if (r.data?.lineaActiva && r.data?.lineaCamara) {
+                    setLinea(r.data.lineaCamara);
+                    lineaOriginal.current = JSON.stringify(r.data.lineaCamara);
+                }
+            })
             .catch(() => { if (vivo) setRegla({ soportada: false }); });
         return () => { vivo = false; };
     }, [device.id]);
@@ -227,9 +243,15 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
             if (modo !== "escena") {
                 await axios.post("/api/tracking/camera-rule", { deviceId: device.id, modo, linea: modo === "linea" ? linea : undefined });
             }
+            // La línea que la cámara ya tenía (la de intrusión): borrada acá → se apaga en la
+            // cámara; movida acá → se mueve en la cámara, sin cambiar su objetivo.
+            if (lineaEnCamara && modo !== "linea") {
+                if (!linea) await axios.post("/api/tracking/camera-rule", { deviceId: device.id, lineaCamara: "quitar" });
+                else if (JSON.stringify(linea) !== lineaOriginal.current) await axios.post("/api/tracking/camera-rule", { deviceId: device.id, lineaCamara: "poner", linea });
+            }
             toast.success({
                 title: "Calibración guardada",
-                description: modo === "escena" ? "La pasarela la toma en menos de un minuto." : "Aplicada también en la cámara.",
+                description: lineaEnCamara && !linea ? "La línea se quitó de la cámara." : modo === "escena" ? "La pasarela la toma en menos de un minuto." : "Aplicada también en la cámara.",
             });
             onClose();
         } catch (e: any) {
@@ -247,6 +269,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
         } finally { setAplicando(false); }
     };
 
+    const lineaEnCamara = !!regla?.lineaActiva;
     const mejor = lectura?.lecturas?.[0];
     const pasa = mejor ? mejor.confidence >= confianza : false;
     const zonaCompleta = roi.x < 0.01 && roi.y < 0.01 && roi.w > 0.99 && roi.h > 0.99;
@@ -318,7 +341,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                             items={[
                                 { key: "mirar", label: "Sólo mirar", Icon: Crosshair },
                                 { key: "zona", label: `Zona · ${zonaCompleta ? "todo el cuadro" : `${Math.round(roi.w * 100)}×${Math.round(roi.h * 100)}%`}`, Icon: SquareDashed },
-                                { key: "linea", label: `Línea · ${linea ? "puesta" : "sin marcar"}`, Icon: Minus },
+                                { key: "linea", label: `Línea · ${linea ? (lineaEnCamara ? "en la cámara" : "puesta") : lineaEnCamara ? "se quita al guardar" : "sin marcar"}`, Icon: Minus },
                                 { key: "franja", label: `Estacionamiento · ${franja.existe ? `${franja.lugares} lugares` : "sin dibujar"}`, Icon: ParkingSquare },
                             ]}
                             value={herramienta}
@@ -346,7 +369,7 @@ export function InteriorCalibrator({ device, onClose }: { device: any; onClose: 
                                 {herramienta === "linea" && linea && (
                                     <button onClick={() => setLinea(null)}
                                         className="opacity-60 hover:opacity-100 flex items-center gap-1 transition-opacity">
-                                        <Trash2 size={13} /> borrar
+                                        <Trash2 size={13} /> {lineaEnCamara ? "borrar (se quita de la cámara al guardar)" : "borrar"}
                                     </button>
                                 )}
                                 <button onClick={() => setHerramienta("mirar")}

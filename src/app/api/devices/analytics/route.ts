@@ -2,6 +2,9 @@
  * /api/devices/analytics?deviceId=...
  *  GET  → { support:{line,field}, line:{enabled,points}, field:{enabled,points} }
  *  POST → { kind:"line"|"field", enabled, points:[{x,y}] }  aplica la geometría (read-modify-write ISAPI)
+ *         { kind, enabled:false } (sin puntos) → APAGA la regla en la cámara. Era lo que faltaba:
+ *         el calibrador dejaba dibujar y guardar pero no quitar, y «Limpiar» + «Guardar» chocaba
+ *         con «la línea necesita exactamente 2 puntos» (9/10, pedido de Nico).
  * Coordenadas 0–1000 origen abajo-izquierda (la UI invierte Y).
  */
 import { NextRequest, NextResponse } from "next/server";
@@ -49,19 +52,22 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { kind, enabled, points, direction } = body as { kind: "line" | "field"; enabled: boolean; points: { x: number; y: number }[]; direction?: string };
     if (kind !== "line" && kind !== "field") return NextResponse.json({ ok: false, error: "kind inválido" }, { status: 400 });
-    if (!Array.isArray(points) || points.length < 2) return NextResponse.json({ ok: false, error: "puntos insuficientes" }, { status: 400 });
+    const apagar = enabled === false;
+    if (!apagar && (!Array.isArray(points) || points.length < 2)) return NextResponse.json({ ok: false, error: "puntos insuficientes" }, { status: 400 });
     const camP = await resolveForCamera(id);
     if (camP && String((camP.nvr as any).brand).toUpperCase() === "DAHUA") {
         try {
             const conn = { ip: camP.nvr.ip, user: camP.nvr.user, pass: camP.nvr.pass };
+            // El IVS de Dahua no tiene un «apagado» separado de la geometría que se haya probado acá.
+            if (apagar) return NextResponse.json({ ok: false, error: "En canales de un NVR Dahua la regla se quita desde el NVR." }, { status: 400 });
             if (kind === "line") await writeDahuaLine(conn, camP.ch, points as any, direction);
             else await writeDahuaField(conn, camP.ch, points as any);
             return NextResponse.json({ ok: true });
         } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || "Dahua IVS write error" }, { status: 502 }); }
     }
     try {
-        if (kind === "line") await writeLine(d as any, ch, { enabled: enabled !== false, points, direction });
-        else await writeField(d as any, ch, { enabled: enabled !== false, points });
+        if (kind === "line") await writeLine(d as any, ch, { enabled: !apagar, points: apagar ? [] : points, direction });
+        else await writeField(d as any, ch, { enabled: !apagar, points: apagar ? [] : points });
         return NextResponse.json({ ok: true });
     } catch (e: any) {
         return NextResponse.json({ ok: false, error: e?.message || "ISAPI PUT error" }, { status: 502 });

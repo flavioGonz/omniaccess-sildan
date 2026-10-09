@@ -79,8 +79,11 @@ function replaceFirstCoords(xml: string, listTag: string, inner: string): string
 export async function writeLine(d: CamDev, ch: number, data: { enabled: boolean; points: Pt[]; direction?: string }): Promise<void> {
     let xml = await get(d, pathLine(ch));
     xml = setEnabled(xml, data.enabled);
-    const inner = data.points.map((p) => `<Coordinates><positionX>${clamp(p.x)}</positionX><positionY>${clamp(p.y)}</positionY></Coordinates>`).join("");
-    xml = replaceFirstCoords(xml, "CoordinatesList", inner);
+    // Apagar sin puntos deja las coordenadas como estaban: la regla queda apagada, no borrada.
+    if (data.points.length) {
+        const inner = data.points.map((p) => `<Coordinates><positionX>${clamp(p.x)}</positionX><positionY>${clamp(p.y)}</positionY></Coordinates>`).join("");
+        xml = replaceFirstCoords(xml, "CoordinatesList", inner);
+    }
     if (data.direction && /<directionSensitivity>/i.test(xml)) {
         xml = xml.replace(/<directionSensitivity>\s*[\w-]+\s*<\/directionSensitivity>/i, `<directionSensitivity>${uiDirToHik(data.direction)}</directionSensitivity>`);
     }
@@ -91,7 +94,9 @@ export async function writeLine(d: CamDev, ch: number, data: { enabled: boolean;
 export async function writeField(d: CamDev, ch: number, data: { enabled: boolean; points: Pt[] }): Promise<void> {
     let xml = await get(d, pathField(ch));
     xml = setEnabled(xml, data.enabled);
-    const inner = data.points.map((p) => `<RegionCoordinates><positionX>${clamp(p.x)}</positionX><positionY>${clamp(p.y)}</positionY></RegionCoordinates>`).join("");
-    xml = replaceFirstCoords(xml, "RegionCoordinatesList", inner);
+    if (data.points.length) {
+        const inner = data.points.map((p) => `<RegionCoordinates><positionX>${clamp(p.x)}</positionX><positionY>${clamp(p.y)}</positionY></RegionCoordinates>`).join("");
+        xml = replaceFirstCoords(xml, "RegionCoordinatesList", inner);
+    }
     await put(d, pathField(ch), xml);
 }

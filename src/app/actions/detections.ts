@@ -114,7 +114,13 @@ import { getSmartSupport, readLine, readField } from "@/lib/isapi-analytics";
 import { resolveForCamera } from "@/lib/nvr-resolve";
 import { readDahuaIvs } from "@/lib/dahua-ivs";
 
-export type IntrusionCam = { id: string; name: string; brand: string; ip: string; nvrName: string | null; nvrId: string | null; ch: number | null; alarmOk?: boolean };
+export type IntrusionCam = {
+    id: string; name: string; brand: string; ip: string; nvrName: string | null; nvrId: string | null; ch: number | null; alarmOk?: boolean;
+    /** CAMERA o LPR_INTERIOR: la interior se calibra en el calibrador de pantalla completa. */
+    tipo?: string;
+    /** Si tiene RTSP (la URL no viaja: lleva la clave). */
+    tieneRtsp?: boolean;
+};
 
 /** Cámaras para el monitor de intrusión, con su NVR y canal (del NVR_CHANNEL_MAP). */
 export async function getIntrusionCameras(): Promise<IntrusionCam[]> {
@@ -123,7 +129,7 @@ export async function getIntrusionCameras(): Promise<IntrusionCam[]> {
         // perimetrales son AcuSense que a la vez alimentan el seguimiento por RTSP y vigilan
         // una línea. La capa de intrusión no es exclusiva de un tipo: es cualquier cámara
         // que pueda clasificar cruces/zonas a bordo.
-        prisma.device.findMany({ where: { deviceType: { in: ["CAMERA", "LPR_INTERIOR"] as any } }, select: { id: true, name: true, brand: true, ip: true }, orderBy: { name: "asc" } }),
+        prisma.device.findMany({ where: { deviceType: { in: ["CAMERA", "LPR_INTERIOR"] as any } }, select: { id: true, name: true, brand: true, ip: true, deviceType: true, rtspUrl: true }, orderBy: { name: "asc" } }),
         prisma.device.findMany({ where: { deviceType: "NVR" }, select: { id: true, name: true } }),
         prisma.setting.findUnique({ where: { key: "NVR_CHANNEL_MAP" } }),
     ]);
@@ -133,7 +139,7 @@ export async function getIntrusionCameras(): Promise<IntrusionCam[]> {
     let map: any = {}; try { map = mapRow ? JSON.parse(mapRow.value) : {}; } catch { }
     return devices.map((d) => {
         const e = map[d.ip]; const nid = e ? (e.nvr || e.nvrId || null) : null;
-        return { id: d.id, name: d.name, brand: String(d.brand), ip: d.ip, nvrName: nid ? (nvrName[nid] || null) : null, nvrId: nid, ch: e ? Number(e.ch) : null, alarmOk: alarmSet.has(d.ip) };
+        return { id: d.id, name: d.name, brand: String(d.brand), ip: d.ip, nvrName: nid ? (nvrName[nid] || null) : null, nvrId: nid, ch: e ? Number(e.ch) : null, alarmOk: alarmSet.has(d.ip), tipo: String(d.deviceType), tieneRtsp: !!d.rtspUrl };
     });
 }
 
@@ -147,7 +153,7 @@ const GEOM_TTL = 5 * 60 * 1000;
 
 /** Geometría (línea/zona) de varias cámaras para dibujar overlays en la grilla.
  *  Sirve de cache lo fresco y sólo consulta los dispositivos vencidos; concurrencia limitada. */
-export async function getAnalyticsGeometryBatch(ids: string[]): Promise<Record<string, Geom>> {
+export async function getAnalyticsGeometryBatch(ids: string[], fresco = false): Promise<Record<string, Geom>> {
     const out: Record<string, Geom> = {};
     const list = [...new Set((ids || []).filter(Boolean))];
     if (!list.length) return out;
@@ -155,7 +161,8 @@ export async function getAnalyticsGeometryBatch(ids: string[]): Promise<Record<s
     const stale: string[] = [];
     for (const id of list) {
         const c = GEOM_CACHE.get(id);
-        if (c && now - c.ts < GEOM_TTL) out[id] = c.geom; else stale.push(id);
+        // `fresco`: se acaba de calibrar; el caché de 5 min mostraría la línea vieja (o la borrada).
+        if (!fresco && c && now - c.ts < GEOM_TTL) out[id] = c.geom; else stale.push(id);
     }
     if (!stale.length) return out;
     const devs = await prisma.device.findMany({ where: { id: { in: stale } }, select: { id: true, ip: true, username: true, password: true, authType: true, brand: true } });

@@ -68,8 +68,22 @@ function puntosLinea(linea: any) {
         .join("");
 }
 
+/**
+ * La línea que la cámara tiene GUARDADA, en fracciones de la imagen (origen arriba), con su
+ * sentido. Es la misma regla que dibuja el calibrador de intrusión: si el calibrador de la
+ * cámara interior no la muestra, parecen dos líneas distintas y es una sola (9/10, Nico).
+ */
+function lineaDeLaCamara(xml: string): { x1: number; y1: number; x2: number; y2: number; sentido: string } | null {
+    const item = (xml.match(RE_LINEA) || []).find((b) => /<id>1<\/id>/.test(b));
+    if (!item) return null;
+    const pts = [...item.matchAll(/<positionX>\s*(\d+)\s*<\/positionX>\s*<positionY>\s*(\d+)\s*<\/positionY>/g)].map((m) => ({ x: Number(m[1]) / 1000, y: 1 - Number(m[2]) / 1000 }));
+    if (pts.length < 2) return null;
+    const sentido = campo(item, "directionSensitivity") || "any";
+    return { x1: pts[0].x, y1: pts[0].y, x2: pts[1].x, y2: pts[1].y, sentido: ["left-right", "right-left"].includes(sentido) ? sentido : "any" };
+}
+
 /** Reescribe el documento de la cámara con la regla puesta (o apagada). */
-function ajustar(xml: string, opciones: { activar: boolean; puntos?: string; etiqueta?: string; sentido?: string; tipo: "zona" | "linea" }) {
+function ajustar(xml: string, opciones: { activar: boolean; puntos?: string; etiqueta?: string; sentido?: string; tipo: "zona" | "linea"; objetivo?: boolean }) {
     const { activar, puntos, sentido, tipo } = opciones;
     const re = tipo === "zona" ? RE_REGION : RE_LINEA;
     const listaRe = tipo === "zona" ? /<RegionCoordinatesList>[\s\S]*?<\/RegionCoordinatesList>/ : /<CoordinatesList>[\s\S]*?<\/CoordinatesList>/;
@@ -83,7 +97,10 @@ function ajustar(xml: string, opciones: { activar: boolean; puntos?: string; eti
             b = listaRe.test(b)
                 ? b.replace(listaRe, `<${listaTag}>${puntos}</${listaTag}>`)
                 : b.replace(/<detectionTarget>/, `<${listaTag}>${puntos}</${listaTag}><detectionTarget>`);
-            b = b.replace(/<detectionTarget>[^<]*<\/detectionTarget>/, "<detectionTarget>vehicle</detectionTarget>");
+            // Para el seguimiento el objetivo es vehículo. Al mover la línea desde el calibrador sin
+            // cambiar el disparo (`objetivo: false`) se deja el que tenía: si la usa intrusión,
+            // pasarla a "vehicle" la dejaría ciega a las personas.
+            if (opciones.objetivo !== false) b = b.replace(/<detectionTarget>[^<]*<\/detectionTarget>/, "<detectionTarget>vehicle</detectionTarget>");
             if (sentido) b = b.replace(/<directionSensitivity>[^<]*<\/directionSensitivity>/, `<directionSensitivity>${sentido}</directionSensitivity>`);
         }
         return b;
@@ -92,11 +109,11 @@ function ajustar(xml: string, opciones: { activar: boolean; puntos?: string; eti
     return salida;
 }
 
-async function escribirRegla(d: any, tipo: "zona" | "linea", activar: boolean, puntos?: string, sentido?: string) {
+async function escribirRegla(d: any, tipo: "zona" | "linea", activar: boolean, puntos?: string, sentido?: string, objetivo = true) {
     const ruta = tipo === "zona" ? "/ISAPI/Smart/FieldDetection/1" : "/ISAPI/Smart/LineDetection/1";
     const actual = await authenticatedRequest("GET", ruta, equipo(d), { responseType: "text", accept: "application/xml", timeout: 8000 });
     const respuesta = await authenticatedRequest("PUT", ruta, equipo(d), {
-        data: ajustar(actual, { activar, puntos, sentido, tipo }),
+        data: ajustar(actual, { activar, puntos, sentido, tipo, objetivo }),
         contentType: "application/xml",
         accept: "application/xml",
         responseType: "text",
@@ -148,6 +165,7 @@ export async function GET(req: NextRequest) {
             soportaLinea: /<isSupportLineDetection>true/.test(cap),
             zonaActiva: campo(zona, "enabled") === "true",
             lineaActiva: campo(linea, "enabled") === "true",
+            lineaCamara: campo(linea, "enabled") === "true" ? lineaDeLaCamara(linea) : null,
             avisaAlServidor: avisa,
             modo: (d.trackTrigger === "camara" ? "zona" : d.trackTrigger) || "escena",
             linea: d.trackLine ? JSON.parse(d.trackLine) : null,
@@ -165,6 +183,32 @@ export async function POST(req: NextRequest) {
     try { body = await req.json(); } catch { }
     const d = await leerDispositivo(String(body.deviceId || ""));
     if (!d) return NextResponse.json({ error: "Dispositivo no encontrado" }, { status: 404 });
+
+    /*
+     * Poner o quitar SÓLO la línea de la cámara, sin cambiar qué dispara la lectura. Es lo que
+     * usa el calibrador de la cámara interior cuando se mueve o se borra la línea que la cámara
+     * ya tenía (la de intrusión): antes esa línea ni se veía ahí.
+     */
+    if (body.lineaCamara === "quitar" || body.lineaCamara === "poner") {
+        const l = body.linea;
+        if (body.lineaCamara === "poner" && !(l && [l.x1, l.y1, l.x2, l.y2].every((v: any) => Number.isFinite(Number(v))))) {
+            return NextResponse.json({ error: "Falta la línea." }, { status: 400 });
+        }
+        try {
+            if (body.lineaCamara === "quitar") await escribirRegla(d, "linea", false);
+            else await escribirRegla(d, "linea", true, puntosLinea(l), l.sentido || "any", false);
+        } catch (e: any) {
+            return NextResponse.json({ error: `La cámara rechazó la configuración: ${e?.message || "sin detalle"}` }, { status: 502 });
+        }
+        await prisma.device.update({
+            where: { id: d.id },
+            data: body.lineaCamara === "quitar"
+                // Sin línea, el disparo por cruce no tiene con qué disparar: vuelve a escena.
+                ? { trackLine: null, ...(d.trackTrigger === "linea" ? { trackTrigger: "escena" } : {}) }
+                : { trackLine: JSON.stringify(l) },
+        });
+        return NextResponse.json({ ok: true });
+    }
 
     const modo: Modo = body.modo === "zona" || body.modo === "linea" ? body.modo : "escena";
     const linea = body.linea ?? (d.trackLine ? JSON.parse(d.trackLine) : null);

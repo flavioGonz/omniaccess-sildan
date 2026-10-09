@@ -7,6 +7,7 @@ import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getA
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
+import { InteriorCalibrator } from "@/components/InteriorCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
 import { PlaybackTimeline } from "@/components/PlaybackTimeline";
 import { Scrub } from "@/components/Scrub";
@@ -741,6 +742,12 @@ export default function MonitorIntrusion() {
     const [liveDev, setLiveDev] = useState<IntrusionCam | null>(null);
     const [q, setQ] = useState("");
     const [calibrateDev, setCalibrateDev] = useState<IntrusionCam | null>(null);
+    /** Al cerrar un calibrador: la geometría de esa cámara se vuelve a leer sin el caché (acaba de cambiar). */
+    const cerrarCalibrador = (id: string) => {
+        setCalibrateDev(null);
+        getAnalyticsGeometryBatch([id], true).then((g) => setGeom((prev) => ({ ...prev, ...g }))).catch(() => { });
+        setAnalyticsIds((s) => new Set(s).add(id));
+    };
     const [alarmDev, setAlarmDev] = useState<IntrusionCam | null>(null);
     // Horarios de armado leídos de las cámaras (una llamada para todas), y el cajón para cambiarlos.
     const [horarios, setHorarios] = useState<Record<string, HorariosCamara>>({});
@@ -1023,12 +1030,12 @@ export default function MonitorIntrusion() {
                 </div>
             </div>
 
-            {calibrateDev && <LineZoneCalibrator device={calibrateDev} onClose={() => {
-                const id = calibrateDev.id; setCalibrateDev(null);
-                // refrescar geometría de esa cámara al cerrar
-                getAnalyticsGeometryBatch([id]).then((g) => setGeom((prev) => ({ ...prev, ...g }))).catch(() => { });
-                setAnalyticsIds((s) => new Set(s).add(id));
-            }} />}
+            {/* Un calibrador por cámara, no dos: la interior (LPR Interior) se calibra en el de
+                pantalla completa, que muestra y edita la MISMA línea de la cámara y además la
+                zona de lectura y el estacionamiento. Las perimetrales siguen con éste, que dibuja
+                zonas poligonales y llega a los canales de un NVR. (9/10, Nico) */}
+            {calibrateDev && calibrateDev.tipo === "LPR_INTERIOR" && <InteriorCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
+            {calibrateDev && calibrateDev.tipo !== "LPR_INTERIOR" && <LineZoneCalibrator device={calibrateDev} onClose={() => cerrarCalibrador(calibrateDev.id)} />}
             {horarioDev && <HorarioArmadoDialog cam={horarioDev.cam} todasLasCamaras={horarioDev.todas} actual={horarioDev.cam ? horarios[horarioDev.cam.id] ?? null : null} general={horarioGeneral} camaras={horarios} onClose={() => setHorarioDev(null)} onAplicado={cargarHorarios} />}
             {alarmDev && <AlarmDialog cam={alarmDev} onClose={() => setAlarmDev(null)} onStatus={(id, ok) => setAlarmIds((prev) => { const s = new Set(prev); if (ok) s.add(id); else s.delete(id); return s; })} />}
             {detail && <DetailDialog det={detail} cam={detail?.deviceId ? camById[detail.deviceId] : undefined} geom={detail?.deviceId ? geom[detail.deviceId] : undefined} onClose={() => setDetail(null)}
