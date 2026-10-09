@@ -6,6 +6,8 @@ la app (lib/vision*, laboratorio /admin/vision): ver openspec/changes/detector-o
 
 Contrato (estable, independiente de los modelos):
   GET  /salud      → modelos y su estado, cola, latencias por tarea, VRAM, sesiones de seguimiento.
+  POST /vector     → cuerpo = un recorte; {vector: [768]} con la mitad de imágenes de SigLIP 2.
+  POST /vector_texto → {textos:[...]}; {vectores: [[768]...]}: el mismo espacio que /vector.
   POST /tareas     → {apagadas:[...]} qué tareas no corren (detectar, segmentar, pose, atributos,
                      texto, seguimiento). Apagar una suelta su modelo de la GPU.
   POST /detectar   → cuerpo = la imagen (JPEG/PNG) o multipart con campo "imagen".
@@ -38,6 +40,7 @@ import motor
 from motor import Cola, Modelo
 from seguimiento import Sesiones
 from texto import Lector
+from busqueda import Buscador, vector_imagen
 
 CARPETA = Path(os.environ.get("VISION_MODELOS", "/modelos"))
 MODELO = os.environ.get("VISION_MODELO", "rfdetr-small")
@@ -64,6 +67,7 @@ modelos = {
 describidor = Describidor(CARPETA)
 sesiones = Sesiones()
 lector = Lector()
+buscador = Buscador(CARPETA)
 NOMBRE_MODELO = {"detectar": MODELO, "segmentar": MODELO_SILUETAS, "pose": MODELO_POSE}
 arranque = time.time()
 
@@ -259,6 +263,7 @@ def salud():
             "atributos": {"modelo": describidor.meta["modelo"], "licencia": describidor.meta["licencia"], **describidor.modelo.estado(), "activa": "atributos" not in apagadas},
             "texto": {"modelo": "RapidOCR · PP-OCR", "licencia": "Apache-2.0", **lector.estado(), "activa": "texto" not in apagadas},
         },
+        "busqueda": buscador.estado(),
         "seguimiento": {"sesiones": sesiones.cuantas(), "licencia": "Apache-2.0 (trackers · ByteTrack)", "activa": "seguimiento" not in apagadas},
         "apagadas": sorted(apagadas),
         # Lo medido por tarea (ver _paso) y lo que ocupa el proceso entero ahora.
@@ -299,6 +304,44 @@ def _procesar(datos: bytes, tarea: str, umbral: float, atributos: bool, sesion: 
         pasos["texto"] = round(float(lector.ultimo_ms), 1)
     return {"ancho": ancho, "alto": alto, "pasos": pasos, "seguimiento": seg, "objetos": objetos,
             **({"textos": textos} if textos is not None else {})}
+
+
+# Cuántas frases por pedido: una búsqueda manda la frase y, a lo sumo, unas variantes.
+TEXTOS_MAX = 8
+# Cuatro decimales alcanzan para el coseno y achican la respuesta a la mitad.
+r4 = lambda v: [round(float(x), 4) for x in v]  # noqa: E731
+
+
+@app.post("/vector")
+async def vector(request: Request):
+    """El vector de un recorte (el que se guarda en el registro), para buscarlo después por texto o por parecido."""
+    if "atributos" in apagadas:
+        return JSONResponse({"error": "La tarea atributos está apagada.", "apagada": "atributos"}, status_code=409)
+    datos = await request.body()
+    if not datos:
+        raise HTTPException(400, "No llegó ninguna imagen.")
+    if len(datos) > MAX_BYTES:
+        raise HTTPException(413, "La imagen pesa demasiado.")
+    try:
+        v = await run_in_threadpool(lambda: _paso("atributos", lambda: vector_imagen(describidor, D.abrir_imagen(datos))))
+    except Exception as e:
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+    return {"vector": r4(v), "modelo": describidor.meta["modelo"]}
+
+
+@app.post("/vector_texto")
+async def vector_texto(request: Request):
+    if not buscador.disponible:
+        return JSONResponse({"error": "Esta imagen de omni-vision no trae la mitad de texto de SigLIP."}, status_code=501)
+    try:
+        cuerpo = await request.json()
+    except Exception:
+        raise HTTPException(400, "Se espera JSON {textos:[...]}.")
+    textos = [str(t)[:300] for t in (cuerpo.get("textos") or []) if str(t).strip()][:TEXTOS_MAX]
+    if not textos:
+        raise HTTPException(400, "Falta el texto.")
+    v = await run_in_threadpool(buscador.textos, textos)
+    return {"vectores": [r4(x) for x in v], "ms": round(buscador.ultimo_ms, 1), "escala": describidor.meta["escala"], "sesgo": describidor.meta["sesgo"]}
 
 
 @app.post("/detectar")

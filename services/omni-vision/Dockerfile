@@ -29,10 +29,10 @@ ENV DEBIAN_FRONTEND=noninteractive PIP_BREAK_SYSTEM_PACKAGES=1
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip curl libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir onnxruntime-gpu==1.30.0 numpy pillow fastapi uvicorn python-multipart \
-      opencv-python-headless trackers==2.6.1 supervision==0.30.9 rapidocr==3.10.0
+      opencv-python-headless trackers==2.6.1 supervision==0.30.9 rapidocr==3.10.0 tokenizers==0.23.3
 COPY --from=exportador /modelos /modelos
 WORKDIR /app
-COPY detector.py motor.py atributos.py seguimiento.py texto.py app.py ./
+COPY detector.py motor.py atributos.py seguimiento.py texto.py busqueda.py app.py ./
 ENV VISION_MODELOS=/modelos VISION_MODELO=rfdetr-small VISION_UMBRAL=0.4 \
     VISION_TOPE_VRAM_MB=1536 VISION_HILOS_CPU=2 OMP_NUM_THREADS=2
 EXPOSE 8010
