@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     LogIn, LogOut, ShieldCheck, ShieldX, ShieldAlert, Search, Repeat, Camera, Clock, Users, X, Radio,
     PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2, CircleDashed, AlertTriangle, Timer, Activity,
+    ScanEye,
 } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
@@ -21,6 +22,8 @@ import {
     type ClaseMonitor, type ClaveComportamiento, type Comportamiento, type NivelListaNegra,
 } from "@/lib/padron";
 import type { RelecturaEvento } from "@/lib/relectura";
+import type { Analisis } from "@/lib/vision-capa";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { SUAVE, RESORTE, tocable, usarInactividad, CuentaAtras } from "@/components/monitor/tactil";
 import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
@@ -65,6 +68,8 @@ type Lectura = {
     ficha?: { nombre: string; nivel: NivelListaNegra; motivo: string | null } | null;
     /** En una NO_LEIDA: la chapa que sugirió la relectura del vehículo (vision-worker). */
     relectura?: RelecturaEvento | null;
+    /** Lo que omni-vision vio en la foto (vision-analisis.js): siluetas, color y carrocería. */
+    analisis?: Analisis | null;
 };
 type Atencion = { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; avisoId?: string; avisoTipo?: string };
 type VisitaEnBarrio = { tipo: "VISITA"; id: string; plate: string | null; tipoVisita?: string; tipoNombre: string; lote: string | null; nombre: string | null; empresa: string | null; origen: string; desde: string; vence: string; accessEventId: string | null };
@@ -236,6 +241,8 @@ export function VistaLpr() {
     });
     // Visitas que se abren o cierran, y avisos a la guardia: se vuelve a pedir el estado.
     useTiempoReal("visita", () => recargar());
+    // omni-vision terminó de mirar la foto de una lectura: se trae para dibujarla.
+    useTiempoReal("lectura_analizada", () => recargar());
     useTiempoReal("aviso_guardia", (d: any) => { recargar(); if (d?.accion === "nuevo" && !silencio && modoSonido !== "off") sonar("denegado"); });
 
     // Los contadores vuelven a cero a la medianoche del barrio sin recargar: se pide de nuevo al cambiar el día.
@@ -326,6 +333,7 @@ export function VistaLpr() {
                                             sel ? "ring-[3px] ring-[var(--accion-en-oscuro)]" : ok ? "ring-1 ring-[color-mix(in_oklab,var(--bien)_50%,transparent)]" : est.error ? "ring-1 ring-[color-mix(in_oklab,var(--mal)_60%,transparent)]" : "ring-1 ring-white/15")}>
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {f && <img src={f} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
+                                        {f && l.analisis && <CapaAnalisis analisis={l.analisis} ajuste="cover" etiquetas={false} />}
                                         <span className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent" />
                                         {l.plate && datos?.logos?.[l.plate] && <span className="absolute top-2 left-2"><LogoSobreFoto empresa={datos.logos[l.plate]} className="h-6 max-w-[90px]" /></span>}
                                         {l.clase && !(l.plate && datos?.logos?.[l.plate]) && <span className="absolute top-2 left-2 max-w-[184px]"><EtiquetaClase l={l} comp={comportamiento} /></span>}
@@ -398,6 +406,24 @@ export function VistaLpr() {
     );
 }
 
+/**
+ * El vehículo principal de la foto según omni-vision (el más grande: el de la barrera), con su
+ * color y carrocería si no son dudosos. Es lo que la lectora no dice.
+ */
+function ResumenVehiculo({ a }: { a?: Analisis | null }) {
+    const v = (a?.objetos || []).filter((o) => o.grupo === "vehiculo")
+        .sort((x, y) => (y.caja[2] - y.caja[0]) * (y.caja[3] - y.caja[1]) - (x.caja[2] - x.caja[0]) * (x.caja[3] - x.caja[1]))[0];
+    if (!v) return null;
+    const attr = (v.atributos || []).filter((t) => !t.dudoso && (t.id === "color" || t.id === "carroceria")).map((t) => t.valor);
+    return (
+        <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-black/55 border border-white/20 px-3 py-1 text-[16px] text-white/90">
+            <ScanEye size={16} className="text-[var(--accion-en-oscuro)]" />
+            <span className="font-semibold">{[v.nombre, ...attr].join(" · ")}</span>
+            <span className="text-white/55 tabular-nums">{Math.round(v.confianza * 100)} %</span>
+        </div>
+    );
+}
+
 /** La lectura grande. Tocar la foto la amplía; "Ficha" abre todo lo que se sabe de ese auto. */
 function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp }: { l: Lectura; tactil: boolean; modo: Modo; alAmpliar: (f: string) => void; alAbrirFicha: () => void; empresa?: Logo | null; comp: Comportamiento }) {
     const foto = getImagePath(l.foto);
@@ -408,6 +434,7 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
         <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {foto ? <img src={foto} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><Camera size={64} /></div>}
+            {foto && l.analisis && <CapaAnalisis analisis={l.analisis} atributos />}
             {foto && <button type="button" onClick={() => alAmpliar(foto)} aria-label="Ver la captura grande" className="absolute inset-0 cursor-zoom-in" />}
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/40 pointer-events-none" />
             <div className="absolute top-0 inset-x-0 p-4 lg:p-6 flex items-start justify-between gap-4 pointer-events-none">
@@ -429,6 +456,7 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
                         <LogoSobreFoto empresa={empresa} className="h-[clamp(36px,4.5vw,64px)] max-w-[22vw]" />
                     </div>
                     {esNoLeida(l.plate) && l.relectura?.plate && <div className="mt-3"><Relectura r={l.relectura} grande /></div>}
+                    <ResumenVehiculo a={l.analisis} />
                     <div className="mt-3 flex items-center gap-3">
                         <EtiquetaClase l={l} comp={comp} grande />
                         <span className="text-[20px] lg:text-[22px] font-semibold text-white truncate">{quien(l)}</span>
@@ -511,6 +539,7 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                                         className={cn("relative block w-full aspect-video rounded-2xl overflow-hidden bg-neutral-900", foto && tocable)}>
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {foto ? <img src={foto} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <span className="absolute inset-0 grid place-items-center text-white/30"><Camera size={40} /></span>}
+                                        {foto && l.analisis && <CapaAnalisis analisis={l.analisis} atributos />}
                                         {foto && <span className="absolute bottom-3 right-3 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white"><Maximize2 size={18} /></span>}
                                     </button>
 

@@ -68,7 +68,9 @@ export async function GET() {
     const reg = await registradas(ultimas.map((e) => e.plateDetected));
     // Quién es cada una (clase, ficha de lista negra, relectura de las NO_LEIDA): lib/monitor/identidad.
     const ident = await identidadDeLecturas(ultimas as any).catch(() => new Map());
-    const conRegistro = (e: any) => { const f = forma(e); const ch = normalizarMatricula(f.plate); return { ...f, registrada: !!(ch && reg.has(ch)), ...(ident.get(e.id) || {}) }; };
+    // Lo que omni-vision vio en cada foto (vision-analisis.js): siluetas y color/carrocería.
+    const analisis = new Map((await prisma.analisisFoto.findMany({ where: { accessEventId: { in: ultimas.map((e: any) => e.id) }, estado: "OK" }, select: { accessEventId: true, analisis: true } }).catch(() => [])).map((x) => [x.accessEventId, x.analisis]));
+    const conRegistro = (e: any) => { const f = forma(e); const ch = normalizarMatricula(f.plate); return { ...f, registrada: !!(ch && reg.has(ch)), ...(ident.get(e.id) || {}), analisis: analisis.get(e.id) || null }; };
 
     let adentro = 0, noRegistrados = 0;
     let enBarrio: any[] = [];

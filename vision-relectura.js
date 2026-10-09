@@ -47,6 +47,9 @@ const VEHICULOS_MAX = 3;
  * cámara ese día), que es lo único que dice si una relectura estaba bien.
  */
 const CONF_SEGURA = Number(process.env.RELECTURA_CONF_SEGURA || 0.7);
+/** El umbral vigente lo pone la pantalla de relecturas (Setting RELECTURA_CONF_SEGURA, ver src/lib/relectura-umbral.ts). */
+const CLAVE_UMBRAL = "RELECTURA_CONF_SEGURA";
+const UMBRAL_MIN = 0.5, UMBRAL_MAX = 0.99;
 /** Hasta cuándo se relee hacia atrás: al arrancar se pone al día con el último día. */
 const VENTANA_MS = 24 * 3600_000;
 /** La foto del evento puede llegar tarde a MinIO: se espera esto antes de darla por perdida. */
@@ -214,7 +217,9 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
             catch (e) { log("relectura: no se pudo guardar la chapa:", e.message); }
         }
 
-        const estado = mejor ? (mejor.confianza >= CONF_SEGURA ? "LEIDA" : "DUDOSA") : (vehiculos.length ? "SIN_CHAPA" : "SIN_VEHICULO");
+        const u = Number(await ajuste(CLAVE_UMBRAL, null));
+        const segura = Number.isFinite(u) && u >= UMBRAL_MIN && u <= UMBRAL_MAX ? u : CONF_SEGURA;
+        const estado = mejor ? (mejor.confianza >= segura ? "LEIDA" : "DUDOSA") : (vehiculos.length ? "SIN_CHAPA" : "SIN_VEHICULO");
         const unicas = [...new Map(otras.filter((o) => !mejor || o.plate !== mejor.plate).map((o) => [o.plate, o])).values()].slice(0, 4);
         await guardar(ev.id, {
             estado, plate: mejor?.plate || null, confianza: mejor ? Math.round(mejor.confianza * 1000) / 1000 : null,

@@ -956,6 +956,15 @@ model Detection {
   acknowledged Boolean  @default(false)
   ackKind      String?
   ackAt        DateTime?
+  /// Verificación con omni-vision (vision-worker → vision-analisis.js): OK | SIN_FOTO | ERROR.
+  /// El veredicto (confirmada / presente / animal / nada) se calcula al mostrar con la geometría
+  /// vigente de la cámara (lib/vision-capa): acá se guarda lo que se vio, no la conclusión.
+  verifEstado   String?
+  /// { ancho, alto, tarea, objetos: [{ clase, nombre, grupo, confianza, caja, silueta? }] }
+  verifAnalisis Json?
+  verifAt       DateTime?
+  verifMs       Int?
+  verifError    String?
 
   @@index([deviceId, timestamp])
   @@index([acknowledged, timestamp])
@@ -1255,4 +1264,20 @@ model EventoVision {
 
   @@index([reglaId, ts])
   @@index([tipo, ts])
+}
+
+/// Lo que omni-vision vio en la foto de una lectura LPR: siluetas y atributos (color,
+/// carrocería) de los vehículos y la gente. Una fila por lectura, también cuando falló, para no
+/// reintentar. Ver vision-analisis.js y Control LPR.
+model AnalisisFoto {
+  id            String   @id @default(cuid())
+  accessEventId String   @unique
+  /// OK | SIN_FOTO | ERROR
+  estado        String
+  analisis      Json?
+  ms            Int?
+  error         String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
 }

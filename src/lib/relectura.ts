@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { leerAjuste } from "@/lib/ajustes-db";
+import { CLAVE_UMBRAL_RELECTURA, estadoConUmbral, leerUmbral } from "@/lib/relectura-umbral";
 
 /**
  * La relectura de una NO_LEIDA (vision-worker → vision-relectura.js), con lo que se sabe de la
@@ -33,8 +35,12 @@ export type RelecturaEvento = {
 export async function relecturasDe(eventoIds: string[], url: (clave: string, eventoId: string, que: "v" | "c") => string): Promise<Map<string, RelecturaEvento>> {
     const out = new Map<string, RelecturaEvento>();
     if (!eventoIds.length) return out;
-    const filas = await prisma.relectura.findMany({ where: { accessEventId: { in: eventoIds } } });
+    const [filas, umbralCrudo] = await Promise.all([
+        prisma.relectura.findMany({ where: { accessEventId: { in: eventoIds } } }),
+        leerAjuste(CLAVE_UMBRAL_RELECTURA),
+    ]);
     if (!filas.length) return out;
+    const umbral = leerUmbral(umbralCrudo?.value);
     const plates = [...new Set(filas.map((f) => f.plate).filter(Boolean))] as string[];
     const [creds, watch] = plates.length ? await Promise.all([
         prisma.credential.findMany({ where: { type: "PLATE", value: { in: plates } }, select: { value: true, user: { select: { id: true, name: true, role: true, vip: true, unit: { select: { name: true } } } } } }),
@@ -47,7 +53,7 @@ export async function relecturasDe(eventoIds: string[], url: (clave: string, eve
         const w = f.plate ? vig.get(f.plate) : undefined;
         const c: any = f.candidatos || {};
         out.set(f.accessEventId, {
-            estado: f.estado, plate: f.plate, confianza: f.confianza, vehiculo: f.vehiculo,
+            estado: estadoConUmbral(f.estado, f.confianza, umbral), plate: f.plate, confianza: f.confianza, vehiculo: f.vehiculo,
             recorte: f.recorte ? url(f.recorte, f.accessEventId, "v") : null,
             chapa: f.recorteChapa ? url(f.recorteChapa, f.accessEventId, "c") : null,
             otras: Array.isArray(c.otras) ? c.otras : [],

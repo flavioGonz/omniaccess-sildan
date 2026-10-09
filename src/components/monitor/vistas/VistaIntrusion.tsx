@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, PanelRightOpen, Maximize2, Loader2, ChevronRight, Ban, PlayCircle } from "lucide-react";
+import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, PanelRightOpen, Maximize2, Loader2, ChevronRight, Ban, PlayCircle, ScanEye } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -18,6 +18,9 @@ import { conAncho } from "@/lib/ancho-foto";
 import { AnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { cn } from "@/lib/utils";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { geomDeIntrusion, VEREDICTOS } from "@/lib/vision-capa";
+import type { Verificacion } from "@/lib/verificacion";
 
 /**
  * La vista Intrusión de la pared y de la pantalla táctil del puesto.
@@ -54,7 +57,22 @@ const REPETIR_MS = 8000;
 /** Sin tocar nada este tiempo, la ficha se cierra. */
 const FICHA_SE_CIERRA_MS = 60_000;
 
-type Det = { id: string; deviceId: string | null; deviceName: string | null; nvrName?: string | null; ch?: number | null; type: string; snapshotPath: string | null; timestamp: string; acknowledged?: boolean; ackKind?: string | null; label?: string | null };
+type Det = { id: string; deviceId: string | null; deviceName: string | null; nvrName?: string | null; ch?: number | null; type: string; snapshotPath: string | null; timestamp: string; acknowledged?: boolean; ackKind?: string | null; label?: string | null;
+    /** Lo que vio omni-vision en la captura y su veredicto (vision-analisis.js → lib/verificacion). */
+    verif?: Verificacion | null };
+/** Una verificación tarda unos segundos (cola de vision-worker): antes de esto se dice «verificando», después «sin verificar». */
+const VERIFICANDO_MS = 2 * 60_000;
+
+/** El veredicto de omni-vision, como pastilla. Nunca decide: la alarma la acepta una persona. */
+function Veredicto({ d, grande }: { d: Det; grande?: boolean }) {
+    const v = d.verif?.veredicto ? VEREDICTOS[d.verif.veredicto] : null;
+    const cls = grande ? "px-3 py-1 text-[13px]" : "px-2 py-0.5 text-[11px]";
+    if (!v) {
+        if (d.verif?.estado === "SIN_FOTO" || d.verif?.estado === "ERROR" || Date.now() - +new Date(d.timestamp) > VERIFICANDO_MS) return null;
+        return <span className={cn("inline-flex items-center gap-1 rounded-full border border-white/25 bg-black/50 text-white/80 font-semibold", cls)}><Loader2 size={grande ? 13 : 10} className="animate-spin" /> verificando</span>;
+    }
+    return <span className={cn("inline-flex items-center gap-1 rounded-full border font-bold uppercase", cls, `chip-${v.tono}`)}><ScanEye size={grande ? 14 : 11} /> {v.rotulo}</span>;
+}
 type Cam = { id: string; name: string; nvrName: string | null; ch: number | null; geom: Geom | null; horarios: any; ultima: Det | null };
 type Alarma = { deviceId: string; id: string; type: string; ts: string };
 type Hoy = { total: number; reales: number; falsas: number };
@@ -108,7 +126,7 @@ function Canal({ cam, pendientes, confirmada, grande, alTocar }: { cam: Cam; pen
 }
 
 /** Un renglón de la franja: la captura, qué fue, de qué cámara, la hora exacta y su estado. */
-function Renglon({ d, alTocar }: { d: Det; alTocar: () => void }) {
+function Renglon({ d, geom, alTocar }: { d: Det; geom?: Geom | null; alTocar: () => void }) {
     const m = metaDe(d.type);
     const e = estadoDe(d);
     const foto = fotoDe(d, 400);
@@ -117,7 +135,9 @@ function Renglon({ d, alTocar }: { d: Det; alTocar: () => void }) {
             className={cn("relative w-full rounded-xl overflow-hidden bg-neutral-900 ring-1 ring-white/10 aspect-[16/7] shrink-0 text-left", tocable)}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {foto && <img src={foto} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
+            {foto && d.verif?.analisis && <CapaAnalisis analisis={d.verif.analisis} geom={geomDeIntrusion(geom)} ajuste="cover" etiquetas={false} />}
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+            <span className="absolute top-2 left-2"><Veredicto d={d} /></span>
             <span className={cn("absolute top-2 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-bold uppercase", e.c)}><e.Ic size={11} /> {e.t}</span>
             <div className="absolute bottom-2 left-3 right-3">
                 <div className="flex items-center gap-1.5 text-[14px] font-bold text-white"><m.Icon size={14} className={m.cls.split(" ")[0]} /> {m.label}{d.label && CLASE[d.label] ? <span className="font-semibold text-white/70">· {CLASE[d.label]}</span> : null}</div>
@@ -147,6 +167,8 @@ export function VistaIntrusion() {
         latir();
         setTimeout(recargar, 1500);
     });
+    // omni-vision terminó de mirar una captura: se trae para dibujar las siluetas y el veredicto.
+    useTiempoReal("detection_verified", () => { recargar(); });
     useTiempoReal("detection_snapshot", (d: any) => { if (d?.id && d.snapshotPath) setNuevas((p) => p.map((x) => (x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x))); });
 
     const porCamara = useMemo(() => { const m = new Map<string, Alarma[]>(); for (const a of vivas) m.set(a.deviceId, [...(m.get(a.deviceId) || []), a]); return m; }, [vivas]);
@@ -215,7 +237,7 @@ export function VistaIntrusion() {
                     </div>
                     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 pr-1 snap-y">
                         <AnimatePresence initial={false}>
-                            {visibles.map((d) => <Renglon key={d.id} d={d} alTocar={() => setDet(d)} />)}
+                            {visibles.map((d) => <Renglon key={d.id} d={d} geom={camaras.find((c) => c.id === d.deviceId)?.geom} alTocar={() => setDet(d)} />)}
                         </AnimatePresence>
                         {datos && visibles.length === 0 && <div className="text-[15px] text-muted-foreground px-1 py-4 inline-flex items-center gap-2"><Clock size={16} /> {filtro === "todas" ? "Sin detecciones recientes" : "Ninguna con este filtro"}</div>}
                     </div>
@@ -231,7 +253,7 @@ export function VistaIntrusion() {
                     else { await setAttending(id, false); if (accion === "era-falsa") await reclasificarComoFalsa(id); }
                     recargar();
                 } : undefined} />
-            <FichaDeteccion d={det} alCerrar={() => setDet(null)} alAmpliar={setAmpliada} alVerCamara={(id) => abrirCamara(id)}
+            <FichaDeteccion d={det} geom={det ? camaras.find((c) => c.id === det.deviceId)?.geom : null} alCerrar={() => setDet(null)} alAmpliar={setAmpliada} alVerCamara={(id) => abrirCamara(id)}
                 marcar={puedeDecidir ? async (id, kind) => { const r = await marcarDeteccion(id, kind); if (r.ok) { setDet((d) => (d && d.id === id ? { ...d, acknowledged: true, ackKind: kind } : d)); recargar(); } } : undefined} />
             <Ampliada src={ampliada} alCerrar={() => setAmpliada(null)} />
         </div>
@@ -352,7 +374,17 @@ function FichaCamara({ cam, pendientes, confirmada, alCerrar, alAmpliar, alVerDe
 }
 
 /** La ficha de una detección: la captura, qué fue, cuándo exactamente, de qué cámara y su estado. */
-function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara, marcar }: { d: Det | null; alCerrar: () => void; alAmpliar: (f: string) => void; alVerCamara: (id: string) => void; marcar?: (id: string, kind: "real" | "false") => Promise<void> }) {
+function FichaDeteccion({ d: d0, geom, alCerrar, alAmpliar, alVerCamara, marcar }: { d: Det | null; geom?: Geom | null; alCerrar: () => void; alAmpliar: (f: string) => void; alVerCamara: (id: string) => void; marcar?: (id: string, kind: "real" | "false") => Promise<void> }) {
+    /* La verificación de una detección abierta desde la ficha de la cámara no viene en la franja:
+       se pide aparte, y se vuelve a pedir cuando vision-worker avisa que la terminó. */
+    const [verif, setVerif] = useState<Verificacion | null>(null);
+    const pedir = useCallback(() => {
+        if (!d0?.id) return;
+        fetch(`/api/monitor/intrusion/verificacion?ids=${encodeURIComponent(d0.id)}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : {})).then((j: Record<string, Verificacion>) => setVerif(j?.[d0.id] || null)).catch(() => { });
+    }, [d0?.id]);
+    useEffect(() => { setVerif(null); if (d0 && !d0.verif?.analisis) pedir(); }, [d0?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    useTiempoReal("detection_verified", (x: any) => { if (x?.id && x.id === d0?.id) pedir(); });
+    const d = d0 ? { ...d0, verif: d0.verif?.analisis ? d0.verif : verif || d0.verif } : null;
     const [grabacion, setGrabacion] = useState(false);
     useEffect(() => { setGrabacion(false); }, [d?.id]);
     const [haciendo, setHaciendo] = useState<"real" | "false" | null>(null);
@@ -369,6 +401,8 @@ function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara, marcar }: { d: De
                         className={cn("relative block w-full aspect-video rounded-2xl overflow-hidden bg-neutral-900", foto && tocable)}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         {foto ? <img src={foto} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <span className="absolute inset-0 grid place-items-center text-white/30"><Camera size={40} /></span>}
+                        {foto && d.verif?.analisis && <CapaAnalisis analisis={d.verif.analisis} geom={geomDeIntrusion(geom)} />}
+                        <span className="absolute top-3 left-3"><Veredicto d={d} grande /></span>
                         {foto && <span className="absolute bottom-3 right-3 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white"><Maximize2 size={18} /></span>}
                     </button>
                     <div className="flex items-start gap-3">
@@ -405,6 +439,15 @@ function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara, marcar }: { d: De
                             <button type="button" onClick={() => alVerCamara(d.deviceId!)} className={cn("h-14 rounded-2xl bg-muted text-foreground text-[16px] font-semibold inline-flex items-center justify-center gap-2", tocable)}>
                                 <Camera size={20} /> La cámara en vivo
                             </button>
+                        </div>
+                    )}
+                    {d.verif?.veredicto && (
+                        <div className="rounded-xl bg-card border border-border px-4 py-3 flex items-start gap-3">
+                            <ScanEye size={20} className="mt-0.5 shrink-0 text-muted-foreground" />
+                            <div className="min-w-0">
+                                <div className="text-[16px] font-bold">omni-vision: {VEREDICTOS[d.verif.veredicto].rotulo}</div>
+                                <div className="text-[14px] text-muted-foreground leading-snug">{VEREDICTOS[d.verif.veredicto].explica}{d.verif.tocan.some(Boolean) ? " En rojo, la parte que toca." : ""} Es una ayuda: la alarma la decide una persona.</div>
+                            </div>
                         </div>
                     )}
                     <AnalisisDeteccion id={d.id} grande />

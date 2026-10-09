@@ -34,6 +34,7 @@ const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, Dele
 const prisma = new PrismaClient();
 const relecturas = require("./vision-relectura");
 const reglasVision = require("./vision-reglas");
+const analisisFotos = require("./vision-analisis");
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
 const GO2RTC = (process.env.GO2RTC_API || "http://127.0.0.1:1984").replace(/\/$/, "");
@@ -158,6 +159,11 @@ async function leerAjustes() {
         // Empresa por rotulado (analítica «rotulados», prendida por defecto): sólo en las pistas del
         // registro, y la lee el OCR (tarea «texto»).
         rotulado: analiticas.rotulados !== false && !apagadas.has("texto"),
+        // Verificación de intrusión y análisis de las lecturas LPR (vision-analisis.js), cada uno con
+        // su analítica: «verif-intrusion», «tipo-vehiculo» y, para los atributos, «color-vehiculo».
+        verificar: analiticas["verif-intrusion"] !== false,
+        analizarLpr: analiticas["tipo-vehiculo"] !== false,
+        atributosLpr: analiticas["color-vehiculo"] !== false && !apagadas.has("atributos"),
         dispositivos,
         clases: json(c, {}),
         camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
@@ -420,6 +426,7 @@ async function escribirEstado() {
         t: new Date().toISOString(), activo: ajustes.activo, tareasApagadas: [...ajustes.apagadas], mira: ajustes.mira, intervaloMs: INTERVALO_MS, umbral: UMBRAL, cambioMin: CAMBIO_MIN,
         camaras, contadores, pistasAbiertas: abiertas.size, retencionDias: ajustes.retencionDias,
         relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
+        analisis: analista ? { verificar: ajustes.verificar, lpr: ajustes.analizarLpr, ...analista.contadores } : null,
         reglas: reglero ? reglero.contadores : null, rotulado: ajustes.rotulado,
     });
     await prisma.setting.upsert({ where: { key: "VISION_REGISTRO_ESTADO" }, update: { value: valor }, create: { key: "VISION_REGISTRO_ESTADO", value: valor } }).catch(() => null);
@@ -463,6 +470,7 @@ const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 let corriendo = true;
 
 let relector = null;
+let analista = null;
 let reglero = null;
 
 // ─────────────────────────── carril rápido ───────────────────────────
@@ -542,6 +550,13 @@ async function principal() {
     reglero = reglasVision.iniciar({ prisma, subir, log });
     await leerAjustes().catch((e) => log("ajustes:", e.message));
     relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura });
+    analista = analisisFotos.iniciar({
+        prisma, log, vision: VISION,
+        estado: () => ({
+            detectar: !ajustes.apagadas.has("detectar"), segmentar: !ajustes.apagadas.has("segmentar"),
+            verificar: ajustes.verificar, lpr: ajustes.analizarLpr, atributos: ajustes.atributosLpr,
+        }),
+    });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {
         const t0 = Date.now();
@@ -581,6 +596,7 @@ async function principal() {
 async function salir() {
     corriendo = false;
     relector?.parar();
+    analista?.parar();
     for (const st of rapidas.values()) { st.retirada = true; try { st.ffmpeg?.kill("SIGKILL"); } catch { } }
     await reglero?.cerrarTodo().catch(() => null);
     log("cerrando pistas abiertas…");

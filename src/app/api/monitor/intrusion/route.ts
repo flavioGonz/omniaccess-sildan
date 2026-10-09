@@ -4,6 +4,7 @@ import { getIntrusionCameras, getAnalyticsGeometryBatch, getRecentDetections, ge
 import { horariosDeTodas } from "@/lib/horarios-camaras";
 import { prisma } from "@/lib/prisma";
 import { inicioDelDia } from "@/lib/monitor/servidor";
+import { verificacionesDe } from "@/lib/verificacion";
 
 export const dynamic = "force-dynamic";
 
@@ -38,9 +39,12 @@ export async function GET() {
     ]);
     const ultimaPorCamara: Record<string, any> = {};
     for (const d of recientes) if (d.deviceId && !ultimaPorCamara[d.deviceId]) ultimaPorCamara[d.deviceId] = d;
+    // Lo que vio omni-vision en cada captura, con su veredicto (lib/verificacion).
+    const verif = await verificacionesDe([...franja.map((d: any) => d.id), ...Object.values(ultimaPorCamara).map((d: any) => d.id)], geom as any).catch(() => new Map());
+    const conVerif = (d: any) => (d ? { ...d, verif: verif.get(d.id) || null } : d);
     return NextResponse.json({
-        camaras: camaras.map((c) => ({ ...c, geom: (geom as any)[c.id] || null, horarios: (horarios as any)[c.id] || null, ultima: ultimaPorCamara[c.id] || null })),
-        pendientes, atendiendo, franja, ahora: new Date().toISOString(),
+        camaras: camaras.map((c) => ({ ...c, geom: (geom as any)[c.id] || null, horarios: (horarios as any)[c.id] || null, ultima: conVerif(ultimaPorCamara[c.id]) || null })),
+        pendientes, atendiendo, franja: franja.map(conVerif), ahora: new Date().toISOString(),
         hoy: { total: hoyTotal, reales: hoyReales, falsas: hoyFalsas },
     }, { headers: SIN_CACHE });
 }

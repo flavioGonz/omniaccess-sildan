@@ -289,9 +289,9 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "verif-intrusion", nombre: "Doble verificación de intrusión", icono: "ShieldCheck", modo: "Intrusión",
-        queHace: "Cada cruce de línea o zona que manda la cámara se mira con el detector en ese instante: queda \"confirmada\", \"no confirmada\" o \"animal\", con las cajas dibujadas en la ficha.",
-        necesita: ["deteccion"], clases: ["person", "car", "truck", "motorcycle", "bicycle", "dog", "cat", "bird"],
-        estado: "desarrollo", fase: 1, porDefecto: true,
+        queHace: "Cada cruce de línea o zona que manda la cámara se mira con la segmentación: queda \"confirmada\" (una persona o un vehículo toca la línea), \"hay alguien\", \"animal\" o \"no se ve a nadie\", con las siluetas dibujadas sobre la captura en el monitor de intrusión.",
+        necesita: ["deteccion", "segmentacion"], clases: ["person", "car", "truck", "motorcycle", "bicycle", "dog", "cat", "bird"],
+        estado: "corre", fase: 1, porDefecto: true,
         limite: "Nunca acepta ni descarta una alarma sola: decide una persona.",
     },
     {
@@ -311,13 +311,13 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "tipo-vehiculo", nombre: "Tipo de vehículo en lecturas", icono: "Car", modo: "LPR",
-        queHace: "Cuando la lectora no trae el tipo, el detector dice auto, camioneta, moto u ómnibus en la foto de la lectura.",
-        necesita: ["deteccion"], clases: ["car", "truck", "motorcycle", "bus", "bicycle"], estado: "desarrollo", fase: 2, porDefecto: true,
+        queHace: "En la foto de cada lectura, el detector dice auto, camioneta, moto u ómnibus y dibuja su silueta en Control LPR.",
+        necesita: ["deteccion", "segmentacion"], clases: ["car", "truck", "motorcycle", "bus", "bicycle"], estado: "corre", fase: 2, porDefecto: true,
     },
     {
         id: "color-vehiculo", nombre: "Color del vehículo", icono: "Tag", modo: "LPR",
         queHace: "El color estimado del vehículo en cada lectura, para buscar \"el auto blanco que entró a las 3\".",
-        necesita: ["deteccion", "clasificacion"], clases: ["car", "truck", "motorcycle"], estado: "desarrollo", fase: 2, porDefecto: true,
+        necesita: ["deteccion", "clasificacion"], clases: ["car", "truck", "motorcycle"], estado: "corre", fase: 2, porDefecto: true,
     },
     {
         id: "motos", nombre: "Conteo de motos", icono: "Bike", modo: "LPR",

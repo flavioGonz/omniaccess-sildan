@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/app/actions/auth";
+import { permisosDeSesion } from "@/lib/permisos";
+import { CLAVE_UMBRAL_RELECTURA, OPCIONES_UMBRAL, UMBRAL_RELECTURA, estadoConUmbral, leerUmbral } from "@/lib/relectura-umbral";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
-import { leerAjuste } from "@/lib/ajustes-db";
+import { leerAjuste, guardarAjuste } from "@/lib/ajustes-db";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +37,7 @@ export async function GET(req: NextRequest) {
     const h = RANGOS_H.has(hq) ? hq : 24;
     const desde = new Date(Date.now() - h * 3600_000);
 
-    const [filas, noLeidas, estadoCrudo, analiticasCrudo] = await Promise.all([
+    const [filas, noLeidas, estadoCrudo, analiticasCrudo, umbralCrudo] = await Promise.all([
         // Por la hora del EVENTO, no de la relectura: al arrancar, el worker relee el último día de
         // una vez, y contar por hora de relectura daba más releídas que NO_LEIDA en el rango.
         // Se piden las relecturas de un margen más y se filtran abajo por la hora del evento.
@@ -42,7 +45,9 @@ export async function GET(req: NextRequest) {
         prisma.accessEvent.count({ where: { accessType: "PLATE", timestamp: { gte: desde }, plateDetected: { in: NO_LEIDAS } } }),
         leerAjuste("VISION_REGISTRO_ESTADO"),
         leerAjuste("VISION_ANALITICAS"),
+        leerAjuste(CLAVE_UMBRAL_RELECTURA),
     ]);
+    const umbral = leerUmbral(umbralCrudo?.value);
     const eventos = filas.length ? await prisma.accessEvent.findMany({
         where: { id: { in: filas.map((f) => f.accessEventId) } },
         select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, snapshotPath: true, device: { select: { name: true } } },
@@ -60,11 +65,15 @@ export async function GET(req: NextRequest) {
     for (const l of lecturas) porChapa.set(l.plateDetected!, [...(porChapa.get(l.plateDetected!) || []), l]);
 
     const conteo = { releidas: enRango.length, leidas: 0, dudosas: 0, sinChapa: 0, sinVehiculo: 0, sinFoto: 0, errores: 0, confirmadasOtraCamara: 0, guardiaIgual: 0, guardiaDistinta: 0 };
+    // Para elegir el umbral con datos: con cada valor, cuántas serían acertadas y cuántas de ésas
+    // confirmó otra cámara o el guardia (lo único que dice si una relectura estaba bien).
+    const porUmbral = OPCIONES_UMBRAL.map((u) => ({ umbral: u, acertadas: 0, confirmadas: 0 }));
     const lista = enRango.map((f) => {
         const e = evento.get(f.accessEventId);
-        if (f.estado === "LEIDA") conteo.leidas++; else if (f.estado === "DUDOSA") conteo.dudosas++;
-        else if (f.estado === "SIN_CHAPA") conteo.sinChapa++; else if (f.estado === "SIN_VEHICULO") conteo.sinVehiculo++;
-        else if (f.estado === "SIN_FOTO") conteo.sinFoto++; else conteo.errores++;
+        const estadoF = estadoConUmbral(f.estado, f.confianza, umbral);
+        if (estadoF === "LEIDA") conteo.leidas++; else if (estadoF === "DUDOSA") conteo.dudosas++;
+        else if (estadoF === "SIN_CHAPA") conteo.sinChapa++; else if (estadoF === "SIN_VEHICULO") conteo.sinVehiculo++;
+        else if (estadoF === "SIN_FOTO") conteo.sinFoto++; else conteo.errores++;
         const t = e?.timestamp.getTime() ?? f.createdAt.getTime();
         const otra = f.plate ? (porChapa.get(f.plate) || []).find((l) => l.id !== f.accessEventId && Math.abs(l.timestamp.getTime() - t) <= OTRA_LECTURA_H * 3600_000) : undefined;
         if (otra) conteo.confirmadasOtraCamara++;
@@ -72,12 +81,13 @@ export async function GET(req: NextRequest) {
         const actual = e?.plateDetected || null;
         const corregido = actual && !NO_LEIDAS.includes(actual) ? actual : null;
         if (corregido && f.plate) { if (corregido === f.plate) conteo.guardiaIgual++; else conteo.guardiaDistinta++; }
+        if (f.plate && f.confianza != null) for (const o of porUmbral) if (f.confianza >= o.umbral) { o.acertadas++; if (otra || (corregido && corregido === f.plate)) o.confirmadas++; }
         const c: any = f.candidatos || {};
         return {
             id: f.id, eventoId: f.accessEventId, ts: (e?.timestamp || f.createdAt).toISOString(),
             camara: e?.device?.name || null, sentido: e?.direction || null, decision: e?.decision || null,
             foto: e?.snapshotPath || null,
-            estado: f.estado, plate: f.plate, confianza: f.confianza, vehiculo: f.vehiculo, vehiculos: f.vehiculos,
+            estado: estadoF, plate: f.plate, confianza: f.confianza, vehiculo: f.vehiculo, vehiculos: f.vehiculos,
             acuerdo: c.acuerdo ?? null, otras: Array.isArray(c.otras) ? c.otras : [],
             recorte: f.recorte ? `/api/vision/imagen/${f.recorte}` : null, chapa: f.recorteChapa ? `/api/vision/imagen/${f.recorteChapa}` : null,
             ms: f.ms, error: f.error,
@@ -89,5 +99,17 @@ export async function GET(req: NextRequest) {
     let estado: any = null, activa = true;
     try { estado = JSON.parse(estadoCrudo?.value || "null")?.relectura ?? null; } catch { }
     try { activa = (JSON.parse(analiticasCrudo?.value || "{}") || {}).relectura !== false; } catch { }
-    return NextResponse.json({ h, noLeidas, conteo, activa, estado, otraLecturaH: OTRA_LECTURA_H, filas: lista.slice(0, LISTA_MAX) });
+    return NextResponse.json({ h, noLeidas, conteo, activa, estado, umbral, porUmbral, otraLecturaH: OTRA_LECTURA_H, filas: lista.slice(0, LISTA_MAX) });
+}
+
+/** POST /api/vision/relecturas { umbral } — desde qué confianza una relectura es acertada. Pide Ajustes. */
+export async function POST(req: NextRequest) {
+    const s: any = await getSession();
+    if (!s) return NextResponse.json({ error: "Sin sesión" }, { status: 401 });
+    if (!permisosDeSesion(s).includes("ajustes")) return NextResponse.json({ error: "Sólo quien tiene Ajustes puede cambiar esto." }, { status: 403 });
+    const b = await req.json().catch(() => null);
+    const u = Number(b?.umbral);
+    if (!Number.isFinite(u) || u < UMBRAL_RELECTURA.min || u > UMBRAL_RELECTURA.max) return NextResponse.json({ error: `Entre ${UMBRAL_RELECTURA.min * 100} y ${UMBRAL_RELECTURA.max * 100} %` }, { status: 400 });
+    await guardarAjuste(CLAVE_UMBRAL_RELECTURA, String(Math.round(u * 100) / 100));
+    return NextResponse.json({ umbral: Math.round(u * 100) / 100 });
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ScanLine, Activity, Camera, CheckCircle2, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { sileo as toast } from "sileo";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { Pista } from "@/components/ui/pista";
@@ -25,14 +26,44 @@ type Fila = {
 };
 type Respuesta = {
     h: number; noLeidas: number; activa: boolean; otraLecturaH: number; filas: Fila[];
+    /** Desde qué confianza una relectura es «acertada», y qué pasaría con cada valor. */
+    umbral: number; porUmbral: { umbral: number; acertadas: number; confirmadas: number }[];
     conteo: { releidas: number; leidas: number; dudosas: number; sinChapa: number; sinVehiculo: number; sinFoto: number; errores: number; confirmadasOtraCamara: number; guardiaIgual: number; guardiaDistinta: number };
     estado: null | { activa: boolean; hechas: number; ultimoError: string | null; msUltima: number | null };
 };
 
+/**
+ * El umbral de «acertada»: se elige mirando, para cada valor, cuántas relecturas pasarían y qué
+ * parte de ésas confirmó otra lectora o el guardia. Subirlo deja menos acertadas pero más
+ * seguras; la decisión es de quien mira estos números, no un valor escrito en el código.
+ */
+function Umbral({ datos, alCambiar }: { datos: Respuesta; alCambiar: (u: number) => void }) {
+    return (
+        <section className="rounded-[10px] border border-border bg-card px-4 py-3">
+            <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-[13px] font-bold">Acertada desde</h2>
+                <span className="text-[12px] text-muted-foreground">Con menos confianza la sugerencia sale como «dudosa». Cambiarlo reclasifica también lo ya releído.</span>
+            </div>
+            <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-6 gap-2">
+                {datos.porUmbral.map((o) => {
+                    const sel = Math.abs(o.umbral - datos.umbral) < 0.001;
+                    return (
+                        <button key={o.umbral} type="button" onClick={() => !sel && alCambiar(o.umbral)} aria-pressed={sel}
+                            className={cn("rounded-[10px] border px-3 py-2 text-left transition-colors", sel ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border hover:bg-accent")}>
+                            <div className="text-[16px] font-bold tabular-nums">{Math.round(o.umbral * 100)} %</div>
+                            <div className="text-[11px] text-muted-foreground tabular-nums leading-snug">{o.acertadas} acertadas · {o.acertadas ? Math.round((o.confirmadas / o.acertadas) * 100) : 0} % confirmadas</div>
+                        </button>
+                    );
+                })}
+            </div>
+        </section>
+    );
+}
+
 const RANGOS = [{ v: "6", r: "6 h" }, { v: "24", r: "24 h" }, { v: "72", r: "3 días" }, { v: "168", r: "7 días" }];
 const REFRESCO_MS = 15_000;
 const ESTADOS: Record<string, { r: string; tono: "bien" | "aviso" | "quieto" | "mal" }> = {
-    LEIDA: { r: "leída", tono: "bien" }, DUDOSA: { r: "dudosa", tono: "aviso" }, SIN_CHAPA: { r: "sin chapa", tono: "quieto" },
+    LEIDA: { r: "acertada", tono: "bien" }, DUDOSA: { r: "dudosa", tono: "aviso" }, SIN_CHAPA: { r: "sin chapa", tono: "quieto" },
     SIN_VEHICULO: { r: "sin vehículo", tono: "quieto" }, SIN_FOTO: { r: "sin foto", tono: "quieto" }, ERROR: { r: "error", tono: "mal" },
 };
 const FILTROS = [{ v: "", r: "Todas" }, { v: "sugerida", r: "Con sugerencia" }, { v: "coincide", r: "Coinciden" }, { v: "sin", r: "Sin sugerencia" }];
@@ -90,10 +121,18 @@ export default function RelecturasVision() {
                 </div>
             </div>
 
+            <Umbral datos={datos} alCambiar={async (u) => {
+                const r = await fetch("/api/vision/relecturas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ umbral: u }) });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok) { toast.error({ title: "No se guardó", description: j?.error || `El servidor respondió ${r.status}` }); return; }
+                toast.success({ title: `Acertada desde ${Math.round(u * 100)} %`, description: "Se aplica también a lo ya releído." });
+                await cargar();
+            }} />
+
             <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
                 <Numero n={datos.noLeidas} rotulo="NO_LEIDA de las lectoras" sub={`en ${RANGOS.find((r) => r.v === h)?.r}`} />
                 <Numero n={c.releidas} rotulo="Releídas" sub={c.sinFoto || c.errores ? `${c.sinFoto} sin foto · ${c.errores} con error` : "todas con foto"} />
-                <Numero n={sugeridas} rotulo="Con chapa sugerida" sub={`${pct(sugeridas, c.releidas)} · ${c.leidas} seguras, ${c.dudosas} dudosas`} tono="bien" />
+                <Numero n={sugeridas} rotulo="Con chapa sugerida" sub={`${pct(sugeridas, c.releidas)} · ${c.leidas} acertadas, ${c.dudosas} dudosas`} tono="bien" />
                 <Pista titulo="Coinciden con una lectura" texto={`La chapa sugerida la leyó también una lectora (la misma u otra) en ±${datos.otraLecturaH} h: el auto que la Salida no leyó casi siempre lo leyó la Entrada al llegar. Es la confirmación que no depende de nadie. Puede contar de más si la relectura leyó el auto de atrás y ese también pasó.`}>
                     <div><Numero n={c.confirmadasOtraCamara} rotulo="Coinciden con una lectura" sub={`${pct(c.confirmadasOtraCamara, sugeridas)} de las sugeridas`} tono="bien" /></div>
                 </Pista>
