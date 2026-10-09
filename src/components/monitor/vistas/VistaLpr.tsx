@@ -17,6 +17,7 @@ import { presentarLectura, rotulosContadores, ETIQUETA_AVISO, type TipoAviso } f
 import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
+import { SUAVE, RESORTE, tocable, usarInactividad, CuentaAtras } from "@/components/monitor/tactil";
 
 /**
  * La vista Control LPR: la última lectura grande y clara, si se abrió y por qué, la tira de
@@ -47,9 +48,6 @@ const ULTIMAS_EN_TIRA = 30;
 const VOLVER_AL_VIVO_MS = 30_000;
 /** Sin tocar nada este tiempo, la ficha se cierra. */
 const FICHA_SE_CIERRA_MS = 60_000;
-/** Las transiciones: cortas y con la misma curva en toda la vista. */
-const SUAVE = { duration: 0.22, ease: [0.32, 0.72, 0, 1] as const };
-const RESORTE = { type: "spring" as const, stiffness: 420, damping: 40 };
 
 type Modo = "ABIERTO" | "CERRADO";
 type Lectura = { id: string; ts: string; plate: string | null; persona: string | null; unidad?: string | null; registrada?: boolean; camara: string | null; sentido: string; decision: string; accessType: string | null; foto: string | null; detalles: string | null; metodo: { metodo: string | null; confianza: number | null } };
@@ -127,32 +125,6 @@ const faltan = (ts: string) => {
     if (m < 60) return `en ${m} min`;
     const h = Math.floor(m / 60); return h < 48 ? `en ${h} h${m % 60 ? ` ${m % 60} min` : ""}` : `en ${Math.floor(h / 24)} d`;
 };
-
-/** Se hunde un poco al tocar: la respuesta inmediata que un dedo necesita para saber que tocó. */
-const tocable = "transition-transform duration-150 ease-out active:scale-[0.97] touch-manipulation";
-
-/** Vence `ms` después del último toque en cualquier parte de la pantalla, mientras `activo`. */
-function usarInactividad(activo: boolean, ms: number, alVencer: () => void) {
-    const [vuelta, setVuelta] = useState(0);
-    const vencer = useRef(alVencer); vencer.current = alVencer;
-    useEffect(() => {
-        if (!activo) return;
-        let t = setTimeout(() => vencer.current(), ms);
-        const tocar = () => { clearTimeout(t); t = setTimeout(() => vencer.current(), ms); setVuelta((v) => v + 1); };
-        window.addEventListener("pointerdown", tocar);
-        return () => { clearTimeout(t); window.removeEventListener("pointerdown", tocar); };
-    }, [activo, ms]);
-    return vuelta; // cambia en cada toque: sirve de `key` para reiniciar la barra de cuenta atrás
-}
-
-/** La barra que se vacía hasta que algo vuelve solo. */
-function CuentaAtras({ ms, vuelta, className }: { ms: number; vuelta: number; className?: string }) {
-    return (
-        <span className={cn("block h-[3px] w-full overflow-hidden rounded-full bg-white/15", className)}>
-            <motion.span key={vuelta} className="block h-full origin-left bg-white/70" initial={{ scaleX: 1 }} animate={{ scaleX: 0 }} transition={{ duration: ms / 1000, ease: "linear" }} />
-        </span>
-    );
-}
 
 function Contador({ rotulo, valor, Icono, tono, activo, alTocar }: { rotulo: string; valor: number; Icono: any; tono?: "bien" | "mal" | "info"; activo?: boolean; alTocar?: () => void }) {
     return (
