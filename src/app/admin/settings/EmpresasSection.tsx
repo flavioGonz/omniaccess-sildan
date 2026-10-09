@@ -173,8 +173,8 @@ function CajonEmpresa({ clave, lista, onClose, alGuardar, alCambiarLogo }: {
                     <Button variant="outline" onClick={onClose}>Cerrar</Button>
                     <Button onClick={guardar} disabled={guardando || !nombre.trim() || repetida}>{guardando && <Loader2 size={14} className="animate-spin" />} Guardar</Button>
                 </>}>
-                <div className="px-6 py-5 space-y-6">
-                    <CajonSeccion titulo="La empresa" icono={Building2}>
+                <>
+                    <CajonSeccion titulo="La empresa" icono={Building2} compacta>
                         <div className="space-y-4">
                             <CajonCampo etiqueta="Nombre" pista={<>Como se la conoce en el barrio. Ej.: <b>PedidosYa</b>, <b>Radio Taxi 141</b>.</>}>
                                 <Input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. PedidosYa" autoFocus={!actual} />
@@ -203,7 +203,7 @@ function CajonEmpresa({ clave, lista, onClose, alGuardar, alCambiarLogo }: {
                     </CajonSeccion>
 
                     {actual && (
-                        <CajonSeccion titulo="Logo sobre la captura" icono={ImageUp}
+                        <CajonSeccion titulo="Logo sobre la captura" icono={ImageUp} compacta
                             pista="Se pinta en una esquina de la foto cuando entra una matrícula de esta empresa. PNG o SVG con fondo transparente; se recorta el margen y se guarda a 160 px de alto.">
                             <div className="space-y-3">
                                 <div className="h-28 rounded-[10px] border border-border grid place-items-center" style={DAMERO}>
@@ -227,7 +227,7 @@ function CajonEmpresa({ clave, lista, onClose, alGuardar, alCambiarLogo }: {
                             </div>
                         </CajonSeccion>
                     )}
-                </div>
+                </>
             </CajonContenido>
         </Cajon>
     );
