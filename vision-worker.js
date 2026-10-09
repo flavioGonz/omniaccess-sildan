@@ -347,11 +347,19 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
         (est.difs ||= []).push(Math.round(dif * 10) / 10);
         if (est.difs.length > 60) est.difs.shift();
     }
-    const conPistas = [...abiertas.values()].some((p) => p.deviceId === cam.id) || !!reglero?.enCurso(cam.id);
     const ahora = new Date();
-    if (dif < CAMBIO_MIN && !conPistas && Date.now() - (ultimoAnalisis[cam.id] || 0) < ANALIZAR_IGUAL_MS) {
-        est.saltados++; contadores.saltados++;
-        return;
+    if (rapido) {
+        // Carril rápido: a 4 c/s sólo mientras algo cambia o se mueve; quieto, al ritmo de la
+        // ronda (cada INTERVALO_MS). Así un auto estacionado sigue siendo UNA pista del registro
+        // —con la compuerta de la ronda se cerraba y reabría cada minuto— sin gastar 4 c/s.
+        const mueve = dif >= CAMBIO_MIN || !!reglero?.enCurso(cam.id);
+        if (!mueve && Date.now() - (ultimoAnalisis[cam.id] || 0) < INTERVALO_MS) { est.saltados++; contadores.saltados++; return; }
+    } else {
+        const conPistas = [...abiertas.values()].some((p) => p.deviceId === cam.id) || !!reglero?.enCurso(cam.id);
+        if (dif < CAMBIO_MIN && !conPistas && Date.now() - (ultimoAnalisis[cam.id] || 0) < ANALIZAR_IGUAL_MS) {
+            est.saltados++; contadores.saltados++;
+            return;
+        }
     }
     if (rapido) huellas[cam.id] = h;
     const t0 = Date.now();

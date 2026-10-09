@@ -23,6 +23,8 @@ const crypto = require("crypto");
 /** Las analíticas del laboratorio que prenden cada tipo, y su valor si nadie las tocó. */
 const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion" };
 const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true };
+/** Cuánto tiene que correrse el pie (fracción del cuadro) para contar como movimiento. */
+const MOVIMIENTO_MIN = 0.01;
 /** Una pista que no se ve hace esto deja de existir para las reglas. */
 const OLVIDO_MS = 20_000;
 /** Dos cruces de la misma pista en la misma línea dentro de esto son el mismo (el pie tiembla sobre la línea). */
@@ -89,9 +91,11 @@ function iniciar({ prisma, subir, log }) {
     /** Si hay algo en curso en esa cámara (alguien adentro de una zona): se mira aunque la imagen no cambie. */
     function enCurso(deviceId) {
         if (!reglas.some((r) => r.deviceId === deviceId && prendida(r))) return false;
-        // Algo que se movía hace poco en una cámara con reglas: se sigue mirando para no perder el cruce.
+        // Algo que se MOVIÓ hace poco en una cámara con reglas: se sigue mirando para no perder el
+        // cruce. Que se mueva, no que esté: un auto estacionado en el cuadro lo dejaba analizando a
+        // 4 c/s todo el día (9/10, LPR Interior: 430 cuadros seguidos por un auto quieto).
         const ahora = Date.now();
-        for (const [k, v] of pies) if (k.startsWith(deviceId + ":") && ahora - v.t < OLVIDO_MS) return true;
+        for (const [k, v] of pies) if (k.startsWith(deviceId + ":") && ahora - v.t < OLVIDO_MS && ahora - (v.mov || 0) < OLVIDO_MS) return true;
         for (const r of reglas) {
             if (r.deviceId !== deviceId || !prendida(r)) continue;
             if (r.tipo === "aglomeracion" && grupos.get(r.id)?.desde) return true;
@@ -136,7 +140,12 @@ function iniciar({ prisma, subir, log }) {
             }
         }
         // El pie de cada pista, para el próximo cuadro (aunque hoy no haya reglas: si se crea una, ya tiene de dónde partir).
-        for (const o of conPista) pies.set(`${cam.id}:${o.pista}`, { p: pie(o), t });
+        for (const o of conPista) {
+            const k = `${cam.id}:${o.pista}`, ant = pies.get(k), p = pie(o);
+            // `mov`: la última vez que el pie se corrió más de MOVIMIENTO_MIN desde donde estaba.
+            const se_movio = !ant || Math.hypot(p[0] - ant.ref[0], p[1] - ant.ref[1]) > MOVIMIENTO_MIN;
+            pies.set(k, { p, t, ref: se_movio ? p : ant.ref, mov: se_movio ? t : ant.mov });
+        }
         // Olvido de lo viejo.
         for (const [k, v] of pies) if (t - v.t > OLVIDO_MS * 3) pies.delete(k);
         for (const [k, v] of cruces) if (t - v.t > OLVIDO_MS * 3) cruces.delete(k);
