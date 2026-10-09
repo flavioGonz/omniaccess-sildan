@@ -30,14 +30,16 @@ const GRUPOS = [{ v: "", r: "Todo" }, { v: "persona", r: "Personas" }, { v: "veh
 /** Para arrancar: lo que se suele buscar en un barrio. */
 const EJEMPLOS = ["camioneta blanca", "persona con mochila", "moto de delivery", "auto rojo", "persona con chaleco reflectivo", "perro"];
 /**
- * Probabilidad SigLIP (sigmoide con la escala y el sesgo del modelo) desde la que un resultado
- * «se parece». Medido el 9/10 sobre ~400 pistas: los aciertos de verdad dieron 0,03-0,88
- * (camioneta blanca 0,42, el segundo auto rojo 0,038) y las búsquedas sin nada que encontrar
- * —perro, caballo, bicicleta— nunca pasaron de 0,007. Sin este corte la pantalla mostraba 60
- * «parecidos» a un perro con la barra llena, que es mentir con aspecto de resultado.
+ * Probabilidad SigLIP (sigmoide con la escala y el sesgo del modelo) debajo de la cual un
+ * resultado queda aparte, como «no se parece mucho». Medido el 9/10 sobre ~1.800 pistas:
+ *  · Sin nada que encontrar, el mejor nunca pasó de 0,007 (caballo 0,002, bicicleta 0,007).
+ *  · El único perro registrado dio 0,013: las palabras sueltas puntúan bajo. Un corte en 0,02
+ *    lo escondía detrás de «Nada se parece», que es peor que mostrar de más.
+ *  · Lo de arriba del corte se llama «posibles», no aciertos: «persona con paraguas» dio seis
+ *    personas con campera a 0,03 y ningún paraguas.
  * La búsqueda por imagen no tiene probabilidad (es imagen contra imagen): ahí no se corta.
  */
-const PROB_PARECE = 0.02;
+const PROB_PARECE = 0.01;
 
 export default function BuscarVision() {
     const [texto, setTexto] = useState("");
@@ -136,7 +138,7 @@ export default function BuscarVision() {
                 ) : datos && (
                     <>
                         <p className="text-[12px] text-muted-foreground tabular-nums">
-                            {conCorte ? (parecen.length ? `${parecen.length} se parecen` : "Nada se parece") : datos.resultados.length ? `Los ${datos.resultados.length} más parecidos` : "Nada"} entre {datos.comparados.toLocaleString("es-UY")} pistas de {RANGOS.find((r) => r.v === String(datos.h))?.r} · {datos.ms} ms
+                            {conCorte ? (parecen.length ? `${parecen.length} posibles` : "Nada se parece claramente") : datos.resultados.length ? `Los ${datos.resultados.length} más parecidos` : "Nada"} entre {datos.comparados.toLocaleString("es-UY")} pistas de {RANGOS.find((r) => r.v === String(datos.h))?.r} · {datos.ms} ms
                             {datos.sinHuella > 0 && ` · ${datos.sinHuella.toLocaleString("es-UY")} todavía sin procesar (se van sumando solas)`}
                         </p>
                         {datos.resultados.length === 0 ? (
@@ -145,7 +147,7 @@ export default function BuscarVision() {
                             <>
                                 {parecen.length > 0 ? grilla(parecen) : (
                                     <div className="rounded-[10px] border border-border bg-card px-4 py-3 text-[13px]">
-                                        Nada de lo que vieron las cámaras en este rango se parece a «{pedido.q}». Abajo, lo menos lejano, por si sirve.
+                                        Nada de lo que vieron las cámaras en este rango se parece claramente a «{pedido.q}». Abajo, lo menos lejano, por si sirve.
                                     </div>
                                 )}
                                 {resto.length > 0 && (
