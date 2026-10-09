@@ -9,6 +9,7 @@ import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { IntrusionPanel } from "@/components/IntrusionPanel";
 import { logosPorMatricula } from "@/app/actions/empresas";
+import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { CajonPlaza } from "@/components/parking/CajonPlaza";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
@@ -338,15 +339,8 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     </div>
                 )}
                 {/* El logo de la empresa (delivery, taxi) incrustado en la foto: abajo a la izquierda,
-                    donde no tapa ni la patente ni la matrícula leída. Con fondo transparente va
-                    suelto con una sombra para que se lea sobre cualquier foto; si el PNG tiene
-                    fondo, va en una placa para que no parezca un pedazo de la captura. */}
-                {empresa && (
-                    <div className={cn("absolute left-3 bottom-3 z-20", !empresa.transparente && "rounded-md bg-white/90 px-1.5 py-1")} title={empresa.nombre}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={empresa.logo} alt={empresa.nombre} className="h-[clamp(20px,2.6vw,40px)] w-auto max-w-[9vw] object-contain [filter:drop-shadow(0_1px_3px_rgba(0,0,0,0.85))]" />
-                    </div>
-                )}
+                    donde no tapa ni la patente ni la matrícula leída. */}
+                {empresa && <div className="absolute left-3 bottom-3 z-20"><LogoSobreFoto empresa={empresa} className="h-[clamp(20px,2.6vw,40px)] max-w-[9vw]" /></div>}
                 <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-3 pt-14 flex flex-col items-center">
                     {anomalous ? (
                         <div className="flex flex-col items-center gap-2">
@@ -438,7 +432,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
     return (
       <>
-        <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)}>
+        <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)} empresa={empresa}>
             <div className={cn(
                 "relative p-3 cursor-pointer transition-all group border-b border-border last:border-0",
                 isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent",

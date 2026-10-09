@@ -16,6 +16,7 @@ import { watchCatMeta } from "@/lib/watch-categories";
 import { presentarLectura, rotulosContadores, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
+import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 
 /**
  * La vista Control LPR: la última lectura grande y clara, si se abrió y por qué, la tira de
@@ -60,7 +61,10 @@ type Datos = {
     contadores: { entradas: number; salidas: number; denegados: number; noRegistrados?: number; adentro: number; actualizado: string; dia: string };
     enBarrio?: { visitas: VisitaEnBarrio[]; noRegistradas: NoRegistrada[] };
     atencion: Atencion[]; ahora: string;
+    /** Matrícula → logo de su empresa (ver lib/empresas-servidor). */
+    logos?: Record<string, Logo>;
 };
+type Logo = { nombre: string; logo: string; transparente: boolean };
 type Ficha = {
     lectura: Lectura;
     persona: { nombre: string; rol: string; unidad: string | null } | null;
@@ -220,7 +224,7 @@ export function VistaLpr() {
                     <AnimatePresence mode="popLayout" initial={false}>
                         {protagonista ? (
                             <motion.div key={protagonista.id} initial={{ opacity: 0, scale: 1.015 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={SUAVE} className="absolute inset-0">
-                                <Protagonista l={protagonista} tactil={tactil} modo={modo}
+                                <Protagonista l={protagonista} tactil={tactil} modo={modo} empresa={protagonista.plate ? datos?.logos?.[protagonista.plate] : null}
                                     alAmpliar={(f) => setAmpliada(f)} alAbrirFicha={() => setFichaId(protagonista.id)} />
                             </motion.div>
                         ) : (
@@ -285,6 +289,7 @@ export function VistaLpr() {
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {f && <img src={f} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
                                         <span className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent" />
+                                        {l.plate && datos?.logos?.[l.plate] && <span className="absolute top-2 left-2"><LogoSobreFoto empresa={datos.logos[l.plate]} className="h-6 max-w-[90px]" /></span>}
                                         <span className="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
                                             <span><span className="block text-[18px] font-bold text-white tabular-nums tracking-[0.1em]">{l.plate || "S/L"}</span><span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</span></span>
                                             <est.Ic size={18} className={ok ? "text-[var(--bien)]" : est.error ? "text-[var(--mal)]" : "text-white/50"} />
@@ -352,7 +357,7 @@ export function VistaLpr() {
 }
 
 /** La lectura grande. Tocar la foto la amplía; "Ficha" abre todo lo que se sabe de ese auto. */
-function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha }: { l: Lectura; tactil: boolean; modo: Modo; alAmpliar: (f: string) => void; alAbrirFicha: () => void }) {
+function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa }: { l: Lectura; tactil: boolean; modo: Modo; alAmpliar: (f: string) => void; alAbrirFicha: () => void; empresa?: Logo | null }) {
     const foto = getImagePath(l.foto);
     const est = estadoDe(l, modo);
     // El motivo sólo se explica cuando hubo un rechazo de verdad (barrera, o lista negra).
@@ -376,7 +381,11 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha }: { l: Lectura
             </div>
             <div className="absolute bottom-0 inset-x-0 p-4 lg:p-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pointer-events-none">
                 <div className="min-w-0">
-                    <div className="inline-block px-5 py-2 rounded-xl bg-white text-black text-[clamp(36px,5.5vw,72px)] font-bold tabular-nums tracking-[0.14em] leading-none shadow-[0_8px_30px_rgba(0,0,0,.6)]">{l.plate || "S/L"}</div>
+                    <div className="flex items-center gap-4">
+                        <div className="inline-block px-5 py-2 rounded-xl bg-white text-black text-[clamp(36px,5.5vw,72px)] font-bold tabular-nums tracking-[0.14em] leading-none shadow-[0_8px_30px_rgba(0,0,0,.6)]">{l.plate || "S/L"}</div>
+                        {/* La empresa al lado de la chapa: de lejos, en la pared, se lee antes el logo que el nombre. */}
+                        <LogoSobreFoto empresa={empresa} className="h-[clamp(36px,4.5vw,64px)] max-w-[22vw]" />
+                    </div>
                     <div className="mt-3 flex items-center gap-3">
                         <span className="text-[20px] lg:text-[22px] font-semibold text-white truncate">{quien(l)}</span>
                         <button type="button" onClick={alAbrirFicha}

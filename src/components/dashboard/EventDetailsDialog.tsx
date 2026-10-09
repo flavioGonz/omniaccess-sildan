@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, ReactNode } from "react";
+import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { createPortal } from "react-dom";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { motion, AnimatePresence } from "framer-motion";
@@ -30,6 +31,8 @@ interface EventDetailsDialogProps {
     timeStatus?: { label: string; value: string; color: string } | null;
     autoRecording?: boolean;
     onRegister?: (plate: string) => void;
+    /** La empresa de la matrícula (delivery, taxi), si se sabe: su logo va sobre la captura. */
+    empresa?: { nombre: string; logo: string; transparente: boolean } | null;
 }
 
 interface PlateStats {
@@ -98,7 +101,7 @@ function Action({ icon, label, tip, onClick, href, download, tone = "neutral", d
 
 const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
-export function EventDetailsDialog({ event, children, timeStatus, autoRecording, onRegister }: EventDetailsDialogProps) {
+export function EventDetailsDialog({ event, children, timeStatus, autoRecording, onRegister, empresa }: EventDetailsDialogProps) {
     const router = useRouter();
     const [isOpen, setIsOpen] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -363,6 +366,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                     ) : (
                                         <div className={cn("w-full flex items-center justify-center bg-card", isFace ? "aspect-[4/5]" : "aspect-video")}><Camera className="w-12 h-12 text-muted-foreground" /></div>
                                     )}
+                                    {!cropMode && empresa && <div className="absolute left-4 bottom-4 z-10 pointer-events-none"><LogoSobreFoto empresa={empresa} className="h-10 max-w-[160px]" /></div>}
                                     {/* esquinas */}
                                     {!cropMode && <>
                                         <div className="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 border-emerald-500/60" /><div className="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 border-emerald-500/60" />

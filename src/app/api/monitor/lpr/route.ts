@@ -5,6 +5,7 @@ import { normalizarMatricula } from "@/lib/lista-negra";
 import { formaLectura as forma, INCLUIR_LECTURA } from "@/lib/monitor/lecturas";
 import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
 import { registradas } from "@/lib/visitas/registro";
+import { logosDeMatriculas } from "@/lib/empresas-servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -118,5 +119,7 @@ export async function GET() {
         contadores: { entradas, salidas, denegados, noRegistrados, adentro, actualizado: new Date().toISOString(), dia: hoy.toISOString() },
         enBarrio: { visitas: visitasEnCurso, noRegistradas: enBarrio },
         atencion, ahora: new Date().toISOString(),
+        // Matrícula → logo de su empresa (delivery, taxi), para incrustarlo en la captura.
+        logos: await logosDeMatriculas().catch(() => ({})),
     }, { headers: SIN_CACHE });
 }

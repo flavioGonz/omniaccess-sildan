@@ -6,7 +6,8 @@ import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
 import { getS3Client } from "@/lib/s3";
 import { leerGuardia } from "@/lib/sesion-guardia";
-import { CLAVE_EMPRESAS, empresaDe, normalizarCatalogo, normalizarNombre, type Empresa } from "@/lib/empresas";
+import { CLAVE_EMPRESAS, normalizarCatalogo, normalizarNombre, type Empresa } from "@/lib/empresas";
+import { leerCatalogo, logosDeMatriculas, type LogoDeMatricula } from "@/lib/empresas-servidor";
 
 /**
  * El catálogo de empresas (Ajustes → Empresas) y sus logos.
@@ -28,12 +29,7 @@ async function exigirAjustes() {
     return s;
 }
 
-async function leer(): Promise<Empresa[]> {
-    const fila = await prisma.setting.findUnique({ where: { key: CLAVE_EMPRESAS } });
-    let crudo: unknown = null;
-    try { crudo = fila?.value ? JSON.parse(fila.value) : null; } catch { crudo = null; }
-    return normalizarCatalogo(crudo);
-}
+const leer = leerCatalogo;
 
 async function escribir(lista: Empresa[]) {
     const limpio = normalizarCatalogo(lista);
@@ -116,27 +112,9 @@ export async function quitarLogoEmpresa(clave: string): Promise<{ ok: true } | {
     } catch (e: any) { return { ok: false, error: e?.message || "No se pudo quitar" }; }
 }
 
-/**
- * Qué matrículas son de qué empresa, ahora: la de cada visita abierta que tiene empresa, y
- * la de cada vehículo de un proveedor registrado. Es lo que el monitor usa para pintar el
- * logo sobre la captura. Sólo vuelven las que tienen logo cargado y la empresa activa.
- */
-export async function logosPorMatricula(): Promise<Record<string, { nombre: string; logo: string; transparente: boolean }>> {
+/** Matrícula → logo de su empresa, para el monitor LPR. Ver lib/empresas-servidor. */
+export async function logosPorMatricula(): Promise<Record<string, LogoDeMatricula>> {
     const s = await getSession();
     if (!s) return {};
-    const catalogo = (await leer()).filter((e) => e.activa && e.logo);
-    if (!catalogo.length) return {};
-    const [visitas, proveedores] = await Promise.all([
-        prisma.visita.findMany({ where: { sale: null, plate: { not: null }, empresa: { not: null } }, select: { plate: true, empresa: true } }),
-        prisma.user.findMany({ where: { role: "PROVIDER" as any, empresa: { not: null } }, select: { empresa: true, vehicles: { select: { plate: true } } } }),
-    ]);
-    const out: Record<string, { nombre: string; logo: string; transparente: boolean }> = {};
-    const poner = (plate: string | null, empresa: string | null) => {
-        const e = empresaDe(empresa, catalogo);
-        if (plate && e?.logo) out[plate.toUpperCase()] = { nombre: e.nombre, logo: e.logo, transparente: e.transparente };
-    };
-    proveedores.forEach((p) => p.vehicles.forEach((v) => poner(v.plate, p.empresa)));
-    // La visita va después: si hoy entró como otra cosa, manda lo de hoy.
-    visitas.forEach((v) => poner(v.plate, v.empresa));
-    return out;
+    return logosDeMatriculas();
 }
