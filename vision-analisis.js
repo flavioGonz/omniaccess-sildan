@@ -44,6 +44,14 @@ const OCIOSO_MS = 3000;
 const PUNTOS_SILUETA_MAX = 80;
 /** Una pista sin verse hace esto ya se cerró: su recorte es el definitivo (el registro la cierra a los 15 s). */
 const PISTA_CERRADA_MS = 30_000;
+/**
+ * Las columnas de fecha son `timestamp` sin zona y guardan UTC, pero la sesión de Postgres está
+ * en America/Montevideo. Un Date pasado a $queryRaw llega como timestamptz, y al compararlo
+ * Postgres lee la columna como hora LOCAL: todo queda 3 h en el futuro. Con eso, «la pista se
+ * cerró hace 30 s» sólo era cierto para pistas de hace más de 3 h y la búsqueda nunca tenía lo
+ * reciente. Se pasa el límite como texto UTC sin zona, que es lo que la columna guarda.
+ */
+const sinZona = (ms) => new Date(ms).toISOString().replace("T", " ").replace("Z", "");
 /** Cuatro decimales en coordenadas 0-1: menos de un píxel en una foto de 4K. */
 const r4 = (v) => Math.round(v * 10000) / 10000;
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -151,7 +159,7 @@ function iniciar({ prisma, log, vision, estado, bajar, subir }) {
             SELECT e.id, e."snapshotPath" AS foto, e.timestamp
             FROM "AccessEvent" e LEFT JOIN "AnalisisFoto" a ON a."accessEventId" = e.id
             WHERE a.id IS NULL AND e."accessType" = 'PLATE' AND e."snapshotPath" IS NOT NULL
-              AND e.timestamp > ${new Date(Date.now() - VENTANA_LPR_MS)}
+              AND e.timestamp > ${sinZona(Date.now() - VENTANA_LPR_MS)}::timestamp
             ORDER BY e.timestamp DESC LIMIT 1`;
         const ev = filas[0];
         if (!ev) return false;
@@ -177,11 +185,14 @@ function iniciar({ prisma, log, vision, estado, bajar, subir }) {
     }
 
     async function unaHuella() {
+        // Los que no se pudieron bajar se excluyen en la consulta: filtrarlos después de un LIMIT
+        // dejaba la cola trabada si los primeros veinte eran todos de ésos.
         const filas = await prisma.$queryRaw`
             SELECT o.id, o.recorte FROM "ObjetoVisto" o LEFT JOIN "HuellaObjeto" h ON h."objetoId" = o.id
-            WHERE h."objetoId" IS NULL AND o.recorte IS NOT NULL AND o."ultimaVez" < ${new Date(Date.now() - PISTA_CERRADA_MS)}
-            ORDER BY o."primeraVez" DESC LIMIT 20`;
-        const o = filas.find((f) => !sinRecorte.has(f.id));
+            WHERE h."objetoId" IS NULL AND o.recorte IS NOT NULL AND o."ultimaVez" < ${sinZona(Date.now() - PISTA_CERRADA_MS)}::timestamp
+              AND NOT (o.id = ANY(${[...sinRecorte]}::text[]))
+            ORDER BY o."primeraVez" DESC LIMIT 1`;
+        const o = filas[0];
         if (!o) return false;
         let jpeg;
         try { jpeg = await bajar(o.recorte); } catch { sinRecorte.add(o.id); return true; }

@@ -45,7 +45,7 @@ export async function GET() {
     // Cruces por hora de hoy (para la barrita de cada regla de conteo).
     const porHora = ids.length ? await prisma.$queryRaw<{ regla: string; h: number; n: number }[]>`
         SELECT "reglaId" AS regla, extract(hour FROM ts AT TIME ZONE 'UTC' AT TIME ZONE 'America/Montevideo')::int AS h, count(*)::int AS n
-          FROM "EventoVision" WHERE tipo = 'CRUCE' AND ts >= ${hoy} AND "reglaId" = ANY(${ids}) GROUP BY 1, 2`.catch(() => []) : [];
+          FROM "EventoVision" WHERE tipo = 'CRUCE' AND ts >= ${hoy.toISOString().replace("T", " ").replace("Z", "")}::timestamp AND "reglaId" = ANY(${ids}) GROUP BY 1, 2`.catch(() => []) : [];
 
     const resumen: Record<string, any> = {};
     for (const r of reglas) resumen[r.id] = { ab: 0, ba: 0, porClase: {} as Record<string, { ab: number; ba: number }>, porHora: Array(24).fill(0), hoy: 0, max: null as number | null };

@@ -77,8 +77,10 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: e?.message || "omni-vision no contestó" }, { status: 502 });
     }
 
-    const desde = new Date(Date.now() - h * 3600_000);
-    const filtros = Prisma.sql`o."primeraVez" >= ${desde}${camara ? Prisma.sql` AND o."deviceId" = ${camara}` : Prisma.empty}${grupo ? Prisma.sql` AND o.grupo = ${grupo}` : Prisma.empty}`;
+    // Texto UTC sin zona: la columna es `timestamp` y la sesión está en hora local; un Date
+    // corría el rango 3 h (ver sinZona en vision-analisis.js).
+    const desde = new Date(Date.now() - h * 3600_000).toISOString().replace("T", " ").replace("Z", "");
+    const filtros = Prisma.sql`o."primeraVez" >= ${desde}::timestamp${camara ? Prisma.sql` AND o."deviceId" = ${camara}` : Prisma.empty}${grupo ? Prisma.sql` AND o.grupo = ${grupo}` : Prisma.empty}`;
     const [huellas, sinHuella] = await Promise.all([
         prisma.$queryRaw<{ id: string; vector: Buffer; escala: number }[]>`
             SELECT h."objetoId" AS id, h.vector, h.escala FROM "HuellaObjeto" h JOIN "ObjetoVisto" o ON o.id = h."objetoId"
