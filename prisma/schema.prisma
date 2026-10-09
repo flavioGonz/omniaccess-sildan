@@ -1144,3 +1144,39 @@ model AccionSistema {
 
   @@index([cuando])
 }
+
+/// Lo que vio el detector de objetos (omni-vision) en el registro de detecciones: UNA fila por
+/// pista de seguimiento, no por cuadro. Una persona que cruza la cámara en 12 s es una fila con
+/// su mejor recorte, el cuadro de ese momento, sus atributos y su recorrido; contarla doce veces
+/// llenaría la tabla de copias y haría mentir a cualquier conteo.
+///
+/// Sin relación con Device a propósito: si se borra la cámara, lo visto se conserva hasta que lo
+/// borre la retención, con el nombre que tenía (`camara`).
+model ObjetoVisto {
+  id         String   @id @default(cuid())
+  deviceId   String?
+  camara     String
+  clase      String
+  grupo      String
+  /// La mejor confianza de la pista (y de ese cuadro salen el recorte y la foto).
+  confianza  Float
+  primeraVez DateTime
+  ultimaVez  DateTime
+  cuadros    Int      @default(1)
+  /// Número de pista dentro de la sesión de seguimiento de esa cámara (se reinicia con el proceso).
+  pista      Int?
+  /// Clave en el bucket `objetos` del recorte (≤ 256 px) y del cuadro entero del mejor momento.
+  recorte    String?
+  foto       String?
+  /// Caja normalizada [x1, y1, x2, y2] en `foto`.
+  caja       Json?
+  /// Atributos de SigLIP en el mejor cuadro (color, carrocería, ropa, chaleco…).
+  atributos  Json?
+  /// Puntos de apoyo [x, y, segundos desde primeraVez], normalizados; con tope de largo.
+  recorrido  Json?
+  createdAt  DateTime @default(now())
+
+  @@index([primeraVez])
+  @@index([deviceId, primeraVez])
+  @@index([clase, primeraVez])
+}

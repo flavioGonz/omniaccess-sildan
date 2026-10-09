@@ -1,0 +1,355 @@
+/**
+ * vision-worker — el registro de detecciones de omni-vision.
+ *
+ * Mira las cámaras elegidas cada pocos segundos, le pide al detector qué hay, sigue a cada
+ * objeto entre cuadros y guarda UNA fila por pista en ObjetoVisto: el mejor recorte, el cuadro
+ * de ese momento, sus atributos y su recorrido. Es lo que muestra Visión → Detecciones.
+ *
+ * Tres cosas que lo hacen barato, porque comparte GPU con omni-lpr y CPU con la app:
+ *
+ *  · Compuerta de cambio de escena: antes de mandar un cuadro al detector se lo compara con el
+ *    anterior en una miniatura de 64×36 en grises. Una calle vacía a la madrugada no gasta GPU.
+ *    Si hay pistas abiertas en esa cámara se analiza igual, para poder cerrarlas.
+ *  · Una cámara por vez y un pedido por vez: omni-vision atiende de a uno y pedirle varios a la
+ *    vez sólo los encola del otro lado (y le quita turno a omni-lpr mientras tanto).
+ *  · Las filas se escriben al abrir la pista, cuando mejora la foto y al cerrarla (más un
+ *    refresco cada tanto para las largas), no en cada cuadro.
+ *
+ * Obedece a los interruptores del laboratorio: la analítica "registro" lo prende y lo apaga
+ * (apagado no le pide nada a la GPU), y sólo guarda las clases prendidas. Las cámaras salen de
+ * VISION_CAMARAS (lista de ids; vacío = todas las que no son grabadores).
+ *
+ * No toca server.js, ni omni-lpr, ni ninguna otra tabla.
+ */
+
+require("dotenv").config();
+const crypto = require("crypto");
+const sharp = require("sharp");
+const { PrismaClient } = require("@prisma/client");
+const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
+
+const prisma = new PrismaClient();
+
+const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
+const GO2RTC = (process.env.GO2RTC_API || "http://127.0.0.1:1984").replace(/\/$/, "");
+const BUCKET = process.env.VISION_BUCKET || "objetos";
+
+/** Cada cuánto se mira cada cámara. A 2 s, una persona caminando aparece en 4-6 cuadros al cruzar. */
+const INTERVALO_MS = Number(process.env.VISION_REGISTRO_INTERVALO_MS || 2000);
+/**
+ * Diferencia media de luminancia (0-255) en la miniatura para llamar "cambió" a la escena.
+ * Valor de arranque, SIN medir todavía en estas cámaras: el estado guarda la diferencia de cada
+ * cuadro por cámara (mediana y máximo) justamente para ajustarlo con números.
+ */
+const CAMBIO_MIN = Number(process.env.VISION_REGISTRO_CAMBIO_MIN || 3.5);
+/** Aunque no cambie nada, cada tanto se analiza igual: un objeto quieto también existe. */
+const ANALIZAR_IGUAL_MS = 60_000;
+/** Confianza mínima para registrar. Un poco más alta que la del laboratorio: esto queda guardado. */
+const UMBRAL = Number(process.env.VISION_REGISTRO_UMBRAL || 0.45);
+/** Una pista que no se ve durante esto se da por terminada. */
+const PISTA_CERRADA_MS = 15_000;
+/** Refresco de la fila de una pista larga, para que la pantalla la vea "en curso". */
+const REFRESCO_PISTA_MS = 10_000;
+/** La foto se reemplaza sólo si la nueva es claramente mejor (si no, cada cuadro reescribe MinIO). */
+const MEJORA_MIN = 0.05;
+/** Puntos del recorrido que se guardan: a 2 s, 120 son 4 minutos. */
+const RECORRIDO_MAX = 120;
+/** Lado del recorte que se guarda. La grilla lo muestra a ~130 px; el doble alcanza para pantallas densas. */
+const LADO_RECORTE = 256;
+/** Margen alrededor de la caja al recortar. */
+const MARGEN = 0.12;
+/** Cada cuánto se releen los ajustes (interruptores, cámaras). */
+const AJUSTES_MS = 30_000;
+/** Cada cuánto se escribe el estado para la pantalla. */
+const ESTADO_MS = 15_000;
+/** Cada cuánto corre la limpieza por retención, y cuántas filas borra por vez. */
+const LIMPIEZA_MS = 60 * 60_000;
+const LIMPIEZA_LOTE = 500;
+const RETENCION_DIAS_DEFECTO = 7;
+
+const log = (...a) => console.log(new Date().toISOString(), "[vision]", ...a);
+
+// ─────────────────────────── ajustes ───────────────────────────
+
+async function ajuste(clave, porDefecto = null) {
+    try { const r = await prisma.setting.findUnique({ where: { key: clave } }); return r?.value ?? porDefecto; } catch { return porDefecto; }
+}
+function json(v, porDefecto) { try { return v ? JSON.parse(v) : porDefecto; } catch { return porDefecto; } }
+
+// Los mismos valores por defecto que src/lib/vision-catalogo.ts: "registro" prendido, y las
+// clases "poco útiles" apagadas. Se repiten acá porque este proceso no compila TypeScript; si
+// cambian allá, cambian acá.
+const CLASES_APAGADAS_DEFECTO = new Set([
+    "train", "boat", "airplane", "bear", "elephant", "zebra", "giraffe", "tie", "laptop", "book", "scissors", "teddy bear",
+    "hair drier", "toothbrush", "traffic light", "stop sign", "fire hydrant", "parking meter", "potted plant", "chair",
+    "couch", "bed", "dining table", "toilet", "tv", "mouse", "remote", "keyboard", "microwave", "oven", "toaster", "sink",
+    "refrigerator", "clock", "vase", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich",
+    "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "frisbee", "skis", "snowboard", "kite",
+    "baseball bat", "baseball glove", "surfboard", "tennis racket",
+]);
+
+let ajustes = { activo: false, clases: {}, camaras: [], retencionDias: RETENCION_DIAS_DEFECTO, leidos: 0 };
+
+async function leerAjustes() {
+    const [a, c, cams, ret] = await Promise.all([
+        ajuste("VISION_ANALITICAS"), ajuste("VISION_CLASES"), ajuste("VISION_CAMARAS"), ajuste("VISION_RETENCION_DIAS"),
+    ]);
+    const analiticas = json(a, {});
+    const elegidas = json(cams, []);
+    const dispositivos = await prisma.device.findMany({ where: { deviceType: { not: "NVR" } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+    ajustes = {
+        activo: analiticas.registro !== false,
+        clases: json(c, {}),
+        camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
+        retencionDias: Math.max(1, Number(ret) || RETENCION_DIAS_DEFECTO),
+        leidos: Date.now(),
+    };
+}
+const clasePrendida = (c) => (c in ajustes.clases ? ajustes.clases[c] === true : !CLASES_APAGADAS_DEFECTO.has(c));
+
+// ─────────────────────────── MinIO ───────────────────────────
+
+let s3 = null;
+async function cliente() {
+    if (s3) return s3;
+    const [endpoint, accessKey, secretKey] = await Promise.all([ajuste("S3_ENDPOINT"), ajuste("S3_ACCESS_KEY"), ajuste("S3_SECRET_KEY")]);
+    s3 = new S3Client({
+        endpoint: endpoint || process.env.S3_ENDPOINT, region: "us-east-1", forcePathStyle: true,
+        credentials: { accessKeyId: accessKey || process.env.S3_ACCESS_KEY, secretAccessKey: secretKey || process.env.S3_SECRET_KEY },
+    });
+    try { await s3.send(new HeadBucketCommand({ Bucket: BUCKET })); }
+    catch { await s3.send(new CreateBucketCommand({ Bucket: BUCKET })).catch(() => null); log(`bucket '${BUCKET}' creado`); }
+    return s3;
+}
+async function subir(clave, buf) {
+    await (await cliente()).send(new PutObjectCommand({ Bucket: BUCKET, Key: clave, Body: buf, ContentType: "image/jpeg" }));
+}
+
+// ─────────────────────────── cuadros ───────────────────────────
+
+async function cuadro(deviceId) {
+    for (const src of [`lpr_${deviceId}`, `lpr_${deviceId}_hd`]) {
+        try {
+            const r = await fetch(`${GO2RTC}/api/frame.jpeg?src=${encodeURIComponent(src)}`, { signal: AbortSignal.timeout(6000) });
+            if (!r.ok) continue;
+            const b = Buffer.from(await r.arrayBuffer());
+            if (b.length > 1000) return b;
+        } catch { }
+    }
+    return null;
+}
+
+/** Miniatura 64×36 en grises: la huella con la que se decide si la escena cambió. */
+async function huella(jpeg) {
+    return sharp(jpeg).resize(64, 36, { fit: "fill" }).greyscale().raw().toBuffer();
+}
+function diferencia(a, b) {
+    if (!a || !b || a.length !== b.length) return Infinity;
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+    return s / a.length;
+}
+
+async function recortar(jpeg, cajaNorm, ancho, alto) {
+    const [x1, y1, x2, y2] = cajaNorm;
+    const mw = (x2 - x1) * MARGEN, mh = (y2 - y1) * MARGEN;
+    const left = Math.max(0, Math.floor((x1 - mw) * ancho)), top = Math.max(0, Math.floor((y1 - mh) * alto));
+    const width = Math.max(1, Math.min(ancho - left, Math.ceil((x2 - x1 + 2 * mw) * ancho)));
+    const height = Math.max(1, Math.min(alto - top, Math.ceil((y2 - y1 + 2 * mh) * alto)));
+    return sharp(jpeg).extract({ left, top, width, height })
+        .resize(LADO_RECORTE, LADO_RECORTE, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
+}
+
+async function detectar(jpeg, deviceId) {
+    const q = new URLSearchParams({ umbral: String(UMBRAL), atributos: "1", sesion: `registro-${deviceId}`, fps: String(1000 / INTERVALO_MS) });
+    const r = await fetch(`${VISION}/detectar?${q}`, {
+        method: "POST", body: jpeg, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(20000),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `omni-vision respondió ${r.status}`);
+    return j;
+}
+
+// ─────────────────────────── pistas ───────────────────────────
+
+/** Pistas abiertas: `${deviceId}:${pista}` → estado en memoria de la fila. */
+const abiertas = new Map();
+
+function dia(d) { return d.toISOString().slice(0, 10); }
+
+async function abrir(cam, o, jpeg, r, ahora) {
+    const id = crypto.randomUUID().replace(/-/g, "").slice(0, 25);
+    const base = `${dia(ahora)}/${id}`;
+    const [x1, , x2, y2] = o.caja_norm;
+    const p = {
+        id, deviceId: cam.id, camara: cam.name, clase: o.clase, grupo: o.grupo, confianza: o.confianza,
+        primeraVez: ahora, ultimaVez: ahora, cuadros: 1, pista: o.pista,
+        recorte: `${base}-r.jpg`, foto: `${base}-f.jpg`, caja: o.caja_norm, atributos: o.atributos || null,
+        recorrido: [[round((x1 + x2) / 2), round(y2), 0]], escrita: 0,
+    };
+    await Promise.all([subir(p.recorte, await recortar(jpeg, o.caja_norm, r.ancho, r.alto)), subir(p.foto, jpeg)]);
+    await prisma.objetoVisto.create({ data: fila(p) });
+    p.escrita = Date.now();
+    abiertas.set(`${cam.id}:${o.pista}`, p);
+    contadores.abiertas++;
+}
+
+async function seguir(p, o, jpeg, r, ahora) {
+    p.ultimaVez = ahora;
+    p.cuadros++;
+    const [x1, , x2, y2] = o.caja_norm;
+    if (p.recorrido.length < RECORRIDO_MAX) p.recorrido.push([round((x1 + x2) / 2), round(y2), Math.round((ahora - p.primeraVez) / 1000)]);
+    let mejoro = false;
+    if (o.confianza > p.confianza + MEJORA_MIN) {
+        // Mejor foto: se reemplazan recorte y cuadro (mismas claves) y lo que sale de ellos.
+        p.confianza = o.confianza; p.caja = o.caja_norm; p.atributos = o.atributos || p.atributos;
+        await Promise.all([subir(p.recorte, await recortar(jpeg, o.caja_norm, r.ancho, r.alto)), subir(p.foto, jpeg)]);
+        mejoro = true;
+    }
+    if (mejoro || Date.now() - p.escrita > REFRESCO_PISTA_MS) {
+        await prisma.objetoVisto.update({ where: { id: p.id }, data: fila(p) });
+        p.escrita = Date.now();
+    }
+}
+
+async function cerrar(clave, p) {
+    abiertas.delete(clave);
+    await prisma.objetoVisto.update({ where: { id: p.id }, data: fila(p) }).catch((e) => log("no se pudo cerrar", p.id, e.message));
+    contadores.cerradas++;
+}
+
+const round = (v) => Math.round(v * 10000) / 10000;
+function fila(p) {
+    return {
+        id: p.id, deviceId: p.deviceId, camara: p.camara, clase: p.clase, grupo: p.grupo, confianza: p.confianza,
+        primeraVez: p.primeraVez, ultimaVez: p.ultimaVez, cuadros: p.cuadros, pista: p.pista,
+        recorte: p.recorte, foto: p.foto, caja: p.caja, atributos: p.atributos, recorrido: p.recorrido,
+    };
+}
+
+// ─────────────────────────── ciclo ───────────────────────────
+
+const porCamara = {};   // estado para la pantalla
+const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0 };
+const huellas = {};
+const ultimoAnalisis = {};
+let ultimoErrorLog = 0;
+
+async function mirar(cam) {
+    const est = (porCamara[cam.id] ||= { nombre: cam.name, analizados: 0, saltados: 0, errores: 0, objetos: 0, ultimo: null, ms: null, error: null });
+    est.nombre = cam.name;
+    const jpeg = await cuadro(cam.id);
+    if (!jpeg) { est.errores++; est.error = "go2rtc no entregó cuadro"; return; }
+    const h = await huella(jpeg);
+    const dif = diferencia(h, huellas[cam.id]);
+    huellas[cam.id] = h;
+    if (Number.isFinite(dif)) {
+        (est.difs ||= []).push(Math.round(dif * 10) / 10);
+        if (est.difs.length > 60) est.difs.shift();
+    }
+    const conPistas = [...abiertas.values()].some((p) => p.deviceId === cam.id);
+    const ahora = new Date();
+    if (dif < CAMBIO_MIN && !conPistas && Date.now() - (ultimoAnalisis[cam.id] || 0) < ANALIZAR_IGUAL_MS) {
+        est.saltados++; contadores.saltados++;
+        return;
+    }
+    const t0 = Date.now();
+    const r = await detectar(jpeg, cam.id);
+    ultimoAnalisis[cam.id] = Date.now();
+    est.analizados++; contadores.analizados++;
+    est.ms = Date.now() - t0; est.ultimo = ahora.toISOString(); est.error = null;
+    const objetos = (r.objetos || []).filter((o) => clasePrendida(o.clase));
+    est.objetos = objetos.length;
+    for (const o of objetos) {
+        if (o.pista == null) continue;  // todavía no confirmada por el seguimiento
+        const clave = `${cam.id}:${o.pista}`;
+        const p = abiertas.get(clave);
+        try {
+            if (!p) await abrir(cam, o, jpeg, r, ahora);
+            else await seguir(p, o, jpeg, r, ahora);
+        } catch (e) { est.error = `guardar: ${e.message}`; contadores.errores++; }
+    }
+}
+
+async function cerrarVencidas(forzar = false) {
+    const ahora = Date.now();
+    for (const [clave, p] of [...abiertas]) {
+        if (forzar || ahora - p.ultimaVez.getTime() > PISTA_CERRADA_MS) await cerrar(clave, p);
+    }
+}
+
+function resumenDifs(v) {
+    if (!v || !v.length) return null;
+    const o = [...v].sort((a, b) => a - b);
+    return { mediana: o[Math.floor(o.length / 2)], max: o[o.length - 1], n: o.length };
+}
+
+async function escribirEstado() {
+    const camaras = Object.fromEntries(Object.entries(porCamara).map(([k, v]) => [k, { ...v, difs: undefined, cambio: resumenDifs(v.difs) }]));
+    const valor = JSON.stringify({
+        t: new Date().toISOString(), activo: ajustes.activo, intervaloMs: INTERVALO_MS, umbral: UMBRAL, cambioMin: CAMBIO_MIN,
+        camaras, contadores, pistasAbiertas: abiertas.size, retencionDias: ajustes.retencionDias,
+    });
+    await prisma.setting.upsert({ where: { key: "VISION_REGISTRO_ESTADO" }, update: { value: valor }, create: { key: "VISION_REGISTRO_ESTADO", value: valor } }).catch(() => null);
+}
+
+async function limpiar() {
+    const limite = new Date(Date.now() - ajustes.retencionDias * 86_400_000);
+    for (;;) {
+        const viejas = await prisma.objetoVisto.findMany({ where: { primeraVez: { lt: limite } }, select: { id: true, recorte: true, foto: true }, take: LIMPIEZA_LOTE });
+        if (!viejas.length) return;
+        const claves = viejas.flatMap((v) => [v.recorte, v.foto]).filter(Boolean).map((Key) => ({ Key }));
+        for (let i = 0; i < claves.length; i += 1000) {
+            await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: claves.slice(i, i + 1000), Quiet: true } })).catch((e) => log("limpieza S3:", e.message));
+        }
+        await prisma.objetoVisto.deleteMany({ where: { id: { in: viejas.map((v) => v.id) } } });
+        log(`retención: ${viejas.length} detecciones de más de ${ajustes.retencionDias} días borradas`);
+        if (viejas.length < LIMPIEZA_LOTE) return;
+    }
+}
+
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+let corriendo = true;
+
+async function principal() {
+    log(`arranca · ${VISION} · cada ${INTERVALO_MS} ms · umbral ${UMBRAL} · cambio ${CAMBIO_MIN}`);
+    let ultEstado = 0, ultLimpieza = 0;
+    while (corriendo) {
+        const t0 = Date.now();
+        try {
+            if (Date.now() - ajustes.leidos > AJUSTES_MS) await leerAjustes();
+            if (ajustes.activo) {
+                for (const cam of ajustes.camaras) {
+                    if (!corriendo) break;
+                    try { await mirar(cam); }
+                    catch (e) {
+                        contadores.errores++;
+                        (porCamara[cam.id] ||= {}).error = e.message;
+                        if (Date.now() - ultimoErrorLog > 60_000) { log(`error en ${cam.name}: ${e.message}`); ultimoErrorLog = Date.now(); }
+                    }
+                }
+            }
+            await cerrarVencidas(!ajustes.activo);
+            contadores.ciclos++;
+            if (Date.now() - ultEstado > ESTADO_MS) { await escribirEstado(); ultEstado = Date.now(); }
+            if (Date.now() - ultLimpieza > LIMPIEZA_MS) { ultLimpieza = Date.now(); await limpiar().catch((e) => log("limpieza:", e.message)); }
+        } catch (e) {
+            log("ciclo:", e.message);
+        }
+        // Apagado, se espera más: no hay nada que hacer salvo enterarse de que lo prendieron.
+        await dormir(Math.max(200, (ajustes.activo ? INTERVALO_MS : AJUSTES_MS) - (Date.now() - t0)));
+    }
+}
+
+async function salir() {
+    corriendo = false;
+    log("cerrando pistas abiertas…");
+    await cerrarVencidas(true).catch(() => null);
+    await escribirEstado().catch(() => null);
+    await prisma.$disconnect().catch(() => null);
+    process.exit(0);
+}
+process.on("SIGTERM", salir);
+process.on("SIGINT", salir);
+
+principal().catch((e) => { log("fatal:", e); process.exit(1); });

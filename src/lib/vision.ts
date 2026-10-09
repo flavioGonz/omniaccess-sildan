@@ -47,10 +47,23 @@ export type ObjetoVisto = {
 
 export type TareaVision = "detectar" | "segmentar" | "pose";
 
+/** Un texto leído en la imagen (OCR de escena). */
+export type TextoLeido = {
+    texto: string; confianza: number; poligono: [number, number][];
+    /** Lo imprime la cámara (fecha, hora, datos): no es de la escena. */
+    sobreimpreso: boolean;
+    tipo: "matricula" | "texto";
+    /** El objeto detectado que lo contiene: texto sobre una camioneta es un rotulado. */
+    dentro?: { indice: number; clase: string; nombre: string };
+    /** La empresa del catálogo que aparece en el texto (lo completa la app, no omni-vision). */
+    empresa?: { clave: string; nombre: string; logo: string | null };
+};
+
 export type ResultadoDeteccion = {
     ancho: number; alto: number; ms_inferencia: number; ms: number; modelo: string; umbral: number;
     tarea: TareaVision; pasos: Record<string, number>; seguimiento: { cuadro: number; pistas_vistas: number } | null;
     objetos: ObjetoVisto[];
+    textos?: TextoLeido[];
 };
 
 export type EstadoTarea = { modelo: string; licencia: string; abierto: boolean; proveedor: string | null; total: number; errores: number; latencia_ms: { n: number; p50?: number; p95?: number }; coco_ap?: number };
@@ -66,11 +79,12 @@ export async function saludVision(): Promise<{ salud: SaludVision | null; latenc
     }
 }
 
-export async function detectar(imagen: Buffer, op: { umbral?: number; tarea?: TareaVision; atributos?: boolean; sesion?: string; fps?: number } = {}): Promise<ResultadoDeteccion> {
+export async function detectar(imagen: Buffer, op: { umbral?: number; tarea?: TareaVision; atributos?: boolean; sesion?: string; fps?: number; texto?: boolean } = {}): Promise<ResultadoDeteccion> {
     const q = new URLSearchParams();
     if (op.umbral != null) q.set("umbral", String(op.umbral));
     if (op.tarea) q.set("tarea", op.tarea);
     if (op.atributos) q.set("atributos", "1");
+    if (op.texto) q.set("texto", "1");
     if (op.sesion) { q.set("sesion", op.sesion); q.set("fps", String(op.fps || 2)); }
     const r = await fetch(`${VISION_URL()}/detectar?${q}`, {
         method: "POST", body: new Uint8Array(imagen), headers: { "content-type": "image/jpeg" },
@@ -89,4 +103,20 @@ export async function leerInterruptores() {
         analiticas: mezclar(analiticasPorDefecto(), parse(a?.value)),
         clases: mezclar(clasesPorDefecto(), parse(c?.value)),
     };
+}
+
+/**
+ * Las empresas del catálogo que aparecen en lo leído: "PEDIDOSYA" pintado en una camioneta.
+ * Se busca el nombre o un alias DENTRO del texto (normalizado, sin espacios ni acentos), y sólo
+ * nombres de 4 letras o más: con menos, "UY" o "YA" aparecen en cualquier cartel.
+ */
+const LARGO_MIN_EMPRESA = 4;
+export function empresasEnTextos<T extends { texto: string; sobreimpreso: boolean; empresa?: unknown }>(textos: T[], catalogo: { clave: string; nombre: string; alias: string[]; logo: string | null; activa: boolean }[], normalizar: (s: string) => string): T[] {
+    const claves = catalogo.filter((e) => e.activa).flatMap((e) => [e.nombre, ...e.alias].map((n) => ({ n: normalizar(n), e }))).filter((x) => x.n.length >= LARGO_MIN_EMPRESA);
+    return textos.map((t) => {
+        if (t.sobreimpreso) return t;
+        const n = normalizar(t.texto);
+        const hit = claves.find((x) => n.includes(x.n));
+        return hit ? { ...t, empresa: { clave: hit.e.clave, nombre: hit.e.nombre, logo: hit.e.logo } } : t;
+    });
 }

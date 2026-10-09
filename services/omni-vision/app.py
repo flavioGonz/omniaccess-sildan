@@ -10,9 +10,11 @@ Contrato (estable, independiente de los modelos):
         ?tarea=detectar|segmentar|pose   qué modelo mira la imagen (defecto: detectar)
         ?atributos=1                     además, color/carrocería/ropa/chaleco… de cada objeto
         ?sesion=<id>&fps=2               además, número de pista (cuadros seguidos de una cámara)
+        ?texto=1                         además, el texto que se lee en la imagen (OCR de escena)
         ?umbral=0.4  ?grupos=persona,vehiculo
      → {ancho, alto, tarea, modelo, ms, pasos:{…ms}, objetos:[{clase, nombre, grupo, confianza,
-        caja, caja_norm, silueta?, area?, puntos?, postura?, atributos?, pista?}]}
+        caja, caja_norm, silueta?, area?, puntos?, postura?, atributos?, pista?}],
+        textos?:[{texto, confianza, poligono, sobreimpreso, tipo, dentro?}]}
 """
 
 from __future__ import annotations
@@ -31,6 +33,7 @@ import detector as D
 from atributos import Describidor
 from motor import Cola, Modelo
 from seguimiento import Sesiones
+from texto import Lector
 
 CARPETA = Path(os.environ.get("VISION_MODELOS", "/modelos"))
 MODELO = os.environ.get("VISION_MODELO", "rfdetr-small")
@@ -56,6 +59,7 @@ modelos = {
 }
 describidor = Describidor(CARPETA)
 sesiones = Sesiones()
+lector = Lector()
 NOMBRE_MODELO = {"detectar": MODELO, "segmentar": MODELO_SILUETAS, "pose": MODELO_POSE}
 # Se abre la detección al arrancar: es la que se usa siempre, y así el primer pedido no paga la carga.
 modelos["detectar"].resolucion  # noqa: B018
@@ -85,13 +89,14 @@ def salud():
         "modelo": MODELO, "licencia": info["licencia"], "coco_ap": info["coco_ap"],
         "proveedor": det.proveedor, "resolucion": det.resolucion, "umbral_defecto": UMBRAL_DEFECTO,
         "en_vuelo": 1 if Cola.en_vuelo else 0, "esperando": Cola.esperando,
-        "total": sum(m.total for m in modelos.values()) + describidor.modelo.total,
+        "total": sum(m.total for m in modelos.values()) + describidor.modelo.total + lector.total,
         "errores": sum(m.errores for m in modelos.values()) + describidor.modelo.errores,
         "latencia_ms": det.latencias(),
         # Lo nuevo: cada tarea con su modelo y sus números.
         "tareas": {
             **{t: {"modelo": NOMBRE_MODELO[t], **catalogo[NOMBRE_MODELO[t]], **m.estado()} for t, m in modelos.items()},
             "atributos": {"modelo": describidor.meta["modelo"], "licencia": describidor.meta["licencia"], **describidor.modelo.estado()},
+            "texto": {"modelo": "RapidOCR · PP-OCR", "licencia": "Apache-2.0", **lector.estado()},
         },
         "seguimiento": {"sesiones": sesiones.cuantas(), "licencia": "Apache-2.0 (trackers · ByteTrack)"},
         "tope_vram_mb": int(os.environ.get("VISION_TOPE_VRAM_MB", "1536")),
@@ -101,7 +106,7 @@ def salud():
     }
 
 
-def _procesar(datos: bytes, tarea: str, umbral: float, atributos: bool, sesion: str | None, fps: float) -> dict:
+def _procesar(datos: bytes, tarea: str, umbral: float, atributos: bool, sesion: str | None, fps: float, texto: bool = False) -> dict:
     pasos: dict[str, float] = {}
     img = D.abrir_imagen(datos)
     ancho, alto = img.size
@@ -121,12 +126,18 @@ def _procesar(datos: bytes, tarea: str, umbral: float, atributos: bool, sesion: 
     seg = None
     if sesion:
         seg = sesiones.actualizar(sesion[:64], objetos, fps)
-    return {"ancho": ancho, "alto": alto, "pasos": pasos, "seguimiento": seg, "objetos": objetos}
+    textos = None
+    if texto:
+        textos = lector.leer(img, objetos)
+        pasos["texto"] = round(float(lector.ultimo_ms), 1)
+    return {"ancho": ancho, "alto": alto, "pasos": pasos, "seguimiento": seg, "objetos": objetos,
+            **({"textos": textos} if textos is not None else {})}
 
 
 @app.post("/detectar")
 async def detectar(request: Request, umbral: float | None = None, grupos: str | None = None,
-                   tarea: str = "detectar", atributos: int = 0, sesion: str | None = None, fps: float | None = None):
+                   tarea: str = "detectar", atributos: int = 0, sesion: str | None = None, fps: float | None = None,
+                   texto: int = 0):
     if tarea not in modelos:
         raise HTTPException(400, f"Tarea desconocida: {tarea}. Hay: {', '.join(modelos)}.")
     tipo = request.headers.get("content-type", "")
@@ -146,7 +157,7 @@ async def detectar(request: Request, umbral: float | None = None, grupos: str | 
     t0 = time.perf_counter()
     try:
         # La inferencia es bloqueante: a un hilo, para no frenar /salud mientras tanto.
-        r = await run_in_threadpool(_procesar, datos, tarea, u, bool(atributos), sesion, fps or FPS_DEFECTO)
+        r = await run_in_threadpool(_procesar, datos, tarea, u, bool(atributos), sesion, fps or FPS_DEFECTO, bool(texto))
     except Exception as e:  # imagen ilegible o fallo de la GPU: se dice cuál
         return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=422 if "Image" in type(e).__name__ else 500)
     objetos = r.pop("objetos")

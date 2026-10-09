@@ -8,7 +8,8 @@ import {
     ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse, Keyboard, Microwave, CookingPot, Bath,
     Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed, Soup, Banana, Apple, Sandwich, Citrus, Salad,
     Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers,
-    Cpu, Loader2, Camera, RefreshCw, EyeOff, FlaskConical, Info, Square, Play, Gauge, type LucideIcon,
+    Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge,
+    Cpu, Loader2, Camera, RefreshCw, EyeOff, FlaskConical, Info, Square, Play, type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
@@ -21,7 +22,7 @@ import {
     CAPACIDADES, CLASES, GRUPOS, ANALITICAS, CLASE_POR_NOMBRE, TAREA_DE_CAPACIDAD, ESQUELETO, PUNTOS_POSE,
     type Capacidad, type Clase, type Analitica, type EstadoCapacidad, type EstadoAnalitica, type Grupo,
 } from "@/lib/vision-catalogo";
-import type { SaludVision, ObjetoVisto, TareaVision } from "@/lib/vision";
+import type { SaludVision, ObjetoVisto, TareaVision, TextoLeido } from "@/lib/vision";
 
 /**
  * Laboratorio de visión: lo que se está construyendo con el detector de objetos.
@@ -48,6 +49,7 @@ const ICONOS: Record<string, LucideIcon> = {
     ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse, Keyboard, Microwave, CookingPot, Bath,
     Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed, Soup, Banana, Apple, Sandwich, Citrus, Salad,
     Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers,
+    Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge,
 };
 function Ic({ n, size = 16, className }: { n: string; size?: number; className?: string }) {
     const C = ICONOS[n] || ScanSearch;
@@ -81,10 +83,11 @@ const TONO_CAPACIDAD: Record<EstadoCapacidad, { tono: "bien" | "info" | "aviso" 
     pesado: { tono: "aviso", texto: "Libre · pesado" },
     "no-aplica": { tono: "quieto", texto: "No aplica" },
 };
-const TONO_ANALITICA: Record<EstadoAnalitica, { tono: "bien" | "info" | "quieto"; texto: string }> = {
+const TONO_ANALITICA: Record<EstadoAnalitica, { tono: "bien" | "info" | "quieto" | "aviso"; texto: string }> = {
     corre: { tono: "bien", texto: "Corre" },
     desarrollo: { tono: "info", texto: "En desarrollo" },
     posible: { tono: "quieto", texto: "Posible" },
+    entrenar: { tono: "aviso", texto: "Hay que entrenar" },
 };
 const RELEVANCIA: Record<Clase["relevancia"], string> = { clave: "Clave", util: "Útil", poco: "Poco útil" };
 
@@ -97,6 +100,7 @@ type Prueba = {
     camara: { id: string; name: string }; fuente: string; ms_cuadro: number; ancho: number; alto: number;
     ms_inferencia: number; ms: number; modelo: string; umbral: number; objetos: ObjetoVisto[]; imagen: string; instante: string;
     tarea?: TareaVision; pasos?: Record<string, number>; seguimiento?: { cuadro: number; pistas_vistas: number } | null;
+    textos?: TextoLeido[];
 };
 /** El recorrido de cada pista durante "Seguir": puntos de apoyo (pie de la caja), normalizados. */
 type Recorridos = Record<number, { clase: string; nombre: string; puntos: [number, number][] }>;
@@ -123,6 +127,7 @@ export default function VisionLab() {
     const cancelado = useRef(false);
     const [tarea, setTarea] = useState<TareaVision>("detectar");
     const [conAtributos, setConAtributos] = useState(true);
+    const [conTexto, setConTexto] = useState(false);
     const [siguiendo, setSiguiendo] = useState<{ cuadro: number } | null>(null);
     const [recorridos, setRecorridos] = useState<Recorridos | null>(null);
     const pararSeguir = useRef(false);
@@ -160,10 +165,11 @@ export default function VisionLab() {
     }
 
     /** `op` pisa lo elegido en la barra: lo usa el botón "Probar" de cada tarjeta, que cambia la barra y corre en el mismo clic. */
-    async function probarCamara(id: string, sesion?: string, op?: { tarea?: TareaVision; atributos?: boolean }): Promise<Prueba> {
-        const t = op?.tarea ?? tarea, a = op?.atributos ?? conAtributos;
+    async function probarCamara(id: string, sesion?: string, op?: { tarea?: TareaVision; atributos?: boolean; texto?: boolean }): Promise<Prueba> {
+        const t = op?.tarea ?? tarea, a = op?.atributos ?? conAtributos, x = op?.texto ?? conTexto;
         const q = new URLSearchParams({ camara: id, umbral: String(umbral), tarea: sesion ? "detectar" : t });
         if (a && !sesion) q.set("atributos", "1");
+        if (x && !sesion) q.set("texto", "1");
         if (sesion) q.set("sesion", sesion);
         const r = await fetch(`/api/vision/probar?${q}`, { cache: "no-store" });
         const j = await r.json().catch(() => ({}));
@@ -171,7 +177,7 @@ export default function VisionLab() {
         return j as Prueba;
     }
 
-    async function analizar(op?: { tarea?: TareaVision; atributos?: boolean }) {
+    async function analizar(op?: { tarea?: TareaVision; atributos?: boolean; texto?: boolean }) {
         if (!camara) return;
         setProbando(true); setErrorPrueba(null); setRecorridos(null);
         try { const p = await probarCamara(camara, undefined, op); setPrueba(p); setEscaneo((s) => ({ ...s, [camara]: p })); }
@@ -216,9 +222,13 @@ export default function VisionLab() {
         if (!t) return;
         seccionPrueba.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         if (t === "seguir") { seguir(); return; }
-        const op = t === "atributos" ? { tarea: "detectar" as TareaVision, atributos: true } : { tarea: t };
+        const op: { tarea: TareaVision; atributos?: boolean; texto?: boolean } =
+            t === "atributos" ? { tarea: "detectar", atributos: true }
+                : t === "texto" ? { tarea: "detectar", texto: true }
+                    : { tarea: t };
         setTarea(op.tarea);
         if (op.atributos) setConAtributos(true);
+        if (op.texto) setConTexto(true);
         analizar(op);
     }
 
@@ -282,6 +292,9 @@ export default function VisionLab() {
                         El detector de objetos que se está sumando a OmniAccess: qué puede hacer, probarlo sobre las cámaras del barrio y decidir qué analíticas se prenden. Nada de esto toca todavía los monitores, las alarmas ni los accesos.
                     </p>
                 </div>
+                <a href="/admin/vision/detecciones" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-[var(--accion)] text-[var(--accion-texto)] text-[13px] font-semibold hover:opacity-90">
+                    <ListVideo size={15} /> Detecciones
+                </a>
             </div>
 
             {/* Salud del servicio */}
@@ -337,7 +350,7 @@ export default function VisionLab() {
                                 )}
                             </tbody>
                         </table>
-                        <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1.5"><Gauge size={12} /> Tiempos de GPU medidos dentro de omni-vision, sin contar el viaje del cuadro. Las cuatro tareas se turnan: nunca corren dos a la vez, para no pisar a omni-lpr.</p>
+                        <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1.5"><Gauge size={12} /> Tiempos de GPU medidos dentro de omni-vision, sin contar el viaje del cuadro. Todas las tareas se turnan: nunca corren dos a la vez, para no pisar a omni-lpr.</p>
                     </div>
                 )}
             </section>
@@ -383,6 +396,12 @@ export default function VisionLab() {
                                 className={cn("h-8 px-3 rounded-full text-[12px] font-semibold border inline-flex items-center gap-1.5",
                                     conAtributos ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] text-[var(--accion)] border-transparent" : "border-border text-muted-foreground hover:text-foreground")}>
                                 <Tag size={12} /> Atributos
+                            </button>
+                            <button type="button" onClick={() => setConTexto((v) => !v)} aria-pressed={conTexto}
+                                title="Leer el texto de la imagen (RapidOCR / PP-OCR) y cruzarlo con el catálogo de empresas"
+                                className={cn("h-8 px-3 rounded-full text-[12px] font-semibold border inline-flex items-center gap-1.5",
+                                    conTexto ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] text-[var(--accion)] border-transparent" : "border-border text-muted-foreground hover:text-foreground")}>
+                                <Type size={12} /> Texto
                             </button>
                             <div className="flex items-center h-8 rounded-lg bg-muted/60 p-0.5" title="Confianza mínima para mostrar un objeto">
                                 {UMBRALES.map((u) => (
@@ -567,6 +586,10 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, recorridos, alAbr
                             </g>
                         ))}
                         {pistas.map(([n, r]) => <Recorrido key={n} n={Number(n)} r={r} />)}
+                        {(prueba.textos || []).map((t, i) => (
+                            <polygon key={`t${i}`} points={t.poligono.map(([x, y]) => `${x},${y}`).join(" ")} fill="none"
+                                stroke={t.sobreimpreso ? "rgba(255,255,255,0.35)" : "var(--aviso)"} strokeWidth={2} strokeDasharray={t.sobreimpreso ? "4 3" : undefined} vectorEffect="non-scaling-stroke" />
+                        ))}
                     </svg>
                     {/* Los puntos de la pose van en HTML: en el SVG estirado un círculo se vuelve óvalo. */}
                     {visibles.flatMap((o, i) => (o.puntos || []).map((p, k) => p[2] < PUNTO_VISIBLE ? null : (
@@ -611,6 +634,7 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, recorridos, alAbr
                         {ocultos === 1 ? "1 objeto oculto" : `${ocultos} objetos ocultos`} por ser de clases apagadas: {[...new Set(prueba.objetos.filter((o) => !prendidas[o.clase]).map((o) => CLASE_POR_NOMBRE[o.clase]?.nombre || o.nombre))].join(", ")}.
                     </p>
                 )}
+                {prueba.textos && <TextosLeidos textos={prueba.textos} />}
                 {pistas.length > 0 && (
                     <div className="mt-4">
                         <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Recorridos</div>
@@ -630,8 +654,42 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, recorridos, alAbr
     );
 }
 
-const NOMBRE_TAREA: Record<string, string> = { detectar: "Detección", segmentar: "Siluetas", pose: "Pose", atributos: "Atributos" };
-const NOMBRE_PASO: Record<string, string> = { detectar: "detección", segmentar: "siluetas", pose: "pose", atributos: "atributos" };
+/** Lo leído: primero lo de la escena (con su empresa si la hay), después lo que sobreimprime la cámara. */
+function TextosLeidos({ textos }: { textos: NonNullable<Prueba["textos"]> }) {
+    const escena = textos.filter((t) => !t.sobreimpreso);
+    const camara = textos.filter((t) => t.sobreimpreso);
+    return (
+        <div className="mt-4">
+            <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Texto leído</div>
+            {escena.length === 0 ? <p className="text-[12.5px] text-muted-foreground">Nada legible en la escena.</p> : (
+                <ul className="space-y-1.5">
+                    {escena.map((t, i) => (
+                        <li key={i} className="flex items-start gap-2 text-[12.5px]">
+                            <Type size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1">
+                                <b className="font-semibold tracking-wide break-words">{t.texto}</b>
+                                <span className="flex flex-wrap gap-1 mt-0.5">
+                                    {t.tipo === "matricula" && <Chip tono="info">matrícula</Chip>}
+                                    {t.dentro && <span className="text-[11px] text-muted-foreground">sobre {t.dentro.nombre}</span>}
+                                    {t.empresa && <Chip tono="bien">{t.empresa.nombre}</Chip>}
+                                </span>
+                            </span>
+                            <span className="text-[11.5px] tabular-nums text-muted-foreground">{pct(t.confianza)}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+            {camara.length > 0 && (
+                <p className="mt-2 text-[11px] text-muted-foreground" title={camara.map((t) => t.texto).join("\n")}>
+                    + {camara.length} {camara.length === 1 ? "línea sobreimpresa" : "líneas sobreimpresas"} por la cámara (fecha, hora, datos), que no son de la escena.
+                </p>
+            )}
+        </div>
+    );
+}
+
+const NOMBRE_TAREA: Record<string, string> = { detectar: "Detección", segmentar: "Siluetas", pose: "Pose", atributos: "Atributos", texto: "Texto (OCR)" };
+const NOMBRE_PASO: Record<string, string> = { detectar: "detección", segmentar: "siluetas", pose: "pose", atributos: "atributos", texto: "texto" };
 
 /** Un objeto en la lista de la derecha: qué es, su pista, su postura y sus atributos. */
 function ItemVisto({ o, alAbrir }: { o: ObjetoVisto; alAbrir: () => void }) {

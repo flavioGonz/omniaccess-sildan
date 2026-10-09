@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
-import { detectar, type TareaVision } from "@/lib/vision";
+import { detectar, empresasEnTextos, type TareaVision } from "@/lib/vision";
+import { leerCatalogo } from "@/lib/empresas-servidor";
+import { normalizarNombre } from "@/lib/empresas";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,10 @@ async function cuadro(stream: string): Promise<Buffer | null> {
 }
 
 /**
- * GET /api/vision/probar?camara=<deviceId>&umbral=0.4[&tarea=segmentar|pose][&atributos=1][&sesion=<id>]
+ * GET /api/vision/probar?camara=<deviceId>&umbral=0.4[&tarea=segmentar|pose][&atributos=1][&texto=1][&sesion=<id>]
+ *
+ * Con texto=1, lo leído se cruza con el catálogo de empresas acá (no en omni-vision): el
+ * catálogo vive en la base de la app.
  *
  * Saca un cuadro de la cámara (go2rtc, el mismo stream del visor) y se lo da a omni-vision.
  * Devuelve la foto analizada junto con los objetos: si la pantalla pidiera la foto aparte,
@@ -41,6 +46,7 @@ export async function GET(req: NextRequest) {
     const t = req.nextUrl.searchParams.get("tarea");
     const tarea: TareaVision = t === "segmentar" || t === "pose" ? t : "detectar";
     const atributos = req.nextUrl.searchParams.get("atributos") === "1";
+    const texto = req.nextUrl.searchParams.get("texto") === "1";
     // La sesión de seguimiento la elige la pantalla (una por pasada); se acota para que no sea un canal libre.
     const sesion = (req.nextUrl.searchParams.get("sesion") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 40) || undefined;
     const dev = await prisma.device.findUnique({ where: { id }, select: { id: true, name: true } });
@@ -52,7 +58,8 @@ export async function GET(req: NextRequest) {
     if (!foto) return NextResponse.json({ error: `No se pudo sacar un cuadro de ${dev.name} (go2rtc no lo entregó).` }, { status: 502 });
     const msCuadro = Date.now() - t0;
     try {
-        const r = await detectar(foto, { umbral, tarea, atributos, sesion, fps: 2 });
+        const r = await detectar(foto, { umbral, tarea, atributos, sesion, fps: 2, texto });
+        if (r.textos?.length) r.textos = empresasEnTextos(r.textos, await leerCatalogo(), normalizarNombre);
         return NextResponse.json({
             camara: dev, fuente, ms_cuadro: msCuadro, ...r,
             imagen: `data:image/jpeg;base64,${foto.toString("base64")}`,

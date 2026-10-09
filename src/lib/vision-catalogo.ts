@@ -31,9 +31,9 @@ export type EstadoCapacidad = "corre" | "libre" | "pesado" | "no-aplica";
  * Qué tarea de omni-vision se usa para probar cada capacidad en el laboratorio (null = no se
  * puede probar acá). El seguimiento usa la detección sobre cuadros seguidos.
  */
-export const TAREA_DE_CAPACIDAD: Record<string, "detectar" | "segmentar" | "pose" | "atributos" | "seguir" | null> = {
+export const TAREA_DE_CAPACIDAD: Record<string, "detectar" | "segmentar" | "pose" | "atributos" | "seguir" | "texto" | null> = {
     deteccion: "detectar", segmentacion: "segmentar", pose: "pose", seguimiento: "seguir", clasificacion: "atributos",
-    vocabulario: null, obb: null,
+    texto: "texto", descripcion: null, vocabulario: null, obb: null,
 };
 
 /** Los 17 puntos de la pose, en el orden en que los devuelve el modelo (COCO). */
@@ -94,6 +94,20 @@ export const CAPACIDADES: Capacidad[] = [
         paraQue: "\"Camioneta blanca\", \"moto con dos personas\", color del vehículo en las lecturas LPR que no lo traen.",
         libre: "SigLIP 2 (Apache-2.0), corriendo en omni-vision: color y carrocería de vehículos; color de ropa, chaleco, casco, mochila y niño/adulto en personas. Es también la base de la búsqueda.",
         estado: "corre",
+    },
+    {
+        id: "texto", nombre: "Lectura de texto (OCR)", icono: "Type",
+        queEs: "Encuentra y lee el texto que aparece en la imagen: rotulados de camionetas, carteles, números de puerta, matrículas de motos.",
+        paraQue: "Saber de qué empresa es una camioneta por su rotulado (y cruzarlo con el catálogo de empresas), leer chapas donde no hay lectora, el modelo de un auto. Separa lo que sobreimprime la propia cámara (fecha, hora, datos) del texto de la escena.",
+        libre: "RapidOCR con los modelos PP-OCR de PaddleOCR (Apache-2.0), corriendo en omni-vision. No reemplaza a omni-lpr para las matrículas: lee lo demás.",
+        estado: "corre",
+    },
+    {
+        id: "descripcion", nombre: "Describir la escena", icono: "MessageSquareText",
+        queEs: "Un modelo de lenguaje con visión que mira el cuadro y contesta en palabras: \"¿qué está pasando?\", \"¿hay alguien saltando el cerco?\".",
+        paraQue: "Un resumen legible de un evento para la guardia o el WhatsApp, y preguntas que no son una clase (\"¿la barrera está levantada?\").",
+        libre: "SmolVLM2 (Apache-2.0) o Florence-2 (MIT). Entran en la 3050 pero tardan medio segundo o más por pregunta: para un evento, no para cada cuadro.",
+        estado: "pesado",
     },
     {
         id: "vocabulario", nombre: "Vocabulario abierto", icono: "Sparkles",
@@ -234,14 +248,19 @@ export const CLASES: Clase[] = [
 
 export const CLASE_POR_NOMBRE: Record<string, Clase> = Object.fromEntries(CLASES.map((c) => [c.clase, c]));
 
-export type EstadoAnalitica = "corre" | "desarrollo" | "posible";
+/**
+ * corre: anda hoy. desarrollo: está en el plan (con su fase). posible: las piezas libres ya
+ * corren en omni-vision, falta la regla. entrenar: ningún modelo libre lo hace bien de fábrica;
+ * hace falta entrenar o afinar uno con imágenes propias.
+ */
+export type EstadoAnalitica = "corre" | "desarrollo" | "posible" | "entrenar";
 
 export type Analitica = {
     id: string;
     nombre: string;
     icono: string;
     /** El modo de OmniAccess donde vive. */
-    modo: "Intrusión" | "LPR" | "Face" | "Filas" | "Búsqueda" | "Prueba";
+    modo: "Intrusión" | "LPR" | "Face" | "Filas" | "Búsqueda" | "Prueba" | "Conteo" | "Obras";
     queHace: string;
     /** Qué capacidades necesita (ids de CAPACIDADES). */
     necesita: string[];
@@ -259,8 +278,14 @@ export type Analitica = {
 export const ANALITICAS: Analitica[] = [
     {
         id: "prueba", nombre: "Prueba en vivo", icono: "ScanEye", modo: "Prueba",
-        queHace: "Analiza el cuadro actual de una cámara y dibuja lo que ve, en esta misma pantalla: cajas, siluetas, esqueletos, atributos y recorridos. Es lo único que corre hoy.",
-        necesita: ["deteccion", "segmentacion", "pose", "seguimiento", "clasificacion"], clases: [], estado: "corre", porDefecto: true,
+        queHace: "Analiza el cuadro actual de una cámara y dibuja lo que ve, en esta misma pantalla: cajas, siluetas, esqueletos, atributos, recorridos y texto.",
+        necesita: ["deteccion", "segmentacion", "pose", "seguimiento", "clasificacion", "texto"], clases: [], estado: "corre", porDefecto: true,
+    },
+    {
+        id: "registro", nombre: "Registro de detecciones", icono: "ListVideo", modo: "Prueba",
+        queHace: "El proceso vision-worker mira las cámaras elegidas cada pocos segundos (sólo cuando la imagen cambia), sigue a cada objeto y guarda uno por pista: recorte, cuadro, atributos y recorrido. Se ve en Visión → Detecciones. Apagado, el proceso no le pide nada a la GPU.",
+        necesita: ["deteccion", "seguimiento", "clasificacion"], clases: [], estado: "corre", porDefecto: true,
+        limite: "Guarda lo de las clases prendidas y nada más; se borra solo a los 7 días.",
     },
     {
         id: "verif-intrusion", nombre: "Doble verificación de intrusión", icono: "ShieldCheck", modo: "Intrusión",
@@ -331,6 +356,88 @@ export const ANALITICAS: Analitica[] = [
         id: "dejados", nombre: "Objetos dejados", icono: "Luggage", modo: "Búsqueda",
         queHace: "Un bolso, mochila o valija que apareció en una zona marcada y quedó quieto más de N minutos.",
         necesita: ["deteccion", "seguimiento"], clases: ["backpack", "handbag", "suitcase"], estado: "desarrollo", fase: 3, porDefecto: false,
+    },
+
+    // ── Lo que hace la industria y faltaba en la lista (revisado el 9/10). Las piezas ya corren;
+    //    lo que falta en cada una es la regla (dónde, cuánto, a quién avisar). ──
+    {
+        id: "linea-propia", nombre: "Cruce de línea propio", icono: "Spline", modo: "Intrusión",
+        queHace: "Una línea dibujada en OmniAccess (no en la cámara): el seguimiento dice quién la cruzó y en qué sentido. Sirve en cámaras sin analítica y no depende de configurar cada marca.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle", "bicycle"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "zona-propia", nombre: "Intrusión en zona propia", icono: "Shapes", modo: "Intrusión",
+        queHace: "Una zona dibujada en OmniAccess: alguien entra (o se queda más de N segundos). Con la silueta, cuenta si el cuerpo está adentro y no sólo la caja.",
+        necesita: ["deteccion", "seguimiento", "segmentacion"], clases: ["person", "car", "truck", "motorcycle"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "trepar", nombre: "Persona trepando", icono: "PersonStanding", modo: "Intrusión",
+        queHace: "Manos por encima de la cabeza y pies separados del suelo junto a un cerco o muro marcado: alguien trepando.",
+        necesita: ["deteccion", "pose"], clases: ["person"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "aglomeracion", nombre: "Aglomeración", icono: "Users", modo: "Intrusión",
+        queHace: "Más de N personas juntas en una zona (una reunión en la plaza a la madrugada, gente en la garita).",
+        necesita: ["deteccion"], clases: ["person"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "retirado", nombre: "Objeto retirado", icono: "PackageMinus", modo: "Intrusión",
+        queHace: "Algo que estaba quieto en una zona marcada (una bici, una moto, una silla) y desapareció.",
+        necesita: ["deteccion", "seguimiento"], clases: ["bicycle", "motorcycle", "chair", "bench"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "sentido-contrario", nombre: "Sentido contrario", icono: "ArrowLeftRight", modo: "LPR",
+        queHace: "Un vehículo que recorre la calle o el acceso en el sentido prohibido, por la dirección de su recorrido.",
+        necesita: ["deteccion", "seguimiento"], clases: ["car", "truck", "motorcycle", "bus"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "velocidad", nombre: "Velocidad aproximada", icono: "Gauge", modo: "LPR",
+        queHace: "Cuánto tardó un vehículo entre dos líneas marcadas a una distancia conocida: exceso de velocidad dentro del barrio.",
+        necesita: ["deteccion", "seguimiento"], clases: ["car", "truck", "motorcycle", "bus"], estado: "posible", porDefecto: false,
+        limite: "Es una estimación (depende de la calibración de la cámara), no una medición homologada.",
+    },
+    {
+        id: "rotulados", nombre: "Empresa por rotulado", icono: "Type", modo: "LPR",
+        queHace: "Lee el texto pintado en camionetas, motos y uniformes y lo cruza con el catálogo de empresas (delivery, taxis, servicios): el proveedor queda identificado aunque no se registre. Ya se prueba en el laboratorio.",
+        necesita: ["deteccion", "texto"], clases: ["car", "truck", "motorcycle", "person"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "chapa-sin-lectora", nombre: "Matrícula sin lectora", icono: "ScanLine", modo: "LPR",
+        queHace: "Leer chapas con la lectura de texto en cámaras comunes (perimetrales, de calle), sobre todo motos, que las lectoras no ven.",
+        necesita: ["deteccion", "texto"], clases: ["car", "truck", "motorcycle"], estado: "posible", porDefecto: false,
+        limite: "Para chapas, omni-lpr lee mejor: esto es para donde omni-lpr no mira.",
+    },
+    {
+        id: "permanencia", nombre: "Tiempo de permanencia", icono: "Timer", modo: "Conteo",
+        queHace: "Cuánto tiempo se quedó cada persona o vehículo en una zona: proveedores que se pasan del tiempo, autos estacionados donde no se puede.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "aforo", nombre: "Conteo por línea", icono: "ArrowLeftRight", modo: "Conteo",
+        queHace: "Cuántas personas, autos, motos y bicis cruzaron una línea, en cada sentido, por hora. Sin contar dos veces al mismo.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle", "bicycle"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "mapa-calor", nombre: "Mapa de calor", icono: "Flame", modo: "Conteo",
+        queHace: "Por dónde camina y circula la gente en cada cámara, a partir de los recorridos del registro de detecciones.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "epp", nombre: "Casco y chaleco en obras", icono: "HardHat", modo: "Obras",
+        queHace: "Personas sin casco o sin chaleco reflectivo dentro de una obra marcada (las obras del barrio, el personal de mantenimiento).",
+        necesita: ["deteccion", "clasificacion"], clases: ["person"], estado: "posible", porDefecto: false,
+    },
+    {
+        id: "fuego", nombre: "Humo y fuego", icono: "Flame", modo: "Intrusión",
+        queHace: "Humo o llamas en la imagen: un incendio de pasto, una parrilla fuera de lugar.",
+        necesita: ["deteccion"], clases: [], estado: "entrenar", porDefecto: false,
+        limite: "No está en las 80 clases. Los modelos de humo y fuego que circulan son AGPL; hay que entrenar uno propio con un set de datos libre (D-Fire) o preguntarle al modelo que describe la escena.",
+    },
+    {
+        id: "pelea", nombre: "Pelea o violencia", icono: "TriangleAlert", modo: "Intrusión",
+        queHace: "Personas forcejeando o golpeándose.",
+        necesita: ["deteccion", "pose", "seguimiento"], clases: ["person"], estado: "entrenar", porDefecto: false,
+        limite: "Es reconocimiento de acciones sobre varios cuadros, no de objetos: no hay un modelo libre que lo haga bien sin entrenar con video propio. Da muchas falsas alarmas.",
     },
 ];
 
