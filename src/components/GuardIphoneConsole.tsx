@@ -569,8 +569,11 @@ export default function GuardIphoneConsole({
             // Reset form
             setLoginUser("");
             setLoginPass("");
+            // Lo que se cargó al abrir se pidió sin identificación y el servidor lo rechazó: con
+            // la cookie ya firmada, se recarga una vez y entra por el camino normal.
+            setTimeout(() => window.location.reload(), 900);
         } else {
-            toast.error({ title: "Credenciales incorrectas" });
+            toast.error({ title: res.bloqueado ? "Demasiados intentos: esperá unos minutos" : "Credenciales incorrectas" });
         }
     };
 

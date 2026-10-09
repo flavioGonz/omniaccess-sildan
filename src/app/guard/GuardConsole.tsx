@@ -71,6 +71,8 @@ import { getQuickCreateData, getGuardsList, verifyGuardCredential, guardiaVigent
 
 /** Cada cuánto se renueva la identificación firmada del guardia (vence a las 14 h sin uso). */
 const RENOVAR_GUARDIA_MS = 60 * 60_000;
+/** Deja ver el «Bienvenido» antes de recargar. */
+const RECARGA_TRAS_PIN_MS = 900;
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { PedirPin } from "@/components/guard/PedirPin";
@@ -950,10 +952,14 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
             // Reset form
             setLoginUser("");
             setLoginPass("");
+            // Lo que la consola carga al abrirse (mapa, checkpoints, avisos) se pidió antes de
+            // identificarse y el servidor lo rechazó por no saber quién era. Con la cookie ya
+            // firmada, se recarga una vez y entra por el camino normal (guardiaVigente).
+            setTimeout(() => window.location.reload(), RECARGA_TRAS_PIN_MS);
 
         } else {
             playTactileSound();
-            toast.error({ title: "Credenciales incorrectas" });
+            toast.error({ title: res.bloqueado ? "Demasiados intentos: esperá unos minutos" : "Credenciales incorrectas" });
         }
     };
 
