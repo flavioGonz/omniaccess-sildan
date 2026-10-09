@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Loader2 } from "lucide-react";
-import { getAnalyticsGeometryBatch, getRecentDetections, resumenDetecciones, type DetItem, type ResumenDetecciones } from "@/app/actions/detections";
+import { getAnalyticsGeometryBatch, type DetItem, type ResumenDetecciones } from "@/app/actions/detections";
 import { useDestello, useTiempoReal } from "@/lib/tiempo-real";
 import { Estado, type Tono } from "@/components/ui/celdas";
 import { Pista } from "@/components/ui/pista";
 import { metaDe, type Geom } from "@/components/intrusion/comun";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
 import { fechaHoraSeg, hace, horaSeg, paraInput, ZONA } from "@/lib/fechas";
+import { conAncho } from "@/lib/ancho-foto";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,6 +33,9 @@ const PRIMERA_TANDA = 60;
 const TANDA = 45;
 const TOPE = 150;
 
+/** La miniatura del renglón mide 64 px; al doble por las pantallas de alta densidad. */
+const ANCHO_MINIATURA = 160;
+
 const TONO: Record<string, Tono> = { LINECROSS: "mal", INTRUSION: "mal", REGION_ENTER: "aviso", REGION_EXIT: "aviso", MOTION: "info" };
 
 /** Los contadores agrupan los tipos como los piensa el guardia: entrar a una zona y salir de ella son "zona". */
@@ -42,8 +46,8 @@ const GRUPOS = [
 ] as const;
 type ClaveGrupo = (typeof GRUPOS)[number]["clave"];
 
-const suma = (m: Record<string, number> | undefined, tipos: readonly string[]) => tipos.reduce((s, t) => s + (m?.[t] || 0), 0);
-const sumaTodo = (m: Record<string, number> | undefined) => Object.values(m || {}).reduce((s, n) => s + n, 0);
+const suma = (m: Record<string, number>, tipos: readonly string[]) => tipos.reduce((s, t) => s + (m[t] || 0), 0);
+const sumaTodo = (m: Record<string, number>) => Object.values(m).reduce((s, n) => s + n, 0);
 
 /** "Persona" / "Vehículo" en vez del código de la cámara. Lo que no se reconoce va tal cual. */
 function clase(label?: string | null) {
@@ -86,8 +90,10 @@ export function IntrusionPanel({ alAbrir }: {
 
     const cargar = useCallback((n: number) => {
         setError(false); setTrayendo(true);
-        Promise.all([getRecentDetections(n, conMovimiento), resumenDetecciones()])
-            .then(([lista, r]) => { setItems(lista); setResumen(r); })
+        // Por la ruta y no por acción de servidor: ver /api/detecciones (la cola de acciones del monitor).
+        fetch(`/api/detecciones?n=${n}&mov=${conMovimiento ? 1 : 0}`, { cache: "no-store" })
+            .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json() as Promise<{ lista: DetItem[]; resumen: ResumenDetecciones }>; })
+            .then(({ lista, resumen: r }) => { setItems(lista); setResumen(r); })
             .catch(() => setError(true))
             .finally(() => setTrayendo(false));
     }, [conMovimiento]);
@@ -139,13 +145,13 @@ export function IntrusionPanel({ alAbrir }: {
     const masSi = () => { const n = Math.min(TOPE, cuantas + TANDA); setCuantas(n); cargar(n); };
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 px-6 py-5">
             {/* Contadores. «Hoy» es también «todas»: tocarlo saca el filtro. */}
             <div className="grid grid-cols-4 gap-2">
-                <Contador titulo="Hoy" valor={sumaTodo(resumen?.hoy)} dia={sumaTodo(resumen?.dia)} activo={filtro === null}
+                <Contador titulo="Hoy" valor={resumen ? sumaTodo(resumen.hoy) : null} dia={resumen ? sumaTodo(resumen.dia) : null} activo={filtro === null}
                     onClick={() => setFiltro(null)} pista="Todas las detecciones desde la medianoche, sin contar movimiento. Abajo, las de las últimas 24 horas." />
                 {GRUPOS.map((g) => (
-                    <Contador key={g.clave} titulo={g.titulo} Icono={g.Icono} valor={suma(resumen?.hoy, g.tipos)} dia={suma(resumen?.dia, g.tipos)}
+                    <Contador key={g.clave} titulo={g.titulo} Icono={g.Icono} valor={resumen ? suma(resumen.hoy, g.tipos) : null} dia={resumen ? suma(resumen.dia, g.tipos) : null}
                         activo={filtro === g.clave} onClick={() => setFiltro((f) => f === g.clave ? null : g.clave)} pista={`${g.pista} Tocalo para ver sólo esas.`} />
                 ))}
             </div>
@@ -227,7 +233,7 @@ export function IntrusionPanel({ alAbrir }: {
                                                 es(d.id) && "bg-[var(--mal-suave)]")}>
                                             <span className="relative w-16 h-10 rounded-[6px] overflow-hidden bg-muted border border-border shrink-0 grid place-items-center text-muted-foreground">
                                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                {d.snapshotPath ? <img src={d.snapshotPath} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} /> : <Camera size={14} />}
+                                                {d.snapshotPath ? <img src={conAncho(d.snapshotPath, ANCHO_MINIATURA)!} alt="" loading="lazy" decoding="async" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} /> : <Camera size={14} />}
                                             </span>
                                             <span className="min-w-0 flex-1">
                                                 <span className="flex items-center gap-1.5">
@@ -262,7 +268,8 @@ export function IntrusionPanel({ alAbrir }: {
 
 /** Un contador: el número de hoy grande, las 24 h abajo. Es también el filtro de la lista (una píldora de elección). */
 function Contador({ titulo, valor, dia, activo, onClick, pista, Icono }: {
-    titulo: string; valor: number; dia: number; activo: boolean; onClick: () => void; pista: string;
+    /** null mientras se cuenta: un 0 antes de contar es un dato falso. */
+    titulo: string; valor: number | null; dia: number | null; activo: boolean; onClick: () => void; pista: string;
     Icono?: React.ComponentType<{ size?: number; className?: string }>;
 }) {
     return (
@@ -273,8 +280,8 @@ function Contador({ titulo, valor, dia, activo, onClick, pista, Icono }: {
                 <span className="flex items-center gap-1 text-[10.5px] font-semibold text-muted-foreground">
                     {Icono && <Icono size={11} />}{titulo}
                 </span>
-                <span className={cn("block text-[22px] font-bold tabular-nums leading-tight tracking-[-0.01em]", activo ? "tono-accion" : "text-foreground")}>{valor}</span>
-                <span className="block text-[10px] text-muted-foreground tabular-nums">24 h: {dia}</span>
+                <span className={cn("block text-[22px] font-bold tabular-nums leading-tight tracking-[-0.01em]", activo ? "tono-accion" : "text-foreground", valor === null && "text-muted-foreground/40")}>{valor ?? "—"}</span>
+                <span className="block text-[10px] text-muted-foreground tabular-nums">24 h: {dia ?? "—"}</span>
             </button>
         </Pista>
     );

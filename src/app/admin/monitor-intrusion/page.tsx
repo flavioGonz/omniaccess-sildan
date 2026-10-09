@@ -18,6 +18,7 @@ import "react-tooltip/dist/react-tooltip.css";
 import { LiveModal } from "@/components/intrusion/LiveModal";
 import { FichaDeteccion as DetailDialog } from "@/components/intrusion/FichaDeteccion";
 import { HorarioArmadoDialog, ResumenArmado, type HorariosCamara } from "@/components/intrusion/HorarioArmado";
+import { conAncho } from "@/lib/ancho-foto";
 
 type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
 type AlarmChip = { id: string; type: string; label: string; ts: string };
@@ -356,10 +357,16 @@ function AlarmDialog({ cam, onClose, onStatus }: { cam: IntrusionCam; onClose: (
     );
 }
 
+/**
+ * Las tarjetas del historial miden ~200 px de ancho (grilla de 2-3 en el panel lateral). La
+ * captura original son ~390 KB; a 400 px son unos 25 KB y la miniatura queda en disco.
+ */
+const ANCHO_DET_THUMB = 400;
+
 function DetThumb({ d, fill }: { d: DetItem | DetHistItem; fill?: boolean }) {
     const [ok, setOk] = useState(true);
     const [loaded, setLoaded] = useState(false);
-    const src = (d as any).snapshotPath ? (d as any).snapshotPath : (d.deviceId ? `/api/snapshot/${d.deviceId}?w=320&t=${d.id}` : null);
+    const src = (d as any).snapshotPath ? conAncho((d as any).snapshotPath, ANCHO_DET_THUMB) : (d.deviceId ? `/api/snapshot/${d.deviceId}?w=320&t=${d.id}` : null);
     useEffect(() => { setOk(true); setLoaded(false); }, [src]);
     const img = (
         <>
