@@ -69,6 +69,15 @@ function Dots() {
     );
 }
 
+/**
+ * La foto de cada canal de la grilla. Se pide a 640 px y no a resolución completa: medido el
+ * 8/10, la foto completa de una perimetral son 230-290 KB y llegaba en 2 s de promedio al
+ * navegador (60 por minuto, 15 MB/min); a 640 px son 22-28 KB y la cámara la entrega en
+ * 0,15 s. Con eso alcanza para refrescar más seguido sin cargar ni la cámara ni la red.
+ */
+const ANCHO_BALDOSA = 640;
+const REFRESCO_BALDOSA_MS = 2500;
+
 function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending, onCalibrate, onAlarm, onAck, onResolve, onFicha, onLive, onClip, horarios, onHorario }: {
     cam: IntrusionCam; alarms?: AlarmChip[]; last?: DetItem; geom?: Geom; hasAnalytics: boolean; alarmActive?: boolean; attending?: boolean;
     onCalibrate: (c: IntrusionCam) => void; onAlarm: (c: IntrusionCam) => void; onAck: (c: IntrusionCam) => void; onResolve?: (id: string) => void;
@@ -87,12 +96,12 @@ function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending
         const iob = new IntersectionObserver((ents) => { visRef.current = ents[0]?.isIntersecting ?? false; }, { rootMargin: "200px" });
         iob.observe(el);
         // refrescar snapshot sólo cuando el tile está a la vista (alivia 79 canales)
-        const iv = setInterval(() => { if (visRef.current) setRk((x) => x + 1); }, 4000);
+        const iv = setInterval(() => { if (visRef.current && document.visibilityState === "visible") setRk((x) => x + 1); }, REFRESCO_BALDOSA_MS);
         return () => { iob.disconnect(); clearInterval(iv); };
     }, []);
     const [, tick] = useState(0);
     useEffect(() => { if (!last) return; const iv = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(iv); }, [last]);
-    const src = `/api/snapshot/${cam.id}?t=${rk}`;
+    const src = `/api/snapshot/${cam.id}?w=${ANCHO_BALDOSA}&t=${rk}`;
     const m = last ? (META[last.type] || META.OTHER) : null;
     const tc = m ? m.cls.split(" ")[0] : "text-white/60";
     const isPtzCam = /ptz/i.test(cam.name || "");
@@ -350,7 +359,7 @@ function AlarmDialog({ cam, onClose, onStatus }: { cam: IntrusionCam; onClose: (
 function DetThumb({ d, fill }: { d: DetItem | DetHistItem; fill?: boolean }) {
     const [ok, setOk] = useState(true);
     const [loaded, setLoaded] = useState(false);
-    const src = (d as any).snapshotPath ? (d as any).snapshotPath : (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
+    const src = (d as any).snapshotPath ? (d as any).snapshotPath : (d.deviceId ? `/api/snapshot/${d.deviceId}?w=320&t=${d.id}` : null);
     useEffect(() => { setOk(true); setLoaded(false); }, [src]);
     const img = (
         <>

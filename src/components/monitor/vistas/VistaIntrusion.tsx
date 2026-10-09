@@ -44,7 +44,7 @@ function Canal({ cam, pendientes, confirmada, grande }: { cam: Cam; pendientes: 
         <motion.div layout transition={{ type: "spring", stiffness: 260, damping: 30 }}
             className={cn("relative rounded-2xl overflow-hidden bg-neutral-900 ring-1 ring-white/10", grande ? "col-span-2 row-span-2" : "")}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/snapshot/${cam.id}?t=${k}`} alt={cam.name} className="absolute inset-0 w-full h-full object-cover" />
+            <img src={`/api/snapshot/${cam.id}?w=640&t=${k}`} alt={cam.name} className="absolute inset-0 w-full h-full object-cover" />
             <GeomOverlay geom={cam.geom} alert={enAlarma} />
             {enAlarma && (
                 <CanalEnAlarma escala={grande ? "pared" : "panel"} estado={pendientes.length ? "pendiente" : "confirmada"}

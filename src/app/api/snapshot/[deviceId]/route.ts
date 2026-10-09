@@ -53,7 +53,22 @@ async function nvrSnapshot(deviceId: string): Promise<Buffer | null> {
 }
 
 /**
- * GET /api/snapshot/:deviceId
+ * Fotos recién sacadas, por cámara y tamaño, y los pedidos en curso.
+ *
+ * Una grilla de monitor pide la foto de cada canal cada pocos segundos, y varios operadores
+ * miran la misma grilla: sin esto cada pedido iba a la cámara. Medido el 8/10 en el monitor
+ * de intrusión: 60 fotos por minuto, 2 s de promedio cada una, 15 MB por minuto. Con la
+ * foto de hace menos de FOTO_VIGENTE_MS y el pedido en curso compartido, la cámara recibe a
+ * lo sumo un pedido por intervalo, lo vean uno o diez.
+ */
+const FOTO_VIGENTE_MS = 1500;
+const fotos = new Map<string, { buf: Buffer; t: number }>();
+const enCurso = new Map<string, Promise<Buffer | null>>();
+/** Anchos que se aceptan: los que usan las grillas y el visor. Cualquier otro valor se ignora. */
+const ANCHOS = new Set([320, 480, 640, 960, 1280]);
+
+/**
+ * GET /api/snapshot/:deviceId[?w=640]
  * Live snapshot from the camera. HIKVISION usa el driver (Digest-aware);
  * otras marcas usan el fetch directo con Basic.
  */
@@ -80,9 +95,25 @@ export async function GET(
 
         // HIKVISION: capturar por ISAPI con Digest/Basic automatico (driver)
         if (device.brand === "HIKVISION") {
-            let buf = await new HikvisionDriver().captureSnapshot(device as any);
-            if (!buf) buf = await nvrSnapshot(deviceId);
-            if (!buf) buf = await go2rtcFrameRetry(deviceId);
+            const w = Number(req.nextUrl.searchParams.get("w") || 0);
+            const ancho = ANCHOS.has(w) ? w : undefined;
+            const clave = `${deviceId}:${ancho || "max"}`;
+            const guardada = fotos.get(clave);
+            let buf: Buffer | null = guardada && Date.now() - guardada.t < FOTO_VIGENTE_MS ? guardada.buf : null;
+            if (!buf) {
+                let p = enCurso.get(clave);
+                if (!p) {
+                    p = (async () => {
+                        let b = await new HikvisionDriver().captureSnapshot(device as any, 1, ancho);
+                        if (!b) b = await nvrSnapshot(deviceId);
+                        if (!b) b = await go2rtcFrameRetry(deviceId);
+                        if (b) fotos.set(clave, { buf: b, t: Date.now() });
+                        return b;
+                    })().finally(() => enCurso.delete(clave));
+                    enCurso.set(clave, p);
+                }
+                buf = await p;
+            }
             if (!buf) return new NextResponse("No snapshot available", { status: 502 });
             return new NextResponse(buf as any, {
                 status: 200,

@@ -55,7 +55,12 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
      * Endpoint confiable: GET /ISAPI/Streaming/channels/<ch>01/picture
      * Devuelve el Buffer JPEG o null si falla.
      */
-    async captureSnapshot(device: Device, channel: number = 1): Promise<Buffer | null> {
+    /**
+     * `ancho`: pedirle a la cámara la foto ya achicada (ISAPI videoResolutionWidth/Height, 16:9).
+     * Medido el 8/10 en las perimetrales: 640 px son 22-28 KB en 0,15 s contra 230-290 KB en
+     * 0,4 s a resolución completa. Para una baldosa de una grilla no hace falta más.
+     */
+    async captureSnapshot(device: Device, channel: number = 1, ancho?: number): Promise<Buffer | null> {
         const authDevice: DigestAuthDevice = {
             ip: device.ip,
             username: device.username || "admin",
@@ -69,7 +74,7 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
             try {
                 const data = await authenticatedRequest(
                     "GET",
-                    `/ISAPI/Streaming/channels/${ch}/picture`,
+                    `/ISAPI/Streaming/channels/${ch}/picture${ancho ? `?videoResolutionWidth=${ancho}&videoResolutionHeight=${Math.round(ancho * 9 / 16)}` : ""}`,
                     authDevice,
                     { accept: "image/jpeg", responseType: "arraybuffer", timeout: 12000 }
                 );

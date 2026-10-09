@@ -214,7 +214,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
         };
         cancelAnimationFrame(paintRAF.current); paintRAF.current = requestAnimationFrame(step);
     };
-    const [snap, setSnap] = useState(`/api/snapshot/${cam.id}?t=${Date.now()}`);
+    const [snap, setSnap] = useState(`/api/snapshot/${cam.id}?w=960&t=${Date.now()}`);
     const [qFlash, setQFlash] = useState(0);
     // grabación
     // Si quien abre ya sabe de qué NVR es el canal (cam.nvrId), se usa de entrada: pedirlo de
@@ -285,7 +285,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
         return { id: e.id, m: d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60, Icon: m.Icon, titulo: `${m.label} · ${horaSeg(d.getTime())}`, tono: e.type === "LINECROSS" || e.type === "INTRUSION" ? "mal" : e.type === "MOTION" ? "info" : "aviso" };
     }), [recEvents]);
     const irAMarca = (k: MarcaScrub) => { const ev = recEvents.find((x) => x.id === k.id); if (ev) seekTo(new Date(ev.timestamp).getTime()); };
-    useEffect(() => { if (ready || tab !== "live") return; const iv = setInterval(() => setSnap(`/api/snapshot/${cam.id}?t=${Date.now()}`), 1500); return () => clearInterval(iv); }, [ready, cam.id, tab]);
+    useEffect(() => { if (ready || tab !== "live") return; const iv = setInterval(() => setSnap(`/api/snapshot/${cam.id}?w=960&t=${Date.now()}`), 1500); return () => clearInterval(iv); }, [ready, cam.id, tab]);
 
     // ── LIVE loader (paciencia > warmup del transcode HW, sin churn) ──
     // NO depende de `tab`: el vivo sigue corriendo aunque estés en Grabación/Evidencia,
@@ -440,7 +440,7 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
                                             <div className={cn("absolute w-52 rounded-xl overflow-hidden bg-black/85 backdrop-blur-md ring-1 ring-white/20 shadow-2xl pointer-events-none z-10", l.y < 0.42 ? "top-full mt-2" : "bottom-full mb-2", l.x < 0.2 ? "left-0" : l.x > 0.8 ? "right-0" : "left-1/2 -translate-x-1/2")}>
                                                 <div className="relative aspect-video bg-black">
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                    <img src={`/api/snapshot/${c!.id}?t=hover`} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                                                    <img src={`/api/snapshot/${c!.id}?w=320&t=hover`} alt="" className="absolute inset-0 w-full h-full object-cover" />
                                                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                                                     <video autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${c!.id}`)}&video=h264`} className="absolute inset-0 w-full h-full object-cover" />
                                                     <span className="absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8px] font-extrabold uppercase tracking-wide text-amber-300"><Crosshair size={7} /> Seguir</span>

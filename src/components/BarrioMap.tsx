@@ -1339,7 +1339,7 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                                     className="w-full flex items-center gap-2 rounded-xl border border-border bg-background/60 p-1.5 hover:bg-accent/40 transition-colors text-left">
                                     <div className="relative w-[64px] h-[40px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={`/api/snapshot/${it.deviceId}?t=${it.id || it.ms}`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                        <img src={`/api/snapshot/${it.deviceId}?w=320&t=${it.id || it.ms}`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-[11.5px] font-bold truncate flex items-center gap-1">{it.type === "INTRUSION" ? <ShieldAlert size={11} className="text-red-500 shrink-0" /> : <Route size={11} className="text-sky-500 shrink-0" />}{it.type === "INTRUSION" ? "Intrusión" : it.type === "LINECROSS" ? "Cruce" : "Detección"}{it.label ? <span className="text-muted-foreground">· {it.label === "vehicle" ? "Auto" : "Persona"}</span> : null}</div>
@@ -1665,7 +1665,7 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                                     className={cn("rounded-xl border border-border bg-background/60 p-1.5 flex items-center gap-2 cursor-grab active:cursor-grabbing", pendingCam === d.id && "ring-1 ring-blue-500")}>
                                     <div className="relative w-[72px] h-[44px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={`/api/snapshot/${d.id}?t=pl`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" draggable={false} />
+                                        <img src={`/api/snapshot/${d.id}?w=320&t=pl`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" draggable={false} />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-[12px] font-bold truncate">{d.name}</div>
@@ -1696,7 +1696,7 @@ export default function BarrioMap({ modo = "panel", fuente }: { modo?: "panel" |
                                     <div key={c.id} className="rounded-xl border border-border bg-background/60 p-2 flex gap-2">
                                         <div className="relative w-[84px] h-[52px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img src={`/api/snapshot/${c.id}?t=dr`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                            <img src={`/api/snapshot/${c.id}?w=320&t=dr`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
                                             <MiniGeomOverlay geom={intrGeomPrev[c.id]} />
                                         </div>
                                         <div className="flex-1 min-w-0">
