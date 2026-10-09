@@ -59,6 +59,23 @@ async function proveedorDe(plate: string) {
     return u && String(u.role) === "PROVIDER" ? u : null;
 }
 
+/**
+ * ¿Esta matrícula ya entró hoy (día del barrio) antes de esta lectura?
+ *
+ * La rutina describe la PRIMERA llegada del día. Medido en las primeras 24 h (8/10): de 5
+ * avisos «fuera de rutina», 4 eran la segunda entrada de un auto que ya había llegado a su
+ * hora (AAD7609: 08:46 y 10:11; SCZ3628: 08:42 y 18:02) — el que sale a almorzar y vuelve, o
+ * la salida que la cámara no leyó. Comparar esa segunda entrada con la hora de llegada es
+ * comparar dos cosas distintas, así que sólo se mira la primera.
+ */
+async function yaEntroHoy(plate: string, instante: Date, minutoDelDia: number): Promise<boolean> {
+    const inicioDia = new Date(instante.getTime() - minutoDelDia * 60_000 - instante.getUTCSeconds() * 1000 - instante.getUTCMilliseconds());
+    const antes = await prisma.accessEvent.count({
+        where: { plateDetected: plate, direction: "ENTRY", timestamp: { gte: inicioDia, lt: new Date(instante.getTime() - 60_000) } },
+    }).catch(() => 0);
+    return antes > 0;
+}
+
 export async function alLeerMatricula(l: Lectura): Promise<void> {
     try {
         if (l.modulo !== "LPR" || !EVENTOS_DE_LECTURA.has(String(l.evento).toUpperCase())) return;
@@ -126,7 +143,7 @@ export async function alLeerMatricula(l: Lectura): Promise<void> {
         const rutina = (perfil?.rutina as Rutina | null) || null;
 
         if (cam.tipo === "entrada") {
-            if (aj.avisos.FUERA_DE_RUTINA.activo && rutina && perfil?.clase !== "RESIDENTE") {
+            if (aj.avisos.FUERA_DE_RUTINA.activo && rutina && perfil?.clase !== "RESIDENTE" && !(await yaEntroHoy(plate, instante, zona.minuto))) {
                 const fuera = fueraDeRutina(rutina, zona, aj.avisos.FUERA_DE_RUTINA.margenMin);
                 if (fuera) await crearAviso({ tipo: "FUERA_DE_RUTINA", plate, accessEventId, camara: camaraNombre, motivo: motivo.fueraDeRutina({ hora, rutina: describirRutina(rutina), por: fuera.por }), datos: { ...fuera, rutina } }, ventana);
             }

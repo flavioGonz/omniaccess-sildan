@@ -40,4 +40,4 @@
 
 - [x] 7.1 Desplegar: `./node_modules/.bin/prisma migrate deploy`, build en segundo plano (`BUILD_EXIT=0`), `pm2 restart omniaccess-web --update-env`; agregar el cron del tick en el CT; poner San Nicolás en ABIERTO; verificar HTTP 200 de `/monitor/lpr`, `/guard`, `/admin/visitas`, `/admin/settings?seccion=visitas`, `/api/monitor/lpr`, `/api/visitas/tick` (con token).
 - [x] 7.2 Prueba de punta a punta en producción con una matrícula conocida: registrar Delivery desde la consola → aparece en el monitor con cuenta atrás → la cámara de Salida la lee (o se simula la lectura) → la visita se cierra y desaparece; registrar otra y dejarla vencer → un solo aviso en consola y monitor, sin WhatsApp; atenderlo.
-- [ ] 7.3 Revisar los avisos de las primeras 24 h con los umbrales por defecto y ajustar los que hagan ruido; anotar el resultado (cuántos de cada tipo) en `claude/visitas-y-patrones.md`.
+- [x] 7.3 Revisar los avisos de las primeras 24 h con los umbrales por defecto y ajustar los que hagan ruido; anotar el resultado (cuántos de cada tipo) en `claude/visitas-y-patrones.md`.
