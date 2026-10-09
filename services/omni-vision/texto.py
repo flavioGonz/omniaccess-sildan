@@ -24,6 +24,7 @@ import re
 import time
 
 import numpy as np
+from PIL import Image
 
 import motor
 
@@ -32,12 +33,15 @@ CONFIANZA_MIN = 0.6
 # Lado mayor de la imagen para encontrar texto: a 2000 px una foto de 2560 apenas se achica;
 # más grande no mejora y tarda.
 LADO_MAX = 2000
-# El lector de renglones recibe lotes de ancho variable (el del renglón más largo). En la GPU,
-# cada forma nueva le cuesta ~1,2 s a ONNX Runtime (planifica de nuevo); con la misma forma,
-# 17 ms. Medido el 9/10 en la 3050: 1,85 s por foto sólo en leer 9 renglones. Por eso los lotes
-# se rellenan a anchos fijos (múltiplos de esto) y a lote completo: pocas formas, todas
-# conocidas después de las primeras fotos.
-ANCHO_PASO = 320
+# Formas FIJAS para los dos modelos. Medido el 9/10 en la 3050: ONNX Runtime en GPU vuelve a
+# planificar cada vez que la forma de la entrada cambia respecto del pedido anterior (~1 s cada
+# vez, aunque esa forma ya se haya visto), y con la misma forma tarda 16-110 ms. RapidOCR manda
+# cada foto con su tamaño y cada lote de renglones con el ancho del más largo: 2 s por foto.
+#   · La foto se encaja (sin deformar, con bandas negras) en un lienzo fijo antes de buscar texto.
+#   · Los lotes de renglones van siempre de RENGLONES_LOTE × ANCHO_RENGLON; un renglón más largo
+#     que eso se comprime a ese ancho (son las franjas de datos de la cámara, que no se usan).
+LIENZO = (1600, 1200)
+ANCHO_RENGLON = 960
 
 # Lo que imprime la cámara sobre la imagen: fecha, hora, y la franja de datos de las Hikvision
 # LPR ("Camera Info: Device No.…", "Vehicle Color", "Confidence"). Se reconoce por el texto, no
@@ -93,11 +97,14 @@ class Lector:
 
         class Relleno:
             def __call__(self, x):
+                import cv2
                 n, c, h, w = x.shape
-                ancho = max(ANCHO_PASO, int(math.ceil(w / ANCHO_PASO) * ANCHO_PASO))
+                if w > ANCHO_RENGLON:
+                    x = np.stack([cv2.resize(m.transpose(1, 2, 0), (ANCHO_RENGLON, h), interpolation=cv2.INTER_AREA).transpose(2, 0, 1) for m in x])
+                    w = ANCHO_RENGLON
                 # Relleno con 0: es lo mismo que pone RapidOCR para emparejar un lote (gris medio
                 # una vez normalizado), así que un renglón no cambia por ir acompañado.
-                x2 = np.zeros((max(lote, n), c, h, ancho), dtype=np.float32)
+                x2 = np.zeros((max(lote, n), c, h, ANCHO_RENGLON), dtype=np.float32)
                 x2[:n, :, :, :w] = x
                 return original(x2)[:n]
 
@@ -115,7 +122,11 @@ class Lector:
             motor.Cola.en_vuelo = "texto"
             t0 = time.perf_counter()
             try:
-                r = self.motor(img)
+                W0, H0 = img.size
+                escala = min(LIENZO[0] / W0, LIENZO[1] / H0)
+                lienzo = Image.new("RGB", LIENZO)
+                lienzo.paste(img.resize((max(1, round(W0 * escala)), max(1, round(H0 * escala))), Image.BILINEAR), (0, 0))
+                r = self.motor(lienzo)
                 self._rellenar_lotes()
             except Exception:
                 self.errores += 1
@@ -127,7 +138,8 @@ class Lector:
         self.ultimo_ms = ms
         self._ms = (self._ms + [ms])[-motor.HISTORIA:]
 
-        W, H = img.size
+        # Las cajas vienen en píxeles del lienzo: se pasan a fracción de la foto original.
+        W, H = img.size[0] * escala, img.size[1] * escala
         out = []
         cajas = r.boxes if r.boxes is not None else []
         for txt, conf, caja in zip(r.txts or [], r.scores or [], cajas):
