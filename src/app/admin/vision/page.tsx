@@ -542,7 +542,8 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, recorridos, alAbr
     );
     const visibles = prueba.objetos.filter((o) => prendidas[o.clase]);
     const ocultos = prueba.objetos.length - visibles.length;
-    const pistas = recorridos ? Object.entries(recorridos) : [];
+    // Los recorridos de clases apagadas tampoco se dibujan, igual que sus cajas.
+    const pistas = recorridos ? Object.entries(recorridos).filter(([, r]) => prendidas[r.clase]) : [];
     return (
         <div className="grid lg:grid-cols-[1fr_340px]">
             <div className="p-3 min-w-0">

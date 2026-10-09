@@ -42,7 +42,14 @@ class Sesiones:
                                 minimum_consecutive_frames=2)
 
     def actualizar(self, sesion: str, objetos, fps: float) -> dict:
-        """Pone `pista` (número, o None si todavía no se confirmó) en cada objeto."""
+        """Pone `pista` (número, o None si todavía no se confirmó) en cada objeto.
+
+        Un rastreador por GRUPO (persona, vehículo, animal…), no uno para todo: ByteTrack asocia
+        por superposición de cajas sin mirar la clase, y a 2 cuadros por segundo, con el umbral
+        de superposición bajo que hace falta para seguir algo que se mueve, el número de un
+        cartel quieto terminaba pasando a la persona que caminaba al lado. El número que se
+        publica es propio de la sesión (1, 2, 3…), así no se repite entre grupos.
+        """
         import supervision as sv
         ahora = time.time()
         with self._c:
@@ -51,29 +58,38 @@ class Sesiones:
             if sesion not in self._s:
                 if len(self._s) >= MAX_SESIONES:
                     del self._s[min(self._s, key=lambda k: self._s[k]["t"])]
-                self._s[sesion] = {"r": self._nueva(fps), "t": ahora, "cuadros": 0, "vistas": set()}
+                self._s[sesion] = {"r": {}, "t": ahora, "cuadros": 0, "numeros": {}}
             s = self._s[sesion]
             s["t"] = ahora
             s["cuadros"] += 1
-            if objetos:
-                clases = sorted({o.clase for o in objetos})
-                d = sv.Detections(
-                    xyxy=np.array([o.caja for o in objetos], dtype=float),
-                    confidence=np.array([o.confianza for o in objetos], dtype=float),
-                    class_id=np.array([clases.index(o.clase) for o in objetos]),
-                )
-                d.data["i"] = np.arange(len(objetos))
-                r = s["r"].update(d)
-                ids = {int(i): int(t) for i, t in zip(r.data["i"], r.tracker_id)}
-            else:
-                s["r"].update(sv.Detections.empty())
-                ids = {}
+            por_grupo: dict[str, list[int]] = {}
             for i, o in enumerate(objetos):
-                t = ids.get(i, -1)
-                o.extra["pista"] = t if t >= 0 else None
-                if t >= 0:
-                    s["vistas"].add(t)
-            return {"cuadro": s["cuadros"], "pistas_vistas": len(s["vistas"])}
+                por_grupo.setdefault(o.grupo, []).append(i)
+            pista: dict[int, int] = {}
+            # Los grupos que no aparecen en este cuadro también avanzan: si no, sus pistas no envejecen.
+            for g in set(s["r"]) | set(por_grupo):
+                if g not in s["r"]:
+                    s["r"][g] = self._nueva(fps)
+                idx = por_grupo.get(g, [])
+                if idx:
+                    d = sv.Detections(
+                        xyxy=np.array([objetos[i].caja for i in idx], dtype=float),
+                        confidence=np.array([objetos[i].confianza for i in idx], dtype=float),
+                        class_id=np.zeros(len(idx), dtype=int),
+                    )
+                    d.data["i"] = np.array(idx)
+                    r = s["r"][g].update(d)
+                    for i, t in zip(r.data["i"], r.tracker_id):
+                        if int(t) >= 0:
+                            clave = (g, int(t))
+                            if clave not in s["numeros"]:
+                                s["numeros"][clave] = len(s["numeros"]) + 1
+                            pista[int(i)] = s["numeros"][clave]
+                else:
+                    s["r"][g].update(sv.Detections.empty())
+            for i, o in enumerate(objetos):
+                o.extra["pista"] = pista.get(i)
+            return {"cuadro": s["cuadros"], "pistas_vistas": len(s["numeros"])}
 
     def cuantas(self) -> int:
         return len(self._s)
