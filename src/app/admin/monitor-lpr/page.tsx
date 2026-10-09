@@ -800,6 +800,30 @@ function CriticalAlerts({ items, onDismiss, onClear, onRegister }: { items: any[
  * Ahora cada columna es un sentido completo, de arriba abajo: la última lectura en
  * grande, sus cámaras con la lectura de cada una, y las lecturas de ese sentido nada más.
  */
+/** Lo que dice la lista del sentido en cuatro números. Va al costado cuando hay una sola cámara. */
+function ResumenSentido({ eventos }: { eventos: any[] }) {
+    const sinLeer = (e: any) => !e.plateDetected || ["NO_LEIDA", "unknown", "S/P"].includes(e.plateDetected);
+    const filas: [string, number, string][] = [
+        ["Permitidas", eventos.filter((e) => e.decision === "GRANT").length, "tono-bien"],
+        ["Denegadas", eventos.filter((e) => e.decision !== "GRANT").length, ""],
+        ["Sin lectura", eventos.filter(sinLeer).length, "tono-aviso"],
+        ["Residentes", eventos.filter((e) => e.user?.id).length, ""],
+    ];
+    return (
+        <div className="aspect-video rounded-lg border border-border bg-card px-3 py-2.5 flex flex-col">
+            <p className="text-[11px] font-semibold text-muted-foreground">En la lista</p>
+            <div className="flex-1 grid grid-cols-2 gap-x-3 content-center">
+                {filas.map(([r, n, tono]) => (
+                    <div key={r} className="py-1">
+                        <p className={cn("text-[18px] font-bold tabular-nums leading-none", n > 0 && tono)}>{n}</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">{r}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRegister, platesPark, watchMap }: {
     dir: "ENTRY" | "EXIT";
     camaras: any[];
@@ -826,14 +850,20 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
                 </span>
             </div>
 
-            {/* La última lectura y las cámaras */}
-            <div className="shrink-0 p-4 pb-3 space-y-3 border-b border-border">
-                <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="h-[clamp(200px,34vh,400px)]" />
-                {camaras.length > 0 && (
-                    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(camaras.length, 4)}, minmax(0, 1fr))` }}>
-                        {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="h-[84px]" />)}
+            {/* La última lectura y las cámaras, lado a lado y las dos en 16:9.
+                La versión anterior apilaba las cámaras debajo en una tira de 84 px de alto a todo
+                el ancho: un cuadro 16:9 recortado a una franja, donde no se veía nada. Las
+                cámaras son 16:9; si el recuadro no lo es, se mira un pedazo. */}
+            <div className="shrink-0 p-4 border-b border-border">
+                <div className="grid gap-3 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 31%)" }}>
+                    <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="aspect-video" />
+                    <div className={cn("grid gap-2", camaras.length > 2 ? "grid-cols-2" : "grid-cols-1")}>
+                        {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="aspect-video" />)}
+                        {/* Con una sola cámara sobra la mitad del costado: ahí va el resumen del sentido. */}
+                        {camaras.length < 2 && <ResumenSentido eventos={eventos} />}
+                        {camaras.length === 0 && <div className="aspect-video rounded-lg border border-dashed border-border grid place-items-center text-[11.5px] text-muted-foreground">Sin cámaras de {entrada ? "entrada" : "salida"}</div>}
                     </div>
-                )}
+                </div>
             </div>
 
             {/* Las lecturas del sentido */}
