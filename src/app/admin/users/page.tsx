@@ -17,7 +17,7 @@ import { getDevices, getLprSyncMap } from "@/app/actions/devices";
 import { UserRole } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Users, Plus, Camera } from "lucide-react";
+import { Users, Plus, Camera, Home, Briefcase, Truck, DoorOpen, Ban } from "lucide-react";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { CajonListaNegra } from "@/components/users/CajonListaNegra";
 import { TablaListaNegra } from "@/components/users/TablaListaNegra";
@@ -66,6 +66,12 @@ interface UserWithRelations {
 
 /** Cuántas filas entran de una. Con la tabla midiendo su propio scroll, 40 llena una pantalla grande. */
 const PAGINA = 40;
+
+/** El ícono de cada pestaña: se reconoce de un vistazo antes de leer. La lista negra lleva el de
+ *  prohibido, el mismo que la alerta máxima en la tabla y en el cajón. */
+const ICONO_PESTANIA: Record<ClavePestania, React.ComponentType<{ size?: number; className?: string }>> = {
+    residentes: Home, personal: Briefcase, proveedores: Truck, visitas: DoorOpen, listanegra: Ban,
+};
 
 const TAB_DE_URL = (v: string | null): ClavePestania | null => {
     if (v === "vigilancia") return "listanegra";
@@ -267,17 +273,27 @@ export default function UsersPage() {
                 {/* Las pestañas: una por clase. La pastilla es elección, el número cuántos hay. */}
                 <div className="px-8 pt-4 shrink-0 flex flex-col gap-3">
                     <div className="inline-flex self-start rounded-full border border-border bg-card p-0.5 flex-wrap">
-                        {PESTANIAS.map((p) => (
-                            <button key={p.clave} type="button" onClick={() => elegirPestania(p.clave)} aria-pressed={pestania === p.clave}
-                                className={cn("h-8 px-4 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5",
-                                    pestania === p.clave ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                                {p.titulo}
-                                <span className={cn("tabular-nums text-[10px] px-1.5 py-0.5 rounded-md",
-                                    p.clave === "listanegra" && cuentas.listanegra > 0 ? "chip-mal" : "bg-muted text-muted-foreground")}>
-                                    {cuentas[p.clave]}
-                                </span>
-                            </button>
-                        ))}
+                        {PESTANIAS.map((p) => {
+                            const Ic = ICONO_PESTANIA[p.clave];
+                            const activa = pestania === p.clave;
+                            // La lista negra se distingue de las demás aunque no esté elegida: fondo
+                            // rojo suave siempre, rojo pleno cuando es la abierta. Es estado (mal),
+                            // no acción, así que va con el tono y no con el azul.
+                            const negra = p.clave === "listanegra";
+                            return (
+                                <button key={p.clave} type="button" onClick={() => elegirPestania(p.clave)} aria-pressed={activa}
+                                    className={cn("h-8 px-3.5 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5 border border-transparent",
+                                        negra ? (activa ? "pleno-mal" : "chip-mal ml-1 hover:brightness-110")
+                                            : activa ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                                    <Ic size={13} />
+                                    {p.titulo}
+                                    <span className={cn("tabular-nums text-[10px] px-1.5 py-0.5 rounded-md",
+                                        negra ? (activa ? "bg-white/20 text-white" : "pleno-mal") : "bg-muted text-muted-foreground")}>
+                                        {cuentas[p.clave]}
+                                    </span>
+                                </button>
+                            );
+                        })}
                     </div>
                     <ComportamientoPestania pestania={pestania} comportamiento={comportamiento} alCambiar={cambiarComportamiento}
                         guardando={guardandoComp} avisos={avisos} />
