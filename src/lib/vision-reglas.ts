@@ -19,7 +19,7 @@
 
 export const CLAVE_REGLAS = "VISION_REGLAS";
 
-export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "cruce" | "intrusion";
+export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "cruce" | "intrusion" | "merodeo" | "retirado";
 export type Punto = [number, number];
 export type Sentido = "ab" | "ba";
 
@@ -87,7 +87,21 @@ export const TIPOS_REGLA: Record<TipoRegla, {
         queHace: "Avisa cuando alguien entra a la zona y se queda los segundos indicados (para que una sombra o un paso por el borde no avise). Una vez por objeto. Con horario, se arma sólo de noche.",
         clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 2,
     },
+    merodeo: {
+        nombre: "Merodeo", analitica: "merodeo", geometria: "zona",
+        queHace: "Avisa cuando alguien anda dando vueltas en la zona (o en todo el cuadro): se queda más de lo indicado y se mueve, no está parado esperando. Una vez por persona. Si sale del cuadro y vuelve, empieza de cero.",
+        clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 90,
+    },
+    retirado: {
+        nombre: "Objeto retirado", analitica: "retirado", geometria: "zona",
+        queHace: "Aprende lo que está quieto en la zona (una bicicleta, una moto, una silla, un bulto) y avisa si desaparece, con la foto de antes y la de después. Si alguien se para delante, no cuenta como desaparecido.",
+        clasesDefecto: ["bicycle", "motorcycle", "backpack", "suitcase", "handbag", "chair", "bench", "potted plant"], avisarDefecto: true, segundosDefecto: 20,
+    },
 };
+
+/** Merodeo: desde 20 s (menos es pasar caminando) hasta 1 h. Retirado: cuánto tiene que faltar, de 5 s a 10 min. */
+const SEGUNDOS_MERODEO = { min: 20, max: 3600 };
+const SEGUNDOS_RETIRADO = { min: 5, max: 600 };
 
 /** La intrusión avisa casi en el acto: su demora va de 0 a 2 min, no desde los 5 s de la permanencia. */
 const SEGUNDOS_INTRUSION = { min: 0, max: 120 };
@@ -112,7 +126,16 @@ export const CLASES_REGLA: { clase: string; nombre: string }[] = [
     { clase: "bicycle", nombre: "Bicicletas" },
     { clase: "dog", nombre: "Perros" },
 ];
-export const NOMBRE_CLASE_REGLA: Record<string, string> = Object.fromEntries(CLASES_REGLA.map((c) => [c.clase, c.nombre]));
+/** Lo que se puede llevar alguien: las clases que ofrece «Objeto retirado» además de las de arriba. */
+export const CLASES_OBJETO: { clase: string; nombre: string }[] = [
+    { clase: "backpack", nombre: "Mochilas" },
+    { clase: "handbag", nombre: "Bolsos" },
+    { clase: "suitcase", nombre: "Valijas" },
+    { clase: "chair", nombre: "Sillas" },
+    { clase: "bench", nombre: "Bancos" },
+    { clase: "potted plant", nombre: "Macetas" },
+];
+export const NOMBRE_CLASE_REGLA: Record<string, string> = Object.fromEntries([...CLASES_REGLA, ...CLASES_OBJETO].map((c) => [c.clase, c.nombre]));
 
 /** Topes para que un número mal escrito no deje una regla inútil o peligrosa. */
 const SEGUNDOS = { min: 5, max: 6 * 3600 };
@@ -146,15 +169,18 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             if (tipo === "cruce") regla.sentidos = r?.sentidos === "ab" || r?.sentidos === "ba" ? r.sentidos : "ambos";
         } else {
             const zona = (Array.isArray(r?.zona) ? r.zona : []).map(punto).filter(Boolean) as Punto[];
-            if ((tipo === "permanencia" || tipo === "intrusion") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
+            if ((tipo === "permanencia" || tipo === "intrusion" || tipo === "retirado") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
             regla.zona = zona.length >= 3 ? zona.slice(0, 30) : null;
             if (tipo === "intrusion") {
                 const v = Number(r?.segundos);
                 regla.segundos = Math.round(Math.max(SEGUNDOS_INTRUSION.min, Math.min(SEGUNDOS_INTRUSION.max, Number.isFinite(v) && r?.segundos !== "" && r?.segundos != null ? v : t.segundosDefecto ?? 2)));
+            } else if (tipo === "merodeo" || tipo === "retirado") {
+                const lim = tipo === "merodeo" ? SEGUNDOS_MERODEO : SEGUNDOS_RETIRADO;
+                regla.segundos = Math.round(Math.max(lim.min, Math.min(lim.max, Number(r?.segundos) || t.segundosDefecto || lim.min)));
             } else regla.segundos = Math.round(Math.max(SEGUNDOS.min, Math.min(SEGUNDOS.max, Number(r?.segundos) || t.segundosDefecto || 60)));
             if (tipo === "aglomeracion") regla.maximo = Math.round(Math.max(MAXIMO.min, Math.min(MAXIMO.max, Number(r?.maximo) || t.maximoDefecto || 5)));
         }
-        if (tipo === "cruce" || tipo === "intrusion") {
+        if (tipo === "cruce" || tipo === "intrusion" || tipo === "merodeo" || tipo === "retirado") {
             const h = r?.horario;
             if (h && (h.desde || h.hasta)) {
                 if (!HORA.test(String(h.desde)) || !HORA.test(String(h.hasta))) { errores.push(`${nombre}: el horario va como 22:00 a 06:00`); continue; }
@@ -174,7 +200,11 @@ export const TIPOS_EVENTO: Record<string, { nombre: string; tono: "info" | "mal"
     AGLOMERACION: { nombre: "Aglomeración", tono: "aviso" },
     CRUCE_LINEA: { nombre: "Cruce de línea", tono: "aviso" },
     INTRUSION: { nombre: "Intrusión", tono: "mal" },
+    MERODEO: { nombre: "Merodeo", tono: "aviso" },
+    RETIRADO: { nombre: "Objeto retirado", tono: "mal" },
 };
+/** Los tipos que tienen horario de armado. */
+export const CON_HORARIO: TipoRegla[] = ["cruce", "intrusion", "merodeo", "retirado"];
 
 /** «2 min 30 s», «1 h 5 min». */
 export function duracionCorta(seg: number | null | undefined): string {

@@ -610,7 +610,11 @@ type RuleInput = {
     minSeverity?: string | null;
     cooldownSec?: number;
     dedupe?: boolean;
+    /** Intrusión: «avisar» (al instante) o «confirmada» (sólo si omni-vision ve a alguien). Ver lib/doble-verificacion. */
+    verificacion?: string;
 };
+/** Los valores que acepta `verificacion`: cualquier otra cosa queda como siempre. */
+const VERIFICACIONES = new Set(["avisar", "confirmada"]);
 
 export async function createNotificationRule(data: RuleInput) {
     return prisma.notificationRule.create({
@@ -631,6 +635,7 @@ export async function createNotificationRule(data: RuleInput) {
             minSeverity: data.minSeverity || null,
             cooldownSec: data.cooldownSec ?? 60,
             dedupe: data.dedupe ?? true,
+            verificacion: VERIFICACIONES.has(String(data.verificacion)) ? data.verificacion! : "avisar",
         },
     });
 }
@@ -655,6 +660,7 @@ export async function updateNotificationRule(id: string, data: Partial<RuleInput
             ...(data.minSeverity !== undefined ? { minSeverity: data.minSeverity || null } : {}),
             ...(data.cooldownSec !== undefined ? { cooldownSec: data.cooldownSec } : {}),
             ...(data.dedupe !== undefined ? { dedupe: data.dedupe } : {}),
+            ...(data.verificacion !== undefined && VERIFICACIONES.has(String(data.verificacion)) ? { verificacion: data.verificacion } : {}),
         },
     });
 }

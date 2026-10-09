@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { esperarVeredicto, anotarAviso, AVISAN } from "@/lib/doble-verificacion";
+import { VEREDICTOS, type Veredicto } from "@/lib/vision-capa";
 import { enqueueDispatch } from "@/lib/dispatch-queue";
 import { fecha, hora } from "@/lib/fechas";
 import { ventanaAlerta } from "@/lib/clip-instante";
@@ -125,28 +127,16 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
         const demoraClipMs = conClip ? ((await ventanaAlerta()).despues + MARGEN_GRABACION_SEG) * 1000 : 0;
         const instante = ev.instante != null && !Number.isNaN(new Date(ev.instante as any).getTime()) ? new Date(ev.instante as any) : ahora;
 
-        for (const regla of reglas) {
-            // Cámara: null en la regla significa "cualquiera".
-            if (regla.deviceId && regla.deviceId !== ev.deviceId) continue;
-
-            // Evento: vacío significa "cualquiera".
-            const pedidos = String(regla.eventos || "").split(",").map((e) => e.trim().toUpperCase()).filter(Boolean);
-            if (pedidos.length && !pedidos.includes(ev.evento.toUpperCase())) continue;
-
-            if (!enHorario(regla, ahora)) continue;
-
-            // Antirrebote: no repetir la misma regla dentro de su enfriamiento.
-            if (regla.cooldownSec > 0 && regla.lastFiredAt) {
-                const pasaron = (ahora.getTime() - new Date(regla.lastFiredAt).getTime()) / 1000;
-                if (pasaron < regla.cooldownSec) continue;
-            }
-
+        /** Encola los avisos de una regla por todos sus canales y destinatarios. `veredicto`: el de omni-vision, si se esperó. */
+        const encolar = async (regla: (typeof reglas)[number], veredicto?: string | null): Promise<number> => {
+            let n = 0;
             const canales = String(regla.channels || "telegram").split(",").map((c) => c.trim().toLowerCase()).filter(Boolean);
 
             for (const canal of canales) {
                 const plantilla = plantillas.find((t) => t.channel === canal) || plantillas.find((t) => t.channel === "all");
                 // La hora del texto es la del evento, no la de encolado: con el clip la alerta sale unos segundos después.
-                const texto = armarTexto(plantilla?.body || null, ev, instante);
+                // Si se esperó a omni-vision, el aviso lo dice: quien lo recibe sabe que no es una sombra.
+                const texto = armarTexto(plantilla?.body || null, ev, instante) + (veredicto && VEREDICTOS[veredicto as Veredicto] ? `\nVerificado por omni-vision: ${VEREDICTOS[veredicto as Veredicto].rotulo.toLowerCase()}` : "");
 
                 // Un despacho por destinatario de ese canal; si no hay ninguno,
                 // uno solo y que el worker use el destino por defecto.
@@ -174,17 +164,53 @@ export async function notificarEvento(ev: EventoNotificable): Promise<number> {
                             text: texto,
                             ...(destino ? { to: destino, chatId: destino } : {}),
                             ...(ev.extra || {}),
+                            ...(veredicto ? { verificacion: veredicto } : {}),
                         },
                     });
-                    encolados++;
+                    n++;
                 }
             }
 
+            return n;
+        };
+        const diferidas: (typeof reglas)[number][] = [];
+
+        for (const regla of reglas) {
+            // Cámara: null en la regla significa "cualquiera".
+            if (regla.deviceId && regla.deviceId !== ev.deviceId) continue;
+
+            // Evento: vacío significa "cualquiera".
+            const pedidos = String(regla.eventos || "").split(",").map((e) => e.trim().toUpperCase()).filter(Boolean);
+            if (pedidos.length && !pedidos.includes(ev.evento.toUpperCase())) continue;
+
+            if (!enHorario(regla, ahora)) continue;
+
+            // Antirrebote: no repetir la misma regla dentro de su enfriamiento.
+            if (regla.cooldownSec > 0 && regla.lastFiredAt) {
+                const pasaron = (ahora.getTime() - new Date(regla.lastFiredAt).getTime()) / 1000;
+                if (pasaron < regla.cooldownSec) continue;
+            }
+
+            // Doble verificación: la regla espera a omni-vision (lib/doble-verificacion), fuera de este pedido.
+            if (ev.modulo === "INTRUSION" && (regla as any).verificacion === "confirmada") { diferidas.push(regla); continue; }
+
+            encolados += await encolar(regla);
             await prisma.notificationRule.update({
                 where: { id: regla.id },
                 data: { lastFiredAt: ahora },
             }).catch(() => { });
         }
+
+        if (diferidas.length) void (async () => {
+            const { detectionId, veredicto } = await esperarVeredicto(ev);
+            const avisa = veredicto == null || AVISAN.includes(veredicto);
+            await anotarAviso(detectionId, veredicto == null ? "SIN_VEREDICTO" : avisa ? "ENVIADO" : "RETENIDO");
+            if (!avisa) { console.log(`[reglas] aviso retenido por la doble verificación: ${ev.deviceName || ev.deviceId} · ${veredicto}`); return; }
+            for (const regla of diferidas) {
+                await encolar(regla, veredicto);
+                await prisma.notificationRule.update({ where: { id: regla.id }, data: { lastFiredAt: new Date() } }).catch(() => { });
+            }
+        })().catch((e) => console.error("[reglas] doble verificación:", e?.message || e));
 
         return encolados;
     } catch (e: any) {

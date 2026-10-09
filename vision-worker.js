@@ -29,7 +29,7 @@ const crypto = require("crypto");
 const sharp = require("sharp");
 const { spawn } = require("child_process");
 const { PrismaClient } = require("@prisma/client");
-const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
+const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, DeleteObjectsCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 
 const prisma = new PrismaClient();
 const relecturas = require("./vision-relectura");
@@ -164,6 +164,8 @@ async function leerAjustes() {
         verificar: analiticas["verif-intrusion"] !== false,
         analizarLpr: analiticas["tipo-vehiculo"] !== false,
         atributosLpr: analiticas["color-vehiculo"] !== false && !apagadas.has("atributos"),
+        // Huellas para la búsqueda (analítica «busqueda»): usan la mitad de imágenes de los atributos.
+        huellas: analiticas.busqueda !== false && !apagadas.has("atributos"),
         dispositivos,
         clases: json(c, {}),
         camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
@@ -193,6 +195,11 @@ async function prepararCliente() {
     catch { await c.send(new CreateBucketCommand({ Bucket: BUCKET })).catch(() => null); log(`bucket '${BUCKET}' creado`); }
     s3 = c;
     return s3;
+}
+/** Un archivo del bucket (para las huellas de los recortes ya guardados). */
+async function bajar(clave) {
+    const r = await (await cliente()).send(new GetObjectCommand({ Bucket: BUCKET, Key: clave }));
+    return Buffer.from(await r.Body.transformToByteArray());
 }
 async function subir(clave, buf) {
     await (await cliente()).send(new PutObjectCommand({ Bucket: BUCKET, Key: clave, Body: buf, ContentType: "image/jpeg" }));
@@ -554,8 +561,9 @@ async function principal() {
         prisma, log, vision: VISION,
         estado: () => ({
             detectar: !ajustes.apagadas.has("detectar"), segmentar: !ajustes.apagadas.has("segmentar"),
-            verificar: ajustes.verificar, lpr: ajustes.analizarLpr, atributos: ajustes.atributosLpr,
+            verificar: ajustes.verificar, lpr: ajustes.analizarLpr, atributos: ajustes.atributosLpr, huellas: ajustes.huellas,
         }),
+        bajar, subir,
     });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {

@@ -301,8 +301,8 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "merodeo", nombre: "Merodeo", icono: "Footprints", modo: "Intrusión",
-        queHace: "Una persona que se queda más de N minutos frente a un lote o que pasa varias veces por la misma cámara.",
-        necesita: ["deteccion", "seguimiento"], clases: ["person"], estado: "posible", porDefecto: false,
+        queHace: "Una persona que anda dando vueltas en una zona (o en todo el cuadro) más de lo indicado: se mueve, no está parada esperando. Con horario de armado. Si sale del cuadro y vuelve, el seguimiento empieza de cero.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person"], estado: "corre", porDefecto: true,
     },
     {
         id: "persona-suelo", nombre: "Persona en el suelo", icono: "PersonStanding", modo: "Intrusión",
@@ -356,7 +356,7 @@ export const ANALITICAS: Analitica[] = [
         id: "busqueda", nombre: "Búsqueda de objetos", icono: "ScanSearch", modo: "Búsqueda",
         queHace: "Buscar en lo que vieron las cámaras por texto (\"camioneta blanca\", \"persona con mochila roja\") o por una foto, y abrir la grabación en ese instante. Como AcuSeek, sin depender del NVR.",
         necesita: ["deteccion", "clasificacion"], clases: ["person", "car", "truck", "motorcycle", "bicycle", "backpack", "handbag", "suitcase", "dog"],
-        estado: "desarrollo", fase: 3, porDefecto: true,
+        estado: "corre", fase: 3, porDefecto: true,
     },
     {
         id: "dejados", nombre: "Objetos dejados", icono: "Luggage", modo: "Búsqueda",
@@ -388,8 +388,8 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "retirado", nombre: "Objeto retirado", icono: "PackageMinus", modo: "Intrusión",
-        queHace: "Algo que estaba quieto en una zona marcada (una bici, una moto, una silla) y desapareció.",
-        necesita: ["deteccion", "seguimiento"], clases: ["bicycle", "motorcycle", "chair", "bench"], estado: "posible", porDefecto: false,
+        queHace: "Algo que estaba quieto en una zona marcada (una bici, una moto, una silla, un bulto) y desapareció, con la foto de antes y la de después. Si una persona lo tapa, no cuenta.",
+        necesita: ["deteccion"], clases: ["bicycle", "motorcycle", "chair", "bench", "backpack", "suitcase", "handbag", "potted plant"], estado: "corre", porDefecto: true,
     },
     {
         id: "sentido-contrario", nombre: "Sentido contrario", icono: "ArrowLeftRight", modo: "LPR",

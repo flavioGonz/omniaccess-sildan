@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FlaskConical, ListVideo, ScanEye, ScanLine, Sparkles, Spline, type LucideIcon } from "lucide-react";
+import { FlaskConical, ListVideo, ScanEye, ScanLine, ScanSearch, ShieldCheck, Sparkles, Spline, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,7 +17,9 @@ export const SECCIONES_OMNIVISION: { href: string; rotulo: string; menu: string;
     { href: "/admin/vision/analiticas", rotulo: "Analíticas", menu: "Crear las analíticas", icono: Sparkles },
     { href: "/admin/vision/reglas", rotulo: "Reglas", menu: "Reglas analíticas", icono: Spline },
     { href: "/admin/vision/detecciones", rotulo: "Detecciones", menu: "Detecciones", icono: ListVideo },
+    { href: "/admin/vision/buscar", rotulo: "Buscar", menu: "Búsqueda de objetos", icono: ScanSearch },
     { href: "/admin/vision/relecturas", rotulo: "Relecturas", menu: "Relecturas", icono: ScanLine },
+    { href: "/admin/vision/verificacion", rotulo: "Verificación", menu: "Doble verificación", icono: ShieldCheck },
     { href: "/admin/vision", rotulo: "Laboratorio", menu: "Laboratorio", icono: FlaskConical, exacta: true },
 ];
 

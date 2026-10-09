@@ -610,6 +610,9 @@ model NotificationRule {
   minSeverity String? // ok | warn | full | critico (gate opcional)
   cooldownSec Int       @default(60)
   dedupe      Boolean   @default(true)
+  /// Intrusión: «avisar» (como siempre, al instante) o «confirmada» (espera a que omni-vision
+  /// mire la captura y avisa sólo si ve una persona o un vehículo). Ver lib/doble-verificacion.
+  verificacion String   @default("avisar")
   lastFiredAt DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -965,6 +968,9 @@ model Detection {
   verifAt       DateTime?
   verifMs       Int?
   verifError    String?
+  /// Doble verificación de los avisos (reglas con «sólo si omni-vision ve a alguien»):
+  /// ENVIADO | RETENIDO (sólo un animal o nada) | SIN_VEREDICTO (no llegó a tiempo: se avisó igual).
+  verifAviso    String?
 
   @@index([deviceId, timestamp])
   @@index([acknowledged, timestamp])
@@ -1206,9 +1212,24 @@ model ObjetoVisto {
   textos     Json?
   createdAt  DateTime @default(now())
 
+  huella     HuellaObjeto?
+
   @@index([primeraVez])
   @@index([deviceId, primeraVez])
   @@index([clase, primeraVez])
+}
+
+/// La huella de SigLIP 2 del recorte de una pista: para buscarla por texto («camioneta blanca
+/// con escalera») o por parecido. int8 (768 bytes) con su escala: para ordenar por coseno
+/// alcanza, y ocupa la cuarta parte que en float32. Ver vision-analisis.js y /api/vision/buscar.
+model HuellaObjeto {
+  objetoId  String      @id
+  objeto    ObjetoVisto @relation(fields: [objetoId], references: [id], onDelete: Cascade)
+  vector    Bytes
+  escala    Float
+  createdAt DateTime    @default(now())
+
+  @@index([createdAt])
 }
 
 /// Relectura de una lectura NO_LEIDA de un acceso: vision-worker recorta el vehiculo de la
@@ -1256,6 +1277,8 @@ model EventoVision {
   valor    Float?
   /// Clave del cuadro en el bucket de vision (objetos)
   foto     String?
+  /// Objeto retirado: la foto de ANTES (la última donde se lo vio); `foto` es la de después.
+  fotoAntes String?
   /// Caja normalizada del objeto en la foto
   caja     Json?
   /// El aviso a la guardia que se creo, si la regla avisa

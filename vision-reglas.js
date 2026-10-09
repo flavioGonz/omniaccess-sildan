@@ -1,6 +1,7 @@
 /**
  * Las reglas de las analíticas de visión, dentro de vision-worker: conteo por línea, sentido
- * contrario, tiempo de permanencia, aglomeración, cruce de línea propio e intrusión en zona propia (ver src/lib/vision-reglas.ts, que define
+ * contrario, tiempo de permanencia, aglomeración, cruce de línea propio, intrusión en zona propia,
+ * merodeo y objeto retirado (ver src/lib/vision-reglas.ts, que define
  * las reglas y su validación; acá se aplican).
  *
  * Trabaja sobre lo que ya hace el registro: cada cámara se mira cada ~2 s y omni-vision
@@ -21,8 +22,8 @@ const http = require("http");
 const crypto = require("crypto");
 
 /** Las analíticas del laboratorio que prenden cada tipo, y su valor si nadie las tocó. */
-const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", cruce: "linea-propia", intrusion: "zona-propia" };
-const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, "linea-propia": true, "zona-propia": true };
+const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", cruce: "linea-propia", intrusion: "zona-propia", merodeo: "merodeo", retirado: "retirado" };
+const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, "linea-propia": true, "zona-propia": true, merodeo: true, retirado: true };
 /** Cuánto tiene que correrse el pie (fracción del cuadro) para contar como movimiento. */
 const MOVIMIENTO_MIN = 0.01;
 /** Una pista que no se ve hace esto deja de existir para las reglas. */
@@ -44,8 +45,44 @@ const ENFRIO_INTRUSION_MS = 60_000;
 /** La hora del barrio, para el horario de armado de cruce e intrusión. */
 const ZONA = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
 
-const TIPO_AVISO = { SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION" };
-const NOMBRE_CLASE = { person: "persona", car: "auto", truck: "camioneta", bus: "ómnibus", motorcycle: "moto", bicycle: "bicicleta", dog: "perro" };
+/**
+ * Merodeo: lo que tiene que haber caminado la persona dentro de la zona (suma de los pasos del
+ * pie, en fracciones del ancho del cuadro) para no ser alguien parado esperando. 0,6 es cruzar el
+ * cuadro de lado a lado más de media vez.
+ */
+const MERODEO_RECORRIDO_MIN = 0.6;
+const ENFRIO_MERODEO_MS = 2 * 60_000;
+/**
+ * Objeto retirado: cuánto tiene que estar quieto algo para que la regla lo «aprenda» (una
+ * mochila que alguien lleva puesta no se aprende), cuánto se puede mover sin dejar de ser el
+ * mismo (IoU con su caja aprendida) y en cuántos cuadros analizados seguidos tiene que faltar,
+ * además de los segundos de la regla (un cuadro sin detectarlo es ruido del detector).
+ */
+const RETIRADO_ESTABLE_MS = 60_000;
+const RETIRADO_IOU_MISMO = 0.35;
+const RETIRADO_FALTAS_MIN = 5;
+/** Una persona que tapa el objeto (su caja lo cubre en esta fracción) no es que el objeto se fue. */
+const RETIRADO_TAPADO = 0.3;
+const ENFRIO_RETIRADO_MS = 60_000;
+
+const TIPO_AVISO = { SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION", MERODEO: "VISION_MERODEO", RETIRADO: "VISION_RETIRADO" };
+const NOMBRE_CLASE = { person: "persona", car: "auto", truck: "camioneta", bus: "ómnibus", motorcycle: "moto", bicycle: "bicicleta", dog: "perro",
+    backpack: "mochila", handbag: "bolso", suitcase: "valija", chair: "silla", bench: "banco", "potted plant": "maceta" };
+/** Para el texto del aviso: «se llevaron una bicicleta», «un bolso». */
+const ARTICULO = { bicycle: "una", motorcycle: "una", backpack: "una", suitcase: "una", chair: "una", "potted plant": "una", handbag: "un", bench: "un" };
+/** Intersección sobre unión de dos cajas [x1,y1,x2,y2]. */
+function iou(a, b) {
+    const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    const i = ix * iy, u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i;
+    return u > 0 ? i / u : 0;
+}
+/** Qué fracción de la caja `a` cubre la caja `b`. */
+function cubre(a, b) {
+    const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0])), iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+    const area = (a[2] - a[0]) * (a[3] - a[1]);
+    return area > 0 ? (ix * iy) / area : 0;
+}
+const centro = (c) => [(c[0] + c[2]) / 2, (c[1] + c[3]) / 2];
 
 const pie = (o) => { const [x1, , x2, y2] = o.caja_norm; return [(x1 + x2) / 2, y2]; };
 const lado = (l, p) => (l.b[0] - l.a[0]) * (p[1] - l.a[1]) - (l.b[1] - l.a[1]) * (p[0] - l.a[0]);
@@ -91,7 +128,7 @@ function emitir(evento, datos) {
 function iniciar({ prisma, subir, log }) {
     let reglas = [];
     let analiticas = {};
-    const contadores = { cruces: 0, sentido: 0, permanencia: 0, aglomeracion: 0, crucesPropios: 0, intrusiones: 0, avisos: 0, errores: 0, ultimoError: null };
+    const contadores = { cruces: 0, sentido: 0, permanencia: 0, aglomeracion: 0, crucesPropios: 0, intrusiones: 0, merodeos: 0, retirados: 0, aprendidos: 0, avisos: 0, errores: 0, ultimoError: null };
     /** Último pie visto de cada pista: `${deviceId}:${pista}` → { p, t }. */
     const pies = new Map();
     /** Por regla y pista: último cruce { t, sentido }. */
@@ -105,6 +142,12 @@ function iniciar({ prisma, subir, log }) {
     const intrusos = new Map();
     const ultimoAvisoCruce = new Map();
     const ultimoAvisoIntrusion = new Map();
+    /** Merodeo: `${regla}:${pista}` → { desde, visto, recorrido, ultimo, avisado, deviceId }. */
+    const merodeos = new Map();
+    const ultimoAvisoMerodeo = new Map();
+    /** Objeto retirado, por regla: lo aprendido en la zona → [{ clase, caja, desde, visto, faltas, jpeg, estable }]. */
+    const aprendidos = new Map();
+    const ultimoAvisoRetirado = new Map();
 
     const prendida = (r) => r.activa !== false && (analiticas[ANALITICA[r.tipo]] ?? DEFECTO[ANALITICA[r.tipo]]) !== false;
 
@@ -129,6 +172,9 @@ function iniciar({ prisma, subir, log }) {
             if (r.tipo === "aglomeracion" && grupos.get(r.id)?.desde) return true;
             if (r.tipo === "permanencia") for (const k of estadias.keys()) if (k.startsWith(r.id + ":")) return true;
             if (r.tipo === "intrusion") for (const k of intrusos.keys()) if (k.startsWith(r.id + ":")) return true;
+            if (r.tipo === "merodeo") for (const k of merodeos.keys()) if (k.startsWith(r.id + ":")) return true;
+            // Algo aprendido que está faltando: se mira seguido hasta decidir si se lo llevaron.
+            if (r.tipo === "retirado" && (aprendidos.get(r.id) || []).some((a) => a.estable && a.faltas > 0)) return true;
         }
         return false;
     }
@@ -164,6 +210,9 @@ function iniciar({ prisma, subir, log }) {
                     const valen = conPista.filter((o) => r.clases.includes(o.clase));
                     if (r.tipo === "conteo" || r.tipo === "sentido" || r.tipo === "cruce") await lineas(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "intrusion") await intrusion(r, cam, valen, jpeg, ahora, t);
+                    else if (r.tipo === "merodeo") await merodeo(r, cam, valen, jpeg, ahora, t);
+                    // Retirado mira también a las personas (para saber si tapan lo aprendido).
+                    else if (r.tipo === "retirado") await retirado(r, cam, objetos, jpeg, ahora, t);
                     else if (r.tipo === "permanencia") await permanencia(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "aglomeracion") await aglomeracion(r, cam, valen, jpeg, ahora, t);
                 } catch (e) { contadores.errores++; contadores.ultimoError = `${r.nombre}: ${e.message}`; }
@@ -180,6 +229,7 @@ function iniciar({ prisma, subir, log }) {
         for (const [k, v] of pies) if (t - v.t > OLVIDO_MS * 3) pies.delete(k);
         for (const [k, v] of cruces) if (t - v.t > OLVIDO_MS * 3) cruces.delete(k);
         for (const [k, v] of intrusos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) intrusos.delete(k);
+        for (const [k, v] of merodeos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) merodeos.delete(k);
         await cerrarEstadias(cam, t, false);
     }
 
@@ -259,6 +309,77 @@ function iniciar({ prisma, subir, log }) {
                 await avisar(r, "INTRUSION", `${NOMBRE_CLASE[o.clase] || o.clase} en ${r.nombre}`, ev.id, f, cam);
             }
         }
+    }
+
+    /**
+     * Merodeo: una pista con el pie en la zona (o en el cuadro, si la regla no tiene zona) más de
+     * `segundos`, que además CAMINÓ (MERODEO_RECORRIDO_MIN): parado esperando es permanencia, no
+     * merodeo. En horario. Una vez por pista.
+     */
+    async function merodeo(r, cam, valen, jpeg, ahora, t) {
+        const armada = enHorario(r.horario, ahora);
+        for (const o of valen) {
+            const k = `${r.id}:${o.pista}`;
+            const p = pie(o);
+            if (!armada || (r.zona && !adentro(p, r.zona))) { merodeos.delete(k); continue; }
+            let e = merodeos.get(k);
+            if (!e) { e = { desde: t, visto: t, recorrido: 0, ultimo: p, avisado: false, deviceId: cam.id }; merodeos.set(k, e); }
+            e.recorrido += Math.hypot(p[0] - e.ultimo[0], p[1] - e.ultimo[1]);
+            e.ultimo = p; e.visto = t;
+            if (e.avisado || (t - e.desde) / 1000 < r.segundos || e.recorrido < MERODEO_RECORRIDO_MIN) continue;
+            e.avisado = true;
+            const f = await foto(jpeg, ahora);
+            const seg = Math.round((t - e.desde) / 1000);
+            const ev = await evento({ tipo: "MERODEO", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, valor: seg, foto: f, caja: o.caja_norm, ts: new Date(e.desde) });
+            contadores.merodeos++;
+            if (t - (ultimoAvisoMerodeo.get(r.id) || 0) > ENFRIO_MERODEO_MS) {
+                ultimoAvisoMerodeo.set(r.id, t);
+                await avisar(r, "MERODEO", `${NOMBRE_CLASE[o.clase] || o.clase} dando vueltas hace ${seg >= 60 ? `${Math.floor(seg / 60)} min` : `${seg} s`} en ${r.nombre}`, ev.id, f, cam);
+            }
+        }
+    }
+
+    /**
+     * Objeto retirado. Lo que está quieto en la zona RETIRADO_ESTABLE_MS se aprende (con el
+     * último cuadro donde se lo vio). Si falta `segundos` y RETIRADO_FALTAS_MIN cuadros seguidos,
+     * sin una persona tapándolo, se avisa con la foto de antes y la de después. No usa la pista
+     * (un objeto quieto puede cambiar de número): lo reconoce por clase y por dónde está.
+     */
+    async function retirado(r, cam, todos, jpeg, ahora, t) {
+        const lista = aprendidos.get(r.id) || [];
+        const enZona = todos.filter((o) => r.clases.includes(o.clase) && Array.isArray(o.caja_norm) && adentro(centro(o.caja_norm), r.zona));
+        const personas = todos.filter((o) => o.grupo === "persona" && Array.isArray(o.caja_norm));
+        const usados = new Set();
+        for (const a of lista) {
+            const i = enZona.findIndex((o, j) => !usados.has(j) && o.clase === a.clase && iou(o.caja_norm, a.caja) >= RETIRADO_IOU_MISMO);
+            if (i >= 0) {
+                usados.add(i);
+                a.visto = t; a.faltas = 0;
+                if (!a.estable && t - a.desde >= RETIRADO_ESTABLE_MS) { a.estable = true; contadores.aprendidos++; }
+                if (a.estable) a.jpeg = jpeg; // el «antes» es el último cuadro donde estaba
+                continue;
+            }
+            // No se lo ve. Si una persona lo tapa, no es que se fue.
+            if (personas.some((p) => cubre(a.caja, p.caja_norm) >= RETIRADO_TAPADO)) continue;
+            a.faltas++;
+        }
+        // Lo nuevo en la zona empieza a aprenderse.
+        enZona.forEach((o, j) => { if (!usados.has(j)) lista.push({ clase: o.clase, caja: o.caja_norm, desde: t, visto: t, faltas: 0, jpeg: null, estable: false }); });
+        // Lo que faltó lo suficiente: si estaba aprendido y la regla está armada, avisa; si no, se olvida.
+        const quedan = [];
+        for (const a of lista) {
+            const falta = (t - a.visto) / 1000;
+            if (a.faltas < RETIRADO_FALTAS_MIN || falta < r.segundos) { quedan.push(a); continue; }
+            if (!a.estable || !enHorario(r.horario, ahora)) continue;
+            const [fAntes, fDespues] = await Promise.all([a.jpeg ? foto(a.jpeg, ahora) : null, foto(jpeg, ahora)]);
+            const ev = await evento({ tipo: "RETIRADO", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: a.clase, valor: Math.round((a.visto - a.desde) / 1000), foto: fDespues, fotoAntes: fAntes, caja: a.caja, ts: new Date(a.visto) });
+            contadores.retirados++;
+            if (t - (ultimoAvisoRetirado.get(r.id) || 0) > ENFRIO_RETIRADO_MS) {
+                ultimoAvisoRetirado.set(r.id, t);
+                await avisar(r, "RETIRADO", `Se llevaron ${ARTICULO[a.clase] || "un"} ${NOMBRE_CLASE[a.clase] || a.clase} de ${r.nombre}`, ev.id, fDespues, cam);
+            }
+        }
+        aprendidos.set(r.id, quedan);
     }
 
     /** Las estadías que terminaron (salió de la zona o dejó de verse): se guarda cuánto duraron. */

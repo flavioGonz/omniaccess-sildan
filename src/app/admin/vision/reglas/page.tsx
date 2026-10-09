@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock,
+    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
     type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
@@ -17,7 +17,7 @@ import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { EditorGeometria } from "@/components/vision/EditorGeometria";
 import {
-    TIPOS_REGLA, CLASES_REGLA, NOMBRE_CLASE_REGLA, TIPOS_EVENTO, duracionCorta,
+    TIPOS_REGLA, CLASES_REGLA, CLASES_OBJETO, CON_HORARIO, NOMBRE_CLASE_REGLA, TIPOS_EVENTO, duracionCorta,
     type ReglaVision, type TipoRegla, type Punto,
 } from "@/lib/vision-reglas";
 
@@ -32,7 +32,7 @@ import {
  * Sin entrada en el menú, bajo el permiso Ajustes, como el resto de Visión.
  */
 
-type Evento = { id: string; tipo: string; reglaId: string; regla: string; camara: string; clase: string | null; sentido: string | null; valor: number | null; foto: string | null; caja: [number, number, number, number] | null; avisoId: string | null; ts: string };
+type Evento = { id: string; tipo: string; reglaId: string; regla: string; camara: string; clase: string | null; sentido: string | null; valor: number | null; foto: string | null; fotoAntes?: string | null; caja: [number, number, number, number] | null; avisoId: string | null; ts: string };
 type Resumen = { ab: number; ba: number; porClase: Record<string, { ab: number; ba: number }>; porHora: number[]; hoy: number; max: number | null };
 type Respuesta = {
     reglas: ReglaVision[]; camaras: { id: string; name: string }[];
@@ -41,9 +41,9 @@ type Respuesta = {
     resumen: Record<string, Resumen>; eventos: Evento[];
 };
 
-const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users, cruce: Fence, intrusion: ShieldAlert };
+const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users, cruce: Fence, intrusion: ShieldAlert, merodeo: Footprints, retirado: PackageMinus };
 /** Lo que se cuenta hoy en la tarjeta de cada tipo que no es conteo. */
-const CUENTA_HOY: Partial<Record<TipoRegla, string>> = { sentido: "en contra hoy", permanencia: "se quedaron hoy", aglomeracion: "aglomeraciones hoy", cruce: "cruces hoy", intrusion: "intrusiones hoy" };
+const CUENTA_HOY: Partial<Record<TipoRegla, string>> = { sentido: "en contra hoy", permanencia: "se quedaron hoy", aglomeracion: "aglomeraciones hoy", cruce: "cruces hoy", intrusion: "intrusiones hoy", merodeo: "merodeos hoy", retirado: "retirados hoy" };
 /** El horario que se propone al armar de noche: lo más común en un barrio. */
 const HORARIO_NOCHE = { desde: "22:00", hasta: "06:00" };
 const REFRESCO_MS = 15_000;
@@ -57,7 +57,7 @@ function reglaNueva(tipo: TipoRegla, deviceId: string): ReglaVision {
         id: nuevaId(), tipo, deviceId, nombre: "", activa: true, clases: [...t.clasesDefecto], avisar: t.avisarDefecto,
         linea: null, zona: [], ...(tipo === "sentido" ? { permitido: "ab" as const } : {}),
         ...(t.segundosDefecto ? { segundos: t.segundosDefecto } : {}), ...(t.maximoDefecto ? { maximo: t.maximoDefecto } : {}),
-        ...(tipo === "cruce" ? { sentidos: "ambos" as const } : {}), ...(tipo === "cruce" || tipo === "intrusion" ? { horario: null } : {}),
+        ...(tipo === "cruce" ? { sentidos: "ambos" as const } : {}), ...(CON_HORARIO.includes(tipo) ? { horario: null } : {}),
     };
 }
 
@@ -199,8 +199,14 @@ export default function ReglasVision() {
                         <>
                             <div className="relative">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                {ampliado.foto && <img src={ampliado.foto} alt="" className="w-full max-h-[75vh] object-contain" />}
-                                {ampliado.caja && <span className="absolute border-2 border-[var(--accion-en-oscuro)] rounded-sm" style={{ left: `${ampliado.caja[0] * 100}%`, top: `${ampliado.caja[1] * 100}%`, width: `${(ampliado.caja[2] - ampliado.caja[0]) * 100}%`, height: `${(ampliado.caja[3] - ampliado.caja[1]) * 100}%` }} />}
+                                {/* Objeto retirado: antes y después, lado a lado. */}
+                                {ampliado.fotoAntes ? (
+                                    <div className="grid grid-cols-2 gap-px bg-border">
+                                        <figure className="relative bg-black"><img src={ampliado.fotoAntes} alt="Antes" className="w-full max-h-[70vh] object-contain" /><figcaption className="absolute left-2 top-2 px-2 py-0.5 rounded-md bg-black/70 text-white text-[12px] font-semibold">Antes</figcaption></figure>
+                                        <figure className="relative bg-black">{ampliado.foto && <img src={ampliado.foto} alt="Después" className="w-full max-h-[70vh] object-contain" />}<figcaption className="absolute left-2 top-2 px-2 py-0.5 rounded-md bg-black/70 text-white text-[12px] font-semibold">Después</figcaption></figure>
+                                    </div>
+                                ) : ampliado.foto && <img src={ampliado.foto} alt="" className="w-full max-h-[75vh] object-contain" />}
+                                {ampliado.caja && !ampliado.fotoAntes && <span className="absolute border-2 border-[var(--accion-en-oscuro)] rounded-sm" style={{ left: `${ampliado.caja[0] * 100}%`, top: `${ampliado.caja[1] * 100}%`, width: `${(ampliado.caja[2] - ampliado.caja[0]) * 100}%`, height: `${(ampliado.caja[3] - ampliado.caja[1]) * 100}%` }} />}
                             </div>
                             <div className="flex items-center gap-3 px-4 py-2.5 bg-card text-[12.5px]">
                                 <Chip tono={(TIPOS_EVENTO[ampliado.tipo] || { tono: "quieto" }).tono as any}>{(TIPOS_EVENTO[ampliado.tipo] || { nombre: ampliado.tipo }).nombre}</Chip>
@@ -209,6 +215,8 @@ export default function ReglasVision() {
                                 {ampliado.tipo === "PERMANENCIA" && <span>se quedó {duracionCorta(ampliado.valor)}</span>}
                                 {ampliado.tipo === "AGLOMERACION" && <span>{ampliado.valor} personas</span>}
                                 {ampliado.tipo === "INTRUSION" && ampliado.valor != null && <span>{ampliado.valor} s adentro al avisar</span>}
+                                {ampliado.tipo === "MERODEO" && ampliado.valor != null && <span>{duracionCorta(ampliado.valor)} dando vueltas al avisar</span>}
+                                {ampliado.tipo === "RETIRADO" && ampliado.valor != null && <span>estuvo {duracionCorta(ampliado.valor)} a la vista</span>}
                                 {ampliado.avisoId && <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground"><BellRing size={12} /> avisó a la guardia</span>}
                             </div>
                         </>
@@ -255,7 +263,7 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: Reg
             ) : (
                 <div className="flex items-baseline gap-4">
                     <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.hoy ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">{CUENTA_HOY[r.tipo]}</div></div>
-                    {(r.tipo === "cruce" || r.tipo === "intrusion") && <div className="text-[11.5px] text-muted-foreground inline-flex items-center gap-1"><Clock size={11} /> {r.horario ? `armada ${r.horario.desde} a ${r.horario.hasta}` : "armada siempre"}{r.tipo === "cruce" && r.sentidos && r.sentidos !== "ambos" ? ` · sólo ${r.sentidos === "ab" ? "de A a B" : "de B a A"}` : ""}</div>}
+                    {CON_HORARIO.includes(r.tipo) && <div className="text-[11.5px] text-muted-foreground inline-flex items-center gap-1"><Clock size={11} /> {r.horario ? `armada ${r.horario.desde} a ${r.horario.hasta}` : "armada siempre"}{r.tipo === "cruce" && r.sentidos && r.sentidos !== "ambos" ? ` · sólo ${r.sentidos === "ab" ? "de A a B" : "de B a A"}` : ""}</div>}
                     {s?.max != null && (r.tipo === "permanencia" || r.tipo === "aglomeracion") && <div><div className="text-[22px] font-bold tabular-nums leading-none">{r.tipo === "permanencia" ? duracionCorta(s.max) : s.max}</div><div className="text-[11px] text-muted-foreground mt-1">{r.tipo === "permanencia" ? "la más larga" : "el máximo de personas"}</div></div>}
                 </div>
             )}
@@ -280,7 +288,7 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
         if (TIPOS_REGLA[tipo].geometria === t.geometria) { base.linea = r.linea; base.zona = r.zona; }
         setR(base);
     };
-    const geometriaLista = t.geometria === "linea" ? !!r.linea : r.tipo === "aglomeracion" || (r.zona?.length || 0) >= 3;
+    const geometriaLista = t.geometria === "linea" ? !!r.linea : r.tipo === "aglomeracion" || r.tipo === "merodeo" || (r.zona?.length || 0) >= 3;
     const listo = !!r.deviceId && geometriaLista && r.clases.length > 0;
     const final = (): ReglaVision => ({ ...r, nombre: r.nombre.trim() || `${t.nombre} · ${camaras.find((c) => c.id === r.deviceId)?.name || ""}`, zona: (r.zona?.length || 0) >= 3 ? r.zona : null });
 
@@ -302,7 +310,7 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                                 <button key={k} type="button" onClick={() => cambiarTipo(k)} aria-pressed={sel}
                                     className={cn("rounded-[10px] border p-3 text-left transition-colors", sel ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border hover:bg-accent")}>
                                     <span className="flex items-center gap-1.5 text-[13px] font-bold"><Ic size={14} /> {TIPOS_REGLA[k].nombre}</span>
-                                    <span className="block text-[11.5px] text-muted-foreground mt-0.5 leading-snug">{TIPOS_REGLA[k].geometria === "linea" ? (k === "cruce" ? "Con una línea · avisa" : "Con una línea") : k === "aglomeracion" ? "Con una zona (o todo el cuadro)" : k === "intrusion" ? "Con una zona · avisa" : "Con una zona"}</span>
+                                    <span className="block text-[11.5px] text-muted-foreground mt-0.5 leading-snug">{TIPOS_REGLA[k].geometria === "linea" ? (k === "cruce" ? "Con una línea · avisa" : "Con una línea") : k === "aglomeracion" ? "Con una zona (o todo el cuadro)" : k === "merodeo" ? "Zona o cuadro · avisa" : k === "intrusion" || k === "retirado" ? "Con una zona · avisa" : "Con una zona"}</span>
                                 </button>
                             );
                         })}
@@ -321,7 +329,7 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                 </CajonSeccion>
 
                 <CajonSeccion titulo={t.geometria === "linea" ? "La línea" : "La zona"}
-                    ayuda={t.geometria === "linea" ? "Dibujala sobre el piso, de lado a lado de por donde se pasa." : r.tipo === "aglomeracion" ? "Opcional: sin zona se cuenta todo el cuadro." : "Sobre el piso: se mide dónde está el pie de cada objeto."}>
+                    ayuda={t.geometria === "linea" ? "Dibujala sobre el piso, de lado a lado de por donde se pasa." : r.tipo === "aglomeracion" || r.tipo === "merodeo" ? "Opcional: sin zona se mira todo el cuadro." : r.tipo === "retirado" ? "Donde están las cosas a cuidar (el bicicletero, la entrada de una casa). Lo quieto adentro se aprende solo en un minuto." : "Sobre el piso: se mide dónde está el pie de cada objeto."}>
                     {r.deviceId ? (
                         <EditorGeometria deviceId={r.deviceId} modo={t.geometria} linea={r.linea || null} zona={r.zona || []}
                             permitido={r.tipo === "sentido" ? r.permitido : undefined}
@@ -355,7 +363,7 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
 
                 <CajonSeccion titulo="Qué cuenta">
                     <div className="flex flex-wrap gap-1.5">
-                        {CLASES_REGLA.map((c) => {
+                        {(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA).map((c) => {
                             const on = r.clases.includes(c.clase);
                             return (
                                 <button key={c.clase} type="button" aria-pressed={on} onClick={() => cambiar({ clases: on ? r.clases.filter((x) => x !== c.clase) : [...r.clases, c.clase] })}
@@ -365,6 +373,12 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                             );
                         })}
                     </div>
+                    {(r.tipo === "merodeo" || r.tipo === "retirado") && (
+                        <CajonCampo etiqueta={r.tipo === "merodeo" ? "Avisar después de (segundos)" : "Avisar si falta más de (segundos)"}
+                            ayuda={r.tipo === "merodeo" ? "En la zona y caminando: alguien parado esperando no es merodeo. Desde 20 s." : "Sin verse ni estar tapado por una persona. Desde 5 s."}>
+                            <Input type="number" min={r.tipo === "merodeo" ? 20 : 5} max={r.tipo === "merodeo" ? 3600 : 600} value={r.segundos ?? (r.tipo === "merodeo" ? 90 : 20)} onChange={(e) => cambiar({ segundos: Number(e.target.value) })} className="w-32" />
+                        </CajonCampo>
+                    )}
                     {r.tipo === "intrusion" && (
                         <CajonCampo etiqueta="Avisar después de (segundos)" ayuda="Adentro de la zona, seguidos. 2 s alcanza para que una sombra o un paso por el borde no avise; 0 avisa en el primer cuadro.">
                             <Input type="number" min={0} max={120} value={r.segundos ?? 2} onChange={(e) => cambiar({ segundos: Number(e.target.value) })} className="w-32" />
@@ -387,7 +401,7 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                     )}
                 </CajonSeccion>
 
-                {(r.tipo === "cruce" || r.tipo === "intrusion") && (
+                {CON_HORARIO.includes(r.tipo) && (
                     <CajonSeccion titulo="Cuándo está armada" icono={Clock}
                         ayuda="Fuera de horario no registra ni avisa: el jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí. Hora del barrio.">
                         <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
@@ -419,6 +433,8 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                     {r.tipo === "conteo" && <p className="text-[11.5px] text-muted-foreground">El conteo no avisa: suma los cruces por sentido, clase y hora. Se guardan 90 días.</p>}
                     {r.tipo === "cruce" && <p className="text-[11.5px] text-muted-foreground">Cada cruce queda registrado con su foto. El aviso se espacia 30 s por regla: cinco que saltan juntos son un aviso, no cinco.</p>}
                     {r.tipo === "intrusion" && <p className="text-[11.5px] text-muted-foreground">Una vez por objeto mientras siga adentro, con su foto. El aviso se espacia 1 min por regla.</p>}
+                    {r.tipo === "merodeo" && <p className="text-[11.5px] text-muted-foreground">Una vez por persona, con su foto. El seguimiento no sabe que es la misma si sale del cuadro y vuelve. El aviso se espacia 2 min por regla.</p>}
+                    {r.tipo === "retirado" && <p className="text-[11.5px] text-muted-foreground">Con la foto de antes (la última donde estaba) y la de después. Después de reiniciar el proceso, lo aprende de nuevo en un minuto.</p>}
                     <p className="text-[11.5px] text-muted-foreground">Límite: cada cámara se mira cada ~2 s. Personas y autos a paso de barrio se siguen bien; un auto rápido puede perder su número entre dos cuadros y no contarse.</p>
                 </CajonSeccion>
             </CajonContenido>

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import {
     Plus, Trash2, Save, Clock, Bell, Zap, Tag, Send, Timer, Video, CalendarDays, PanelRightOpen,
     MessageCircle, Mail, Smartphone, Loader2, HelpCircle,
+    ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/avisos";
@@ -40,6 +41,7 @@ type Rule = {
     metric: string; operator: string; threshold: number; daysOfWeek: string; startTime: string;
     endTime: string; channels: string; minSeverity: string | null; cooldownSec: number; dedupe: boolean;
     modulo?: string; eventos?: string | null; lastFiredAt?: string | Date | null;
+    verificacion?: string;
 };
 type Dev = { id: string; name: string; deviceType?: string };
 
@@ -97,7 +99,7 @@ const MODULO_POR_DEFECTO = "LPR";
 const vacia = (modulo: string) => ({
     name: "", enabled: true, modulo, eventos: "", deviceId: "", channelName: "", metric: "aforo", operator: ">=",
     threshold: 5, daysOfWeek: TODOS_LOS_DIAS, startTime: "00:00", endTime: "23:59",
-    channels: "whatsapp", minSeverity: "", cooldownSec: 60, dedupe: true,
+    channels: "whatsapp", minSeverity: "", cooldownSec: 60, dedupe: true, verificacion: "avisar",
 });
 
 function listaCsv(csv: string | null | undefined) { return String(csv || "").split(",").map((x) => x.trim()).filter(Boolean); }
@@ -183,7 +185,7 @@ export default function RulesManager() {
     const nombreEquipo = (id: string | null) => id ? (equipos.find((d) => d.id === id)?.name || "Cámara borrada") : "Todas";
 
     const abrir = (r: Rule | null) => {
-        if (r) setForm({ ...r, modulo: r.modulo || "QUEUE", eventos: r.eventos || "", deviceId: r.deviceId || "", channelName: r.channelName || "", minSeverity: r.minSeverity || "" });
+        if (r) setForm({ ...r, modulo: r.modulo || "QUEUE", eventos: r.eventos || "", deviceId: r.deviceId || "", channelName: r.channelName || "", minSeverity: r.minSeverity || "", verificacion: r.verificacion || "avisar" });
         else setForm(vacia(moduloInicial));
         setAbierta(r ? r.id : "nueva");
     };
@@ -387,6 +389,26 @@ export default function RulesManager() {
                                 </div>
                             </Rotulo>
                         </CajonSeccion>
+
+                        {form.modulo === "INTRUSION" && (
+                            /* La doble verificación: la cámara dice «alguien cruzó» y omni-vision mira la
+                               captura. Esperar cuesta unos segundos; a cambio, una sombra o un perro no
+                               despiertan a nadie. Si omni-vision no contesta a tiempo, avisa igual. */
+                            <CajonSeccion titulo="Doble verificación" icono={ShieldCheck}>
+                                <div className="grid gap-2">
+                                    {([
+                                        ["avisar", "Avisar siempre", "Al instante, como manda la cámara."],
+                                        ["confirmada", "Sólo si omni-vision ve a alguien", "Espera hasta unos segundos a que omni-vision mire la captura. Si ve una persona o un vehículo, avisa; si sólo hay un animal o nada, no. Si no contesta a tiempo, avisa igual."],
+                                    ] as const).map(([v, t, d]) => (
+                                        <button key={v} type="button" onClick={() => setForm({ ...form, verificacion: v })} aria-pressed={(form.verificacion || "avisar") === v}
+                                            className={cn("rounded-[10px] border px-3 py-2.5 text-left", (form.verificacion || "avisar") === v ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent")}>
+                                            <span className="block text-[13px] font-semibold">{t}</span>
+                                            <span className="block text-[11.5px] text-muted-foreground leading-snug">{d}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </CajonSeccion>
+                        )}
 
                         <CajonSeccion titulo="Para no repetir" icono={Timer}>
                             <CajonCampo etiqueta="Pausa entre avisos (segundos)"

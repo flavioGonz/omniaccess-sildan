@@ -65,7 +65,7 @@ export async function GET() {
     const nombreRegla = new Map(reglas.map((r) => [r.id, r.nombre]));
     return NextResponse.json({
         reglas, camaras, analiticas, rotulado: inter.analiticas["rotulados"] !== false, estado, resumen,
-        eventos: eventos.map((e) => ({ ...e, ts: e.ts.toISOString(), regla: nombreRegla.get(e.reglaId) || "Regla borrada", foto: e.foto ? `/api/vision/imagen/${e.foto}` : null })),
+        eventos: eventos.map((e) => ({ ...e, ts: e.ts.toISOString(), regla: nombreRegla.get(e.reglaId) || "Regla borrada", foto: e.foto ? `/api/vision/imagen/${e.foto}` : null, fotoAntes: e.fotoAntes ? `/api/vision/imagen/${e.fotoAntes}` : null })),
     }, { headers: { "Cache-Control": "no-store" } });
 }
 

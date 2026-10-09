@@ -77,16 +77,17 @@ type Cam = { id: string; name: string; nvrName: string | null; ch: number | null
 type Alarma = { deviceId: string; id: string; type: string; ts: string };
 type Hoy = { total: number; reales: number; falsas: number };
 type Datos = { camaras: Cam[]; pendientes: Alarma[]; atendiendo: string[]; franja: Det[]; ahora: string; hoy?: Hoy };
-type Filtro = "todas" | "pendientes" | "reales" | "falsas";
+type Filtro = "todas" | "pendientes" | "reales" | "falsas" | "vision";
 
-const FILTROS: { v: Filtro; l: string }[] = [{ v: "todas", l: "Todas" }, { v: "pendientes", l: "Sin confirmar" }, { v: "reales", l: "Reales" }, { v: "falsas", l: "Falsas" }];
+const FILTROS: { v: Filtro; l: string }[] = [{ v: "todas", l: "Todas" }, { v: "pendientes", l: "Sin confirmar" }, { v: "vision", l: "Con alguien" }, { v: "reales", l: "Reales" }, { v: "falsas", l: "Falsas" }];
 const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };
 
 /** El estado de una detección, en el mismo idioma que el panel. */
 const estadoDe = (d: Det) => !d.acknowledged
     ? { t: "Sin confirmar", c: "chip-aviso", Ic: ShieldQuestion }
     : d.ackKind === "false" ? { t: "Falsa", c: "chip-quieto", Ic: Ban } : { t: "Real", c: "chip-mal", Ic: ShieldAlert };
-const pasa = (d: Det, f: Filtro) => f === "todas" ? true : f === "pendientes" ? !d.acknowledged : f === "reales" ? d.acknowledged && d.ackKind !== "false" : d.acknowledged && d.ackKind === "false";
+/** «Con alguien»: omni-vision vio una persona o un vehículo (confirmada o «hay alguien»). */
+const pasa = (d: Det, f: Filtro) => f === "todas" ? true : f === "vision" ? d.verif?.veredicto === "CONFIRMADA" || d.verif?.veredicto === "PRESENTE" : f === "pendientes" ? !d.acknowledged : f === "reales" ? d.acknowledged && d.ackKind !== "false" : d.acknowledged && d.ackKind === "false";
 /** La captura de la detección al ancho en que se ve; si no tiene, la foto de la cámara. */
 const fotoDe = (d: Det, ancho = 480) => conAncho(getImagePath(d.snapshotPath), ancho) || (d.deviceId ? `/api/snapshot/${d.deviceId}?w=${ancho}&t=${d.id}` : null);
 const fotoGrande = (d: Det) => getImagePath(d.snapshotPath) || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
@@ -405,6 +406,17 @@ function FichaDeteccion({ d: d0, geom, alCerrar, alAmpliar, alVerCamara, marcar 
                         <span className="absolute top-3 left-3"><Veredicto d={d} grande /></span>
                         {foto && <span className="absolute bottom-3 right-3 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white"><Maximize2 size={18} /></span>}
                     </button>
+                    {/* Doble verificación: el cuadro que sacó omni-vision del canal, segundos después. */}
+                    {d.verif?.analisis?.propio && (
+                        <button type="button" onClick={() => alAmpliar(`/api/monitor/intrusion/verificacion/${d.id}`)} className={cn("relative block w-full aspect-video rounded-2xl overflow-hidden bg-neutral-900", tocable)}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/api/monitor/intrusion/verificacion/${d.id}`} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" />
+                            <CapaAnalisis analisis={d.verif.analisis.propio} geom={geomDeIntrusion(geom)} />
+                            <span className="absolute top-3 left-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 border border-white/20 text-white text-[13px] font-semibold">
+                                <ScanEye size={14} /> Cuadro propio · {d.verif.propio?.despuesS ?? "?"} s después{d.verif.propio ? ` · ${VEREDICTOS[d.verif.propio.veredicto].rotulo.toLowerCase()}` : ""}
+                            </span>
+                        </button>
+                    )}
                     <div className="flex items-start gap-3">
                         <span className={cn("grid h-14 w-14 place-items-center rounded-2xl shrink-0", m.cls)}><m.Icon size={26} /></span>
                         <div className="min-w-0 flex-1">
@@ -445,8 +457,9 @@ function FichaDeteccion({ d: d0, geom, alCerrar, alAmpliar, alVerCamara, marcar 
                         <div className="rounded-xl bg-card border border-border px-4 py-3 flex items-start gap-3">
                             <ScanEye size={20} className="mt-0.5 shrink-0 text-muted-foreground" />
                             <div className="min-w-0">
-                                <div className="text-[16px] font-bold">omni-vision: {VEREDICTOS[d.verif.veredicto].rotulo}</div>
+                                <div className="text-[16px] font-bold">omni-vision: {VEREDICTOS[d.verif.veredicto].rotulo}{d.verif.fuente === "propio" ? " (en el cuadro propio)" : ""}</div>
                                 <div className="text-[14px] text-muted-foreground leading-snug">{VEREDICTOS[d.verif.veredicto].explica}{d.verif.tocan.some(Boolean) ? " En rojo, la parte que toca." : ""} Es una ayuda: la alarma la decide una persona.</div>
+                                {d.verif.aviso === "RETENIDO" && <div className="text-[14px] mt-1 font-semibold">El aviso por WhatsApp/Telegram no salió: sólo se vio {d.verif.veredicto === "ANIMAL" ? "un animal" : "la escena vacía"}.</div>}
                             </div>
                         </div>
                     )}

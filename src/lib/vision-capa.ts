@@ -19,7 +19,9 @@ export type ObjetoAnalizado = {
     silueta?: Pt[][] | null;
     atributos?: { id: string; nombre: string; valor: string; prob: number; dudoso: boolean }[] | null;
 };
-export type Analisis = { ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string };
+export type Analisis = { ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string;
+    /** Doble verificación: el cuadro propio del canal, sacado unos segundos después (clave en MinIO). */
+    propio?: { foto: string; despuesMs: number; ancho: number; alto: number; objetos: ObjetoAnalizado[]; tarea?: string } | null };
 /** Línea (polilínea) y zona (polígono), normalizadas 0-1. */
 export type GeomNorm = { linea: Pt[]; zona: Pt[] };
 
@@ -118,6 +120,9 @@ export const VEREDICTOS: Record<Veredicto, { rotulo: string; tono: "mal" | "avis
     ANIMAL: { rotulo: "Animal", tono: "quieto", explica: "Sólo se ve un animal: probablemente una falsa alarma." },
     NADA: { rotulo: "No se ve a nadie", tono: "quieto", explica: "omni-vision no encontró personas, vehículos ni animales en la captura." },
 };
+
+/** De más fuerte a más débil: con dos fotos (captura y cuadro propio) vale la más fuerte. */
+export const ORDEN_VEREDICTO: Veredicto[] = ["CONFIRMADA", "PRESENTE", "ANIMAL", "NADA"];
 
 /** El veredicto de una captura con la geometría de la cámara, y qué objetos tocan. */
 export function veredicto(a: Analisis, g: GeomNorm | null): { estado: Veredicto; tocan: boolean[] } {
