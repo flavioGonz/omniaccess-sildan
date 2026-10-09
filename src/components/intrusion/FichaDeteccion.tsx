@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { Tooltip as RTooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
-import { Activity, Check, ChevronLeft, ChevronRight, Clock, ImageOff, Radar, Server, ShieldAlert, X } from "lucide-react";
+import { Activity, Check, ChevronLeft, ChevronRight, Clock, ImageOff, PlayCircle, Radar, Server, ShieldAlert, X } from "lucide-react";
+import { AnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
+import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { cn } from "@/lib/utils";
 import { getDetectionHistory, type DetHistItem, type IntrusionCam } from "@/app/actions/detections";
 import { META_DETECCION, GeomOverlay, type Geom } from "@/components/intrusion/comun";
@@ -38,6 +40,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     onMarcar?: (id: string, kind: "real" | "false") => Promise<{ ok: boolean; error?: string } | void>;
 }) {
     const [cur, setCur] = useState<any>(det);
+    const [grabacion, setGrabacion] = useState(false);
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
     useEffect(() => { if (!det.deviceId) { setSibs([]); return; } getDetectionHistory({ deviceId: det.deviceId, pageSize: 60 }).then((r) => setSibs(r.items)).catch(() => setSibs([])); }, [det.deviceId]);
@@ -82,7 +85,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             {/* cerrar AFUERA del modal, arriba a la derecha */}
             <button onClick={(e) => { e.stopPropagation(); onClose(); }} data-tooltip-id="ficha-det-tip" data-tooltip-content="Cerrar"
                 className="absolute right-3 top-3 sm:right-6 sm:top-6 z-[6] w-11 h-11 grid place-items-center rounded-full bg-white/10 hover:bg-white/25 text-white ring-1 ring-white/15 backdrop-blur-md transition active:scale-90"><X size={22} /></button>
-            <div className="relative w-full max-w-6xl aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            {/* La foto arriba y, debajo, la grabación y el análisis: se baja con la rueda o el dedo. */}
+            <div className="relative w-full max-w-6xl max-h-full overflow-y-auto overscroll-contain flex flex-col gap-3 custom-scrollbar" onClick={(e) => e.stopPropagation()}>
+            <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl shrink-0">
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[7] flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-black/65 backdrop-blur-md ring-1 ring-white/10 text-[10px] font-bold text-white/70 pointer-events-none">
                     <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">←</kbd><kbd className="px-1 rounded bg-white/15">→</kbd> eventos</span>
                     {((hasAlarm && cur.deviceId && onResolveAlarm) || atencionAbierta) && (<><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-red-500/40 text-red-100">A</kbd> aceptar</span><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-amber-500/40 text-amber-100">F</kbd> falsa</span></>)}
@@ -161,6 +166,23 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                         <span className="text-[9.5px] font-mono text-white/35 select-all">{cur.id}</span>
                     </div>
                 </div>
+            </div>
+            {/* Lo de abajo: ver la grabación de ese instante y lo que se sabe alrededor. */}
+            {cur.deviceId && !String(cur.id).startsWith("live-") && (
+                <div className="dark text-foreground shrink-0 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button type="button" onClick={() => setGrabacion(true)}
+                            className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-[var(--accion)] hover:opacity-90 text-white text-[14px] font-bold active:scale-[0.98] transition">
+                            <PlayCircle size={18} /> Ver la grabación de este momento
+                        </button>
+                        <span className="text-[12px] text-white/55">Abre el visor en Grabación, parado en {new Date(cur.timestamp).toLocaleTimeString("es-UY", { hour12: false })}, con las marcas de los eventos.</span>
+                    </div>
+                    <AnalisisDeteccion id={cur.id} />
+                </div>
+            )}
+            {/* Adentro de la columna (que corta el clic) y no del fondo: el visor va en un portal,
+                pero sus clics suben por el árbol de React y el fondo cierra la ficha. */}
+            {grabacion && cur.deviceId && <VerGrabacion deviceId={cur.deviceId} nombre={cur.deviceName || cam?.name} instanteMs={new Date(cur.timestamp).getTime()} canal={cur.ch ?? cam?.ch ?? null} nvrId={cam?.nvrId ?? null} onClose={() => setGrabacion(false)} />}
             </div>
             <RTooltip id="ficha-det-tip" place="top" className="!text-[11px] !rounded-md !px-2 !py-1 z-[2200]" />
         </div>

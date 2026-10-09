@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, Radar, PanelRightOpen, Maximize2, Loader2, ChevronRight, Ban } from "lucide-react";
+import { Server, Clock, Camera, ShieldAlert, ShieldCheck, ShieldQuestion, PanelRightOpen, Maximize2, Loader2, ChevronRight, Ban, PlayCircle } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -15,6 +15,8 @@ import { ackAlarms, setAttending, reclasificarComoFalsa, marcarDeteccion } from 
 import { getImagePath } from "@/lib/image-path";
 import { fecha } from "@/lib/fechas";
 import { conAncho } from "@/lib/ancho-foto";
+import { AnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
+import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,11 +30,12 @@ import { cn } from "@/lib/utils";
  * la ventana de alerta tapaba todo sin forma de cerrarla. Ahora responde al dedo igual que
  * Control LPR (lo compartido vive en monitor/tactil):
  *
- *  · Arriba, los números del día contados en la base. Tocarlos filtra la franja.
+ *  · Sin fila de números arriba (9/10: ocupaba un sexto de la pantalla y no decía nada que
+ *    no dijeran el canal en rojo y los filtros de la franja, que llevan su cuenta).
  *  · Tocar un canal abre la ficha de la cámara: el vivo grande con su línea, si está armada,
  *    cuántas lleva hoy y sus últimas detecciones.
- *  · La franja se desliza y cada detección abre su ficha: la captura, la hora exacta y su
- *    estado (sin confirmar, real, falsa).
+ *  · La franja se desliza y cada detección abre su ficha: la captura, la hora exacta, su
+ *    estado, la grabación de ese momento y el análisis (indicios y el mapa con el cruce).
  *  · Las fichas se cierran solas al minuto sin tocar.
  *
  * Lo que sigue siendo del panel: aceptar o resolver una alarma. Una pantalla de pared entra
@@ -69,20 +72,6 @@ const pasa = (d: Det, f: Filtro) => f === "todas" ? true : f === "pendientes" ? 
 /** La captura de la detección al ancho en que se ve; si no tiene, la foto de la cámara. */
 const fotoDe = (d: Det, ancho = 480) => conAncho(getImagePath(d.snapshotPath), ancho) || (d.deviceId ? `/api/snapshot/${d.deviceId}?w=${ancho}&t=${d.id}` : null);
 const fotoGrande = (d: Det) => getImagePath(d.snapshotPath) || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
-
-function Contador({ rotulo, valor, Icono, tono, activo, alTocar }: { rotulo: string; valor: number | null; Icono: any; tono?: "mal" | "aviso" | "info"; activo?: boolean; alTocar: () => void }) {
-    return (
-        <button type="button" onClick={alTocar} aria-pressed={activo}
-            className={cn("flex items-center gap-3 rounded-2xl bg-card border px-4 py-3 text-left min-h-[68px]", tocable,
-                activo ? "border-[var(--accion-en-oscuro)] ring-2 ring-[var(--accion-en-oscuro)]/40" : "border-border")}>
-            <span className={cn("grid h-11 w-11 place-items-center rounded-full shrink-0", tono === "mal" ? "pleno-mal" : tono === "aviso" ? "pleno-aviso" : tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><Icono size={22} /></span>
-            <div className="min-w-0">
-                <div className="text-[30px] lg:text-[34px] font-bold leading-none tabular-nums">{valor ?? "—"}</div>
-                <div className="text-[13px] text-muted-foreground mt-1 leading-tight">{rotulo}</div>
-            </div>
-        </button>
-    );
-}
 
 function Canal({ cam, pendientes, confirmada, grande, alTocar }: { cam: Cam; pendientes: Alarma[]; confirmada: boolean; grande: boolean; alTocar: () => void }) {
     const enAlarma = pendientes.length > 0 || confirmada;
@@ -200,15 +189,7 @@ export function VistaIntrusion() {
     const abrirCamara = useCallback((id: string) => { setDet(null); setCamId(id); }, []);
 
     return (
-        <div className="absolute inset-0 flex flex-col gap-3 p-4">
-            {/* Los números del día. Tocarlos filtra la franja de la derecha. */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
-                <Contador rotulo="Sin confirmar" valor={datos ? vivas.length : null} Icono={ShieldQuestion} tono={vivas.length ? "mal" : undefined} activo={filtro === "pendientes"} alTocar={() => alternar("pendientes")} />
-                <Contador rotulo="En atención (confirmadas sin resolver)" valor={datos ? atendiendo.size : null} Icono={ShieldAlert} tono={atendiendo.size ? "aviso" : undefined} activo={filtro === "reales"} alTocar={() => alternar("reales")} />
-                <Contador rotulo="Detecciones hoy" valor={datos?.hoy ? datos.hoy.total + nuevas.length : null} Icono={Radar} tono="info" activo={filtro === "todas"} alTocar={() => setFiltro("todas")} />
-                <Contador rotulo="Falsas alarmas hoy" valor={datos?.hoy?.falsas ?? null} Icono={Ban} activo={filtro === "falsas"} alTocar={() => alternar("falsas")} />
-            </div>
-
+        <div className="absolute inset-0 flex flex-col p-4">
             <div className="flex-1 min-h-0 flex gap-4">
                 <div className="flex-1 min-w-0 grid gap-4 auto-rows-fr" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
                     {!datos && !error && <div className="col-span-full grid place-items-center text-[20px] text-muted-foreground">Cargando cámaras…</div>}
@@ -372,13 +353,16 @@ function FichaCamara({ cam, pendientes, confirmada, alCerrar, alAmpliar, alVerDe
 
 /** La ficha de una detección: la captura, qué fue, cuándo exactamente, de qué cámara y su estado. */
 function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara, marcar }: { d: Det | null; alCerrar: () => void; alAmpliar: (f: string) => void; alVerCamara: (id: string) => void; marcar?: (id: string, kind: "real" | "false") => Promise<void> }) {
+    const [grabacion, setGrabacion] = useState(false);
+    useEffect(() => { setGrabacion(false); }, [d?.id]);
     const [haciendo, setHaciendo] = useState<"real" | "false" | null>(null);
     const hacer = async (k: "real" | "false") => { if (!marcar || !d) return; setHaciendo(k); try { await marcar(d.id, k); } finally { setHaciendo(null); } };
     const m = d ? metaDe(d.type) : null;
     const e = d ? estadoDe(d) : null;
     const foto = d ? fotoGrande(d) : null;
     return (
-        <CajonPared abierto={!!d} titulo="Ficha de la detección" alCerrar={alCerrar} cierraSoloMs={FICHA_SE_CIERRA_MS}>
+        // Mientras se mira la grabación la ficha no se cierra sola: nadie toca la pantalla mientras mira un video.
+        <CajonPared abierto={!!d} titulo="Ficha de la detección" alCerrar={alCerrar} cierraSoloMs={grabacion ? undefined : FICHA_SE_CIERRA_MS} ancho={760}>
             {d && m && e && (
                 <div className="p-5 space-y-5">
                     <button type="button" disabled={!foto} onClick={() => foto && alAmpliar(foto)}
@@ -414,10 +398,17 @@ function FichaDeteccion({ d, alCerrar, alAmpliar, alVerCamara, marcar }: { d: De
                         </div>
                     )}
                     {d.deviceId && (
-                        <button type="button" onClick={() => alVerCamara(d.deviceId!)} className={cn("w-full h-14 rounded-2xl bg-muted text-foreground text-[16px] font-semibold inline-flex items-center justify-center gap-2", tocable)}>
-                            <Camera size={20} /> Ver la cámara en vivo
-                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button type="button" onClick={() => setGrabacion(true)} className={cn("h-14 rounded-2xl bg-[var(--accion)] text-white text-[16px] font-bold inline-flex items-center justify-center gap-2", tocable)}>
+                                <PlayCircle size={20} /> Ver la grabación
+                            </button>
+                            <button type="button" onClick={() => alVerCamara(d.deviceId!)} className={cn("h-14 rounded-2xl bg-muted text-foreground text-[16px] font-semibold inline-flex items-center justify-center gap-2", tocable)}>
+                                <Camera size={20} /> La cámara en vivo
+                            </button>
+                        </div>
                     )}
+                    <AnalisisDeteccion id={d.id} grande />
+                    {grabacion && d.deviceId && <VerGrabacion deviceId={d.deviceId} nombre={d.deviceName} instanteMs={new Date(d.timestamp).getTime()} canal={d.ch ?? null} onClose={() => setGrabacion(false)} />}
                 </div>
             )}
         </CajonPared>

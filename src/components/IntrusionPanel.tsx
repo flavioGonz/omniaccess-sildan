@@ -31,6 +31,8 @@ import type { AlarmasIntrusion } from "@/components/intrusion/usarAlarmas";
 
 /** Cuántas se traen de entrada, y cuántas más con cada «Cargar más». El servidor corta en 150. */
 const PRIMERA_TANDA = 60;
+/** Detecciones de la misma cámara más cerca que esto son el mismo episodio (igual que el análisis). */
+const EPISODIO_MS = 5 * 60_000;
 const TANDA = 45;
 const TOPE = 150;
 
@@ -147,6 +149,21 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
         return out;
     }, [visibles]);
 
+    /**
+     * Cuántas detecciones de la misma cámara hay a menos de EPISODIO_MS de cada una: una persona
+     * caminando frente a la línea dispara cuatro en un minuto, y en la lista eso se lee como
+     * cuatro intrusiones. El chip «episodio · 4» lo dice sin tener que abrir nada.
+     */
+    const episodio = useMemo(() => {
+        const m = new Map<string, number>();
+        const lista = items || [];
+        for (const d of lista) {
+            const t = new Date(d.timestamp).getTime();
+            m.set(d.id, lista.filter((x) => x.deviceId === d.deviceId && Math.abs(new Date(x.timestamp).getTime() - t) <= EPISODIO_MS).length);
+        }
+        return m;
+    }, [items]);
+
     const hayMas = (items?.length || 0) >= cuantas && cuantas < TOPE;
     const masSi = () => { const n = Math.min(TOPE, cuantas + TANDA); setCuantas(n); cargar(n); };
 
@@ -247,6 +264,7 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
                                                 <span className="flex items-center gap-1.5">
                                                     <Estado tono={TONO[d.type] || "neutro"} icono={m.Icon}>{m.label}</Estado>
                                                     {c && <span className="text-[11px] text-muted-foreground truncate">{c}</span>}
+                                                    {(episodio.get(d.id) || 0) > 1 && <span className="text-[10.5px] font-semibold text-muted-foreground border border-border rounded px-1.5 py-px tabular-nums shrink-0" title="Detecciones de esta cámara a menos de 5 min: un mismo episodio">episodio · {episodio.get(d.id)}</span>}
                                                 </span>
                                                 <span className="block mt-0.5 text-[12.5px] font-semibold text-foreground truncate">{d.deviceName || "Cámara sin identificar"}</span>
                                             </span>
