@@ -19,7 +19,9 @@
  * (apagado no le pide nada a la GPU), y sólo guarda las clases prendidas. Las cámaras salen de
  * VISION_CAMARAS (lista de ids; vacío = todas las que no son grabadores).
  *
- * No toca server.js, ni omni-lpr, ni ninguna otra tabla.
+ * No toca server.js ni ninguna otra tabla. Además corre acá la relectura de las NO_LEIDA de los
+ * accesos (vision-relectura.js), que sí le pide a omni-lpr, de a una y con pausa, y escribe en
+ * su propia tabla `Relectura`.
  */
 
 require("dotenv").config();
@@ -29,6 +31,7 @@ const { PrismaClient } = require("@prisma/client");
 const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 
 const prisma = new PrismaClient();
+const relecturas = require("./vision-relectura");
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
 const GO2RTC = (process.env.GO2RTC_API || "http://127.0.0.1:1984").replace(/\/$/, "");
@@ -88,7 +91,7 @@ const CLASES_APAGADAS_DEFECTO = new Set([
     "baseball bat", "baseball glove", "surfboard", "tennis racket",
 ]);
 
-let ajustes = { activo: false, clases: {}, camaras: [], retencionDias: RETENCION_DIAS_DEFECTO, leidos: 0 };
+let ajustes = { activo: false, relectura: false, clases: {}, camaras: [], retencionDias: RETENCION_DIAS_DEFECTO, leidos: 0 };
 
 async function leerAjustes() {
     const [a, c, cams, ret] = await Promise.all([
@@ -99,6 +102,8 @@ async function leerAjustes() {
     const dispositivos = await prisma.device.findMany({ where: { deviceType: { not: "NVR" } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
     ajustes = {
         activo: analiticas.registro !== false,
+        // La relectura de NO_LEIDA tiene su propio interruptor (analítica «relectura», prendida por defecto).
+        relectura: analiticas.relectura !== false,
         clases: json(c, {}),
         camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
         retencionDias: Math.max(1, Number(ret) || RETENCION_DIAS_DEFECTO),
@@ -295,12 +300,22 @@ async function escribirEstado() {
     const valor = JSON.stringify({
         t: new Date().toISOString(), activo: ajustes.activo, intervaloMs: INTERVALO_MS, umbral: UMBRAL, cambioMin: CAMBIO_MIN,
         camaras, contadores, pistasAbiertas: abiertas.size, retencionDias: ajustes.retencionDias,
+        relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
     });
     await prisma.setting.upsert({ where: { key: "VISION_REGISTRO_ESTADO" }, update: { value: valor }, create: { key: "VISION_REGISTRO_ESTADO", value: valor } }).catch(() => null);
 }
 
 async function limpiar() {
     const limite = new Date(Date.now() - ajustes.retencionDias * 86_400_000);
+    // Las relecturas viven lo mismo que las detecciones: son fotos de vehículos.
+    for (;;) {
+        const viejas = await prisma.relectura.findMany({ where: { createdAt: { lt: limite } }, select: { id: true, recorte: true, recorteChapa: true }, take: LIMPIEZA_LOTE });
+        if (!viejas.length) break;
+        const claves = viejas.flatMap((v) => [v.recorte, v.recorteChapa]).filter(Boolean).map((Key) => ({ Key }));
+        if (claves.length) await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: claves, Quiet: true } })).catch((e) => log("limpieza S3 relectura:", e.message));
+        await prisma.relectura.deleteMany({ where: { id: { in: viejas.map((v) => v.id) } } });
+        if (viejas.length < LIMPIEZA_LOTE) break;
+    }
     for (;;) {
         const viejas = await prisma.objetoVisto.findMany({ where: { primeraVez: { lt: limite } }, select: { id: true, recorte: true, foto: true }, take: LIMPIEZA_LOTE });
         if (!viejas.length) return;
@@ -317,8 +332,12 @@ async function limpiar() {
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 let corriendo = true;
 
+let relector = null;
+
 async function principal() {
     log(`arranca · ${VISION} · cada ${INTERVALO_MS} ms · umbral ${UMBRAL} · cambio ${CAMBIO_MIN}`);
+    await leerAjustes().catch((e) => log("ajustes:", e.message));
+    relector = relecturas.iniciar({ prisma, subir, ajuste, log, vision: VISION, activa: () => ajustes.relectura });
     let ultEstado = 0, ultLimpieza = 0;
     while (corriendo) {
         const t0 = Date.now();
@@ -349,6 +368,7 @@ async function principal() {
 
 async function salir() {
     corriendo = false;
+    relector?.parar();
     log("cerrando pistas abiertas…");
     await cerrarVencidas(true).catch(() => null);
     await escribirEstado().catch(() => null);

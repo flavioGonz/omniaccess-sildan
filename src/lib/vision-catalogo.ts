@@ -330,6 +330,12 @@ export const ANALITICAS: Analitica[] = [
         necesita: ["deteccion"], clases: ["car", "truck", "motorcycle", "bus"], estado: "desarrollo", fase: 2, porDefecto: true,
     },
     {
+        id: "relectura", nombre: "Relectura de NO_LEIDA", icono: "ScanLine", modo: "LPR",
+        queHace: "Cuando la lectora de un acceso no lee la chapa, vision-worker recorta el vehículo de la foto del evento y omni-lpr lo vuelve a leer. El monitor LPR muestra la sugerencia («¿ABC1234?», de quién es, si está en lista negra) y «Cargar matrícula» la trae escrita para que el guardia la confirme.",
+        necesita: ["deteccion"], clases: ["car", "truck", "motorcycle", "bus"], estado: "corre", porDefecto: true,
+        limite: "Es una sugerencia: no cambia el evento ni lo que decidió la barrera hasta que el guardia la confirma. Medido el 9/10: leyendo primero el vehículo, 70 % de chapas exactas contra 42 % de la foto entera.",
+    },
+    {
         id: "colado", nombre: "Posible colado", icono: "Layers", modo: "LPR",
         queHace: "Dos vehículos pegados y una sola lectura: el segundo entró detrás del primero.",
         necesita: ["deteccion"], clases: ["car", "truck", "motorcycle"], estado: "desarrollo", fase: 2, porDefecto: true,

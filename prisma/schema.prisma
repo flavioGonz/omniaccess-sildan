@@ -1187,3 +1187,32 @@ model ObjetoVisto {
   @@index([deviceId, primeraVez])
   @@index([clase, primeraVez])
 }
+
+/// Relectura de una lectura NO_LEIDA de un acceso: vision-worker recorta el vehiculo de la
+/// foto del evento y omni-lpr lee el recorte. Es una SUGERENCIA para el guardia: no cambia el
+/// evento ni la decision de la barrera. Una fila por evento (tambien cuando no se pudo leer,
+/// para no reintentar y para medir).
+model Relectura {
+  id            String   @id @default(cuid())
+  accessEventId String   @unique
+  /// LEIDA | DUDOSA | SIN_CHAPA | SIN_VEHICULO | SIN_FOTO | ERROR
+  estado        String
+  plate         String?
+  confianza     Float?
+  /// Las otras lecturas del recorte: [{plate, confianza}]
+  candidatos    Json?
+  /// Clase del vehiculo recortado (car, truck, bus, motorcycle)
+  vehiculo      String?
+  /// Cuantos vehiculos vio el detector en la foto
+  vehiculos     Int      @default(0)
+  /// Clave del recorte del vehiculo en el bucket de vision (objetos)
+  recorte       String?
+  /// Clave del recorte de la chapa (lo que el guardia mira para confirmar)
+  recorteChapa  String?
+  ms            Int?
+  error         String?
+  createdAt     DateTime @default(now())
+
+  @@index([plate])
+  @@index([createdAt])
+}

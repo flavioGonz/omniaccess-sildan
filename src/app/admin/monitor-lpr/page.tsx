@@ -7,6 +7,7 @@ import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDe
 import { getDevices, getAvailableStreams } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
+import { SugerenciaRelectura } from "@/components/monitor/SugerenciaRelectura";
 import { IntrusionPanel } from "@/components/IntrusionPanel";
 import { logosPorMatricula } from "@/app/actions/empresas";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
@@ -355,7 +356,9 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                     {anomalous ? (
                         <div className="flex flex-col items-center gap-2">
                             <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 rounded-lg border border-yellow-500/50"><AlertTriangle size={18} className="text-yellow-300" /><span className="text-lg font-bold text-yellow-300">SIN LECTURA</span></div>
-                            {ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
+                            {/* La relectura del vehículo (vision-worker): una sugerencia, con signo de pregunta. */}
+                            <SugerenciaRelectura r={ev.relectura} sobreFoto />
+                            {ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} sugerida={ev.relectura?.plate ? ev.relectura : null} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
                         </div>
                     ) : (
                         <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-[clamp(18px,1.9vw,30px)] font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
@@ -471,6 +474,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             {empresa && <img src={empresa.logo} alt={empresa.nombre} title={empresa.nombre} className="h-4 w-auto max-w-16 object-contain" />}
                         </div>
                         {watch?.motivo && <p className={cn("text-[11px] font-semibold mt-1 truncate", watchMeta?.text)} title={watch.motivo}>{watch.motivo}</p>}
+                        {isAnomalous && event.relectura && <div className="mt-1"><SugerenciaRelectura r={event.relectura} /></div>}
                         <div className="flex items-center gap-2 mt-1">
                             {meta.Marca && <span className="text-[10px] text-muted-foreground font-semibold">{meta.Marca}{(meta.Modelo || meta.Tipo) ? ` · ${meta.Modelo || meta.Tipo}` : ""}</span>}
                             {event.user?.name && (<span className="text-[10px] text-blue-400 truncate">{event.user.name}</span>)}

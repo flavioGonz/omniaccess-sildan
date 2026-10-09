@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ListVideo, ScanEye, Camera, Loader2, Video, Clock, Route, Activity, User, Car, PawPrint, Backpack, Shapes,
+    ListVideo, ScanEye, ScanLine, Camera, Loader2, Video, Clock, Route, Activity, User, Car, PawPrint, Backpack, Shapes,
     type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
@@ -168,7 +168,10 @@ export default function DeteccionesVision() {
                         {est && <> Mira cada cámara cada {Math.round(est.intervaloMs / 1000)} s cuando la imagen cambia, guarda desde {pct(est.umbral)} de confianza y borra a los {est.retencionDias} días.</>}
                     </p>
                 </div>
-                <a href="/admin/vision" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
+<a href="/admin/vision/relecturas" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
+                    <ScanLine size={15} /> Relecturas
+                </a>
+                                <a href="/admin/vision" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
                     <ScanEye size={15} /> Laboratorio
                 </a>
             </div>

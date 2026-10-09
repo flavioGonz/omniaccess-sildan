@@ -35,7 +35,10 @@ export function PlateManualButton({
     onSaved,
     label = false,
     className,
+    sugerida,
 }: {
+    /** La relectura del vehículo (vision-worker), si la hay: el diálogo la trae escrita para confirmar. */
+    sugerida?: { plate: string; confianza: number | null } | null;
     eventId: string;
     currentPlate?: string | null;
     onSaved?: (plate: string, result: SaveResult) => void;
@@ -51,7 +54,7 @@ export function PlateManualButton({
 
     const openDialog = (e: React.MouseEvent) => {
         e.stopPropagation(); e.preventDefault();
-        setPlate(""); setError(""); setResult(null); setOpen(true);
+        setPlate(sugerida?.plate ? normPlate(sugerida.plate) : ""); setError(""); setResult(null); setOpen(true);
     };
 
     // En el WebView de Android el autoFocus de Radix no siempre levanta el teclado:
@@ -109,7 +112,9 @@ export function PlateManualButton({
                             <Keyboard size={18} className="text-amber-500" /> Cargar matrícula
                         </DialogTitle>
                         <DialogDescription>
-                            La cámara no pudo leerla. Ingresá la matrícula y el sistema re-evalúa el acceso.
+                            {sugerida?.plate
+                                ? <>La cámara no pudo leerla. La relectura del vehículo sugiere <b>{sugerida.plate}</b>{sugerida.confianza != null ? ` (${Math.round(sugerida.confianza * 100)} %)` : ""}: confirmá mirando la foto, o corregila. Al guardar, el sistema re-evalúa el acceso.</>
+                                : "La cámara no pudo leerla. Ingresá la matrícula y el sistema re-evalúa el acceso."}
                         </DialogDescription>
                     </DialogHeader>
 

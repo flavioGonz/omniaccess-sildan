@@ -26,6 +26,54 @@ async function adjuntarVigilancia<T extends { plateDetected?: string | null; use
     });
 }
 
+/** Lo que la lectora escribe cuando no leyó la chapa (las mismas que vision-relectura.js). */
+const NO_LEIDAS = new Set(["NO_LEIDA", "UNKNOWN", "S/P"]);
+
+export type RelecturaEvento = {
+    estado: string; plate: string | null; confianza: number | null; vehiculo: string | null;
+    /** URLs (con sesión) del recorte del vehículo y de la chapa. */
+    recorte: string | null; chapa: string | null;
+    otras: { plate: string; confianza: number }[];
+    /** Si la chapa sugerida es de alguien del padrón. */
+    quien: { id: string; name: string; role: string; unidad: string | null } | null;
+    /** Si la chapa sugerida está en la lista negra (alerta máxima o en búsqueda). */
+    vigilancia: { category: string; label: string; motivo: string | null } | null;
+};
+
+/**
+ * Pega a cada NO_LEIDA su relectura (vision-worker → vision-relectura.js), con lo que se sabe
+ * de la chapa sugerida: de quién es y si está en la lista negra. Es una sugerencia: el evento
+ * sigue siendo NO_LEIDA. Una consulta por página.
+ */
+async function adjuntarRelectura<T extends { id: string; plateDetected?: string | null }>(events: T[]): Promise<(T & { relectura?: RelecturaEvento })[]> {
+    const ids = events.filter((e) => NO_LEIDAS.has(String(e.plateDetected || "").toUpperCase())).map((e) => e.id);
+    if (!ids.length) return events;
+    try {
+        const filas = await prisma.relectura.findMany({ where: { accessEventId: { in: ids } } });
+        if (!filas.length) return events;
+        const plates = [...new Set(filas.map((f) => f.plate).filter(Boolean))] as string[];
+        const [creds, watch] = plates.length ? await Promise.all([
+            prisma.credential.findMany({ where: { type: "PLATE", value: { in: plates } }, select: { value: true, user: { select: { id: true, name: true, role: true, unit: { select: { name: true } } } } } }),
+            prisma.plateWatch.findMany({ where: { active: true, plate: { in: plates } }, select: { plate: true, category: true, label: true, motivo: true } }),
+        ]) : [[], []];
+        const dueno = new Map(creds.filter((c) => c.user).map((c) => [c.value, c.user!]));
+        const vig = new Map(watch.map((w) => [w.plate, w]));
+        const url = (k: string | null) => (k ? `/api/vision/imagen/${k}` : null);
+        const porEvento = new Map(filas.map((f) => {
+            const u = f.plate ? dueno.get(f.plate) : undefined;
+            const w = f.plate ? vig.get(f.plate) : undefined;
+            const c: any = f.candidatos || {};
+            return [f.accessEventId, {
+                estado: f.estado, plate: f.plate, confianza: f.confianza, vehiculo: f.vehiculo,
+                recorte: url(f.recorte), chapa: url(f.recorteChapa), otras: Array.isArray(c.otras) ? c.otras : [],
+                quien: u ? { id: u.id, name: u.name, role: String(u.role), unidad: u.unit?.name || null } : null,
+                vigilancia: w ? { category: w.category, label: w.label, motivo: w.motivo } : null,
+            } as RelecturaEvento];
+        }));
+        return events.map((e) => (porEvento.has(e.id) ? { ...e, relectura: porEvento.get(e.id) } : e));
+    } catch { return events; } // sin relectura el monitor anda igual
+}
+
 export async function getAccessEvents(options?: {
     take?: number,
     skip?: number,
@@ -128,7 +176,7 @@ export async function getAccessEvents(options?: {
         // La vigilancia viaja con el evento también cuando se recarga desde la base: antes
         // sólo venía por el socket, y al recargar el monitor una lectura en lista negra
         // perdía el rojo y la pila crítica.
-        const conVigilancia = await adjuntarVigilancia(events);
+        const conVigilancia = await adjuntarRelectura(await adjuntarVigilancia(events));
 
         if (options?.omitEnrichment) {
             return { events: conVigilancia, total };

@@ -46,6 +46,8 @@
 - [ ] 5.4 Conteo de personas en zona dibujada para Filas, con la misma pantalla de calibración de zonas; verificar que el módulo de Filas recibe el número.
 - [ ] 5.5 Confirmar que ninguna decisión de barrera cambió: misma tasa de GRANT/DENY antes y después en un día comparable.
 - [ ] 5.6 Lectura "primero el vehículo": omni-vision recorta cada vehículo y omni-lpr lee el recorte. Medido el 9/10 sobre 80 capturas de barrera (`herramientas/comparar_lpr.py`): coincide con la cámara 70 % exacta / 85 % a un carácter, contra 42 % / 55 % leyendo la foto entera; y lee 26 de los 40 NO_LEIDA de la cámara. Aplicarlo en `tracking-worker` y como segunda lectura de los NO_LEIDA, sin tocar la decisión de barrera.
+  - [x] 5.6a Segunda lectura de los NO_LEIDA de los accesos (9/10, Nico eligió esta): `vision-relectura.js` dentro de vision-worker, tabla `Relectura`, sugerencia «¿ABC1234?» en el monitor LPR (de quién es, si está en lista negra) y «Cargar matrícula» la trae escrita para que el guardia la confirme; `/admin/vision/relecturas` con los números (coinciden con una lectura ±6 h, qué cargó el guardia). Analítica «relectura» en el laboratorio.
+  - [ ] 5.6b En `tracking-worker` (seguimiento por las cámaras interiores): pendiente, después de ver los números de 5.6a.
 
 ## 6. Índice y búsqueda (fase 3)
 

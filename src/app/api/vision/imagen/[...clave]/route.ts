@@ -11,7 +11,8 @@ const BUCKET = process.env.VISION_BUCKET || "objetos";
 const ANCHOS = new Set([160, 320, 640, 960]);
 
 /**
- * GET /api/vision/imagen/<clave>[?w=320] — un recorte o un cuadro del registro de detecciones.
+ * GET /api/vision/imagen/<clave>[?w=320] — un recorte o un cuadro del registro de detecciones, o
+ * un recorte de la relectura de NO_LEIDA (vehículo y chapa).
  *
  * Por acá y no por /api/files: /api/files no pide sesión (sirve las capturas de LPR a la
  * consola y a WhatsApp), y estas fotos son de personas caminando por el barrio. Con sesión, y
@@ -23,7 +24,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ clav
     if (auth.pantalla) return forbiddenResponse("El registro de detecciones no es una vista de pantalla.");
     const { clave } = await params;
     const key = (clave || []).join("/");
-    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-[rf]\.jpg$/.test(key)) return new NextResponse("Clave inválida", { status: 400 });
+    // Las del registro (día/id-r|f.jpg) y las de la relectura de NO_LEIDA (relectura/día/evento-v|c.jpg).
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-[rf]\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key))
+        return new NextResponse("Clave inválida", { status: 400 });
     try {
         const r = await (await getS3Client()).send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
         let buf: Buffer = Buffer.from(await r.Body!.transformToByteArray());
