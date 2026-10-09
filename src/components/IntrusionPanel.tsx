@@ -38,7 +38,16 @@ function hace(ts: string) {
     return new Date(ts).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" });
 }
 
-export function IntrusionPanel() {
+export function IntrusionPanel({ enCajon, alAbrir }: {
+    /** Adentro de un cajón: sin plegar, sin tope de alto (el cajón tiene su scroll) y sin la línea de arriba. */
+    enCajon?: boolean;
+    /**
+     * Quién abre la ficha. Adentro de un cajón no puede abrirla el panel: el cajón es un
+     * diálogo modal y la ficha quedaría atrapada debajo o lo cerraría al tocarla. Ahí la
+     * abre la pantalla, después de cerrar el cajón.
+     */
+    alAbrir?: (d: DetItem) => void;
+} = {}) {
     const [items, setItems] = useState<DetItem[] | null>(null);
     const [error, setError] = useState(false);
     const [abierto, setAbierto] = useState(true);
@@ -63,6 +72,7 @@ export function IntrusionPanel() {
     });
 
     const abrir = (d: DetItem) => {
+        if (alAbrir) { alAbrir(d); return; }
         setFicha(d);
         // La línea o la zona dibujada sobre la captura: se pide al abrir, la ficha se muestra igual mientras llega.
         if (d.deviceId && !geom[d.deviceId]) getAnalyticsGeometryBatch([d.deviceId]).then((g) => setGeom((x) => ({ ...x, ...g }))).catch(() => { });
@@ -71,13 +81,13 @@ export function IntrusionPanel() {
     const analiticas = (items || []).filter((i) => i.type !== "MOTION").length;
 
     return (
-        <div className="shrink-0 border-t border-border bg-card">
+        <div className={cn("shrink-0 bg-card", !enCajon && "border-t border-border")}>
             <div className="flex items-center gap-2 px-4 py-2">
-                <button type="button" onClick={() => setAbierto((o) => !o)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
+                <button type="button" onClick={() => !enCajon && setAbierto((o) => !o)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
                     <Radar size={14} className="text-muted-foreground shrink-0" />
                     <span className="text-[12px] font-bold text-foreground">Detecciones</span>
                     {analiticas > 0 && <Estado tono="mal">{analiticas}</Estado>}
-                    {abierto ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronUp size={14} className="text-muted-foreground" />}
+                    {!enCajon && (abierto ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronUp size={14} className="text-muted-foreground" />)}
                 </button>
                 <Pista texto="Sumar también el movimiento simple. Es mucho más ruidoso: por defecto se muestran sólo cruces, intrusiones y zonas.">
                     <button type="button" onClick={() => setConMovimiento((v) => !v)} aria-pressed={conMovimiento}
@@ -93,8 +103,8 @@ export function IntrusionPanel() {
                 </Pista>
             </div>
 
-            {abierto && (
-                <div className="max-h-44 overflow-y-auto custom-scrollbar px-2 pb-2">
+            {(abierto || enCajon) && (
+                <div className={cn("px-2 pb-2", !enCajon && "max-h-44 overflow-y-auto custom-scrollbar")}>
                     {error ? (
                         <p className="py-4 text-center text-[12px] text-muted-foreground">No se pudieron traer. <button onClick={cargar} className="tono-accion font-semibold">Reintentar</button></p>
                     ) : items === null ? (

@@ -8,6 +8,10 @@ import { getDevices, getAvailableStreams } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { IntrusionPanel } from "@/components/IntrusionPanel";
+import { Cajon, CajonContenido } from "@/components/ui/cajon";
+import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
+import type { Geom } from "@/components/intrusion/comun";
+import { getAnalyticsGeometryBatch, type DetItem } from "@/app/actions/detections";
 import {
     Car,
     CheckCircle2,
@@ -37,7 +41,8 @@ import {
     Home,
     Loader2,
     UserPlus,
-    PlayCircle
+    PlayCircle,
+    Radar
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -162,7 +167,7 @@ function ThumbImg({ src, className }: { src?: string; className?: string }) {
 /** Cada cuánto se vuelve a pedir la última lectura de las interiores de acceso (ver esCamaraDeAcceso). */
 const REFRESCO_LECTURAS_INTERIOR_MS = 15_000;
 
-function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent?: string; ev?: any; onRegister?: (p?: string) => void }) {
+function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: any; accent?: string; ev?: any; onRegister?: (p?: string) => void; className?: string }) {
     const camRouter = useRouter();
     const [lit, setLit] = useState(false);
     const last = useRef<string | undefined>(undefined);
@@ -186,7 +191,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
     const ok = ev?.decision === "GRANT";
     const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
     const inner = (
-        <div className={cn("relative rounded-lg overflow-hidden border vid-surface aspect-video transition-all duration-300", lit ? ring : "border-neutral-800")}>
+        <div className={cn("relative rounded-lg overflow-hidden border vid-surface transition-all duration-300", className || "aspect-video", lit ? ring : "border-border")}>
             <SmartThumb src={(() => { const b = img || snap; return rk > 0 ? `${b}${b.includes("?") ? "&" : "?"}rk=${rk}` : b; })()} w={384} className="absolute inset-0 w-full h-full" />
             <div className="absolute top-1.5 left-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-sm border border-white/10 pointer-events-none">
                 <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span></span>
@@ -268,7 +273,12 @@ function PlateCommandBar() {
     );
 }
 
-function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string) => void }) {
+/**
+ * La última lectura en grande. Era el centro de tres columnas y mostraba la última de
+ * CUALQUIER sentido; ahora cada columna (Entradas, Salidas) tiene la suya arriba, así que
+ * recibe el sentido (para el cartel cuando todavía no hay ninguna) y el alto de afuera.
+ */
+function CenterShot({ ev, onRegister, dir, className }: { ev: any; onRegister?: (plate?: string) => void; dir?: "ENTRY" | "EXIT"; className?: string }) {
     const router = useRouter();
     const [flash, setFlash] = useState(false);
     const last = useRef<string | undefined>(undefined);
@@ -279,7 +289,12 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
         }
     }, [ev?.id]);
     if (!ev) {
-        return (<div className="p-4"><div className="relative w-full aspect-video rounded-xl overflow-hidden vid-surface border border-border flex items-center justify-center"><div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1 rounded-lg bg-black/65 backdrop-blur-sm border border-blue-500/30 shadow-lg"><Camera size={13} className="text-blue-400" /><span className="text-[11px] font-bold text-blue-300 uppercase tracking-wider">Ultima captura</span></div><Camera size={36} className="text-muted-foreground/40" /></div></div>);
+        return (
+            <div className={cn("relative w-full rounded-xl overflow-hidden bg-muted border border-border flex flex-col items-center justify-center gap-2 text-muted-foreground", className || "aspect-video")}>
+                <Camera size={30} className="opacity-40" />
+                <span className="text-[12px]">{dir === "EXIT" ? "Todavía no hay lecturas de salida" : dir === "ENTRY" ? "Todavía no hay lecturas de entrada" : "Sin capturas"}</span>
+            </div>
+        );
     }
     const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
     const plate = ev.plateDetected as string | undefined;
@@ -287,16 +302,17 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
     const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
     const marca = (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
     const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
-    const dir = ev.direction;
+    const sentido = ev.direction;
     const tipo = tipoDeteccion(ev, (ev as any).watch);
-    const ring = dir === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
+    const ring = sentido === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
     return (
-        <div className="p-4">
-            <div className={cn("relative w-full aspect-video rounded-xl overflow-hidden vid-surface border transition-all duration-300", flash ? ring : "border-border")}>
+        <div>
+            <div className={cn("relative w-full rounded-xl overflow-hidden vid-surface border transition-all duration-300", className || "aspect-video", flash ? ring : "border-border")}>
                 <SmartThumb src={img} w={960} className="absolute inset-0 w-full h-full" />
                 {flash && <div className="iris-shot" />}
                 <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
-                    <Badge className={cn("text-xs shadow-lg", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
+                    {/* En la columna de su sentido el cartel ENTRADA/SALIDA sobra: lo dice la columna. Se deja la cámara. */}
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur text-[10.5px] font-semibold text-white/90">{ev.device?.name || "Cámara"} · <TimeAgo timestamp={ev.timestamp} /></span>
                     {tipo && <span className={cn("inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-lg backdrop-blur", tipo.badge)}>{tipo.label}{tipo.key === "residente" && ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
                     {rotuloLectura(ev.details) && <span className="text-[10px] tabular-nums px-2 py-0.5 rounded bg-black/55 text-white/85 backdrop-blur">{rotuloLectura(ev.details)}</span>}
                 </div>
@@ -318,8 +334,7 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
                     )}
                     <div className="mt-1.5 text-[11px] text-white/80 flex items-center gap-2">
                         {marca && <span className="font-semibold">{marca}</span>}
-                        <span>{ev.device?.name || "Dispositivo"}</span>
-                        <span className="text-white/50">&middot; <TimeAgo timestamp={ev.timestamp} /></span>
+                        {ev.user?.name && <span className="text-white/90">{ev.user.name}{ev.user?.unit?.name ? ` · ${ev.user.unit.name}` : ""}</span>}
                     </div>
                     {plate && !anomalous && (
                         <div className="mt-2 flex gap-2">
@@ -774,6 +789,74 @@ function CriticalAlerts({ items, onDismiss, onClear, onRegister }: { items: any[
     );
 }
 
+/**
+ * Una columna del monitor: todo lo de un sentido.
+ *
+ * Antes eran tres columnas y dos mentían: «Entradas» y «Salidas» listaban TODAS las
+ * lecturas (las dos recibían `filteredEvents`), así que una salida aparecía en Entradas y
+ * el operador tenía que mirar el nombre de la cámara para saber qué estaba viendo. La del
+ * centro repetía la misma lista por tercera vez debajo de la última captura.
+ *
+ * Ahora cada columna es un sentido completo, de arriba abajo: la última lectura en
+ * grande, sus cámaras con la lectura de cada una, y las lecturas de ese sentido nada más.
+ */
+function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRegister, platesPark, watchMap }: {
+    dir: "ENTRY" | "EXIT";
+    camaras: any[];
+    eventos: any[];
+    ultimaPorCamara: (id: string) => any;
+    cargando: boolean;
+    onRegister: (p?: string) => void;
+    platesPark: Set<string>;
+    watchMap: Record<string, any>;
+}) {
+    const entrada = dir === "ENTRY";
+    const Icono = entrada ? LogIn : LogOut;
+    const sinLeer = eventos.filter((e) => !e.plateDetected || ["NO_LEIDA", "unknown", "S/P"].includes(e.plateDetected)).length;
+    return (
+        <section className="flex flex-col min-h-0 overflow-hidden">
+            {/* Encabezado del sentido */}
+            <div className="shrink-0 flex items-center gap-2.5 px-4 h-11 border-b border-border">
+                <span className={cn("w-7 h-7 rounded-md grid place-items-center border border-border bg-muted", entrada ? "text-emerald-500" : "text-orange-500")}><Icono size={15} /></span>
+                <h2 className="text-[14px] font-bold">{entrada ? "Entradas" : "Salidas"}</h2>
+                <span className="text-[11.5px] text-muted-foreground tabular-nums">{camaras.length} cámara{camaras.length === 1 ? "" : "s"}</span>
+                <span className="ml-auto flex items-center gap-2 text-[11.5px] text-muted-foreground tabular-nums">
+                    <span><b className="text-foreground">{eventos.length}</b> en la lista</span>
+                    {sinLeer > 0 && <span className="text-[var(--aviso-texto)]">· {sinLeer} sin lectura</span>}
+                </span>
+            </div>
+
+            {/* La última lectura y las cámaras */}
+            <div className="shrink-0 p-4 pb-3 space-y-3 border-b border-border">
+                <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="h-[clamp(200px,34vh,400px)]" />
+                {camaras.length > 0 && (
+                    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(camaras.length, 4)}, minmax(0, 1fr))` }}>
+                        {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="h-[84px]" />)}
+                    </div>
+                )}
+            </div>
+
+            {/* Las lecturas del sentido */}
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                <div className="sticky top-0 z-10 px-4 py-2 bg-background/95 backdrop-blur border-b border-border text-[11px] font-semibold text-muted-foreground">
+                    Lecturas recientes
+                </div>
+                {cargando && eventos.length === 0 ? (
+                    <>{Array.from({ length: 6 }).map((_, i) => <VehicleCardSkeleton key={i} />)}</>
+                ) : eventos.length <= 1 ? (
+                    <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+                        <Car size={22} className="mb-2 opacity-30" />
+                        <span className="text-[12px]">{eventos.length ? "Sólo la de arriba, por ahora" : "Sin lecturas con estos filtros"}</span>
+                    </div>
+                ) : (
+                    // La primera ya está en grande arriba: la lista arranca en la segunda.
+                    eventos.slice(1).map((e) => <VehicleCard key={e.id} event={e} onRegister={onRegister} platesWithParking={platesPark} watchMap={watchMap} />)
+                )}
+            </div>
+        </section>
+    );
+}
+
 export default function MonitorLPR() {
     const [events, setEvents] = useState<FullAccessEvent[]>([]);
     const [socket, setSocket] = useState<Socket | null>(null);
@@ -801,6 +884,15 @@ export default function MonitorLPR() {
     const dismissedCritRef = useRef<Set<string>>(new Set());
     const dismissCritical = useCallback((id: string) => { dismissedCritRef.current.add(id); setCriticals(c => c.filter(x => x.id !== id)); }, []);
     const [eventsLoading, setEventsLoading] = useState(true);
+    const [verDetecciones, setVerDetecciones] = useState(false);
+    /** La detección abierta desde el cajón. Al cerrarla se vuelve al cajón, como en la ficha del evento. */
+    const [fichaDet, setFichaDet] = useState<DetItem | null>(null);
+    const [geomDet, setGeomDet] = useState<Geom | undefined>(undefined);
+    useEffect(() => {
+        setGeomDet(undefined);
+        if (!fichaDet?.deviceId) return;
+        getAnalyticsGeometryBatch([fichaDet.deviceId]).then((g) => setGeomDet(g?.[fichaDet.deviceId!])).catch(() => { });
+    }, [fichaDet?.deviceId]);
     const pendingRef = useRef<any[]>([]);
     // Lecturas anómalas fijadas (sin lectura / lista negra / lista blanca / vigilancia):
     // quedan como mini-ventanas apiladas abajo hasta que el guardia las cierra.
@@ -1079,29 +1171,6 @@ export default function MonitorLPR() {
         for (const e of events) { const id = (e as any).device?.id; if (id && !m[id]) m[id] = e; }
         return m;
     }, [events]);
-    const hasStream = (id: any) => !!id && streams.includes(`lpr_${id}`);
-    const pickCam = (evts: any[], dir: string) => {
-        for (const e of evts) { if (hasStream(e?.device?.id)) return e.device.id; }
-        const d = lprDevs.find((x: any) => x.direction === dir && hasStream(x.id)) || lprDevs.find((x: any) => hasStream(x.id));
-        return d?.id || null;
-    };
-    const entryCam = useMemo(() => pickCam(entryEvents, "ENTRY"), [lprDevs, entryEvents, streams]);
-    const exitCam = useMemo(() => pickCam(exitEvents, "EXIT"), [lprDevs, exitEvents, streams]);
-
-
-
-    const centerPanes = useMemo(() => {
-        const build = (ev: any, dir: string) => ev?.device?.id ? {
-            dir, deviceId: ev.device.id,
-            plate: ev.plateDetected as string | undefined,
-            ok: ev.decision === "GRANT",
-            anomalous: !ev.plateDetected || ["NO_LEIDA", "unknown", "S/P"].includes(ev.plateDetected || ""),
-            marca: parseMeta(ev.details).Marca || ev.user?.name || "",
-            deviceName: ev.device?.name || "Dispositivo",
-        } : null;
-        return [build(entryEvents[0], "ENTRY"), build(exitEvents[0], "EXIT")].filter(Boolean) as any[];
-    }, [entryEvents, exitEvents]);
-
     const openRegister = useCallback((plate?: string) => { if (!plate) return; setRegisterInit({ plate: String(plate).toUpperCase() }); setRegisterOpen(true); }, []);
 
     return (
@@ -1182,6 +1251,10 @@ export default function MonitorLPR() {
 
                         {/* Cluster de acciones (íconos) */}
                         <div className="flex items-center h-9 bg-card border border-border rounded-lg divide-x divide-border overflow-hidden">
+                            {/* Las detecciones de las cámaras (cruces, zonas) vivían en la columna del centro; ahora en un cajón. */}
+                            <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="h-full px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+                                <Radar size={16} />
+                            </button>
                             <button onClick={() => setShowWatch(true)} title="Lista de vigilancia" className="relative h-full px-2.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
                                 <ShieldAlert size={16} />
                                 {Object.keys(watchMap).length > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{Object.keys(watchMap).length}</span>}
@@ -1202,91 +1275,24 @@ export default function MonitorLPR() {
                             </button>
                         </div>
 
+                        <Cajon open={verDetecciones} onOpenChange={setVerDetecciones}>
+                            <CajonContenido ancho="angosto" titulo="Detecciones" descripcion="Cruces de línea, intrusiones y zonas de las cámaras. Tocá una para ver la captura.">
+                                {verDetecciones && <IntrusionPanel enCajon alAbrir={(d) => { setVerDetecciones(false); setFichaDet(d); }} />}
+                            </CajonContenido>
+                        </Cajon>
                         {showWatch && <WatchlistDialog onClose={() => { setShowWatch(false); refreshWatch(); }} />}
                     </div>
                 </div>
 
-                {/* Three columns */}
-                <div className="flex-1 grid grid-cols-3 divide-x divide-neutral-800 overflow-hidden">
-                    {/* ENTRIES */}
-                    <div className="flex flex-col overflow-hidden">
-                        <div className="shrink-0 p-3 pb-1">
-                            <div className="flex items-center gap-1.5 mb-2">
-                                <LogIn size={13} className="text-emerald-400" />
-                                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">Entradas</span>
-                                <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold border border-emerald-500/40 text-emerald-300">{entryCams.length} cám</span>
-                            </div>
-                            {entryCams.length === 0 ? (
-                                <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de entrada</div>
-                            ) : (
-                                <div className={cn("grid gap-2", entryCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-                                    {entryCams.map((d: any) => <CamTile key={d.id} dev={d} accent="emerald" ev={lastByCam[d.id] || lastCapByDev[d.id]} />)}
-                                </div>
-                            )}
-                        </div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
-                            {eventsLoading && filteredEvents.length === 0 ? (
-                                <>{Array.from({ length: 6 }).map((_, i) => <VehicleCardSkeleton key={i} />)}</>
-                            ) : filteredEvents.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-                                    <Car size={24} className="mb-2 opacity-30" />
-                                    <span className="text-xs">Sin capturas recientes</span>
-                                </div>
-                            ) : (
-                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)
-                            )}
-                        </div>
-                    </div>
-
-                    {/* CENTER: fixed spotlight + independently scrolling recent list */}
-                    <div className="flex flex-col overflow-hidden">
-                        <div className="shrink-0">
-                            <CenterShot ev={filteredEvents[0]} onRegister={openRegister} />
-                        </div>
-                        <IntrusionPanel />
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            <div className="px-4 pt-2 pb-2">
-                                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
-                            </div>
-                            {eventsLoading && filteredEvents.length === 0
-                                ? Array.from({ length: 6 }).map((_, i) => <VehicleCardSkeleton key={i} />)
-                                : filteredEvents.slice(1, 15).map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)}
-                        </div>
-                    </div>
-
-                    {/* EXITS */}
-                    <div className="flex flex-col overflow-hidden">
-                        <div className="shrink-0 p-3 pb-1">
-                            <div className="flex items-center gap-1.5 mb-2">
-                                <LogOut size={13} className="text-orange-400" />
-                                <span className="text-[11px] font-bold uppercase tracking-wider text-orange-300">Salidas</span>
-                                <span className="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold border border-orange-500/40 text-orange-300">{exitCams.length} cám</span>
-                            </div>
-                            {exitCams.length === 0 ? (
-                                <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de salida</div>
-                            ) : (
-                                <div className={cn("grid gap-2", exitCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-                                    {exitCams.map((d: any) => <CamTile key={d.id} dev={d} accent="orange" ev={lastByCam[d.id] || lastCapByDev[d.id]} />)}
-                                </div>
-                            )}
-                        </div>
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            <div className="px-3 pt-2 pb-1 text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Capturas recientes</div>
-                            {eventsLoading && filteredEvents.length === 0 ? (
-                                <>{Array.from({ length: 6 }).map((_, i) => <VehicleCardSkeleton key={i} />)}</>
-                            ) : filteredEvents.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-                                    <Car size={24} className="mb-2 opacity-30" />
-                                    <span className="text-xs">Sin capturas recientes</span>
-                                </div>
-                            ) : (
-                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)
-                            )}
-                        </div>
-                    </div>
+                {/* Dos columnas, un sentido cada una. */}
+                <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden">
+                    <ColumnaSentido dir="ENTRY" camaras={entryCams} eventos={entryEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
+                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} />
+                    <ColumnaSentido dir="EXIT" camaras={exitCams} eventos={exitEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
+                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} />
                 </div>
             </div>
+                {fichaDet && <FichaDeteccion det={fichaDet} geom={geomDet} onClose={() => { setFichaDet(null); setVerDetecciones(true); }} />}
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
                 <CriticalAlerts items={criticals} onDismiss={dismissCritical} onClear={() => setCriticals([])} onRegister={openRegister} />
                 {/* Registrar pregunta primero qué es la matrícula (persona del barrio o seguimiento)
