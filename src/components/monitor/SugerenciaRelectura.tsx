@@ -33,7 +33,7 @@ function Explicacion({ r }: { r: RelecturaEvento }) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={`${r.chapa}?w=320`} alt={`Chapa ${r.plate}`} className="w-full rounded-md border border-border bg-black" />
             )}
-            <span className="block">La lectora no leyó la chapa. Se recortó {r.vehiculo ? "el vehículo" : "la foto"} y se volvió a leer: <b>{r.plate}</b>{r.confianza != null ? ` con ${Math.round(r.confianza * 100)} %` : ""}{r.estado === "DUDOSA" ? ", dudosa" : ""}.</span>
+            <span className="block">La lectora no leyó la chapa. omni-vision recortó {r.vehiculo ? "el vehículo" : "la foto"} y la volvió a leer: <b>{r.plate}</b>{r.confianza != null ? ` con ${Math.round(r.confianza * 100)} %` : ""}{r.estado === "DUDOSA" ? ", dudosa" : ""}.</span>
             {r.otras.length > 0 && <span className="block text-muted-foreground">También se leyó: {r.otras.map((o) => o.plate).join(", ")}.</span>}
             <span className="block text-muted-foreground">Es una sugerencia: mirá la foto y, si coincide, cargala con «Cargar matrícula».</span>
         </span>
@@ -45,14 +45,16 @@ export function SugerenciaRelectura({ r, sobreFoto, className }: { r?: Relectura
     if (!r.plate) {
         // Sobre la foto grande no se dice nada: «no se pudo» no le cambia nada al guardia ahí.
         if (sobreFoto) return null;
-        return <span className={cn("inline-flex items-center gap-1 text-[10px] text-muted-foreground", className)}><ScanLine size={10} /> {SIN_LECTURA[r.estado] || "Relectura sin resultado"}</span>;
+        return <span className={cn("inline-flex items-center gap-1 text-[10px] text-muted-foreground", className)}><ScanLine size={10} /> omni-vision: {(SIN_LECTURA[r.estado] || "relectura sin resultado").toLowerCase()}</span>;
     }
     const negra = r.vigilancia && String(r.vigilancia.category).toUpperCase() === "BLACKLISTED";
     const busqueda = r.vigilancia && String(r.vigilancia.category).toUpperCase() === "SEARCH";
     const dudosa = r.estado === "DUDOSA";
     return (
-        <Pista titulo="Relectura del vehículo" texto={<Explicacion r={r} />} ancho={300}>
+        <Pista titulo="Leída por omni-vision" texto={<Explicacion r={r} />} ancho={300}>
             <span className={cn("inline-flex items-center gap-1.5 flex-wrap", sobreFoto ? "text-[12px]" : "text-[10.5px]", className)}>
+                {/* Quién leyó: la lectora no; omni-vision sí. Es lo que distingue esta chapa de una lectura de la cámara. */}
+                <span className={cn("uppercase font-black tracking-wider", sobreFoto ? "text-[10px] text-[var(--accion-en-oscuro)]" : "text-[9px] text-[var(--accion)]")}>omni-vision leyó</span>
                 <span className={cn("inline-flex items-center gap-1 rounded font-bold tabular-nums tracking-[0.12em]",
                     sobreFoto ? "px-2 py-0.5 bg-black/60 text-white border border-white/30" : "px-1.5 py-0.5 bg-muted text-foreground border border-border",
                     dudosa && "opacity-80")}>

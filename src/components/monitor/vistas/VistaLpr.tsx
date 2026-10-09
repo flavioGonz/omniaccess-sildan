@@ -126,10 +126,11 @@ function Relectura({ r, grande }: { r?: RelecturaEvento | null; grande?: boolean
         <span className={cn("inline-flex items-center gap-2 flex-wrap", grande ? "text-[17px]" : "text-[11px]")}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {grande && r.chapa && <img src={r.chapa} alt="" draggable={false} className="h-12 rounded-md border border-white/40 bg-black" />}
+            <span className={cn("uppercase font-black tracking-wider text-[var(--accion-en-oscuro)]", grande ? "text-[14px]" : "text-[9px]")}>omni-vision leyó</span>
             <span className={cn("inline-flex items-center gap-1.5 rounded-md bg-black/60 text-white border border-white/30 font-bold tabular-nums tracking-[0.12em]", grande ? "px-3 py-1 text-[24px]" : "px-1.5 py-0.5")}>
                 ¿{r.plate}?
             </span>
-            <span className="text-white/75 tabular-nums">{grande ? "releída del vehículo · " : ""}{r.confianza != null ? `${Math.round(r.confianza * 100)} %` : ""}{r.estado === "DUDOSA" ? " · dudosa" : ""}</span>
+            <span className="text-white/75 tabular-nums">{r.confianza != null ? `${Math.round(r.confianza * 100)} %` : ""}{r.estado === "DUDOSA" ? " · dudosa" : ""}</span>
             {negra && <span className="px-2 py-0.5 rounded-md pleno-mal font-black uppercase tracking-wider text-[0.8em]">Lista negra</span>}
             {busqueda && <span className="px-2 py-0.5 rounded-md pleno-aviso font-black uppercase tracking-wider text-[0.8em]">En búsqueda</span>}
             {!r.vigilancia && r.quien && <span className="text-white/90 truncate">{r.quien.name}{r.quien.unidad ? ` · ${r.quien.unidad}` : ""}</span>}
@@ -559,7 +560,7 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                                     )}
 
                                     {esNoLeida(l.plate) && l.relectura && (
-                                        <Bloque Icono={Search} titulo="Relectura del vehículo">
+                                        <Bloque Icono={Search} titulo="Leída por omni-vision">
                                             {l.relectura.plate ? (
                                                 <div className="space-y-2">
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -567,7 +568,7 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                                                     <div className="text-[24px] font-bold tabular-nums tracking-[0.12em]">¿{l.relectura.plate}? <span className="text-[15px] font-normal text-muted-foreground tracking-normal">{l.relectura.confianza != null ? `${Math.round(l.relectura.confianza * 100)} %` : ""}{l.relectura.estado === "DUDOSA" ? " · dudosa" : ""}</span></div>
                                                     {l.relectura.vigilancia && <div className="text-[16px] tono-mal font-semibold">{String(l.relectura.vigilancia.category).toUpperCase() === "SEARCH" ? "En búsqueda" : "Lista negra"}: {l.relectura.vigilancia.motivo || l.relectura.vigilancia.label || "sin motivo"}</div>}
                                                     {l.relectura.quien && <div className="text-[16px]">{l.relectura.quien.name} · {ROL[l.relectura.quien.role] || l.relectura.quien.role}{l.relectura.quien.unidad ? ` · ${l.relectura.quien.unidad}` : ""}</div>}
-                                                    <div className="text-[14px] text-muted-foreground">La lectora no leyó la chapa; se recortó el vehículo y se volvió a leer. Es una sugerencia: la confirma el guardia en el monitor LPR.</div>
+                                                    <div className="text-[14px] text-muted-foreground">La lectora no leyó la chapa; omni-vision recortó el vehículo y la volvió a leer. Es una sugerencia: la confirma el guardia en el monitor LPR.</div>
                                                 </div>
                                             ) : <div className="text-[16px] text-muted-foreground">Se intentó releer del vehículo y no se pudo leer la chapa.</div>}
                                         </Bloque>

@@ -418,6 +418,15 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                                     <p className="text-[7px] font-bold uppercase tracking-widest opacity-60">Matrícula</p>
                                                     <h3 className="text-xl font-bold font-mono tracking-wider leading-tight">{plateText}</h3>
                                                 </div>
+                                                {/* La segunda lectura: la lectora no leyó, omni-vision recortó el vehículo y la
+                                                    volvió a leer. Sugerencia: se confirma con «Cargar matrícula» en el monitor. */}
+                                                {!hasPlate && (event as any).relectura?.plate && (
+                                                    <div className="px-3.5 py-1.5 rounded-md shadow-lg border border-white/20 bg-black/75 text-white flex flex-col justify-center"
+                                                        title="La lectora no leyó la chapa; omni-vision recortó el vehículo y la volvió a leer. Es una sugerencia.">
+                                                        <p className="text-[7px] font-bold uppercase tracking-widest text-[var(--accion-en-oscuro)]">omni-vision leyó</p>
+                                                        <h3 className="text-xl font-bold tabular-nums tracking-wider leading-tight">¿{(event as any).relectura.plate}? <span className="text-[11px] font-semibold opacity-70">{(event as any).relectura.confianza != null ? `${Math.round((event as any).relectura.confianza * 100)} %` : ""}</span></h3>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })()}
