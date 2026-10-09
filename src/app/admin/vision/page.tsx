@@ -24,6 +24,7 @@ import {
 } from "@/lib/vision-catalogo";
 import type { SaludVision, ObjetoVisto, TareaVision, TextoLeido } from "@/lib/vision";
 import { TAREAS_VISION } from "@/lib/vision-tareas";
+import { TAREA_DE_PESO, ESTIMADOS, NOMBRE_PESO, RITMO_RAPIDO, RITMO_RONDA, puntajePeso, fraccionGpu, mb, porc, type Medida } from "@/lib/vision-peso";
 import { Pista } from "@/components/ui/pista";
 
 /**
@@ -114,6 +115,8 @@ type Estado = {
     analiticas: Record<string, boolean>; clases: Record<string, boolean>; camaras: Camara[];
     /** Lo guardado (Setting VISION_TAREAS): es la verdad, aunque omni-vision tarde en enterarse. */
     tareasApagadas?: string[];
+    /** La última medida de peso de cada tarea (lib/vision-peso). */
+    medidas?: Record<string, Medida>;
 };
 type Prueba = {
     camara: { id: string; name: string }; fuente: string; ms_cuadro: number; ancho: number; alto: number;
@@ -362,6 +365,22 @@ export default function VisionLab() {
 
     const s = estado.salud;
     const apagadas = estado.tareasApagadas || [];
+    const vramTotal = s?.vram?.total_mb ?? null;
+    /** El peso de cada tarjeta: medido si la tarea corre acá, estimado si no. */
+    const pesoDe = (id: string): PesoTarjeta | null => {
+        const est = ESTIMADOS[id];
+        if (est) return { puntaje: puntajePeso(est.vram[1], est.ms[1]), estimado: est, vramTotal };
+        const t = TAREA_DE_PESO[id];
+        if (!t) return null;
+        const m = estado.medidas?.[t];
+        const gpuMs = t === "seguimiento" ? null : s?.tareas?.[t]?.latencia_ms?.p50 ?? null;
+        const vram = t === "seguimiento" ? 0 : m?.vram_mb ?? null;
+        return {
+            puntaje: puntajePeso(vram, gpuMs), vram, gpuMs, cpuMs: m?.cpu_ms ?? null, ram: t === "seguimiento" ? 0 : m?.ram_mb ?? null,
+            medido: m?.medido ?? null, vramTotal, sinGpu: t === "seguimiento",
+            ahora: apagadas.includes(t) ? "apagada" : t === "seguimiento" ? "corre" : s?.tareas?.[t]?.abierto ? "cargada" : "se carga al pedirla",
+        };
+    };
     const prendidas = estado.clases;
     const enGpu = s?.proveedor?.startsWith("CUDA");
 
@@ -473,8 +492,9 @@ export default function VisionLab() {
             <section>
                 <Titulo n={1} titulo="Qué puede hacer un detector como YOLO"
                     ayuda="Las tareas que existen en la familia YOLO26 y, para cada una, con qué pieza libre se hace acá. YOLO26 es AGPL y servirlo pide licencia paga: no se usa." />
+                {s && <LoPrendido s={s} medidas={estado.medidas || {}} apagadas={apagadas} />}
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {CAPACIDADES.map((c) => <TarjetaCapacidad key={c.id} c={c} alProbar={s && TAREA_DE_CAPACIDAD[c.id] && c.estado === "corre" ? () => probarCapacidad(c.id) : undefined} />)}
+                    {CAPACIDADES.map((c) => <TarjetaCapacidad key={c.id} c={c} peso={pesoDe(c.id)} alProbar={s && TAREA_DE_CAPACIDAD[c.id] && c.estado === "corre" ? () => probarCapacidad(c.id) : undefined} />)}
                 </div>
             </section>
 
@@ -631,14 +651,123 @@ function Cifra({ v, l }: { v: number | string; l: string }) {
     );
 }
 
-function TarjetaCapacidad({ c, alProbar }: { c: Capacidad; alProbar?: () => void }) {
+type PesoTarjeta = {
+    puntaje: number | null; vramTotal: number | null;
+    vram?: number | null; gpuMs?: number | null; cpuMs?: number | null; ram?: number | null; medido?: number | null;
+    sinGpu?: boolean; ahora?: string;
+    estimado?: (typeof ESTIMADOS)[string];
+};
+
+/** Una barra de proporción, sin color de estado: dice cuánto, no si está bien o mal. */
+function Barra({ f }: { f: number }) {
+    return <span className="block h-1.5 rounded-full bg-muted overflow-hidden"><span className="block h-full bg-foreground/60" style={{ width: `${Math.max(2, Math.min(100, f * 100))}%` }} /></span>;
+}
+
+/** Cinco segmentos: cuánto pesa, de un vistazo. */
+function Segmentos({ n }: { n: number }) {
+    return (
+        <span className="inline-flex items-end gap-[2px]" aria-hidden>
+            {[1, 2, 3, 4, 5].map((i) => <span key={i} className={cn("w-[4px] rounded-[1px]", i <= n ? (n >= 4 ? "bg-[var(--aviso)]" : "bg-foreground/70") : "bg-border")} style={{ height: 4 + i * 2 }} />)}
+        </span>
+    );
+}
+
+const horaMedida = (seg: number) => new Date(seg * 1000).toLocaleString("es-UY", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+
+/** El detalle del peso: cada recurso con su número, su proporción y la cuenta hecha a la vista. */
+function DetallePeso({ p }: { p: PesoTarjeta }) {
+    const e = p.estimado;
+    const vramMed = e ? (e.vram[0] + e.vram[1]) / 2 : p.vram;
+    const ms = e ? e.ms : p.gpuMs != null ? [p.gpuMs, p.gpuMs] : null;
+    const rango = (a: number, b: number, u: (v: number) => string) => (a === b ? u(a) : `${u(a)} a ${u(b)}`);
+    return (
+        <span className="block space-y-2.5 text-[12px]">
+            {e && <span className="block text-muted-foreground">No corre acá: <b className="text-foreground">estimado</b> por el tamaño de {e.modelo}, no medido en esta placa.</span>}
+            <span className="block">
+                <span className="flex justify-between gap-2"><b>Memoria de video</b><span className="tabular-nums">{e ? rango(e.vram[0], e.vram[1], mb) : p.sinGpu ? "nada (no usa la GPU)" : p.vram != null ? mb(p.vram) : "sin medir"}{!p.sinGpu && vramMed != null && p.vramTotal ? ` de ${mb(p.vramTotal)}` : ""}</span></span>
+                {!p.sinGpu && vramMed != null && p.vramTotal ? <><Barra f={vramMed / p.vramTotal} /><span className="block text-muted-foreground mt-0.5 tabular-nums">{porc(vramMed / p.vramTotal)} de la placa, que comparte con omni-lpr.</span></> : null}
+            </span>
+            <span className="block">
+                <span className="flex justify-between gap-2"><b>GPU por cuadro</b><span className="tabular-nums">{p.sinGpu ? "nada" : ms ? rango(ms[0], ms[1], (v) => `${Math.round(v)} ms`) : "sin medir"}</span></span>
+                {ms && (
+                    <span className="block text-muted-foreground mt-0.5 tabular-nums leading-snug">
+                        Una cámara en vivo ({RITMO_RAPIDO} cuadros/s): {Math.round(ms[1])} ms × {RITMO_RAPIDO} = {Math.round(ms[1] * RITMO_RAPIDO)} ms de cada segundo → <b className="text-foreground">{porc(Math.min(1, fraccionGpu(ms[1], RITMO_RAPIDO)))} de la GPU</b>.<br />
+                        En la ronda (1 cuadro cada {Math.round(1 / RITMO_RONDA)} s): {porc(fraccionGpu(ms[1], RITMO_RONDA))} por cámara{fraccionGpu(ms[1], RITMO_RONDA) > 0 ? `; entran ~${Math.floor(1 / fraccionGpu(ms[1], RITMO_RONDA))} cámaras antes de llenarla` : ""}.
+                    </span>
+                )}
+            </span>
+            <span className="block">
+                <span className="flex justify-between gap-2"><b>CPU por cuadro</b><span className="tabular-nums">{e ? "alto: prepara la imagen y el texto" : p.cpuMs != null ? `~${Math.round(p.cpuMs)} ms` : "sin medir"}</span></span>
+                {!e && p.cpuMs != null && <span className="block text-muted-foreground mt-0.5 tabular-nums">A {RITMO_RAPIDO} cuadros/s: {porc(Math.min(1, fraccionGpu(p.cpuMs, RITMO_RAPIDO)))} de un núcleo.</span>}
+            </span>
+            <span className="flex justify-between gap-2"><b>RAM</b><span className="tabular-nums">{e ? rango(e.ram[0], e.ram[1], mb) : p.ram === 0 ? "casi nada" : p.ram != null ? mb(p.ram) : "sin medir"}</span></span>
+            <span className="block text-muted-foreground border-t border-border pt-2 leading-snug">
+                {!e && (p.medido ? `Medido en esta placa al cargarla (${horaMedida(p.medido)}). ` : p.sinGpu ? "" : "Se mide la primera vez que se carga. ")}
+                {p.ahora && <>Ahora: <b className="text-foreground">{p.ahora}</b>. </>}
+                1 de 5 se deja prendido en todas las cámaras sin pensarlo; 5 de 5 es para un evento suelto, no para cada cuadro.
+            </span>
+        </span>
+    );
+}
+
+function Peso({ p }: { p: PesoTarjeta }) {
+    if (p.puntaje == null) return <span className="text-[11px] text-muted-foreground">Peso sin medir</span>;
+    return (
+        <Pista titulo={`Peso ${p.puntaje} de 5 · ${NOMBRE_PESO[p.puntaje]}${p.estimado ? " (estimado)" : ""}`} texto={<DetallePeso p={p} />} ancho={340}>
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border px-1.5 py-0.5 text-[11px] font-semibold tabular-nums cursor-help">
+                <Segmentos n={p.puntaje} /> {p.puntaje}/5{p.estimado ? " est." : ""}
+            </span>
+        </Pista>
+    );
+}
+
+/**
+ * Lo que ocupa lo prendido ahora, con la cuenta a la vista: la suma de las tareas cargadas
+ * contra lo que dice la placa entera (que incluye a omni-lpr), más CPU y RAM del contenedor.
+ */
+function LoPrendido({ s, medidas, apagadas }: { s: SaludVision; medidas: Record<string, Medida>; apagadas: string[] }) {
+    const cargadas = Object.entries(s.tareas || {}).filter(([t, v]) => v.abierto && !apagadas.includes(t));
+    const sumandos = cargadas.map(([t]) => ({ t, v: medidas[t]?.vram_mb ?? null }));
+    const suma = sumandos.reduce((a, x) => a + (x.v || 0), 0);
+    const sinMedir = sumandos.filter((x) => x.v == null).length;
+    const total = s.vram?.total_mb || null;
+    const p = s.proceso;
+    return (
+        <div className="mb-3 rounded-[10px] bg-muted px-4 py-3 grid gap-3 md:grid-cols-3 text-[12px]">
+            <div>
+                <div className="flex justify-between gap-2"><b>Memoria de video de lo prendido</b><span className="tabular-nums font-bold">{mb(suma)}{total ? ` de ${mb(total)}` : ""}</span></div>
+                {total && <div className="mt-1"><Barra f={suma / total} /></div>}
+                <div className="mt-1 text-muted-foreground tabular-nums leading-snug">
+                    {sumandos.length ? sumandos.map((x) => `${NOMBRE_TAREA[x.t] || x.t} ${x.v != null ? mb(x.v) : "?"}`).join(" + ") + ` = ${mb(suma)}` : "Ninguna tarea cargada."}
+                    {sinMedir > 0 && " (las «?» se cargaron antes de que se midiera)"}
+                    {s.vram && <><br />La placa entera usa {mb(s.vram.usada_mb)}: el resto es omni-lpr y el sistema.</>}
+                </div>
+            </div>
+            <div>
+                <div className="flex justify-between gap-2"><b>GPU ahora</b><span className="tabular-nums font-bold">{s.vram ? `${s.vram.uso_gpu} %` : "—"}</span></div>
+                {s.vram && <div className="mt-1"><Barra f={s.vram.uso_gpu / 100} /></div>}
+                <div className="mt-1 text-muted-foreground leading-snug">De toda la placa (omni-vision y omni-lpr juntos), en el momento de la consulta.</div>
+            </div>
+            <div>
+                <div className="flex justify-between gap-2"><b>CPU y RAM de omni-vision</b><span className="tabular-nums font-bold">{p?.cpu_pct != null ? `${Math.round(p.cpu_pct)} %` : "—"} · {p ? mb(p.ram_mb) : "—"}</span></div>
+                {p?.tope_ram_mb ? <div className="mt-1"><Barra f={p.ram_mb / p.tope_ram_mb} /></div> : null}
+                <div className="mt-1 text-muted-foreground leading-snug tabular-nums">
+                    {p?.cpu_pct != null ? `${Math.round(p.cpu_pct)} % de un núcleo (de ${p.nucleos}).` : "CPU: se mide entre una consulta y la siguiente."}
+                    {p?.tope_ram_mb ? ` RAM: ${mb(p.ram_mb)} del tope de ${mb(p.tope_ram_mb)} del contenedor.` : ""}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function TarjetaCapacidad({ c, alProbar, peso }: { c: Capacidad; alProbar?: () => void; peso?: PesoTarjeta | null }) {
     const t = TONO_CAPACIDAD[c.estado];
     return (
         <div className={cn("rounded-[10px] border border-border bg-card p-4 flex flex-col gap-2", c.estado === "no-aplica" && "opacity-70")}>
             <div className="flex items-start gap-3">
                 <span className={cn("grid h-10 w-10 place-items-center rounded-full shrink-0", c.estado === "corre" ? "bg-[var(--bien-suave)] text-[var(--bien-texto)]" : "bg-muted")}><Ic n={c.icono} size={19} /></span>
                 <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap"><h3 className="text-[14px] font-bold">{c.nombre}</h3><Chip tono={t.tono}>{t.texto}</Chip></div>
+                    <div className="flex items-center gap-2 flex-wrap"><h3 className="text-[14px] font-bold">{c.nombre}</h3><Chip tono={t.tono}>{t.texto}</Chip>{peso && <span className="ml-auto"><Peso p={peso} /></span>}</div>
                     <p className="text-[12.5px] mt-1 leading-snug">{c.queEs}</p>
                 </div>
             </div>

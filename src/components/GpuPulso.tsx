@@ -2,94 +2,101 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Zap } from "lucide-react";
+import { Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Pista } from "@/components/ui/pista";
 
 /**
- * El consumo de la GPU, de reojo, en el sidebar.
+ * La GPU, en vivo y de reojo, en el sidebar: el uso en porcentaje, y al pasar el mouse la
+ * memoria de video, los vatios y la temperatura.
  *
- * **Vatios y no porcentaje**, y no es un detalle de gusto. `utilization.gpu` no dice
- * cuanto calcula la placa: dice que fraccion del tiempo hubo algun nucleo ocupado. El
- * lector, entre pedido y pedido, deja un hilo de CUDA girando en vacio y el driver cuenta
- * esa vuelta como trabajo. Medido en esta instalacion con el lector TRABADO --sin devolver
- * una sola matricula-- el porcentaje marcaba 100% y la placa estaba a 37,5 de 70 W, tibia.
- * Ese numero mando a alguien a buscar un incendio que no existia.
+ * Antes mostraba vatios y no porcentaje, y había una razón: con el lector de matrículas
+ * trabado, un hilo de CUDA girando en vacío marcaba 100 % con la placa a 37,5 de 70 W. Medido
+ * el 9/10/2026, con el lector de a un pedido (MAX_EN_VUELO=1) y el carril rápido de visión
+ * sólo con movimiento: en reposo 2 % y 24 W, así que el porcentaje vuelve a decir trabajo. Igual
+ * se cuida el caso viejo: uso alto con vatios bajos no se pinta como carga, se avisa como
+ * «uso sin consumo», que es la firma de ese giro en vacío.
  *
- * La potencia sale del sensor de la placa y no sube si no hay calculo. Es el unico de los
- * dos que no miente, asi que es el que se muestra.
- *
- * El dato viene de la muestra que la pasarela guarda por minuto, no de un comando por
- * visita: este indicador esta en todas las paginas y en todas las sesiones abiertas a la
- * vez. Por eso tambien se apaga solo cuando la muestra envejece: un numero viejo mostrado
- * como si fuera de ahora es peor que ninguno.
+ * El dato viene de /api/gpu/vivo, que comparte una lectura cada pocos segundos entre todas las
+ * sesiones. Si deja de llegar, el indicador se apaga solo: un número viejo mostrado como de
+ * ahora es peor que ninguno.
  */
 
-type Pulso = {
-    hay: boolean; watts?: number | null; limite?: number | null;
-    uso?: number | null; temp?: number | null; enGpu?: boolean | null;
-    lecturas?: number | null; edadSeg?: number;
+type Vivo = {
+    hay: boolean; uso?: number; memUsada?: number; memTotal?: number; watts?: number | null; limite?: number | null;
+    temp?: number | null; enGpu?: boolean | null; edadSeg?: number;
 };
 
-/** Cuando la muestra deja de valer como "ahora". La pasarela guarda una por minuto. */
-const VIEJA_SEG = 180;
+/** Cada cuánto se pregunta: la ruta comparte una lectura de 4 s, más seguido no trae nada nuevo. */
+const CADA_MS = 5000;
+/** Más viejo que esto ya no es «en vivo». */
+const VIEJA_SEG = 30;
+/** Uso alto con menos de esta fracción del límite de potencia: la placa no está calculando. */
+const GIRO_EN_VACIO = { uso: 85, potencia: 0.6 };
 
 export function GpuPulso({ collapsed }: { collapsed?: boolean }) {
-    const [p, setP] = useState<Pulso | null>(null);
+    const [p, setP] = useState<Vivo | null>(null);
+    const [recibido, setRecibido] = useState(0);
 
     useEffect(() => {
         let vivo = true;
         const leer = async () => {
+            if (document.hidden) return;
             try {
-                const r = await fetch("/api/tracking/pulso", { cache: "no-store" });
+                const r = await fetch("/api/gpu/vivo", { cache: "no-store" });
                 if (!r.ok) return;
                 const d = await r.json();
-                if (vivo) setP(d);
+                if (vivo) { setP(d); setRecibido(Date.now()); }
             } catch { }
         };
         leer();
-        const iv = setInterval(leer, 20000);
+        const iv = setInterval(leer, CADA_MS);
         return () => { vivo = false; clearInterval(iv); };
     }, []);
 
-    if (!p?.hay || p.watts == null) return null;
+    if (!p?.hay || p.uso == null) return null;
 
-    const vieja = (p.edadSeg ?? 0) > VIEJA_SEG;
-    const frac = p.limite ? p.watts / p.limite : null;
+    const edad = (p.edadSeg ?? 0) + (Date.now() - recibido) / 1000;
+    const vieja = edad > VIEJA_SEG;
+    const fracW = p.watts != null && p.limite ? p.watts / p.limite : null;
+    const giro = p.uso >= GIRO_EN_VACIO.uso && fracW != null && fracW < GIRO_EN_VACIO.potencia;
 
-    /* Tres tramos sobre la potencia, que es trabajo de verdad. Apagado cuando el dato
-       envejecio: ahi el color hablaria de un momento que ya paso. */
     const tono = vieja ? "bg-muted-foreground/40"
-        : frac == null ? "bg-sky-500"
-            : frac >= 0.85 ? "bg-[var(--mal)]"
-                : frac >= 0.6 ? "bg-[var(--aviso)]"
-                    : "bg-emerald-500";
+        : giro ? "bg-[var(--aviso)]"
+            : p.uso >= 85 ? "bg-[var(--mal)]"
+                : p.uso >= 60 ? "bg-[var(--aviso)]"
+                    : "bg-[var(--bien)]";
 
-    const detalle = [
-        p.limite ? `${p.watts} de ${Math.round(p.limite)} W` : `${p.watts} W`,
-        p.temp != null ? `${p.temp} °C` : null,
-        /* El porcentaje va al final y con su advertencia: sirve para entender el numero
-           grande cuando alguien lo ve en otro lado, no para decidir nada por si solo. */
-        p.uso != null ? `uso ${p.uso}% (incluye la espera del lector)` : null,
-        p.enGpu === false ? "el lector NO esta usando la placa" : null,
-        vieja ? `sin datos nuevos hace ${Math.round((p.edadSeg ?? 0) / 60)} min` : null,
-    ].filter(Boolean).join(" · ");
+    const fila = (k: string, v: string) => <span className="flex justify-between gap-3"><span className="text-muted-foreground">{k}</span><span className="tabular-nums">{v}</span></span>;
+    const detalle = (
+        <span className="block space-y-1 text-[12px]">
+            {fila("Uso", `${p.uso} %`)}
+            {p.memUsada != null && p.memTotal ? fila("Memoria de video", `${(p.memUsada / 1024).toFixed(1)} de ${(p.memTotal / 1024).toFixed(0)} GB`) : null}
+            {p.watts != null ? fila("Potencia", p.limite ? `${Math.round(p.watts)} de ${Math.round(p.limite)} W` : `${Math.round(p.watts)} W`) : null}
+            {p.temp != null ? fila("Temperatura", `${p.temp} °C`) : null}
+            {giro && <span className="block pt-1 text-[var(--aviso-texto)]">Uso alto sin consumo: la placa no está calculando. Suele ser el lector trabado girando en vacío.</span>}
+            {p.enGpu === false && <span className="block pt-1 text-[var(--mal-texto)]">El lector de matrículas NO está usando la placa.</span>}
+            {vieja && <span className="block pt-1 text-muted-foreground">Sin datos nuevos hace {Math.round(edad)} s.</span>}
+        </span>
+    );
 
     return (
-        <Link
-            href="/admin/settings"
-            title={`GPU · ${detalle}`}
-            className={cn(
-                "flex items-center gap-1.5 rounded-lg border border-border bg-card/60 hover:bg-accent transition-colors px-2 py-1.5 shrink-0",
-                collapsed && "px-1.5",
-            )}
-        >
-            <span className={cn("h-2 w-2 rounded-full shrink-0", tono)} />
-            {!collapsed && (
-                <span className={cn("text-xs font-semibold tabular-nums", vieja ? "text-muted-foreground" : "text-foreground/90")}>
-                    {p.watts}<span className="text-[10px] text-muted-foreground ml-0.5">W</span>
-                </span>
-            )}
-            {collapsed && <Zap size={13} className="text-muted-foreground" />}
-        </Link>
+        <Pista titulo="GPU en vivo" texto={detalle} ancho={250}>
+            <Link
+                href="/admin/settings"
+                className={cn(
+                    "flex items-center gap-1.5 rounded-lg border border-border bg-card/60 hover:bg-accent transition-colors px-2 py-1.5 shrink-0",
+                    collapsed && "px-1.5",
+                )}
+            >
+                <span className={cn("h-2 w-2 rounded-full shrink-0", tono)} />
+                {!collapsed && (
+                    <span className={cn("text-xs font-semibold tabular-nums", vieja ? "text-muted-foreground" : "text-foreground/90")}>
+                        <span className="text-[10px] text-muted-foreground mr-0.5">GPU</span>{p.uso}<span className="text-[10px] text-muted-foreground ml-0.5">%</span>
+                    </span>
+                )}
+                {collapsed && <Cpu size={13} className="text-muted-foreground" />}
+            </Link>
+        </Pista>
     );
 }

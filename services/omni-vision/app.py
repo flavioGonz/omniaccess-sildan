@@ -65,8 +65,6 @@ describidor = Describidor(CARPETA)
 sesiones = Sesiones()
 lector = Lector()
 NOMBRE_MODELO = {"detectar": MODELO, "segmentar": MODELO_SILUETAS, "pose": MODELO_POSE}
-# Se abre la detección al arrancar: es la que se usa siempre, y así el primer pedido no paga la carga.
-modelos["detectar"].resolucion  # noqa: B018
 arranque = time.time()
 
 # Las tareas apagadas desde la app (Setting VISION_TAREAS). La app es la dueña: este conjunto
@@ -76,6 +74,106 @@ TAREAS = ("detectar", "segmentar", "pose", "atributos", "texto", "seguimiento")
 apagadas: set[str] = set()
 
 app = FastAPI(title="omni-vision", docs_url=None, redoc_url=None)
+
+# ─────────────── cuánto pesa cada tarea, medido acá ───────────────
+#
+# El laboratorio muestra un «peso» por tarea y no puede ser un número de folleto: la misma red
+# pesa distinto según la placa, la resolución y la versión de ONNX Runtime. Se mide en el
+# momento en que la tarea se carga (VRAM y RAM antes y después de la PRIMERA inferencia, que
+# es cuando ONNX Runtime reserva su memoria; abrir la sesión sola reserva poco) y el CPU de
+# cada pedido. Es aproximado y se dice así: la VRAM es la de toda la placa, y si omni-lpr
+# reserva algo en ese mismo instante se le atribuye a la tarea.
+CPU_HISTORIA = 200
+medidas: dict[str, dict] = {}
+_cpu_salud = {"t": time.time(), "c": time.process_time(), "pct": None}
+
+
+def _vram_usada_mb() -> int | None:
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=3)
+        return int(r.stdout.strip().split("\n")[0])
+    except Exception:
+        return None
+
+
+def _rss_mb() -> float:
+    try:
+        for linea in open("/proc/self/status"):
+            if linea.startswith("VmRSS:"):
+                return int(linea.split()[1]) / 1024
+    except Exception:
+        pass
+    return 0.0
+
+
+def _tope_ram_mb() -> float | None:
+    """El tope de memoria del contenedor (cgroup v2), si tiene."""
+    try:
+        v = open("/sys/fs/cgroup/memory.max").read().strip()
+        return None if v == "max" else int(v) / 1024 / 1024
+    except Exception:
+        return None
+
+
+def _cargada(t: str) -> bool:
+    if t in modelos:
+        return modelos[t].sesion is not None
+    if t == "atributos":
+        return describidor.modelo.sesion is not None
+    if t == "texto":
+        return lector.motor is not None
+    return True  # seguimiento: no carga nada
+
+
+def _paso(t: str, fn):
+    """Corre un paso y anota cuánto CPU costó; si es la carga de la tarea, cuánta memoria tomó."""
+    nueva = not _cargada(t)
+    v0, r0 = (_vram_usada_mb(), _rss_mb()) if nueva else (None, None)
+    c0 = time.process_time()
+    out = fn()
+    m = medidas.setdefault(t, {"cpu": []})
+    m["cpu"].append((time.process_time() - c0) * 1000)
+    if len(m["cpu"]) > CPU_HISTORIA:
+        m["cpu"] = m["cpu"][-CPU_HISTORIA:]
+    # Puede no haberse cargado (atributos sin objetos que describir): entonces no hay qué medir.
+    if nueva and _cargada(t):
+        v1 = _vram_usada_mb()
+        if v0 is not None and v1 is not None:
+            m["vram_mb"] = max(0, v1 - v0)
+        m["ram_mb"] = round(max(0.0, _rss_mb() - r0), 1)
+        m["medido"] = int(time.time())
+    return out
+
+
+def _medidas_salud() -> dict:
+    out = {}
+    for t, m in medidas.items():
+        cpu = sorted(m["cpu"])
+        out[t] = {"vram_mb": m.get("vram_mb"), "ram_mb": m.get("ram_mb"), "medido": m.get("medido"),
+                  "cpu_ms": round(cpu[len(cpu) // 2], 1) if cpu else None, "n": len(cpu)}
+    return out
+
+
+def _cpu_pct() -> float | None:
+    """CPU del proceso desde la consulta anterior, en % de UN núcleo (100 = un núcleo entero)."""
+    ahora, c = time.time(), time.process_time()
+    dt = ahora - _cpu_salud["t"]
+    if dt >= 1:
+        _cpu_salud["pct"] = round((c - _cpu_salud["c"]) / dt * 100, 1)
+        _cpu_salud.update(t=ahora, c=c)
+    return _cpu_salud["pct"]
+
+
+def _precalentar() -> None:
+    """Se abre la detección al arrancar —es la que se usa siempre— y se la mide de paso.
+
+    Incluye el contexto de CUDA, que paga la primera tarea que se carga y comparten todas."""
+    from PIL import Image
+    m = modelos["detectar"]
+    _paso("detectar", lambda: m.correr(D.preparar(Image.new("RGB", (640, 480)), m.resolucion)))
+
+
+_precalentar()
 
 
 def _vram() -> dict | None:
@@ -145,6 +243,9 @@ def salud():
         },
         "seguimiento": {"sesiones": sesiones.cuantas(), "licencia": "Apache-2.0 (trackers · ByteTrack)", "activa": "seguimiento" not in apagadas},
         "apagadas": sorted(apagadas),
+        # Lo medido por tarea (ver _paso) y lo que ocupa el proceso entero ahora.
+        "medidas": _medidas_salud(),
+        "proceso": {"ram_mb": round(_rss_mb()), "tope_ram_mb": _tope_ram_mb(), "cpu_pct": _cpu_pct(), "nucleos": os.cpu_count()},
         "tope_vram_mb": int(os.environ.get("VISION_TOPE_VRAM_MB", "1536")),
         "vram": _vram(),
         "modelos_disponibles": [k for k, v in catalogo.items() if v.get("tarea") == "detectar"],
@@ -157,24 +258,26 @@ def _procesar(datos: bytes, tarea: str, umbral: float, atributos: bool, sesion: 
     img = D.abrir_imagen(datos)
     ancho, alto = img.size
     m = modelos[tarea]
-    if tarea == "segmentar":
-        objetos = D.segmentar(m, img, umbral)
-    elif tarea == "pose":
-        objetos = D.pose(m, img, umbral)
-    else:
+
+    def principal():
+        if tarea == "segmentar":
+            return D.segmentar(m, img, umbral)
+        if tarea == "pose":
+            return D.pose(m, img, umbral)
         s = m.correr(D.preparar(img, m.resolucion))
-        objetos = D.decodificar(s["dets"], s["labels"], ancho, alto, umbral)
+        return D.decodificar(s["dets"], s["labels"], ancho, alto, umbral)
+    objetos = _paso(tarea, principal)
     pasos[tarea] = round(float(m.ultimo_ms), 1)
     if atributos and objetos:
-        n = describidor.describir(img, objetos)
+        n = _paso("atributos", lambda: describidor.describir(img, objetos))
         if n:
             pasos["atributos"] = round(float(describidor.modelo.ultimo_ms), 1)
     seg = None
     if sesion:
-        seg = sesiones.actualizar(sesion[:64], objetos, fps)
+        seg = _paso("seguimiento", lambda: sesiones.actualizar(sesion[:64], objetos, fps))
     textos = None
     if texto:
-        textos = lector.leer(img, objetos)
+        textos = _paso("texto", lambda: lector.leer(img, objetos))
         pasos["texto"] = round(float(lector.ultimo_ms), 1)
     return {"ancho": ancho, "alto": alto, "pasos": pasos, "seguimiento": seg, "objetos": objetos,
             **({"textos": textos} if textos is not None else {})}

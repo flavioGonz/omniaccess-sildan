@@ -29,6 +29,9 @@ export type SaludVision = {
     tareas?: Record<string, EstadoTarea>; seguimiento?: { sesiones: number; licencia: string; activa?: boolean };
     /** Lo que omni-vision tiene apagado ahora (puede atrasarse unos segundos respecto del ajuste). */
     apagadas?: string[];
+    /** Lo medido por tarea desde que arrancó el contenedor (ver lib/vision-peso). */
+    medidas?: Record<string, import("@/lib/vision-peso").Medida>;
+    proceso?: { ram_mb: number; tope_ram_mb: number | null; cpu_pct: number | null; nucleos: number };
 };
 
 export type Atributo = {
