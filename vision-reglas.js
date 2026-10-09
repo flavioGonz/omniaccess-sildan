@@ -84,6 +84,8 @@ function iniciar({ prisma, subir, log }) {
     }
     /** Cámaras que hay que mirar por las reglas, aunque el registro esté apagado o no las incluya. */
     function camaras() { return new Set(reglas.filter(prendida).map((r) => r.deviceId)); }
+    /** Cámaras con reglas de LÍNEA prendidas: necesitan el carril rápido (ver RAPIDO_FPS en vision-worker). */
+    function camarasRapidas() { return new Set(reglas.filter((r) => prendida(r) && (r.tipo === "conteo" || r.tipo === "sentido")).map((r) => r.deviceId)); }
     /** Si hay algo en curso en esa cámara (alguien adentro de una zona): se mira aunque la imagen no cambie. */
     function enCurso(deviceId) {
         if (!reglas.some((r) => r.deviceId === deviceId && prendida(r))) return false;
@@ -214,7 +216,7 @@ function iniciar({ prisma, subir, log }) {
         await avisar(r, "AGLOMERACION", `${dentro.length} personas juntas en ${r.nombre}`, ev.id, f, cam);
     }
 
-    return { cargar, camaras, enCurso, procesar, contadores, cerrarTodo: () => cerrarEstadias(null, Date.now(), true) };
+    return { cargar, camaras, camarasRapidas, enCurso, procesar, contadores, cerrarTodo: () => cerrarEstadias(null, Date.now(), true) };
 }
 
 module.exports = { iniciar };

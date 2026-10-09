@@ -63,6 +63,14 @@
 
 - [ ] 7.1 En la regla de notificación de intrusión: "avisar igual" (defecto), "no avisar afuera si no confirma" y "esperar veredicto hasta N s"; el despacho registra el motivo cuando no sale; verificar los tres casos con detecciones sintéticas.
 
+## 7b. Analíticas de reglas y rotulado (9/10, pedido de Nico)
+
+- [x] 7b.1 Reglas por cámara (Setting `VISION_REGLAS`, `src/lib/vision-reglas.ts`): conteo por línea, sentido contrario, permanencia y aglomeración, aplicadas en vision-worker (`vision-reglas.js`) sobre el pie de cada pista; tabla `EventoVision` (migración `20261010000000_vision_reglas`). Probado el motor con recorridos simulados.
+- [x] 7b.2 Avisos a la guardia (`AvisoGuardia` VISION_SENTIDO / VISION_PERMANENCIA / VISION_AGLOMERACION) por `/internal/emit`, sin tocar server.js.
+- [x] 7b.3 Pantalla `/admin/vision/reglas`: dibujar sobre el cuadro del mismo stream (`/api/vision/cuadro`), números de hoy y eventos con foto.
+- [x] 7b.4 Empresa por rotulado: cuadro del stream principal por vehículo, OCR al cerrar la pista, `ObjetoVisto.textos`, empresa cruzada con el catálogo al mostrar (Detecciones).
+- [ ] 7b.5 Medir con reglas reales una semana: cruces perdidos por pista cortada a ~2 s (contar a mano 15 min de video contra el conteo) y falsos de aglomeración.
+
 ## 8. Ajustes y verificación final
 
 - [ ] 8.1 Ajustes → Módulos → Visión: activar por modo, modelo y licencia, umbral, presupuesto, cámaras del índice, retención, estado del contenedor y GPU; verificar que apagar un modo oculta sus resultados en todas las pantallas.

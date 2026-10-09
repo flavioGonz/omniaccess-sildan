@@ -27,6 +27,7 @@
 require("dotenv").config();
 const crypto = require("crypto");
 const sharp = require("sharp");
+const { spawn } = require("child_process");
 const { PrismaClient } = require("@prisma/client");
 const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 
@@ -82,6 +83,25 @@ const HD_CADA_MS = 4000;
 const MARGEN_ROTULO = 0.15;
 const ANCHO_MIN_ROTULO = 80;
 const CONF_TEXTO = 0.7;
+/**
+ * Carril rápido para las cámaras con reglas de LÍNEA (conteo, sentido contrario). Medido el
+ * primer día (9/10): con la ronda de ~2-4 s por cámara, un auto en la calle de la LPR Interior
+ * aparecía en UN solo cuadro (pistas de 1 cuadro): nunca se lo veía de los dos lados de la
+ * línea, y el conteo daba cero. Para esas cámaras un ffmpeg lee el substream del restream de
+ * go2rtc a RAPIDO_FPS y el worker analiza el último cuadro apenas termina el anterior; la
+ * compuerta de cambio de escena compara contra el último cuadro ANALIZADO (a 4 c/s dos cuadros
+ * seguidos casi no cambian, y una persona caminando lejos nunca pasaría el umbral).
+ */
+const RAPIDO_FPS = Number(process.env.VISION_REGLAS_FPS || 4);
+const RTSP_GO2RTC = (process.env.GO2RTC_RTSP || "rtsp://127.0.0.1:8554").replace(/\/$/, "");
+/** Atributos (SigLIP) sólo cada tantos cuadros en el carril rápido: son para la foto del registro, no para las reglas. */
+const RAPIDO_ATRIBUTOS_CADA = 4;
+/**
+ * Lo que sobreimprime la cámara (fecha, hora, día) también aparece en el recorte de un vehículo
+ * que pasa debajo, y cortado no lo reconoce el filtro de omni-vision: «26 Fri15:02.04» es la
+ * punta de «10-09-2026 Fri 15:02:04» (primer día, 9/10). No es rotulado.
+ */
+const PARECE_SOBREIMPRESO = /(\d{1,2}[:.]\d{2}[:.]\d{2})|\b(mon|tue|wed|thu|fri|sat|sun)(?![a-z])|(\d{2}[-/.]\d{2}[-/.]\d{2,4})|camera|zona \d|puesto \d/i;
 
 const log = (...a) => console.log(new Date().toISOString(), "[vision]", ...a);
 
@@ -188,8 +208,8 @@ async function recortar(jpeg, cajaNorm, ancho, alto) {
         .resize(LADO_RECORTE, LADO_RECORTE, { fit: "inside", withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer();
 }
 
-async function detectar(jpeg, deviceId) {
-    const q = new URLSearchParams({ umbral: String(UMBRAL), atributos: "1", sesion: `registro-${deviceId}`, fps: String(1000 / INTERVALO_MS) });
+async function detectar(jpeg, deviceId, op = {}) {
+    const q = new URLSearchParams({ umbral: String(UMBRAL), atributos: op.atributos === false ? "0" : "1", sesion: `registro-${deviceId}`, fps: String(op.fps || 1000 / INTERVALO_MS) });
     const r = await fetch(`${VISION}/detectar?${q}`, {
         method: "POST", body: jpeg, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(20000),
     });
@@ -268,7 +288,7 @@ async function leerRotulo(p) {
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || `omni-vision respondió ${r.status}`);
     const textos = (j.textos || [])
-        .filter((t) => !t.sobreimpreso && t.confianza >= CONF_TEXTO && String(t.texto).replace(/[^A-Za-z0-9]/g, "").length >= 3)
+        .filter((t) => !t.sobreimpreso && !PARECE_SOBREIMPRESO.test(String(t.texto)) && t.confianza >= CONF_TEXTO && String(t.texto).replace(/[^A-Za-z0-9]/g, "").length >= 3)
         .map((t) => ({ texto: t.texto, confianza: t.confianza, tipo: t.tipo }));
     return textos.length ? textos.slice(0, 12) : [];
 }
@@ -308,9 +328,21 @@ async function mirar(cam, registra = true) {
     est.nombre = cam.name;
     const jpeg = await cuadro(cam.id);
     if (!jpeg) { est.errores++; est.error = "go2rtc no entregó cuadro"; return; }
+    await analizarCuadro(cam, jpeg, registra);
+}
+
+/**
+ * Un cuadro de una cámara: compuerta de cambio, detección, reglas y registro. `rapido` = viene
+ * del carril rápido (ver RAPIDO_FPS).
+ */
+async function analizarCuadro(cam, jpeg, registra, rapido = null) {
+    const est = (porCamara[cam.id] ||= { nombre: cam.name, analizados: 0, saltados: 0, errores: 0, objetos: 0, ultimo: null, ms: null, error: null });
+    est.nombre = cam.name;
+    est.rapido = !!rapido;
     const h = await huella(jpeg);
     const dif = diferencia(h, huellas[cam.id]);
-    huellas[cam.id] = h;
+    // En la ronda, contra el cuadro anterior; en el carril rápido, contra el último analizado.
+    if (!rapido) huellas[cam.id] = h;
     if (Number.isFinite(dif)) {
         (est.difs ||= []).push(Math.round(dif * 10) / 10);
         if (est.difs.length > 60) est.difs.shift();
@@ -321,8 +353,9 @@ async function mirar(cam, registra = true) {
         est.saltados++; contadores.saltados++;
         return;
     }
+    if (rapido) huellas[cam.id] = h;
     const t0 = Date.now();
-    const r = await detectar(jpeg, cam.id);
+    const r = await detectar(jpeg, cam.id, rapido ? { fps: RAPIDO_FPS, atributos: rapido.n % RAPIDO_ATRIBUTOS_CADA === 0 } : {});
     ultimoAnalisis[cam.id] = Date.now();
     est.analizados++; contadores.analizados++;
     est.ms = Date.now() - t0; est.ultimo = ahora.toISOString(); est.error = null;
@@ -405,6 +438,78 @@ let corriendo = true;
 let relector = null;
 let reglero = null;
 
+// ─────────────────────────── carril rápido ───────────────────────────
+
+/** deviceId → { cam, ffmpeg, ultimo, n, retirada } */
+const rapidas = new Map();
+
+function engancharRapida(st) {
+    if (st.ffmpeg || st.retirada) return;
+    const args = ["-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp", "-i", `${RTSP_GO2RTC}/lpr_${st.cam.id}`,
+        "-vf", `fps=${RAPIDO_FPS},scale=w='min(960\\,iw)':h=-2`, "-q:v", "4", "-f", "image2pipe", "-vcodec", "mjpeg", "-"];
+    const ch = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+    st.ffmpeg = ch;
+    log(`carril rápido: ${st.cam.name} a ${RAPIDO_FPS} c/s`);
+    let buf = Buffer.alloc(0);
+    const SOI = Buffer.from([0xff, 0xd8]), EOI = Buffer.from([0xff, 0xd9]);
+    ch.stdout.on("data", (d) => {
+        buf = Buffer.concat([buf, d]);
+        let i = buf.indexOf(SOI), f = buf.indexOf(EOI, i + 2);
+        while (i >= 0 && f > i) {
+            st.ultimo = Buffer.from(buf.subarray(i, f + 2)); // sólo el último: si el análisis va atrás, se saltean cuadros
+            buf = buf.subarray(f + 2);
+            i = buf.indexOf(SOI); f = buf.indexOf(EOI, i + 2);
+        }
+        if (buf.length > 8 * 1024 * 1024) buf = Buffer.alloc(0);
+    });
+    ch.stderr.on("data", (d) => { const t = String(d).trim(); if (t) log(`ffmpeg ${st.cam.name}: ${t.slice(0, 160)}`); });
+    const caida = () => {
+        if (st.ffmpeg !== ch) return;
+        st.ffmpeg = null;
+        if (!st.retirada) { log(`carril rápido: ${st.cam.name} se cortó, reintento en 15 s`); setTimeout(() => engancharRapida(st), 15_000); }
+    };
+    ch.on("exit", caida); ch.on("error", caida);
+}
+
+async function bucleRapido(st) {
+    const paso = 1000 / RAPIDO_FPS;
+    while (corriendo && !st.retirada) {
+        const t0 = Date.now();
+        const jpeg = st.ultimo;
+        st.ultimo = null;
+        if (jpeg) {
+            st.n++;
+            try { await analizarCuadro(st.cam, jpeg, st.registra, st); }
+            catch (e) {
+                contadores.errores++;
+                (porCamara[st.cam.id] ||= {}).error = e.message;
+                if (Date.now() - ultimoErrorLog > 60_000) { log(`error en ${st.cam.name} (rápido): ${e.message}`); ultimoErrorLog = Date.now(); }
+            }
+        }
+        await dormir(Math.max(jpeg ? 0 : 50, paso - (Date.now() - t0)));
+    }
+}
+
+/** Prende el carril rápido de las cámaras con reglas de línea y lo apaga en las que ya no tienen. */
+function sincronizarRapidas(registro) {
+    const quiero = reglero.camarasRapidas();
+    for (const [id, st] of rapidas) {
+        if (quiero.has(id)) { st.registra = registro.has(id); continue; }
+        st.retirada = true; try { st.ffmpeg?.kill("SIGKILL"); } catch { }
+        rapidas.delete(id);
+        log(`carril rápido: ${st.cam.name} vuelve a la ronda`);
+    }
+    for (const id of quiero) {
+        if (rapidas.has(id)) continue;
+        const cam = ajustes.dispositivos.find((d) => d.id === id);
+        if (!cam) continue;
+        const st = { cam, ffmpeg: null, ultimo: null, n: 0, retirada: false, registra: registro.has(id) };
+        rapidas.set(id, st);
+        engancharRapida(st);
+        bucleRapido(st);
+    }
+}
+
 async function principal() {
     log(`arranca · ${VISION} · cada ${INTERVALO_MS} ms · umbral ${UMBRAL} · cambio ${CAMBIO_MIN}`);
     reglero = reglasVision.iniciar({ prisma, subir, log });
@@ -418,8 +523,10 @@ async function principal() {
             // Las cámaras del registro (si está prendido) más las que tienen una regla prendida.
             const porReglas = reglero.camaras();
             const registro = new Set(ajustes.activo ? ajustes.camaras.map((c) => c.id) : []);
-            const lista = ajustes.dispositivos.filter((d) => registro.has(d.id) || porReglas.has(d.id));
-            hayTrabajo = lista.length > 0;
+            sincronizarRapidas(registro);
+            // Las del carril rápido no van en la ronda: las analiza su propio bucle.
+            const lista = ajustes.dispositivos.filter((d) => (registro.has(d.id) || porReglas.has(d.id)) && !rapidas.has(d.id));
+            hayTrabajo = lista.length > 0 || rapidas.size > 0;
             if (hayTrabajo) {
                 for (const cam of lista) {
                     if (!corriendo) break;
@@ -431,6 +538,7 @@ async function principal() {
                     }
                 }
             }
+            // Con el registro apagado, las pistas abiertas por el carril rápido también se cierran.
             await cerrarVencidas(!ajustes.activo);
             contadores.ciclos++;
             if (Date.now() - ultEstado > ESTADO_MS) { await escribirEstado(); ultEstado = Date.now(); }
@@ -446,6 +554,7 @@ async function principal() {
 async function salir() {
     corriendo = false;
     relector?.parar();
+    for (const st of rapidas.values()) { st.retirada = true; try { st.ffmpeg?.kill("SIGKILL"); } catch { } }
     await reglero?.cerrarTodo().catch(() => null);
     log("cerrando pistas abiertas…");
     await cerrarVencidas(true).catch(() => null);
