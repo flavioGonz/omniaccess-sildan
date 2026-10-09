@@ -10,6 +10,8 @@ import {
     type VisitaFila, type AvisoFila,
 } from "@/app/actions/visitas";
 import { ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
+import { getEmpresas } from "@/app/actions/empresas";
+import { normalizarNombre, type Empresa } from "@/lib/empresas";
 
 /**
  * La pestaña "Visitas" de la consola del guardia: registrar a quien para en la garita, ver
@@ -180,6 +182,8 @@ function AltaVisita({ abierta, alCerrar, guardName, alRegistrar }: { abierta: bo
         setTipo(""); setLote(null); setBusca(""); setPlate(""); setNombre(""); setEmpresa("");
         datosParaRegistrar().then((d) => { setDatos(d); setTipo(d.tipos[0]?.clave || ""); }).catch((e) => toast.error("No se pudo abrir", { description: e?.message }));
     }, [abierta]);
+    const [empresas, setEmpresas] = useState<Empresa[]>([]);
+    useEffect(() => { if (abierta) getEmpresas().then((l) => setEmpresas(l.filter((e) => e.activa))).catch(() => setEmpresas([])); }, [abierta]);
     const lotes = useMemo(() => { const q = busca.trim().toLowerCase(); return (datos?.lotes || []).filter((l) => !q || l.nombre.toLowerCase().includes(q) || (l.numero || "").toLowerCase().includes(q)).slice(0, 60); }, [datos, busca]);
 
     async function guardar() {
@@ -236,6 +240,26 @@ function AltaVisita({ abierta, alCerrar, guardName, alRegistrar }: { abierta: bo
                                     </div>
                                     <p className="text-xs text-black/40 mt-2">Con matrícula, la visita se cierra sola cuando la cámara de Salida la lee. Sin matrícula, la cerrás vos con «Salió».</p>
                                 </div>
+                                {/* Las empresas del catálogo, para tocar en vez de tipear: así la visita queda
+                                    con el nombre del catálogo y su logo sale sobre la captura. */}
+                                {empresas.length > 0 && (
+                                    <div>
+                                        <div className="text-xs font-bold uppercase tracking-widest text-black/40 mb-2">4 · De qué empresa (opcional)</div>
+                                        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 max-h-[24vh] overflow-y-auto">
+                                            {empresas.map((e) => {
+                                                const si = normalizarNombre(empresa) === normalizarNombre(e.nombre);
+                                                return (
+                                                    <button key={e.clave} onClick={() => setEmpresa(si ? "" : e.nombre)} aria-pressed={si}
+                                                        className={cn("h-16 rounded-xl border-2 flex flex-col items-center justify-center gap-0.5 px-1.5", tocable, si ? "border-[#B20D30] bg-[#B20D30]/5" : "border-black/10")}>
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                        {e.logo ? <img src={e.logo} alt="" className="max-h-7 max-w-full object-contain" /> : null}
+                                                        <span className={cn("text-[11px] font-bold truncate max-w-full", si ? "text-[#B20D30]" : "text-black/70")}>{e.nombre}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
                                 <button onClick={guardar} disabled={!tipo || guardando} className={cn("w-full h-16 rounded-2xl bg-[#B20D30] text-white text-lg font-bold inline-flex items-center justify-center gap-2 disabled:opacity-40", tocable)}>
                                     {guardando ? <Loader2 className="animate-spin" /> : <Check size={22} />} Registrar
                                 </button>

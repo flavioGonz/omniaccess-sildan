@@ -44,7 +44,8 @@ import {
     Server,
     SlidersHorizontal,
     ChevronDown,
-    Video
+    Video,
+    Building2,
 } from "lucide-react";
 import nextDynamic from "next/dynamic";
 const _SLoad = () => <div className="p-8 text-sm text-muted-foreground animate-pulse">Cargando…</div>;
@@ -74,6 +75,7 @@ import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import ModosSection from "./ModosSection";
 import VisitasSection from "./VisitasSection";
+import EmpresasSection from "./EmpresasSection";
 import ProcesosSection from "./procesos/ProcesosSection";
 import CentroNotificaciones, { TABS_NOTIFICACIONES } from "../notificaciones/CentroNotificaciones";
 import AlmacenamientoSection from "./AlmacenamientoSection";
@@ -203,6 +205,7 @@ const NAV_GROUPS = [
     { id: "modos", label: "Modos", icon: Layers, items: [
         { sec: "modo", btab: "", label: "Modos (LPR / Face / Cola)", icon: Layers },
         { sec: "visitas", btab: "", label: "Visitas y patrones", icon: Clock },
+        { sec: "empresas", btab: "", label: "Empresas (delivery, taxis)", icon: Building2 },
     ]},
     { id: "avanzado", label: "Avanzado", icon: SlidersHorizontal, items: [
         { sec: "drivers", btab: "", label: "Drivers & Protocolos", icon: Camera },
@@ -596,6 +599,7 @@ export default function SettingsPage() {
                     {activeSection === "playback" && <PlaybackSection />}
                     {activeSection === "notificaciones" && <CentroNotificaciones tab={notifTab} />}
                     {activeSection === "visitas" && <VisitasSection />}
+                    {activeSection === "empresas" && <EmpresasSection />}
                     {activeSection === "procesos" && <ProcesosSection />}
                 </div>
             </div>

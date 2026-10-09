@@ -8,6 +8,7 @@ import { getDevices, getAvailableStreams } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { IntrusionPanel } from "@/components/IntrusionPanel";
+import { logosPorMatricula } from "@/app/actions/empresas";
 import { CajonPlaza } from "@/components/parking/CajonPlaza";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
@@ -67,6 +68,9 @@ import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
+
+/** Matrícula → logo de su empresa (ver logosPorMatricula). */
+type LogosMatricula = Awaited<ReturnType<typeof logosPorMatricula>>;
 
 interface FullAccessEvent extends AccessEvent {
     user: {
@@ -282,7 +286,7 @@ function PlateCommandBar() {
  * CUALQUIER sentido; ahora cada columna (Entradas, Salidas) tiene la suya arriba, así que
  * recibe el sentido (para el cartel cuando todavía no hay ninguna) y el alto de afuera.
  */
-function CenterShot({ ev, onRegister, dir, className, watchMap }: { ev: any; onRegister?: (plate?: string) => void; dir?: "ENTRY" | "EXIT"; className?: string; watchMap?: Record<string, any> }) {
+function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: any; onRegister?: (plate?: string) => void; dir?: "ENTRY" | "EXIT"; className?: string; watchMap?: Record<string, any>; logos?: LogosMatricula }) {
     const router = useRouter();
     const [flash, setFlash] = useState(false);
     const last = useRef<string | undefined>(undefined);
@@ -309,6 +313,7 @@ function CenterShot({ ev, onRegister, dir, className, watchMap }: { ev: any; onR
     const sentido = ev.direction;
     const watch = (ev as any).watch || (watchMap && ev.plateDetected ? watchMap[String(ev.plateDetected).toUpperCase()] : null);
     const tipo = tipoDeteccion(ev, watch);
+    const empresa = plate && logos ? logos[String(plate).toUpperCase()] : null;
     const ring = sentido === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
     return (
         <div>
@@ -330,6 +335,16 @@ function CenterShot({ ev, onRegister, dir, className, watchMap }: { ev: any; onR
                     <div className="absolute top-12 right-3 z-20 w-[26%] max-w-40 rounded-lg overflow-hidden border-2 border-white/70 shadow-lg bg-black/50">
                         <div className="px-1.5 py-0.5 bg-black/70 text-[8px] font-bold text-white/90 uppercase tracking-wide">Patente</div>
                         <ThumbImg src={crop} className="w-full h-auto object-contain bg-black" />
+                    </div>
+                )}
+                {/* El logo de la empresa (delivery, taxi) incrustado en la foto: abajo a la izquierda,
+                    donde no tapa ni la patente ni la matrícula leída. Con fondo transparente va
+                    suelto con una sombra para que se lea sobre cualquier foto; si el PNG tiene
+                    fondo, va en una placa para que no parezca un pedazo de la captura. */}
+                {empresa && (
+                    <div className={cn("absolute left-3 bottom-3 z-20", !empresa.transparente && "rounded-md bg-white/90 px-1.5 py-1")} title={empresa.nombre}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={empresa.logo} alt={empresa.nombre} className="h-[clamp(20px,2.6vw,40px)] w-auto max-w-[9vw] object-contain [filter:drop-shadow(0_1px_3px_rgba(0,0,0,0.85))]" />
                     </div>
                 )}
                 <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-3 pt-14 flex flex-col items-center">
@@ -405,7 +420,7 @@ function VehicleCardSkeleton() {
     );
 }
 
-const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking, watchMap, onPlaza }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string>; watchMap?: Record<string, any>; onPlaza?: (plate: string) => void }) {
+const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking, watchMap, onPlaza, logos }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string>; watchMap?: Record<string, any>; onPlaza?: (plate: string) => void; logos?: LogosMatricula }) {
     const router = useRouter();
     const meta = parseMeta(event.details);
     const logoUrl = getCarLogo(meta.Marca);
@@ -414,6 +429,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const hasPlaza = !!(event.plateDetected && platesWithParking && platesWithParking.has(String(event.plateDetected).toUpperCase()));
     const _wp = event.plateDetected ? String(event.plateDetected).toUpperCase() : "";
     const watch = (event as any).watch || (watchMap && _wp ? watchMap[_wp] : null);
+    const empresa = _wp && logos ? logos[_wp] : null;
     const watchMeta = watch ? watchCatMeta(watch.category) : null;
     const watchStyle = watchMeta ? { ring: watchMeta.ring, badge: watchMeta.badge, label: watchMeta.label.toUpperCase() } : null;
     const tipo = tipoDeteccion(event, watch);
@@ -446,6 +462,8 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
                             {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
                             {!watchStyle && tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && event.user?.unit?.name ? ` · ${event.user.unit.name}` : ""}</span>}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {empresa && <img src={empresa.logo} alt={empresa.nombre} title={empresa.nombre} className="h-4 w-auto max-w-16 object-contain" />}
                         </div>
                         {watch?.motivo && <p className={cn("text-[11px] font-semibold mt-1 truncate", watchMeta?.text)} title={watch.motivo}>{watch.motivo}</p>}
                         <div className="flex items-center gap-2 mt-1">
@@ -670,7 +688,7 @@ function ResumenSentido({ eventos }: { eventos: any[] }) {
     );
 }
 
-function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRegister, platesPark, watchMap, onPlaza }: {
+function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRegister, platesPark, watchMap, onPlaza, logos }: {
     dir: "ENTRY" | "EXIT";
     camaras: any[];
     eventos: any[];
@@ -679,6 +697,7 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
     onRegister: (p?: string) => void;
     platesPark: Set<string>;
     watchMap: Record<string, any>;
+    logos: LogosMatricula;
     onPlaza: (plate: string) => void;
 }) {
     const entrada = dir === "ENTRY";
@@ -703,7 +722,7 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
                 cámaras son 16:9; si el recuadro no lo es, se mira un pedazo. */}
             <div className="shrink-0 p-4 border-b border-border">
                 <div className="grid gap-3 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 31%)" }}>
-                    <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="aspect-video" watchMap={watchMap} />
+                    <CenterShot ev={eventos[0]} onRegister={onRegister} dir={dir} className="aspect-video" watchMap={watchMap} logos={logos} />
                     <div className={cn("grid gap-2", camaras.length > 2 ? "grid-cols-2" : "grid-cols-1")}>
                         {camaras.map((d: any) => <CamTile key={d.id} dev={d} accent={entrada ? "emerald" : "orange"} ev={ultimaPorCamara(d.id)} onRegister={onRegister} className="aspect-video" />)}
                         {/* Con una sola cámara sobra la mitad del costado: ahí va el resumen del sentido. */}
@@ -727,7 +746,7 @@ function ColumnaSentido({ dir, camaras, eventos, ultimaPorCamara, cargando, onRe
                     </div>
                 ) : (
                     // La primera ya está en grande arriba: la lista arranca en la segunda.
-                    eventos.slice(1).map((e) => <VehicleCard key={e.id} event={e} onRegister={onRegister} platesWithParking={platesPark} watchMap={watchMap} onPlaza={onPlaza} />)
+                    eventos.slice(1).map((e) => <VehicleCard key={e.id} event={e} onRegister={onRegister} platesWithParking={platesPark} watchMap={watchMap} onPlaza={onPlaza} logos={logos} />)
                 )}
             </div>
         </section>
@@ -823,6 +842,11 @@ export default function MonitorLPR() {
     const audioCtxRef = useRef<any>(null);
     const lastAlertRef = useRef<Record<string, number>>({});
     const refreshWatch = useCallback(() => { getWatchMap().then((m) => setWatchMap(m || {})).catch(() => { }); }, []);
+    // Qué matrícula es de qué empresa (con logo): proveedores registrados y visitas abiertas.
+    // Al ritmo de la lista de vigilancia: una visita nueva tarda a lo sumo un minuto en mostrar el logo.
+    const [logos, setLogos] = useState<LogosMatricula>({});
+    const refrescarLogos = useCallback(() => { logosPorMatricula().then(setLogos).catch(() => { }); }, []);
+    useEffect(() => { refrescarLogos(); const iv = setInterval(refrescarLogos, 60000); return () => clearInterval(iv); }, [refrescarLogos]);
     useEffect(() => { refreshWatch(); const iv = setInterval(refreshWatch, 60000); return () => clearInterval(iv); }, [refreshWatch]);
     // El navegador bloquea el audio hasta que el usuario interactúa: desbloqueamos el
     // AudioContext en el primer gesto (click/tecla) para que las alertas suenen.
@@ -1166,9 +1190,9 @@ export default function MonitorLPR() {
                 {/* Dos columnas, un sentido cada una. */}
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden">
                     <ColumnaSentido dir="ENTRY" camaras={entryCams} eventos={entryEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
-                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} />
+                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} logos={logos} />
                     <ColumnaSentido dir="EXIT" camaras={exitCams} eventos={exitEvents} ultimaPorCamara={(id) => lastByCam[id] || lastCapByDev[id]}
-                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} />
+                        cargando={eventsLoading} onRegister={openRegister} platesPark={platesPark} watchMap={watchMap} onPlaza={setPlazaDe} logos={logos} />
                 </div>
             </div>
                 {fichaDet && <FichaDeteccion det={fichaDet} geom={geomDet} onClose={() => { setFichaDet(null); setVerDetecciones(true); }} />}

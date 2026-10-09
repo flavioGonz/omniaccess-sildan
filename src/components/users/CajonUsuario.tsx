@@ -10,6 +10,7 @@ import {
     Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info,
 } from "lucide-react";
 import { getAjustesVisitas } from "@/app/actions/visitas";
+import { ElegirEmpresa } from "@/components/empresas/ElegirEmpresa";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -457,8 +458,8 @@ export function CajonUsuario({
                             ayuda="Lo que el sistema necesita para tratarlo como proveedor y no como un auto desconocido.">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <CajonCampo etiqueta="Empresa o servicio"
-                                    pista={<>Es lo que ve la guardia en la visita y en el monitor junto a su nombre. <b>Ej.:</b> «PedidosYa», «UTE», «Jardinería Pérez», «Barraca del Este».</>}>
-                                    <Input name="empresa" defaultValue={(user as any)?.empresa || ""} placeholder="Ej. PedidosYa" />
+                                    pista={<>Es lo que ve la guardia en la visita y en el monitor junto a su nombre. Si es del catálogo (Ajustes → Empresas), su logo aparece sobre la captura. <b>Ej.:</b> «PedidosYa», «Radio Taxi 141»; o escribí una que no esté, como «Jardinería Pérez».</>}>
+                                    <ElegirEmpresa name="empresa" defaultValue={(user as any)?.empresa || ""} placeholder="Ej. PedidosYa, o escribila" />
                                 </CajonCampo>
                                 <CajonCampo etiqueta="Qué visita se le abre al entrar"
                                     pista={<>Cuando la cámara de Entrada lee su matrícula se le abre sola una visita de este tipo, con su tiempo. <b>Ej.:</b> Delivery → 15 min de cuenta atrás; si en 15 min la Salida no lo lee, avisa a la guardia. «Ninguna» lo deja registrado sin cuenta atrás (ej. el camión de la basura).</>}>
