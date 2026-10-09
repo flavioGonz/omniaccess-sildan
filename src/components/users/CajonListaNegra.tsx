@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Ban, History, Images, Loader2, Plus, RotateCcw, Save, Search, ShieldAlert, User as UserIco, X, ExternalLink } from "lucide-react";
+import { Ban, Car, History, Images, Loader2, Plus, RotateCcw, Save, Search, ShieldAlert, User as UserIco, X, ExternalLink } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
@@ -225,7 +225,7 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, alCerrar, alCamb
                 </CajonSeccion>
 
                 {/* ── Matrículas ── */}
-                <CajonSeccion titulo="Matrículas" icono={ShieldAlert}
+                <CajonSeccion titulo="Matrículas" icono={Car}
                     ayuda={editable ? "Todas las que se le conozcan. Cada una se aplica en la barrera y en las lectoras." : undefined}>
                     <div className="flex flex-wrap items-center gap-2">
                         {chapas.length === 0 && !editable && <span className="text-[12px] text-muted-foreground">Sin matrículas cargadas: la barrera no tiene qué leer.</span>}

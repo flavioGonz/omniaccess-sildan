@@ -93,10 +93,18 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
                 <Separador />
                 <span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
                     <MessageSquare size={13} />
-                    {avisos == null ? "Avisos…" : avisos.activas
-                        ? <>WhatsApp / Telegram: <b className="text-foreground tabular-nums">{avisos.activas}</b> regla{avisos.activas === 1 ? "" : "s"}{avisos.canales.length ? ` (${avisos.canales.join(", ")})` : ""}</>
-                        : <span className="tono-aviso">Ninguna regla avisa por WhatsApp o Telegram</span>}
-                    <Pista titulo="Avisos fuera de la pantalla" texto="A quién se le avisa, por qué canal y en qué horario lo deciden las reglas de Notificaciones que escuchan «lista negra» (WATCHLIST). Se cambian allá: un interruptor acá que no tocara esas reglas mentiría.">
+                    {/* Dos caminos distintos, y se dicen los dos: el servidor manda SIEMPRE un
+                        Telegram al grupo de la guardia con cada lectura de la lista (server.js →
+                        notifyWatchTelegram), y además están las reglas de Notificaciones que
+                        escuchan WATCHLIST (WhatsApp, correo…). Decir «ninguna regla avisa» a secas
+                        hacía creer que nadie se enteraba. */}
+                    <Fijo icono={BellRing} rotulo="Telegram a la guardia: siempre"
+                        texto="Cada vez que una cámara lee una matrícula de esta lista, el servidor manda un Telegram al grupo de la guardia con la matrícula, quién es, el motivo y la cámara." />
+                    <span className="mx-1 text-border">·</span>
+                    {avisos == null ? "Reglas…" : avisos.activas
+                        ? <>Reglas de aviso: <b className="text-foreground tabular-nums">{avisos.activas}</b>{avisos.canales.length ? ` (${avisos.canales.join(", ")})` : ""}</>
+                        : <span className="tono-aviso">Ninguna regla de WhatsApp la escucha</span>}
+                    <Pista titulo="Reglas de aviso" texto="A quién más se le avisa (WhatsApp, correo), por qué canal y en qué horario lo deciden las reglas de Notificaciones que escuchan «lista negra» (WATCHLIST). Se cambian allá: un interruptor acá que no tocara esas reglas mentiría.">
                         <Link href="/admin/notificaciones" className="tono-accion font-semibold ml-1">Configurar</Link>
                     </Pista>
                 </span>
