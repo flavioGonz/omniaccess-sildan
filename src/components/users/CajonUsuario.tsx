@@ -588,7 +588,9 @@ export function CajonUsuario({
                                 </CajonCampo>
                                 <CajonCampo etiqueta="Qué visita se le abre al entrar"
                                     pista={<>Cuando la cámara de Entrada lee su matrícula se le abre sola una visita de este tipo, con su tiempo. <b>Ej.:</b> Delivery → 15 min de cuenta atrás; si en 15 min la Salida no lo lee, avisa a la guardia. «Ninguna» lo deja registrado sin abrirle visita (ej. el camión de la basura). <b>Pase libre</b> le abre una visita sin tiempo: figura adentro hasta que la Salida lo lee, y nunca avisa de excedida (ej. la cuadrilla de mantenimiento).</>}>
-                                    <Select name="tipoVisita" value={tipoVisita} onValueChange={setTipoVisita}>
+                                    {/* Con clave por valor: al pasar a un proveedor existente el valor cambia junto con el
+                                        formulario, y el desplegable quedaba en «Elegir…» aunque el valor estuviera. */}
+                                    <Select key={`${user?.id || "alta"}:${tipoVisita}:${tiposVisita?.length ?? -1}`} name="tipoVisita" value={tipoVisita} onValueChange={setTipoVisita}>
                                         <SelectTrigger><SelectValue placeholder={tiposVisita === null ? "Cargando…" : "Elegir…"} /></SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="ninguna">Ninguna: sólo registrado</SelectItem>
