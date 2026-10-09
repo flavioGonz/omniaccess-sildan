@@ -16,6 +16,8 @@ const LISTA_MAX = 200;
  */
 const OTRA_LECTURA_H = 6;
 const NO_LEIDAS = ["NO_LEIDA", "UNKNOWN", "unknown", "S/P"];
+/** La relectura puede ser hasta un día posterior al evento (la puesta al día del worker). */
+const MARGEN_RELECTURA_MS = 24 * 3600_000;
 
 /**
  * GET /api/vision/relecturas?h=24 — cómo le va a la relectura de NO_LEIDA (vision-relectura.js).
@@ -33,7 +35,10 @@ export async function GET(req: NextRequest) {
     const desde = new Date(Date.now() - h * 3600_000);
 
     const [filas, noLeidas, estadoCrudo, analiticasCrudo] = await Promise.all([
-        prisma.relectura.findMany({ where: { createdAt: { gte: desde } }, orderBy: { createdAt: "desc" }, take: 2000 }),
+        // Por la hora del EVENTO, no de la relectura: al arrancar, el worker relee el último día de
+        // una vez, y contar por hora de relectura daba más releídas que NO_LEIDA en el rango.
+        // Se piden las relecturas de un margen más y se filtran abajo por la hora del evento.
+        prisma.relectura.findMany({ where: { createdAt: { gte: new Date(desde.getTime() - MARGEN_RELECTURA_MS) } }, orderBy: { createdAt: "desc" }, take: 3000 }),
         prisma.accessEvent.count({ where: { accessType: "PLATE", timestamp: { gte: desde }, plateDetected: { in: NO_LEIDAS } } }),
         leerAjuste("VISION_REGISTRO_ESTADO"),
         leerAjuste("VISION_ANALITICAS"),
@@ -43,9 +48,10 @@ export async function GET(req: NextRequest) {
         select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, snapshotPath: true, device: { select: { name: true } } },
     }) : [];
     const evento = new Map(eventos.map((e) => [e.id, e]));
+    const enRango = filas.filter((f) => { const e = evento.get(f.accessEventId); return !!e && e.timestamp >= desde; });
 
     // ¿La vio otra cámara? Una consulta para todas las chapas sugeridas.
-    const sugeridas = [...new Set(filas.map((f) => f.plate).filter(Boolean))] as string[];
+    const sugeridas = [...new Set(enRango.map((f) => f.plate).filter(Boolean))] as string[];
     const lecturas = sugeridas.length ? await prisma.accessEvent.findMany({
         where: { plateDetected: { in: sugeridas }, timestamp: { gte: new Date(desde.getTime() - OTRA_LECTURA_H * 3600_000) } },
         select: { id: true, plateDetected: true, timestamp: true, device: { select: { name: true } } },
@@ -53,8 +59,8 @@ export async function GET(req: NextRequest) {
     const porChapa = new Map<string, typeof lecturas>();
     for (const l of lecturas) porChapa.set(l.plateDetected!, [...(porChapa.get(l.plateDetected!) || []), l]);
 
-    const conteo = { releidas: filas.length, leidas: 0, dudosas: 0, sinChapa: 0, sinVehiculo: 0, sinFoto: 0, errores: 0, confirmadasOtraCamara: 0, guardiaIgual: 0, guardiaDistinta: 0 };
-    const lista = filas.map((f) => {
+    const conteo = { releidas: enRango.length, leidas: 0, dudosas: 0, sinChapa: 0, sinVehiculo: 0, sinFoto: 0, errores: 0, confirmadasOtraCamara: 0, guardiaIgual: 0, guardiaDistinta: 0 };
+    const lista = enRango.map((f) => {
         const e = evento.get(f.accessEventId);
         if (f.estado === "LEIDA") conteo.leidas++; else if (f.estado === "DUDOSA") conteo.dudosas++;
         else if (f.estado === "SIN_CHAPA") conteo.sinChapa++; else if (f.estado === "SIN_VEHICULO") conteo.sinVehiculo++;
