@@ -377,7 +377,7 @@ export default function VisionLab() {
         const vram = t === "seguimiento" ? 0 : m?.vram_mb ?? null;
         return {
             puntaje: puntajePeso(vram, gpuMs), vram, gpuMs, cpuMs: m?.cpu_ms ?? null, ram: t === "seguimiento" ? 0 : m?.ram_mb ?? null,
-            medido: m?.medido ?? null, vramTotal, sinGpu: t === "seguimiento",
+            medido: m?.medido ?? null, vramTotal, sinGpu: t === "seguimiento", nucleos: s?.proceso?.nucleos ?? null,
             ahora: apagadas.includes(t) ? "apagada" : t === "seguimiento" ? "corre" : s?.tareas?.[t]?.abierto ? "cargada" : "se carga al pedirla",
         };
     };
@@ -654,7 +654,7 @@ function Cifra({ v, l }: { v: number | string; l: string }) {
 type PesoTarjeta = {
     puntaje: number | null; vramTotal: number | null;
     vram?: number | null; gpuMs?: number | null; cpuMs?: number | null; ram?: number | null; medido?: number | null;
-    sinGpu?: boolean; ahora?: string;
+    sinGpu?: boolean; ahora?: string; nucleos?: number | null;
     estimado?: (typeof ESTIMADOS)[string];
 };
 
@@ -698,7 +698,7 @@ function DetallePeso({ p }: { p: PesoTarjeta }) {
             </span>
             <span className="block">
                 <span className="flex justify-between gap-2"><b>CPU por cuadro</b><span className="tabular-nums">{e ? "alto: prepara la imagen y el texto" : p.cpuMs != null ? `~${Math.round(p.cpuMs)} ms` : "sin medir"}</span></span>
-                {!e && p.cpuMs != null && <span className="block text-muted-foreground mt-0.5 tabular-nums">A {RITMO_RAPIDO} cuadros/s: {porc(Math.min(1, fraccionGpu(p.cpuMs, RITMO_RAPIDO)))} de un núcleo.</span>}
+                {!e && p.cpuMs != null && <span className="block text-muted-foreground mt-0.5 tabular-nums">A {RITMO_RAPIDO} cuadros/s: {porc(Math.min(1, fraccionGpu(p.cpuMs, RITMO_RAPIDO)))} de un núcleo{p.nucleos ? ` (omni-vision tiene ${String(p.nucleos).replace(".", ",")})` : ""}.</span>}
             </span>
             <span className="flex justify-between gap-2"><b>RAM</b><span className="tabular-nums">{e ? rango(e.ram[0], e.ram[1], mb) : p.ram === 0 ? "casi nada" : p.ram != null ? mb(p.ram) : "sin medir"}</span></span>
             <span className="block text-muted-foreground border-t border-border pt-2 leading-snug">

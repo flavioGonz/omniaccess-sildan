@@ -115,6 +115,17 @@ def _tope_ram_mb() -> float | None:
         return None
 
 
+def _nucleos() -> float:
+    """Los núcleos que el contenedor puede usar de verdad (cuota del cgroup), no los del host."""
+    try:
+        cuota, periodo = open("/sys/fs/cgroup/cpu.max").read().split()
+        if cuota != "max":
+            return round(int(cuota) / int(periodo), 1)
+    except Exception:
+        pass
+    return float(len(os.sched_getaffinity(0)))
+
+
 def _cargada(t: str) -> bool:
     if t in modelos:
         return modelos[t].sesion is not None
@@ -132,9 +143,12 @@ def _paso(t: str, fn):
     c0 = time.process_time()
     out = fn()
     m = medidas.setdefault(t, {"cpu": []})
-    m["cpu"].append((time.process_time() - c0) * 1000)
-    if len(m["cpu"]) > CPU_HISTORIA:
-        m["cpu"] = m["cpu"][-CPU_HISTORIA:]
+    # El pedido que carga la tarea no cuenta para el CPU por cuadro: es la carga (un segundo
+    # largo en siluetas), no lo que cuesta cada cuadro después.
+    if not nueva:
+        m["cpu"].append((time.process_time() - c0) * 1000)
+        if len(m["cpu"]) > CPU_HISTORIA:
+            m["cpu"] = m["cpu"][-CPU_HISTORIA:]
     # Puede no haberse cargado (atributos sin objetos que describir): entonces no hay qué medir.
     if nueva and _cargada(t):
         v1 = _vram_usada_mb()
@@ -245,7 +259,7 @@ def salud():
         "apagadas": sorted(apagadas),
         # Lo medido por tarea (ver _paso) y lo que ocupa el proceso entero ahora.
         "medidas": _medidas_salud(),
-        "proceso": {"ram_mb": round(_rss_mb()), "tope_ram_mb": _tope_ram_mb(), "cpu_pct": _cpu_pct(), "nucleos": os.cpu_count()},
+        "proceso": {"ram_mb": round(_rss_mb()), "tope_ram_mb": _tope_ram_mb(), "cpu_pct": _cpu_pct(), "nucleos": _nucleos()},
         "tope_vram_mb": int(os.environ.get("VISION_TOPE_VRAM_MB", "1536")),
         "vram": _vram(),
         "modelos_disponibles": [k for k, v in catalogo.items() if v.get("tarea") == "detectar"],
