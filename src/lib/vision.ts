@@ -12,10 +12,11 @@ export const VISION_URL = () => (process.env.OMNI_VISION_URL || "http://127.0.0.
 /** Lo que tarda en contestar /salud con la GPU libre es ~5 ms; 3 s ya es "no está". */
 const TIEMPO_SALUD_MS = 3000;
 /**
- * Una inferencia son ~30 ms, pero el contenedor atiende de a una: si hay cola, se espera.
- * 15 s cubre el primer pedido en frío (~400 ms) y una cola larga sin dejar colgada la pantalla.
+ * Una detección son ~30 ms, pero el contenedor atiende de a una: si hay cola, se espera. Y la
+ * primera vez que se pide la pose o las siluetas el modelo se carga en la GPU (unos segundos).
+ * 30 s cubre eso sin dejar colgada la pantalla para siempre.
  */
-const TIEMPO_DETECTAR_MS = 15000;
+const TIEMPO_DETECTAR_MS = 30000;
 
 export type SaludVision = {
     ok: boolean; modelo: string; licencia: string; coco_ap: number; proveedor: string; resolucion: number;
@@ -23,15 +24,36 @@ export type SaludVision = {
     latencia_ms: { n: number; p50?: number; p95?: number }; tope_vram_mb: number;
     vram: { usada_mb: number; total_mb: number; uso_gpu: number } | null;
     modelos_disponibles: string[]; segundos_arriba: number;
+    tareas?: Record<string, EstadoTarea>; seguimiento?: { sesiones: number; licencia: string };
+};
+
+export type Atributo = {
+    id: string; nombre: string; tipo: "uno" | "si_no"; valor: string; prob: number; dudoso: boolean;
+    opciones: { valor: string; prob: number }[];
 };
 
 export type ObjetoVisto = {
     clase: string; nombre: string; grupo: string; confianza: number;
     caja: [number, number, number, number]; caja_norm: [number, number, number, number];
     alternativa?: { clase: string; nombre: string; confianza: number };
+    /** Siluetas: polígonos normalizados (0-1) y fracción de la imagen que ocupa. */
+    silueta?: [number, number][][]; area?: number;
+    /** Pose: 17 puntos [x, y, visibilidad] normalizados, y la postura si se puede decir. */
+    puntos?: [number, number, number][]; postura?: "de pie" | "agachada" | "acostada" | null; inclinacion?: number; motivo?: string;
+    atributos?: Atributo[]; atributos_motivo?: string;
+    /** Seguimiento: número de pista, o null mientras no se confirma. */
+    pista?: number | null;
 };
 
-export type ResultadoDeteccion = { ancho: number; alto: number; ms_inferencia: number; ms: number; modelo: string; umbral: number; objetos: ObjetoVisto[] };
+export type TareaVision = "detectar" | "segmentar" | "pose";
+
+export type ResultadoDeteccion = {
+    ancho: number; alto: number; ms_inferencia: number; ms: number; modelo: string; umbral: number;
+    tarea: TareaVision; pasos: Record<string, number>; seguimiento: { cuadro: number; pistas_vistas: number } | null;
+    objetos: ObjetoVisto[];
+};
+
+export type EstadoTarea = { modelo: string; licencia: string; abierto: boolean; proveedor: string | null; total: number; errores: number; latencia_ms: { n: number; p50?: number; p95?: number }; coco_ap?: number };
 
 export async function saludVision(): Promise<{ salud: SaludVision | null; latencia: number; error?: string }> {
     const t0 = performance.now();
@@ -44,9 +66,13 @@ export async function saludVision(): Promise<{ salud: SaludVision | null; latenc
     }
 }
 
-export async function detectar(imagen: Buffer, umbral?: number): Promise<ResultadoDeteccion> {
-    const q = umbral != null ? `?umbral=${umbral}` : "";
-    const r = await fetch(`${VISION_URL()}/detectar${q}`, {
+export async function detectar(imagen: Buffer, op: { umbral?: number; tarea?: TareaVision; atributos?: boolean; sesion?: string; fps?: number } = {}): Promise<ResultadoDeteccion> {
+    const q = new URLSearchParams();
+    if (op.umbral != null) q.set("umbral", String(op.umbral));
+    if (op.tarea) q.set("tarea", op.tarea);
+    if (op.atributos) q.set("atributos", "1");
+    if (op.sesion) { q.set("sesion", op.sesion); q.set("fps", String(op.fps || 2)); }
+    const r = await fetch(`${VISION_URL()}/detectar?${q}`, {
         method: "POST", body: new Uint8Array(imagen), headers: { "content-type": "image/jpeg" },
         cache: "no-store", signal: AbortSignal.timeout(TIEMPO_DETECTAR_MS),
     });

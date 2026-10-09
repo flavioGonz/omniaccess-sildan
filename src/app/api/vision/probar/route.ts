@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
-import { detectar } from "@/lib/vision";
+import { detectar, type TareaVision } from "@/lib/vision";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ async function cuadro(stream: string): Promise<Buffer | null> {
 }
 
 /**
- * GET /api/vision/probar?camara=<deviceId>&umbral=0.4
+ * GET /api/vision/probar?camara=<deviceId>&umbral=0.4[&tarea=segmentar|pose][&atributos=1][&sesion=<id>]
  *
  * Saca un cuadro de la cámara (go2rtc, el mismo stream del visor) y se lo da a omni-vision.
  * Devuelve la foto analizada junto con los objetos: si la pantalla pidiera la foto aparte,
@@ -38,6 +38,11 @@ export async function GET(req: NextRequest) {
     const id = req.nextUrl.searchParams.get("camara") || "";
     const u = Number(req.nextUrl.searchParams.get("umbral"));
     const umbral = Number.isFinite(u) && u > 0 ? Math.min(0.95, Math.max(0.05, u)) : undefined;
+    const t = req.nextUrl.searchParams.get("tarea");
+    const tarea: TareaVision = t === "segmentar" || t === "pose" ? t : "detectar";
+    const atributos = req.nextUrl.searchParams.get("atributos") === "1";
+    // La sesión de seguimiento la elige la pantalla (una por pasada); se acota para que no sea un canal libre.
+    const sesion = (req.nextUrl.searchParams.get("sesion") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 40) || undefined;
     const dev = await prisma.device.findUnique({ where: { id }, select: { id: true, name: true } });
     if (!dev) return NextResponse.json({ error: "No existe esa cámara" }, { status: 404 });
     const t0 = Date.now();
@@ -47,7 +52,7 @@ export async function GET(req: NextRequest) {
     if (!foto) return NextResponse.json({ error: `No se pudo sacar un cuadro de ${dev.name} (go2rtc no lo entregó).` }, { status: 502 });
     const msCuadro = Date.now() - t0;
     try {
-        const r = await detectar(foto, umbral);
+        const r = await detectar(foto, { umbral, tarea, atributos, sesion, fps: 2 });
         return NextResponse.json({
             camara: dev, fuente, ms_cuadro: msCuadro, ...r,
             imagen: `data:image/jpeg;base64,${foto.toString("base64")}`,

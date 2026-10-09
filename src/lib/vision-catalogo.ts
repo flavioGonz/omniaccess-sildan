@@ -27,6 +27,25 @@ export const CLAVE_CLASES = "VISION_CLASES";
 
 export type EstadoCapacidad = "corre" | "libre" | "pesado" | "no-aplica";
 
+/**
+ * Qué tarea de omni-vision se usa para probar cada capacidad en el laboratorio (null = no se
+ * puede probar acá). El seguimiento usa la detección sobre cuadros seguidos.
+ */
+export const TAREA_DE_CAPACIDAD: Record<string, "detectar" | "segmentar" | "pose" | "atributos" | "seguir" | null> = {
+    deteccion: "detectar", segmentacion: "segmentar", pose: "pose", seguimiento: "seguir", clasificacion: "atributos",
+    vocabulario: null, obb: null,
+};
+
+/** Los 17 puntos de la pose, en el orden en que los devuelve el modelo (COCO). */
+export const PUNTOS_POSE = ["nariz", "ojo izq.", "ojo der.", "oreja izq.", "oreja der.", "hombro izq.", "hombro der.",
+    "codo izq.", "codo der.", "muñeca izq.", "muñeca der.", "cadera izq.", "cadera der.",
+    "rodilla izq.", "rodilla der.", "tobillo izq.", "tobillo der."];
+/** Qué puntos se unen para dibujar el esqueleto. */
+export const ESQUELETO: [number, number][] = [
+    [15, 13], [13, 11], [16, 14], [14, 12], [11, 12], [5, 11], [6, 12], [5, 6], [5, 7], [6, 8],
+    [7, 9], [8, 10], [1, 2], [0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 6],
+];
+
 export type Capacidad = {
     id: string;
     nombre: string;
@@ -52,29 +71,29 @@ export const CAPACIDADES: Capacidad[] = [
         id: "segmentacion", nombre: "Segmentación", icono: "Shapes",
         queEs: "Además de la caja, recorta la silueta exacta del objeto, píxel por píxel.",
         paraQue: "Saber si una persona está DENTRO de una zona dibujada (no sólo su caja), medir cuánto ocupa un vehículo en una plaza, recortes limpios para buscar.",
-        libre: "RF-DETR Seg (Apache-2.0), mismo paquete. No instalado todavía.",
-        estado: "libre",
+        libre: "RF-DETR Seg Small (Apache-2.0), corriendo en omni-vision. Devuelve la silueta como polígono.",
+        estado: "corre",
     },
     {
         id: "pose", nombre: "Pose (puntos del cuerpo)", icono: "PersonStanding",
         queEs: "Marca 17 puntos del cuerpo de cada persona: cabeza, hombros, codos, cadera, rodillas, tobillos.",
         paraQue: "Persona en el suelo, alguien trepando un cerco, manos en alto. Distinguir caminar de agacharse.",
-        libre: "RF-DETR Keypoint (Apache-2.0, versión preliminar). No instalado todavía.",
-        estado: "libre",
+        libre: "RF-DETR Keypoint Preview (Apache-2.0, versión preliminar), corriendo en omni-vision. Además dice la postura: de pie, agachada o acostada.",
+        estado: "corre",
     },
     {
         id: "seguimiento", nombre: "Seguimiento", icono: "Waypoints",
         queEs: "Le pone un número a cada objeto y lo sigue cuadro a cuadro mientras se mueve.",
         paraQue: "Merodeo (alguien que da vueltas o se queda), objetos dejados, contar sin contar dos veces al mismo, el recorrido de un vehículo dentro de una cámara.",
-        libre: "ByteTrack (MIT) sobre las detecciones. No necesita otro modelo, sólo cuadros seguidos.",
-        estado: "libre",
+        libre: "ByteTrack (paquete trackers, Apache-2.0) sobre las detecciones, corriendo en omni-vision. No es otro modelo: necesita cuadros seguidos de la misma cámara.",
+        estado: "corre",
     },
     {
         id: "clasificacion", nombre: "Clasificación y atributos", icono: "Tag",
         queEs: "Dice qué es una imagen entera o un recorte: color de un auto, si una persona lleva casco o mochila.",
         paraQue: "\"Camioneta blanca\", \"moto con dos personas\", color del vehículo en las lecturas LPR que no lo traen.",
-        libre: "SigLIP (Apache-2.0), compara la imagen con frases. Es también la base de la búsqueda.",
-        estado: "libre",
+        libre: "SigLIP 2 (Apache-2.0), corriendo en omni-vision: color y carrocería de vehículos; color de ropa, chaleco, casco, mochila y niño/adulto en personas. Es también la base de la búsqueda.",
+        estado: "corre",
     },
     {
         id: "vocabulario", nombre: "Vocabulario abierto", icono: "Sparkles",
@@ -240,8 +259,8 @@ export type Analitica = {
 export const ANALITICAS: Analitica[] = [
     {
         id: "prueba", nombre: "Prueba en vivo", icono: "ScanEye", modo: "Prueba",
-        queHace: "Analiza el cuadro actual de una cámara y dibuja lo que ve, en esta misma pantalla. Es lo único que corre hoy.",
-        necesita: ["deteccion"], clases: [], estado: "corre", porDefecto: true,
+        queHace: "Analiza el cuadro actual de una cámara y dibuja lo que ve, en esta misma pantalla: cajas, siluetas, esqueletos, atributos y recorridos. Es lo único que corre hoy.",
+        necesita: ["deteccion", "segmentacion", "pose", "seguimiento", "clasificacion"], clases: [], estado: "corre", porDefecto: true,
     },
     {
         id: "verif-intrusion", nombre: "Doble verificación de intrusión", icono: "ShieldCheck", modo: "Intrusión",

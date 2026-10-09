@@ -8,7 +8,7 @@ import {
     ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse, Keyboard, Microwave, CookingPot, Bath,
     Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed, Soup, Banana, Apple, Sandwich, Citrus, Salad,
     Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers,
-    Cpu, Loader2, Camera, RefreshCw, EyeOff, FlaskConical, Info, type LucideIcon,
+    Cpu, Loader2, Camera, RefreshCw, EyeOff, FlaskConical, Info, Square, Play, Gauge, type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
@@ -18,10 +18,10 @@ import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import {
-    CAPACIDADES, CLASES, GRUPOS, ANALITICAS, CLASE_POR_NOMBRE,
+    CAPACIDADES, CLASES, GRUPOS, ANALITICAS, CLASE_POR_NOMBRE, TAREA_DE_CAPACIDAD, ESQUELETO, PUNTOS_POSE,
     type Capacidad, type Clase, type Analitica, type EstadoCapacidad, type EstadoAnalitica, type Grupo,
 } from "@/lib/vision-catalogo";
-import type { SaludVision, ObjetoVisto } from "@/lib/vision";
+import type { SaludVision, ObjetoVisto, TareaVision } from "@/lib/vision";
 
 /**
  * Laboratorio de visión: lo que se está construyendo con el detector de objetos.
@@ -60,6 +60,20 @@ const REFRESCO_SALUD_MS = 10_000;
 const UMBRALES = [0.3, 0.4, 0.5, 0.6];
 /** Alto máximo de la foto analizada, en px. */
 const ALTO_MAX_FOTO = 520;
+/**
+ * Cuántos cuadros toma "Seguir": a ~2 por segundo son unos 8 s. Cada cuadro viaja entero al
+ * navegador (para dibujar sobre el mismo que vio el detector), así que no se hace eterno.
+ */
+const SEGUIR_CUADROS = 16;
+/** Cada vuelta del seguimiento dura al menos esto, para no pedirle a go2rtc más de 2 cuadros por segundo. */
+const SEGUIR_PASO_MS = 500;
+/** Un punto de la pose con menos visibilidad que esto no se dibuja. */
+const PUNTO_VISIBLE = 0.3;
+const TAREAS: { id: TareaVision; rotulo: string; ayuda: string }[] = [
+    { id: "detectar", rotulo: "Cajas", ayuda: "Detección: qué hay y dónde (RF-DETR Small)." },
+    { id: "segmentar", rotulo: "Siluetas", ayuda: "Segmentación: la silueta exacta de cada objeto (RF-DETR Seg)." },
+    { id: "pose", rotulo: "Pose", ayuda: "Los 17 puntos del cuerpo de cada persona y su postura (RF-DETR Keypoint)." },
+];
 
 const TONO_CAPACIDAD: Record<EstadoCapacidad, { tono: "bien" | "info" | "aviso" | "quieto"; texto: string }> = {
     corre: { tono: "bien", texto: "Corre hoy" },
@@ -82,7 +96,10 @@ type Estado = {
 type Prueba = {
     camara: { id: string; name: string }; fuente: string; ms_cuadro: number; ancho: number; alto: number;
     ms_inferencia: number; ms: number; modelo: string; umbral: number; objetos: ObjetoVisto[]; imagen: string; instante: string;
+    tarea?: TareaVision; pasos?: Record<string, number>; seguimiento?: { cuadro: number; pistas_vistas: number } | null;
 };
+/** El recorrido de cada pista durante "Seguir": puntos de apoyo (pie de la caja), normalizados. */
+type Recorridos = Record<number, { clase: string; nombre: string; puntos: [number, number][] }>;
 type Visto = { camara: { id: string; name: string }; objeto: ObjetoVisto; imagen: string };
 
 const pct = (v: number) => `${Math.round(v * 100)} %`;
@@ -104,6 +121,12 @@ export default function VisionLab() {
     const [grupo, setGrupo] = useState<"todos" | Grupo>("todos");
     const [mostrar, setMostrar] = useState<"todas" | "prendidas" | "vistas">("todas");
     const cancelado = useRef(false);
+    const [tarea, setTarea] = useState<TareaVision>("detectar");
+    const [conAtributos, setConAtributos] = useState(true);
+    const [siguiendo, setSiguiendo] = useState<{ cuadro: number } | null>(null);
+    const [recorridos, setRecorridos] = useState<Recorridos | null>(null);
+    const pararSeguir = useRef(false);
+    const seccionPrueba = useRef<HTMLElement>(null);
 
     const cargar = useCallback(async () => {
         try {
@@ -136,19 +159,67 @@ export default function VisionLab() {
         }
     }
 
-    async function probarCamara(id: string): Promise<Prueba> {
-        const r = await fetch(`/api/vision/probar?camara=${encodeURIComponent(id)}&umbral=${umbral}`, { cache: "no-store" });
+    /** `op` pisa lo elegido en la barra: lo usa el botón "Probar" de cada tarjeta, que cambia la barra y corre en el mismo clic. */
+    async function probarCamara(id: string, sesion?: string, op?: { tarea?: TareaVision; atributos?: boolean }): Promise<Prueba> {
+        const t = op?.tarea ?? tarea, a = op?.atributos ?? conAtributos;
+        const q = new URLSearchParams({ camara: id, umbral: String(umbral), tarea: sesion ? "detectar" : t });
+        if (a && !sesion) q.set("atributos", "1");
+        if (sesion) q.set("sesion", sesion);
+        const r = await fetch(`/api/vision/probar?${q}`, { cache: "no-store" });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
         return j as Prueba;
     }
 
-    async function analizar() {
+    async function analizar(op?: { tarea?: TareaVision; atributos?: boolean }) {
         if (!camara) return;
-        setProbando(true); setErrorPrueba(null);
-        try { const p = await probarCamara(camara); setPrueba(p); setEscaneo((s) => ({ ...s, [camara]: p })); }
+        setProbando(true); setErrorPrueba(null); setRecorridos(null);
+        try { const p = await probarCamara(camara, undefined, op); setPrueba(p); setEscaneo((s) => ({ ...s, [camara]: p })); }
         catch (e: any) { setErrorPrueba(e?.message || "falló"); }
         finally { setProbando(false); }
+    }
+
+    /**
+     * Seguir: cuadros seguidos de la misma cámara, con una sesión de seguimiento propia (una por
+     * pasada, así los números arrancan de cero). Se dibuja el recorrido del pie de cada caja.
+     * Usa la detección sola: las siluetas o la pose en cada cuadro bajarían el ritmo y el
+     * seguimiento necesita cuadros seguidos.
+     */
+    async function seguir() {
+        if (siguiendo) { pararSeguir.current = true; return; }
+        if (!camara) return;
+        pararSeguir.current = false;
+        const sesion = `lab-${Date.now().toString(36)}`;
+        const rec: Recorridos = {};
+        setRecorridos({}); setErrorPrueba(null);
+        try {
+            for (let i = 0; i < SEGUIR_CUADROS && !pararSeguir.current && !cancelado.current; i++) {
+                setSiguiendo({ cuadro: i + 1 });
+                const t0 = Date.now();
+                const p = await probarCamara(camara, sesion);
+                for (const o of p.objetos) {
+                    if (o.pista == null) continue;
+                    const [x1, , x2, y2] = o.caja_norm;
+                    (rec[o.pista] ||= { clase: o.clase, nombre: o.nombre, puntos: [] }).puntos.push([(x1 + x2) / 2, y2]);
+                }
+                setPrueba(p); setRecorridos({ ...rec });
+                const resto = SEGUIR_PASO_MS - (Date.now() - t0);
+                if (resto > 0) await new Promise((r) => setTimeout(r, resto));
+            }
+        } catch (e: any) { setErrorPrueba(e?.message || "falló"); }
+        finally { setSiguiendo(null); }
+    }
+
+    /** Desde una tarjeta de "Qué puede hacer": deja la prueba lista para esa tarea y la corre. */
+    function probarCapacidad(id: string) {
+        const t = TAREA_DE_CAPACIDAD[id];
+        if (!t) return;
+        seccionPrueba.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (t === "seguir") { seguir(); return; }
+        const op = t === "atributos" ? { tarea: "detectar" as TareaVision, atributos: true } : { tarea: t };
+        setTarea(op.tarea);
+        if (op.atributos) setConAtributos(true);
+        analizar(op);
     }
 
     // De a una cámara: omni-vision atiende una inferencia a la vez, y pedirlas todas juntas
@@ -238,6 +309,37 @@ export default function VisionLab() {
                         <Cifra v={`${s.resolucion} px`} l="resolución del modelo" />
                     </div>
                 )}
+                {s?.tareas && (
+                    <div className="mt-3 overflow-x-auto">
+                        <table className="w-full text-[12.5px]">
+                            <thead>
+                                <tr className="text-left text-[11px] text-muted-foreground">
+                                    <th className="font-semibold py-1.5 pr-3">Tarea</th><th className="font-semibold pr-3">Modelo</th><th className="font-semibold pr-3">Licencia</th>
+                                    <th className="font-semibold pr-3">En la GPU</th><th className="font-semibold pr-3 text-right">Pedidos</th>
+                                    <th className="font-semibold pr-3 text-right">Mediana</th><th className="font-semibold text-right">Peor 5 %</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                                {Object.entries(s.tareas).map(([t, v]) => (
+                                    <tr key={t}>
+                                        <td className="py-1.5 pr-3 font-semibold">{NOMBRE_TAREA[t] || t}</td>
+                                        <td className="pr-3 text-muted-foreground">{v.modelo}</td>
+                                        <td className="pr-3 text-muted-foreground">{v.licencia}</td>
+                                        <td className="pr-3">{v.abierto ? (String(v.proveedor).startsWith("CUDA") ? "cargado" : "cargado (CPU)") : <span className="text-muted-foreground">se carga al pedirla</span>}</td>
+                                        <td className="pr-3 text-right tabular-nums">{v.total}</td>
+                                        <td className="pr-3 text-right tabular-nums">{v.latencia_ms?.p50 != null ? `${v.latencia_ms.p50} ms` : "—"}</td>
+                                        <td className="text-right tabular-nums">{v.latencia_ms?.p95 != null ? `${v.latencia_ms.p95} ms` : "—"}</td>
+                                    </tr>
+                                ))}
+                                {s.seguimiento && (
+                                    <tr><td className="py-1.5 pr-3 font-semibold">Seguimiento</td><td className="pr-3 text-muted-foreground">ByteTrack</td><td className="pr-3 text-muted-foreground">Apache-2.0</td>
+                                        <td className="pr-3 text-muted-foreground" colSpan={4}>sin modelo propio · {s.seguimiento.sesiones} {s.seguimiento.sesiones === 1 ? "sesión abierta" : "sesiones abiertas"}</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                        <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1.5"><Gauge size={12} /> Tiempos de GPU medidos dentro de omni-vision, sin contar el viaje del cuadro. Las cuatro tareas se turnan: nunca corren dos a la vez, para no pisar a omni-lpr.</p>
+                    </div>
+                )}
             </section>
 
             {/* 1. Qué puede hacer */}
@@ -245,14 +347,14 @@ export default function VisionLab() {
                 <Titulo n={1} titulo="Qué puede hacer un detector como YOLO"
                     ayuda="Las tareas que existen en la familia YOLO26 y, para cada una, con qué pieza libre se hace acá. YOLO26 es AGPL y servirlo pide licencia paga: no se usa." />
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {CAPACIDADES.map((c) => <TarjetaCapacidad key={c.id} c={c} />)}
+                    {CAPACIDADES.map((c) => <TarjetaCapacidad key={c.id} c={c} alProbar={s && TAREA_DE_CAPACIDAD[c.id] && c.estado === "corre" ? () => probarCapacidad(c.id) : undefined} />)}
                 </div>
             </section>
 
             {/* 2. Probar */}
-            <section>
+            <section ref={seccionPrueba} className="scroll-mt-4">
                 <Titulo n={2} titulo="Probar en las cámaras"
-                    ayuda="Saca el cuadro de este momento de una cámara y le pide al detector que diga qué ve. Las clases apagadas en la lista de abajo no se dibujan." />
+                    ayuda="Saca el cuadro de este momento de una cámara y le pide al detector que diga qué ve: cajas, siluetas o la pose, con los atributos de cada objeto. «Seguir» toma cuadros seguidos y dibuja por dónde fue cada uno. Las clases apagadas en la lista de abajo no se dibujan." />
                 <div className="rounded-[10px] border border-border bg-card">
                     <div className="p-3 border-b border-border flex items-center gap-2 flex-wrap">
                         <div className="flex items-center gap-1 flex-wrap">
@@ -267,7 +369,21 @@ export default function VisionLab() {
                                 </button>
                             ))}
                         </div>
-                        <div className="ml-auto flex items-center gap-2">
+                        <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+                            <div className="flex items-center h-8 rounded-lg bg-muted/60 p-0.5" title="Qué le pide al modelo">
+                                {TAREAS.map((t) => (
+                                    <button key={t.id} type="button" onClick={() => setTarea(t.id)} title={t.ayuda}
+                                        className={cn("h-7 px-2.5 rounded-md text-[12px] font-semibold", tarea === t.id ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                                        {t.rotulo}
+                                    </button>
+                                ))}
+                            </div>
+                            <button type="button" onClick={() => setConAtributos((v) => !v)} aria-pressed={conAtributos}
+                                title="Color, carrocería, ropa, chaleco, casco, mochila (SigLIP 2)"
+                                className={cn("h-8 px-3 rounded-full text-[12px] font-semibold border inline-flex items-center gap-1.5",
+                                    conAtributos ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] text-[var(--accion)] border-transparent" : "border-border text-muted-foreground hover:text-foreground")}>
+                                <Tag size={12} /> Atributos
+                            </button>
                             <div className="flex items-center h-8 rounded-lg bg-muted/60 p-0.5" title="Confianza mínima para mostrar un objeto">
                                 {UMBRALES.map((u) => (
                                     <button key={u} type="button" onClick={() => setUmbral(u)}
@@ -276,15 +392,19 @@ export default function VisionLab() {
                                     </button>
                                 ))}
                             </div>
-                            <Button variant="outline" onClick={escanearTodas} disabled={!s || !!escaneando || probando}>
+                            <Button variant="outline" onClick={seguir} disabled={!s || !camara || probando || !!escaneando}>
+                                {siguiendo ? <><Square size={13} /> Parar · {siguiendo.cuadro}/{SEGUIR_CUADROS}</> : <><Play size={13} /> Seguir 8 s</>}
+                            </Button>
+                            <Button variant="outline" onClick={escanearTodas} disabled={!s || !!escaneando || probando || !!siguiendo}>
                                 {escaneando ? <><Loader2 size={14} className="animate-spin" /> {escaneando.hechas} de {escaneando.total}</> : <><RefreshCw size={14} /> Todas las cámaras</>}
                             </Button>
-                            <Button onClick={analizar} disabled={!s || !camara || probando || !!escaneando}>
+                            <Button onClick={() => analizar()} disabled={!s || !camara || probando || !!escaneando || !!siguiendo}>
                                 {probando ? <Loader2 size={14} className="animate-spin" /> : <ScanEye size={14} />} Analizar ahora
                             </Button>
                         </div>
                     </div>
-                    <ResultadoPrueba prueba={prueba} probando={probando} error={errorPrueba} prendidas={prendidas} alAbrirClase={(c) => setClaseAbierta(CLASE_POR_NOMBRE[c] || null)} sinServicio={!s} />
+                    <ResultadoPrueba prueba={prueba} probando={probando || !!siguiendo} error={errorPrueba} prendidas={prendidas} recorridos={recorridos}
+                        alAbrirClase={(c) => setClaseAbierta(CLASE_POR_NOMBRE[c] || null)} sinServicio={!s} />
                 </div>
             </section>
 
@@ -372,7 +492,7 @@ function Cifra({ v, l }: { v: number | string; l: string }) {
     );
 }
 
-function TarjetaCapacidad({ c }: { c: Capacidad }) {
+function TarjetaCapacidad({ c, alProbar }: { c: Capacidad; alProbar?: () => void }) {
     const t = TONO_CAPACIDAD[c.estado];
     return (
         <div className={cn("rounded-[10px] border border-border bg-card p-4 flex flex-col gap-2", c.estado === "no-aplica" && "opacity-70")}>
@@ -384,40 +504,83 @@ function TarjetaCapacidad({ c }: { c: Capacidad }) {
                 </div>
             </div>
             <p className="text-[12px] text-muted-foreground leading-snug"><b className="text-foreground/80 font-semibold">Para qué:</b> {c.paraQue}</p>
-            <p className="text-[12px] text-muted-foreground leading-snug mt-auto pt-1 border-t border-border"><b className="text-foreground/80 font-semibold">Acá:</b> {c.libre}</p>
+            <div className="mt-auto pt-1 border-t border-border flex items-end gap-3">
+                <p className="text-[12px] text-muted-foreground leading-snug flex-1"><b className="text-foreground/80 font-semibold">Acá:</b> {c.libre}</p>
+                {alProbar && <Button variant="outline" size="sm" onClick={alProbar} className="shrink-0"><Play size={12} /> Probar</Button>}
+            </div>
         </div>
     );
 }
 
-/** La foto analizada con las cajas encima, y la lista de lo visto. */
-function ResultadoPrueba({ prueba, probando, error, prendidas, alAbrirClase, sinServicio }: {
+/** Un recorrido de seguimiento: de qué pista es y por dónde pasó. */
+function Recorrido({ n, r }: { n: number; r: Recorridos[number] }) {
+    if (r.puntos.length === 0) return null;
+    const [ux, uy] = r.puntos[r.puntos.length - 1];
+    return (
+        <>
+            {r.puntos.length > 1 && (
+                <polyline points={r.puntos.map(([x, y]) => `${x},${y}`).join(" ")} fill="none"
+                    stroke="var(--aviso)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+            )}
+            <circle cx={ux} cy={uy} r={0.006} fill="var(--aviso)" />
+            <title>{`#${n} ${r.nombre}`}</title>
+        </>
+    );
+}
+
+/** La foto analizada con lo que vio el modelo encima, y la lista de lo visto. */
+function ResultadoPrueba({ prueba, probando, error, prendidas, recorridos, alAbrirClase, sinServicio }: {
     prueba: Prueba | null; probando: boolean; error: string | null; prendidas: Record<string, boolean>;
-    alAbrirClase: (c: string) => void; sinServicio: boolean;
+    recorridos: Recorridos | null; alAbrirClase: (c: string) => void; sinServicio: boolean;
 }) {
     if (sinServicio) return <div className="p-8 text-center text-[13px] text-muted-foreground">omni-vision no está contestando: no se puede probar.</div>;
     if (error) return <div className="p-6"><ErrorEstado titulo="No se pudo analizar" mensaje={error} /></div>;
     if (!prueba) return (
         <div className="p-10 text-center text-[13px] text-muted-foreground">
-            {probando ? <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Sacando un cuadro y analizándolo…</span> : "Elegí una cámara y apretá «Analizar ahora»."}
+            {probando ? <span className="inline-flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Sacando un cuadro y analizándolo… (la primera vez que se pide la pose o las siluetas, el modelo se carga en la GPU y tarda unos segundos más)</span> : "Elegí una cámara, qué pedirle, y apretá «Analizar ahora»."}
         </div>
     );
     const visibles = prueba.objetos.filter((o) => prendidas[o.clase]);
     const ocultos = prueba.objetos.length - visibles.length;
+    const pistas = recorridos ? Object.entries(recorridos) : [];
     return (
-        <div className="grid lg:grid-cols-[1fr_320px]">
+        <div className="grid lg:grid-cols-[1fr_340px]">
             <div className="p-3 min-w-0">
                 {/* Topada de alto: a lo ancho de la pantalla, una foto 4:3 empujaba todo lo demás una pantalla entera hacia abajo. */}
                 <div className="relative rounded-md overflow-hidden bg-black mx-auto w-full" style={{ aspectRatio: `${prueba.ancho} / ${prueba.alto}`, maxWidth: Math.round(ALTO_MAX_FOTO * prueba.ancho / prueba.alto) }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={prueba.imagen} alt={`Cuadro de ${prueba.camara.name}`} className={cn("absolute inset-0 w-full h-full object-contain", probando && "opacity-60")} />
+                    <img src={prueba.imagen} alt={`Cuadro de ${prueba.camara.name}`} className={cn("absolute inset-0 w-full h-full object-contain", probando && !recorridos && "opacity-60")} />
+                    {/* Siluetas, esqueletos y recorridos van en un SVG con coordenadas 0-1, estirado a la foto. */}
+                    <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
+                        {visibles.map((o, i) => (
+                            <g key={i}>
+                                {o.silueta?.map((pol, k) => (
+                                    <polygon key={k} points={pol.map(([x, y]) => `${x},${y}`).join(" ")}
+                                        fill="color-mix(in oklab, var(--accion-en-oscuro) 30%, transparent)" stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                                ))}
+                                {o.puntos && ESQUELETO.map(([a, b], k) => {
+                                    const pa = o.puntos![a], pb = o.puntos![b];
+                                    if (!pa || !pb || pa[2] < PUNTO_VISIBLE || pb[2] < PUNTO_VISIBLE) return null;
+                                    return <line key={k} x1={pa[0]} y1={pa[1]} x2={pb[0]} y2={pb[1]} stroke="var(--bien)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" />;
+                                })}
+                            </g>
+                        ))}
+                        {pistas.map(([n, r]) => <Recorrido key={n} n={Number(n)} r={r} />)}
+                    </svg>
+                    {/* Los puntos de la pose van en HTML: en el SVG estirado un círculo se vuelve óvalo. */}
+                    {visibles.flatMap((o, i) => (o.puntos || []).map((p, k) => p[2] < PUNTO_VISIBLE ? null : (
+                        <span key={`${i}-${k}`} title={PUNTOS_POSE[k]} className="absolute h-[7px] w-[7px] -ml-[3.5px] -mt-[3.5px] rounded-full bg-white ring-2 ring-[var(--bien)] pointer-events-none"
+                            style={{ left: `${p[0] * 100}%`, top: `${p[1] * 100}%` }} />
+                    )))}
                     {visibles.map((o, i) => {
                         const [x1, y1, x2, y2] = o.caja_norm;
+                        const rotulo = `${o.pista != null ? `#${o.pista} ` : ""}${o.nombre} ${pct(o.confianza)}${o.postura ? ` · ${o.postura}` : ""}`;
                         return (
                             <button key={i} type="button" onClick={() => alAbrirClase(o.clase)}
-                                className="absolute border-2 border-[var(--accion-en-oscuro)] rounded-[3px] hover:bg-white/10 text-left"
+                                className={cn("absolute rounded-[3px] hover:bg-white/10 text-left", o.silueta?.length || o.puntos ? "border border-dashed border-white/50" : "border-2 border-[var(--accion-en-oscuro)]")}
                                 style={{ left: `${x1 * 100}%`, top: `${y1 * 100}%`, width: `${(x2 - x1) * 100}%`, height: `${(y2 - y1) * 100}%` }}>
                                 <span className="absolute -top-[19px] left-[-2px] px-1.5 py-[1px] rounded-[3px] bg-[var(--accion-en-oscuro)] text-black text-[11px] font-bold whitespace-nowrap tabular-nums">
-                                    {o.nombre} {pct(o.confianza)}
+                                    {rotulo}
                                 </span>
                             </button>
                         );
@@ -426,31 +589,19 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, alAbrirClase, sin
                 <div className="mt-2 text-[11.5px] text-muted-foreground tabular-nums flex flex-wrap gap-x-3">
                     <span>{prueba.camara.name} · {horaCorta(prueba.instante)}</span>
                     <span>{prueba.ancho}×{prueba.alto} ({prueba.fuente === "sub" ? "substream" : "stream principal"})</span>
-                    <span>cuadro {prueba.ms_cuadro} ms · detector {prueba.ms_inferencia} ms</span>
+                    <span>cuadro {prueba.ms_cuadro} ms</span>
+                    {Object.entries(prueba.pasos || { detectar: prueba.ms_inferencia }).map(([k, v]) => <span key={k}>{NOMBRE_PASO[k] || k} {v} ms</span>)}
                     <span>{prueba.modelo} · umbral {pct(prueba.umbral)}</span>
+                    {prueba.seguimiento && <span>seguimiento: cuadro {prueba.seguimiento.cuadro}, {prueba.seguimiento.pistas_vistas} pistas</span>}
                 </div>
             </div>
-            <div className="border-t lg:border-t-0 lg:border-l border-border p-3">
+            <div className="border-t lg:border-t-0 lg:border-l border-border p-3 min-w-0">
                 <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Qué vio</div>
                 {visibles.length === 0 ? (
                     <p className="text-[12.5px] text-muted-foreground">Nada sobre el umbral entre las clases prendidas.</p>
                 ) : (
                     <ul className="space-y-1">
-                        {visibles.map((o, i) => {
-                            const c = CLASE_POR_NOMBRE[o.clase];
-                            return (
-                                <li key={i}>
-                                    <button type="button" onClick={() => alAbrirClase(o.clase)} className="w-full flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted text-left">
-                                        <span className="grid h-7 w-7 place-items-center rounded-full bg-muted shrink-0"><Ic n={c?.icono || "ScanSearch"} size={14} /></span>
-                                        <span className="min-w-0 flex-1">
-                                            <span className="block text-[13px] font-semibold leading-tight">{c?.nombre || o.nombre}</span>
-                                            {o.alternativa && <span className="block text-[11px] text-muted-foreground leading-tight">o {o.alternativa.nombre} ({pct(o.alternativa.confianza)})</span>}
-                                        </span>
-                                        <span className="text-[12px] font-bold tabular-nums">{pct(o.confianza)}</span>
-                                    </button>
-                                </li>
-                            );
-                        })}
+                        {visibles.map((o, i) => <ItemVisto key={i} o={o} alAbrir={() => alAbrirClase(o.clase)} />)}
                     </ul>
                 )}
                 {ocultos > 0 && (
@@ -459,8 +610,59 @@ function ResultadoPrueba({ prueba, probando, error, prendidas, alAbrirClase, sin
                         {ocultos === 1 ? "1 objeto oculto" : `${ocultos} objetos ocultos`} por ser de clases apagadas: {[...new Set(prueba.objetos.filter((o) => !prendidas[o.clase]).map((o) => CLASE_POR_NOMBRE[o.clase]?.nombre || o.nombre))].join(", ")}.
                     </p>
                 )}
+                {pistas.length > 0 && (
+                    <div className="mt-4">
+                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Recorridos</div>
+                        <ul className="space-y-1 text-[12.5px]">
+                            {pistas.map(([n, r]) => (
+                                <li key={n} className="flex items-center gap-2">
+                                    <span className="font-bold tabular-nums w-8">#{n}</span>
+                                    <span className="flex-1">{r.nombre}</span>
+                                    <span className="text-muted-foreground tabular-nums">{r.puntos.length} {r.puntos.length === 1 ? "cuadro" : "cuadros"}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
             </div>
         </div>
+    );
+}
+
+const NOMBRE_TAREA: Record<string, string> = { detectar: "Detección", segmentar: "Siluetas", pose: "Pose", atributos: "Atributos" };
+const NOMBRE_PASO: Record<string, string> = { detectar: "detección", segmentar: "siluetas", pose: "pose", atributos: "atributos" };
+
+/** Un objeto en la lista de la derecha: qué es, su pista, su postura y sus atributos. */
+function ItemVisto({ o, alAbrir }: { o: ObjetoVisto; alAbrir: () => void }) {
+    const c = CLASE_POR_NOMBRE[o.clase];
+    return (
+        <li className="rounded-md hover:bg-muted">
+            <button type="button" onClick={alAbrir} className="w-full flex items-center gap-2.5 px-2 pt-1.5 pb-1 text-left">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-muted shrink-0"><Ic n={c?.icono || "ScanSearch"} size={14} /></span>
+                <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold leading-tight">{o.pista != null && <span className="tabular-nums text-muted-foreground mr-1">#{o.pista}</span>}{c?.nombre || o.nombre}</span>
+                    {o.alternativa && <span className="block text-[11px] text-muted-foreground leading-tight">o {o.alternativa.nombre} ({pct(o.alternativa.confianza)})</span>}
+                </span>
+                <span className="text-[12px] font-bold tabular-nums">{pct(o.confianza)}</span>
+            </button>
+            {(o.postura !== undefined || o.area != null || o.atributos) && (
+                <div className="pl-[46px] pr-2 pb-1.5 flex flex-wrap gap-1">
+                    {o.postura !== undefined && (o.postura
+                        ? <Chip tono={o.postura === "acostada" ? "aviso" : "neutro"} icono={PersonStanding}>{o.postura}{o.inclinacion != null ? ` · ${o.inclinacion}°` : ""}</Chip>
+                        : <span className="text-[11px] text-muted-foreground">postura: {o.motivo || "no se puede decir"}</span>)}
+                    {o.area != null && <span className="text-[11px] text-muted-foreground tabular-nums">ocupa {(o.area * 100).toFixed(o.area < 0.01 ? 2 : 1)} % de la imagen</span>}
+                    {o.atributos?.map((a) => (
+                        <span key={a.id} title={a.opciones.map((x) => `${x.valor} ${pct(x.prob)}`).join(" · ")}
+                            className={cn("inline-flex items-center gap-1 h-[22px] px-2 rounded-full border text-[11px]", a.dudoso ? "border-dashed border-border text-muted-foreground" : "border-border")}>
+                            <span className="text-muted-foreground">{a.nombre}:</span>
+                            <b className="font-semibold">{a.dudoso ? `¿${a.valor}?` : a.valor}</b>
+                            <span className="tabular-nums text-muted-foreground">{pct(a.prob)}</span>
+                        </span>
+                    ))}
+                    {o.atributos_motivo && <span className="text-[11px] text-muted-foreground">atributos: {o.atributos_motivo}</span>}
+                </div>
+            )}
+        </li>
     );
 }
 
