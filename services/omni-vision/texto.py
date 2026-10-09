@@ -19,6 +19,7 @@ Además de leer, marca dos cosas que hacen falta para usar el texto:
 
 from __future__ import annotations
 
+import math
 import re
 import time
 
@@ -31,6 +32,12 @@ CONFIANZA_MIN = 0.6
 # Lado mayor de la imagen para encontrar texto: a 2000 px una foto de 2560 apenas se achica;
 # más grande no mejora y tarda.
 LADO_MAX = 2000
+# El lector de renglones recibe lotes de ancho variable (el del renglón más largo). En la GPU,
+# cada forma nueva le cuesta ~1,2 s a ONNX Runtime (planifica de nuevo); con la misma forma,
+# 17 ms. Medido el 9/10 en la 3050: 1,85 s por foto sólo en leer 9 renglones. Por eso los lotes
+# se rellenan a anchos fijos (múltiplos de esto) y a lote completo: pocas formas, todas
+# conocidas después de las primeras fotos.
+ANCHO_PASO = 320
 
 # Lo que imprime la cámara sobre la imagen: fecha, hora, y la franja de datos de las Hikvision
 # LPR ("Camera Info: Device No.…", "Vehicle Color", "Confidence"). Se reconoce por el texto, no
@@ -66,10 +73,36 @@ class Lector:
             "EngineConfig.onnxruntime.cuda_ep_cfg.arena_extend_strategy": "kSameAsRequested",
             "EngineConfig.onnxruntime.cuda_ep_cfg.cudnn_conv_algo_search": "HEURISTIC",
             "EngineConfig.onnxruntime.intra_op_num_threads": motor.HILOS_CPU,
+            # Sin el clasificador de orientación: endereza texto dado vuelta (180°), que en una
+            # cámara de calle casi no existe, y es un modelo más por foto.
+            "Global.use_cls": False,
         })
+        self._parchado = False
         import onnxruntime as ort
         en_gpu = self.usar_gpu and "CUDAExecutionProvider" in ort.get_available_providers()
         self.proveedor = "CUDAExecutionProvider" if en_gpu else "CPUExecutionProvider"
+
+    def _rellenar_lotes(self):
+        """Envuelve la sesión del lector de renglones para que siempre vea las mismas formas."""
+        rec = getattr(self.motor, "text_rec", None)
+        # RapidOCR carga sus modelos recién en la primera foto: hasta entonces no hay qué envolver.
+        if rec is None or self._parchado:
+            return
+        original = rec.session
+        lote = int(rec.rec_batch_num)
+
+        class Relleno:
+            def __call__(self, x):
+                n, c, h, w = x.shape
+                ancho = max(ANCHO_PASO, int(math.ceil(w / ANCHO_PASO) * ANCHO_PASO))
+                # Relleno con 0: es lo mismo que pone RapidOCR para emparejar un lote (gris medio
+                # una vez normalizado), así que un renglón no cambia por ir acompañado.
+                x2 = np.zeros((max(lote, n), c, h, ancho), dtype=np.float32)
+                x2[:n, :, :, :w] = x
+                return original(x2)[:n]
+
+        rec.session = Relleno()
+        self._parchado = True
 
     def leer(self, img, objetos=None) -> list[dict]:
         if self.motor is None:
@@ -83,6 +116,7 @@ class Lector:
             t0 = time.perf_counter()
             try:
                 r = self.motor(img)
+                self._rellenar_lotes()
             except Exception:
                 self.errores += 1
                 raise
