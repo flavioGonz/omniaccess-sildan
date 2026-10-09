@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, ScanEye, ListVideo, Activity, Camera, BellRing, BellOff, Type,
+    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type,
     type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
@@ -74,6 +74,19 @@ export default function ReglasVision() {
     }, []);
     useEffect(() => { cargar(); const iv = setInterval(cargar, REFRESCO_MS); return () => clearInterval(iv); }, [cargar]);
 
+    // «Crear regla» desde Analíticas llega con ?nueva=<tipo>: se abre el cajón una vez y se
+    // limpia la dirección, así recargar la página no abre otra regla nueva.
+    const pedidaNueva = useRef(false);
+    useEffect(() => {
+        if (!datos || pedidaNueva.current) return;
+        pedidaNueva.current = true;
+        const tipo = new URLSearchParams(window.location.search).get("nueva") as TipoRegla | null;
+        if (!tipo || !(tipo in TIPOS_REGLA)) return;
+        window.history.replaceState(null, "", window.location.pathname);
+        setEsNueva(true);
+        setEditando(reglaNueva(tipo, datos.camaras[0]?.id || ""));
+    }, [datos]);
+
     /** Guarda la lista entera con un cambio. Devuelve si salió. */
     const guardarLista = async (reglas: ReglaVision[], texto: string) => {
         setGuardando(true);
@@ -103,21 +116,19 @@ export default function ReglasVision() {
                     <div className="flex items-center gap-2 flex-wrap">
                         <h1 className="text-[17px] font-bold leading-tight">Reglas de visión</h1>
                         {sinSenal ? <Chip tono="mal" icono={Activity}>vision-worker no da señal</Chip> : <Chip tono="bien" icono={Activity}>Aplicándose</Chip>}
-                        {(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((t) => !datos.analiticas[t]).map((t) => <Chip key={t} tono="quieto">{TIPOS_REGLA[t].nombre}: apagada en el laboratorio</Chip>)}
+                        {(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((t) => !datos.analiticas[t]).map((t) => <Chip key={t} tono="quieto">{TIPOS_REGLA[t].nombre}: apagada en Analíticas</Chip>)}
                         {est?.reglas?.ultimoError && <Chip tono="aviso">Último error: {est.reglas.ultimoError}</Chip>}
                     </div>
                     <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
                         Una línea o una zona sobre el cuadro de una cámara, y qué hacer cuando algo la cruza o se queda. Se mira cada cámara con regla cada ~2 s y se sigue a cada objeto: lo que se mide es su pie, donde toca el piso.
                     </p>
                 </div>
-                <a href="/admin/vision/detecciones" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent"><ListVideo size={15} /> Detecciones</a>
-                <a href="/admin/vision" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent"><ScanEye size={15} /> Laboratorio</a>
                 <Button onClick={() => { setEsNueva(true); setEditando(reglaNueva("conteo", datos.camaras[0]?.id || "")); }}><Plus size={14} /> Nueva regla</Button>
             </div>
 
             <div className="rounded-[10px] border border-border bg-card px-4 py-2.5 flex items-center gap-2 text-[12px] text-muted-foreground">
                 <Type size={14} />
-                <span><b className="text-foreground">Empresa por rotulado</b> no lleva regla: {datos.rotulado ? "está prendida y" : "está apagada en el laboratorio; prendida,"} lee el texto de cada vehículo del registro de detecciones y lo cruza con el catálogo de empresas. Se ve en Detecciones.</span>
+                <span><b className="text-foreground">Empresa por rotulado</b> no lleva regla: {datos.rotulado ? "está prendida y" : "está apagada en Analíticas; prendida,"} lee el texto de cada vehículo del registro de detecciones y lo cruza con el catálogo de empresas. Se ve en Detecciones.</span>
             </div>
 
             {/* Las reglas */}
@@ -213,7 +224,7 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: Reg
                     <div className="text-[13.5px] font-semibold truncate">{r.nombre}</div>
                     <div className="text-[11.5px] text-muted-foreground truncate">{TIPOS_REGLA[r.tipo].nombre} · {camara}</div>
                 </button>
-                <Pista titulo={r.activa ? "Prendida" : "Apagada"} texto={apagadaLab ? "Su analítica está apagada en el laboratorio: aunque la regla esté prendida, no corre." : "Apagada no se aplica, pero se guarda lo dibujado."}>
+                <Pista titulo={r.activa ? "Prendida" : "Apagada"} texto={apagadaLab ? "Su analítica está apagada en Analíticas: aunque la regla esté prendida, no corre." : "Apagada no se aplica, pero se guarda lo dibujado."}>
                     <span><Switch checked={r.activa} onCheckedChange={alActivar} aria-label="Prender o apagar la regla" /></span>
                 </Pista>
             </div>

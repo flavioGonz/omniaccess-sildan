@@ -2,14 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    ScanEye, ScanSearch, Shapes, PersonStanding, Waypoints, Tag, Sparkles, Move, User, Users, Car, PawPrint, Backpack,
-    TrafficCone, Sofa, Utensils, Volleyball, Truck, Bike, Bus, TrainFront, Sailboat, Plane, Dog, Cat, Bird, Briefcase,
-    Luggage, Umbrella, Smartphone, Shirt, Laptop, Book, Scissors, Baby, Fan, Brush, Octagon, FireExtinguisher,
-    ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse, Keyboard, Microwave, CookingPot, Bath,
-    Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed, Soup, Banana, Apple, Sandwich, Citrus, Salad,
-    Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers, Radio,
-    Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge,
-    Cpu, Loader2, Camera, RefreshCw, EyeOff, FlaskConical, Info, Square, Play, type LucideIcon,
+    ScanEye, PersonStanding, Tag, Layers, Radio, Type, Gauge, Cpu, Loader2, Camera, RefreshCw,
+    EyeOff, FlaskConical, Info, Square, Play,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
@@ -20,44 +14,31 @@ import { Filtros } from "@/components/ui/filtros";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import {
     CAPACIDADES, CLASES, GRUPOS, ANALITICAS, CLASE_POR_NOMBRE, TAREA_DE_CAPACIDAD, ESQUELETO, PUNTOS_POSE,
-    type Capacidad, type Clase, type Analitica, type EstadoCapacidad, type EstadoAnalitica, type Grupo,
+    type Capacidad, type Clase, type Analitica, type Grupo,
 } from "@/lib/vision-catalogo";
 import type { SaludVision, ObjetoVisto, TareaVision, TextoLeido } from "@/lib/vision";
 import { TAREAS_VISION } from "@/lib/vision-tareas";
 import { TAREA_DE_PESO, ESTIMADOS, NOMBRE_PESO, RITMO_RAPIDO, RITMO_RONDA, puntajePeso, fraccionGpu, mb, porc, type Medida } from "@/lib/vision-peso";
 import { Pista } from "@/components/ui/pista";
+import { Ic, TONO_CAPACIDAD, TONO_ANALITICA, FichaAnalitica } from "@/components/vision/analiticas";
 
 /**
  * Laboratorio de visión: lo que se está construyendo con el detector de objetos.
  *
- * Ruta sin entrada en el menú a propósito (pedido de Nico, 9/10): es para probar y decidir,
- * no para operar. La protege el permiso Ajustes (lib/permisos), porque los interruptores son
- * configuración.
+ * Una de las pantallas de OmniVision (barra de arriba, y menú «OmniVision» de Ajustes). La
+ * protege el permiso Ajustes (lib/permisos), porque los interruptores son configuración.
  *
- * Cuatro bloques, en el orden en que se lee:
- *   1. Qué puede hacer la familia YOLO y con qué pieza libre se hace acá.
+ * Tres bloques, en el orden en que se lee:
+ *   1. Qué puede hacer la familia YOLO, con qué pieza libre se hace acá y cuánto pesa.
  *   2. Probar: el cuadro actual de una cámara con las cajas dibujadas, o todas de una vez.
- *   3. Las analíticas de OmniAccess, con su interruptor y su estado real.
- *   4. Las 80 clases que reconoce, cada una con su ficha.
+ *   3. Las 80 clases que reconoce, cada una con su ficha.
+ * Las analíticas se prenden en su propia pantalla (/admin/vision/analiticas); acá queda su
+ * ficha, porque la de cada clase dice qué analíticas la usan.
  *
  * Los interruptores no mienten: una analítica que todavía no corre se puede prender, y la
  * fila dice "prendida · todavía no corre". Lo único que hoy obedece a los interruptores de
  * clase es la prueba de esta misma pantalla (lo apagado no se dibuja y se cuenta aparte).
  */
-
-const ICONOS: Record<string, LucideIcon> = {
-    ScanEye, ScanSearch, Shapes, PersonStanding, Waypoints, Tag, Sparkles, Move, User, Users, Car, PawPrint, Backpack,
-    TrafficCone, Sofa, Utensils, Volleyball, Truck, Bike, Bus, TrainFront, Sailboat, Plane, Dog, Cat, Bird, Briefcase,
-    Luggage, Umbrella, Smartphone, Shirt, Laptop, Book, Scissors, Baby, Fan, Brush, Octagon, FireExtinguisher,
-    ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse, Keyboard, Microwave, CookingPot, Bath,
-    Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed, Soup, Banana, Apple, Sandwich, Citrus, Salad,
-    Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers,
-    Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge,
-};
-function Ic({ n, size = 16, className }: { n: string; size?: number; className?: string }) {
-    const C = ICONOS[n] || ScanSearch;
-    return <C size={size} className={className} />;
-}
 
 /** Cada cuánto se vuelve a preguntar la salud de omni-vision. */
 const REFRESCO_SALUD_MS = 10_000;
@@ -95,18 +76,6 @@ const TAREAS: { id: TareaVision; rotulo: string; ayuda: string }[] = [
     { id: "pose", rotulo: "Pose", ayuda: "Los 17 puntos del cuerpo de cada persona y su postura (RF-DETR Keypoint)." },
 ];
 
-const TONO_CAPACIDAD: Record<EstadoCapacidad, { tono: "bien" | "info" | "aviso" | "quieto"; texto: string }> = {
-    corre: { tono: "bien", texto: "Corre hoy" },
-    libre: { tono: "info", texto: "Libre · sin instalar" },
-    pesado: { tono: "aviso", texto: "Libre · pesado" },
-    "no-aplica": { tono: "quieto", texto: "No aplica" },
-};
-const TONO_ANALITICA: Record<EstadoAnalitica, { tono: "bien" | "info" | "quieto" | "aviso"; texto: string }> = {
-    corre: { tono: "bien", texto: "Corre" },
-    desarrollo: { tono: "info", texto: "En desarrollo" },
-    posible: { tono: "quieto", texto: "Posible" },
-    entrenar: { tono: "aviso", texto: "Hay que entrenar" },
-};
 const RELEVANCIA: Record<Clase["relevancia"], string> = { clave: "Clave", util: "Útil", poco: "Poco útil" };
 
 type Camara = { id: string; name: string; deviceType: string };
@@ -391,19 +360,13 @@ export default function VisionLab() {
                 <span className="grid h-10 w-10 place-items-center rounded-full bg-muted shrink-0"><ScanEye size={20} /></span>
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <h1 className="text-[17px] font-bold leading-tight">Visión</h1>
-                        <Chip tono="info" icono={FlaskConical}>Laboratorio · sin menú</Chip>
+                        <h1 className="text-[17px] font-bold leading-tight">Laboratorio</h1>
+                        <Chip tono="info" icono={FlaskConical}>Probar y decidir</Chip>
                     </div>
                     <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
                         El detector de objetos que se está sumando a OmniAccess: qué puede hacer, probarlo sobre las cámaras del barrio y decidir qué analíticas se prenden. Lo que ya llega a la operación: la relectura de NO_LEIDA (monitor LPR y Control LPR) y los avisos de las reglas (sentido contrario, permanencia, aglomeración) a la guardia. Nunca decide la barrera.
                     </p>
                 </div>
-                <a href="/admin/vision/reglas" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent">
-                    <Spline size={15} /> Reglas
-                </a>
-                <a href="/admin/vision/detecciones" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md bg-[var(--accion)] text-[var(--accion-texto)] text-[13px] font-semibold hover:opacity-90">
-                    <ListVideo size={15} /> Detecciones
-                </a>
             </div>
 
             {/* Salud del servicio */}
@@ -567,21 +530,9 @@ export default function VisionLab() {
                 </div>
             </section>
 
-            {/* 3. Analíticas */}
-            <section>
-                <Titulo n={3} titulo="Analíticas de OmniAccess"
-                    ayuda="Lo que se construye encima del detector, por modo. Prenderla guarda la decisión; las que todavía no corren lo dicen al lado del interruptor." />
-                <div className="rounded-[10px] border border-border bg-card divide-y divide-border">
-                    {ANALITICAS.map((a) => (
-                        <FilaAnalitica key={a.id} a={a} prendida={!!estado.analiticas[a.id]}
-                            alCambiar={(v) => guardar("analitica", a.id, v)} alAbrir={() => setAnaliticaAbierta(a)} />
-                    ))}
-                </div>
-            </section>
-
             {/* 4. Clases */}
             <section>
-                <Titulo n={4} titulo={`Qué reconoce: ${CLASES.length} clases`}
+                <Titulo n={3} titulo={`Qué reconoce: ${CLASES.length} clases`}
                     ayuda="Las clases COCO, las mismas para YOLO26 y para RF-DETR. Vienen prendidas las que le sirven a un barrio; las apagadas no se dibujan en la prueba." />
                 <Filtros className="mb-3" busqueda={busqueda} alBuscar={setBusqueda} placeholder="Buscar una clase"
                     grupos={[
@@ -984,38 +935,6 @@ function ItemVisto({ o, alAbrir }: { o: ObjetoVisto; alAbrir: () => void }) {
     );
 }
 
-function NotaNoCorre({ a, prendida }: { a: Analitica; prendida: boolean }) {
-    if (a.estado === "corre") return null;
-    return (
-        <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-            {prendida ? "prendida · todavía no corre" : "apagada"}
-        </span>
-    );
-}
-
-function FilaAnalitica({ a, prendida, alCambiar, alAbrir }: { a: Analitica; prendida: boolean; alCambiar: (v: boolean) => void; alAbrir: () => void }) {
-    const t = TONO_ANALITICA[a.estado];
-    return (
-        <div className="flex items-center gap-3 px-4 py-3 hover:bg-muted/40">
-            <button type="button" onClick={alAbrir} className="flex items-center gap-3 min-w-0 flex-1 text-left">
-                <span className={cn("grid h-9 w-9 place-items-center rounded-full shrink-0", prendida ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] text-[var(--accion)]" : "bg-muted text-muted-foreground")}><Ic n={a.icono} size={17} /></span>
-                <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[13.5px] font-bold">{a.nombre}</span>
-                        <span className="text-[11px] text-muted-foreground">{a.modo}</span>
-                        <Chip tono={t.tono}>{t.texto}{a.fase ? ` · fase ${a.fase}` : ""}</Chip>
-                    </span>
-                    <span className="block text-[12px] text-muted-foreground leading-snug mt-0.5 line-clamp-2">{a.queHace}</span>
-                </span>
-            </button>
-            <NotaNoCorre a={a} prendida={prendida} />
-            {a.id === "prueba"
-                ? <span className="text-[11px] text-muted-foreground w-8 text-center">—</span>
-                : <Switch checked={prendida} onCheckedChange={alCambiar} aria-label={`${prendida ? "Apagar" : "Prender"} ${a.nombre}`} />}
-        </div>
-    );
-}
-
 function TarjetaClase({ c, prendida, vistos, alCambiar, alAbrir }: { c: Clase; prendida: boolean; vistos: number; alCambiar: (v: boolean) => void; alAbrir: () => void }) {
     return (
         <div className={cn("rounded-[10px] border bg-card p-3 flex items-center gap-2.5 transition-colors", prendida ? "border-border" : "border-border/60 opacity-60")}>
@@ -1103,65 +1022,6 @@ function FichaClase({ c, prendida, vistos, alCambiar, alAbrirAnalitica }: {
                     </div>
                 )}
             </CajonSeccion>
-        </>
-    );
-}
-
-function FichaAnalitica({ a, prendida, prendidas, alCambiar, alAbrirClase }: {
-    a: Analitica; prendida: boolean; prendidas: Record<string, boolean>; alCambiar: (v: boolean) => void; alAbrirClase: (c: Clase) => void;
-}) {
-    const t = TONO_ANALITICA[a.estado];
-    const caps = CAPACIDADES.filter((c) => a.necesita.includes(c.id));
-    return (
-        <>
-            <CajonSeccion titulo="" compacta>
-                <div className="flex items-start gap-4">
-                    <span className="grid h-16 w-16 place-items-center rounded-full bg-muted shrink-0"><Ic n={a.icono} size={30} /></span>
-                    <div className="min-w-0 flex-1">
-                        <Chip tono={t.tono}>{t.texto}{a.fase ? ` · fase ${a.fase}` : ""}</Chip>
-                        <p className="text-[13px] mt-2 leading-snug">{a.queHace}</p>
-                        {a.limite && <p className="text-[12px] text-muted-foreground mt-2 flex items-start gap-1.5"><Info size={13} className="mt-0.5 shrink-0" /> {a.limite}</p>}
-                    </div>
-                </div>
-                {a.id !== "prueba" && (
-                    <label className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2.5 cursor-pointer">
-                        <span>
-                            <span className="block text-[13px] font-semibold">{prendida ? "Prendida" : "Apagada"}</span>
-                            <span className="block text-[11.5px] text-muted-foreground">
-                                {a.estado === "corre" ? "Corre ahora." : "Todavía no corre: se guarda la decisión y se aplica el día que esta analítica exista."}
-                            </span>
-                        </span>
-                        <Switch checked={prendida} onCheckedChange={alCambiar} />
-                    </label>
-                )}
-            </CajonSeccion>
-            <CajonSeccion titulo="Necesita" icono={Cpu} compacta>
-                <div className="space-y-1.5">
-                    {caps.map((c) => (
-                        <div key={c.id} className="flex items-center gap-2.5">
-                            <Ic n={c.icono} size={15} className="text-muted-foreground" />
-                            <span className="text-[13px] font-semibold flex-1">{c.nombre}</span>
-                            <Chip tono={TONO_CAPACIDAD[c.estado].tono}>{TONO_CAPACIDAD[c.estado].texto}</Chip>
-                        </div>
-                    ))}
-                </div>
-            </CajonSeccion>
-            {a.clases.length > 0 && (
-                <CajonSeccion titulo="Mira estas clases" icono={ScanSearch} compacta>
-                    <div className="flex flex-wrap gap-1.5">
-                        {a.clases.map((n) => {
-                            const c = CLASE_POR_NOMBRE[n];
-                            if (!c) return null;
-                            return (
-                                <button key={n} type="button" onClick={() => alAbrirClase(c)}
-                                    className={cn("inline-flex items-center gap-1.5 h-8 px-2.5 rounded-full border text-[12px] font-semibold hover:bg-muted", prendidas[n] ? "border-border" : "border-dashed border-border text-muted-foreground")}>
-                                    <Ic n={c.icono} size={13} /> {c.nombre}{!prendidas[n] && " (apagada)"}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </CajonSeccion>
-            )}
         </>
     );
 }

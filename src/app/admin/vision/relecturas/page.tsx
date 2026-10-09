@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ScanLine, ScanEye, ListVideo, Activity, Camera, CheckCircle2, UserCheck } from "lucide-react";
+import { ScanLine, Activity, Camera, CheckCircle2, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
@@ -81,15 +81,13 @@ export default function RelecturasVision() {
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <h1 className="text-[17px] font-bold leading-tight">Relecturas de NO_LEIDA</h1>
-                        {datos.activa ? <Chip tono="bien" icono={Activity}>Prendida</Chip> : <Chip tono="quieto">Apagada en el laboratorio</Chip>}
+                        {datos.activa ? <Chip tono="bien" icono={Activity}>Prendida</Chip> : <Chip tono="quieto">Apagada en Analíticas</Chip>}
                         {datos.estado?.ultimoError && <Chip tono="aviso">Último error: {datos.estado.ultimoError}</Chip>}
                     </div>
                     <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
                         Cuando la lectora de un acceso no lee la chapa, se recorta el vehículo de la foto y se vuelve a leer. El monitor LPR la muestra como sugerencia («¿ABC1234?») y el guardia la confirma con «Cargar matrícula». No cambia el evento ni la barrera por sí sola.
                     </p>
                 </div>
-                <a href="/admin/vision/detecciones" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent"><ListVideo size={15} /> Detecciones</a>
-                <a href="/admin/vision" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent"><ScanEye size={15} /> Laboratorio</a>
             </div>
 
             <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
@@ -111,7 +109,7 @@ export default function RelecturasVision() {
             {error && <div className="rounded-[10px] border border-[color-mix(in_oklab,var(--mal)_40%,transparent)] bg-[var(--mal-suave)] px-4 py-2.5 text-[12.5px] text-[var(--mal-texto)]">No se pudo actualizar: {error}. Se muestra lo último que llegó.</div>}
             {filas.length === 0 ? (
                 <div className="rounded-[10px] border border-border bg-card p-10 text-center text-[13px] text-muted-foreground">
-                    {c.releidas === 0 ? (datos.activa ? "Todavía no hay relecturas en este rango. La primera vez se pone al día con las NO_LEIDA del último día, de a una." : "La relectura está apagada en el laboratorio.") : "Nada con este filtro."}
+                    {c.releidas === 0 ? (datos.activa ? "Todavía no hay relecturas en este rango. La primera vez se pone al día con las NO_LEIDA del último día, de a una." : "La relectura está apagada (OmniVision › Analíticas).") : "Nada con este filtro."}
                 </div>
             ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">

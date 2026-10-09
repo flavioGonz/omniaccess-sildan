@@ -46,7 +46,10 @@ import {
     ChevronDown,
     Video,
     Building2,
+    ScanEye,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
 import nextDynamic from "next/dynamic";
 const _SLoad = () => <div className="p-8 text-sm text-muted-foreground animate-pulse">Cargando…</div>;
 const BrandingSection = nextDynamic(() => import("./BrandingSection"), { ssr: false, loading: _SLoad });
@@ -215,6 +218,11 @@ const NAV_GROUPS = [
         { sec: "tracking", btab: "", label: "Omni-LPR & Seguimiento", icon: Video },
         { sec: "playback", btab: "", label: "Video del evento", icon: Video },
     ]},
+    /* OmniVision no es una sección de esta página: son pantallas propias (/admin/vision/*),
+       con su barra. El menú lleva a ellas (`href`) y sale de la misma lista que esa barra. */
+    { id: "omnivision", label: "OmniVision", icon: ScanEye, items: SECCIONES_OMNIVISION.map((x) => (
+        { sec: "", btab: "", href: x.href, label: x.menu, icon: x.icono }
+    )) },
 ];
 
 const DRIVERS = [
@@ -231,6 +239,7 @@ const DRIVERS = [
 ];
 
 export default function SettingsPage() {
+    const router = useRouter();
     const [activeSection, setActiveSection] = useState("system_status");
     const [openGroup, setOpenGroup] = useState<string | null>(null);
     const [brandingTab, setBrandingTab] = useState("identidad");
@@ -317,7 +326,7 @@ export default function SettingsPage() {
                                             return (
                                                 <button
                                                     key={idx}
-                                                    onClick={() => { setActiveSection(it.sec); if (it.btab) setBrandingTab(it.btab); if (it.ntab) setNotifTab(it.ntab); setOpenGroup(null); }}
+                                                    onClick={() => { if (it.href) { setOpenGroup(null); router.push(it.href); return; } setActiveSection(it.sec); if (it.btab) setBrandingTab(it.btab); if (it.ntab) setNotifTab(it.ntab); setOpenGroup(null); }}
                                                     className={cn(
                                                         "w-full flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium rounded-lg transition-colors text-left",
                                                         itemActive ? "bg-indigo-500/15 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-accent/60"
