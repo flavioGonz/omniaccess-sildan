@@ -23,6 +23,8 @@ import {
     type Capacidad, type Clase, type Analitica, type EstadoCapacidad, type EstadoAnalitica, type Grupo,
 } from "@/lib/vision-catalogo";
 import type { SaludVision, ObjetoVisto, TareaVision, TextoLeido } from "@/lib/vision";
+import { TAREAS_VISION } from "@/lib/vision-tareas";
+import { Pista } from "@/components/ui/pista";
 
 /**
  * Laboratorio de visión: lo que se está construyendo con el detector de objetos.
@@ -110,6 +112,8 @@ type Camara = { id: string; name: string; deviceType: string };
 type Estado = {
     salud: SaludVision | null; latencia: number; error?: string;
     analiticas: Record<string, boolean>; clases: Record<string, boolean>; camaras: Camara[];
+    /** Lo guardado (Setting VISION_TAREAS): es la verdad, aunque omni-vision tarde en enterarse. */
+    tareasApagadas?: string[];
 };
 type Prueba = {
     camara: { id: string; name: string }; fuente: string; ms_cuadro: number; ancho: number; alto: number;
@@ -180,6 +184,25 @@ export default function VisionLab() {
             setEstado((e) => (e ? { ...e, analiticas: j.analiticas, clases: j.clases } : e));
         } catch (e: any) {
             setEstado((x) => (x ? { ...x, [clave]: { ...x[clave], [id]: antes } } : x));
+            toast.error({ title: "No se guardó", description: e?.message });
+        }
+    }
+
+    /** Prende o apaga una tarea de omni-vision. Guardado y aplicado son dos cosas: se dice si falta lo segundo. */
+    async function guardarTarea(t: string, activa: boolean) {
+        if (!estado) return;
+        const antes = estado.tareasApagadas || [];
+        const nuevas = activa ? antes.filter((x) => x !== t) : [...new Set([...antes, t])];
+        setEstado({ ...estado, tareasApagadas: nuevas });
+        try {
+            const r = await fetch("/api/vision/tareas", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tarea: t, activa }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            setEstado((e) => (e ? { ...e, tareasApagadas: j.tareasApagadas } : e));
+            if (!j.aplicada) toast.warning({ title: "Guardado, sin aplicar todavía", description: "omni-vision no contestó: se lo vuelve a mandar vision-worker en su próxima vuelta." });
+            cargar();
+        } catch (e: any) {
+            setEstado((x) => (x ? { ...x, tareasApagadas: antes } : x));
             toast.error({ title: "No se guardó", description: e?.message });
         }
     }
@@ -338,6 +361,7 @@ export default function VisionLab() {
     if (!estado) return <div className="p-6 lg:p-8 max-w-[1400px] mx-auto"><Cargando texto="Preguntándole a omni-vision…" /></div>;
 
     const s = estado.salud;
+    const apagadas = estado.tareasApagadas || [];
     const prendidas = estado.clases;
     const enGpu = s?.proveedor?.startsWith("CUDA");
 
@@ -390,30 +414,54 @@ export default function VisionLab() {
                 )}
                 {s?.tareas && (
                     <div className="mt-3 overflow-x-auto">
+                        {apagadas.length > 0 && (
+                            <p className="mb-2 text-[11.5px] text-muted-foreground flex items-center gap-1.5"><Info size={12} />
+                                {apagadas.includes("detectar") || apagadas.includes("seguimiento")
+                                    ? "Con la detección o el seguimiento apagados, vision-worker no mira las cámaras: no hay registro, ni reglas, ni relectura."
+                                    : `Apagadas: ${apagadas.map((t) => TAREAS_VISION[t]?.nombre || t).join(", ")}. Su memoria de la GPU quedó libre.`}
+                            </p>
+                        )}
                         <table className="w-full text-[12.5px]">
                             <thead>
                                 <tr className="text-left text-[11px] text-muted-foreground">
-                                    <th className="font-semibold py-1.5 pr-3">Tarea</th><th className="font-semibold pr-3">Modelo</th><th className="font-semibold pr-3">Licencia</th>
+                                    <th className="font-semibold py-1.5 pr-3 w-12">Activa</th><th className="font-semibold pr-3">Tarea</th><th className="font-semibold pr-3">Modelo</th><th className="font-semibold pr-3">Licencia</th>
                                     <th className="font-semibold pr-3">En la GPU</th><th className="font-semibold pr-3 text-right">Pedidos</th>
                                     <th className="font-semibold pr-3 text-right">Mediana</th><th className="font-semibold text-right">Peor 5 %</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-border">
-                                {Object.entries(s.tareas).map(([t, v]) => (
-                                    <tr key={t}>
-                                        <td className="py-1.5 pr-3 font-semibold">{NOMBRE_TAREA[t] || t}</td>
-                                        <td className="pr-3 text-muted-foreground">{v.modelo}</td>
-                                        <td className="pr-3 text-muted-foreground">{v.licencia}</td>
-                                        <td className="pr-3">{v.abierto ? (String(v.proveedor).startsWith("CUDA") ? "cargado" : "cargado (CPU)") : <span className="text-muted-foreground">se carga al pedirla</span>}</td>
-                                        <td className="pr-3 text-right tabular-nums">{v.total}</td>
-                                        <td className="pr-3 text-right tabular-nums">{v.latencia_ms?.p50 != null ? `${v.latencia_ms.p50} ms` : "—"}</td>
-                                        <td className="text-right tabular-nums">{v.latencia_ms?.p95 != null ? `${v.latencia_ms.p95} ms` : "—"}</td>
-                                    </tr>
-                                ))}
-                                {s.seguimiento && (
-                                    <tr><td className="py-1.5 pr-3 font-semibold">Seguimiento</td><td className="pr-3 text-muted-foreground">ByteTrack</td><td className="pr-3 text-muted-foreground">Apache-2.0</td>
-                                        <td className="pr-3 text-muted-foreground" colSpan={4}>sin modelo propio · {s.seguimiento.sesiones} {s.seguimiento.sesiones === 1 ? "sesión abierta" : "sesiones abiertas"}</td></tr>
-                                )}
+                                {Object.entries(s.tareas).map(([t, v]) => {
+                                    const activa = !apagadas.includes(t);
+                                    // El servicio todavía no se enteró (se reinició, o no contestó al guardar).
+                                    const pendiente = v.activa != null && v.activa !== activa;
+                                    return (
+                                        <tr key={t} className={cn(!activa && "text-muted-foreground")}>
+                                            <td className="py-1.5 pr-3"><InterruptorTarea t={t} activa={activa} alCambiar={(x) => guardarTarea(t, x)} /></td>
+                                            <td className="pr-3 font-semibold">{NOMBRE_TAREA[t] || t}</td>
+                                            <td className="pr-3 text-muted-foreground">{v.modelo}</td>
+                                            <td className="pr-3 text-muted-foreground">{v.licencia}</td>
+                                            <td className="pr-3">{pendiente ? <span className="text-muted-foreground inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> aplicando…</span>
+                                                : !activa ? <Chip tono="quieto">apagada</Chip>
+                                                : v.abierto ? (String(v.proveedor).startsWith("CUDA") ? "cargado" : "cargado (CPU)") : <span className="text-muted-foreground">se carga al pedirla</span>}</td>
+                                            <td className="pr-3 text-right tabular-nums">{v.total}</td>
+                                            <td className="pr-3 text-right tabular-nums">{v.latencia_ms?.p50 != null ? `${v.latencia_ms.p50} ms` : "—"}</td>
+                                            <td className="text-right tabular-nums">{v.latencia_ms?.p95 != null ? `${v.latencia_ms.p95} ms` : "—"}</td>
+                                        </tr>
+                                    );
+                                })}
+                                {s.seguimiento && (() => {
+                                    const activa = !apagadas.includes("seguimiento");
+                                    const pendiente = s.seguimiento.activa != null && s.seguimiento.activa !== activa;
+                                    return (
+                                        <tr className={cn(!activa && "text-muted-foreground")}>
+                                            <td className="py-1.5 pr-3"><InterruptorTarea t="seguimiento" activa={activa} alCambiar={(x) => guardarTarea("seguimiento", x)} /></td>
+                                            <td className="pr-3 font-semibold">Seguimiento</td><td className="pr-3 text-muted-foreground">ByteTrack</td><td className="pr-3 text-muted-foreground">Apache-2.0</td>
+                                            <td className="pr-3 text-muted-foreground" colSpan={4}>{pendiente ? <span className="inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> aplicando…</span>
+                                                : !activa ? <Chip tono="quieto">apagado</Chip>
+                                                : <>sin modelo propio · {s.seguimiento.sesiones} {s.seguimiento.sesiones === 1 ? "sesión abierta" : "sesiones abiertas"}</>}</td>
+                                        </tr>
+                                    );
+                                })()}
                             </tbody>
                         </table>
                         <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1.5"><Gauge size={12} /> Tiempos de GPU medidos dentro de omni-vision, sin contar el viaje del cuadro. Todas las tareas se turnan: nunca corren dos a la vez, para no pisar a omni-lpr.</p>
@@ -760,7 +808,17 @@ function TextosLeidos({ textos }: { textos: NonNullable<Prueba["textos"]> }) {
     );
 }
 
-const NOMBRE_TAREA: Record<string, string> = { detectar: "Detección", segmentar: "Siluetas", pose: "Pose", atributos: "Atributos", texto: "Texto (OCR)" };
+const NOMBRE_TAREA: Record<string, string> = Object.fromEntries(Object.entries(TAREAS_VISION).map(([k, v]) => [k, v.nombre]));
+
+/** El interruptor de una tarea de omni-vision, con lo que se pierde al apagarla al pasar el mouse. */
+function InterruptorTarea({ t, activa, alCambiar }: { t: string; activa: boolean; alCambiar: (activa: boolean) => void }) {
+    const info = TAREAS_VISION[t];
+    return (
+        <Pista titulo={activa ? `Apagar ${info?.nombre || t}` : `Prender ${info?.nombre || t}`} texto={info?.queApaga || ""} ancho={300}>
+            <span className="inline-flex"><Switch checked={activa} onCheckedChange={alCambiar} aria-label={`${activa ? "Apagar" : "Prender"} ${info?.nombre || t}`} /></span>
+        </Pista>
+    );
+}
 const NOMBRE_PASO: Record<string, string> = { detectar: "detección", segmentar: "siluetas", pose: "pose", atributos: "atributos", texto: "texto" };
 
 /** Un objeto en la lista de la derecha: qué es, su pista, su postura y sus atributos. */

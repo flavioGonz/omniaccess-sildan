@@ -1,5 +1,7 @@
 import { leerAjuste } from "@/lib/ajustes-db";
 import { CLAVE_ANALITICAS, CLAVE_CLASES, analiticasPorDefecto, clasesPorDefecto, mezclar } from "@/lib/vision-catalogo";
+import { CLAVE_TAREAS, TAREAS_VISION } from "@/lib/vision-tareas";
+export { CLAVE_TAREAS, TAREAS_VISION };
 
 /**
  * Cliente de omni-vision (services/omni-vision), el contenedor de detección de objetos.
@@ -24,7 +26,9 @@ export type SaludVision = {
     latencia_ms: { n: number; p50?: number; p95?: number }; tope_vram_mb: number;
     vram: { usada_mb: number; total_mb: number; uso_gpu: number } | null;
     modelos_disponibles: string[]; segundos_arriba: number;
-    tareas?: Record<string, EstadoTarea>; seguimiento?: { sesiones: number; licencia: string };
+    tareas?: Record<string, EstadoTarea>; seguimiento?: { sesiones: number; licencia: string; activa?: boolean };
+    /** Lo que omni-vision tiene apagado ahora (puede atrasarse unos segundos respecto del ajuste). */
+    apagadas?: string[];
 };
 
 export type Atributo = {
@@ -66,7 +70,23 @@ export type ResultadoDeteccion = {
     textos?: TextoLeido[];
 };
 
-export type EstadoTarea = { modelo: string; licencia: string; abierto: boolean; proveedor: string | null; total: number; errores: number; latencia_ms: { n: number; p50?: number; p95?: number }; coco_ap?: number };
+export type EstadoTarea = { modelo: string; licencia: string; abierto: boolean; proveedor: string | null; total: number; errores: number; latencia_ms: { n: number; p50?: number; p95?: number }; coco_ap?: number; activa?: boolean };
+
+export async function leerTareasApagadas(): Promise<string[]> {
+    const v = await leerAjuste(CLAVE_TAREAS);
+    try { const j = v?.value ? JSON.parse(v.value) : null; return Array.isArray(j?.apagadas) ? j.apagadas.filter((t: unknown) => typeof t === "string" && t in TAREAS_VISION) : []; } catch { return []; }
+}
+
+/** Le dice a omni-vision qué tareas no corren. Devuelve false si no contestó (el worker reintenta). */
+export async function mandarTareas(apagadas: string[]): Promise<boolean> {
+    try {
+        const r = await fetch(`${VISION_URL()}/tareas`, {
+            method: "POST", body: JSON.stringify({ apagadas }), headers: { "content-type": "application/json" },
+            cache: "no-store", signal: AbortSignal.timeout(TIEMPO_DETECTAR_MS),
+        });
+        return r.ok;
+    } catch { return false; }
+}
 
 export async function saludVision(): Promise<{ salud: SaludVision | null; latencia: number; error?: string }> {
     const t0 = performance.now();

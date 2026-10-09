@@ -124,21 +124,40 @@ const CLASES_APAGADAS_DEFECTO = new Set([
     "baseball bat", "baseball glove", "surfboard", "tennis racket",
 ]);
 
-let ajustes = { activo: false, relectura: false, rotulado: false, clases: {}, camaras: [], dispositivos: [], retencionDias: RETENCION_DIAS_DEFECTO, leidos: 0 };
+let ajustes = { activo: false, relectura: false, rotulado: false, clases: {}, camaras: [], dispositivos: [], retencionDias: RETENCION_DIAS_DEFECTO, leidos: 0, apagadas: new Set(), mira: true };
+
+/**
+ * Las tareas de omni-vision apagadas desde el laboratorio (Setting VISION_TAREAS, ver
+ * src/lib/vision-tareas.ts). Se le mandan a omni-vision en cada lectura de ajustes: el
+ * contenedor arranca con todo prendido, y así un reinicio no prende lo que alguien apagó.
+ */
+async function mandarTareas(apagadas) {
+    try {
+        await fetch(`${VISION}/tareas`, { method: "POST", body: JSON.stringify({ apagadas: [...apagadas] }), headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(20000) });
+    } catch { /* omni-vision caído: se reintenta en la próxima lectura */ }
+}
 
 async function leerAjustes() {
-    const [a, c, cams, ret, reglas] = await Promise.all([
-        ajuste("VISION_ANALITICAS"), ajuste("VISION_CLASES"), ajuste("VISION_CAMARAS"), ajuste("VISION_RETENCION_DIAS"), ajuste("VISION_REGLAS"),
+    const [a, c, cams, ret, reglas, tareas] = await Promise.all([
+        ajuste("VISION_ANALITICAS"), ajuste("VISION_CLASES"), ajuste("VISION_CAMARAS"), ajuste("VISION_RETENCION_DIAS"), ajuste("VISION_REGLAS"), ajuste("VISION_TAREAS"),
     ]);
+    const apagadas = new Set((json(tareas, {}).apagadas || []).map(String));
+    await mandarTareas(apagadas);
     const analiticas = json(a, {});
     const elegidas = json(cams, []);
     const dispositivos = await prisma.device.findMany({ where: { deviceType: { not: "NVR" } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
     ajustes = {
         activo: analiticas.registro !== false,
-        // La relectura de NO_LEIDA tiene su propio interruptor (analítica «relectura», prendida por defecto).
-        relectura: analiticas.relectura !== false,
-        // Empresa por rotulado (analítica «rotulados», prendida por defecto): sólo en las pistas del registro.
-        rotulado: analiticas.rotulados !== false,
+        apagadas,
+        // Sin detección no hay objetos, y sin seguimiento no hay pistas: ni registro ni reglas tienen
+        // con qué trabajar, así que no se miran las cámaras (en vez de pedir y fallar cada cuadro).
+        mira: !apagadas.has("detectar") && !apagadas.has("seguimiento"),
+        // La relectura de NO_LEIDA tiene su propio interruptor (analítica «relectura», prendida por
+        // defecto), y recorta el vehículo con la detección: apagada ésta, no hay relectura.
+        relectura: analiticas.relectura !== false && !apagadas.has("detectar"),
+        // Empresa por rotulado (analítica «rotulados», prendida por defecto): sólo en las pistas del
+        // registro, y la lee el OCR (tarea «texto»).
+        rotulado: analiticas.rotulados !== false && !apagadas.has("texto"),
         dispositivos,
         clases: json(c, {}),
         camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
@@ -209,7 +228,7 @@ async function recortar(jpeg, cajaNorm, ancho, alto) {
 }
 
 async function detectar(jpeg, deviceId, op = {}) {
-    const q = new URLSearchParams({ umbral: String(UMBRAL), atributos: op.atributos === false ? "0" : "1", sesion: `registro-${deviceId}`, fps: String(op.fps || 1000 / INTERVALO_MS) });
+    const q = new URLSearchParams({ umbral: String(UMBRAL), atributos: op.atributos === false || ajustes.apagadas.has("atributos") ? "0" : "1", sesion: `registro-${deviceId}`, fps: String(op.fps || 1000 / INTERVALO_MS) });
     const r = await fetch(`${VISION}/detectar?${q}`, {
         method: "POST", body: jpeg, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(20000),
     });
@@ -398,7 +417,7 @@ function resumenDifs(v) {
 async function escribirEstado() {
     const camaras = Object.fromEntries(Object.entries(porCamara).map(([k, v]) => [k, { ...v, difs: undefined, cambio: resumenDifs(v.difs) }]));
     const valor = JSON.stringify({
-        t: new Date().toISOString(), activo: ajustes.activo, intervaloMs: INTERVALO_MS, umbral: UMBRAL, cambioMin: CAMBIO_MIN,
+        t: new Date().toISOString(), activo: ajustes.activo, tareasApagadas: [...ajustes.apagadas], mira: ajustes.mira, intervaloMs: INTERVALO_MS, umbral: UMBRAL, cambioMin: CAMBIO_MIN,
         camaras, contadores, pistasAbiertas: abiertas.size, retencionDias: ajustes.retencionDias,
         relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
         reglas: reglero ? reglero.contadores : null, rotulado: ajustes.rotulado,
@@ -500,7 +519,7 @@ async function bucleRapido(st) {
 
 /** Prende el carril rápido de las cámaras con reglas de línea y lo apaga en las que ya no tienen. */
 function sincronizarRapidas(registro) {
-    const quiero = reglero.camarasRapidas();
+    const quiero = ajustes.mira ? reglero.camarasRapidas() : new Set();
     for (const [id, st] of rapidas) {
         if (quiero.has(id)) { st.registra = registro.has(id); continue; }
         st.retirada = true; try { st.ffmpeg?.kill("SIGKILL"); } catch { }
@@ -529,8 +548,8 @@ async function principal() {
         try {
             if (Date.now() - ajustes.leidos > AJUSTES_MS) await leerAjustes();
             // Las cámaras del registro (si está prendido) más las que tienen una regla prendida.
-            const porReglas = reglero.camaras();
-            const registro = new Set(ajustes.activo ? ajustes.camaras.map((c) => c.id) : []);
+            const porReglas = ajustes.mira ? reglero.camaras() : new Set();
+            const registro = new Set(ajustes.activo && ajustes.mira ? ajustes.camaras.map((c) => c.id) : []);
             sincronizarRapidas(registro);
             // Las del carril rápido no van en la ronda: las analiza su propio bucle.
             const lista = ajustes.dispositivos.filter((d) => (registro.has(d.id) || porReglas.has(d.id)) && !rapidas.has(d.id));
@@ -547,7 +566,7 @@ async function principal() {
                 }
             }
             // Con el registro apagado, las pistas abiertas por el carril rápido también se cierran.
-            await cerrarVencidas(!ajustes.activo);
+            await cerrarVencidas(!ajustes.activo || !ajustes.mira);
             contadores.ciclos++;
             if (Date.now() - ultEstado > ESTADO_MS) { await escribirEstado(); ultEstado = Date.now(); }
             if (Date.now() - ultLimpieza > LIMPIEZA_MS) { ultLimpieza = Date.now(); await limpiar().catch((e) => log("limpieza:", e.message)); }

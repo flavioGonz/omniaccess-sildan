@@ -6,6 +6,8 @@ la app (lib/vision*, laboratorio /admin/vision): ver openspec/changes/detector-o
 
 Contrato (estable, independiente de los modelos):
   GET  /salud      → modelos y su estado, cola, latencias por tarea, VRAM, sesiones de seguimiento.
+  POST /tareas     → {apagadas:[...]} qué tareas no corren (detectar, segmentar, pose, atributos,
+                     texto, seguimiento). Apagar una suelta su modelo de la GPU.
   POST /detectar   → cuerpo = la imagen (JPEG/PNG) o multipart con campo "imagen".
         ?tarea=detectar|segmentar|pose   qué modelo mira la imagen (defecto: detectar)
         ?atributos=1                     además, color/carrocería/ropa/chaleco… de cada objeto
@@ -19,6 +21,7 @@ Contrato (estable, independiente de los modelos):
 
 from __future__ import annotations
 
+import gc
 import json
 import os
 import subprocess
@@ -31,6 +34,7 @@ from starlette.concurrency import run_in_threadpool
 
 import detector as D
 from atributos import Describidor
+import motor
 from motor import Cola, Modelo
 from seguimiento import Sesiones
 from texto import Lector
@@ -65,6 +69,12 @@ NOMBRE_MODELO = {"detectar": MODELO, "segmentar": MODELO_SILUETAS, "pose": MODEL
 modelos["detectar"].resolucion  # noqa: B018
 arranque = time.time()
 
+# Las tareas apagadas desde la app (Setting VISION_TAREAS). La app es la dueña: este conjunto
+# arranca vacío y vision-worker lo vuelve a mandar en cada vuelta, así un reinicio del
+# contenedor no deja prendido lo que alguien apagó.
+TAREAS = ("detectar", "segmentar", "pose", "atributos", "texto", "seguimiento")
+apagadas: set[str] = set()
+
 app = FastAPI(title="omni-vision", docs_url=None, redoc_url=None)
 
 
@@ -77,6 +87,41 @@ def _vram() -> dict | None:
         return {"usada_mb": usada, "total_mb": total, "uso_gpu": uso}
     except Exception:
         return None
+
+
+def _soltar(t: str) -> None:
+    """Suelta la sesión de una tarea apagada: así devuelve su VRAM (que es de omni-lpr también).
+
+    Bajo el turno de GPU, para no sacarle la sesión a una inferencia que está corriendo. Si
+    después se prende, la próxima foto la vuelve a abrir (paga la carga una vez)."""
+    with motor.GPU:
+        if t in modelos:
+            modelos[t].sesion = None
+        elif t == "atributos":
+            describidor.modelo.sesion = None
+        elif t == "texto":
+            lector.motor = None
+            lector._parchado = False
+        elif t == "seguimiento":
+            # Las pistas viejas no sirven al volver: se empiezan de cero.
+            with sesiones._c:
+                sesiones._s.clear()
+    gc.collect()
+
+
+@app.post("/tareas")
+async def poner_tareas(request: Request):
+    try:
+        cuerpo = await request.json()
+    except Exception:
+        raise HTTPException(400, "Se espera JSON {apagadas:[...]}.")
+    pedidas = {str(t) for t in (cuerpo.get("apagadas") or []) if str(t) in TAREAS}
+    nuevas = pedidas - apagadas
+    apagadas.clear()
+    apagadas.update(pedidas)
+    for t in nuevas:
+        await run_in_threadpool(_soltar, t)
+    return {"apagadas": sorted(apagadas), "soltadas": sorted(nuevas)}
 
 
 @app.get("/salud")
@@ -94,11 +139,12 @@ def salud():
         "latencia_ms": det.latencias(),
         # Lo nuevo: cada tarea con su modelo y sus números.
         "tareas": {
-            **{t: {"modelo": NOMBRE_MODELO[t], **catalogo[NOMBRE_MODELO[t]], **m.estado()} for t, m in modelos.items()},
-            "atributos": {"modelo": describidor.meta["modelo"], "licencia": describidor.meta["licencia"], **describidor.modelo.estado()},
-            "texto": {"modelo": "RapidOCR · PP-OCR", "licencia": "Apache-2.0", **lector.estado()},
+            **{t: {"modelo": NOMBRE_MODELO[t], **catalogo[NOMBRE_MODELO[t]], **m.estado(), "activa": t not in apagadas} for t, m in modelos.items()},
+            "atributos": {"modelo": describidor.meta["modelo"], "licencia": describidor.meta["licencia"], **describidor.modelo.estado(), "activa": "atributos" not in apagadas},
+            "texto": {"modelo": "RapidOCR · PP-OCR", "licencia": "Apache-2.0", **lector.estado(), "activa": "texto" not in apagadas},
         },
-        "seguimiento": {"sesiones": sesiones.cuantas(), "licencia": "Apache-2.0 (trackers · ByteTrack)"},
+        "seguimiento": {"sesiones": sesiones.cuantas(), "licencia": "Apache-2.0 (trackers · ByteTrack)", "activa": "seguimiento" not in apagadas},
+        "apagadas": sorted(apagadas),
         "tope_vram_mb": int(os.environ.get("VISION_TOPE_VRAM_MB", "1536")),
         "vram": _vram(),
         "modelos_disponibles": [k for k, v in catalogo.items() if v.get("tarea") == "detectar"],
@@ -140,6 +186,17 @@ async def detectar(request: Request, umbral: float | None = None, grupos: str | 
                    texto: int = 0):
     if tarea not in modelos:
         raise HTTPException(400, f"Tarea desconocida: {tarea}. Hay: {', '.join(modelos)}.")
+    if tarea in apagadas:
+        # 409 y no una lista vacía: «no hay nadie» y «no se miró» son respuestas distintas.
+        return JSONResponse({"error": f"La tarea {tarea} está apagada.", "apagada": tarea}, status_code=409)
+    # Los agregados apagados se ignoran y se dice cuáles: la detección sigue sirviendo sin ellos.
+    ignoradas = [t for t, pedido in (("atributos", atributos), ("texto", texto), ("seguimiento", sesion)) if pedido and t in apagadas]
+    if "atributos" in ignoradas:
+        atributos = 0
+    if "texto" in ignoradas:
+        texto = 0
+    if "seguimiento" in ignoradas:
+        sesion = None
     tipo = request.headers.get("content-type", "")
     if tipo.startswith("multipart/"):
         form = await request.form()
@@ -166,6 +223,7 @@ async def detectar(request: Request, umbral: float | None = None, grupos: str | 
         objetos = [o for o in objetos if o.grupo in quiero]
     return {
         **r, "tarea": tarea, "modelo": NOMBRE_MODELO[tarea], "umbral": u,
+        **({"apagadas": ignoradas} if ignoradas else {}),
         "ms": round((time.perf_counter() - t0) * 1000, 1),
         # Compatibilidad con quien leía la latencia del detector con este nombre.
         "ms_inferencia": r["pasos"].get(tarea),
