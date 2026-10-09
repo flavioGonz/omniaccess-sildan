@@ -1,6 +1,7 @@
 /**
  * GET /api/devices/health
- * Sondeo activo de todos los dispositivos LPR/NVR (Hikvision) por ISAPI:
+ * Sondeo activo de los dispositivos Hikvision por ISAPI (LPR, interior, NVR y las cámaras
+ * perimetrales — sin ellas la columna Hora/NTP quedaba en «—» aunque tuvieran credenciales):
  *  - reachable + latencyMs (estado real, no heurística de pull/push)
  *  - hora/NTP configurada + drift vs servidor
  *  - salud NVR: uptime, memoria %, discos (SMART/estado)
@@ -111,7 +112,7 @@ async function probe(d: any, streams: Record<string, { consumers: number; produc
 export async function GET() {
     try {
         const devices = await prisma.device.findMany({
-            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR", "LPR_INTERIOR"] as any } },
+            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR", "LPR_INTERIOR", "CAMERA"] as any } },
             select: { id: true, ip: true, username: true, password: true, authType: true, deviceType: true },
         });
         const streams = await go2rtcStreams();

@@ -101,7 +101,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, DownloadCloud, UploadCloud, Info } from "lucide-react";
 import { Radar } from "lucide-react";
-import { getDevicesWithAnalytics } from "@/app/actions/detections";
+import { getDevicesWithAnalytics, getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections";
+import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import {
     Tooltip,
     TooltipContent,
@@ -254,6 +255,14 @@ export default function DevicesPage() {
     const [managingPlates, setManagingPlates] = useState<any>(null);
     const [calibrating, setCalibrating] = useState<any>(null);
     const [calibrandoInterior, setCalibrandoInterior] = useState<any>(null);
+    /** La cámara de intrusión (perimetral) cuya línea o zona se está dibujando. */
+    const [calibrandoLinea, setCalibrandoLinea] = useState<IntrusionCam | null>(null);
+    const abrirCalibradorLinea = async (dev: any) => {
+        // El calibrador necesita el NVR y el canal de la cámara (NVR_CHANNEL_MAP): los trae
+        // la misma acción que usa el monitor de intrusión.
+        const cams = await getIntrusionCameras().catch(() => [] as IntrusionCam[]);
+        setCalibrandoLinea(cams.find((c) => c.id === dev.id) || { id: dev.id, name: dev.name, brand: dev.brand, ip: dev.ip, nvrName: null, nvrId: null, ch: null });
+    };
     const [health, setHealth] = useState<Record<string, any>>({});
     const [syncing, setSyncing] = useState<string | null>(null);
     const [streamBusy, setStreamBusy] = useState<string | null>(null);
@@ -295,7 +304,9 @@ export default function DevicesPage() {
     const filteredDevices = devices.filter(d => {
         // Only show devices whose type belongs to an active module
         if (!allowedTypes.includes(d.deviceType)) return false;
-        const matchesType = !typeFilter || d.deviceType === typeFilter || (typeFilter === "LPR_CAMERA" && d.deviceType === "NVR");
+        // En «LPR» va también la interior: lee matrículas igual, con nuestro contenedor Omni-LPR
+        // en vez del ANPR de la cámara. Filtrarla afuera hacía creer que había dos lectoras.
+        const matchesType = !typeFilter || d.deviceType === typeFilter || (typeFilter === "LPR_CAMERA" && (d.deviceType === "NVR" || d.deviceType === "LPR_INTERIOR"));
         const matchesSearch = d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             d.ip.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (d.location && d.location.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -779,6 +790,13 @@ export default function DevicesPage() {
                                             <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border", dev.direction === 'ENTRY' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-orange-500/10 text-orange-400 border-orange-500/20")}>
                                                 {dev.direction === 'ENTRY' ? 'Entrada' : 'Salida'}
                                             </span>
+                                        ) : dev.deviceType === 'CAMERA' ? (
+                                            /* Las perimetrales no tienen sentido de paso: lo que las define es
+                                               si vigilan una línea o zona (intrusión) o sólo graban. */
+                                            <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border",
+                                                analyticsIds.has(dev.id) ? "chip-mal" : "chip-neutro")}>
+                                                {analyticsIds.has(dev.id) ? 'Intrusión' : 'Cámara'}
+                                            </span>
                                         ) : <span className="text-muted-foreground text-xs">-</span>}
                                     </TableCell>
                                     {/* Hora / NTP */}
@@ -1025,6 +1043,24 @@ export default function DevicesPage() {
                                                         </Button>
                                                     </TooltipTrigger>
                                                     <TooltipContent><p>Calibrar ANPR</p></TooltipContent>
+                                                </Tooltip>
+                                            </TooltipProvider>
+                                            )}
+
+                                            {dev.deviceType === 'CAMERA' && dev.brand === 'HIKVISION' && (
+                                            <TooltipProvider>
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            onClick={() => abrirCalibradorLinea(dev)}
+                                                            className="h-8 w-8 rounded-md bg-card/50 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 border border-border/50 hover:border-red-500/30 transition-all"
+                                                        >
+                                                            <Wand2 size={15} />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent><p>Calibrar línea / zona de intrusión</p></TooltipContent>
                                                 </Tooltip>
                                             </TooltipProvider>
                                             )}
@@ -1307,6 +1343,12 @@ export default function DevicesPage() {
                 <CameraCalibrator device={calibrating} onClose={() => setCalibrating(null)} />
             )}
 
+            {calibrandoLinea && (
+                <LineZoneCalibrator device={calibrandoLinea} onClose={() => {
+                    setCalibrandoLinea(null);
+                    getDevicesWithAnalytics().then((ids) => setAnalyticsIds(new Set(ids))).catch(() => { });
+                }} />
+            )}
             {calibrandoInterior && (
                 <InteriorCalibrator device={calibrandoInterior} onClose={() => setCalibrandoInterior(null)} />
             )}
