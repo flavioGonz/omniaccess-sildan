@@ -10,6 +10,8 @@ export type DetItem = {
     eventType: string | null;
     snapshotPath: string | null;
     timestamp: string;
+    /** Lo que clasificó la cámara: "human" | "vehicle", o "canal N sin mapear" si avisó un NVR. */
+    label?: string | null;
 };
 
 /** Últimas detecciones generales (analíticas). Por defecto excluye MOTION (ruidoso). */
@@ -28,7 +30,63 @@ export async function getRecentDetections(limit = 40, includeMotion = false): Pr
         eventType: r.eventType,
         snapshotPath: r.snapshotPath,
         timestamp: r.timestamp.toISOString(),
+        label: r.label,
     }));
+}
+
+/** Pasado este silencio, una cámara de intrusión se marca como "callada" en el resumen. */
+const CALLADA_MS = 24 * 3600 * 1000;
+
+export type ResumenDetecciones = {
+    /** Desde la medianoche del barrio, por tipo. */
+    hoy: Record<string, number>;
+    /** Últimas 24 h, por tipo. */
+    dia: Record<string, number>;
+    /** Cada cámara que puede detectar, con su última detección. */
+    camaras: { id: string; nombre: string; ultima: string | null; dia: number; callada: boolean }[];
+};
+
+/** Medianoche de hoy en la zona del barrio, como instante. */
+function medianocheDelBarrio(): Date {
+    const zona = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
+    const ahora = new Date();
+    const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: zona, year: "numeric", month: "2-digit", day: "2-digit" }).format(ahora);
+    // "GMT-03:00": el desfasaje de la zona en ese día, sin escribirlo a mano.
+    const gmt = new Intl.DateTimeFormat("en-US", { timeZone: zona, timeZoneName: "longOffset" }).formatToParts(ahora).find((x) => x.type === "timeZoneName")?.value || "GMT";
+    const desfase = gmt === "GMT" ? "Z" : gmt.replace("GMT", "");
+    return new Date(`${ymd}T00:00:00${desfase}`);
+}
+
+/**
+ * Los contadores del cajón de Detecciones, contados en la base y no sobre las 30 filas que
+ * se muestran: "12 cruces" tiene que ser 12 cruces de verdad, no los que entraron en la lista.
+ *
+ * Y la última detección de cada cámara, que es lo que faltaba para ver una cámara muda: la
+ * LPR Interior estuvo 30 horas sin avisar (su regla de cruce quedó apagada) y desde el
+ * panel sólo se veía una lista que no crecía, igual que en una noche tranquila.
+ */
+export async function resumenDetecciones(): Promise<ResumenDetecciones> {
+    const desdeHoy = medianocheDelBarrio();
+    const desdeDia = new Date(Date.now() - 24 * 3600 * 1000);
+    const sinMovimiento = { type: { not: "MOTION" } };
+    const [hoy, dia, camaras, ultimas, porCamDia] = await Promise.all([
+        prisma.detection.groupBy({ by: ["type"], where: { ...sinMovimiento, timestamp: { gte: desdeHoy } }, _count: { _all: true } }),
+        prisma.detection.groupBy({ by: ["type"], where: { ...sinMovimiento, timestamp: { gte: desdeDia } }, _count: { _all: true } }),
+        prisma.device.findMany({ where: { deviceType: { in: ["CAMERA", "LPR_INTERIOR"] as any } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+        prisma.detection.groupBy({ by: ["deviceId"], where: { ...sinMovimiento, deviceId: { not: null } }, _max: { timestamp: true } }),
+        prisma.detection.groupBy({ by: ["deviceId"], where: { ...sinMovimiento, deviceId: { not: null }, timestamp: { gte: desdeDia } }, _count: { _all: true } }),
+    ]);
+    const aMapa = (filas: { type: string; _count: { _all: number } }[]) => Object.fromEntries(filas.map((f) => [f.type, f._count._all]));
+    const ultima = new Map(ultimas.map((u) => [u.deviceId as string, u._max.timestamp]));
+    const cuenta = new Map(porCamDia.map((u) => [u.deviceId as string, u._count._all]));
+    return {
+        hoy: aMapa(hoy as any),
+        dia: aMapa(dia as any),
+        camaras: camaras.map((c) => {
+            const u = ultima.get(c.id) || null;
+            return { id: c.id, nombre: c.name, ultima: u ? u.toISOString() : null, dia: cuenta.get(c.id) || 0, callada: !u || Date.now() - u.getTime() > CALLADA_MS };
+        }),
+    };
 }
 
 /** IDs de dispositivos que emitieron analíticas en los últimos 7 días (para colorear su icono). */

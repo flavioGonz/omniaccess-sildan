@@ -175,7 +175,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
     const camRouter = useRouter();
     const [lit, setLit] = useState(false);
     const last = useRef<string | undefined>(undefined);
-    const snap = useMemo(() => `/api/snapshot/${dev.id}?t=${Date.now()}`, [dev.id]);
+    const snap = useMemo(() => `/api/snapshot/${dev.id}?w=480&t=${Date.now()}`, [dev.id]);
     const [rk, setRk] = useState(0);
     useEffect(() => {
         if (ev?.id && ev.id !== last.current) {
@@ -1155,7 +1155,7 @@ export default function MonitorLPR() {
                         </div>
 
                         <Cajon open={verDetecciones} onOpenChange={setVerDetecciones}>
-                            <CajonContenido ancho="angosto" titulo="Detecciones" descripcion="Cruces de línea, intrusiones y zonas de las cámaras. Tocá una para ver la captura.">
+                            <CajonContenido ancho="intermedio" titulo="Detecciones" descripcion="Cruces de línea, intrusiones y zonas de las cámaras, con la hora exacta. Tocá una para ver la captura y la grabación.">
                                 {verDetecciones && <IntrusionPanel enCajon alAbrir={(d) => { setVerDetecciones(false); setFichaDet(d); }} />}
                             </CajonContenido>
                         </Cajon>
