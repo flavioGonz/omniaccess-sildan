@@ -169,6 +169,26 @@ export async function estadoDelSistema(): Promise<any> {
         status.omniLpr = { status: 'error', latency: 0 };
     }
 
+    // 4b. omni-vision (detector de objetos en contenedor). Todavía no lo usa ningún proceso:
+    // se informa para que la topología muestre si está vivo, no para decidir nada.
+    try {
+        const { saludVision, VISION_URL } = await import("@/lib/vision");
+        const v = await saludVision();
+        const u = new URL(VISION_URL());
+        status.omniVision = v.salud
+            ? {
+                status: 'connected', latency: v.latencia,
+                details: {
+                    modelo: v.salud.modelo, licencia: v.salud.licencia, proveedor: v.salud.proveedor,
+                    p50: v.salud.latencia_ms?.p50 ?? null, vramMb: v.salud.vram?.usada_mb ?? null,
+                    endpoint: `${u.hostname}:${u.port || "8010"}`,
+                },
+            }
+            : { status: 'error', latency: 0, error: v.error };
+    } catch {
+        status.omniVision = { status: 'error', latency: 0 };
+    }
+
     // 5. Check pasarela de seguimiento (camaras comunes -> Omni-LPR)
     try {
         // Las camaras interiores son dispositivos; TRACK_CAMERAS queda de respaldo.

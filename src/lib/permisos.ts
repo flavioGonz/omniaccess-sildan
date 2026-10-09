@@ -51,7 +51,7 @@ export const PERMISOS: Permiso[] = [
 
     // ── Administración ──
     { clave: "notificaciones", rotulo: "Notificaciones", grupo: "Administración", descripcion: "Reglas de aviso: WhatsApp, Telegram, correo, destinatarios y plantillas. Viven en Configuración → Notificaciones, así que también hace falta Ajustes para abrirlas.", rutas: ["/admin/notificaciones"] },
-    { clave: "ajustes", rotulo: "Ajustes", grupo: "Administración", descripcion: "Toda la configuración del sistema, menos los accesos al panel.", rutas: ["/admin/settings", "/admin/debug", "/admin/manuales"] },
+    { clave: "ajustes", rotulo: "Ajustes", grupo: "Administración", descripcion: "Toda la configuración del sistema, menos los accesos al panel.", rutas: ["/admin/settings", "/admin/debug", "/admin/manuales", "/admin/vision"] },
     { clave: "accesos", rotulo: "Accesos al panel", grupo: "Administración", descripcion: "Los usuarios del sistema y los roles: quién entra al panel y qué puede abrir. Quien tiene esto puede darse a sí mismo cualquier otro permiso.", rutas: [] },
 ];
 

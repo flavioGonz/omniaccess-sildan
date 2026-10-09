@@ -20,7 +20,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import FloatingEdge from './flow/FloatingEdge';
-import { Database, Server, Smartphone, HardDrive, ShieldCheck, Video, Globe, MessageSquare, Film, Zap, Monitor, Webhook, Camera, Copy, Check, ScanLine, Route } from 'lucide-react';
+import { Database, Server, Smartphone, HardDrive, ShieldCheck, Video, Globe, MessageSquare, Film, Zap, Monitor, Webhook, Camera, Copy, Check, ScanLine, Route, ScanEye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import axios from 'axios';
 import { io } from 'socket.io-client';
@@ -176,6 +176,17 @@ const initialNodes: Node[] = [
         style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #14b8a6', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
+    // omni-vision: el detector de objetos (RF-DETR) en su propio contenedor, al lado de
+    // Omni-LPR y en la misma GPU. Se dibuja aparte del carril de captura porque no depende de
+    // que la lectura por contenedor esté prendida, y colgado del núcleo porque es la app la
+    // que le va a pedir (hoy, sólo el laboratorio /admin/vision).
+    {
+        id: 'omni-vision',
+        data: { label: 'omni-vision', icon: ScanEye, sub: 'Detector de objetos · Docker', ip: '127.0.0.1', port: '8010', status: 'unknown' },
+        position: { x: 980, y: 690 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #6b7280', width: 200, borderRadius: 12, padding: 12 },
+        type: 'default',
+    },
     {
         id: 'media',
         data: { label: 'Media & Clips', icon: Film, sub: 'ffmpeg + go2rtc', ip: '127.0.0.1', port: '1984', status: 'connected' },
@@ -208,6 +219,7 @@ const ENLACES_BASE: Edge[] = [
     // Carril de captura: la camara entrega video a la pasarela, la pasarela
     // consulta al lector y el avistamiento vuelve al nucleo.
     { id: 'e-track-lpr', source: 'tracking', target: 'omni-lpr', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
+    { id: 'e-vision', source: 'lpr-node', target: 'omni-vision', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
     { id: 'e-track-core', source: 'tracking', target: 'lpr-node', type: 'floating', animated: true, data: { latency: 0, status: 'unknown' } },
 ];
 
@@ -577,6 +589,9 @@ export default function SystemFlow() {
                     } else if (edge.id === 'e-track-lpr' && data.omniLpr) {
                         status = data.omniLpr.status === 'connected' ? 'connected' : 'error';
                         latency = data.omniLpr.latency || 0;
+                    } else if (edge.id === 'e-vision' && data.omniVision) {
+                        status = data.omniVision.status === 'connected' ? 'connected' : 'error';
+                        latency = data.omniVision.latency || 0;
                     } else if (edge.id === 'e-track-core' && data.tracking) {
                         status = data.tracking.status === 'connected'
                             ? 'connected'
@@ -650,6 +665,21 @@ export default function SystemFlow() {
                             const partes = String(data.omniLpr.details.endpoint || '').split(':');
                             if (partes[0]) ip = partes[0];
                             if (partes[1]) port = partes[1];
+                        }
+                    } else if (node.id === 'omni-vision' && data.omniVision) {
+                        nodeStatus = data.omniVision.status;
+                        borderColor = nodeStatus === 'connected' ? '#22c55e' : '#ef4444';
+                        const d = data.omniVision.details;
+                        if (d) {
+                            // Lo que dice si está sano para trabajar: modelo, que corra en GPU
+                            // (si cayó a CPU tarda 15 veces más) y la latencia medida.
+                            const gpu = String(d.proveedor || '').startsWith('CUDA') ? 'GPU' : 'CPU';
+                            stats = `${d.modelo} · ${gpu}${d.p50 != null ? ` · ${d.p50} ms` : ''}`;
+                            const partes = String(d.endpoint || '').split(':');
+                            if (partes[0]) ip = partes[0];
+                            if (partes[1]) port = partes[1];
+                        } else if (data.omniVision.error) {
+                            stats = data.omniVision.error;
                         }
                     } else if (node.id === 'tracking' && data.tracking) {
                         nodeStatus = data.tracking.status;

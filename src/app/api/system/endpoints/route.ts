@@ -41,6 +41,7 @@ export async function GET() {
     const minio = parseUrl(s3Endpoint || process.env.S3_ENDPOINT, "9000");
     const waha = parseUrl(wahaUrl || process.env.OPENWA_URL, "3000");
     const lpr = parseUrl(process.env.OMNI_LPR_URL, "8000");
+    const vision = parseUrl(process.env.OMNI_VISION_URL || "http://127.0.0.1:8010", "8010");
     const appPort = process.env.PORT || "10001";
     const hookPort = process.env.WEBHOOK_PORT || "10000";
 
@@ -54,6 +55,7 @@ export async function GET() {
         redis: { ip: redis.ip, port: redis.port, sub: "Redis + BullMQ" },
         media: { ip: "127.0.0.1", port: "1984", sub: "ffmpeg + go2rtc" },
         "omni-lpr": { ip: lpr.ip, port: lpr.port, sub: "Contenedor Docker" },
+        "omni-vision": { ip: vision.ip, port: vision.port, sub: "Detector de objetos · Docker" },
         tracking: { ip: "tracking-worker", port: "pm2", sub: "Pasarela de cuadros · PM2" },
     });
 }
