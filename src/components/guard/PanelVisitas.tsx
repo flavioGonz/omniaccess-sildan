@@ -12,6 +12,7 @@ import {
 import { ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { getEmpresas } from "@/app/actions/empresas";
 import { normalizarNombre, type Empresa } from "@/lib/empresas";
+import { esPaseLibre } from "@/lib/visitas/ajustes-base";
 
 /**
  * La pestaña "Visitas" de la consola del guardia: registrar a quien para en la garita, ver
@@ -130,7 +131,9 @@ export function PanelVisitas({ guardName, socket, onPendientes }: { guardName: s
                             {ordenadas.map((v) => {
                                 const vence = +new Date(v.vence), entra = +new Date(v.entra);
                                 const resta = vence - ahora, total = Math.max(1, vence - entra);
-                                const estado = resta < 0 ? "excedida" : resta < total * FRACCION_AVISO ? "cerca" : "ok";
+                                // Pase libre: sin cuenta atrás ni prórrogas; se ve cuánto lleva adentro.
+                                const libre = esPaseLibre(v.tipo);
+                                const estado = libre ? "ok" : resta < 0 ? "excedida" : resta < total * FRACCION_AVISO ? "cerca" : "ok";
                                 const Ic = v.origen === "INVITACION" ? Ticket : ICONO_TIPO[v.tipo] || Users;
                                 return (
                                     <motion.div key={v.id} layout initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.2 }}
@@ -146,12 +149,12 @@ export function PanelVisitas({ guardName, socket, onPendientes }: { guardName: s
                                                 <div className="text-xs text-black/40">entró {new Date(v.entra).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false })}{v.registradaPor ? ` · ${v.registradaPor}` : ""}</div>
                                             </div>
                                             <div className={cn("text-right tabular-nums font-bold leading-none", estado === "excedida" ? "text-red-600" : estado === "cerca" ? "text-amber-600" : "text-black")}>
-                                                <div className="text-3xl">{mmss(resta)}</div>
-                                                <div className="text-[10px] uppercase tracking-widest mt-1 opacity-60">{estado === "excedida" ? "excedida" : "restan"}</div>
+                                                <div className="text-3xl">{libre ? mmss(ahora - entra) : mmss(resta)}</div>
+                                                <div className="text-[10px] uppercase tracking-widest mt-1 opacity-60">{libre ? "adentro" : estado === "excedida" ? "excedida" : "restan"}</div>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            {EXTENSIONES.map((m) => <button key={m} onClick={() => extender(v, m)} className={cn("h-12 flex-1 rounded-xl border border-black/10 bg-black/[0.03] font-bold text-black", tocable)}>+{m}</button>)}
+                                            {!libre && EXTENSIONES.map((m) => <button key={m} onClick={() => extender(v, m)} className={cn("h-12 flex-1 rounded-xl border border-black/10 bg-black/[0.03] font-bold text-black", tocable)}>+{m}</button>)}
                                             <button onClick={() => cerrar(v)} className={cn("h-12 px-4 rounded-xl bg-black text-white font-bold inline-flex items-center gap-2", tocable)}><LogOut size={18} /> Salió</button>
                                         </div>
                                     </motion.div>

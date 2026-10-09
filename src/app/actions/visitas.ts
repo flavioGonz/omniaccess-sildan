@@ -6,6 +6,7 @@ import { permisosDeSesion } from "@/lib/permisos";
 import { leerGuardia } from "@/lib/sesion-guardia";
 import { leerAjustesVisitas, olvidarAjustesVisitas, CLAVE_MODO, CLAVE_TIPOS, CLAVE_AVISOS, serializarAvisos, normalizarAjustes, type Ajustes } from "@/lib/visitas/ajustes";
 import { abrirVisita, cerrarVisita, extenderVisita, atenderAviso, chapa, esChapa, visitaEnCurso } from "@/lib/visitas/registro";
+import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
 
 /**
  * Las acciones de la consola del guardia y del panel sobre visitas y avisos.
@@ -40,9 +41,9 @@ async function forma(v: any): Promise<VisitaFila> {
     const aj = await leerAjustesVisitas();
     const t = aj.tipos.find((x) => x.clave === v.tipo);
     return {
-        id: v.id, plate: v.plate, tipo: v.tipo, tipoNombre: t?.nombre || v.tipo, loteNombre: v.loteNombre, nombre: v.nombre, empresa: v.empresa,
+        id: v.id, plate: v.plate, tipo: v.tipo, tipoNombre: t?.nombre || (esPaseLibre(v.tipo) ? NOMBRE_PASE_LIBRE : v.tipo), loteNombre: v.loteNombre, nombre: v.nombre, empresa: v.empresa,
         origen: v.origen, registradaPor: v.registradaPor, entra: v.entra.toISOString(), vence: v.vence.toISOString(), sale: v.sale ? v.sale.toISOString() : null,
-        cierre: v.cierre, cerradaPor: v.cerradaPor, minutosTipo: t?.minutos ?? Math.round((v.vence - v.entra) / 60000), extensiones: Array.isArray(v.extensiones) ? v.extensiones.length : 0,
+        cierre: v.cierre, cerradaPor: v.cerradaPor, minutosTipo: esPaseLibre(v.tipo) ? 0 : t?.minutos ?? Math.round((v.vence - v.entra) / 60000), extensiones: Array.isArray(v.extensiones) ? v.extensiones.length : 0,
     };
 }
 

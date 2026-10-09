@@ -32,6 +32,20 @@ export const TIPOS_POR_DEFECTO: TipoVisita[] = [
 ];
 /** El tipo que se usa para una visita abierta por invitación. */
 export const TIPO_INVITACION = "VISITA";
+/**
+ * «Indefinido: pase libre», para proveedores: se le abre una visita al entrar —figura adentro,
+ * la Salida la cierra— pero sin tiempo. No es un tipo de la lista de Ajustes porque no tiene
+ * minutos: es la ausencia de cuenta atrás, y así no se puede apagar ni editar por error.
+ */
+export const TIPO_PASE_LIBRE = "PASE_LIBRE";
+export const NOMBRE_PASE_LIBRE = "Pase libre";
+/**
+ * Visita.vence es obligatorio: el pase libre lleva un vence lejano para que el resto del sistema
+ * (ordenar por vencimiento, «excedida») no lo tome por vencido. Lo cierra antes la Salida o el
+ * corte del día; las pantallas y el aviso de excedida lo reconocen por su tipo, no por la hora.
+ */
+export const PASE_LIBRE_HORAS = 36;
+export const esPaseLibre = (tipo: string | null | undefined) => tipo === TIPO_PASE_LIBRE;
 
 /** Topes de lo que se puede configurar: un tipo de un minuto o de una semana es un error de tipeo. */
 export const MINUTOS_TIPO_MIN = 1;

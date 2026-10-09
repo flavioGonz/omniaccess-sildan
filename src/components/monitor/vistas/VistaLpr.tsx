@@ -23,6 +23,7 @@ import {
 import type { RelecturaEvento } from "@/lib/relectura";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { SUAVE, RESORTE, tocable, usarInactividad, CuentaAtras } from "@/components/monitor/tactil";
+import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
 
 /**
  * La vista Control LPR: la última lectura grande y clara, si se abrió y por qué, la tira de
@@ -66,7 +67,7 @@ type Lectura = {
     relectura?: RelecturaEvento | null;
 };
 type Atencion = { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; avisoId?: string; avisoTipo?: string };
-type VisitaEnBarrio = { tipo: "VISITA"; id: string; plate: string | null; tipoNombre: string; lote: string | null; nombre: string | null; empresa: string | null; origen: string; desde: string; vence: string; accessEventId: string | null };
+type VisitaEnBarrio = { tipo: "VISITA"; id: string; plate: string | null; tipoVisita?: string; tipoNombre: string; lote: string | null; nombre: string | null; empresa: string | null; origen: string; desde: string; vence: string; accessEventId: string | null };
 type NoRegistrada = { tipo: "NO_REGISTRADA"; plate: string; desde: string; estimado: true; camara: string | null; accessEventId: string };
 type Datos = {
     modo?: Modo; ultima: Lectura | null; tira: Lectura[];
@@ -537,8 +538,8 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
 
                                     {ficha.visita && (
                                         <Bloque Icono={Timer} titulo="Visita en curso">
-                                            <div className="text-[18px] font-semibold">{ficha.visita.tipo}{ficha.visita.loteNombre ? <> → <b>{ficha.visita.loteNombre}</b></> : null}</div>
-                                            <div className="text-[15px] text-muted-foreground">entró {horaCorta(ficha.visita.entra)} · vence {horaCorta(ficha.visita.vence)}{ficha.visita.origen === "INVITACION" ? " · por invitación" : ""}</div>
+                                            <div className="text-[18px] font-semibold">{esPaseLibre(ficha.visita.tipo) ? NOMBRE_PASE_LIBRE : ficha.visita.tipo}{ficha.visita.loteNombre ? <> → <b>{ficha.visita.loteNombre}</b></> : null}</div>
+                                            <div className="text-[15px] text-muted-foreground">entró {horaCorta(ficha.visita.entra)} · {esPaseLibre(ficha.visita.tipo) ? "pase libre, sin tiempo" : `vence ${horaCorta(ficha.visita.vence)}`}{ficha.visita.origen === "INVITACION" ? " · por invitación" : ""}</div>
                                         </Bloque>
                                     )}
 
@@ -633,7 +634,9 @@ function EnElBarrio({ datos, modo, alAbrir }: { datos: Datos["enBarrio"]; modo: 
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
                 {visitas.map((v) => {
                     const resta = +new Date(v.vence) - ahora, total = Math.max(1, +new Date(v.vence) - +new Date(v.desde));
-                    const estado = resta < 0 ? "excedida" : resta < total * FRACCION_AVISO ? "cerca" : "ok";
+                    // Pase libre: no hay cuenta atrás; se muestra cuánto lleva adentro.
+                    const libre = esPaseLibre(v.tipoVisita);
+                    const estado = libre ? "ok" : resta < 0 ? "excedida" : resta < total * FRACCION_AVISO ? "cerca" : "ok";
                     return (
                         <button key={v.id} type="button" disabled={!v.accessEventId} onClick={() => alAbrir(v.accessEventId)}
                             className={cn("flex items-center gap-3 rounded-xl border px-3 py-2.5 min-h-[60px] text-left", v.accessEventId && tocable,
@@ -643,8 +646,8 @@ function EnElBarrio({ datos, modo, alAbrir }: { datos: Datos["enBarrio"]; modo: 
                                 <span className="block text-[13px] text-muted-foreground truncate">{v.lote ? `→ ${v.lote}` : "sin lote"}{v.empresa ? ` · ${v.empresa}` : v.nombre ? ` · ${v.nombre}` : ""}{v.origen === "INVITACION" ? " · por invitación" : ""}</span>
                             </span>
                             <span className={cn("text-right tabular-nums font-bold leading-none shrink-0", estado === "excedida" ? "text-[var(--mal-texto)]" : estado === "cerca" ? "text-[var(--aviso-texto)]" : "")}>
-                                <span className="block text-[22px]">{mmss(resta)}</span>
-                                <span className="block text-[10px] uppercase tracking-wider mt-0.5 opacity-70">{estado === "excedida" ? "excedida" : "restan"}</span>
+                                <span className="block text-[22px]">{libre ? duracion((ahora - +new Date(v.desde)) / 60000) : mmss(resta)}</span>
+                                <span className="block text-[10px] uppercase tracking-wider mt-0.5 opacity-70">{libre ? "adentro" : estado === "excedida" ? "excedida" : "restan"}</span>
                             </span>
                         </button>
                     );

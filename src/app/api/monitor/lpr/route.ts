@@ -8,6 +8,7 @@ import { registradas } from "@/lib/visitas/registro";
 import { logosDeMatriculas } from "@/lib/empresas-servidor";
 import { identidadDeLecturas } from "@/lib/monitor/identidad";
 import { getComportamientoPadron } from "@/app/actions/padron";
+import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
 
 export const dynamic = "force-dynamic";
 
@@ -96,7 +97,7 @@ export async function GET() {
     }
     const tipos = new Map(aj.tipos.map((t) => [t.clave, t.nombre]));
     const visitasEnCurso = visitas.map((v) => ({
-        tipo: "VISITA", id: v.id, plate: v.plate, tipoVisita: v.tipo, tipoNombre: tipos.get(v.tipo) || v.tipo, lote: v.loteNombre, nombre: v.nombre, empresa: v.empresa,
+        tipo: "VISITA", id: v.id, plate: v.plate, tipoVisita: v.tipo, tipoNombre: tipos.get(v.tipo) || (esPaseLibre(v.tipo) ? NOMBRE_PASE_LIBRE : v.tipo), lote: v.loteNombre, nombre: v.nombre, empresa: v.empresa,
         origen: v.origen, desde: v.entra.toISOString(), vence: v.vence.toISOString(), accessEventId: v.accessEventEntradaId,
     }));
 

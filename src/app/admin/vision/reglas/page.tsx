@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type,
+    Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock,
     type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
@@ -41,7 +41,11 @@ type Respuesta = {
     resumen: Record<string, Resumen>; eventos: Evento[];
 };
 
-const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users };
+const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users, cruce: Fence, intrusion: ShieldAlert };
+/** Lo que se cuenta hoy en la tarjeta de cada tipo que no es conteo. */
+const CUENTA_HOY: Partial<Record<TipoRegla, string>> = { sentido: "en contra hoy", permanencia: "se quedaron hoy", aglomeracion: "aglomeraciones hoy", cruce: "cruces hoy", intrusion: "intrusiones hoy" };
+/** El horario que se propone al armar de noche: lo más común en un barrio. */
+const HORARIO_NOCHE = { desde: "22:00", hasta: "06:00" };
 const REFRESCO_MS = 15_000;
 const hora = (iso: string) => new Date(iso).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Montevideo" });
 const dia = (iso: string) => new Date(iso).toLocaleDateString("es-UY", { day: "numeric", month: "short", timeZone: "America/Montevideo" });
@@ -53,6 +57,7 @@ function reglaNueva(tipo: TipoRegla, deviceId: string): ReglaVision {
         id: nuevaId(), tipo, deviceId, nombre: "", activa: true, clases: [...t.clasesDefecto], avisar: t.avisarDefecto,
         linea: null, zona: [], ...(tipo === "sentido" ? { permitido: "ab" as const } : {}),
         ...(t.segundosDefecto ? { segundos: t.segundosDefecto } : {}), ...(t.maximoDefecto ? { maximo: t.maximoDefecto } : {}),
+        ...(tipo === "cruce" ? { sentidos: "ambos" as const } : {}), ...(tipo === "cruce" || tipo === "intrusion" ? { horario: null } : {}),
     };
 }
 
@@ -203,6 +208,7 @@ export default function ReglasVision() {
                                 <span className="text-muted-foreground">{ampliado.camara} · {dia(ampliado.ts)} {hora(ampliado.ts)}</span>
                                 {ampliado.tipo === "PERMANENCIA" && <span>se quedó {duracionCorta(ampliado.valor)}</span>}
                                 {ampliado.tipo === "AGLOMERACION" && <span>{ampliado.valor} personas</span>}
+                                {ampliado.tipo === "INTRUSION" && ampliado.valor != null && <span>{ampliado.valor} s adentro al avisar</span>}
                                 {ampliado.avisoId && <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground"><BellRing size={12} /> avisó a la guardia</span>}
                             </div>
                         </>
@@ -248,8 +254,9 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: Reg
                 </div>
             ) : (
                 <div className="flex items-baseline gap-4">
-                    <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.hoy ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">{r.tipo === "sentido" ? "en contra hoy" : r.tipo === "permanencia" ? "se quedaron hoy" : "aglomeraciones hoy"}</div></div>
-                    {s?.max != null && r.tipo !== "sentido" && <div><div className="text-[22px] font-bold tabular-nums leading-none">{r.tipo === "permanencia" ? duracionCorta(s.max) : s.max}</div><div className="text-[11px] text-muted-foreground mt-1">{r.tipo === "permanencia" ? "la más larga" : "el máximo de personas"}</div></div>}
+                    <div><div className="text-[22px] font-bold tabular-nums leading-none">{s?.hoy ?? 0}</div><div className="text-[11px] text-muted-foreground mt-1">{CUENTA_HOY[r.tipo]}</div></div>
+                    {(r.tipo === "cruce" || r.tipo === "intrusion") && <div className="text-[11.5px] text-muted-foreground inline-flex items-center gap-1"><Clock size={11} /> {r.horario ? `armada ${r.horario.desde} a ${r.horario.hasta}` : "armada siempre"}{r.tipo === "cruce" && r.sentidos && r.sentidos !== "ambos" ? ` · sólo ${r.sentidos === "ab" ? "de A a B" : "de B a A"}` : ""}</div>}
+                    {s?.max != null && (r.tipo === "permanencia" || r.tipo === "aglomeracion") && <div><div className="text-[22px] font-bold tabular-nums leading-none">{r.tipo === "permanencia" ? duracionCorta(s.max) : s.max}</div><div className="text-[11px] text-muted-foreground mt-1">{r.tipo === "permanencia" ? "la más larga" : "el máximo de personas"}</div></div>}
                 </div>
             )}
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -295,7 +302,7 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                                 <button key={k} type="button" onClick={() => cambiarTipo(k)} aria-pressed={sel}
                                     className={cn("rounded-[10px] border p-3 text-left transition-colors", sel ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border hover:bg-accent")}>
                                     <span className="flex items-center gap-1.5 text-[13px] font-bold"><Ic size={14} /> {TIPOS_REGLA[k].nombre}</span>
-                                    <span className="block text-[11.5px] text-muted-foreground mt-0.5 leading-snug">{TIPOS_REGLA[k].geometria === "linea" ? "Con una línea" : k === "aglomeracion" ? "Con una zona (o todo el cuadro)" : "Con una zona"}</span>
+                                    <span className="block text-[11.5px] text-muted-foreground mt-0.5 leading-snug">{TIPOS_REGLA[k].geometria === "linea" ? (k === "cruce" ? "Con una línea · avisa" : "Con una línea") : k === "aglomeracion" ? "Con una zona (o todo el cuadro)" : k === "intrusion" ? "Con una zona · avisa" : "Con una zona"}</span>
                                 </button>
                             );
                         })}
@@ -332,6 +339,18 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                             </div>
                         </CajonCampo>
                     )}
+                    {r.tipo === "cruce" && (
+                        <CajonCampo etiqueta="Avisa cuando cruza" ayuda="A y B son los dos lados de la línea, rotulados sobre el cuadro.">
+                            <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
+                                {(["ambos", "ab", "ba"] as const).map((v) => (
+                                    <button key={v} type="button" onClick={() => cambiar({ sentidos: v })}
+                                        className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold", (r.sentidos || "ambos") === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                                        {v === "ambos" ? "En los dos sentidos" : v === "ab" ? "De A a B" : "De B a A"}
+                                    </button>
+                                ))}
+                            </div>
+                        </CajonCampo>
+                    )}
                 </CajonSeccion>
 
                 <CajonSeccion titulo="Qué cuenta">
@@ -346,6 +365,11 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                             );
                         })}
                     </div>
+                    {r.tipo === "intrusion" && (
+                        <CajonCampo etiqueta="Avisar después de (segundos)" ayuda="Adentro de la zona, seguidos. 2 s alcanza para que una sombra o un paso por el borde no avise; 0 avisa en el primer cuadro.">
+                            <Input type="number" min={0} max={120} value={r.segundos ?? 2} onChange={(e) => cambiar({ segundos: Number(e.target.value) })} className="w-32" />
+                        </CajonCampo>
+                    )}
                     {(r.tipo === "permanencia" || r.tipo === "aglomeracion") && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {r.tipo === "aglomeracion" && (
@@ -363,6 +387,27 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                     )}
                 </CajonSeccion>
 
+                {(r.tipo === "cruce" || r.tipo === "intrusion") && (
+                    <CajonSeccion titulo="Cuándo está armada" icono={Clock}
+                        ayuda="Fuera de horario no registra ni avisa: el jardinero que cruza a las 10 no es una intrusión; el que cruza a las 3, sí. Hora del barrio.">
+                        <div className="flex items-center h-9 rounded-lg bg-muted/60 p-0.5 w-fit">
+                            {([["siempre", "Siempre"], ["horario", "En un horario"]] as const).map(([v, rot]) => (
+                                <button key={v} type="button" onClick={() => cambiar({ horario: v === "siempre" ? null : r.horario || HORARIO_NOCHE })}
+                                    className={cn("h-8 px-3 rounded-md text-[12.5px] font-semibold", (r.horario ? "horario" : "siempre") === v ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                                    {rot}
+                                </button>
+                            ))}
+                        </div>
+                        {r.horario && (
+                            <div className="flex items-end gap-3">
+                                <CajonCampo etiqueta="Desde"><Input type="time" value={r.horario.desde} onChange={(e) => cambiar({ horario: { ...r.horario!, desde: e.target.value } })} className="w-32 tabular-nums" /></CajonCampo>
+                                <CajonCampo etiqueta="Hasta"><Input type="time" value={r.horario.hasta} onChange={(e) => cambiar({ horario: { ...r.horario!, hasta: e.target.value } })} className="w-32 tabular-nums" /></CajonCampo>
+                                {r.horario.desde > r.horario.hasta && <span className="text-[11.5px] text-muted-foreground pb-2.5">cruza la medianoche</span>}
+                            </div>
+                        )}
+                    </CajonSeccion>
+                )}
+
                 <CajonSeccion titulo="Qué hace">
                     <label className="flex items-center justify-between gap-3 rounded-[10px] border border-border px-3 py-2.5 cursor-pointer">
                         <span>
@@ -372,6 +417,8 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                         <Switch checked={r.avisar} onCheckedChange={(v) => cambiar({ avisar: v })} />
                     </label>
                     {r.tipo === "conteo" && <p className="text-[11.5px] text-muted-foreground">El conteo no avisa: suma los cruces por sentido, clase y hora. Se guardan 90 días.</p>}
+                    {r.tipo === "cruce" && <p className="text-[11.5px] text-muted-foreground">Cada cruce queda registrado con su foto. El aviso se espacia 30 s por regla: cinco que saltan juntos son un aviso, no cinco.</p>}
+                    {r.tipo === "intrusion" && <p className="text-[11.5px] text-muted-foreground">Una vez por objeto mientras siga adentro, con su foto. El aviso se espacia 1 min por regla.</p>}
                     <p className="text-[11.5px] text-muted-foreground">Límite: cada cámara se mira cada ~2 s. Personas y autos a paso de barrio se siguen bien; un auto rápido puede perder su número entre dos cuadros y no contarse.</p>
                 </CajonSeccion>
             </CajonContenido>

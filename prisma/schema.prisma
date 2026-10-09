@@ -86,6 +86,17 @@ model User {
   /// diciendo que es la persona en el barrio; esto dice que puede hacer en el sistema.
   appRoleId       String?
   appRole         AppRole?      @relation(fields: [appRoleId], references: [id])
+  /// Planilla de un proveedor: la empresa (otro User, rol PROVIDER) para la que trabaja esta
+  /// persona. Cada empleado entra con su credencial propia y su permanencia sale de sus lecturas.
+  empleadorId     String?
+  empleador       User?         @relation("Planilla", fields: [empleadorId], references: [id], onDelete: SetNull)
+  empleados       User[]        @relation("Planilla")
+  /// Si su empresa lo autoriza a entrar. No autorizado: no se le mandan credenciales a los equipos
+  /// y sus pasadas desde `autorizadoCambio` se marcan en la planilla.
+  autorizado      Boolean       @default(true)
+  autorizadoCambio DateTime?
+
+  @@index([empleadorId])
 }
 
 /// Un rol de la aplicacion: un nombre y la lista de permisos (claves de lib/permisos.ts).

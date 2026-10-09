@@ -21,12 +21,14 @@ const ICONO: Record<Rubro, React.ComponentType<{ size?: number; className?: stri
 let catalogo: Promise<Empresa[]> | null = null;
 const traerCatalogo = () => (catalogo ||= getEmpresas().then((l) => l.filter((e) => e.activa)).catch(() => { catalogo = null; return []; }));
 
-export function ElegirEmpresa({ name, defaultValue, value: controlado, onChange, placeholder = "Elegí o escribí la empresa", className }: {
+export function ElegirEmpresa({ name, defaultValue, value: controlado, onChange, alElegir, placeholder = "Elegí o escribí la empresa", className }: {
     /** Si viene, el valor viaja en el formulario con este nombre. */
     name?: string;
     defaultValue?: string | null;
     value?: string;
     onChange?: (v: string) => void;
+    /** La empresa del catálogo que corresponde a lo escrito (o null): para usar su logo afuera. */
+    alElegir?: (e: Empresa | null) => void;
     placeholder?: string;
     className?: string;
 }) {
@@ -49,6 +51,7 @@ export function ElegirEmpresa({ name, defaultValue, value: controlado, onChange,
     }, [abierto]);
 
     const elegida = useMemo(() => empresaDe(valor, lista), [valor, lista]);
+    useEffect(() => { alElegir?.(elegida); }, [elegida]); // eslint-disable-line react-hooks/exhaustive-deps
     const opciones = useMemo(() => {
         const q = normalizarNombre(valor);
         // Con una ya elegida se muestran todas: el que abre la lista quiere cambiarla.

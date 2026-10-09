@@ -118,6 +118,7 @@ export function RegistrarMatricula({ plate, alCerrar, alTerminar, units, groups,
                             para="Residente, personal, proveedor habitual o visita frecuente: alguien con nombre y lote."
                             pasa={[
                                 "Se crea la persona con esta matrícula ya cargada.",
+                                "¿Es otro vehículo de un proveedor que ya está cargado? Elegí «Proveedor» y escribí su nombre: se ofrece su ficha y la matrícula se le suma.",
                                 "Queda en el padrón: deja de salir como «no registrada».",
                                 "Desde su ficha se manda a las lectoras para que la barrera la deje pasar.",
                             ]}

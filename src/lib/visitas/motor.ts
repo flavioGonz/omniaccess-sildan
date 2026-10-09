@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { ZONA } from "@/lib/fechas";
 import { leerAjustesVisitas, TIPO_INVITACION } from "./ajustes";
+import { TIPO_PASE_LIBRE, PASE_LIBRE_HORAS } from "./ajustes-base";
 import { enZona, fueraDeRutina, enFranja, describirRutina, hhmm, type Rutina } from "./calculos";
 import { motivo } from "./presentacion";
 import { chapa, esChapa, visitaEnCurso, abrirVisita, cerrarVisita, crearAviso, registradas } from "./registro";
@@ -121,7 +122,14 @@ export async function alLeerMatricula(l: Lectura): Promise<void> {
                 // aviso de excedida funciona igual que con una visita cargada a mano.
                 const prov = await proveedorDe(plate);
                 const tipo = prov?.tipoVisita ? aj.tipos.find((t) => t.clave === prov.tipoVisita && t.activo) : null;
-                if (prov && tipo) {
+                if (prov && prov.tipoVisita === TIPO_PASE_LIBRE) {
+                    // Pase libre: adentro hasta que lo lea la Salida, sin cuenta atrás (ver TIPO_PASE_LIBRE).
+                    await abrirVisita({
+                        plate, tipo: TIPO_PASE_LIBRE, minutos: 0, vence: new Date(instante.getTime() + PASE_LIBRE_HORAS * 3_600_000), entra: instante, origen: "PROVEEDOR",
+                        unitId: prov.unitId, loteNombre: prov.unit?.name || null, nombre: prov.name, empresa: prov.empresa,
+                        registradaPor: "Proveedor registrado · pase libre", accessEventEntradaId: accessEventId,
+                    });
+                } else if (prov && tipo) {
                     await abrirVisita({
                         plate, tipo: tipo.clave, minutos: tipo.minutos, entra: instante, origen: "PROVEEDOR",
                         unitId: prov.unitId, loteNombre: prov.unit?.name || null, nombre: prov.name, empresa: prov.empresa,

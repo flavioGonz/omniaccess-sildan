@@ -6,12 +6,15 @@ import Image from "next/image";
 import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
     Building2, Camera, Car, Check, CreditCard, DoorOpen, Home,
-    KeyRound, Loader2, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
-    Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info, Star,
+    KeyRound, Loader2, MapPin, Users, ParkingSquare, Phone, Save, ScanFace, Server,
+    Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info, Star, ChevronDown, ExternalLink,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { getAjustesVisitas } from "@/app/actions/visitas";
 import { ElegirEmpresa } from "@/components/empresas/ElegirEmpresa";
+import type { Empresa } from "@/lib/empresas";
+import { PlanillaProveedor } from "@/components/users/PlanillaProveedor";
+import { buscarProveedores, getFichaUsuario } from "@/app/actions/proveedores";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -26,6 +29,12 @@ import { PasosEnvio, type Paso } from "@/components/equipos/PasosEnvio";
 import { HistorialAccesos } from "@/components/users/HistorialAccesos";
 import { ElegirEquipos, RotuloEquipos } from "@/components/equipos/ElegirEquipos";
 import { cn } from "@/lib/utils";
+import { TIPO_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
+
+/** La lista de proveedores, para revisar si ya existe antes de cargar otro. */
+const RUTA_PROVEEDORES = "/admin/users?tab=proveedores";
+/** Cuánto esperar después de la última tecla para buscar parecidos: no una consulta por letra. */
+const BUSCAR_DEMORA_MS = 300;
 import { sileo as toast } from "sileo";
 import type { LoteDelMapa } from "@/components/units/MapaLotes";
 
@@ -93,6 +102,10 @@ type UsuarioConRelaciones = User & {
     accessTags?: string[];
     apartment?: string | null;
     parkingSlotId?: string | null;
+    /** Si es empleado de un proveedor: la empresa para la que trabaja (ver PlanillaProveedor). */
+    empleadorId?: string | null;
+    empleador?: { id: string; name: string; empresa: string | null } | null;
+    autorizado?: boolean;
 };
 
 export interface CajonUsuarioProps {
@@ -113,9 +126,25 @@ export interface CajonUsuarioProps {
 const limpiarChapa = (v: string) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export function CajonUsuario({
-    user, initialData, rolInicial, units, groups, devices, parkingSlots = [], onSuccess, open, onOpenChange,
+    user: userProp, initialData, rolInicial, units, groups, devices, parkingSlots = [], onSuccess, open, onOpenChange,
 }: CajonUsuarioProps) {
+    /*
+     * Un proveedor que ya estaba cargado: al escribir su nombre en un alta se ofrece, y elegirlo
+     * convierte este cajón en SU ficha. Lo que se trajo de afuera (la matrícula que se está
+     * registrando desde el monitor) se le suma: un proveedor tiene varios vehículos, no una
+     * ficha por cada uno.
+     */
+    const [existente, setExistente] = useState<UsuarioConRelaciones | null>(null);
+    const user = userProp ?? existente ?? undefined;
     const esAlta = !user;
+    const [nombreEscrito, setNombreEscrito] = useState("");
+    const [parecidos, setParecidos] = useState<Awaited<ReturnType<typeof buscarProveedores>>>([]);
+    const [empresaElegida, setEmpresaElegida] = useState<Empresa | null>(null);
+    const [autorizado, setAutorizado] = useState(true);
+    /** La ficha de un empleado de la planilla, abierta encima de la del proveedor. */
+    const [anidada, setAnidada] = useState<UsuarioConRelaciones | null>(null);
+    const [resumenPlanilla, setResumenPlanilla] = useState<{ empleados: number; adentro: number } | null>(null);
+    const [planillaVuelta, setPlanillaVuelta] = useState(0);
     const [foto, setFoto] = useState<string | null>(null);
     const [archivoFoto, setArchivoFoto] = useState<File | null>(null);
     /**
@@ -137,6 +166,7 @@ export function CajonUsuario({
     const [rol, setRol] = useState<string>("RESIDENT");
     const [vip, setVip] = useState(false);
     const [tipoVisita, setTipoVisita] = useState<string>("ninguna");
+    const [verTrato, setVerTrato] = useState(false);
     /** Los tipos de visita de Ajustes → Visitas y patrones (Delivery 15 min, Servicio…). */
     const [tiposVisita, setTiposVisita] = useState<{ clave: string; nombre: string; minutos: number }[] | null>(null);
     const [lprElegidos, setLprElegidos] = useState<string[]>([]);
@@ -190,6 +220,9 @@ export function CajonUsuario({
         setRol(String(user?.role || rolInicial || "RESIDENT"));
         setVip(!!(user as any)?.vip || String(user?.role) === "WHITELISTED");
         setTipoVisita((user as any)?.tipoVisita || "ninguna");
+        setNombreEscrito(user?.name || initialData?.name || "");
+        setParecidos([]);
+        setAutorizado(user?.autorizado !== false);
         setUnidadId(user?.unitId || "none");
         setCocheraId(user?.parkingSlotId || "none");
         /* Los equipos NO se recuerdan de la vez anterior: mandar una credencial a un equipo
@@ -207,6 +240,26 @@ export function CajonUsuario({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, user?.id, initialData?.plate, initialData?.cara, initialData?.name, initialData?.dni, rolInicial]);
 
+    useEffect(() => { if (!open) { setExistente(null); setAnidada(null); } }, [open]);
+
+    /* Proveedores parecidos a lo que se escribe, sólo en un alta de proveedor: es donde nacen los
+       duplicados («Sildan», «SILDAN S.A.», «Sildan camioneta 2»). */
+    useEffect(() => {
+        if (!open || !esAlta || rol !== "PROVIDER" || nombreEscrito.trim().length < 2) { setParecidos([]); return; }
+        const t = setTimeout(() => { buscarProveedores(nombreEscrito).then(setParecidos).catch(() => setParecidos([])); }, BUSCAR_DEMORA_MS);
+        return () => clearTimeout(t);
+    }, [open, esAlta, rol, nombreEscrito]);
+
+    async function usarExistente(id: string) {
+        const u = await getFichaUsuario(id).catch(() => null);
+        if (!u) { toast.error({ title: "No se pudo abrir esa ficha" }); return; }
+        setExistente(u as any);
+    }
+    async function abrirAnidada(id: string) {
+        const u = await getFichaUsuario(id).catch(() => null);
+        if (u) setAnidada(u as any); else toast.error({ title: "No se pudo abrir esa ficha" });
+    }
+
     // Los tipos se piden recién cuando hace falta (rol Proveedor) y una sola vez.
     useEffect(() => {
         if (!open || rol !== "PROVIDER" || tiposVisita) return;
@@ -215,6 +268,12 @@ export function CajonUsuario({
     }, [open, rol, tiposVisita]);
     const esProveedor = rol === "PROVIDER";
     const tipoElegido = tiposVisita?.find((t) => t.clave === tipoVisita) || null;
+    /* Lo que dice «Con qué entra» cuando está cerrada: cerrada no quiere decir vacía. */
+    const resumenCredenciales = [
+        chapas.length ? (chapas.length === 1 ? chapas[0] : `${chapas.length} matrículas`) : null,
+        pin || pinOculto ? "PIN" : null,
+        gruposElegidos.length ? `${gruposElegidos.length} ${gruposElegidos.length === 1 ? "grupo" : "grupos"}` : null,
+    ].filter(Boolean).join(" · ") || "sin credenciales";
 
     const alternar = (lista: string[], poner: (v: string[]) => void, id: string) =>
         poner(lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id]);
@@ -303,7 +362,8 @@ export function CajonUsuario({
         /* Un paso por cámara y no uno por matrícula: con tres autos y tres cámaras serían
            nueve renglones que se leen como nueve problemas distintos cuando en realidad la
            pregunta es una sola por cámara — ¿aceptó lo que se le mandó? */
-        if (chapas.length) for (const id of lprElegidos) {
+        // No autorizado por su empresa: la ficha se guarda, pero no se manda nada a los equipos.
+        if (chapas.length && autorizado) for (const id of lprElegidos) {
             const eq = devices.find((d) => d.id === id);
             lista.push({
                 id: `lpr:${id}`,
@@ -320,7 +380,7 @@ export function CajonUsuario({
             } as any);
         }
 
-        if (foto) for (const id of facialesElegidos) {
+        if (foto && autorizado) for (const id of facialesElegidos) {
             const eq = devices.find((d) => d.id === id);
             lista.push({
                 id: `face:${id}`, titulo: `Enviar el rostro a ${eq?.name || "el terminal"}`,
@@ -378,7 +438,23 @@ export function CajonUsuario({
                         alCerrar={() => { onOpenChange(false); onSuccess(); }}
                     />
                 ) : (
-                <form id="ficha-persona" onSubmit={guardar} noValidate>
+                /* Con clave por persona: al pasar de un alta a un proveedor existente, los campos
+                   sin control (nombre, documento, empresa) toman los valores de esa ficha. */
+                <form key={user?.id || "alta"} id="ficha-persona" onSubmit={guardar} noValidate>
+                    {existente && !userProp && (
+                        <div className="mx-6 mt-5 rounded-[10px] border chip-info px-3 py-2.5 text-[12.5px]">
+                            Estás en la ficha de <b>{existente.name}</b>, que ya estaba cargado.{initialData?.plate ? <> Al guardar se le suma <b className="tabular-nums">{limpiarChapa(initialData.plate)}</b> a sus matrículas.</> : null}
+                        </div>
+                    )}
+                    {user?.empleador && (
+                        /* Empleado de la planilla de un proveedor: de quién es y si la empresa lo autoriza. */
+                        <div className={cn("mx-6 mt-5 rounded-[10px] border px-3 py-2.5 text-[12.5px] flex items-center gap-3", autorizado ? "border-border" : "chip-mal")}>
+                            <span className="flex-1 min-w-0">Trabaja para <b>{user.empleador.empresa || user.empleador.name}</b>. {autorizado ? "La empresa lo autoriza a entrar." : "No autorizado: no se le mandan credenciales a los equipos."}</span>
+                            <label className="flex items-center gap-2 shrink-0 font-semibold">Autorizado <Switch checked={autorizado} onCheckedChange={setAutorizado} /></label>
+                            <input type="hidden" name="autorizadoEnviado" value="1" />
+                            <input type="hidden" name="autorizado" value={autorizado ? "1" : "0"} />
+                        </div>
+                    )}
                     {initialData?.cara && !archivoFoto && (
                         <input type="hidden" name="cara" value={initialData.cara} />
                     )}
@@ -392,6 +468,11 @@ export function CajonUsuario({
                                 <div className="relative aspect-[3/4] w-full rounded-[10px] border border-border bg-muted overflow-hidden">
                                     {foto ? (
                                         <Image src={foto} alt="" fill unoptimized className="object-cover" />
+                                    ) : esProveedor && empresaElegida?.logo ? (
+                                        /* La «foto» de un proveedor es el logo de su empresa (Ajustes → Empresas): es
+                                           lo que se pinta sobre la captura y lo que la guardia reconoce. */
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={empresaElegida.logo} alt={empresaElegida.nombre} className="absolute inset-0 w-full h-full object-contain p-3 bg-white" />
                                     ) : (
                                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
                                             <Camera size={26} className="opacity-40" />
@@ -406,7 +487,9 @@ export function CajonUsuario({
                                 {/* Antes decía "Identidad verificada" cuando lo único cierto era
                                     que había una imagen cargada. Nadie verificó nada. */}
                                 <p className="text-[11.5px] text-muted-foreground mt-1.5 text-center">
-                                    {foto ? "Sirve para los terminales faciales." : "Hace falta para el acceso por rostro."}
+                                    {foto ? "Sirve para los terminales faciales."
+                                        : esProveedor ? (empresaElegida?.logo ? `Logo de ${empresaElegida.nombre}. Una foto sólo si entra por rostro.` : "Se ve el logo si la empresa está en el catálogo con logo.")
+                                        : "Hace falta para el acceso por rostro."}
                                 </p>
                                 <input ref={archivoRef} type="file" accept="image/*" className="hidden"
                                     onChange={(e) => {
@@ -420,8 +503,26 @@ export function CajonUsuario({
                             <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <CajonCampo etiqueta="Nombre y apellido" className="sm:col-span-2"
                                     pista="Es el nombre con el que va a aparecer en el historial, en la bitácora y en el aviso que le llega al guardia cuando entra. Conviene el nombre por el que lo conocen en la entrada, no el del documento.">
-                                    <Input name="name" defaultValue={user?.name || initialData?.name}
-                                        placeholder="Cómo figura en la lista" autoFocus />
+                                    <Input name="name" defaultValue={user?.name || initialData?.name} onChange={(e) => setNombreEscrito(e.target.value)}
+                                        placeholder={rol === "PROVIDER" ? "La empresa, o la persona si es una sola" : "Cómo figura en la lista"} autoFocus autoComplete="off" />
+                                    {parecidos.length > 0 && (
+                                        <div className="mt-1.5 rounded-[10px] border chip-aviso px-3 py-2 text-[12px]">
+                                            <p className="font-semibold">¿Es alguno de estos? Ya están cargados:</p>
+                                            <ul className="mt-1 space-y-1">
+                                                {parecidos.map((p) => (
+                                                    <li key={p.id} className="flex items-center gap-2">
+                                                        <span className="min-w-0 flex-1 truncate">
+                                                            <b>{p.nombre}</b>{p.empresa && p.empresa !== p.nombre ? ` · ${p.empresa}` : ""}
+                                                            <span className="text-muted-foreground tabular-nums"> · {p.matriculas.length ? p.matriculas.slice(0, 3).join(", ") + (p.matriculas.length > 3 ? "…" : "") : "sin matrícula"}{p.empleados ? ` · ${p.empleados} en planilla` : ""}</span>
+                                                        </span>
+                                                        <button type="button" onClick={() => usarExistente(p.id)} className="shrink-0 font-semibold tono-accion hover:underline">
+                                                            {initialData?.plate ? `Sumarle ${limpiarChapa(initialData.plate)}` : "Abrir su ficha"}
+                                                        </button>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
                                 </CajonCampo>
                                 <CajonCampo etiqueta="Documento"
                                     pista="Sólo sirve para distinguir a dos personas que se llaman igual. No abre ninguna puerta ni se le manda a ningún equipo.">
@@ -477,28 +578,39 @@ export function CajonUsuario({
                     <input type="hidden" name="proveedorEnviado" value="1" />
                     {esProveedor && (
                         <CajonSeccion titulo="Como proveedor" icono={Truck}
-                            ayuda="Lo que el sistema necesita para tratarlo como proveedor y no como un auto desconocido.">
+                            ayuda={<>Lo que el sistema necesita para tratarlo como proveedor y no como un auto desconocido.{" "}
+                                {/* En otra pestaña: el cajón tiene lo que se está escribiendo, y salir de acá lo perdía. */}
+                                <a href={RUTA_PROVEEDORES} target="_blank" rel="noopener noreferrer" className="tono-accion font-semibold inline-flex items-center gap-1 hover:underline">Ir a proveedores <ExternalLink size={11} /></a></>}>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <CajonCampo etiqueta="Empresa o servicio"
                                     pista={<>Es lo que ve la guardia en la visita y en el monitor junto a su nombre. Si es del catálogo (Ajustes → Empresas), su logo aparece sobre la captura. <b>Ej.:</b> «PedidosYa», «Radio Taxi 141»; o escribí una que no esté, como «Jardinería Pérez».</>}>
-                                    <ElegirEmpresa name="empresa" defaultValue={(user as any)?.empresa || ""} placeholder="Ej. PedidosYa, o escribila" />
+                                    <ElegirEmpresa name="empresa" defaultValue={(user as any)?.empresa || ""} placeholder="Ej. PedidosYa, o escribila" alElegir={setEmpresaElegida} />
                                 </CajonCampo>
                                 <CajonCampo etiqueta="Qué visita se le abre al entrar"
-                                    pista={<>Cuando la cámara de Entrada lee su matrícula se le abre sola una visita de este tipo, con su tiempo. <b>Ej.:</b> Delivery → 15 min de cuenta atrás; si en 15 min la Salida no lo lee, avisa a la guardia. «Ninguna» lo deja registrado sin cuenta atrás (ej. el camión de la basura).</>}>
+                                    pista={<>Cuando la cámara de Entrada lee su matrícula se le abre sola una visita de este tipo, con su tiempo. <b>Ej.:</b> Delivery → 15 min de cuenta atrás; si en 15 min la Salida no lo lee, avisa a la guardia. «Ninguna» lo deja registrado sin abrirle visita (ej. el camión de la basura). <b>Pase libre</b> le abre una visita sin tiempo: figura adentro hasta que la Salida lo lee, y nunca avisa de excedida (ej. la cuadrilla de mantenimiento).</>}>
                                     <Select name="tipoVisita" value={tipoVisita} onValueChange={setTipoVisita}>
                                         <SelectTrigger><SelectValue placeholder={tiposVisita === null ? "Cargando…" : "Elegir…"} /></SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="ninguna">Ninguna: sólo registrado</SelectItem>
+                                            <SelectItem value={TIPO_PASE_LIBRE}>Indefinido: pase libre</SelectItem>
                                             {(tiposVisita || []).map((t) => <SelectItem key={t.clave} value={t.clave}>{t.nombre} · {t.minutos} min</SelectItem>)}
                                         </SelectContent>
                                     </Select>
                                 </CajonCampo>
                             </div>
                             <div className="rounded-[10px] border chip-info px-4 py-3 text-[12.5px] leading-relaxed">
-                                <p className="font-semibold flex items-center gap-1.5"><Info size={13} /> Cómo lo trata el sistema</p>
-                                <ul className="mt-1.5 space-y-1 text-foreground/80 list-disc pl-4">
+                                {/* Empieza cerrado: es la explicación, no un dato a completar. */}
+                                <button type="button" onClick={() => setVerTrato((v) => !v)} aria-expanded={verTrato}
+                                    className="w-full font-semibold flex items-center gap-1.5 text-left">
+                                    <Info size={13} /> Cómo lo trata el sistema
+                                    <ChevronDown size={14} className={cn("ml-auto transition-transform", verTrato && "rotate-180")} />
+                                </button>
+                                <ul hidden={!verTrato} className="mt-1.5 space-y-1 text-foreground/80 list-disc pl-4">
                                     <li>Cuenta como <b>registrado</b>: no dispara «entró sin registrarse» y en el monitor sale con su nombre y su empresa.</li>
-                                    {tipoElegido ? <>
+                                    {tipoVisita === TIPO_PASE_LIBRE ? <>
+                                        <li>Al leerlo la cámara de Entrada se abre una visita <b>pase libre</b>{unidad ? <> hacia <b>{unidad.name}</b></> : null}: sin cuenta atrás y sin aviso de excedida.</li>
+                                        <li>La cámara de Salida la cierra; si no lo lee, se cierra sola a la hora de corte del día.</li>
+                                    </> : tipoElegido ? <>
                                         <li>Al leerlo la cámara de Entrada se abre una visita <b>{tipoElegido.nombre}</b> de <b>{tipoElegido.minutos} min</b>{unidad ? <> hacia <b>{unidad.name}</b></> : null}, con su cuenta atrás en el monitor y en la consola.</li>
                                         <li>La cámara de Salida la cierra sola. Si se pasa del tiempo, avisa <b>sólo a la guardia</b>.</li>
                                     </> : <li>Sin tipo de visita, entra y sale sin cuenta atrás: la guardia lo puede registrar a mano si hace falta.</li>}
@@ -508,7 +620,19 @@ export function CajonUsuario({
                         </CajonSeccion>
                     )}
 
+                    {/* ── Planilla: opcional, sólo en la ficha de la empresa (no en la de un empleado) ── */}
+                    {esProveedor && !user?.empleadorId && (
+                        <CajonSeccion titulo="Planilla de la empresa" icono={Users} plegable
+                            resumen={!user ? "se carga después de guardar" : resumenPlanilla ? `${resumenPlanilla.empleados} ${resumenPlanilla.empleados === 1 ? "empleado" : "empleados"}${resumenPlanilla.adentro ? ` · ${resumenPlanilla.adentro} adentro` : ""}` : "opcional"}
+                            ayuda="Quiénes trabajan para la empresa y si la empresa los autoriza. Cada uno entra con su credencial propia, y de sus pasadas sale cuánto se quedó.">
+                            {user?.id
+                                ? <PlanillaProveedor key={`${user.id}:${planillaVuelta}`} proveedorId={user.id} alAbrirFicha={abrirAnidada} alCambiar={setResumenPlanilla} />
+                                : <p className="text-[12px] text-muted-foreground">Guardá el proveedor y después cargale la planilla.</p>}
+                        </CajonSeccion>
+                    )}
+
                     <CajonSeccion titulo={esProveedor ? "A qué lote va" : "Dónde vive"} icono={DoorOpen}
+                        plegable={esProveedor} resumen={unidad ? unidad.name : "todo el barrio"}
                         ayuda={esProveedor ? "Si va siempre a la misma casa (el jardinero del Lote 30): es el lote que se pone en su visita. Si reparte en todo el barrio, dejalo vacío." : undefined}>
                         {/*
                           * Se elige tocando la casa en el plano, no de una lista.
@@ -630,7 +754,7 @@ export function CajonUsuario({
                     </CajonSeccion>
 
                     {/* ── Con qué entra ── */}
-                    <CajonSeccion titulo="Con qué entra" icono={KeyRound}
+                    <CajonSeccion titulo="Con qué entra" icono={KeyRound} plegable resumen={resumenCredenciales}
                         ayuda="Cada credencial abre por un camino distinto. Se pueden cargar todas o ninguna.">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                             <CajonCampo etiqueta="Matrículas" className="sm:col-span-2"
@@ -701,9 +825,8 @@ export function CajonUsuario({
                                 <PasswordInput name={pinOculto && !pin ? undefined : "pin"} value={pin} onChange={(e) => setPin(e.target.value)}
                                     placeholder={pinOculto ? "•••• (oculto)" : "Para el teclado de la entrada"} className="tabular-nums" />
                             </CajonCampo>
-                        </div>
-
-                        <div>
+                            {/* Grupos al lado del PIN: es lo que completa la fila, y así la sección entra sin scroll. */}
+                            <div>
                             <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
                                 Grupos de acceso
                                 <Pista titulo="Grupos de acceso" ancho={280}
@@ -734,6 +857,9 @@ export function CajonUsuario({
                             {/* Dice "este formulario trae grupos": sin ninguno elegido, eso es "sacalo de todos". */}
                             <input type="hidden" name="gruposEnviados" value="1" />
                         </div>
+                        </div>
+
+
                     </CajonSeccion>
 
                     {/* ── Lista negra: sólo en una persona ya guardada (necesita id y matrículas en la base) ── */}
@@ -755,7 +881,7 @@ export function CajonUsuario({
                             <ElegirEquipos
                                 equipos={camarasLpr} elegidos={lprElegidos} icono={Camera}
                                 alAlternar={(id) => alternar(lprElegidos, setLprElegidos, id)}
-                                bloqueo={!chapas.length ? "Cargá una matrícula arriba para poder mandarla." : undefined}
+                                bloqueo={!autorizado ? "No autorizado por su empresa: no se le mandan credenciales." : !chapas.length ? "Cargá una matrícula arriba para poder mandarla." : undefined}
                                 vacio="No hay cámaras LPR dadas de alta." />
                             {lprElegidos.map((id) => <input key={id} type="hidden" name="syncDeviceId" value={id} />)}
                             {lprElegidos.length > 0 && chapas.length > 0 && (
@@ -771,7 +897,7 @@ export function CajonUsuario({
                             <ElegirEquipos
                                 equipos={terminalesFaciales} elegidos={facialesElegidos} icono={ScanFace}
                                 alAlternar={(id) => alternar(facialesElegidos, setFacialesElegidos, id)}
-                                bloqueo={!foto ? "Subí una foto arriba para poder mandarla." : undefined}
+                                bloqueo={!autorizado ? "No autorizado por su empresa: no se le mandan credenciales." : !foto ? "Subí una foto arriba para poder mandarla." : undefined}
                                 vacio="No hay terminales de rostro dados de alta." />
                             {facialesElegidos.map((id) => <input key={id} type="hidden" name="syncFaceDeviceId" value={id} />)}
                         </div>
@@ -780,6 +906,14 @@ export function CajonUsuario({
                 </form>
                 )}
             </CajonContenido>
+
+            {/* Fuera del <form>: un formulario dentro de otro (aunque sea por un portal) le pasaría
+                su envío al de afuera, y guardar al empleado guardaría también al proveedor. */}
+            {anidada && (
+                <CajonUsuario open user={anidada} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots}
+                    onOpenChange={(o) => { if (!o) { setAnidada(null); setPlanillaVuelta((v) => v + 1); } }}
+                    onSuccess={() => setPlanillaVuelta((v) => v + 1)} />
+            )}
 
             {user && (
                 <HistorialAccesos

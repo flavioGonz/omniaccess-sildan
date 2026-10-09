@@ -95,6 +95,8 @@ export async function getUsers(options?: { take?: number, skip?: number }) {
             },
             vehicles: true,
             parkingSlot: true,
+            // Empleado de un proveedor: la ficha dice para quién trabaja (ver actions/proveedores).
+            empleador: { select: { id: true, name: true, empresa: true } },
         },
         orderBy: {
             createdAt: 'desc'
@@ -555,6 +557,13 @@ export async function updateUser(id: string, formData: FormData) {
     if (prov) Object.assign(userPayload, prov);
     const vip = leerVip(formData, role);
     if (vip !== null) userPayload.vip = vip;
+    // Empleado de la planilla: la autorización la cambia su ficha también. Se anota cuándo
+    // cambió, para marcar las pasadas posteriores (ver getPlanilla).
+    if (formData.get("autorizadoEnviado")) {
+        const nuevo = formData.get("autorizado") === "1";
+        const antes = await prisma.user.findUnique({ where: { id }, select: { autorizado: true } });
+        if (antes && antes.autorizado !== nuevo) Object.assign(userPayload, { autorizado: nuevo, autorizadoCambio: new Date() });
+    }
 
     const updatedUser = await prisma.user.update({
         where: { id },

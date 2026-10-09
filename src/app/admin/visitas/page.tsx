@@ -10,6 +10,7 @@ import { Filtros } from "@/components/ui/filtros";
 import { visitasDelDia, avisosDelDia, atenderAvisoAMano, type VisitaFila, type AvisoFila } from "@/app/actions/visitas";
 import { ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { duracion } from "@/lib/visitas/calculos";
+import { esPaseLibre } from "@/lib/visitas/ajustes-base";
 
 /**
  * Visitas y avisos del día, para revisar desde el panel lo que pasó en la garita: quién entró,
@@ -54,13 +55,14 @@ export default function PaginaVisitas() {
             clave: "dur", titulo: "Duración", ancho: 130, valor: (v) => (+(v.sale ? new Date(v.sale) : new Date()) - +new Date(v.entra)),
             celda: (v) => {
                 const min = (+(v.sale ? new Date(v.sale) : new Date()) - +new Date(v.entra)) / 60000;
-                const excedida = !v.sale && Date.now() > +new Date(v.vence);
-                return <span className={cn("text-[13px] tabular-nums", excedida && "tono-mal font-semibold")}>{duracion(min)}{!v.sale && <span className="text-muted-foreground"> / {v.minutosTipo} min</span>}</span>;
+                const libre = esPaseLibre(v.tipo);
+                const excedida = !libre && !v.sale && Date.now() > +new Date(v.vence);
+                return <span className={cn("text-[13px] tabular-nums", excedida && "tono-mal font-semibold")}>{duracion(min)}{!v.sale && <span className="text-muted-foreground"> / {libre ? "sin tope" : `${v.minutosTipo} min`}</span>}</span>;
             },
         },
         {
             clave: "estado", titulo: "Estado", ancho: 170, valor: (v) => v.sale ? "cerrada" : "en curso",
-            celda: (v) => !v.sale ? (Date.now() > +new Date(v.vence) ? <Estado tono="mal">excedida</Estado> : <Estado tono="info">en el barrio</Estado>)
+            celda: (v) => !v.sale ? (!esPaseLibre(v.tipo) && Date.now() > +new Date(v.vence) ? <Estado tono="mal">excedida</Estado> : <Estado tono="info">en el barrio</Estado>)
                 : <span className="text-[12px] text-muted-foreground">cerró: {CIERRE[v.cierre || ""] || v.cierre}{v.cerradaPor && v.cierre === "GUARDIA" ? ` (${v.cerradaPor})` : ""}</span>,
         },
         { clave: "reg", titulo: "Registró", ancho: 140, valor: (v) => v.registradaPor || "", celda: (v) => <span className="text-[12px] text-muted-foreground">{v.registradaPor || "—"}{v.extensiones ? ` · +${v.extensiones} ext.` : ""}</span> },

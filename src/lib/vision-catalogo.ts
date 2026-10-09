@@ -368,13 +368,13 @@ export const ANALITICAS: Analitica[] = [
     //    lo que falta en cada una es la regla (dónde, cuánto, a quién avisar). ──
     {
         id: "linea-propia", nombre: "Cruce de línea propio", icono: "Spline", modo: "Intrusión",
-        queHace: "Una línea dibujada en OmniAccess (no en la cámara): el seguimiento dice quién la cruzó y en qué sentido. Sirve en cámaras sin analítica y no depende de configurar cada marca.",
-        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle", "bicycle"], estado: "posible", porDefecto: false,
+        queHace: "Una línea dibujada en OmniAccess (no en la cámara): avisa con foto cuando alguien la cruza, en un sentido o en los dos, con horario de armado opcional. Sirve en cámaras sin analítica y no depende de configurar cada marca.",
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle", "bicycle"], estado: "corre", porDefecto: true,
     },
     {
         id: "zona-propia", nombre: "Intrusión en zona propia", icono: "Shapes", modo: "Intrusión",
-        queHace: "Una zona dibujada en OmniAccess: alguien entra (o se queda más de N segundos). Con la silueta, cuenta si el cuerpo está adentro y no sólo la caja.",
-        necesita: ["deteccion", "seguimiento", "segmentacion"], clases: ["person", "car", "truck", "motorcycle"], estado: "posible", porDefecto: false,
+        queHace: "Una zona dibujada en OmniAccess: avisa cuando alguien entra y se queda los segundos indicados, con horario de armado opcional. Se mide el pie de la caja (la silueta queda para más adelante).",
+        necesita: ["deteccion", "seguimiento"], clases: ["person", "car", "truck", "motorcycle"], estado: "corre", porDefecto: true,
     },
     {
         id: "trepar", nombre: "Persona trepando", icono: "PersonStanding", modo: "Intrusión",

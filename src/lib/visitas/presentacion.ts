@@ -28,7 +28,7 @@ export function rotulosContadores(modo: "ABIERTO" | "CERRADO") {
 
 export type TipoAviso = "VISITA_EXCEDIDA" | "FUERA_DE_RUTINA" | "PERMANENCIA_INUSUAL" | "PRIMERA_VEZ_NOCHE" | "DA_VUELTAS" | "SIN_REGISTRAR"
     // Los de las reglas de visión (vision-worker → vision-reglas.js), con su foto en `datos.foto`.
-    | "VISION_SENTIDO" | "VISION_PERMANENCIA" | "VISION_AGLOMERACION";
+    | "VISION_SENTIDO" | "VISION_PERMANENCIA" | "VISION_AGLOMERACION" | "VISION_CRUCE" | "VISION_INTRUSION";
 
 export const ETIQUETA_AVISO: Record<TipoAviso, { titulo: string; tono: Tono }> = {
     VISITA_EXCEDIDA: { titulo: "Visita excedida", tono: "mal" },
@@ -40,6 +40,8 @@ export const ETIQUETA_AVISO: Record<TipoAviso, { titulo: string; tono: Tono }> =
     VISION_SENTIDO: { titulo: "Sentido contrario", tono: "mal" },
     VISION_PERMANENCIA: { titulo: "Se quedó en la zona", tono: "aviso" },
     VISION_AGLOMERACION: { titulo: "Aglomeración", tono: "aviso" },
+    VISION_CRUCE: { titulo: "Cruce de línea", tono: "aviso" },
+    VISION_INTRUSION: { titulo: "Intrusión", tono: "mal" },
 };
 
 /** Las frases de cada aviso: siempre con el dato que lo disparó. */

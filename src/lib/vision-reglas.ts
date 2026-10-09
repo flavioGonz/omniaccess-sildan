@@ -19,7 +19,7 @@
 
 export const CLAVE_REGLAS = "VISION_REGLAS";
 
-export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion";
+export type TipoRegla = "conteo" | "sentido" | "permanencia" | "aglomeracion" | "cruce" | "intrusion";
 export type Punto = [number, number];
 export type Sentido = "ab" | "ba";
 
@@ -43,6 +43,13 @@ export type ReglaVision = {
     maximo?: number;
     /** Si además de registrarlo crea un aviso a la guardia (consola, Control LPR, Visitas). */
     avisar: boolean;
+    /** Cruce propio: en qué sentido avisa («ambos», o sólo de A a B, o de B a A). */
+    sentidos?: "ambos" | Sentido;
+    /**
+     * Cruce e intrusión: cuándo está armada (hora del barrio, «HH:MM»). Sin horario, siempre.
+     * Si `desde` es mayor que `hasta` cruza la medianoche (22:00 → 06:00).
+     */
+    horario?: { desde: string; hasta: string } | null;
 };
 
 /** Qué es cada tipo, qué analítica del laboratorio lo prende y qué geometría pide. */
@@ -70,7 +77,30 @@ export const TIPOS_REGLA: Record<TipoRegla, {
         queHace: "Avisa cuando hay más personas juntas de lo indicado en la zona (o en todo el cuadro), durante un rato.",
         clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 30, maximoDefecto: 5,
     },
+    cruce: {
+        nombre: "Cruce de línea propio", analitica: "linea-propia", geometria: "linea",
+        queHace: "Avisa cuando algo cruza la línea (en los dos sentidos o en uno), con la foto. La línea es de OmniAccess, no de la cámara: anda en cualquier marca y no hay que configurar el equipo. Con horario, se arma sólo de noche.",
+        clasesDefecto: ["person"], avisarDefecto: true,
+    },
+    intrusion: {
+        nombre: "Intrusión en zona propia", analitica: "zona-propia", geometria: "zona",
+        queHace: "Avisa cuando alguien entra a la zona y se queda los segundos indicados (para que una sombra o un paso por el borde no avise). Una vez por objeto. Con horario, se arma sólo de noche.",
+        clasesDefecto: ["person"], avisarDefecto: true, segundosDefecto: 2,
+    },
 };
+
+/** La intrusión avisa casi en el acto: su demora va de 0 a 2 min, no desde los 5 s de la permanencia. */
+const SEGUNDOS_INTRUSION = { min: 0, max: 120 };
+const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** ¿Está armada a este minuto del día (hora del barrio)? Sin horario, siempre. */
+export function enHorario(h: ReglaVision["horario"], minutoDelDia: number): boolean {
+    if (!h) return true;
+    const m = (x: string) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5));
+    const d = m(h.desde), a = m(h.hasta);
+    if (d === a) return true;
+    return d < a ? minutoDelDia >= d && minutoDelDia < a : minutoDelDia >= d || minutoDelDia < a;
+}
 
 /** Las clases que se ofrecen en una regla, con su nombre en castellano. */
 export const CLASES_REGLA: { clase: string; nombre: string }[] = [
@@ -113,12 +143,23 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
             if (!a || !b || Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.03) { errores.push(`${nombre}: la línea necesita dos puntos separados`); continue; }
             regla.linea = { a, b };
             if (tipo === "sentido") regla.permitido = r?.permitido === "ba" ? "ba" : "ab";
+            if (tipo === "cruce") regla.sentidos = r?.sentidos === "ab" || r?.sentidos === "ba" ? r.sentidos : "ambos";
         } else {
             const zona = (Array.isArray(r?.zona) ? r.zona : []).map(punto).filter(Boolean) as Punto[];
-            if (tipo === "permanencia" && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
+            if ((tipo === "permanencia" || tipo === "intrusion") && zona.length < 3) { errores.push(`${nombre}: la zona necesita al menos 3 puntos`); continue; }
             regla.zona = zona.length >= 3 ? zona.slice(0, 30) : null;
-            regla.segundos = Math.round(Math.max(SEGUNDOS.min, Math.min(SEGUNDOS.max, Number(r?.segundos) || t.segundosDefecto || 60)));
+            if (tipo === "intrusion") {
+                const v = Number(r?.segundos);
+                regla.segundos = Math.round(Math.max(SEGUNDOS_INTRUSION.min, Math.min(SEGUNDOS_INTRUSION.max, Number.isFinite(v) && r?.segundos !== "" && r?.segundos != null ? v : t.segundosDefecto ?? 2)));
+            } else regla.segundos = Math.round(Math.max(SEGUNDOS.min, Math.min(SEGUNDOS.max, Number(r?.segundos) || t.segundosDefecto || 60)));
             if (tipo === "aglomeracion") regla.maximo = Math.round(Math.max(MAXIMO.min, Math.min(MAXIMO.max, Number(r?.maximo) || t.maximoDefecto || 5)));
+        }
+        if (tipo === "cruce" || tipo === "intrusion") {
+            const h = r?.horario;
+            if (h && (h.desde || h.hasta)) {
+                if (!HORA.test(String(h.desde)) || !HORA.test(String(h.hasta))) { errores.push(`${nombre}: el horario va como 22:00 a 06:00`); continue; }
+                regla.horario = { desde: String(h.desde), hasta: String(h.hasta) };
+            } else regla.horario = null;
         }
         out.push(regla);
     }
@@ -131,6 +172,8 @@ export const TIPOS_EVENTO: Record<string, { nombre: string; tono: "info" | "mal"
     SENTIDO_CONTRARIO: { nombre: "Sentido contrario", tono: "mal" },
     PERMANENCIA: { nombre: "Permanencia", tono: "aviso" },
     AGLOMERACION: { nombre: "Aglomeración", tono: "aviso" },
+    CRUCE_LINEA: { nombre: "Cruce de línea", tono: "aviso" },
+    INTRUSION: { nombre: "Intrusión", tono: "mal" },
 };
 
 /** «2 min 30 s», «1 h 5 min». */

@@ -1,6 +1,6 @@
 /**
  * Las reglas de las analíticas de visión, dentro de vision-worker: conteo por línea, sentido
- * contrario, tiempo de permanencia y aglomeración (ver src/lib/vision-reglas.ts, que define
+ * contrario, tiempo de permanencia, aglomeración, cruce de línea propio e intrusión en zona propia (ver src/lib/vision-reglas.ts, que define
  * las reglas y su validación; acá se aplican).
  *
  * Trabaja sobre lo que ya hace el registro: cada cámara se mira cada ~2 s y omni-vision
@@ -21,8 +21,8 @@ const http = require("http");
 const crypto = require("crypto");
 
 /** Las analíticas del laboratorio que prenden cada tipo, y su valor si nadie las tocó. */
-const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion" };
-const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true };
+const ANALITICA = { conteo: "aforo", sentido: "sentido-contrario", permanencia: "permanencia", aglomeracion: "aglomeracion", cruce: "linea-propia", intrusion: "zona-propia" };
+const DEFECTO = { aforo: true, "sentido-contrario": true, permanencia: true, aglomeracion: true, "linea-propia": true, "zona-propia": true };
 /** Cuánto tiene que correrse el pie (fracción del cuadro) para contar como movimiento. */
 const MOVIMIENTO_MIN = 0.01;
 /** Una pista que no se ve hace esto deja de existir para las reglas. */
@@ -34,7 +34,17 @@ const ENFRIO_SENTIDO_MS = 60_000;
 /** Entre dos avisos de aglomeración de la misma regla: la misma reunión no avisa cada 30 s. */
 const ENFRIO_AGLOMERACION_MS = 10 * 60_000;
 
-const TIPO_AVISO = { SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION" };
+/**
+ * Entre dos avisos de cruce propio de la misma regla. Cada cruce queda registrado con su foto;
+ * lo que se espacia es el aviso: un grupo de cinco que salta el cerco es un aviso, no cinco.
+ */
+const ENFRIO_CRUCE_MS = 30_000;
+/** Lo mismo para la intrusión en zona propia. */
+const ENFRIO_INTRUSION_MS = 60_000;
+/** La hora del barrio, para el horario de armado de cruce e intrusión. */
+const ZONA = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
+
+const TIPO_AVISO = { SENTIDO_CONTRARIO: "VISION_SENTIDO", PERMANENCIA: "VISION_PERMANENCIA", AGLOMERACION: "VISION_AGLOMERACION", CRUCE_LINEA: "VISION_CRUCE", INTRUSION: "VISION_INTRUSION" };
 const NOMBRE_CLASE = { person: "persona", car: "auto", truck: "camioneta", bus: "ómnibus", motorcycle: "moto", bicycle: "bicicleta", dog: "perro" };
 
 const pie = (o) => { const [x1, , x2, y2] = o.caja_norm; return [(x1 + x2) / 2, y2]; };
@@ -55,6 +65,20 @@ function adentro(p, zona) {
     return dentro;
 }
 
+/** Minuto del día en la hora del barrio. */
+function minutoDelDia(d) {
+    const [h, m] = new Intl.DateTimeFormat("en-GB", { timeZone: ZONA, hour: "2-digit", minute: "2-digit", hour12: false }).format(d).split(":").map(Number);
+    return (h % 24) * 60 + m;
+}
+/** La misma cuenta que enHorario en src/lib/vision-reglas.ts: si cambia allá, cambia acá. */
+function enHorario(h, d) {
+    if (!h || !h.desde || !h.hasta) return true;
+    const m = (x) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5));
+    const a = m(h.desde), b = m(h.hasta), x = minutoDelDia(d);
+    if (a === b) return true;
+    return a < b ? x >= a && x < b : x >= a || x < b;
+}
+
 function emitir(evento, datos) {
     try {
         const cuerpo = JSON.stringify({ __event: evento, ...datos });
@@ -67,7 +91,7 @@ function emitir(evento, datos) {
 function iniciar({ prisma, subir, log }) {
     let reglas = [];
     let analiticas = {};
-    const contadores = { cruces: 0, sentido: 0, permanencia: 0, aglomeracion: 0, avisos: 0, errores: 0, ultimoError: null };
+    const contadores = { cruces: 0, sentido: 0, permanencia: 0, aglomeracion: 0, crucesPropios: 0, intrusiones: 0, avisos: 0, errores: 0, ultimoError: null };
     /** Último pie visto de cada pista: `${deviceId}:${pista}` → { p, t }. */
     const pies = new Map();
     /** Por regla y pista: último cruce { t, sentido }. */
@@ -77,6 +101,10 @@ function iniciar({ prisma, subir, log }) {
     /** Aglomeración: regla → { desde, ultimoAviso }. */
     const grupos = new Map();
     const ultimoAvisoSentido = new Map();
+    /** Intrusión: `${regla}:${pista}` → { desde, visto, avisado, deviceId }. */
+    const intrusos = new Map();
+    const ultimoAvisoCruce = new Map();
+    const ultimoAvisoIntrusion = new Map();
 
     const prendida = (r) => r.activa !== false && (analiticas[ANALITICA[r.tipo]] ?? DEFECTO[ANALITICA[r.tipo]]) !== false;
 
@@ -87,7 +115,7 @@ function iniciar({ prisma, subir, log }) {
     /** Cámaras que hay que mirar por las reglas, aunque el registro esté apagado o no las incluya. */
     function camaras() { return new Set(reglas.filter(prendida).map((r) => r.deviceId)); }
     /** Cámaras con reglas de LÍNEA prendidas: necesitan el carril rápido (ver RAPIDO_FPS en vision-worker). */
-    function camarasRapidas() { return new Set(reglas.filter((r) => prendida(r) && (r.tipo === "conteo" || r.tipo === "sentido")).map((r) => r.deviceId)); }
+    function camarasRapidas() { return new Set(reglas.filter((r) => prendida(r) && (r.tipo === "conteo" || r.tipo === "sentido" || r.tipo === "cruce")).map((r) => r.deviceId)); }
     /** Si hay algo en curso en esa cámara (alguien adentro de una zona): se mira aunque la imagen no cambie. */
     function enCurso(deviceId) {
         if (!reglas.some((r) => r.deviceId === deviceId && prendida(r))) return false;
@@ -100,6 +128,7 @@ function iniciar({ prisma, subir, log }) {
             if (r.deviceId !== deviceId || !prendida(r)) continue;
             if (r.tipo === "aglomeracion" && grupos.get(r.id)?.desde) return true;
             if (r.tipo === "permanencia") for (const k of estadias.keys()) if (k.startsWith(r.id + ":")) return true;
+            if (r.tipo === "intrusion") for (const k of intrusos.keys()) if (k.startsWith(r.id + ":")) return true;
         }
         return false;
     }
@@ -133,7 +162,8 @@ function iniciar({ prisma, subir, log }) {
             for (const r of mias) {
                 try {
                     const valen = conPista.filter((o) => r.clases.includes(o.clase));
-                    if (r.tipo === "conteo" || r.tipo === "sentido") await lineas(r, cam, valen, jpeg, ahora, t);
+                    if (r.tipo === "conteo" || r.tipo === "sentido" || r.tipo === "cruce") await lineas(r, cam, valen, jpeg, ahora, t);
+                    else if (r.tipo === "intrusion") await intrusion(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "permanencia") await permanencia(r, cam, valen, jpeg, ahora, t);
                     else if (r.tipo === "aglomeracion") await aglomeracion(r, cam, valen, jpeg, ahora, t);
                 } catch (e) { contadores.errores++; contadores.ultimoError = `${r.nombre}: ${e.message}`; }
@@ -149,6 +179,7 @@ function iniciar({ prisma, subir, log }) {
         // Olvido de lo viejo.
         for (const [k, v] of pies) if (t - v.t > OLVIDO_MS * 3) pies.delete(k);
         for (const [k, v] of cruces) if (t - v.t > OLVIDO_MS * 3) cruces.delete(k);
+        for (const [k, v] of intrusos) if (v.deviceId === cam.id && t - v.visto > OLVIDO_MS) intrusos.delete(k);
         await cerrarEstadias(cam, t, false);
     }
 
@@ -167,6 +198,16 @@ function iniciar({ prisma, subir, log }) {
             if (r.tipo === "conteo") {
                 await evento({ tipo: "CRUCE", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, sentido, ts: ahora });
                 contadores.cruces++;
+            } else if (r.tipo === "cruce") {
+                // Fuera de horario, o en el sentido que no interesa: no pasó nada para esta regla.
+                if ((r.sentidos && r.sentidos !== "ambos" && sentido !== r.sentidos) || !enHorario(r.horario, ahora)) continue;
+                const f = await foto(jpeg, ahora);
+                const ev = await evento({ tipo: "CRUCE_LINEA", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, sentido, foto: f, caja: o.caja_norm, ts: ahora });
+                contadores.crucesPropios++;
+                if (t - (ultimoAvisoCruce.get(r.id) || 0) > ENFRIO_CRUCE_MS) {
+                    ultimoAvisoCruce.set(r.id, t);
+                    await avisar(r, "CRUCE_LINEA", `${NOMBRE_CLASE[o.clase] || o.clase} cruzó ${r.nombre}`, ev.id, f, cam);
+                }
             } else if (sentido !== r.permitido) {
                 const f = await foto(jpeg, ahora);
                 const ev = await evento({ tipo: "SENTIDO_CONTRARIO", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, sentido, foto: f, caja: o.caja_norm, ts: ahora });
@@ -195,6 +236,27 @@ function iniciar({ prisma, subir, log }) {
                 contadores.permanencia++;
                 const min = Math.round(seg / 60);
                 await avisar(r, "PERMANENCIA", `${NOMBRE_CLASE[o.clase] || o.clase} hace ${min >= 1 ? `${min} min` : `${Math.round(seg)} s`} en ${r.nombre}`, ev.id, f, cam);
+            }
+        }
+    }
+
+    /** Intrusión: un objeto con el pie adentro de la zona `segundos` seguidos, en horario. Una vez por pista. */
+    async function intrusion(r, cam, valen, jpeg, ahora, t) {
+        const armada = enHorario(r.horario, ahora);
+        for (const o of valen) {
+            const k = `${r.id}:${o.pista}`;
+            if (!armada || !adentro(pie(o), r.zona)) { intrusos.delete(k); continue; }
+            let e = intrusos.get(k);
+            if (!e) { e = { desde: t, visto: t, avisado: false, deviceId: cam.id }; intrusos.set(k, e); }
+            e.visto = t;
+            if (e.avisado || (t - e.desde) / 1000 < (r.segundos ?? 2)) continue;
+            e.avisado = true;
+            const f = await foto(jpeg, ahora);
+            const ev = await evento({ tipo: "INTRUSION", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, valor: Math.round((t - e.desde) / 1000), foto: f, caja: o.caja_norm, ts: new Date(e.desde) });
+            contadores.intrusiones++;
+            if (t - (ultimoAvisoIntrusion.get(r.id) || 0) > ENFRIO_INTRUSION_MS) {
+                ultimoAvisoIntrusion.set(r.id, t);
+                await avisar(r, "INTRUSION", `${NOMBRE_CLASE[o.clase] || o.clase} en ${r.nombre}`, ev.id, f, cam);
             }
         }
     }

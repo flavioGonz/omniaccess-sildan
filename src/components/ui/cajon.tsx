@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { HelpCircle, X } from "lucide-react";
+import { ChevronDown, HelpCircle, X } from "lucide-react";
 import { Pista } from "@/components/ui/pista";
 import { cn } from "@/lib/utils";
 
@@ -159,10 +159,10 @@ function CajonContenido({
  * como uno solo largo y hay que apoyarse en la línea divisoria para separarlos. La línea
  * ayuda; el aire es lo que hace el trabajo.
  */
-function CajonSeccion({ titulo, ayuda, pista, icono: Icono, children, className, compacta }: {
+function CajonSeccion({ titulo, ayuda, pista, icono: Icono, children, className, compacta, plegable, abiertaAlInicio = false, resumen }: {
     titulo: string;
-    /** Para qué sirve esto. Una línea, y sólo cuando no es obvio. */
-    ayuda?: string;
+    /** Para qué sirve esto. Una línea, y sólo cuando no es obvio (puede llevar un enlace). */
+    ayuda?: React.ReactNode;
     /**
      * La explicación larga, detrás de un signo de pregunta al lado del título. Es el mismo
      * criterio que en `CajonCampo`: lo que hay que saber antes de tocar va visible
@@ -176,7 +176,36 @@ function CajonSeccion({ titulo, ayuda, pista, icono: Icono, children, className,
     className?: string;
     /** Menos aire vertical (20px): para cajones de muchas secciones cortas, como filtros. */
     compacta?: boolean;
+    /**
+     * La sección se abre y se cierra tocando el título. Cerrada, lo de adentro sigue en la
+     * página (oculto, no desmontado): un formulario que manda sus campos tiene que seguir
+     * mandándolos aunque nadie haya abierto la sección.
+     */
+    plegable?: boolean;
+    abiertaAlInicio?: boolean;
+    /** Plegada, una línea que dice lo que hay adentro («2 matrículas · 1 tarjeta»): cerrada no es vacía. */
+    resumen?: React.ReactNode;
 }) {
+    const [abierta, setAbierta] = React.useState(!plegable || abiertaAlInicio);
+    if (plegable && titulo) {
+        return (
+            <section className={cn("px-6 border-b border-border last:border-0", compacta ? "py-5" : abierta ? "py-8" : "py-5", className)}>
+                <button type="button" onClick={() => setAbierta((v) => !v)} aria-expanded={abierta}
+                    className="w-full flex items-center gap-2 text-left group">
+                    <span className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground group-hover:text-foreground">
+                        {Icono && <Icono size={13} className="text-muted-foreground/70" />}
+                        {titulo}
+                    </span>
+                    {!abierta && resumen && <span className="min-w-0 truncate text-[12px] text-muted-foreground">· {resumen}</span>}
+                    <ChevronDown size={14} className={cn("ml-auto shrink-0 text-muted-foreground transition-transform", abierta && "rotate-180")} />
+                </button>
+                <div hidden={!abierta}>
+                    {ayuda && <p className="text-[12px] text-muted-foreground/80 mt-1.5 max-w-prose">{ayuda}</p>}
+                    <div className={cn(compacta ? "space-y-3 mt-3" : "space-y-4 mt-4")}>{children}</div>
+                </div>
+            </section>
+        );
+    }
     return (
         <section className={cn("px-6 border-b border-border last:border-0", compacta ? "py-5" : "py-8", className)}>
             {/* Título vacío = no hay rótulo. Pasa cuando el encabezado del cajón ya dice de

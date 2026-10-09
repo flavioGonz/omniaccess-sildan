@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { ZONA } from "@/lib/fechas";
 import { leerAjustesVisitas } from "./ajustes";
+import { TIPO_PASE_LIBRE } from "./ajustes-base";
 import { enZona, aMinutos, duracion } from "./calculos";
 import { motivo } from "./presentacion";
 import { cerrarVisita, crearAviso } from "./registro";
@@ -28,7 +29,8 @@ export async function tick(opts: { forzarPerfiles?: boolean } = {}) {
 
     // ── Excedidas ──
     if (aj.avisos.VISITA_EXCEDIDA.activo) {
-        const vencidas = await prisma.visita.findMany({ where: { sale: null, vence: { lt: ahora }, avisadaExcedidaAt: null }, take: 200 });
+        // El pase libre no vence: no se lo trae aunque haya pasado su vence técnico (ver PASE_LIBRE_HORAS).
+        const vencidas = await prisma.visita.findMany({ where: { sale: null, vence: { lt: ahora }, avisadaExcedidaAt: null, tipo: { not: TIPO_PASE_LIBRE } }, take: 200 });
         for (const v of vencidas) {
             const tipo = nombreTipo.get(v.tipo);
             const minutos = Math.round((v.vence.getTime() - v.entra.getTime()) / 60_000);
