@@ -152,3 +152,22 @@ de Next) y relata el resultado por cámara.
   contesta "Invalid JSON Content" — que es lo que mandaba el código viejo, o sea que borrar una
   chapa de la cámara nunca había funcionado. El id se obtiene con `searchLPListAudit` filtrando
   por `LicensePlate`.
+
+## Addendum 9/10 — fichas, pestañas y comportamiento
+
+**Fichas, no filas.** La lista sigue siendo PlateWatch, una fila por matrícula, porque es lo que
+leen la barrera (`estaEnListaNegra` y su espejo de server.js), las lectoras y el bot. Lo nuevo es
+`ficha`: las filas con el mismo id son una persona o un vehículo. Una fila suelta (monitor, bot)
+se muestra como ficha de una matrícula «Sin identificar»; una persona marcada desde su cajón,
+agrupada por `userId`; el rol «Lista negra» del módulo facial, en sólo lectura. Las fichas no son
+usuarios ni credenciales: una credencial PLATE es lo que abre la barrera.
+
+**Dos niveles.** Alerta máxima = `BLACKLISTED` (deniega, lectoras, alarma). En búsqueda =
+`SEARCH` (pasa, avisa con el motivo, que es obligatorio). VIP sale de la lista: `User.vip`.
+
+**Baja y reactivación.** La baja desactiva todas las filas con la misma hora; reactivar trae las
+de la última baja (las que se habían quitado antes de la ficha no vuelven).
+
+**Comportamiento.** Fijo (barrera, lectoras, alarma de alerta máxima) se dice, no se dibuja como
+control. Interruptores sólo donde algo cambia de verdad en el monitor LPR. Los avisos fuera de la
+pantalla siguen en las reglas de Notificaciones (WATCHLIST): se muestra cuántas hay.

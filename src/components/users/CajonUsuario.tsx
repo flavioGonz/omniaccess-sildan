@@ -7,8 +7,9 @@ import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
     Building2, Camera, Car, Check, CreditCard, DoorOpen, Home,
     KeyRound, Loader2, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
-    Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info,
+    Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info, Star,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { getAjustesVisitas } from "@/app/actions/visitas";
 import { ElegirEmpresa } from "@/components/empresas/ElegirEmpresa";
 import { Button } from "@/components/ui/button";
@@ -75,9 +76,14 @@ const ROLES = [
     { valor: "TEMPORARY_VISITOR", rotulo: "Visita temporal" },
     { valor: "PROVIDER", rotulo: "Proveedor" },
     { valor: "STAFF", rotulo: "Personal" },
-    { valor: "WHITELISTED", rotulo: "Lista blanca" },
     { valor: "ADMIN", rotulo: "Administrador" },
 ];
+/* «Lista blanca» ya no se ofrece: VIP es una marca de Residentes y Personal (el interruptor
+   de abajo), no un rol. Quien todavía lo tiene lo sigue viendo en el desplegable, para que el
+   campo no aparezca vacío. Lo mismo para los roles del panel que no se cargan desde acá. */
+const ROLES_OTROS: Record<string, string> = { WHITELISTED: "Lista blanca (VIP)", SECURITY: "Seguridad", OPERATOR: "Operador" };
+/** Los roles donde VIP tiene sentido (las pestañas Residentes y Personal de lib/padron). */
+const ROLES_CON_VIP = ["RESIDENT", "WHITELISTED", "STAFF", "SECURITY", "ADMIN", "OPERATOR"];
 
 type UsuarioConRelaciones = User & {
     unit: Unit | null;
@@ -92,6 +98,8 @@ type UsuarioConRelaciones = User & {
 export interface CajonUsuarioProps {
     user?: UsuarioConRelaciones;
     initialData?: { name?: string; dni?: string; plate?: string; cara?: string };
+    /** El rol con el que nace un alta: el de la pestaña desde la que se abrió. */
+    rolInicial?: string;
     units: Unit[];
     groups: AccessGroup[];
     devices: any[];
@@ -105,7 +113,7 @@ export interface CajonUsuarioProps {
 const limpiarChapa = (v: string) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export function CajonUsuario({
-    user, initialData, units, groups, devices, parkingSlots = [], onSuccess, open, onOpenChange,
+    user, initialData, rolInicial, units, groups, devices, parkingSlots = [], onSuccess, open, onOpenChange,
 }: CajonUsuarioProps) {
     const esAlta = !user;
     const [foto, setFoto] = useState<string | null>(null);
@@ -127,6 +135,7 @@ export function CajonUsuario({
     const [gruposElegidos, setGruposElegidos] = useState<string[]>([]);
     /** El rol se controla para mostrar lo de proveedor sólo cuando corresponde. */
     const [rol, setRol] = useState<string>("RESIDENT");
+    const [vip, setVip] = useState(false);
     const [tipoVisita, setTipoVisita] = useState<string>("ninguna");
     /** Los tipos de visita de Ajustes → Visitas y patrones (Delivery 15 min, Servicio…). */
     const [tiposVisita, setTiposVisita] = useState<{ clave: string; nombre: string; minutos: number }[] | null>(null);
@@ -178,7 +187,8 @@ export function CajonUsuario({
         setPinOculto(!!(user?.credentials as any[])?.some((c) => c.type === "PIN" && c.oculto));
         setArchivoFoto(null);
         setGruposElegidos(user?.accessGroups?.map((g) => g.id) || []);
-        setRol(String(user?.role || "RESIDENT"));
+        setRol(String(user?.role || rolInicial || "RESIDENT"));
+        setVip(!!(user as any)?.vip || String(user?.role) === "WHITELISTED");
         setTipoVisita((user as any)?.tipoVisita || "ninguna");
         setUnidadId(user?.unitId || "none");
         setCocheraId(user?.parkingSlotId || "none");
@@ -195,7 +205,7 @@ export function CajonUsuario({
         // y con el objeto en las dependencias este efecto vaciaba el formulario a mitad de
         // carga: elegir «Proveedor» volvía solo a «Residente» a los pocos segundos.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, user?.id, initialData?.plate, initialData?.cara, initialData?.name, initialData?.dni]);
+    }, [open, user?.id, initialData?.plate, initialData?.cara, initialData?.name, initialData?.dni, rolInicial]);
 
     // Los tipos se piden recién cuando hace falta (rol Proveedor) y una sola vez.
     useEffect(() => {
@@ -433,14 +443,26 @@ export function CajonUsuario({
                                     <Input name="email" type="email" defaultValue={user?.email || ""} placeholder="Opcional" />
                                 </CajonCampo>
                                 <CajonCampo etiqueta="Qué es para el barrio"
-                                    pista={<>Decide qué ve y qué puede hacer, y cómo lo trata el historial. Una visita temporal caduca sola; un residente no. Administrador y Personal además entran al panel. <b>Proveedor</b> suma su empresa y el tipo de visita que se le abre al entrar (ej. un delivery de PedidosYa, 15 minutos).</>}>
+                                    pista={<>Decide en qué pestaña está, qué ve y qué puede hacer, y cómo lo trata el monitor. Administrador y Personal además entran al panel. <b>Proveedor</b> suma su empresa y el tipo de visita que se le abre al entrar (ej. un delivery de PedidosYa, 15 minutos).</>}>
                                     <Select name="role" value={rol} onValueChange={setRol}>
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
                                             {ROLES.map((r) => <SelectItem key={r.valor} value={r.valor}>{r.rotulo}</SelectItem>)}
+                                            {!ROLES.some((r) => r.valor === rol) && <SelectItem value={rol}>{ROLES_OTROS[rol] || rol}</SelectItem>}
                                         </SelectContent>
                                     </Select>
                                 </CajonCampo>
+                                {ROLES_CON_VIP.includes(rol) && (
+                                    <div className="sm:col-span-2 flex items-center justify-between gap-3 rounded-[10px] border border-border px-3 py-2.5">
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-1.5 text-[12.5px] font-semibold"><Star size={13} className={vip ? "tono-bien" : "text-muted-foreground"} /> VIP</div>
+                                            <p className="text-[11.5px] text-muted-foreground leading-snug">El monitor lo destaca como VIP al pasar. No cambia lo que decide la barrera.</p>
+                                        </div>
+                                        <Switch checked={vip} onCheckedChange={setVip} aria-label="VIP" />
+                                    </div>
+                                )}
+                                <input type="hidden" name="vipEnviado" value="1" />
+                                <input type="hidden" name="vip" value={vip && ROLES_CON_VIP.includes(rol) ? "1" : "0"} />
                             </div>
                         </div>
                     </CajonSeccion>

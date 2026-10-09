@@ -98,21 +98,25 @@ export const WATCH_EFECTOS: Record<WatchCategory, EfectoCategoria> = {
     WHITELISTED: {
         barrera: "No cambia la decisión: sigue mandando la credencial y el modo LPR. Es una marca para el operador, no un permiso.",
         camaras: "No toca las listas de la cámara.",
-        monitor: "La tarjeta se destaca en violeta como VIP / autorizado.",
+        monitor: "La tarjeta se destaca en verde como VIP.",
         monitores: "Las pantallas de Monitores no la distinguen: se ve como una lectura más.",
         avisos: "Aviso suave en el monitor; no dispara alertas críticas.",
     },
     SEARCH: {
         barrera: "No cambia la decisión: sigue mandando la credencial y el modo LPR.",
         camaras: "No toca las listas de la cámara.",
-        monitor: "La tarjeta se destaca en ámbar y suena el aviso normal: alguien la está buscando.",
+        monitor: "La tarjeta se destaca en ámbar con el motivo y, si está prendido «Sonido al pasar» en la pestaña Lista negra, suena el aviso corto.",
         monitores: "En Control LPR queda 24 h en la fila de atención como EN BÚSQUEDA, con su motivo. No suena.",
         avisos: "Dispara el evento WATCHLIST del motor de notificaciones si hay una regla que lo escuche.",
     },
 };
 
+/**
+ * Lo que se ofrece al CARGAR: los dos niveles de la lista negra. VIP ya no se carga por
+ * matrícula —es una marca de la persona (Residentes, Personal)—; las filas VIP que quedaron
+ * siguen valiendo en el monitor y se ven con `watchCatMeta`.
+ */
 export const WATCH_CATEGORY_LIST: WatchCatMeta[] = [
     WATCH_CATEGORIES.BLACKLISTED,
-    WATCH_CATEGORIES.WHITELISTED,
     WATCH_CATEGORIES.SEARCH,
 ];

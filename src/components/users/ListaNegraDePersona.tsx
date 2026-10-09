@@ -73,7 +73,7 @@ export function ListaNegraDePersona({ userId, chapas, onCambio }: { userId: stri
                     <p className="text-[12px] text-muted-foreground mt-0.5">
                         {marcada
                             ? <>Desde {estado?.desde ? new Date(estado.desde).toLocaleString("es-UY") : "—"}{estado?.por ? ` · cargó ${estado.por}` : ""}{estado?.motivo ? ` · ${estado.motivo}` : ""}</>
-                            : <>Pone <b>todas sus matrículas</b> ({chapas.length ? chapas.join(", ") : "ninguna cargada todavía"}) en la lista de vigilancia, y las que se le carguen después.</>}
+                            : <>Pone <b>todas sus matrículas</b> ({chapas.length ? chapas.join(", ") : "ninguna cargada todavía"}) en la pestaña Lista negra (alerta máxima), y las que se le carguen después.</>}
                     </p>
                     {/* Qué va a pasar, antes de apretar */}
                     <Pista titulo="Qué hace exactamente" ancho={360} texto={

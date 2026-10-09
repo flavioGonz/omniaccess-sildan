@@ -104,6 +104,8 @@ export async function getAccessEvents(options?: {
                             id: true,
                             name: true,
                             role: true,
+                            // VIP: el monitor LPR lo destaca (lib/padron → claseDeLectura).
+                            vip: true,
                             email: true,
                             phone: true,
                             dni: true,

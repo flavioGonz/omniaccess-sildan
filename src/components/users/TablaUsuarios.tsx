@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import {
     Briefcase, CreditCard, Edit, Hash, KeyRound, Lock, Mail, MapPin, Phone, ScanFace,
-    Shield, ShieldAlert, Trash2, Truck, UserCheck, UserX, Users,
+    Shield, ShieldAlert, Star, Trash2, Truck, UserCheck, UserX, Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
@@ -60,7 +60,11 @@ export const ROLES: Record<string, { label: string; icono: any; tono: "neutro" |
     STAFF: { label: "Personal", icono: Briefcase, tono: "bien" },
     PROVIDER: { label: "Proveedor", icono: Truck, tono: "aviso" },
     ADMIN: { label: "Admin", icono: Shield, tono: "mal" },
-    WHITELISTED: { label: "Lista blanca", icono: UserCheck, tono: "info" },
+    // De antes: hoy VIP es una marca (chip aparte), no un rol.
+    WHITELISTED: { label: "Residente", icono: UserCheck, tono: "info" },
+    SECURITY: { label: "Seguridad", icono: Shield, tono: "bien" },
+    OPERATOR: { label: "Operador", icono: Shield, tono: "bien" },
+    TEMPORARY_VISITOR: { label: "Visita temporal", icono: UserX, tono: "quieto" },
     BLACKLISTED: { label: "Lista negra", icono: ShieldAlert, tono: "mal" },
 };
 
@@ -100,7 +104,11 @@ function Pila({ items, icono: Icono, rotulo, mono }: {
 
 export function TablaUsuarios({
     usuarios, cargando, error, alReintentar, hayMas, traerMas, alAbrir, alBorrar, barra, enListaNegra,
+    titulo = "Residente", plural = "residentes",
 }: {
+    /** El encabezado de la primera columna y cómo se cuentan, según la pestaña. */
+    titulo?: string;
+    plural?: string;
     usuarios: UsuarioFila[];
     /** Personas con alguna matrícula activa en la lista de vigilancia como lista negra. */
     enListaNegra?: Set<string>;
@@ -115,7 +123,7 @@ export function TablaUsuarios({
 }) {
     const columnas = useMemo<ColumnaTabla<UsuarioFila>[]>(() => [
         {
-            clave: "identidad", titulo: "Residente", ancho: 300, ordenable: true,
+            clave: "identidad", titulo, ancho: 300, ordenable: true,
             valor: (u) => u.name,
             celda: (u) => {
                 const rol = ROLES[u.role] || ROLES.RESIDENT;
@@ -127,7 +135,7 @@ export function TablaUsuarios({
                     <Identidad
                         foto={u.cara}
                         nombre={u.name}
-                        insignia={<span className="inline-flex items-center gap-1"><Chip tono={rol.tono} icono={rol.icono}>{rol.label}</Chip>{negra && <Chip tono="mal" icono={ShieldAlert}>Lista negra</Chip>}</span>}
+                        insignia={<span className="inline-flex items-center gap-1"><Chip tono={rol.tono} icono={rol.icono}>{rol.label}</Chip>{(u.vip || u.role === "WHITELISTED") && <Chip tono="bien" icono={Star}>VIP</Chip>}{negra && <Chip tono="mal" icono={ShieldAlert}>Lista negra</Chip>}</span>}
                         sub={
                             u.phone || u.email ? (
                                 <span className="inline-flex items-center gap-2.5">
@@ -222,7 +230,7 @@ export function TablaUsuarios({
                 </div>
             ),
         },
-    ], [alAbrir, alBorrar, enListaNegra]);
+    ], [alAbrir, alBorrar, enListaNegra, titulo]);
 
     return (
         <Tabla<UsuarioFila>
@@ -237,13 +245,13 @@ export function TablaUsuarios({
             alReintentar={alReintentar}
             vacio={{
                 icono: Users,
-                titulo: "Sin residentes",
-                ayuda: "Probá con otra búsqueda, o quitá el filtro de rol. Si el padrón está vacío, se puede importar desde una planilla.",
+                titulo: `Sin ${plural}`,
+                ayuda: "Probá con otra búsqueda. Si el padrón está vacío, se puede importar desde una planilla.",
             }}
             alClickFila={alAbrir}
             masFilas={hayMas && traerMas ? { hay: hayMas, cargando, traer: traerMas, modo: "scroll" } : undefined}
-            alto="calc(100vh - 210px)"
-            pie={<span className="tabular-nums">{usuarios.length} residentes</span>}
+            alto="calc(100vh - 300px)"
+            pie={<span className="tabular-nums">{usuarios.length} {plural}</span>}
         />
     );
 }

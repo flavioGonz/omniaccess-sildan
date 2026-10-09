@@ -73,6 +73,9 @@ model User {
   /// Proveedor: la clave del tipo de visita (Ajustes → Visitas y patrones) que se le abre
   /// sola cuando la cámara de Entrada lee su matrícula. Null = no se le abre visita.
   tipoVisita      String?
+  /// VIP: una marca dentro de Residentes o Personal (no una lista aparte). El monitor lo
+  /// destaca; no cambia lo que decide la barrera.
+  vip             Boolean       @default(false)
   accessEvents    AccessEvent[]
   credentials     Credential[]
   parkingSlot     ParkingSlot?  @relation(fields: [parkingSlotId], references: [id])
@@ -706,9 +709,13 @@ model PlateWatch {
   /// Foto de la persona (rostro) cargada al marcarla, como foto del registro. Queda lista para
   /// cargarla mas adelante en la biblioteca de rostros de los equipos; hoy no se sincroniza.
   fotoUrl       String?
+  /// La ficha de la pestaña Lista negra a la que pertenece: las matriculas de una misma ficha
+  /// (una persona, o un vehiculo sin identificar) comparten este id. Null = entrada suelta.
+  ficha         String?
 
   @@index([userId])
   @@index([active, category])
+  @@index([ficha])
 }
 
 /// Avistamiento de una matricula en una camara, con la posicion de esa camara

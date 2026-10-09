@@ -433,6 +433,17 @@ function leerGrupos(formData: FormData): { id: string }[] | null {
     return [...new Set(formData.getAll("groupId").map(String).filter(Boolean))].map((id) => ({ id }));
 }
 
+/**
+ * VIP: una marca de Residentes y Personal (antes era una lista aparte, «Lista blanca»). Sólo se
+ * toca si el formulario la trae (`vipEnviado`): otras pantallas que guardan una persona no la
+ * mandan y no tienen por qué borrarla. En un rol que no admite VIP queda apagada.
+ */
+const ROLES_CON_VIP = ["RESIDENT", "WHITELISTED", "STAFF", "SECURITY", "ADMIN", "OPERATOR"];
+function leerVip(formData: FormData, role: string): boolean | null {
+    if (!formData.has("vipEnviado")) return null;
+    return ROLES_CON_VIP.includes(String(role)) && formData.get("vip") === "1";
+}
+
 export async function createUser(formData: FormData) {
     const name = formData.get("name") as string;
     const email = formData.get("email") as string;
@@ -466,6 +477,8 @@ export async function createUser(formData: FormData) {
     if (gruposNuevos?.length) userPayload.accessGroups = { connect: gruposNuevos };
     const provNuevo = leerProveedor(formData, role);
     if (provNuevo) Object.assign(userPayload, provNuevo);
+    const vipNuevo = leerVip(formData, role);
+    if (vipNuevo !== null) userPayload.vip = vipNuevo;
 
     const newUser = await prisma.user.create({
         data: userPayload,
@@ -540,6 +553,8 @@ export async function updateUser(id: string, formData: FormData) {
     if (grupos) userPayload.accessGroups = { set: grupos };
     const prov = leerProveedor(formData, role);
     if (prov) Object.assign(userPayload, prov);
+    const vip = leerVip(formData, role);
+    if (vip !== null) userPayload.vip = vip;
 
     const updatedUser = await prisma.user.update({
         where: { id },

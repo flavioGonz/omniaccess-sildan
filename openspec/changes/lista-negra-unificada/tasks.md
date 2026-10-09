@@ -109,3 +109,21 @@
 - [x] 8.3 Actualizar `claude/pendientes-san-nicolas.md` (sacar el ítem "matrículas BLACKLISTED a la
       lista blanca de la cámara") y anotar en la entrega que desde este despliegue la lista negra
       **no entra**.
+
+## 9. Lista negra como pestaña de fichas (pedido del 9/10)
+
+«Listas de seguimiento o vigilancia» confundía: tres categorías por matrícula, VIP como rol o
+como matrícula, y una segunda pestaña para lo mismo. Ver el addendum de `design.md`.
+
+- [x] 9.1 Migración `20261009210000_lista_negra_fichas`: `PlateWatch.ficha` (agrupa matrículas) y
+      `User.vip` (VIP pasa a ser una marca de Residentes y Personal). No cambia lo que lee la barrera.
+- [x] 9.2 `/admin/users` en pestañas Residentes · Personal · Proveedores · Visitas · Lista negra;
+      `?tab=vigilancia` sigue abriendo la lista negra. Cada pestaña da de alta con su rol.
+- [x] 9.3 `CajonListaNegra`: ficha con nombre opcional («Sin identificar»), foto, dos niveles
+      (alerta máxima / en búsqueda), motivo, varias matrículas, capturas y lecturas. El mismo
+      cajón se abre desde «Registrar» del monitor.
+- [x] 9.4 «Cómo se comporta» por pestaña: lo fijo como texto; interruptores reales (color propio,
+      sonido al pasar, sonido VIP, sonido en búsqueda) en `Setting PADRON_COMPORTAMIENTO`, leídos
+      por el monitor LPR. Los avisos por WhatsApp/Telegram se muestran desde las reglas WATCHLIST.
+- [ ] 9.5 Reiniciar `omniaccess-webhooks` (con OK) para que el socket del monitor traiga `vip`;
+      hasta entonces el VIP se ve al recargar (cada 5 s), no en el instante de la lectura.

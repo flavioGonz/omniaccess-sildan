@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Estado, Matricula } from "@/components/ui/celdas";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
-import { WatchlistDialog } from "@/components/WatchlistDialog";
+import { CajonListaNegra } from "@/components/users/CajonListaNegra";
 import { queSeSabeDeMatricula } from "@/app/actions/registro";
 
 /**
@@ -18,7 +18,7 @@ import { queSeSabeDeMatricula } from "@/app/actions/registro";
  *
  *   · alguien del barrio —residente, personal, proveedor habitual— que tiene que quedar en
  *     el padrón con su nombre y su lote; o
- *   · una matrícula a vigilar —lista negra, en búsqueda, VIP— que no es de nadie conocido y
+ *   · un auto para la lista negra —alerta máxima o en búsqueda— que no es de nadie conocido y
  *     no tiene por qué ser una persona.
  *
  * Mezclarlas generaba personas inventadas para poder marcar un auto sospechoso, y autos de
@@ -123,14 +123,14 @@ export function RegistrarMatricula({ plate, alCerrar, alTerminar, units, groups,
                             ]}
                             aviso={sabido?.duenio ? <p className="text-[12px] font-semibold tono-aviso">Ya tiene dueño: esto crearía otra persona con la misma matrícula.</p> : undefined}
                             alElegir={() => setPaso("persona")} />
-                        <Opcion icono={Eye} titulo="Una matrícula en seguimiento"
-                            para="Un auto a vigilar que no es de nadie del barrio: lista negra, en búsqueda o VIP."
+                        <Opcion icono={Eye} titulo="A la lista negra"
+                            para="Un auto que no es de nadie del barrio: en alerta máxima (se deniega) o en búsqueda (se avisa)."
                             pasa={[
-                                "Entra a la lista de vigilancia con su categoría y un motivo. No se crea ninguna persona.",
-                                "El monitor la destaca cada vez que pasa y, si querés, avisa.",
-                                "En lista negra, la barrera la deniega y las lectoras la reciben.",
+                                "Se crea su ficha en Usuarios → Lista negra, con nombre si se sabe; si no, «Sin identificar». No se crea ninguna persona.",
+                                "El monitor la destaca cada vez que pasa.",
+                                "En alerta máxima, la barrera la deniega y las lectoras la reciben.",
                             ]}
-                            aviso={sabido?.vigilancia ? <p className="text-[12px] font-semibold tono-aviso">Ya está en la lista: al agregarla te pregunta si cambiar su categoría.</p> : undefined}
+                            aviso={sabido?.vigilancia ? <p className="text-[12px] font-semibold tono-aviso">Ya está en la lista: al guardar te pregunta si pasarla a esta ficha.</p> : undefined}
                             alerta alElegir={() => setPaso("vigilancia")} />
                     </CajonSeccion>
 
@@ -151,7 +151,9 @@ export function RegistrarMatricula({ plate, alCerrar, alTerminar, units, groups,
                     onSuccess={() => { alTerminar(); alCerrar(); }} />
             )}
             {paso === "vigilancia" && (
-                <WatchlistDialog plateInicial={plate} onClose={() => { alTerminar(); alCerrar(); }} />
+                /* El mismo cajón que la pestaña Lista negra: un solo lugar, una sola manera de cargar. */
+                <CajonListaNegra abierta ficha={null} chapaInicial={plate || undefined}
+                    alCerrar={() => { alTerminar(); alCerrar(); }} alCambiar={() => { }} />
             )}
         </>
     );

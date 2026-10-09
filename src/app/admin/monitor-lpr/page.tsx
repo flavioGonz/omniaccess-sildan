@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useRef, memo, useCallback } from "react";
+import { useEffect, useState, useMemo, useRef, memo, useCallback, createContext, useContext } from "react";
 import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice } from "@/app/actions/history";
@@ -65,6 +65,11 @@ import { getUnits } from "@/app/actions/units";
 import { getAccessGroups } from "@/app/actions/groups";
 import { getParkingSlots, getPlatesWithParking } from "@/app/actions/parking";
 import { getWatchMap } from "@/app/actions/watchlist";
+import { getComportamientoPadron } from "@/app/actions/padron";
+import {
+    claseDeLectura, ESTILO_MONITOR, ESTILO_APAGADO, normalizarComportamiento, COMPORTAMIENTO_DEFECTO,
+    type ClaseMonitor, type ClaveComportamiento, type Comportamiento,
+} from "@/lib/padron";
 import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
@@ -90,27 +95,30 @@ interface FullAccessEvent extends AccessEvent {
     device: Device | null;
 }
 
-/** Tipo de usuario reconocido en cada detección (color + etiqueta).
- *  Prioridad: lista negra > lista blanca (watch o rol) > rol del usuario. */
+/**
+ * Tipo de usuario reconocido en cada detección (color + etiqueta).
+ *
+ * La clase sale de lib/padron (claseDeLectura): lista negra > VIP > la pestaña del rol. Los
+ * colores también viven allá (ESTILO_MONITOR), para que la muestra de cada pestaña en
+ * /admin/users sea exactamente esto. Con «Color propio» apagado en esa pestaña, la etiqueta se
+ * sigue viendo (el guardia necesita saber quién es), en gris y sin franja.
+ */
 type TipoMeta = { key: string; label: string; badge: string; ring: string; dot: string };
-function tipoDeteccion(event: any, watch?: any): TipoMeta | null {
-    const cat = (watch?.category || "").toString().toLowerCase();
-    if (cat === "negra" || cat === "blacklisted") return { key: "negra", label: "Lista Negra", badge: "bg-red-500/15 text-red-300 border border-red-500/40", ring: "ring-2 ring-red-500/70", dot: "bg-red-500" };
-    // VIP en verde con su nombre de la lista: es PERMITIDO. Y «en búsqueda» no caía en ningún
-    // caso, así que una matrícula buscada se veía como un auto cualquiera.
-    if (cat === "blanca" || cat === "whitelisted") return { key: "blanca", label: "VIP / Autorizado", badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40", ring: "ring-2 ring-emerald-400/70", dot: "bg-emerald-400" };
-    if (cat === "search" || cat === "busca") return { key: "busqueda", label: "En búsqueda", badge: "bg-amber-500/20 text-amber-200 border border-amber-500/50", ring: "ring-2 ring-amber-400/70", dot: "bg-amber-400" };
-    const role = (event?.user?.role || "").toString().toUpperCase();
-    switch (role) {
-        case "RESIDENT": return { key: "residente", label: "Residente", badge: "bg-blue-500/15 text-blue-300 border border-blue-500/40", ring: "ring-1 ring-blue-500/50", dot: "bg-blue-500" };
-        case "VISITOR": case "TEMPORARY_VISITOR": return { key: "visitante", label: "Visitante", badge: "bg-purple-500/15 text-purple-300 border border-purple-500/40", ring: "ring-1 ring-purple-500/50", dot: "bg-purple-500" };
-        case "STAFF": case "SECURITY": return { key: "personal", label: "Personal", badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/40", ring: "ring-1 ring-emerald-500/50", dot: "bg-emerald-500" };
-        case "PROVIDER": return { key: "proveedor", label: "Proveedor", badge: "bg-amber-500/15 text-amber-300 border border-amber-500/40", ring: "ring-1 ring-amber-500/50", dot: "bg-amber-500" };
-        case "WHITELISTED": return { key: "blanca", label: "Lista Blanca", badge: "bg-sky-500/15 text-sky-300 border border-sky-500/40", ring: "ring-2 ring-sky-400/70", dot: "bg-sky-400" };
-        case "BLACKLISTED": return { key: "negra", label: "Lista Negra", badge: "bg-red-500/15 text-red-300 border border-red-500/40", ring: "ring-2 ring-red-500/70", dot: "bg-red-500" };
-        case "ADMIN": case "OPERATOR": return null;
-        default: return event?.user ? { key: "otro", label: "Registrado", badge: "bg-zinc-500/15 text-zinc-300 border border-zinc-500/40", ring: "ring-1 ring-zinc-500/40", dot: "bg-zinc-400" } : { key: "desconocido", label: "Desconocido", badge: "bg-zinc-600/20 text-zinc-400 border border-zinc-600/40", ring: "", dot: "bg-zinc-500" };
-    }
+/** La clave vieja de cada clase: la usan las tarjetas («residente» suma el lote, «negra» el borde rojo). */
+const CLAVE_VIEJA: Record<ClaseMonitor, string> = { residentes: "residente", personal: "personal", proveedores: "proveedor", visitas: "visitante", vip: "blanca", alerta: "negra", busqueda: "busqueda" };
+/** Los interruptores de las pestañas (Usuarios → «Cómo se comporta»). Se leen al cargar el monitor. */
+const ComportamientoCtx = createContext<Comportamiento>(normalizarComportamiento(COMPORTAMIENTO_DEFECTO));
+function tipoDeteccion(event: any, watch?: any, comp?: Comportamiento): TipoMeta | null {
+    const clase = claseDeLectura(event?.user, watch?.category);
+    if (!clase) return event?.user
+        ? { key: "otro", label: "Registrado", badge: "bg-zinc-500/15 text-zinc-300 border border-zinc-500/40", ring: "ring-1 ring-zinc-500/40", dot: "bg-zinc-400" }
+        : { key: "desconocido", label: "Desconocido", badge: "bg-zinc-600/20 text-zinc-400 border border-zinc-600/40", ring: "", dot: "bg-zinc-500" };
+    const e = ESTILO_MONITOR[clase];
+    // La lista negra no se apaga: es justamente lo que tiene que resaltar.
+    const conColor = clase === "alerta" ? true : (comp?.[clase as ClaveComportamiento]?.color ?? true);
+    return conColor
+        ? { key: CLAVE_VIEJA[clase], label: e.etiqueta, badge: e.badge, ring: e.ring, dot: e.dot }
+        : { key: CLAVE_VIEJA[clase], label: e.etiqueta, ...ESTILO_APAGADO };
 }
 
 function playShutter() { /* sonido de captura desactivado para evitar warnings de autoplay del navegador */ }
@@ -314,7 +322,8 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
     const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
     const sentido = ev.direction;
     const watch = (ev as any).watch || (watchMap && ev.plateDetected ? watchMap[String(ev.plateDetected).toUpperCase()] : null);
-    const tipo = tipoDeteccion(ev, watch);
+    const comp = useContext(ComportamientoCtx);
+    const tipo = tipoDeteccion(ev, watch, comp);
     const empresa = plate && logos ? logos[String(plate).toUpperCase()] : null;
     const ring = sentido === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
     return (
@@ -427,7 +436,8 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const empresa = _wp && logos ? logos[_wp] : null;
     const watchMeta = watch ? watchCatMeta(watch.category) : null;
     const watchStyle = watchMeta ? { ring: watchMeta.ring, badge: watchMeta.badge, label: watchMeta.label.toUpperCase() } : null;
-    const tipo = tipoDeteccion(event, watch);
+    const comp = useContext(ComportamientoCtx);
+    const tipo = tipoDeteccion(event, watch, comp);
     const [nvrCh, setNvrCh] = useState<number | null>(null);
     const [showVid, setShowVid] = useState(false);
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
@@ -494,6 +504,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
 /** Mini-ventanas apiladas abajo a la derecha con las lecturas anómalas.
  *  Quedan FIJAS hasta que el guardia cierra cada una (o todas). */
 function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void }) {
+    const comp = useContext(ComportamientoCtx);
     if (!items.length) return null;
     return (
         <div className="fixed bottom-4 right-4 z-[400] w-[340px] max-w-[92vw] flex flex-col gap-2 pointer-events-none">
@@ -509,7 +520,7 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
                     const anomalous = !ev.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
                     const watch = ev.watch;
                     const watchMeta = watch ? watchCatMeta(watch.category) : null;
-                    const tipo = tipoDeteccion(ev, watch);
+                    const tipo = tipoDeteccion(ev, watch, comp);
                     const img = getImagePath(ev.snapshotPath || ev.imagePath) || "";
                     const dir = ev.direction;
                     const isBlack = tipo?.key === "negra";
@@ -839,7 +850,15 @@ export default function MonitorLPR() {
     useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
     const audioCtxRef = useRef<any>(null);
     const lastAlertRef = useRef<Record<string, number>>({});
-    const refreshWatch = useCallback(() => { getWatchMap().then((m) => setWatchMap(m || {})).catch(() => { }); }, []);
+    // Los interruptores de cada pestaña de Usuarios («Cómo se comporta»): color propio y sonido
+    // al pasar. Se releen con la lista negra, así un cambio llega sin recargar la pantalla.
+    const [comportamiento, setComportamiento] = useState<Comportamiento>(normalizarComportamiento(COMPORTAMIENTO_DEFECTO));
+    const comportamientoRef = useRef(comportamiento);
+    useEffect(() => { comportamientoRef.current = comportamiento; }, [comportamiento]);
+    const refreshWatch = useCallback(() => {
+        getWatchMap().then((m) => setWatchMap(m || {})).catch(() => { });
+        getComportamientoPadron().then(setComportamiento).catch(() => { /* queda lo anterior */ });
+    }, []);
     // Qué matrícula es de qué empresa (con logo): proveedores registrados y visitas abiertas.
     // Al ritmo de la lista de vigilancia: una visita nueva tarda a lo sumo un minuto en mostrar el logo.
     const [logos, setLogos] = useState<LogosMatricula>({});
@@ -949,11 +968,11 @@ export default function MonitorLPR() {
             const plate = (event.plateDetected || '').toUpperCase();
             if (plate === 'DOOR_OPEN' || plate === 'DOOR_CLOSE') return;
 
-            // Watchlist: alerta sonora inmediata. La lista NEGRA la maneja el stack crítico (beep urgente aparte).
-            if ((event as any).watch && plate) {
-                const cat = String((event as any).watch.category || "").toLowerCase();
-                if (cat !== "negra" && cat !== "blacklisted") playWatchAlert(plate);
-            }
+            // Sonido al pasar, según la pestaña de quien pasa (Usuarios → «Cómo se comporta»): en
+            // búsqueda suena por defecto; residentes, personal, etc. sólo si se prendió. La lista
+            // NEGRA no pasa por acá: la maneja la pila crítica, con su alarma urgente aparte.
+            const clase = claseDeLectura((event as any).user, (event as any).watch?.category);
+            if (clase && clase !== "alerta" && plate && comportamientoRef.current[clase as ClaveComportamiento]?.sonido) playWatchAlert(plate);
 
             // Buffer the event; a 250ms flush loop coalesces bursts into a single render
             // so the main thread stays free to paint incoming snapshots.
@@ -1022,7 +1041,7 @@ export default function MonitorLPR() {
         if (esNegra(e)) return false; // la lista negra va al stack CRÍTICO, no al de anomalías
         const anomalous = !e.plateDetected || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(plate);
         const role = (e.user?.role || "").toUpperCase();
-        return anomalous || !!e.watch || role === "WHITELISTED";
+        return anomalous || !!e.watch || role === "WHITELISTED" || !!e.user?.vip;
     }, [esNegra]);
     useEffect(() => {
         if (!pinEnabled) return;
@@ -1075,6 +1094,7 @@ export default function MonitorLPR() {
     const openRegister = useCallback((plate?: string) => { if (!plate) return; setRegisterInit({ plate: String(plate).toUpperCase() }); setRegisterOpen(true); }, []);
 
     return (
+        <ComportamientoCtx.Provider value={comportamiento}>
         <TooltipProvider>
             <div className="h-full flex flex-col bg-background text-foreground">
                 {/* Header */}
@@ -1158,7 +1178,7 @@ export default function MonitorLPR() {
                                 {/* Cámaras que esperan una decisión (sin confirmar o confirmadas sin resolver). */}
                                 {(alarmas.porCamara.size + alarmas.atencion.size) > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full pleno-mal text-[8px] font-bold flex items-center justify-center">{new Set([...alarmas.porCamara.keys(), ...alarmas.atencion]).size}</span>}
                             </button>
-                            <button onClick={() => setShowWatch(true)} title="Lista de vigilancia" className="relative h-full px-2.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
+                            <button onClick={() => setShowWatch(true)} title="Lista negra" className="relative h-full px-2.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
                                 <ShieldAlert size={16} />
                                 {Object.keys(watchMap).length > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{Object.keys(watchMap).length}</span>}
                             </button>
@@ -1211,5 +1231,6 @@ export default function MonitorLPR() {
                     alTerminar={() => { loadInitialData(); refreshWatch(); }}
                     units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} />
         </TooltipProvider>
+        </ComportamientoCtx.Provider>
     );
 }

@@ -11,6 +11,7 @@ import { Pista } from "@/components/ui/pista";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { FichaVigilancia } from "@/components/users/FichaVigilancia";
 import { resumirCamaras } from "@/lib/lista-negra";
+import { NIVELES } from "@/lib/padron";
 
 /**
  * El atajo del monitor LPR a la lista de vigilancia, como cajón lateral. Escribe la MISMA
@@ -130,13 +131,13 @@ export function WatchlistDialog({ onClose, plateInicial }: {
     return (
         <>
             <Cajon open={!abierta} onOpenChange={(o) => { if (!o && !abierta) onClose(); }}>
-                <CajonContenido ancho="intermedio" titulo="Lista de vigilancia"
-                    descripcion="Una sola lista para la barrera, las lectoras LPR, el monitor y el bot."
+                <CajonContenido ancho="intermedio" titulo="Lista negra"
+                    descripcion="Carga rápida. Las fichas completas (nombre, foto, varias matrículas) están en Usuarios → Lista negra."
                     encabezado={
                         <div className="flex items-center justify-between px-6 py-2">
                             <span className="text-[11.5px] text-muted-foreground tabular-nums">{activas} activa{activas === 1 ? "" : "s"}</span>
-                            <Pista titulo="Administrar" texto="La misma lista, completa: motivo, quién la cargó, persona vinculada, inactivas y las que vienen por rol." lado="abajo">
-                                <Link href="/admin/users?tab=vigilancia" className="h-8 px-2 rounded-md hover:bg-accent text-[12px] font-semibold tono-accion flex items-center gap-1"><ExternalLink size={13} /> Abrir en Usuarios</Link>
+                            <Pista titulo="Administrar" texto="La misma lista, como fichas: nombre (o sin identificar), foto, varias matrículas, dónde se la vio, y las dadas de baja." lado="abajo">
+                                <Link href="/admin/users?tab=listanegra" className="h-8 px-2 rounded-md hover:bg-accent text-[12px] font-semibold tono-accion flex items-center gap-1"><ExternalLink size={13} /> Abrir la pestaña Lista negra</Link>
                             </Pista>
                         </div>
                     }>
@@ -152,8 +153,8 @@ export function WatchlistDialog({ onClose, plateInicial }: {
                             <p className="text-[12px] text-muted-foreground leading-snug">Como la lee la cámara: sin espacios ni guiones.</p>
                         </div>
 
-                        {/* La categoría: tres tarjetas con ícono, tono y qué hacen */}
-                        <div className="grid grid-cols-3 gap-2">
+                        {/* El nivel: dos tarjetas con ícono, tono y qué hacen (VIP ya no es una lista: es una marca de la persona) */}
+                        <div className="grid grid-cols-2 gap-2">
                             {WATCH_CATEGORY_LIST.map((cat) => {
                                 const Ic = ICONO_CATEGORIA[cat.value];
                                 const sel = category === cat.value;
@@ -163,9 +164,9 @@ export function WatchlistDialog({ onClose, plateInicial }: {
                                         <button type="button" onClick={() => { setCategory(cat.value); setConflicto(null); }} aria-pressed={sel}
                                             className={cn("w-full rounded-[10px] border p-2.5 text-left transition-colors",
                                                 sel ? m.badge : "border-border hover:bg-accent")}>
-                                            <span className="flex items-center gap-1.5 text-[12.5px] font-bold"><Ic size={14} className={sel ? "" : m.text} /> {cat.label}</span>
+                                            <span className="flex items-center gap-1.5 text-[12.5px] font-bold"><Ic size={14} className={sel ? "" : m.text} /> {NIVELES[cat.value as "BLACKLISTED" | "SEARCH"]?.titulo || cat.label}</span>
                                             <span className={cn("block text-[11px] mt-0.5 leading-snug", sel ? "opacity-90" : "text-muted-foreground")}>
-                                                {cat.value === "BLACKLISTED" ? "Se deniega siempre" : cat.value === "WHITELISTED" ? "Autorizada, se destaca" : "Se avisa con el motivo"}
+                                                {NIVELES[cat.value as "BLACKLISTED" | "SEARCH"]?.resumen}
                                             </span>
                                         </button>
                                     </Pista>
