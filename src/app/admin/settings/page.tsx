@@ -76,6 +76,7 @@ import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import ModosSection from "./ModosSection";
 import VisitasSection from "./VisitasSection";
 import EmpresasSection from "./EmpresasSection";
+import { HistorialBot } from "@/components/settings/HistorialBot";
 import ProcesosSection from "./procesos/ProcesosSection";
 import CentroNotificaciones, { TABS_NOTIFICACIONES } from "../notificaciones/CentroNotificaciones";
 import AlmacenamientoSection from "./AlmacenamientoSection";
@@ -1840,7 +1841,7 @@ function WhatsAppSection() {
                         value={[avisos.intrusion.enabled ? "Intrusión" : null, avisos.lpr.enabled ? "LPR" : null].filter(Boolean).join(" · ") || "Apagados"}
                         onClick={() => { cargarAvisos(); setDrawer("avisos"); }} />
                     <ConfigTile icon={<QrCode size={18} />} color={logoQr ? "emerald" : "sky"} title="QR de los pases" value={logoQr ? "Con logo en el centro" : "Sin logo"} onClick={() => { cargarLogoQr(); setDrawer("qr"); }} />
-                    <ConfigTile icon={<FileText size={18} />} color="sky" title="Historial de consultas" value={`${history.length} registros`} onClick={() => { loadHistory(); setDrawer("hist"); }} />
+                    <ConfigTile icon={<FileText size={18} />} color="sky" title="Historial del bot" value="Conversaciones" onClick={() => setDrawer("hist")} />
                 </div>
             </div>
 
@@ -1936,7 +1937,7 @@ function WhatsAppSection() {
                             <div>
                                 <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Remitentes recientes (tocar para autorizar)</p>
                                 <div className="flex flex-wrap gap-1.5">
-                                    {Array.from(new Set(history.map((h: any) => h.user).filter(Boolean))).slice(0, 8).map((u: any) => (
+                                    {Array.from(new Set(history.map((h: any) => h.user).filter((u: any) => u && u !== "status"))).slice(0, 8).map((u: any) => (
                                         <button key={u} onClick={() => addAllow(u)} disabled={allowList.includes(u)} className="text-[10px] font-mono px-2 py-1 rounded-md border border-border bg-muted/50 hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-40 transition">+ {String(u).split("@")[0]}</button>
                                     ))}
                                 </div>
@@ -2036,34 +2037,8 @@ function WhatsAppSection() {
                 </div>
             </SideDrawer>
 
-            <SideDrawer open={drawer === "hist"} onClose={() => setDrawer(null)} icon={<FileText size={18} />} title="Historial de consultas"
-                headerRight={<button onClick={loadHistory} className="w-8 h-8 grid place-items-center rounded-lg hover:bg-accent text-muted-foreground" title="Actualizar"><RefreshCcw size={15} /></button>}>
-                <div className="border border-border rounded-xl overflow-hidden">
-                    <Table>
-                        <TableHeader className="bg-foreground/10">
-                            <TableRow className="border-border hover:bg-transparent">
-                                <TableHead className="h-8 text-[9px] font-bold text-muted-foreground uppercase tracking-widest w-24">Usuario</TableHead>
-                                <TableHead className="h-8 text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Interacción</TableHead>
-                                <TableHead className="h-8 text-[9px] font-bold text-muted-foreground uppercase tracking-widest text-right w-20">Hora</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {history.length === 0 ? (
-                                <TableRow className="border-border hover:bg-transparent"><TableCell colSpan={3} className="py-10 text-center text-[11px] text-muted-foreground italic">Sin registros recientes.</TableCell></TableRow>
-                            ) : history.map((h) => (
-                                <TableRow key={h.id} className="border-border hover:bg-accent">
-                                    <TableCell className="py-2 align-top"><span className="text-[9px] font-bold text-foreground bg-foreground/10 px-1.5 py-0.5 rounded-full block truncate" title={h.user}>{h.user.split('@')[0]}</span></TableCell>
-                                    <TableCell className="py-2 align-top">
-                                        <p className="text-[10px] font-mono text-emerald-400 break-words line-clamp-2" title={h.command}>&gt; {h.command}</p>
-                                        <p className="text-[9px] text-muted-foreground break-words line-clamp-2" title={h.response}>{h.response}</p>
-                                    </TableCell>
-                                    <TableCell className="py-2 text-right text-[9px] text-muted-foreground font-mono align-top whitespace-nowrap">{h.time}</TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
-            </SideDrawer>
+            {/* El historial del bot como chat: conversaciones a la izquierda, el hilo a la derecha. */}
+            <HistorialBot open={drawer === "hist"} onOpenChange={(v) => { if (!v) setDrawer(null); }} />
         </div>
     );
 }
