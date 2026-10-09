@@ -7,7 +7,7 @@ import {
     Luggage, Umbrella, Smartphone, Shirt, Laptop, Book, Scissors, Baby, Fan, Brush, Octagon, FireExtinguisher,
     ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse, Keyboard, Microwave, CookingPot, Bath,
     Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed, Soup, Banana, Apple, Sandwich, Citrus, Salad,
-    Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers,
+    Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers, Radio,
     Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge,
     Cpu, Loader2, Camera, RefreshCw, EyeOff, FlaskConical, Info, Square, Play, type LucideIcon,
 } from "lucide-react";
@@ -69,6 +69,21 @@ const ALTO_MAX_FOTO = 520;
 const SEGUIR_CUADROS = 16;
 /** Cada vuelta del seguimiento dura al menos esto, para no pedirle a go2rtc más de 2 cuadros por segundo. */
 const SEGUIR_PASO_MS = 500;
+/**
+ * «En vivo»: el laboratorio analiza la cámara elegida sin parar, con lo que esté elegido en la
+ * barra (cajas, siluetas o pose; atributos; texto) y con seguimiento. Pedido de Nico (9/10):
+ * probar live sin apretar «Seguir» cada 8 s.
+ *  · Ritmo: como mucho 2 cuadros por segundo (go2rtc y la GPU son compartidos); con texto o
+ *    siluetas va más lento solo, porque espera cada respuesta antes de pedir la siguiente.
+ *  · Se pausa con la pestaña oculta: nadie mira y la GPU es de omni-lpr también.
+ *  · Se corta solo a los 30 min: un laboratorio olvidado abierto no puede quedar pidiendo toda la noche.
+ *  · Del recorrido se guardan los últimos puntos de cada pista y las pistas que no se ven hace
+ *    un rato se borran, para que el dibujo no se vuelva una maraña.
+ */
+const VIVO_PASO_MS = 500;
+const VIVO_MAX_MS = 30 * 60_000;
+const VIVO_PUNTOS = 40;
+const VIVO_OLVIDO_MS = 10_000;
 /** Un punto de la pose con menos visibilidad que esto no se dibuja. */
 const PUNTO_VISIBLE = 0.3;
 const TAREAS: { id: TareaVision; rotulo: string; ayuda: string }[] = [
@@ -131,6 +146,11 @@ export default function VisionLab() {
     const [siguiendo, setSiguiendo] = useState<{ cuadro: number } | null>(null);
     const [recorridos, setRecorridos] = useState<Recorridos | null>(null);
     const pararSeguir = useRef(false);
+    const [vivo, setVivo] = useState<{ cuadros: number; desde: number; ms: number | null } | null>(null);
+    const pararVivo = useRef(false);
+    // El bucle lee lo elegido en cada vuelta: cambiar de cámara, de tarea o de umbral se nota sin cortar.
+    const elegido = useRef({ camara, tarea, conAtributos, conTexto, umbral });
+    useEffect(() => { elegido.current = { camara, tarea, conAtributos, conTexto, umbral }; }, [camara, tarea, conAtributos, conTexto, umbral]);
     const seccionPrueba = useRef<HTMLElement>(null);
 
     const cargar = useCallback(async () => {
@@ -165,11 +185,13 @@ export default function VisionLab() {
     }
 
     /** `op` pisa lo elegido en la barra: lo usa el botón "Probar" de cada tarjeta, que cambia la barra y corre en el mismo clic. */
-    async function probarCamara(id: string, sesion?: string, op?: { tarea?: TareaVision; atributos?: boolean; texto?: boolean }): Promise<Prueba> {
+    async function probarCamara(id: string, sesion?: string, op?: { tarea?: TareaVision; atributos?: boolean; texto?: boolean; umbral?: number; todo?: boolean }): Promise<Prueba> {
         const t = op?.tarea ?? tarea, a = op?.atributos ?? conAtributos, x = op?.texto ?? conTexto;
-        const q = new URLSearchParams({ camara: id, umbral: String(umbral), tarea: sesion ? "detectar" : t });
-        if (a && !sesion) q.set("atributos", "1");
-        if (x && !sesion) q.set("texto", "1");
+        // «Seguir» usa la detección sola (necesita ritmo); «En vivo» (`todo`) usa lo elegido, con seguimiento.
+        const completo = !sesion || !!op?.todo;
+        const q = new URLSearchParams({ camara: id, umbral: String(op?.umbral ?? umbral), tarea: completo ? t : "detectar" });
+        if (a && completo) q.set("atributos", "1");
+        if (x && completo) q.set("texto", "1");
         if (sesion) q.set("sesion", sesion);
         const r = await fetch(`/api/vision/probar?${q}`, { cache: "no-store" });
         const j = await r.json().catch(() => ({}));
@@ -214,6 +236,47 @@ export default function VisionLab() {
             }
         } catch (e: any) { setErrorPrueba(e?.message || "falló"); }
         finally { setSiguiendo(null); }
+    }
+
+    /** En vivo: ver el comentario de VIVO_PASO_MS. Un segundo toque lo para. */
+    async function alternarVivo() {
+        if (vivo) { pararVivo.current = true; return; }
+        if (!camara) return;
+        pararVivo.current = false;
+        const inicio = Date.now();
+        let camaraSesion = "", sesion = "", rec: Recorridos = {}, vistoPorPista: Record<number, number> = {}, cuadros = 0;
+        setErrorPrueba(null); setVivo({ cuadros: 0, desde: inicio, ms: null });
+        try {
+            while (!pararVivo.current && !cancelado.current && Date.now() - inicio < VIVO_MAX_MS) {
+                if (document.hidden) { await new Promise((r) => setTimeout(r, 1000)); continue; }
+                const el = elegido.current;
+                if (!el.camara) break;
+                // Otra cámara: sesión de seguimiento nueva, recorridos de cero.
+                if (el.camara !== camaraSesion) { camaraSesion = el.camara; sesion = `vivo-${Date.now().toString(36)}`; rec = {}; vistoPorPista = {}; setRecorridos({}); }
+                const t0 = Date.now();
+                try {
+                    const p = await probarCamara(el.camara, sesion, { tarea: el.tarea, atributos: el.conAtributos, texto: el.conTexto, umbral: el.umbral, todo: true });
+                    for (const o of p.objetos) {
+                        if (o.pista == null) continue;
+                        const [x1, , x2, y2] = o.caja_norm;
+                        const r = (rec[o.pista] ||= { clase: o.clase, nombre: o.nombre, puntos: [] });
+                        r.puntos = [...r.puntos, [(x1 + x2) / 2, y2] as [number, number]].slice(-VIVO_PUNTOS);
+                        vistoPorPista[o.pista] = Date.now();
+                    }
+                    for (const k of Object.keys(rec).map(Number)) if (Date.now() - (vistoPorPista[k] || 0) > VIVO_OLVIDO_MS) { delete rec[k]; delete vistoPorPista[k]; }
+                    cuadros++;
+                    setPrueba(p); setRecorridos({ ...rec }); setErrorPrueba(null);
+                    setVivo({ cuadros, desde: inicio, ms: Date.now() - t0 });
+                } catch (e: any) {
+                    // Un cuadro que falla no corta el vivo (la cámara pudo tardar): se dice y se sigue.
+                    setErrorPrueba(e?.message || "falló");
+                    await new Promise((r) => setTimeout(r, 2000));
+                }
+                const resto = VIVO_PASO_MS - (Date.now() - t0);
+                if (resto > 0) await new Promise((r) => setTimeout(r, resto));
+            }
+            if (Date.now() - inicio >= VIVO_MAX_MS) toast.info({ title: "En vivo se detuvo", description: "Pasaron 30 minutos. Volvé a prenderlo si lo seguís mirando." });
+        } finally { setVivo(null); }
     }
 
     /** Desde una tarjeta de "Qué puede hacer": deja la prueba lista para esa tarea y la corre. */
@@ -367,7 +430,7 @@ export default function VisionLab() {
             {/* 2. Probar */}
             <section ref={seccionPrueba} className="scroll-mt-4">
                 <Titulo n={2} titulo="Probar en las cámaras"
-                    ayuda="Saca el cuadro de este momento de una cámara y le pide al detector que diga qué ve: cajas, siluetas o la pose, con los atributos de cada objeto. «Seguir» toma cuadros seguidos y dibuja por dónde fue cada uno. Las clases apagadas en la lista de abajo no se dibujan." />
+                    ayuda="Saca el cuadro de este momento de una cámara y le pide al detector que diga qué ve: cajas, siluetas o la pose, con los atributos de cada objeto. «Seguir» toma cuadros seguidos y dibuja por dónde fue cada uno; «En vivo» lo hace sin parar, con lo elegido en la barra (se cambia de cámara o de tarea sin cortar). Las clases apagadas en la lista de abajo no se dibujan." />
                 <div className="rounded-[10px] border border-border bg-card">
                     <div className="p-3 border-b border-border flex items-center gap-2 flex-wrap">
                         <div className="flex items-center gap-1 flex-wrap">
@@ -411,18 +474,24 @@ export default function VisionLab() {
                                     </button>
                                 ))}
                             </div>
-                            <Button variant="outline" onClick={seguir} disabled={!s || !camara || probando || !!escaneando}>
+                            <Button variant={vivo ? "default" : "outline"} onClick={alternarVivo} disabled={!s || !camara || probando || !!escaneando || !!siguiendo}
+                                title="Analiza la cámara elegida sin parar, con lo elegido en la barra y con seguimiento. Se pausa con la pestaña oculta y se corta a los 30 min.">
+                                {vivo
+                                    ? <><Square size={13} /> Parar en vivo · {vivo.cuadros}{vivo.ms != null ? ` · ${vivo.ms} ms` : ""}</>
+                                    : <><Radio size={13} /> En vivo</>}
+                            </Button>
+                            <Button variant="outline" onClick={seguir} disabled={!s || !camara || probando || !!escaneando || !!vivo}>
                                 {siguiendo ? <><Square size={13} /> Parar · {siguiendo.cuadro}/{SEGUIR_CUADROS}</> : <><Play size={13} /> Seguir 8 s</>}
                             </Button>
-                            <Button variant="outline" onClick={escanearTodas} disabled={!s || !!escaneando || probando || !!siguiendo}>
+                            <Button variant="outline" onClick={escanearTodas} disabled={!s || !!escaneando || probando || !!siguiendo || !!vivo}>
                                 {escaneando ? <><Loader2 size={14} className="animate-spin" /> {escaneando.hechas} de {escaneando.total}</> : <><RefreshCw size={14} /> Todas las cámaras</>}
                             </Button>
-                            <Button onClick={() => analizar()} disabled={!s || !camara || probando || !!escaneando || !!siguiendo}>
+                            <Button onClick={() => analizar()} disabled={!s || !camara || probando || !!escaneando || !!siguiendo || !!vivo}>
                                 {probando ? <Loader2 size={14} className="animate-spin" /> : <ScanEye size={14} />} Analizar ahora
                             </Button>
                         </div>
                     </div>
-                    <ResultadoPrueba prueba={prueba} probando={probando || !!siguiendo} error={errorPrueba} prendidas={prendidas} recorridos={recorridos}
+                    <ResultadoPrueba prueba={prueba} probando={probando || !!siguiendo || !!vivo} error={errorPrueba} prendidas={prendidas} recorridos={recorridos}
                         alAbrirClase={(c) => setClaseAbierta(CLASE_POR_NOMBRE[c] || null)} sinServicio={!s} />
                 </div>
             </section>

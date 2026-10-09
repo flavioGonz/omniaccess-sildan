@@ -10,7 +10,8 @@
  * sonido". `habilitar()` se llama en el primer pointerdown y reintenta.
  */
 
-type Tono = "alarma" | "denegado" | "lista";
+/** «aviso»: un toque corto para «pasó alguien de esta clase» (Usuarios → «Cómo se comporta» → Sonido al pasar). */
+type Tono = "alarma" | "denegado" | "lista" | "aviso";
 
 let ctx: AudioContext | null = null;
 const Ctx = () => { if (typeof window === "undefined") return null; const C = (window as any).AudioContext || (window as any).webkitAudioContext; if (!C) return null; if (!ctx) ctx = new C(); return ctx; };
@@ -22,6 +23,7 @@ const SECUENCIAS: Record<Tono, { f: number; d: number }[]> = {
     alarma: [{ f: 988, d: 0.16 }, { f: 1319, d: 0.16 }, { f: 988, d: 0.16 }, { f: 1319, d: 0.16 }],
     denegado: [{ f: 440, d: 0.18 }, { f: 330, d: 0.22 }],
     lista: [{ f: 1175, d: 0.12 }, { f: 1175, d: 0.12 }, { f: 1568, d: 0.26 }],
+    aviso: [{ f: 880, d: 0.12 }, { f: 1175, d: 0.16 }],
 };
 
 export function sonar(tono: Tono): boolean {

@@ -3,7 +3,7 @@
 import { Ban, ScanLine, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Pista } from "@/components/ui/pista";
-import type { RelecturaEvento } from "@/app/actions/history";
+import type { RelecturaEvento } from "@/lib/relectura";
 
 /**
  * La relectura de una NO_LEIDA, en el monitor LPR.

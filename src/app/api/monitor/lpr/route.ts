@@ -6,6 +6,8 @@ import { formaLectura as forma, INCLUIR_LECTURA } from "@/lib/monitor/lecturas";
 import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
 import { registradas } from "@/lib/visitas/registro";
 import { logosDeMatriculas } from "@/lib/empresas-servidor";
+import { identidadDeLecturas } from "@/lib/monitor/identidad";
+import { getComportamientoPadron } from "@/app/actions/padron";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +65,9 @@ export async function GET() {
 
     // Registradas (padrón, visita, invitación, lista blanca) entre las que se muestran.
     const reg = await registradas(ultimas.map((e) => e.plateDetected));
-    const conRegistro = (e: any) => { const f = forma(e); const ch = normalizarMatricula(f.plate); return { ...f, registrada: !!(ch && reg.has(ch)) }; };
+    // Quién es cada una (clase, ficha de lista negra, relectura de las NO_LEIDA): lib/monitor/identidad.
+    const ident = await identidadDeLecturas(ultimas as any).catch(() => new Map());
+    const conRegistro = (e: any) => { const f = forma(e); const ch = normalizarMatricula(f.plate); return { ...f, registrada: !!(ch && reg.has(ch)), ...(ident.get(e.id) || {}) }; };
 
     let adentro = 0, noRegistrados = 0;
     let enBarrio: any[] = [];
@@ -121,5 +125,7 @@ export async function GET() {
         atencion, ahora: new Date().toISOString(),
         // Matrícula → logo de su empresa (delivery, taxi), para incrustarlo en la captura.
         logos: await logosDeMatriculas().catch(() => ({})),
+        // Los interruptores de las pestañas de Usuarios («Cómo se comporta»): color y sonido por clase.
+        comportamiento: await getComportamientoPadron(),
     }, { headers: SIN_CACHE });
 }

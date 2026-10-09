@@ -8,7 +8,9 @@ import { metodoDeLectura } from "@/lib/lectura-metodo";
  * Lleva la UNIDAD de la persona: en la pared lo primero que se pregunta de un auto que entra es
  * "¿de qué lote es?", y el nombre solo no lo contesta.
  */
-export const INCLUIR_LECTURA = { user: { select: { name: true, unit: { select: { name: true } } } }, device: { select: { name: true } } } as const;
+// El rol y la marca VIP van para la clase de la lectura (lib/monitor/identidad): la pantalla
+// la nombra igual que el monitor LPR del panel.
+export const INCLUIR_LECTURA = { user: { select: { name: true, role: true, vip: true, unit: { select: { name: true } } } }, device: { select: { name: true } } } as const;
 
 export const formaLectura = (e: any) => ({
     id: e.id, ts: e.timestamp.toISOString(), plate: e.plateDetected || e.plateNumber || null, persona: e.user?.name || null,

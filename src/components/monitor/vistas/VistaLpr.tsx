@@ -16,6 +16,11 @@ import { watchCatMeta } from "@/lib/watch-categories";
 import { presentarLectura, rotulosContadores, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
+import {
+    claseDeLectura, ESTILO_MONITOR, ESTILO_APAGADO, NIVELES, COMPORTAMIENTO_DEFECTO, normalizarComportamiento,
+    type ClaseMonitor, type ClaveComportamiento, type Comportamiento, type NivelListaNegra,
+} from "@/lib/padron";
+import type { RelecturaEvento } from "@/lib/relectura";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { SUAVE, RESORTE, tocable, usarInactividad, CuentaAtras } from "@/components/monitor/tactil";
 
@@ -46,11 +51,20 @@ const INTERVALO_MS = 20_000;
 const ULTIMAS_EN_TIRA = 30;
 /** Sin tocar nada este tiempo, una lectura fijada vuelve al vivo. */
 const VOLVER_AL_VIVO_MS = 30_000;
+/** Cuánto se espera para volver a pedir una NO_LEIDA: vision-worker la relee en 1-5 s. */
+const RELECTURA_ESPERA_MS = 6_000;
 /** Sin tocar nada este tiempo, la ficha se cierra. */
 const FICHA_SE_CIERRA_MS = 60_000;
 
 type Modo = "ABIERTO" | "CERRADO";
-type Lectura = { id: string; ts: string; plate: string | null; persona: string | null; unidad?: string | null; registrada?: boolean; camara: string | null; sentido: string; decision: string; accessType: string | null; foto: string | null; detalles: string | null; metodo: { metodo: string | null; confianza: number | null } };
+type Lectura = {
+    id: string; ts: string; plate: string | null; persona: string | null; unidad?: string | null; registrada?: boolean; camara: string | null; sentido: string; decision: string; accessType: string | null; foto: string | null; detalles: string | null; metodo: { metodo: string | null; confianza: number | null };
+    /** Quién es (lib/monitor/identidad): la misma clase que el monitor LPR del panel. Vienen con la consulta, no con el socket. */
+    clase?: ClaseMonitor | null; etiqueta?: string | null;
+    ficha?: { nombre: string; nivel: NivelListaNegra; motivo: string | null } | null;
+    /** En una NO_LEIDA: la chapa que sugirió la relectura del vehículo (vision-worker). */
+    relectura?: RelecturaEvento | null;
+};
 type Atencion = { id: string | null; plate: string | null; tipo: "LISTA_NEGRA" | "EN_BUSQUEDA" | "MERODEO" | "AVISO"; motivo: string; ts: string; camara: string | null; avisoId?: string; avisoTipo?: string };
 type VisitaEnBarrio = { tipo: "VISITA"; id: string; plate: string | null; tipoNombre: string; lote: string | null; nombre: string | null; empresa: string | null; origen: string; desde: string; vence: string; accessEventId: string | null };
 type NoRegistrada = { tipo: "NO_REGISTRADA"; plate: string; desde: string; estimado: true; camara: string | null; accessEventId: string };
@@ -61,6 +75,8 @@ type Datos = {
     atencion: Atencion[]; ahora: string;
     /** Matrícula → logo de su empresa (ver lib/empresas-servidor). */
     logos?: Record<string, Logo>;
+    /** Los interruptores de las pestañas de Usuarios: color propio y sonido al pasar, por clase. */
+    comportamiento?: Comportamiento;
 };
 type Logo = { nombre: string; logo: string; transparente: boolean };
 type Ficha = {
@@ -78,7 +94,48 @@ type Ficha = {
 };
 type Filtro = "todas" | "entradas" | "salidas" | "denegadas";
 
-const ROL: Record<string, string> = { RESIDENT: "Residente", VISITOR: "Visitante", STAFF: "Personal", PROVIDER: "Proveedor", ADMIN: "Administración", WHITELISTED: "Lista blanca", BLACKLISTED: "Lista negra" };
+const ROL: Record<string, string> = { RESIDENT: "Residente", VISITOR: "Visitante", TEMPORARY_VISITOR: "Visitante", STAFF: "Personal", SECURITY: "Seguridad", OPERATOR: "Operador", PROVIDER: "Proveedor", ADMIN: "Administración", WHITELISTED: "Residente · VIP", BLACKLISTED: "Lista negra" };
+/** Lo que la lectora escribe cuando no leyó. */
+const esNoLeida = (p: string | null | undefined) => !p || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(p.toUpperCase());
+
+/**
+ * La etiqueta de quién es, con el color de su clase (el mismo del monitor LPR). Con «Color
+ * propio» apagado en esa pestaña, va en gris. La lista negra no se apaga.
+ */
+function EtiquetaClase({ l, comp, grande }: { l: Lectura; comp: Comportamiento; grande?: boolean }) {
+    if (!l.clase) return null;
+    const e = ESTILO_MONITOR[l.clase];
+    const conColor = l.clase === "alerta" || (comp[l.clase as ClaveComportamiento]?.color ?? true);
+    const texto = l.ficha ? `${NIVELES[l.ficha.nivel].titulo} · ${l.ficha.nombre}` : e.etiqueta;
+    return (
+        <span className={cn("inline-flex items-center rounded-md font-black uppercase tracking-wider whitespace-nowrap max-w-full truncate",
+            grande ? "px-3 py-1 text-[15px]" : "px-1.5 py-0.5 text-[10px]", conColor ? e.badge : ESTILO_APAGADO.badge)}>{texto}</span>
+    );
+}
+
+/**
+ * La relectura de una NO_LEIDA: una SUGERENCIA, con signo de pregunta. En la pared no se puede
+ * confirmar (eso es del guardia, en el monitor LPR con «Cargar matrícula»); acá se informa,
+ * sobre todo si la chapa sugerida está en la lista negra o es de alguien del padrón.
+ */
+function Relectura({ r, grande }: { r?: RelecturaEvento | null; grande?: boolean }) {
+    if (!r?.plate) return null;
+    const cat = String(r.vigilancia?.category || "").toUpperCase();
+    const negra = cat === "BLACKLISTED", busqueda = cat === "SEARCH";
+    return (
+        <span className={cn("inline-flex items-center gap-2 flex-wrap", grande ? "text-[17px]" : "text-[11px]")}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {grande && r.chapa && <img src={r.chapa} alt="" draggable={false} className="h-12 rounded-md border border-white/40 bg-black" />}
+            <span className={cn("inline-flex items-center gap-1.5 rounded-md bg-black/60 text-white border border-white/30 font-bold tabular-nums tracking-[0.12em]", grande ? "px-3 py-1 text-[24px]" : "px-1.5 py-0.5")}>
+                ¿{r.plate}?
+            </span>
+            <span className="text-white/75 tabular-nums">{grande ? "releída del vehículo · " : ""}{r.confianza != null ? `${Math.round(r.confianza * 100)} %` : ""}{r.estado === "DUDOSA" ? " · dudosa" : ""}</span>
+            {negra && <span className="px-2 py-0.5 rounded-md pleno-mal font-black uppercase tracking-wider text-[0.8em]">Lista negra</span>}
+            {busqueda && <span className="px-2 py-0.5 rounded-md pleno-aviso font-black uppercase tracking-wider text-[0.8em]">En búsqueda</span>}
+            {!r.vigilancia && r.quien && <span className="text-white/90 truncate">{r.quien.name}{r.quien.unidad ? ` · ${r.quien.unidad}` : ""}</span>}
+        </span>
+    );
+}
 const filtrosDe = (modo: Modo): { v: Filtro; l: string }[] => [{ v: "todas", l: "Todas" }, { v: "entradas", l: "Entradas" }, { v: "salidas", l: "Salidas" }, { v: "denegadas", l: modo === "ABIERTO" ? "No registradas" : "Denegadas" }];
 /** En abierto "denegadas" son las no registradas, y entradas/salidas cuentan todas (no hay "permitidas"). */
 const pasaFiltro = (l: Lectura, f: Filtro, modo: Modo) => {
@@ -155,6 +212,7 @@ export function VistaLpr() {
     useEffect(() => { if (!datos) return; setUltima((u) => (u && datos.ultima && u.ts > datos.ultima.ts ? u : datos.ultima)); setTira((t) => { const base = datos.tira; const ids = new Set(base.map((x) => x.id)); return [...t.filter((x) => !ids.has(x.id) && (!datos.ultima || x.id !== datos.ultima.id) && (!base[0] || x.ts > base[0].ts)), ...base].slice(0, ULTIMAS_EN_TIRA); }); }, [datos]);
 
     const modoSonido = ajustes?.sonido?.lpr || "off";
+    const comportamiento = useMemo(() => normalizarComportamiento(datos?.comportamiento || COMPORTAMIENTO_DEFECTO), [datos?.comportamiento]);
     /** Barrio abierto o cerrado (Ajustes → Visitas y patrones); lo trae la consulta. */
     const modo: Modo = datos?.modo === "ABIERTO" ? "ABIERTO" : "CERRADO";
     useTiempoReal("access_event", (e: any) => {
@@ -162,11 +220,17 @@ export function VistaLpr() {
         latir();
         setUltima((prev) => { if (prev && prev.id !== l.id) setTira((t) => [prev, ...t.filter((x) => x.id !== prev.id)].slice(0, ULTIMAS_EN_TIRA)); return l; });
         if (!silencio && modoSonido !== "off") {
+            // La clase sale del socket (usuario y vigilancia del evento), igual que en el monitor LPR.
+            const clase = claseDeLectura(e.user, e.watch?.category);
             if (esListaNegra(l)) sonar("lista");
             // En abierto nadie deniega nada: el tono de "denegado" sonaría con cada auto sin padrón.
             else if (modo === "CERRADO" && l.decision === "DENY" && modoSonido === "denegado") sonar("denegado");
+            // «Sonido al pasar» de su pestaña (Usuarios → «Cómo se comporta»).
+            else if (clase && clase !== "alerta" && comportamiento[clase as ClaveComportamiento]?.sonido) sonar("aviso");
         }
         setTimeout(recargar, 1200);
+        // La relectura de una NO_LEIDA tarda unos segundos (vision-worker): se vuelve a pedir para traerla.
+        if (esNoLeida(l.plate)) setTimeout(recargar, RELECTURA_ESPERA_MS);
     });
     // Visitas que se abren o cierran, y avisos a la guardia: se vuelve a pedir el estado.
     useTiempoReal("visita", () => recargar());
@@ -196,7 +260,7 @@ export function VistaLpr() {
                     <AnimatePresence mode="popLayout" initial={false}>
                         {protagonista ? (
                             <motion.div key={protagonista.id} initial={{ opacity: 0, scale: 1.015 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={SUAVE} className="absolute inset-0">
-                                <Protagonista l={protagonista} tactil={tactil} modo={modo} empresa={protagonista.plate ? datos?.logos?.[protagonista.plate] : null}
+                                <Protagonista l={protagonista} tactil={tactil} modo={modo} comp={comportamiento} empresa={protagonista.plate ? datos?.logos?.[protagonista.plate] : null}
                                     alAmpliar={(f) => setAmpliada(f)} alAbrirFicha={() => setFichaId(protagonista.id)} />
                             </motion.div>
                         ) : (
@@ -262,8 +326,12 @@ export function VistaLpr() {
                                         {f && <img src={f} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
                                         <span className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent" />
                                         {l.plate && datos?.logos?.[l.plate] && <span className="absolute top-2 left-2"><LogoSobreFoto empresa={datos.logos[l.plate]} className="h-6 max-w-[90px]" /></span>}
+                                        {l.clase && !(l.plate && datos?.logos?.[l.plate]) && <span className="absolute top-2 left-2 max-w-[184px]"><EtiquetaClase l={l} comp={comportamiento} /></span>}
                                         <span className="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
-                                            <span><span className="block text-[18px] font-bold text-white tabular-nums tracking-[0.1em]">{l.plate || "S/L"}</span><span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</span></span>
+                                            <span className="min-w-0">
+                                                {esNoLeida(l.plate) && l.relectura?.plate ? <Relectura r={l.relectura} /> : <span className="block text-[18px] font-bold text-white tabular-nums tracking-[0.1em]">{l.plate || "S/L"}</span>}
+                                                <span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</span>
+                                            </span>
                                             <est.Ic size={18} className={ok ? "text-[var(--bien)]" : est.error ? "text-[var(--mal)]" : "text-white/50"} />
                                         </span>
                                     </motion.button>
@@ -329,7 +397,7 @@ export function VistaLpr() {
 }
 
 /** La lectura grande. Tocar la foto la amplía; "Ficha" abre todo lo que se sabe de ese auto. */
-function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa }: { l: Lectura; tactil: boolean; modo: Modo; alAmpliar: (f: string) => void; alAbrirFicha: () => void; empresa?: Logo | null }) {
+function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp }: { l: Lectura; tactil: boolean; modo: Modo; alAmpliar: (f: string) => void; alAbrirFicha: () => void; empresa?: Logo | null; comp: Comportamiento }) {
     const foto = getImagePath(l.foto);
     const est = estadoDe(l, modo);
     // El motivo sólo se explica cuando hubo un rechazo de verdad (barrera, o lista negra).
@@ -358,7 +426,9 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa }: { l
                         {/* La empresa al lado de la chapa: de lejos, en la pared, se lee antes el logo que el nombre. */}
                         <LogoSobreFoto empresa={empresa} className="h-[clamp(36px,4.5vw,64px)] max-w-[22vw]" />
                     </div>
+                    {esNoLeida(l.plate) && l.relectura?.plate && <div className="mt-3"><Relectura r={l.relectura} grande /></div>}
                     <div className="mt-3 flex items-center gap-3">
+                        <EtiquetaClase l={l} comp={comp} grande />
                         <span className="text-[20px] lg:text-[22px] font-semibold text-white truncate">{quien(l)}</span>
                         <button type="button" onClick={alAbrirFicha}
                             className={cn("pointer-events-auto inline-flex items-center gap-2 rounded-full bg-white/15 backdrop-blur-md text-white font-semibold border border-white/20 shrink-0", tactil ? "h-12 px-5 text-[16px]" : "h-10 px-4 text-[14px]", tocable)}>
@@ -371,6 +441,8 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa }: { l
                     <div>
                         <div className="text-[clamp(22px,2.6vw,34px)] font-black uppercase tracking-[0.08em] leading-none">{est.t}</div>
                         {conMotivo && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{motivoDenegado(l)}</div>}
+                        {/* En búsqueda no deniega, así que no hay «motivo del rechazo»: el motivo de la ficha es lo que hay que leer. */}
+                        {!conMotivo && l.ficha?.nivel === "SEARCH" && l.ficha.motivo && <div className="text-[16px] font-semibold opacity-90 mt-1 max-w-[420px] truncate">{l.ficha.motivo}</div>}
                     </div>
                 </div>
             </div>
@@ -479,9 +551,25 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                                     )}
 
                                     {ficha.vigilancia && vig && (
-                                        <Bloque Icono={ShieldAlert} titulo="Lista de vigilancia">
-                                            <span className={cn("inline-flex items-center px-2.5 py-1 rounded-md border text-[12px] font-bold uppercase tracking-wider", vig.badge)}>{vig.label}</span>
-                                            <div className="mt-1.5 text-[16px]">{ficha.vigilancia.motivo || "Sin motivo cargado"}</div>
+                                        <Bloque Icono={ShieldAlert} titulo="Lista negra">
+                                            <span className={cn("inline-flex items-center px-2.5 py-1 rounded-md border text-[12px] font-bold uppercase tracking-wider", vig.badge)}>{l.ficha ? NIVELES[l.ficha.nivel].titulo : vig.label}</span>
+                                            {l.ficha && <div className="mt-1.5 text-[18px] font-semibold">{l.ficha.nombre}</div>}
+                                            <div className="mt-1 text-[16px]">{ficha.vigilancia.motivo || "Sin motivo cargado"}</div>
+                                        </Bloque>
+                                    )}
+
+                                    {esNoLeida(l.plate) && l.relectura && (
+                                        <Bloque Icono={Search} titulo="Relectura del vehículo">
+                                            {l.relectura.plate ? (
+                                                <div className="space-y-2">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    {l.relectura.chapa && <img src={l.relectura.chapa} alt="" className="h-16 rounded-md border border-border bg-black" />}
+                                                    <div className="text-[24px] font-bold tabular-nums tracking-[0.12em]">¿{l.relectura.plate}? <span className="text-[15px] font-normal text-muted-foreground tracking-normal">{l.relectura.confianza != null ? `${Math.round(l.relectura.confianza * 100)} %` : ""}{l.relectura.estado === "DUDOSA" ? " · dudosa" : ""}</span></div>
+                                                    {l.relectura.vigilancia && <div className="text-[16px] tono-mal font-semibold">{String(l.relectura.vigilancia.category).toUpperCase() === "SEARCH" ? "En búsqueda" : "Lista negra"}: {l.relectura.vigilancia.motivo || l.relectura.vigilancia.label || "sin motivo"}</div>}
+                                                    {l.relectura.quien && <div className="text-[16px]">{l.relectura.quien.name} · {ROL[l.relectura.quien.role] || l.relectura.quien.role}{l.relectura.quien.unidad ? ` · ${l.relectura.quien.unidad}` : ""}</div>}
+                                                    <div className="text-[14px] text-muted-foreground">La lectora no leyó la chapa; se recortó el vehículo y se volvió a leer. Es una sugerencia: la confirma el guardia en el monitor LPR.</div>
+                                                </div>
+                                            ) : <div className="text-[16px] text-muted-foreground">Se intentó releer del vehículo y no se pudo leer la chapa.</div>}
                                         </Bloque>
                                     )}
 

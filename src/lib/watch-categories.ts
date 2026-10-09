@@ -106,7 +106,7 @@ export const WATCH_EFECTOS: Record<WatchCategory, EfectoCategoria> = {
         barrera: "No cambia la decisión: sigue mandando la credencial y el modo LPR.",
         camaras: "No toca las listas de la cámara.",
         monitor: "La tarjeta se destaca en ámbar con el motivo y, si está prendido «Sonido al pasar» en la pestaña Lista negra, suena el aviso corto.",
-        monitores: "En Control LPR queda 24 h en la fila de atención como EN BÚSQUEDA, con su motivo. No suena.",
+        monitores: "En Control LPR queda 24 h en la fila de atención como EN BÚSQUEDA, con su motivo, y suena el aviso corto si la pantalla tiene sonido y «Sonido al pasar» está prendido.",
         avisos: "Dispara el evento WATCHLIST del motor de notificaciones si hay una regla que lo escuche.",
     },
 };

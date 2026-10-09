@@ -87,7 +87,7 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
                     <Muestra clase="busqueda" color />
                     <Fijo icono={Search} rotulo="En búsqueda: pasa y avisa" texto={<ExplicacionCategoria cat="SEARCH" />} />
                     <Interruptor icono={Volume2} rotulo="Sonido al pasar" valor={b.sonido} deshabilitado={guardando}
-                        ayuda="Suena el aviso corto en el monitor LPR cuando una cámara lee una matrícula en búsqueda (si el sonido del monitor está prendido). La alerta máxima suena siempre."
+                        ayuda="Suena el aviso corto cuando una cámara lee una matrícula en búsqueda, en el monitor LPR y en Control LPR (si tienen el sonido prendido). La alerta máxima suena siempre."
                         alCambiar={(v) => alCambiar("busqueda", { sonido: v })} />
                 </span>
                 <Separador />
@@ -120,10 +120,10 @@ export function ComportamientoPestania({ pestania, comportamiento, alCambiar, gu
             {rotulo}
             <Muestra clase={clave} color={c.color} />
             <Interruptor icono={Palette} rotulo="Color propio" valor={c.color} deshabilitado={guardando}
-                ayuda="La tarjeta del monitor LPR lleva el color de esta pestaña. Apagado, la etiqueta se sigue viendo, en gris: para que lo que importa resalte más."
+                ayuda="La tarjeta del monitor LPR y la etiqueta de Control LPR llevan el color de esta pestaña. Apagado, la etiqueta se sigue viendo, en gris: para que lo que importa resalte más."
                 alCambiar={(v) => alCambiar(clave, { color: v })} />
             <Interruptor icono={Volume2} rotulo="Sonido al pasar" valor={c.sonido} deshabilitado={guardando}
-                ayuda="Suena el aviso corto en el monitor LPR cada vez que una cámara lee a alguien de esta pestaña (si el sonido del monitor está prendido)."
+                ayuda="Suena el aviso corto cada vez que una cámara lee a alguien de esta pestaña: en el monitor LPR (con su sonido prendido) y en Control LPR de Monitores (si esa pantalla tiene sonido)."
                 alCambiar={(v) => alCambiar(clave, { sonido: v })} />
             {PESTANIAS_CON_VIP.includes(pestania) && (
                 <>

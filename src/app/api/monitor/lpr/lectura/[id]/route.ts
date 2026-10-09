@@ -6,6 +6,7 @@ import { formaLectura, INCLUIR_LECTURA } from "@/lib/monitor/lecturas";
 import { registradas } from "@/lib/visitas/registro";
 import { ZONA } from "@/lib/fechas";
 import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
+import { identidadDeLecturas } from "@/lib/monitor/identidad";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const { id } = await params;
     const e = await prisma.accessEvent.findUnique({
         where: { id },
-        include: { ...INCLUIR_LECTURA, user: { select: { name: true, role: true, unit: { select: { name: true } } } } },
+        include: INCLUIR_LECTURA,
     }).catch(() => null);
     if (!e) return NextResponse.json({ error: "Esa lectura ya no existe" }, { status: 404, headers: SIN_CACHE });
 
@@ -66,7 +67,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const franja = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
     for (const f of franjaFilas as any[]) if (f.dow >= 1 && f.dow <= 7 && f.h >= 0 && f.h < 24) franja[f.dow - 1][f.h] = f.n;
     return NextResponse.json({
-        lectura: { ...formaLectura(e), registrada: !!(chapa && reg.has(chapa)) },
+        lectura: { ...formaLectura(e), registrada: !!(chapa && reg.has(chapa)), ...((await identidadDeLecturas([e as any]).catch(() => new Map())).get(e.id) || {}) },
         registradaPor: chapa ? reg.get(chapa) || null : null,
         perfil: perfil ? {
             clase: perfil.clase, diasVistos: perfil.diasVistos, entradas: perfil.entradas, salidas: perfil.salidas, primeraVez: perfil.primeraVez.toISOString(), ultimaVez: perfil.ultimaVez.toISOString(),

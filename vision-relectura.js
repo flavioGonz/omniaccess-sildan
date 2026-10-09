@@ -140,24 +140,33 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
         });
     }
 
+    /**
+     * La foto del evento: { jpeg }, { falta: true } si de verdad no existe (sin ruta, 404, vacía),
+     * o null si no se pudo preguntar (la app reiniciando, un corte). Sólo lo primero se da por
+     * perdido: con la app en pleno despliegue, todas las fotos «faltaban» y se habrían marcado
+     * SIN_FOTO para siempre.
+     */
     async function foto(ruta) {
-        if (!ruta) return null;
+        if (!ruta) return { falta: true };
         try {
             const r = await fetch(APP + ruta, { signal: AbortSignal.timeout(10000) });
+            if (r.status === 404) return { falta: true };
             if (!r.ok) return null;
             const b = Buffer.from(await r.arrayBuffer());
-            return b.length > 1000 ? b : null;
+            return b.length > 1000 ? { jpeg: b } : { falta: true };
         } catch { return null; }
     }
 
     async function relectura(ev) {
         const t0 = Date.now();
-        const jpeg = await foto(ev.foto);
-        if (!jpeg) {
+        const f = await foto(ev.foto);
+        if (!f) return false; // no se pudo preguntar: se reintenta en otra vuelta
+        if (f.falta) {
             if (Date.now() - new Date(ev.timestamp).getTime() < FOTO_ESPERA_MS) return false; // todavía puede llegar
             await guardar(ev.id, { estado: "SIN_FOTO" }); contadores.sinFoto++;
             return true;
         }
+        const jpeg = f.jpeg;
         const meta = await sharp(jpeg).metadata();
         const W = meta.width || 0, H = meta.height || 0;
         const r = await fetch(`${vision}/detectar?grupos=vehiculo&umbral=${UMBRAL_VEHICULO}`, {
