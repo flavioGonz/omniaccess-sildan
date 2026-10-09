@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getQueueDevices, getLatestQueueCounts, getQueueAlerts } from "@/app/actions/queue";
-import { getSetting } from "@/app/actions/settings";
+import { leerAjuste as getSetting } from "@/lib/ajustes-db";
 
 const OCC = ["Aforo", "IVA Aforo", "Occupancy", "Ocupación"];
 

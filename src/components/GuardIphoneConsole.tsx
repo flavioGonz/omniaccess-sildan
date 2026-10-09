@@ -21,7 +21,7 @@ import { createBitacoraEntry, searchRecentBitacora } from "@/app/actions/bitacor
 import { submitRegistrationSuggestion } from "@/app/actions/registrations";
 import { getAccessEvents as getLprHistory, getPlateAnalysis } from "@/app/actions/history";
 import { searchUsers } from "@/app/actions/search";
-import { verifyGuardCredential } from "@/app/actions/users";
+import { verifyGuardCredential, guardiaVigente } from "@/app/actions/users";
 import { searchByPhotoAction } from "@/app/actions/face-verify";
 import Image from "next/image";
 import { Input } from "@/components/ui/input";
@@ -150,10 +150,16 @@ export default function GuardIphoneConsole({
     useEffect(() => {
         const storedGuardName = localStorage.getItem("bitacora_guard_name");
         const storedGuardPhoto = localStorage.getItem("bitacora_guard_photo");
+        // El nombre guardado no alcanza: el servidor lo reconoce por la cookie firmada al poner
+        // el PIN, que vence. Si venció, se vuelve a pedir el PIN.
         if (storedGuardName) {
-            setGuardName(storedGuardName);
-            setGuardPhoto(storedGuardPhoto);
-            setShowIdentityOverlay(false);
+            guardiaVigente().then((nombre) => {
+                if (nombre && nombre === storedGuardName) {
+                    setGuardName(storedGuardName);
+                    setGuardPhoto(storedGuardPhoto);
+                    setShowIdentityOverlay(false);
+                } else setLoginUser(storedGuardName);
+            }).catch(() => setLoginUser(storedGuardName));
         }
 
         const socketUrl = getSocketUrl();

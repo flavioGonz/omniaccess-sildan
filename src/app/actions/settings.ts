@@ -13,10 +13,28 @@ import fs from "fs/promises";
 import path from "path";
 import axios from "axios";
 import { fechaHora } from "@/lib/fechas";
+import { getSession } from "@/app/actions/auth";
+import { leerAjuste } from "@/lib/ajustes-db";
+
+/**
+ * La consola de la garita usa algunas de estas acciones sin sesión del panel, con el guardia
+ * identificado por PIN (el middleware lo exige: lib/acciones-publicas). Sin sesión, lo que
+ * toca la consola es SÓLO su propia configuración (claves GUARD_*): antes, `updateSetting`
+ * y `getSetting` aceptaban cualquier clave, incluidas las del almacenamiento y del bot.
+ */
+const PREFIJO_GUARDIA = "GUARD_";
+async function sinSesionSoloGuardia(claves: string[]): Promise<void> {
+    if (await getSession()) return;
+    const ajena = claves.find((k) => !String(k).startsWith(PREFIJO_GUARDIA));
+    if (ajena) throw new Error("Sin sesión del panel sólo se puede tocar la configuración de la consola.");
+}
+/** Lo que se puede subir como logo desde la consola. SVG no: puede llevar código. */
+const IMAGEN_DE_MARCA = /\.(png|jpe?g|webp)$/i;
 
 // ... existing code ...
 
 export async function getSetting(key: string) {
+    await sinSesionSoloGuardia([key]);
     try {
         const setting = await prisma.setting.findUnique({
             where: { key },
@@ -29,6 +47,7 @@ export async function getSetting(key: string) {
 }
 
 export async function updateSetting(key: string, value: string) {
+    await sinSesionSoloGuardia([key]);
     try {
         const setting = await prisma.setting.upsert({
             where: { key },
@@ -46,7 +65,7 @@ export async function updateSetting(key: string, value: string) {
 export async function purgeAccessEvents() {
     console.log("Starting purge process...");
 
-    const retentionSetting = await getSetting("dataRetentionMonths");
+    const retentionSetting = await leerAjuste("dataRetentionMonths");
     const retentionMonths = retentionSetting ? parseInt(retentionSetting.value, 10) : 6; // Default to 6 months if not set
 
     if (isNaN(retentionMonths) || retentionMonths <= 0) {
@@ -925,6 +944,7 @@ export async function uploadBrandingFile(formData: FormData) {
     try {
         const file = formData.get("file") as File;
         if (!file) throw new Error("No se proporcionó ningún archivo");
+        if (!(await getSession()) && !IMAGEN_DE_MARCA.test(file.name || "")) throw new Error("Desde la consola sólo se suben imágenes PNG, JPG o WebP.");
 
         const bytes = await file.arrayBuffer();
         const buffer = Buffer.from(bytes);
@@ -947,6 +967,7 @@ export async function uploadBrandingFile(formData: FormData) {
 
 export async function saveGuardBranding(settings: Record<string, string>) {
     try {
+        await sinSesionSoloGuardia(Object.keys(settings));
         await prisma.$transaction(
             Object.entries(settings).map(([key, value]) =>
                 prisma.setting.upsert({

@@ -133,21 +133,52 @@ export async function getGuardsList() {
 }
 
 // R5: verificación de PIN/contraseña del guardia en el SERVIDOR (los secretos nunca salen).
-export async function verifyGuardCredential(identifier: string, secret: string): Promise<{ ok: boolean; name?: string; cara?: string | null }> {
+/**
+ * Intentos fallidos de PIN por usuario. La identificación del guardia se puede invocar sin
+ * sesión (es la puerta de la consola), así que sin un tope un PIN de 4 cifras se prueba
+ * entero en minutos. Vive en memoria: alcanza para frenar una prueba en serie y se vacía
+ * sola al reiniciar.
+ */
+const FALLOS_PIN_MAX = 8;
+const FALLOS_PIN_VENTANA_MS = 10 * 60_000;
+const fallosPin = new Map<string, number[]>();
+
+export async function verifyGuardCredential(identifier: string, secret: string): Promise<{ ok: boolean; name?: string; cara?: string | null; bloqueado?: boolean }> {
     if (!identifier || !secret) return { ok: false };
     const id = identifier.trim().toLowerCase();
+    const ahora = Date.now();
+    const recientes = (fallosPin.get(id) || []).filter((t) => ahora - t < FALLOS_PIN_VENTANA_MS);
+    if (recientes.length >= FALLOS_PIN_MAX) return { ok: false, bloqueado: true };
+    const fallar = () => { fallosPin.set(id, [...recientes, ahora]); return { ok: false }; };
     const guards = await prisma.user.findMany({
         where: { role: { in: ['STAFF', 'ADMIN'] } },
         include: { credentials: true },
     });
     const guard = guards.find((g) => ((g.username || '').toLowerCase() === id) || ((g.name || '').toLowerCase() === id));
-    if (!guard) return { ok: false };
+    if (!guard) return fallar();
     const secretVal = guard.credentials.find((c) => c.type === 'PASSWORD')?.value || guard.credentials.find((c) => c.type === 'PIN')?.value || '';
-    if (!(secretVal && secretVal === secret)) return { ok: false };
+    if (!(secretVal && secretVal === secret)) return fallar();
+    fallosPin.delete(id);
     // La identidad del guardia queda firmada en una cookie: es con lo que el servidor sabe quién
     // registra una visita o atiende un aviso desde la consola (lib/sesion-guardia).
     try { const { firmarGuardia } = await import("@/lib/sesion-guardia"); await firmarGuardia(guard.name); } catch { /* fuera de una acción no hay cookies; la verificación igual vale */ }
     return { ok: true, name: guard.name, cara: guard.cara };
+}
+
+/**
+ * ¿Sigue vigente la identificación del guardia en este navegador? Devuelve su nombre y la
+ * renueva (otras 14 h desde ahora).
+ *
+ * La consola recordaba al guardia en el navegador (localStorage) y entraba sin pedir nada,
+ * aunque la cookie firmada ya hubiera vencido: la pantalla decía "identificado" y el
+ * servidor rechazaba todo lo que necesitaba saber quién era. Ahora, al abrir, la consola
+ * pregunta acá; si no hay identificación vigente, vuelve a pedir el PIN.
+ */
+export async function guardiaVigente(): Promise<string | null> {
+    const { leerGuardia, firmarGuardia } = await import("@/lib/sesion-guardia");
+    const nombre = await leerGuardia();
+    if (nombre) { try { await firmarGuardia(nombre); } catch { /* se renueva la próxima */ } }
+    return nombre;
 }
 
 export async function getAdminsList() {

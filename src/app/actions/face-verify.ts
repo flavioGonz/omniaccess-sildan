@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import axios from "axios";
 import FormData from "form-data";
 import { getImagePath } from "@/lib/image-path";
-import { getSetting } from "@/app/actions/settings";
+import { leerAjuste as getSetting } from "@/lib/ajustes-db";
 import { revalidatePath } from "next/cache";
 
 const COMPARE_FACE_URL = process.env.COMPARE_FACE_URL || "https://compareface.infratec.com.uy";

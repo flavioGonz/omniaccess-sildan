@@ -28,13 +28,17 @@ export default function BlacklistPage() {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [selectedUserFilter, setSelectedUserFilter] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
+    /** Si la última carga falló. Sin esto, un error se veía como «Perímetro asegurado»: lista vacía de verdad. */
+    const [fallo, setFallo] = useState<string | null>(null);
 
     const fetchBlacklist = async () => {
         setLoading(true);
         try {
             const data = await getBlacklist();
             setBlacklist(data);
-        } catch (e) {
+            setFallo(null);
+        } catch (e: any) {
+            setFallo(e?.message || "No se pudo leer la lista negra.");
             toast.error({ title: "Error al cargar lista negra" });
         } finally {
             setLoading(false);
@@ -204,6 +208,13 @@ export default function BlacklistPage() {
                         <div className="absolute inset-0 bg-red-600 blur-[20px] opacity-20" />
                     </div>
                     <p className="text-[10px] font-bold uppercase tracking-[0.5em] text-red-600 animate-pulse">Neural Sync In Progress</p>
+                </div>
+            ) : fallo ? (
+                <div className="text-center py-24 border border-dashed border-border rounded-2xl">
+                    <AlertTriangle size={36} className="mx-auto tono-mal mb-4" />
+                    <p className="text-[14px] font-bold text-foreground">No se pudo leer la lista negra</p>
+                    <p className="text-[12px] text-muted-foreground mt-1">{fallo}</p>
+                    <button type="button" onClick={fetchBlacklist} className="mt-4 h-9 px-4 rounded-md bg-[var(--accion)] text-white text-[13px] font-semibold">Reintentar</button>
                 </div>
             ) : filteredList.length === 0 ? (
                 <div className="text-center py-32 border border-dashed border-border rounded-2xl bg-foreground/[0.04] backdrop-blur-sm">

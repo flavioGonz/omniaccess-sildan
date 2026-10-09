@@ -1,4 +1,4 @@
-import { getSetting } from "@/app/actions/settings";
+import { leerAjuste as getSetting } from "@/lib/ajustes-db";
 import axios from "axios";
 
 /**

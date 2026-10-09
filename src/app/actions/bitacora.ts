@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { avisarPorSocket } from "@/lib/avisar";
 import { uploadToS3 } from "@/lib/s3";
 import { revalidatePath } from "next/cache";
 
@@ -53,6 +54,10 @@ export async function createBitacoraEntry(formData: FormData) {
             timestamp: new Date(),
         }
     });
+
+    // Las dos consolas de guardia escuchan `new_bitacora` para sumar el registro que hizo otra
+    // tablet del mismo guardia, y nadie lo emitía: cada tablet veía sólo lo suyo hasta recargar.
+    avisarPorSocket("new_bitacora", entry);
 
     // Strategy to link with LPR event:
     // When an AccessEvent is created in the webhook, it should look for the latest Bitacora entry 

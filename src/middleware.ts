@@ -3,12 +3,44 @@ import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
 import { puedeAbrir, permisosDeSesion } from '@/lib/permisos'
 import { esVista, alcanceCubre, enlaceAbre, COOKIE_PANTALLA, PARAM_PANTALLA, type ClaveVista } from '@/lib/monitor/vistas'
+import { accionPermitidaSinSesion } from '@/lib/acciones-publicas'
 
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null
 
+/** ¿Trae una firma válida con esta forma? Sin la clave del servidor, nada es válido. */
+async function firmaValida(token: string | undefined, tipo?: string): Promise<boolean> {
+    if (!token || !key) return false
+    try {
+        const { payload } = await jwtVerify(token, key, { algorithms: ['HS256'] })
+        return !tipo || payload.tipo === tipo
+    } catch { return false }
+}
+
+/**
+ * Las acciones de servidor viajan como POST a cualquier página que las importe, con el
+ * encabezado `Next-Action`. Las páginas públicas (/guard, /login, /residente…) importan
+ * módulos enteros de acciones, así que sin esto cualquiera desde internet podía invocar
+ * acciones que no revisan quién llama — `deleteAllUsers`, `restoreBackup`, `saveAdmin`
+ * (ver lib/acciones-publicas). Con sesión del panel pasa todo, como antes; sin sesión,
+ * sólo lo de la lista. Va antes que todo lo demás porque no depende de la ruta.
+ */
+async function puertaDeAcciones(request: NextRequest): Promise<NextResponse | null> {
+    const id = request.headers.get('next-action')
+    if (!id || request.method !== 'POST') return null
+    if (await firmaValida(request.cookies.get('session')?.value)) return null
+    const guardia = await firmaValida(request.cookies.get('guardia')?.value, 'guardia')
+    const { ok, nombre } = accionPermitidaSinSesion(id, guardia)
+    if (ok) return null
+    console.warn(`[acciones] rechazada sin sesión: ${nombre || 'id desconocido'} en ${request.nextUrl.pathname}${guardia ? ' (guardia identificado)' : ''}`)
+    return NextResponse.json({ error: 'Esta acción necesita una sesión del panel' }, { status: 403 })
+}
+
 export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl
+
+    const rechazo = await puertaDeAcciones(request)
+    if (rechazo) return rechazo
 
     // --- ALWAYS PUBLIC (no auth needed) ---
     if (
@@ -172,5 +204,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
     matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+    // Node y no Edge: la puerta de acciones lee el manifiesto de acciones del disco
+    // (.next/server/server-reference-manifest.json) para saber qué acción es cada id.
+    runtime: 'nodejs',
 }
 

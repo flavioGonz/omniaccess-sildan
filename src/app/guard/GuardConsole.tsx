@@ -67,7 +67,10 @@ import { cn } from "@/lib/utils";
 import { createBitacoraEntry, deleteBitacoraEntry, getBitacoraPage, searchRecentBitacora } from "@/app/actions/bitacora";
 import { getAccessEvents, getPlateAnalysis } from "@/app/actions/history";
 import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
-import { getQuickCreateData, getGuardsList, verifyGuardCredential } from "@/app/actions/users";
+import { getQuickCreateData, getGuardsList, verifyGuardCredential, guardiaVigente } from "@/app/actions/users";
+
+/** Cada cuánto se renueva la identificación firmada del guardia (vence a las 14 h sin uso). */
+const RENOVAR_GUARDIA_MS = 60 * 60_000;
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { PedirPin } from "@/components/guard/PedirPin";
@@ -989,14 +992,31 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
         );
     }, [identificado]);
 
-    // Load guard name
+    // Load guard name. El nombre guardado en el navegador no alcanza: el servidor reconoce al
+    // guardia por la cookie firmada al poner el PIN, que vence. Si venció (o es de otro), se
+    // vuelve a pedir el PIN con el usuario ya puesto, en vez de entrar a una consola que
+    // después rechaza todo.
     useEffect(() => {
         const savedGuard = localStorage.getItem("bitacora_guard_name");
-        if (savedGuard) {
-            setGuardName(savedGuard);
-            setShowIdentityOverlay(false); setIdentificado(true);
-        }
+        if (!savedGuard) return;
+        let vivo = true;
+        guardiaVigente().then((nombre) => {
+            if (!vivo) return;
+            if (nombre && nombre === savedGuard) {
+                setGuardName(savedGuard);
+                setShowIdentityOverlay(false); setIdentificado(true);
+            } else {
+                setLoginUser(savedGuard);
+            }
+        }).catch(() => { if (vivo) setLoginUser(savedGuard); });
+        return () => { vivo = false; };
     }, []);
+    // Mientras la consola está abierta e identificada, la identificación se renueva sola.
+    useEffect(() => {
+        if (!identificado) return;
+        const iv = setInterval(() => { guardiaVigente().catch(() => { }); }, RENOVAR_GUARDIA_MS);
+        return () => clearInterval(iv);
+    }, [identificado]);
 
     const saveGuardName = (val: string) => {
         setGuardName(val);
