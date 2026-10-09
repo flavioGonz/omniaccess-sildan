@@ -42,15 +42,17 @@ qué se guarda— vive en `vision-worker.js` y en `lib/vision/*`, en el mismo le
 *Alternativa descartada*: meter la inferencia en Node (onnxruntime-node). Pierde TensorRT y el
 aislamiento: un cuelgue de CUDA tiraría el worker con todo su estado.
 
-### 2. Modelo: YOLO26 si hay licencia; RF-DETR mientras no
+### 2. Modelo: RF-DETR (decidido el 9/10: no se pagan licencias)
 YOLO26 (Ultralytics, enero 2026) es lo último de la familia: sin NMS, nano a 40,9 mAP y
 1,7 ms en T4 con TensorRT, y YOLOE-26 agrega clases por texto. **Pero es AGPL-3.0**, y
 Ultralytics declara que usarlo detrás de un servicio requiere su Licencia Enterprise; los
 pesos entrenados también quedan bajo AGPL. OmniAccess es software cerrado servido por red.
 Por eso el contrato (decisión 1) es independiente del modelo y el contenedor arranca con
 **RF-DETR (Apache-2.0)** —Nano 48,4 mAP en 2,3 ms, Small 53,0 en 3,5 ms (T4, TensorRT FP16)—,
-igual o mejor que YOLO11 en el mismo tiempo. Si Nico compra la licencia, se cambia el modelo por
-configuración (`VISION_MODELO`) sin tocar el resto.
+igual o mejor que YOLO11 en el mismo tiempo. **Decisión (9/10): Nico no paga licencias.** RF-DETR queda como modelo de producción
+(`rfdetr-small` por defecto; `rfdetr-nano` y `rfdetr-medium` exportados en la misma imagen).
+Corre en ONNX Runtime (no PyTorch) con el pre/posproceso de rfdetr replicado y comprobado al
+construir. Si aparece otro detector libre mejor, se cambia por configuración (`VISION_MODELO`).
 *Alternativas*: D-FINE (Apache-2.0, similar); YOLOX (Apache, más viejo y peor).
 
 ### 3. Descriptor para buscar: SigLIP (Apache-2.0) en el mismo contenedor

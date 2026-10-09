@@ -2,7 +2,8 @@
 
 ## 0. Decisión previa (Nico)
 
-- [ ] 0.1 Decidir el modelo de producción: RF-DETR (Apache-2.0, sin costo) o YOLO26 con Licencia Enterprise de Ultralytics. Queda anotado en `claude/vision.md` y en el setting `VISION_MODELO`. Sin licencia comprada, YOLO26/YOLOE-26 sólo se usan para pruebas internas.
+- [x] 0.1 Decidir el modelo de producción: RF-DETR (Apache-2.0, sin costo) o YOLO26 con Licencia Enterprise de Ultralytics. Queda anotado en `claude/vision.md` y en el setting `VISION_MODELO`. Sin licencia comprada, YOLO26/YOLOE-26 sólo se usan para pruebas internas.
+  - 9/10: Nico no paga licencias → **RF-DETR** (Nano/Small/Medium, Apache-2.0); XL/2XL (PML 1.0) y YOLO26/YOLOE-26 (AGPL) quedan fuera, también para pruebas.
 
 ## 1. Base: datos e infraestructura (fase 0, sin efecto visible)
 
@@ -13,8 +14,10 @@
 
 ## 2. Contenedor `omni-vision`
 
-- [ ] 2.1 Imagen Docker sobre la base CUDA 13 + cuDNN 9 de omni-lpr con FastAPI, onnxruntime-gpu/TensorRT, el detector configurado y SigLIP multilingüe; `docker run --gpus all` en el CT 200 sin compose roto (dejar `docker-compose.vision.yml` versionado y sin secretos).
+- [x] 2.1 Imagen Docker sobre la base CUDA 13 + cuDNN 9 de omni-lpr con FastAPI, onnxruntime-gpu/TensorRT, el detector configurado y SigLIP multilingüe; `docker run --gpus all` en el CT 200 sin compose roto (dejar `docker-compose.vision.yml` versionado y sin secretos).
+  - 9/10: `services/omni-vision/` (Dockerfile en dos etapas + `run.sh`, igual que omni-lpr, sin compose). Corriendo en el CT 200 en 127.0.0.1:8010, `unless-stopped`, 2 CPU, 3 GB RAM, VRAM topada a 1,5 GB. **SigLIP todavía no**: entra con la fase 3 (búsqueda).
 - [ ] 2.2 Endpoints `POST /detectar`, `POST /describir`, `POST /texto`, `GET /salud` (modelo, versión, licencia, VRAM, cola), una inferencia en vuelo; verificar con 3 imágenes de prueba (persona, auto, calle vacía) y anotar latencias.
+  - 9/10: `/detectar` y `/salud` andando y verificados (persona en Salida 0,88, auto en LPR Interior 0,81, perimetrales vacías sin objetos; ~30 ms de inferencia en la 3050). Faltan `/describir` y `/texto` (con SigLIP, fase 3).
 - [ ] 2.3 Medición con omni-lpr trabajando: VRAM total, latencia de lectura de matrículas antes/después y ningún `cudaError` en 30 min; resultado en `claude/vision.md`. Elegir Nano o Small con ese número.
 
 ## 3. `vision-worker` (PM2) y cliente
