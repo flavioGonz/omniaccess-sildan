@@ -174,7 +174,35 @@ def decodificar(cajas: np.ndarray, logits: np.ndarray, ancho: int, alto: int, um
         o = Objeto(clase, nombre, grupo, p, caja, norm, consulta=consulta)
         por_consulta[consulta] = o
         salida.append(o)
+    if una_por_caja:
+        salida = _sin_duplicados(salida)
     return salida
+
+
+# Dos cajas del mismo grupo que se pisan más que esto son el mismo objeto. Pasa con DETR cuando
+# dos consultas distintas ven el mismo vehículo, una como "auto" y otra como "camioneta": el
+# registro de detecciones abría dos pistas para una camioneta (medido el 9/10 en la Salida).
+IOU_DUPLICADO = 0.7
+
+
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _sin_duplicados(objetos: list[Objeto]) -> list[Objeto]:
+    """Se queda con la más segura de cada grupo de cajas casi iguales; la otra pasa a `alternativa`."""
+    quedan: list[Objeto] = []
+    for o in objetos:  # vienen de mayor a menor confianza
+        igual = next((q for q in quedan if q.grupo == o.grupo and _iou(q.caja_norm, o.caja_norm) > IOU_DUPLICADO), None)
+        if igual is None:
+            quedan.append(o)
+        elif igual.alternativa is None and o.clase != igual.clase:
+            igual.alternativa = {"clase": o.clase, "nombre": o.nombre, "confianza": round(o.confianza, 4)}
+    return quedan
 
 
 # ─────────────────────────── siluetas ───────────────────────────

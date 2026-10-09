@@ -110,15 +110,21 @@ const clasePrendida = (c) => (c in ajustes.clases ? ajustes.clases[c] === true :
 // ─────────────────────────── MinIO ───────────────────────────
 
 let s3 = null;
-async function cliente() {
-    if (s3) return s3;
+let preparando = null;
+/** Una sola preparación aunque la pidan dos subidas a la vez (el bucket se "creaba" dos veces). */
+function cliente() {
+    if (s3) return Promise.resolve(s3);
+    return (preparando ||= prepararCliente().finally(() => { preparando = null; }));
+}
+async function prepararCliente() {
     const [endpoint, accessKey, secretKey] = await Promise.all([ajuste("S3_ENDPOINT"), ajuste("S3_ACCESS_KEY"), ajuste("S3_SECRET_KEY")]);
-    s3 = new S3Client({
+    const c = new S3Client({
         endpoint: endpoint || process.env.S3_ENDPOINT, region: "us-east-1", forcePathStyle: true,
         credentials: { accessKeyId: accessKey || process.env.S3_ACCESS_KEY, secretAccessKey: secretKey || process.env.S3_SECRET_KEY },
     });
-    try { await s3.send(new HeadBucketCommand({ Bucket: BUCKET })); }
-    catch { await s3.send(new CreateBucketCommand({ Bucket: BUCKET })).catch(() => null); log(`bucket '${BUCKET}' creado`); }
+    try { await c.send(new HeadBucketCommand({ Bucket: BUCKET })); }
+    catch { await c.send(new CreateBucketCommand({ Bucket: BUCKET })).catch(() => null); log(`bucket '${BUCKET}' creado`); }
+    s3 = c;
     return s3;
 }
 async function subir(clave, buf) {
