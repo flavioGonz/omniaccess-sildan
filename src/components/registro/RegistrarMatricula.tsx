@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, ExternalLink, Eye, Loader2, ShieldAlert, UserPlus } from "lucide-react";
+import { ArrowRight, Check, ExternalLink, Eye, Info, Loader2, ShieldAlert, UserPlus } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
 import { Estado, Matricula } from "@/components/ui/celdas";
 import { CajonUsuario } from "@/components/users/CajonUsuario";
@@ -28,14 +29,23 @@ import { queSeSabeDeMatricula } from "@/app/actions/registro";
 
 type Paso = "elegir" | "persona" | "vigilancia";
 
-function Opcion({ icono: Icono, titulo, para, pasa, alElegir, aviso }: {
+function Opcion({ icono: Icono, titulo, para, pasa, alElegir, aviso, alerta }: {
     icono: React.ComponentType<{ size?: number; className?: string }>; titulo: string; para: string; pasa: string[]; alElegir: () => void; aviso?: React.ReactNode;
+    /**
+     * La opción que pone a alguien bajo vigilancia lleva el fondo de alerta: no es otra forma
+     * de "registrar", es marcar un auto como sospechoso o buscado, y eso se tiene que notar
+     * antes de tocar.
+     */
+    alerta?: boolean;
 }) {
     return (
         <button type="button" onClick={alElegir}
-            className="group w-full text-left rounded-[10px] border border-border bg-card p-4 transition-colors hover:border-[var(--accion)] hover:bg-[color-mix(in_oklab,var(--accion)_5%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]">
+            className={cn("group w-full text-left rounded-[10px] border p-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]",
+                alerta ? "bg-[var(--mal-suave)] border-[color-mix(in_oklab,var(--mal)_34%,transparent)] hover:border-[var(--mal)]"
+                    : "bg-card border-border hover:border-[var(--accion)] hover:bg-[color-mix(in_oklab,var(--accion)_5%,transparent)]")}>
             <div className="flex items-start gap-3">
-                <span className="w-10 h-10 rounded-[10px] bg-muted border border-border grid place-items-center text-muted-foreground group-hover:text-[var(--accion)] shrink-0">
+                <span className={cn("w-10 h-10 rounded-[10px] border grid place-items-center shrink-0",
+                    alerta ? "bg-background/60 border-[color-mix(in_oklab,var(--mal)_34%,transparent)] tono-mal" : "bg-muted border-border text-muted-foreground group-hover:text-[var(--accion)]")}>
                     <Icono size={19} />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -119,7 +129,31 @@ export function RegistrarMatricula({ plate, alCerrar, alTerminar, units, groups,
                                 "En lista negra, la barrera la deniega y las lectoras la reciben.",
                             ]}
                             aviso={sabido?.vigilancia ? <p className="text-[12px] font-semibold tono-aviso">Ya está en la lista: al agregarla te pregunta si cambiar su categoría.</p> : undefined}
-                            alElegir={() => setPaso("vigilancia")} />
+                            alerta alElegir={() => setPaso("vigilancia")} />
+                    </CajonSeccion>
+
+                    {/* Qué cambia en el sistema con cada una: lo que el guardia ve después, no cómo se carga. */}
+                    <CajonSeccion titulo="Cómo se comporta el sistema" icono={Info}>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="rounded-[10px] border border-border bg-card p-3.5 space-y-2">
+                                <p className="text-[12.5px] font-bold flex items-center gap-1.5"><UserPlus size={13} className="text-muted-foreground" /> Persona del barrio</p>
+                                <ul className="space-y-1.5 text-[12px] text-foreground/80 leading-snug">
+                                    <li><b>Monitor:</b> sale como registrada, con su nombre y su lote.</li>
+                                    <li><b>Guardia:</b> no recibe «entró sin registrarse».</li>
+                                    <li><b>Barrera:</b> la deja pasar cuando la matrícula está en las lectoras.</li>
+                                    <li><b>Proveedor:</b> se le abre la visita sola, con su tiempo.</li>
+                                </ul>
+                            </div>
+                            <div className="rounded-[10px] border border-[color-mix(in_oklab,var(--mal)_34%,transparent)] bg-[var(--mal-suave)] p-3.5 space-y-2">
+                                <p className="text-[12.5px] font-bold flex items-center gap-1.5 tono-mal"><Eye size={13} /> Matrícula en seguimiento</p>
+                                <ul className="space-y-1.5 text-[12px] text-foreground/80 leading-snug">
+                                    <li><b>Monitor:</b> se destaca con su categoría cada vez que pasa.</li>
+                                    <li><b>Avisos:</b> si se marca «Avisa», sale el aviso al detectarla.</li>
+                                    <li><b>Lista negra:</b> toda lectura queda denegada y las lectoras la reciben.</li>
+                                    <li><b>VIP y En búsqueda:</b> se destacan, sin cambiar la decisión de la barrera.</li>
+                                </ul>
+                            </div>
+                        </div>
                     </CajonSeccion>
                 </CajonContenido>
             </Cajon>

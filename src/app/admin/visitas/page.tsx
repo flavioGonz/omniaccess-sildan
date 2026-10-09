@@ -45,7 +45,7 @@ export default function PaginaVisitas() {
         && (!q || [a.plate, a.motivo, a.camara, a.atendidoPor].some((x) => (x || "").toLowerCase().includes(q)))), [avisos, estado, q]);
 
     const colVisitas: ColumnaTabla<VisitaFila>[] = [
-        { clave: "tipo", titulo: "Tipo", ancho: 120, valor: (v) => v.tipoNombre, celda: (v) => <span className="font-semibold text-[13px]">{v.tipoNombre}{v.origen === "INVITACION" && <span className="block text-[11px] text-muted-foreground font-normal">por invitación</span>}</span> },
+        { clave: "tipo", titulo: "Tipo", ancho: 120, valor: (v) => v.tipoNombre, celda: (v) => <span className="font-semibold text-[13px]">{v.tipoNombre}{v.origen === "INVITACION" && <span className="block text-[11px] text-muted-foreground font-normal">por invitación</span>}{v.origen === "PROVEEDOR" && <span className="block text-[11px] text-muted-foreground font-normal">proveedor registrado{v.empresa ? ` · ${v.empresa}` : ""}</span>}</span> },
         { clave: "plate", titulo: "Matrícula", ancho: 120, valor: (v) => v.plate || "", celda: (v) => v.plate ? <Matricula p={v.plate} /> : <Nada /> },
         { clave: "lote", titulo: "Lote", ancho: 120, valor: (v) => v.loteNombre || "", celda: (v) => v.loteNombre ? <span className="text-[13px]">{v.loteNombre}</span> : <Nada /> },
         { clave: "quien", titulo: "Quién", valor: (v) => [v.nombre, v.empresa].filter(Boolean).join(" · "), celda: (v) => (v.nombre || v.empresa) ? <span className="text-[13px]">{[v.nombre, v.empresa].filter(Boolean).join(" · ")}</span> : <Nada /> },

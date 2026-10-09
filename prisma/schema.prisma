@@ -68,6 +68,11 @@ model User {
   /// El rol que tenia antes de pasar a BLACKLISTED, para devolverselo al sacarla de la lista.
   rolAnterior     UserRole?
   createdBy       String?
+  /// Proveedor: la empresa o el servicio (PedidosYa, UTE, Jardinería Pérez).
+  empresa         String?
+  /// Proveedor: la clave del tipo de visita (Ajustes → Visitas y patrones) que se le abre
+  /// sola cuando la cámara de Entrada lee su matrícula. Null = no se le abre visita.
+  tipoVisita      String?
   accessEvents    AccessEvent[]
   credentials     Credential[]
   parkingSlot     ParkingSlot?  @relation(fields: [parkingSlotId], references: [id])
@@ -1047,7 +1052,7 @@ model Visita {
   loteNombre            String?
   nombre                String?
   empresa               String?
-  origen                String    @default("GUARDIA") // GUARDIA | INVITACION
+  origen                String    @default("GUARDIA") // GUARDIA | INVITACION | PROVEEDOR
   registradaPor         String?
   invitationId          String?
   entra                 DateTime  @default(now())

@@ -378,6 +378,19 @@ export async function getQuickCreateData() {
 }
 
 /**
+ * Lo de proveedor: la empresa y el tipo de visita que se le abre al entrar. Sólo cuenta si
+ * el rol es Proveedor; si alguien deja de serlo se limpia, para que un ex proveedor pasado
+ * a residente no siga abriendo visitas de 15 minutos cada vez que entra.
+ */
+function leerProveedor(formData: FormData, role: string): { empresa: string | null; tipoVisita: string | null } | null {
+    if (!formData.has("proveedorEnviado")) return null;
+    if (role !== "PROVIDER") return { empresa: null, tipoVisita: null };
+    const empresa = String(formData.get("empresa") || "").trim() || null;
+    const tipo = String(formData.get("tipoVisita") || "").trim();
+    return { empresa, tipoVisita: tipo && tipo !== "ninguna" ? tipo : null };
+}
+
+/**
  * Los grupos elegidos en la ficha de la persona.
  *
  * La ficha mandaba un `groupId` por cada píldora prendida y ni createUser ni updateUser lo
@@ -420,6 +433,8 @@ export async function createUser(formData: FormData) {
     }
     const gruposNuevos = leerGrupos(formData);
     if (gruposNuevos?.length) userPayload.accessGroups = { connect: gruposNuevos };
+    const provNuevo = leerProveedor(formData, role);
+    if (provNuevo) Object.assign(userPayload, provNuevo);
 
     const newUser = await prisma.user.create({
         data: userPayload,
@@ -492,6 +507,8 @@ export async function updateUser(id: string, formData: FormData) {
     }
     const grupos = leerGrupos(formData);
     if (grupos) userPayload.accessGroups = { set: grupos };
+    const prov = leerProveedor(formData, role);
+    if (prov) Object.assign(userPayload, prov);
 
     const updatedUser = await prisma.user.update({
         where: { id },

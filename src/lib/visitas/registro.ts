@@ -73,7 +73,7 @@ async function padronDe(lista: string[]): Promise<Set<string>> {
 
 export type NuevaVisita = {
     plate?: string | null; tipo: string; minutos: number; unitId?: string | null; loteNombre?: string | null;
-    nombre?: string | null; empresa?: string | null; origen: "GUARDIA" | "INVITACION"; registradaPor?: string | null;
+    nombre?: string | null; empresa?: string | null; origen: "GUARDIA" | "INVITACION" | "PROVEEDOR"; registradaPor?: string | null;
     invitationId?: string | null; entra?: Date; vence?: Date; accessEventEntradaId?: string | null;
 };
 

@@ -51,6 +51,14 @@ const PASADA_SEG = 120;
 /** Las decisiones de una lectura que el motor procesa. "WATCHLIST" es un segundo aviso de la MISMA lectura. */
 const EVENTOS_DE_LECTURA = new Set(["ALLOW", "DENY", "UNKNOWN"]);
 
+/** El proveedor dueño de una matrícula, por su vehículo o su credencial de matrícula. */
+async function proveedorDe(plate: string) {
+    const sel = { id: true, name: true, empresa: true, tipoVisita: true, unitId: true, role: true, unit: { select: { name: true } } } as const;
+    const u = (await prisma.vehicle.findFirst({ where: { plate: { equals: plate, mode: "insensitive" } }, select: { user: { select: sel } } }).catch(() => null))?.user
+        || (await prisma.credential.findFirst({ where: { type: "PLATE" as any, value: plate }, select: { user: { select: sel } } }).catch(() => null))?.user;
+    return u && String(u.role) === "PROVIDER" ? u : null;
+}
+
 export async function alLeerMatricula(l: Lectura): Promise<void> {
     try {
         if (l.modulo !== "LPR" || !EVENTOS_DE_LECTURA.has(String(l.evento).toUpperCase())) return;
@@ -89,6 +97,20 @@ export async function alLeerMatricula(l: Lectura): Promise<void> {
                     unitId: i.hostUnitId, loteNombre: i.hostLabel || null, nombre: inv.guest.name || null,
                     registradaPor: i.hostName ? `Invitación de ${i.hostName}` : "Invitación", invitationId: i.id, accessEventEntradaId: accessEventId,
                 });
+            } else {
+                // Un proveedor registrado con su tipo de visita (el delivery de siempre, el
+                // jardinero de los martes): entra y se le abre la visita sola, con su cuenta
+                // atrás y su lote. Así la guardia no tiene que registrarlo cada vez y el
+                // aviso de excedida funciona igual que con una visita cargada a mano.
+                const prov = await proveedorDe(plate);
+                const tipo = prov?.tipoVisita ? aj.tipos.find((t) => t.clave === prov.tipoVisita && t.activo) : null;
+                if (prov && tipo) {
+                    await abrirVisita({
+                        plate, tipo: tipo.clave, minutos: tipo.minutos, entra: instante, origen: "PROVEEDOR",
+                        unitId: prov.unitId, loteNombre: prov.unit?.name || null, nombre: prov.name, empresa: prov.empresa,
+                        registradaPor: "Proveedor registrado", accessEventEntradaId: accessEventId,
+                    });
+                }
             }
         }
 

@@ -7,8 +7,9 @@ import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
     Building2, Camera, Car, Check, CreditCard, DoorOpen, Home,
     KeyRound, Loader2, MapPin, ParkingSquare, Phone, Save, ScanFace, Server,
-    Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X,
+    Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info,
 } from "lucide-react";
+import { getAjustesVisitas } from "@/app/actions/visitas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -123,6 +124,11 @@ export function CajonUsuario({
        muestra. El campo arranca vacío y sólo se manda si se escribe uno nuevo — vacío no borra. */
     const [pinOculto, setPinOculto] = useState(false);
     const [gruposElegidos, setGruposElegidos] = useState<string[]>([]);
+    /** El rol se controla para mostrar lo de proveedor sólo cuando corresponde. */
+    const [rol, setRol] = useState<string>("RESIDENT");
+    const [tipoVisita, setTipoVisita] = useState<string>("ninguna");
+    /** Los tipos de visita de Ajustes → Visitas y patrones (Delivery 15 min, Servicio…). */
+    const [tiposVisita, setTiposVisita] = useState<{ clave: string; nombre: string; minutos: number }[] | null>(null);
     const [lprElegidos, setLprElegidos] = useState<string[]>([]);
     const [facialesElegidos, setFacialesElegidos] = useState<string[]>([]);
     const [unidadId, setUnidadId] = useState("none");
@@ -171,6 +177,8 @@ export function CajonUsuario({
         setPinOculto(!!(user?.credentials as any[])?.some((c) => c.type === "PIN" && c.oculto));
         setArchivoFoto(null);
         setGruposElegidos(user?.accessGroups?.map((g) => g.id) || []);
+        setRol(String(user?.role || "RESIDENT"));
+        setTipoVisita((user as any)?.tipoVisita || "ninguna");
         setUnidadId(user?.unitId || "none");
         setCocheraId(user?.parkingSlotId || "none");
         /* Los equipos NO se recuerdan de la vez anterior: mandar una credencial a un equipo
@@ -182,6 +190,15 @@ export function CajonUsuario({
         setTerminado(false);
         setIdGuardado(undefined);
     }, [open, user, initialData]);
+
+    // Los tipos se piden recién cuando hace falta (rol Proveedor) y una sola vez.
+    useEffect(() => {
+        if (!open || rol !== "PROVIDER" || tiposVisita) return;
+        getAjustesVisitas().then((a) => setTiposVisita(a.tipos.filter((t: any) => t.activo).map((t: any) => ({ clave: t.clave, nombre: t.nombre, minutos: t.minutos }))))
+            .catch(() => setTiposVisita([]));
+    }, [open, rol, tiposVisita]);
+    const esProveedor = rol === "PROVIDER";
+    const tipoElegido = tiposVisita?.find((t) => t.clave === tipoVisita) || null;
 
     const alternar = (lista: string[], poner: (v: string[]) => void, id: string) =>
         poner(lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id]);
@@ -405,13 +422,13 @@ export function CajonUsuario({
                                   * peor, editarle cualquier cosa a alguien que sí lo tenía se lo
                                   * borraba, sin que nada lo dijera.
                                   */}
-                                <CajonCampo etiqueta="Correo" className="sm:col-span-2"
+                                <CajonCampo etiqueta="Correo"
                                     pista="Por acá salen los avisos que no van por WhatsApp y los informes. No abre ninguna puerta.">
                                     <Input name="email" type="email" defaultValue={user?.email || ""} placeholder="Opcional" />
                                 </CajonCampo>
-                                <CajonCampo etiqueta="Qué es para el barrio" className="sm:col-span-2"
-                                    pista="Decide qué ve y qué puede hacer, y cómo lo trata el historial. Una visita temporal caduca sola; un residente no. Administrador y Personal además entran al panel.">
-                                    <Select name="role" defaultValue={user?.role || "RESIDENT"}>
+                                <CajonCampo etiqueta="Qué es para el barrio"
+                                    pista={<>Decide qué ve y qué puede hacer, y cómo lo trata el historial. Una visita temporal caduca sola; un residente no. Administrador y Personal además entran al panel. <b>Proveedor</b> suma su empresa y el tipo de visita que se le abre al entrar (ej. un delivery de PedidosYa, 15 minutos).</>}>
+                                    <Select name="role" value={rol} onValueChange={setRol}>
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
                                             {ROLES.map((r) => <SelectItem key={r.valor} value={r.valor}>{r.rotulo}</SelectItem>)}
@@ -423,7 +440,48 @@ export function CajonUsuario({
                     </CajonSeccion>
 
                     {/* ── Dónde vive ── */}
-                    <CajonSeccion titulo="Dónde vive" icono={DoorOpen}>
+                    {/* ── Como proveedor ──
+                        Lo que se habló para los deliverys y proveedores: en un barrio abierto el
+                        proveedor de siempre no tiene por qué parar en la garita cada vez. Si se lo
+                        registra con su tipo de visita, al leerlo la cámara de Entrada se le abre la
+                        visita sola, con la cuenta atrás en el monitor y el aviso a la guardia si se
+                        pasa; la cámara de Salida la cierra. */}
+                    <input type="hidden" name="proveedorEnviado" value="1" />
+                    {esProveedor && (
+                        <CajonSeccion titulo="Como proveedor" icono={Truck}
+                            ayuda="Lo que el sistema necesita para tratarlo como proveedor y no como un auto desconocido.">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <CajonCampo etiqueta="Empresa o servicio"
+                                    pista={<>Es lo que ve la guardia en la visita y en el monitor junto a su nombre. <b>Ej.:</b> «PedidosYa», «UTE», «Jardinería Pérez», «Barraca del Este».</>}>
+                                    <Input name="empresa" defaultValue={(user as any)?.empresa || ""} placeholder="Ej. PedidosYa" />
+                                </CajonCampo>
+                                <CajonCampo etiqueta="Qué visita se le abre al entrar"
+                                    pista={<>Cuando la cámara de Entrada lee su matrícula se le abre sola una visita de este tipo, con su tiempo. <b>Ej.:</b> Delivery → 15 min de cuenta atrás; si en 15 min la Salida no lo lee, avisa a la guardia. «Ninguna» lo deja registrado sin cuenta atrás (ej. el camión de la basura).</>}>
+                                    <Select name="tipoVisita" value={tipoVisita} onValueChange={setTipoVisita}>
+                                        <SelectTrigger><SelectValue placeholder={tiposVisita === null ? "Cargando…" : "Elegir…"} /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ninguna">Ninguna: sólo registrado</SelectItem>
+                                            {(tiposVisita || []).map((t) => <SelectItem key={t.clave} value={t.clave}>{t.nombre} · {t.minutos} min</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                </CajonCampo>
+                            </div>
+                            <div className="rounded-[10px] border chip-info px-4 py-3 text-[12.5px] leading-relaxed">
+                                <p className="font-semibold flex items-center gap-1.5"><Info size={13} /> Cómo lo trata el sistema</p>
+                                <ul className="mt-1.5 space-y-1 text-foreground/80 list-disc pl-4">
+                                    <li>Cuenta como <b>registrado</b>: no dispara «entró sin registrarse» y en el monitor sale con su nombre y su empresa.</li>
+                                    {tipoElegido ? <>
+                                        <li>Al leerlo la cámara de Entrada se abre una visita <b>{tipoElegido.nombre}</b> de <b>{tipoElegido.minutos} min</b>{unidad ? <> hacia <b>{unidad.name}</b></> : null}, con su cuenta atrás en el monitor y en la consola.</li>
+                                        <li>La cámara de Salida la cierra sola. Si se pasa del tiempo, avisa <b>sólo a la guardia</b>.</li>
+                                    </> : <li>Sin tipo de visita, entra y sale sin cuenta atrás: la guardia lo puede registrar a mano si hace falta.</li>}
+                                    <li>Sus horarios se aprenden solos: si un día aparece fuera de su rutina, la guardia recibe el aviso.</li>
+                                </ul>
+                            </div>
+                        </CajonSeccion>
+                    )}
+
+                    <CajonSeccion titulo={esProveedor ? "A qué lote va" : "Dónde vive"} icono={DoorOpen}
+                        ayuda={esProveedor ? "Si va siempre a la misma casa (el jardinero del Lote 30): es el lote que se pone en su visita. Si reparte en todo el barrio, dejalo vacío." : undefined}>
                         {/*
                           * Se elige tocando la casa en el plano, no de una lista.
                           *
