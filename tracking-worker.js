@@ -950,9 +950,8 @@ function sinCuadrosRotos(est, cuadros) {
         const roto = c.length < CUADRO_MIN_BYTES || (ref != null && c.length * CUADRO_FACTOR < ref);
         if (roto) { tirados++; continue; }
         buenos.push(c);
-        // Solo los buenos alimentan la referencia: si los rotos contaran, la referencia
-        // bajaria hasta dejarlos pasar a todos.
-        est.pesos = (est.pesos || []).concat(c.length).slice(-60);
+        // La referencia ya no se alimenta aca sino en recibirCuadro, con el flujo entero:
+        // ver la nota ahi (la camara quedaba ciega toda la noche).
     }
     if (tirados) {
         log(`${est.cam.name}: ${tirados} cuadro(s) roto(s) descartado(s) antes del lector`
@@ -1204,8 +1203,25 @@ function engancharCamara(est) {
     ch.on("error", reintentar);
 }
 
+/**
+ * Cuantos pesos de cuadros recientes forman la referencia. Con el flujo a ~2-5 cuadros por
+ * segundo son unos 20-60 s: alcanza para que un cuadro roto suelto no la mueva (la mediana
+ * lo ignora) y para que la referencia siga al dia cuando la escena cambia de golpe.
+ */
+const CUADRO_PESOS_FLUJO = 120;
+
 function recibirCuadro(est, jpeg) {
     const ahora = Date.now();
+    // La referencia de "peso tipico" sale del FLUJO entero, no de los cuadros que pasaron
+    // el filtro. Antes solo los aceptados la alimentaban, y eso la congelaba: al caer la
+    // noche la camara pasa a infrarrojo blanco y negro, cada cuadro pesa cuatro veces menos
+    // (483 KB de dia, ~125 KB de noche medido en la LPR Interior el 8/10), y TODOS quedaban
+    // por debajo de la referencia de dia. Ninguno entraba, asi que la referencia no bajaba
+    // nunca: la camara quedaba ciega desde las 19 hasta que amanecia, con el log diciendo
+    // "la rafaga entera llego rota". Un HEVC partido de verdad es un cuadro suelto entre
+    // muchos sanos; la mediana del flujo no se mueve por el, y por eso sigue sirviendo.
+    est.pesos = (est.pesos || []).concat(jpeg.length);
+    if (est.pesos.length > CUADRO_PESOS_FLUJO) est.pesos.splice(0, est.pesos.length - CUADRO_PESOS_FLUJO);
     est.memoria.push({ t: ahora, jpeg });
     while (est.memoria.length > MEMORIA_CUADROS) est.memoria.shift();
 
