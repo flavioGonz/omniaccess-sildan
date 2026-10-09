@@ -179,9 +179,19 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-        // Una sola regla a la vez: si conviven, cada auto dispara dos veces.
-        await escribirRegla(d, "zona", modo === "zona", modo === "zona" ? puntosZona(roi) : undefined);
-        await escribirRegla(d, "linea", modo === "linea", modo === "linea" ? puntosLinea(linea) : undefined, linea?.sentido || "any");
+        /*
+         * «Escena» no toca la cámara. Antes apagaba la línea y la zona "para dejar todo
+         * limpio", y esas reglas son también las de INTRUSIÓN: el 7/10 a las 11:21 la LPR
+         * Interior pasó a escena y desde ese minuto no hubo una sola detección más (458
+         * cruces hasta ahí, cero después). El seguimiento por escena mira cuadros y no
+         * necesita la regla para nada; si la cámara igual avisa por intrusión (objetivo
+         * persona), el worker lo descarta.
+         */
+        if (modo !== "escena") {
+            // Una sola regla a la vez: si conviven, cada auto dispara dos veces.
+            await escribirRegla(d, "zona", modo === "zona", modo === "zona" ? puntosZona(roi) : undefined);
+            await escribirRegla(d, "linea", modo === "linea", modo === "linea" ? puntosLinea(linea) : undefined, linea?.sentido || "any");
+        }
     } catch (e: any) {
         return NextResponse.json({ error: `La cámara rechazó la configuración: ${e?.message || "sin detalle"}` }, { status: 502 });
     }
