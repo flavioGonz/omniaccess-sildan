@@ -24,6 +24,7 @@ import {
 import type { RelecturaEvento } from "@/lib/relectura";
 import type { Analisis } from "@/lib/vision-capa";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { conAncho } from "@/lib/ancho-foto";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { SUAVE, RESORTE, tocable, usarInactividad, CuentaAtras } from "@/components/monitor/tactil";
 import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
@@ -55,6 +56,8 @@ const INTERVALO_MS = 20_000;
 const ULTIMAS_EN_TIRA = 30;
 /** Sin tocar nada este tiempo, una lectura fijada vuelve al vivo. */
 const VOLVER_AL_VIVO_MS = 30_000;
+/** El ancho al que se pide la captura grande: el de una pared Full HD, no el original de la cámara. */
+const ANCHO_PROTAGONISTA = 1600;
 /** Cuánto se espera para volver a pedir una NO_LEIDA: vision-worker la relee en 1-5 s. */
 const RELECTURA_ESPERA_MS = 6_000;
 /** Sin tocar nada este tiempo, la ficha se cierra. */
@@ -427,14 +430,18 @@ function ResumenVehiculo({ a }: { a?: Analisis | null }) {
 /** La lectura grande. Tocar la foto la amplía; "Ficha" abre todo lo que se sabe de ese auto. */
 function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp }: { l: Lectura; tactil: boolean; modo: Modo; alAmpliar: (f: string) => void; alAbrirFicha: () => void; empresa?: Logo | null; comp: Comportamiento }) {
     const foto = getImagePath(l.foto);
+    /* En la pared se ve a ~1600 px: la original (2560 px, ~1 MB) tardaba en llegar y las siluetas
+       quedaban dibujadas sobre negro. Ampliar sigue abriendo la original. */
+    const fotoVista = conAncho(foto, ANCHO_PROTAGONISTA) || foto;
+    const [cargada, setCargada] = useState<string | null>(null);
     const est = estadoDe(l, modo);
     // El motivo sólo se explica cuando hubo un rechazo de verdad (barrera, o lista negra).
     const conMotivo = est.error;
     return (
         <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {foto ? <img src={foto} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><Camera size={64} /></div>}
-            {foto && l.analisis && <CapaAnalisis analisis={l.analisis} atributos />}
+            {foto ? <img src={fotoVista!} alt="" draggable={false} onLoad={() => setCargada(fotoVista)} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><Camera size={64} /></div>}
+            {foto && l.analisis && cargada === fotoVista && <CapaAnalisis analisis={l.analisis} atributos />}
             {foto && <button type="button" onClick={() => alAmpliar(foto)} aria-label="Ver la captura grande" className="absolute inset-0 cursor-zoom-in" />}
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/40 pointer-events-none" />
             <div className="absolute top-0 inset-x-0 p-4 lg:p-6 flex items-start justify-between gap-4 pointer-events-none">

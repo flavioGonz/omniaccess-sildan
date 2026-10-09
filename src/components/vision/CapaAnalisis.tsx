@@ -60,8 +60,9 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 </filter>
                 {Object.entries({ ...COLOR_GRUPO, otro: COLOR_OTRO, toca: COLOR_TOCA }).map(([k, c]) => (
                     <linearGradient key={k} id={`rel-${k}-${uid}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={c} stopOpacity={k === "toca" ? 0.7 : 0.42} />
-                        <stop offset="100%" stopColor={c} stopOpacity={k === "toca" ? 0.5 : 0.12} />
+                        {/* Liviano arriba y casi transparente abajo: el auto y la persona se tienen que seguir viendo. */}
+                        <stop offset="0%" stopColor={c} stopOpacity={k === "toca" ? 0.6 : 0.28} />
+                        <stop offset="100%" stopColor={c} stopOpacity={k === "toca" ? 0.4 : 0.06} />
                     </linearGradient>
                 ))}
                 <pattern id={`rayas-${uid}`} width={lado * 0.02} height={lado * 0.02} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -116,21 +117,25 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 </g>
             ))}
 
-            {/* Rótulos: una pastilla oscura arriba de cada objeto. */}
-            {etiquetas && objetos.map((o, i) => {
+            {/* Rótulos: una pastilla oscura arriba de cada objeto. Dos personas juntas tienen las
+                cajas encimadas: el rótulo que pisaría a otro baja un renglón. */}
+            {etiquetas && (() => { const puestos: [number, number, number][] = []; return objetos.map((o, i) => {
                 const c = tocan[i] ? COLOR_TOCA : COLOR_GRUPO[o.grupo] || COLOR_OTRO;
                 const extra = atributos ? (o.atributos || []).filter((a) => !a.dudoso && (a.id === "color" || a.id === "carroceria" || a.id === "tipo")).map((a) => a.valor).slice(0, 2) : [];
                 const texto = [NOMBRE_GRUPO[o.grupo] ? (o.grupo === "persona" ? NOMBRE_GRUPO[o.grupo] : o.nombre[0]?.toUpperCase() + o.nombre.slice(1)) : o.nombre, ...extra].join(" · ") + ` ${Math.round(o.confianza * 100)} %`;
-                const x = Math.max(0, o.caja[0] * W), y = Math.max(fuente * 1.6, o.caja[1] * H - fuente * 0.4);
                 const ancho = texto.length * fuente * 0.56 + fuente;
+                const x = Math.min(Math.max(0, o.caja[0] * W), W - ancho);
+                let y = Math.max(fuente * 1.6, o.caja[1] * H - fuente * 0.4);
+                while (puestos.some(([px, py, pw]) => Math.abs(py - y) < fuente * 1.7 && x < px + pw && px < x + ancho)) y += fuente * 1.8;
+                puestos.push([x, y, ancho]);
                 return (
-                    <g key={`e${i}`} transform={`translate(${Math.min(x, W - ancho)},${y})`}>
+                    <g key={`e${i}`} transform={`translate(${x},${y})`}>
                         <rect x={0} y={-fuente * 1.35} width={ancho} height={fuente * 1.6} rx={fuente * 0.8} fill="rgba(2,6,23,0.78)" stroke={c} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
                         <circle cx={fuente * 0.7} cy={-fuente * 0.55} r={fuente * 0.28} fill={c} />
                         <text x={fuente * 1.2} y={-fuente * 0.18} fontSize={fuente} fontWeight={600} fill="#f8fafc" fontFamily="Outfit, system-ui, sans-serif">{texto}</text>
                     </g>
                 );
-            })}
+            }); })()}
         </svg>
     );
 }

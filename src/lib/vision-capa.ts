@@ -114,7 +114,7 @@ export function bandasLinea(linea: Pt[], ancho: number, alto: number): Pt[][] {
 export type Veredicto = "CONFIRMADA" | "PRESENTE" | "ANIMAL" | "NADA";
 export const VEREDICTOS: Record<Veredicto, { rotulo: string; tono: "mal" | "aviso" | "quieto" | "bien"; explica: string }> = {
     CONFIRMADA: { rotulo: "Confirmada", tono: "mal", explica: "Una persona o un vehículo toca la línea o la zona en la captura." },
-    PRESENTE: { rotulo: "Hay alguien", tono: "aviso", explica: "Se ve una persona o un vehículo, pero en la captura no está tocando la línea ni la zona." },
+    PRESENTE: { rotulo: "Hay alguien", tono: "aviso", explica: "Se ve una persona o un vehículo, pero en la captura no toca la línea ni la zona (o la cámara no informa dónde están)." },
     ANIMAL: { rotulo: "Animal", tono: "quieto", explica: "Sólo se ve un animal: probablemente una falsa alarma." },
     NADA: { rotulo: "No se ve a nadie", tono: "quieto", explica: "omni-vision no encontró personas, vehículos ni animales en la captura." },
 };
@@ -123,8 +123,10 @@ export const VEREDICTOS: Record<Veredicto, { rotulo: string; tono: "mal" | "avis
 export function veredicto(a: Analisis, g: GeomNorm | null): { estado: Veredicto; tocan: boolean[] } {
     const tocan = a.objetos.map((o) => !!g && GRUPOS_RELEVANTES.has(o.grupo) && (tocaLinea(o, g.linea, a.ancho, a.alto) || tocaZona(o, g.zona, a.ancho, a.alto)));
     const relevantes = a.objetos.filter((o) => GRUPOS_RELEVANTES.has(o.grupo));
+    // Sin la geometría de la cámara no se puede decir que algo TOCA la línea: a lo sumo que hay
+    // alguien. «Confirmada» sólo cuando se pudo medir.
     const estado: Veredicto = tocan.some(Boolean) ? "CONFIRMADA"
-        : relevantes.length ? (g ? "PRESENTE" : "CONFIRMADA")
+        : relevantes.length ? "PRESENTE"
             : a.objetos.some((o) => o.grupo === "animal") ? "ANIMAL" : "NADA";
     return { estado, tocan };
 }
