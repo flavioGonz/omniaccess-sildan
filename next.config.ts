@@ -1,5 +1,9 @@
 /** @type {import("next").NextConfig} */
 const nextConfig = {
+  // Dónde escribe el build. scripts/compilar-sin-corte.sh compila en .next-nuevo con el sitio
+  // andando y recién al final lo pone en .next: antes el script corría .next a un costado ANTES
+  // de compilar, y el sitio daba «Internal Server Error» los ~4 minutos del build.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // El rewrite de /io recibe pedidos con barra final y Next respondía 308.
   // Los navegadores lo siguen, pero un cliente estricto no conecta y en polling
   // cada pedido de la tablet costaba dos viajes.
