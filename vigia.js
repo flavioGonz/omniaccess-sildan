@@ -93,8 +93,9 @@ const INTENTOS_POR_HORA = Number(process.env.VIGIA_INTENTOS || 4);
 /** Cada cuanto se repite el aviso de algo que sigue caido. */
 const RECORDAR_MIN = Number(process.env.VIGIA_RECORDAR_MIN || 30);
 
-const PM2_APPS = ["omniaccess-web", "omniaccess-webhooks", "tracking-worker", "dispatch-worker"];
+const PM2_APPS = ["omniaccess-web", "omniaccess-webhooks", "tracking-worker", "dispatch-worker", "vision-worker"];
 const LECTOR = process.env.OMNI_LPR_URL || "http://127.0.0.1:8000";
+const VISION = process.env.VISION_URL || "http://127.0.0.1:8010";
 const WEB = process.env.INTERNAL_BASE_URL || "http://127.0.0.1:10001";
 const WEBHOOKS = process.env.WEBHOOK_URL || "http://127.0.0.1:10000";
 
@@ -202,6 +203,35 @@ async function levantarLector() {
         await correr(`docker compose -f ${compose} up -d omni-lpr`, { timeout: 180_000 });
         return "contenedor recreado (la GPU habia quedado trabada)";
     }
+}
+
+/**
+ * Levantar omni-vision (el detector de objetos), con la misma lógica que el lector.
+ *
+ * Si `docker start` no puede crear la tarea, se recrea el contenedor con la imagen que ya
+ * está (`SIN_BUILD=1`): construirla de nuevo tarda minutos y no arregla una GPU trabada.
+ * Comparte la GPU con el lector, así que se le da menos paciencia que al lector: si no
+ * levanta, el control de acceso sigue igual y alcanza con avisar.
+ */
+async function levantarVision() {
+    try {
+        await correr("docker start omni-vision", { timeout: 90_000 });
+        return "contenedor levantado";
+    } catch (e) {
+        if (!/failed to create task|EOF|Unavailable/i.test(e.message || "")) throw e;
+        log("omni-vision no pudo crear su tarea; se recrea el contenedor");
+        await correr("SIN_BUILD=1 sh /opt/OmniAccess/services/omni-vision/run.sh", { timeout: 180_000 });
+        return "contenedor recreado";
+    }
+}
+
+/**
+ * ¿Está instalado omni-vision? Una instalación sin el detector no tiene por qué figurar
+ * caída ni recibir intentos de levantarlo: se mira sólo si el contenedor existe.
+ */
+async function hayVision() {
+    try { await correr("docker inspect omni-vision --format '{{.Id}}'", { timeout: 15_000 }); return true; }
+    catch { return false; }
 }
 
 // ── El aviso ────────────────────────────────────────────────────────────────────
@@ -318,6 +348,10 @@ async function vuelta() {
     await atender("webhooks", "los webhooks", () => porHttp(`${WEBHOOKS}/health`), levantarPm2("omniaccess-webhooks"));
     await atender("lector:contenedor", "el contenedor del lector", () => porDocker("omni-lpr"), levantarLector);
     await atender("lector:api", "la API del lector", () => porHttp(`${LECTOR}/api/health`), levantarLector);
+    if (await hayVision()) {
+        await atender("vision:contenedor", "el contenedor de omni-vision", () => porDocker("omni-vision"), levantarVision);
+        await atender("vision:api", "la API de omni-vision", () => porHttp(`${VISION}/salud`), levantarVision);
+    }
 
     await publicarEstado();
 }

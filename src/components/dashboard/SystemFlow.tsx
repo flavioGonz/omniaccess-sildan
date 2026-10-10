@@ -241,6 +241,7 @@ const fitViewOptions: FitViewOptions = {
  */
 const VIGIA_POR_NODO: Record<string, string[]> = {
     "omni-lpr": ["lector:contenedor", "lector:api"],
+    "omni-vision": ["vision:contenedor", "vision:api", "pm2:vision-worker"],
     "tracking": ["pm2:tracking-worker"],
     "lpr-node": ["web", "pm2:omniaccess-web"],
     "webhook-api": ["webhooks", "pm2:omniaccess-webhooks"],
