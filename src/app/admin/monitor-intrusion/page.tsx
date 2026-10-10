@@ -482,9 +482,11 @@ function EvidencePlayModal({ d, onClose }: { d: DetHistItem; onClose: () => void
  */
 function MarcaVeredicto({ v, grande, className }: { v: Veredicto; grande?: boolean; className?: string }) {
     const x = VEREDICTOS[v];
+    // En las miniaturas de la columna (≈115 px) el rótulo se montaba sobre el del tipo: ahí va
+    // sólo el ojo con su tono, y el rótulo al pasar el mouse.
     return (
-        <span title={`omni-vision: ${x.explica}`} className={cn("inline-flex items-center gap-1 rounded-full border font-bold uppercase backdrop-blur-sm", grande ? "px-2 py-0.5 text-[10px]" : "px-1.5 py-px text-[8px]", `chip-${x.tono}`, className)}>
-            <ScanEye size={grande ? 11 : 8} /> {x.rotulo}
+        <span title={`omni-vision: ${x.rotulo}. ${x.explica}`} className={cn("inline-flex items-center gap-1 rounded-full border font-bold uppercase backdrop-blur-sm", grande ? "px-2 py-0.5 text-[10px]" : "w-4 h-4 justify-center", `chip-${x.tono}`, className)}>
+            <ScanEye size={grande ? 11 : 9} />{grande && ` ${x.rotulo}`}
         </span>
     );
 }
@@ -572,7 +574,7 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                     <Block icon={<Check size={15} />} title="Estado"><div className="flex gap-1.5">{([["all", "Todas"], ["pending", "Pendientes"], ["done", "Revisadas"]] as const).map(([k, lbl]) => (<button key={k} onClick={() => setAck(k)} className={cn("flex-1 px-1.5 py-2 rounded-xl text-[11px] font-bold transition-colors", ack === k ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" : "bg-white/5 text-white/55 hover:bg-white/10")}>{lbl}</button>))}</div></Block>
                     <Block icon={<ScanEye size={15} />} title="omni-vision">
                         <div className="grid grid-cols-2 gap-1.5">{FILTROS_VISION.map((f) => (<button key={f.v} title={f.pista} onClick={() => setVision(f.v)} className={cn("px-2 py-2 rounded-xl text-[11px] font-bold transition-colors", vision === f.v ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" : "bg-white/5 text-white/55 hover:bg-white/10")}>{f.rotulo}</button>))}</div>
-                        {truncado && <div className="mt-2 text-[10.5px] text-white/45 leading-snug">Se miraron las {truncado} más recientes: acotá el rango de fechas para ver más atrás.</div>}
+                        {truncado > 0 && <div className="mt-2 text-[10.5px] text-white/45 leading-snug">Se miraron las {truncado} más recientes: acotá el rango de fechas para ver más atrás.</div>}
                     </Block>
                     <Block icon={<CalIco size={15} />} title="Rango de fechas"><div className="space-y-2"><label className="block"><span className="text-[11px] font-bold text-white/40">Desde</span><input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className={cn(inp, "px-2.5 text-[12px]")} /></label><label className="block"><span className="text-[11px] font-bold text-white/40">Hasta</span><input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className={cn(inp, "px-2.5 text-[12px]")} /></label></div></Block>
                 </div>
@@ -1054,6 +1056,7 @@ export default function MonitorIntrusion() {
                                                     <div className="text-[11px] font-bold text-white leading-tight truncate">{d.deviceName || "Cámara"}</div>
                                                     <div className="text-[9px] font-semibold text-white/80 tabular-nums leading-tight">{when}</div>
                                                     <div className="text-[8.5px] text-white/55 tabular-nums">hace {ago(d.timestamp)}</div>
+                                                    {d.veredicto && <div className="text-[8.5px] font-bold text-white/85 inline-flex items-center gap-1"><ScanEye size={9} /> {VEREDICTOS[d.veredicto].rotulo}</div>}
                                                 </div>
                                             </button>
                                         );
