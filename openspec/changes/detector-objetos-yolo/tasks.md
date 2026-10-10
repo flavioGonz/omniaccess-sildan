@@ -24,8 +24,9 @@
   - 9/10: `/detectar` y `/salud` andando y verificados (persona en Salida 0,88, auto en LPR Interior 0,81, perimetrales vacías sin objetos; ~30 ms de inferencia en la 3050). Faltan `/describir` y `/texto` (con SigLIP, fase 3).
   - 9/10 (tarde): `/detectar` suma `tarea=segmentar|pose`, `atributos=1` (SigLIP 2 con frases precalculadas) y `sesion=` (ByteTrack por grupo). Siguen faltando `/describir` y `/texto` en vivo (vector libre y frase libre) para la búsqueda.
   - 10/10: `/vector` (imagen) y `/vector_texto` (SigLIP 2, texto libre en CPU, fp32) en producción. `/describir` (frase libre de la escena) queda como «pesado» en el catálogo: no entra en la 3050 junto a omni-lpr.
-- [ ] 2.3 Medición con omni-lpr trabajando: VRAM total, latencia de lectura de matrículas antes/después y ningún `cudaError` en 30 min; resultado en `claude/vision.md`. Elegir Nano o Small con ese número.
+- [x] 2.3 Medición con omni-lpr trabajando: VRAM total, latencia de lectura de matrículas antes/después y ningún `cudaError` en 30 min; resultado en `claude/vision.md`. Elegir Nano o Small con ese número.
   - 9/10: medición de 30 s en reposo y con omni-vision sin pausa (`herramientas/medir.py`): omni-lpr 29 → 42 ms por cuadro, la web sin cambio, GPU 72 %, VRAM total 2,9 GB. Falta la de 30 min sin `cudaError`.
+  - 10/10: 30 min con la carga real (pasiva: no se le sumaron pedidos a omni-lpr, que con concurrencia ya envenenó el contexto CUDA una vez). 178 muestras: omni-vision 5.544 pedidos, 0 errores, p50 30,5 ms / p95 31 ms; GPU media 13 %, pico 73 %; VRAM 1,5–3,0 GB de 6; omni-lpr sano en todas; **0 errores CUDA** en los dos contenedores. Queda Small.
 
 ## 3. `vision-worker` (PM2) y cliente
 
