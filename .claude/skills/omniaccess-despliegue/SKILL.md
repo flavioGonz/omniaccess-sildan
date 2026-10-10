@@ -43,9 +43,17 @@ deja rastro en un archivo, y se consulta en llamadas siguientes.
 
 ```bash
 cd /opt/OmniAccess
-nohup npm run build > /tmp/build.log 2>&1 &
+nohup sh scripts/compilar-sin-corte.sh > /dev/null 2>&1 &
 echo "lanzado"
 ```
+
+**Siempre con `scripts/compilar-sin-corte.sh`, nunca `npm run build` a secas.** Compila en
+`.next-nuevo` con el sitio sirviendo el `.next` de siempre y recién al final los cambia y
+reinicia `omniaccess-web`; después mira que conteste (salud y `/login`) y si no, vuelve solo a lo
+anterior (`ROLLBACK` en el log). Termina con `BUILD_OK` y `PUSH_OK` en `/tmp/build.log`.
+Antes se movía `.next` a un costado antes de compilar y el sitio daba 500 los ~4 minutos del
+build (medido el 10/10: con el script nuevo, 63 pedidos seguidos a `/login` durante build y
+cambio, todos 200). `SOLO_COMPILAR=1` compila sin cambiar nada.
 
 Y después, en otra llamada:
 
@@ -53,8 +61,8 @@ Y después, en otra llamada:
 tail -5 /tmp/build.log; pgrep -f "next build" >/dev/null && echo "sigue" || echo "terminó"
 ```
 
-Un build cortado a la mitad deja `.next` inconsistente y el sitio sirve mezcla de dos
-versiones. Si se cortó, se borra `.next` y se empieza de nuevo — no se "completa".
+Un build cortado a la mitad queda en `.next-nuevo` y no toca lo que se sirve: se vuelve a
+lanzar el script, que lo borra y empieza de nuevo.
 
 ## Subir a git
 
