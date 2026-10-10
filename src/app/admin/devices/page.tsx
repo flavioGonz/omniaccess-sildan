@@ -242,6 +242,8 @@ export default function DevicesPage() {
        menú de la fila: adentro, cerrar el menú lo desmontaba, así que el menú se quedaba
        abierto encima de la ficha. */
     const [editando, setEditando] = useState<any>(null);
+    /** El equipo cuyo borrado se está confirmando. Vive acá y no dentro del menú: ver «Eliminar» en las filas. */
+    const [aBorrar, setABorrar] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [testingDevice, setTestingDevice] = useState<string | null>(null);
@@ -1165,17 +1167,12 @@ export default function DevicesPage() {
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
-                                                    <DeleteConfirmDialog
-                                                        id={dev.id}
-                                                        title={dev.name}
-                                                        description="Se saca de OmniAccess: deja de aparecer en los monitores, el mapa y las pantallas. El equipo en sí no se toca. Lo ya registrado (lecturas, detecciones) queda en el historial, sin el equipo asociado."
-                                                        onDelete={deleteDevice}
-                                                        onSuccess={loadData}
-                                                    >
-                                                        <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-red-500/10 hover:text-red-500 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-2 text-red-400">
-                                                            <Trash2 size={14} /> Eliminar
-                                                        </div>
-                                                    </DeleteConfirmDialog>
+{/* Igual que «Editar»: un item de menú que cierra el menú y abre el cajón de afuera.
+                                                        Con el cajón colgando de acá, el menú quedaba flotando encima de la confirmación. */}
+                                                    <DropdownMenuItem onClick={() => setABorrar(dev)}
+                                                        className="cursor-pointer gap-2 text-xs font-bold text-red-400 hover:bg-red-500/10 hover:text-red-500 focus:bg-red-500/10 focus:text-red-500">
+                                                        <Trash2 size={14} /> Eliminar
+                                                    </DropdownMenuItem>
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                         </div>
@@ -1335,11 +1332,10 @@ export default function DevicesPage() {
                                                             <Settings2 size={14} /> Editar / Mapeo de canales
                                                         </DropdownMenuItem>
                                                         <DropdownMenuSeparator className="bg-foreground/10" />
-                                                        <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se saca el NVR de OmniAccess. El NVR en sí no se toca. Las cámaras importadas de él quedan, pero sus grabaciones se pedían a este NVR: dejan de poder verse desde acá." onDelete={deleteDevice} onSuccess={loadData}>
-                                                            <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-red-500/10 hover:text-red-500 gap-2 text-red-400">
-                                                                <Trash2 size={14} /> Eliminar
-                                                            </div>
-                                                        </DeleteConfirmDialog>
+<DropdownMenuItem onClick={() => setABorrar(dev)}
+                                                            className="cursor-pointer gap-2 text-xs font-bold text-red-400 hover:bg-red-500/10 hover:text-red-500 focus:bg-red-500/10 focus:text-red-500">
+                                                            <Trash2 size={14} /> Eliminar
+                                                        </DropdownMenuItem>
                                                     </DropdownMenuContent>
                                                 </DropdownMenu>
                                             </TableCell>
@@ -1370,6 +1366,12 @@ export default function DevicesPage() {
                 de los diálogos de esta pantalla. Adentro del menú de la fila no podía estar:
                 el menú tenía que quedarse abierto para no desmontarla, y terminaba flotando
                 encima de la ficha. */}
+            {aBorrar && (
+                <DeleteConfirmDialog open onOpenChange={(o) => { if (!o) setABorrar(null); }}
+                    id={aBorrar.id} title={aBorrar.name}
+                    description={aBorrar.deviceType === "NVR" ? "Se saca el NVR de OmniAccess. El NVR en sí no se toca. Las cámaras importadas de él quedan, pero sus grabaciones se pedían a este NVR: dejan de poder verse desde acá." : "Se saca de OmniAccess: deja de aparecer en los monitores, el mapa y las pantallas. El equipo en sí no se toca. Lo ya registrado (lecturas, detecciones) queda en el historial, sin el equipo asociado."}
+                    onDelete={async (id) => { await deleteDevice(id); }} onSuccess={() => { setABorrar(null); loadData(); }} />
+            )}
             {editando && (
                 <CajonDispositivo
                     key={editando.id}
