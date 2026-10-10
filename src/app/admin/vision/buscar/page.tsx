@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Loader2, ScanSearch, Search, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Backpack, Bike, Camera, Car, Clock, Dog, HardHat, Layers, Loader2, PawPrint, ScanSearch, Search, Truck, User, Video, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Pista } from "@/components/ui/pista";
 import { ErrorEstado } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { TarjetaObjeto, FichaObjeto, img, nombreClase, fecha, hora, type FilaObjeto } from "@/components/vision/ObjetoRegistro";
+import { FotoParaBuscar, type FotoElegida } from "@/components/vision/FotoParaBuscar";
 
 /**
  * OmniVision › Buscar: encontrar en lo que vieron las cámaras algo escrito con palabras
@@ -23,12 +24,19 @@ import { TarjetaObjeto, FichaObjeto, img, nombreClase, fecha, hora, type FilaObj
  * absoluto parecería «12 % de seguridad» y se leería como un fallo.
  */
 type Resultado = FilaObjeto & { coseno: number; prob: number | null };
-type Respuesta = { resultados: Resultado[]; comparados: number; sinHuella: number; h: number; ms: number; modo: "texto" | "parecido" };
+type Respuesta = { resultados: Resultado[]; comparados: number; sinHuella: number; h: number; ms: number; modo: "texto" | "parecido" | "foto" };
 
 const RANGOS = [{ v: "24", r: "24 h" }, { v: "168", r: "7 días" }, { v: "720", r: "30 días" }];
-const GRUPOS = [{ v: "", r: "Todo" }, { v: "persona", r: "Personas" }, { v: "vehiculo", r: "Vehículos" }, { v: "animal", r: "Animales" }, { v: "objeto", r: "Bultos" }];
-/** Para arrancar: lo que se suele buscar en un barrio. */
-const EJEMPLOS = ["camioneta blanca", "persona con mochila", "moto de delivery", "auto rojo", "persona con chaleco reflectivo", "perro"];
+const GRUPOS = [{ v: "", r: "Todo", i: Layers }, { v: "persona", r: "Personas", i: User }, { v: "vehiculo", r: "Vehículos", i: Car }, { v: "animal", r: "Animales", i: PawPrint }, { v: "objeto", r: "Bultos", i: Backpack }];
+/**
+ * Para arrancar: lo que se suele buscar en un barrio. Iban como seis píldoras arriba de los
+ * filtros, siempre a la vista: una fila más de ruido justo cuando ya se estaba buscando otra
+ * cosa. Ahora son la pantalla vacía, con su ícono, y desaparecen al buscar.
+ */
+const EJEMPLOS = [
+    { q: "camioneta blanca", i: Truck }, { q: "persona con mochila", i: Backpack }, { q: "moto de delivery", i: Bike },
+    { q: "auto rojo", i: Car }, { q: "persona con chaleco reflectivo", i: HardHat }, { q: "perro", i: Dog },
+];
 /**
  * Probabilidad SigLIP (sigmoide con la escala y el sesgo del modelo) debajo de la cual un
  * resultado queda aparte, como «no se parece mucho». Medido el 9/10 sobre ~1.800 pistas:
@@ -43,7 +51,10 @@ const PROB_PARECE = 0.01;
 
 export default function BuscarVision() {
     const [texto, setTexto] = useState("");
-    const [pedido, setPedido] = useState<{ q?: string; parecido?: FilaObjeto } | null>(null);
+    const [pedido, setPedido] = useState<{ q?: string; parecido?: FilaObjeto; foto?: FotoElegida } | null>(null);
+    const [archivo, setArchivo] = useState<File | null>(null);
+    const [arrastrando, setArrastrando] = useState(false);
+    const elegirArchivo = useRef<HTMLInputElement>(null);
     const [h, setH] = useState("168");
     const [grupo, setGrupo] = useState("");
     const [camara, setCamara] = useState("");
@@ -61,8 +72,11 @@ export default function BuscarVision() {
         if (!pedido) return;
         let vivo = true;
         setBuscando(true); setError(null);
-        const p = new URLSearchParams({ h, ...(grupo ? { grupo } : {}), ...(camara ? { camara } : {}), ...(pedido.parecido ? { parecido: pedido.parecido.id } : { q: pedido.q || "" }) });
-        fetch(`/api/vision/buscar?${p}`, { cache: "no-store" })
+        const base = { h, ...(grupo ? { grupo } : {}), ...(camara ? { camara } : {}) };
+        const p = new URLSearchParams({ ...base, ...(pedido.foto ? {} : pedido.parecido ? { parecido: pedido.parecido.id } : { q: pedido.q || "" }) });
+        (pedido.foto
+            ? fetch(`/api/vision/buscar?${p}`, { method: "POST", body: pedido.foto.blob, headers: { "content-type": "image/jpeg" }, cache: "no-store" })
+            : fetch(`/api/vision/buscar?${p}`, { cache: "no-store" }))
             .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`); return j; })
             .then((j) => { if (vivo) setDatos(j); })
             .catch((e) => { if (vivo) setError(e?.message || "No se pudo buscar"); })
@@ -70,10 +84,13 @@ export default function BuscarVision() {
         return () => { vivo = false; };
     }, [pedido, h, grupo, camara]);
 
-    const buscar = (q: string) => { const t = q.trim(); if (t) { setTexto(t); setPedido({ q: t }); } };
+    const buscar = (q: string) => { const t = q.trim(); if (t) { setTexto(t); setArchivo(null); setPedido({ q: t }); } };
+    const tomarFoto = (f: File | null | undefined) => { if (f && f.type.startsWith("image/")) { setArchivo(f); setDatos(null); } };
+    const sacarFoto = () => { setArchivo(null); setPedido(texto.trim() ? { q: texto.trim() } : null); };
     const max = datos?.resultados[0]?.coseno || 1;
     const min = datos?.resultados[datos.resultados.length - 1]?.coseno ?? 0;
     const conCorte = datos?.modo === "texto";
+    const modoFoto = datos?.modo === "foto";
     const parecen = !datos ? [] : conCorte ? datos.resultados.filter((r) => (r.prob ?? 0) >= PROB_PARECE) : datos.resultados;
     const resto = !datos || !conCorte ? [] : datos.resultados.filter((r) => (r.prob ?? 0) < PROB_PARECE);
     const grilla = (rs: Resultado[], lejos = false) => (
@@ -94,51 +111,91 @@ export default function BuscarVision() {
 
     return (
         <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
-            <div className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-start gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-full bg-muted shrink-0"><ScanSearch size={20} /></span>
-                <div className="min-w-0 flex-1">
+            {/* Título en una línea: la explicación larga va en la pista, no ocupando media pantalla. */}
+            <div className="flex items-center gap-3">
+                <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><ScanSearch size={18} strokeWidth={2.3} /></span>
+                <div className="min-w-0">
                     <h1 className="text-[17px] font-bold leading-tight">Buscar</h1>
-                    <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
-                        Describí lo que buscás como se lo contarías a alguien, y se busca por cómo se ve en todo lo que registraron las cámaras. También «buscar parecidos» desde cualquier resultado. No reconoce caras: encuentra «persona con campera roja», no a una persona en particular.
-                    </p>
+                    <p className="text-[12px] text-muted-foreground leading-snug">Con palabras o con una foto, en todo lo que registraron las cámaras.</p>
                 </div>
+                <Pista ancho={320} texto="Busca por cómo se ve: describí lo que buscás como se lo contarías a alguien, o subí una foto. También «buscar parecidos» desde cualquier resultado. No reconoce caras: encuentra «persona con campera roja», no a una persona en particular.">
+                    <span className="ml-1 text-[11.5px] text-muted-foreground underline decoration-dotted underline-offset-2 cursor-help">¿Cómo busca?</span>
+                </Pista>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); buscar(texto); }} className="flex items-center gap-2">
-                <div className="relative flex-1">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <Input value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Ej. camioneta blanca con escalera" className="h-11 pl-9 text-[14px]" autoFocus />
-                </div>
-                <Button type="submit" className="h-11" disabled={!texto.trim() || buscando}>{buscando ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />} Buscar</Button>
+            {/* El buscador: palabras, foto y botón en una sola pieza. La foto también se arrastra o se pega. */}
+            <form onSubmit={(e) => { e.preventDefault(); buscar(texto); }}
+                onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); setArrastrando(true); } }}
+                onDragLeave={() => setArrastrando(false)}
+                onDrop={(e) => { e.preventDefault(); setArrastrando(false); tomarFoto(e.dataTransfer.files?.[0]); }}
+                className={cn("flex items-center h-12 rounded-[10px] border bg-card pl-3.5 pr-1.5 gap-2 transition-colors focus-within:border-[var(--accion)] focus-within:ring-2 focus-within:ring-[color-mix(in_oklab,var(--accion)_25%,transparent)]",
+                    arrastrando ? "border-[var(--accion)] border-dashed bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border")}>
+                <Search size={17} className="text-muted-foreground shrink-0" />
+                <input value={texto} onChange={(e) => setTexto(e.target.value)} autoFocus
+                    onPaste={(e) => { const f = [...e.clipboardData.files].find((x) => x.type.startsWith("image/")); if (f) { e.preventDefault(); tomarFoto(f); } }}
+                    placeholder={arrastrando ? "Soltá la foto para buscar con ella" : "Ej. camioneta blanca con escalera"}
+                    className="flex-1 min-w-0 h-full bg-transparent text-[14px] outline-none placeholder:text-muted-foreground" />
+                {texto && <button type="button" onClick={() => setTexto("")} aria-label="Borrar" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground"><X size={15} /></button>}
+                <span className="w-px h-6 bg-border" />
+                <Pista texto="Buscar con una foto: subila, sacala con el celular, arrastrala acá o pegala (Ctrl+V).">
+                    <button type="button" onClick={() => elegirArchivo.current?.click()} className="h-9 px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground hover:bg-accent">
+                        <Camera size={16} strokeWidth={2.2} /> <span className="hidden sm:inline">Foto</span>
+                    </button>
+                </Pista>
+                <input ref={elegirArchivo} type="file" accept="image/*" className="hidden" onChange={(e) => { tomarFoto(e.target.files?.[0]); e.target.value = ""; }} />
+                <Button type="submit" className="h-9" disabled={!texto.trim() || buscando}>{buscando && !pedido?.foto ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />} Buscar</Button>
             </form>
-            <div className="flex items-center gap-1.5 flex-wrap">
-                {pedido?.parecido ? (
-                    <span className="inline-flex items-center gap-2 h-9 pl-1 pr-2 rounded-full border border-[var(--accion)] text-[12.5px]">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        {pedido.parecido.recorte && <img src={img(pedido.parecido.recorte, 80)} alt="" className="h-7 w-7 rounded-full object-cover bg-black" />}
-                        Parecidos a {nombreClase(pedido.parecido.clase)} · {pedido.parecido.camara} · {hora(pedido.parecido.primeraVez)}
-                        <button type="button" onClick={() => setPedido(texto.trim() ? { q: texto.trim() } : null)} aria-label="Quitar" className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
-                    </span>
-                ) : EJEMPLOS.map((e) => (
-                    <button key={e} type="button" onClick={() => buscar(e)} className={cn("h-8 px-3 rounded-full border text-[12px] font-semibold", pedido?.q === e ? "border-[var(--accion)] text-[var(--accion)]" : "border-border text-muted-foreground hover:text-foreground")}>{e}</button>
-                ))}
-            </div>
 
-            <Filtros grupos={[
-                { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
-                { clave: "g", titulo: "Qué", valor: grupo, alElegir: setGrupo, opciones: GRUPOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
-                { clave: "c", titulo: "Cámara", valor: camara, alElegir: setCamara, opciones: [{ valor: "", rotulo: "Todas" }, ...camaras.map((c) => ({ valor: c.id, rotulo: c.name }))] },
-            ]} />
+            {archivo && <FotoParaBuscar archivo={archivo} alCerrar={sacarFoto} alElegir={(f) => setPedido({ foto: f })} />}
+
+            {pedido?.parecido && (
+                <span className="inline-flex items-center gap-2 h-9 pl-1 pr-2 rounded-full border border-[var(--accion)] text-[12.5px]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    {pedido.parecido.recorte && <img src={img(pedido.parecido.recorte, 80)} alt="" className="h-7 w-7 rounded-full object-cover bg-black" />}
+                    Parecidos a {nombreClase(pedido.parecido.clase)} · {pedido.parecido.camara} · {hora(pedido.parecido.primeraVez)}
+                    <button type="button" onClick={() => setPedido(texto.trim() ? { q: texto.trim() } : null)} aria-label="Quitar" className="text-muted-foreground hover:text-foreground"><X size={14} /></button>
+                </span>
+            )}
+
+            {/* Filtros en una fila: rango, qué (con su ícono) y la cámara en una lista, que son nueve y crecen. */}
+            <div className="flex items-center gap-2 flex-wrap">
+                <Clock size={15} className="text-muted-foreground" />
+                <Filtros solido grupos={[
+                    { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
+                    { clave: "g", titulo: "Qué", valor: grupo, alElegir: setGrupo, opciones: GRUPOS.map((x) => ({ valor: x.v, rotulo: x.r, icono: x.i })) },
+                ]} />
+                <label className={cn("relative inline-flex items-center h-[34px] rounded-lg pl-2.5 pr-2 gap-1.5 text-[12px] font-semibold cursor-pointer",
+                    camara ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-foreground")}>
+                    <Video size={14} strokeWidth={2.2} />
+                    <select value={camara} onChange={(e) => setCamara(e.target.value)} aria-label="Cámara"
+                        className="appearance-none bg-transparent outline-none pr-4 cursor-pointer max-w-[200px] truncate [&>option]:text-foreground [&>option]:bg-background">
+                        <option value="">Todas las cámaras</option>
+                        {camaras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
+                </label>
+            </div>
 
             {error ? <ErrorEstado mensaje={error} alReintentar={() => setPedido((p) => (p ? { ...p } : p))} />
-                : !pedido ? (
-                    <div className="rounded-[10px] border border-dashed border-border p-10 text-center text-[13px] text-muted-foreground">Escribí qué buscar, o tocá un ejemplo.</div>
-                ) : buscando && !datos ? (
+                : !pedido ? (archivo ? null : (
+                    <div className="space-y-2.5">
+                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Probá con</div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                            {EJEMPLOS.map(({ q, i: I }) => (
+                                <button key={q} type="button" onClick={() => buscar(q)}
+                                    className="group flex items-center gap-2.5 rounded-[10px] border border-border bg-card p-2.5 text-left hover:border-[var(--accion)] transition-colors">
+                                    <span className="grid place-items-center h-9 w-9 rounded-[8px] bg-foreground text-background group-hover:bg-[var(--accion)] group-hover:text-white transition-colors shrink-0"><I size={18} strokeWidth={2.2} /></span>
+                                    <span className="text-[12.5px] font-semibold leading-tight">{q}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )) : buscando && !datos ? (
                     <div className="py-16 grid place-items-center text-muted-foreground"><Loader2 className="animate-spin" /></div>
                 ) : datos && (
                     <>
                         <p className="text-[12px] text-muted-foreground tabular-nums">
-                            {conCorte ? (parecen.length ? `${parecen.length} posibles` : "Nada se parece claramente") : datos.resultados.length ? `Los ${datos.resultados.length} más parecidos` : "Nada"} entre {datos.comparados.toLocaleString("es-UY")} pistas de {RANGOS.find((r) => r.v === String(datos.h))?.r} · {datos.ms} ms
+                            {conCorte ? (parecen.length ? `${parecen.length} posibles` : "Nada se parece claramente") : datos.resultados.length ? `Los ${datos.resultados.length} más parecidos${modoFoto && pedido?.foto ? ` a ${pedido.foto.etiqueta.toLowerCase()} de la foto` : ""}` : "Nada"} entre {datos.comparados.toLocaleString("es-UY")} pistas de {RANGOS.find((r) => r.v === String(datos.h))?.r} · {datos.ms} ms
                             {datos.sinHuella > 0 && ` · ${datos.sinHuella.toLocaleString("es-UY")} todavía sin procesar (se van sumando solas)`}
                         </p>
                         {datos.resultados.length === 0 ? (

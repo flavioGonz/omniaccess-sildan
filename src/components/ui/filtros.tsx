@@ -40,6 +40,8 @@ export type OpcionFiltro = {
      * clase o de sentido no es bueno ni malo, y pintarlo sería inventar un significado.
      */
     tono?: "bien" | "aviso" | "mal";
+    /** Ícono delante del rótulo, cuando ayuda a reconocer la opción sin leerla (personas, vehículos…). */
+    icono?: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
 };
 
 export type GrupoFiltro = {
@@ -60,7 +62,7 @@ export type GrupoFiltro = {
 
 const PLENO: Record<string, string> = { bien: "pleno-bien", aviso: "pleno-aviso", mal: "pleno-mal" };
 
-export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, children, className }: {
+export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, children, className, solido }: {
     busqueda?: string;
     alBuscar?: (v: string) => void;
     placeholder?: string;
@@ -70,6 +72,12 @@ export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, chi
     /** Un filtro que no entra en la forma de arriba — una fecha, por ejemplo. */
     children?: React.ReactNode;
     className?: string;
+    /**
+     * La opción elegida en azul lleno en vez de blanco sobre gris. Para las pantallas donde los
+     * filtros son el control principal (OmniVision › Buscar): ahí el gris contra gris no se
+     * distinguía de un vistazo cuál estaba puesta.
+     */
+    solido?: boolean;
 }) {
     return (
         <div className={cn("flex items-center flex-wrap gap-2 min-h-[34px]", className)}>
@@ -93,9 +101,11 @@ export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, chi
                                     className={cn(
                                         "h-[30px] px-3 rounded-md text-[12px] font-semibold transition-colors whitespace-nowrap",
                                         activa
-                                            ? (o.tono ? PLENO[o.tono] : "bg-background text-foreground shadow-sm")
+                                            ? (o.tono ? PLENO[o.tono] : solido ? "bg-[var(--accion)] text-white" : "bg-background text-foreground shadow-sm")
                                             : "text-muted-foreground hover:text-foreground",
+                                        o.icono && "inline-flex items-center gap-1.5",
                                     )}>
+                                    {o.icono && <o.icono size={14} strokeWidth={2.2} />}
                                     {o.rotulo}
                                     {o.cuenta != null && (
                                         <span className={cn("ml-1.5 tabular-nums", activa ? "opacity-70" : "opacity-60")}>

@@ -20,6 +20,14 @@ export const dynamic = "force-dynamic";
  *
  * La frase se manda tal cual y como «una foto de …», y se promedian: SigLIP aprendió de textos
  * que describen fotos, y el promedio es más estable que cualquiera de las dos sola.
+ *
+ * POST /api/vision/buscar?h=…&camara=…&grupo=… con una imagen (image/jpeg o image/png) en el
+ * cuerpo: busca lo parecido a ESA foto (subida o sacada con el celular). Es lo mismo que «buscar
+ * parecidos» pero con un recorte que no salió de las cámaras: SigLIP da el vector y se compara
+ * igual. La pantalla manda el recorte del objeto elegido, no la foto entera, porque las huellas
+ * son de recortes: una foto de una calle entera no se parece a ningún recorte.
+ * POST /api/vision/buscar?objetos=1 con la foto: qué personas, vehículos y animales hay en ella
+ * (para elegir cuál buscar).
  */
 const RANGOS_H = new Set([24, 168, 720]);
 /** Cuántos resultados se devuelven: lo que se mira de una vez en la grilla. */
@@ -28,6 +36,10 @@ const RESULTADOS = 60;
 const CANDIDATOS_MAX = 80_000;
 const PLANTILLAS = (q: string) => [q, `una foto de ${q}`];
 const TIEMPO_MS = 20_000;
+/** Una foto de celular pasa de 4 MB; omni-vision acepta hasta 15. Más que esto no es una foto. */
+const FOTO_MAX_BYTES = 12 * 1024 * 1024;
+/** Lo que se ofrece para elegir en la foto subida: lo mismo que registran las cámaras. */
+const GRUPOS_FOTO = "persona,vehiculo,animal,objeto";
 
 async function vectorDeTexto(q: string): Promise<{ v: Float32Array; escala: number; sesgo: number }> {
     const r = await fetch(`${VISION_URL()}/vector_texto`, {
@@ -49,6 +61,11 @@ function normalizar(v: Float32Array) {
 }
 const deInt8 = (b: Uint8Array | Buffer, escala: number) => { const q = new Int8Array(b.buffer, b.byteOffset, b.byteLength); return normalizar(Float32Array.from(q, (x) => x * escala)); };
 
+function rango(sp: URLSearchParams) {
+    const hq = Number(sp.get("h"));
+    return { h: RANGOS_H.has(hq) ? hq : 168, camara: sp.get("camara") || null, grupo: sp.get("grupo") || null };
+}
+
 export async function GET(req: NextRequest) {
     const auth = await verifyApiAuth();
     if (!auth.authenticated) return unauthorizedResponse();
@@ -56,10 +73,6 @@ export async function GET(req: NextRequest) {
     const sp = req.nextUrl.searchParams;
     const q = String(sp.get("q") || "").trim().slice(0, 200);
     const parecido = sp.get("parecido");
-    const hq = Number(sp.get("h"));
-    const h = RANGOS_H.has(hq) ? hq : 168;
-    const camara = sp.get("camara") || null;
-    const grupo = sp.get("grupo") || null;
     if (!q && !parecido) return NextResponse.json({ error: "Escribí qué buscar" }, { status: 400 });
     const t0 = Date.now();
 
@@ -76,7 +89,40 @@ export async function GET(req: NextRequest) {
     } catch (e: any) {
         return NextResponse.json({ error: e?.message || "omni-vision no contestó" }, { status: 502 });
     }
+    return comparar(consulta, escala, sesgo, rango(sp), parecido, parecido ? "parecido" : "texto", t0);
+}
 
+/** Con una foto: los objetos que hay en ella, o lo parecido a ella (ver arriba). */
+export async function POST(req: NextRequest) {
+    const auth = await verifyApiAuth();
+    if (!auth.authenticated) return unauthorizedResponse();
+    if (auth.pantalla) return forbiddenResponse("La búsqueda no es una vista de pantalla.");
+    const tipo = req.headers.get("content-type") || "";
+    if (!/^image\/(jpeg|png|webp)/.test(tipo)) return NextResponse.json({ error: "Mandá una foto (JPG, PNG o WebP)" }, { status: 415 });
+    const datos = Buffer.from(await req.arrayBuffer());
+    if (!datos.length) return NextResponse.json({ error: "No llegó la foto" }, { status: 400 });
+    if (datos.length > FOTO_MAX_BYTES) return NextResponse.json({ error: "La foto pesa demasiado" }, { status: 413 });
+    const sp = req.nextUrl.searchParams;
+    const t0 = Date.now();
+    try {
+        if (sp.get("objetos") === "1") {
+            const r = await fetch(`${VISION_URL()}/detectar?grupos=${GRUPOS_FOTO}`, { method: "POST", body: datos, headers: { "content-type": tipo }, cache: "no-store", signal: AbortSignal.timeout(TIEMPO_MS) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || `omni-vision respondió ${r.status}`);
+            const objetos = (j.objetos || []).map((o: any) => ({ caja: o.caja_norm, clase: o.clase, grupo: o.grupo, confianza: o.confianza }));
+            return NextResponse.json({ objetos, ms: Date.now() - t0 }, { headers: { "Cache-Control": "no-store" } });
+        }
+        const r = await fetch(`${VISION_URL()}/vector`, { method: "POST", body: datos, headers: { "content-type": tipo }, cache: "no-store", signal: AbortSignal.timeout(TIEMPO_MS) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j?.error || `omni-vision respondió ${r.status}`);
+        return comparar(normalizar(Float32Array.from(j.vector as number[])), null, null, rango(sp), null, "foto", t0);
+    } catch (e: any) {
+        return NextResponse.json({ error: e?.message || "omni-vision no contestó" }, { status: 502 });
+    }
+}
+
+async function comparar(consulta: Float32Array, escala: number | null, sesgo: number | null, { h, camara, grupo }: { h: number; camara: string | null; grupo: string | null },
+    parecido: string | null, modo: "texto" | "parecido" | "foto", t0: number) {
     // Texto UTC sin zona: la columna es `timestamp` y la sesión está en hora local; un Date
     // corría el rango 3 h (ver sinZona en vision-analisis.js).
     const desde = new Date(Date.now() - h * 3600_000).toISOString().replace("T", " ").replace("Z", "");
@@ -113,6 +159,6 @@ export async function GET(req: NextRequest) {
     }).filter(Boolean);
     return NextResponse.json({
         resultados, comparados: huellas.length, sinHuella: sinHuella[0]?.n ?? 0, h, ms: Date.now() - t0,
-        modo: parecido ? "parecido" : "texto",
+        modo,
     }, { headers: { "Cache-Control": "no-store" } });
 }
