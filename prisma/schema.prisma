@@ -1304,3 +1304,61 @@ model AnalisisFoto {
 
   @@index([createdAt])
 }
+
+/// Analítica entrenable: una zona FIJA de una cámara que se clasifica en dos estados
+/// (p. ej. «Desbordado» / «Normal»). Sin ejemplos usa frases (SigLIP texto↔imagen); con
+/// ejemplos etiquetados, un clasificador propio entrenado sobre el vector SigLIP del recorte.
+model ZonaEntrenable {
+  id             String        @id @default(cuid())
+  nombre         String
+  deviceId       String
+  /// Polígono en fracciones del cuadro [[x,y],...]; se recorta su rectángulo envolvente
+  zona           Json
+  /// Cómo se llama el estado que avisa y el normal
+  positivo       String
+  negativo       String
+  /// Frases del arranque sin entrenar, una por elemento
+  frasesPositivo String[]
+  frasesNegativo String[]
+  /// Cada cuántos segundos se toma una muestra
+  cadaSeg        Int           @default(300)
+  /// Cuántos segundos seguidos tiene que estar en el estado que avisa antes de avisar
+  sostenerSeg    Int           @default(900)
+  /// Probabilidad desde la que se considera el estado que avisa
+  umbral         Float         @default(0.6)
+  /// { desde: "HH:MM", hasta: "HH:MM" } o null = siempre
+  horario        Json?
+  avisar         Boolean       @default(false)
+  activa         Boolean       @default(true)
+  /// Clasificador entrenado: { w, b, dim, n, exactitud, matriz, entrenado, por }
+  modelo         Json?
+  /// Lo que escribe el worker: { prob, fuente, al, muestra, positivoDesde, avisado }
+  estado         Json?
+  /// «Probar ahora»: el worker toma una muestra en la próxima vuelta
+  forzarAt       DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  muestras       MuestraZona[]
+}
+
+model MuestraZona {
+  id            String         @id @default(cuid())
+  zonaId        String
+  zona          ZonaEntrenable @relation(fields: [zonaId], references: [id], onDelete: Cascade)
+  /// Clave del recorte en el bucket de visión (objetos)
+  recorte       String
+  /// Vector SigLIP del recorte, int8 con su escala (como HuellaObjeto)
+  vector        Bytes
+  escala        Float
+  /// Lo que dijo el modelo vigente al tomarla, y con qué (frases | entrenado)
+  prob          Float?
+  fuente        String
+  /// "pos" | "neg" | null (sin etiquetar). Las etiquetadas no vencen.
+  etiqueta      String?
+  etiquetadoPor String?
+  etiquetadoAt  DateTime?
+  createdAt     DateTime       @default(now())
+
+  @@index([zonaId, createdAt])
+  @@index([zonaId, etiqueta])
+}

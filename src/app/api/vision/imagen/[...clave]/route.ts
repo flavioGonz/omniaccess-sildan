@@ -25,9 +25,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ clav
     const { clave } = await params;
     const key = (clave || []).join("/");
     // Las del registro (día/id-r|f.jpg), las de la relectura de NO_LEIDA (relectura/día/evento-v|c.jpg)
-    // y las de los eventos de las reglas (eventos/día/id.jpg).
+    // las de los eventos de las reglas (eventos/día/id.jpg) y las muestras de las analíticas
+    // entrenables (zonas/zona/día/id.jpg).
     if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+-[rf]\.jpg$/.test(key) && !/^relectura\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9-]+-[vc]\.jpg$/.test(key)
-        && !/^eventos\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key))
+        && !/^eventos\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key)
+        && !/^zonas\/[a-z0-9]+\/[0-9]{4}-[0-9]{2}-[0-9]{2}\/[a-z0-9]+\.jpg$/.test(key))
         return new NextResponse("Clave inválida", { status: 400 });
     try {
         const r = await (await getS3Client()).send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));

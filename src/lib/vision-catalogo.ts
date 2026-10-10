@@ -260,7 +260,7 @@ export type Analitica = {
     nombre: string;
     icono: string;
     /** El modo de OmniAccess donde vive. */
-    modo: "Intrusión" | "LPR" | "Face" | "Filas" | "Búsqueda" | "Prueba" | "Conteo" | "Obras";
+    modo: "Intrusión" | "LPR" | "Face" | "Filas" | "Búsqueda" | "Prueba" | "Conteo" | "Obras" | "Entrenables";
     queHace: string;
     /** Qué capacidades necesita (ids de CAPACIDADES). */
     necesita: string[];
@@ -357,6 +357,11 @@ export const ANALITICAS: Analitica[] = [
         queHace: "Buscar en lo que vieron las cámaras por texto (\"camioneta blanca\", \"persona con mochila roja\") o por una foto, y abrir la grabación en ese instante. Como AcuSeek, sin depender del NVR.",
         necesita: ["deteccion", "clasificacion"], clases: ["person", "car", "truck", "motorcycle", "bicycle", "backpack", "handbag", "suitcase", "dog"],
         estado: "corre", fase: 3, porDefecto: true,
+    },
+    {
+        id: "zona-entrenable", nombre: "Analíticas entrenables", icono: "GraduationCap", modo: "Entrenables",
+        queHace: "Una zona fija que se clasifica en dos estados que define uno: contenedor desbordado o normal, portón abierto o cerrado, lugar ocupado o libre. Arranca con frases y mejora con los ejemplos que se etiquetan; avisa si el estado se sostiene.",
+        necesita: ["clasificacion"], clases: [], estado: "corre", porDefecto: true,
     },
     {
         id: "dejados", nombre: "Objetos dejados", icono: "Luggage", modo: "Búsqueda",

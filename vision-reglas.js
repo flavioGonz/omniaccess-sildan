@@ -411,4 +411,4 @@ function iniciar({ prisma, subir, log }) {
     return { cargar, camaras, camarasRapidas, enCurso, procesar, contadores, cerrarTodo: () => cerrarEstadias(null, Date.now(), true) };
 }
 
-module.exports = { iniciar };
+module.exports = { iniciar, enHorario };

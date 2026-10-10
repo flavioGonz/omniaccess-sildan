@@ -34,6 +34,7 @@ const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, Dele
 const prisma = new PrismaClient();
 const relecturas = require("./vision-relectura");
 const reglasVision = require("./vision-reglas");
+const zonasEntrenables = require("./vision-zonas");
 const analisisFotos = require("./vision-analisis");
 
 const VISION = (process.env.OMNI_VISION_URL || "http://127.0.0.1:8010").replace(/\/$/, "");
@@ -166,6 +167,8 @@ async function leerAjustes() {
         atributosLpr: analiticas["color-vehiculo"] !== false && !apagadas.has("atributos"),
         // Huellas para la búsqueda (analítica «busqueda»): usan la mitad de imágenes de los atributos.
         huellas: analiticas.busqueda !== false && !apagadas.has("atributos"),
+        // Analíticas entrenables (zonas fijas): necesitan el vector SigLIP de los atributos.
+        zonas: analiticas["zona-entrenable"] !== false && !apagadas.has("atributos"),
         dispositivos,
         clases: json(c, {}),
         camaras: Array.isArray(elegidas) && elegidas.length ? dispositivos.filter((d) => elegidas.includes(d.id)) : dispositivos,
@@ -434,9 +437,17 @@ async function escribirEstado() {
         camaras, contadores, pistasAbiertas: abiertas.size, retencionDias: ajustes.retencionDias,
         relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
         analisis: analista ? { verificar: ajustes.verificar, lpr: ajustes.analizarLpr, ...analista.contadores } : null,
-        reglas: reglero ? reglero.contadores : null, rotulado: ajustes.rotulado,
+        reglas: reglero ? reglero.contadores : null, zonas: zonero ? zonero.contadores : null, rotulado: ajustes.rotulado,
     });
     await prisma.setting.upsert({ where: { key: "VISION_REGISTRO_ESTADO" }, update: { value: valor }, create: { key: "VISION_REGISTRO_ESTADO", value: valor } }).catch(() => null);
+}
+
+/** Borrar recortes del bucket de visión (lo usa la limpieza de las zonas entrenables). */
+async function borrar(claves) {
+    const objetos = claves.filter(Boolean).map((Key) => ({ Key }));
+    for (let i = 0; i < objetos.length; i += 1000) {
+        await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: objetos.slice(i, i + 1000), Quiet: true } }));
+    }
 }
 
 async function limpiar() {
@@ -479,6 +490,7 @@ let corriendo = true;
 let relector = null;
 let analista = null;
 let reglero = null;
+let zonero = null;
 
 // ─────────────────────────── carril rápido ───────────────────────────
 
@@ -565,6 +577,7 @@ async function principal() {
         }),
         bajar, subir,
     });
+    zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {
         const t0 = Date.now();

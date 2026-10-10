@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ListVideo, Plus, ScanLine, ScanSearch, ShieldCheck, Sparkles } from "lucide-react";
+import { GraduationCap, ListVideo, Plus, ScanLine, ScanSearch, ShieldCheck, Sparkles } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
@@ -34,6 +34,7 @@ const PANTALLA_DE_ANALITICA: Record<string, { href: string; rotulo: string; icon
     relectura: { href: "/admin/vision/relecturas", rotulo: "Ver relecturas", icono: ScanLine },
     busqueda: { href: "/admin/vision/buscar", rotulo: "Abrir la búsqueda", icono: ScanSearch },
     "verif-intrusion": { href: "/admin/vision/verificacion", rotulo: "Ver cómo le va", icono: ShieldCheck },
+    "zona-entrenable": { href: "/admin/vision/entrenar", rotulo: "Entrenar", icono: GraduationCap },
 };
 
 const boton = "shrink-0 inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border text-[12px] font-semibold hover:bg-accent";

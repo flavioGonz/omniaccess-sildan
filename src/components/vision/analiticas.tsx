@@ -8,7 +8,7 @@ import {
     Keyboard, Microwave, CookingPot, Bath, Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed,
     Soup, Banana, Apple, Sandwich, Citrus, Salad, Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind,
     Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers, Type, MessageSquareText, ListVideo, Spline,
-    PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge, Cpu, Info, type LucideIcon,
+    PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge, Cpu, Info, GraduationCap, type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
@@ -30,7 +30,7 @@ export const ICONOS: Record<string, LucideIcon> = {
     ParkingMeter, Armchair, Flower2, Bed, Table, Toilet, Tv, TvMinimal, Mouse, Keyboard, Microwave, CookingPot, Bath,
     Refrigerator, Clock, Flower, Milk, Wine, Coffee, UtensilsCrossed, Soup, Banana, Apple, Sandwich, Citrus, Salad,
     Carrot, Pizza, Donut, Cake, Footprints, MountainSnow, Wind, Trophy, Hand, Waves, ShieldCheck, ScanLine, Layers,
-    Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge,
+    Type, MessageSquareText, ListVideo, Spline, PackageMinus, ArrowLeftRight, Timer, Flame, HardHat, TriangleAlert, Gauge, GraduationCap,
 };
 export function Ic({ n, size = 16, className }: { n: string; size?: number; className?: string }) {
     const C = ICONOS[n] || ScanSearch;
