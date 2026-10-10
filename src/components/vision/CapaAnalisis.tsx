@@ -50,7 +50,10 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
     const bandas = useMemo(() => (geom?.linea.length ? bandasLinea(geom.linea, W, H) : []), [geom, W, H]);
     if (!W || !H) return null;
     const lado = Math.min(W, H);
-    const fuente = Math.max(11, lado * 0.026);
+    // Cuerpo de los rótulos, en píxeles de la imagen: 2,6 % del lado corto. El piso de 11 px era
+    // para fotos chicas, pero en un recorte de 384×158 (analíticas entrenables) 11 px es el 7 % del
+    // alto y los rótulos tapaban todo; el piso ahora también es proporcional (4,5 % como mucho).
+    const fuente = Math.max(lado * 0.026, Math.min(11, lado * 0.045));
     const hayGeom = !!geom && (geom.linea.length >= 2 || geom.zona.length >= 3);
 
     return (
@@ -154,17 +157,40 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                 const arriba = todos.filter((q) => q[1] <= minY + (y2 - y1) * 0.03).sort((a, b) => Math.abs(a[0] - cx) - Math.abs(b[0] - cx))[0] || [cx, y1];
                 const ax = arriba[0] * W, ay = arriba[1] * H;
                 const diag = f * 2.4, margen = f * 0.3;
-                // Hacia el lado con lugar; si no entra, hacia el otro.
-                let dir = ax < W * 0.62 ? 1 : -1;
-                if (dir === 1 && ax + diag + largo > W - margen) dir = -1;
-                else if (dir === -1 && ax - diag - largo < margen) dir = 1;
+                /*
+                 * Dónde va el rótulo: hacia el lado con lugar, arriba del ancla, y si pisa a otro se
+                 * prueban renglones alternando abajo y arriba (y después el otro lado), dentro de la
+                 * foto. Se queda el primero que no pisa a nadie; si ninguno, el que menos pisa.
+                 *
+                 * Antes se corría un escalón «arriba si hay lugar, si no abajo» seis veces: pegado al
+                 * borde de arriba eso oscilaba entre dos renglones y terminaba en el de partida, encima
+                 * del otro rótulo («Camión o camioneta» tapando «Persona», 10/10).
+                 */
+                const preferido = ax < W * 0.62 ? 1 : -1;
+                const yMin = f * 1.9, yMax = Math.max(yMin, H - fm * 2.2), paso = f * 2.9;
+                const y0 = Math.min(yMax, Math.max(yMin, ay - diag));
+                const caja = (d: number, y: number): [number, number, number, number] => {
+                    const e = ax + d * diag;
+                    return [Math.min(e, e + d * largo), y - f * 1.6, largo, f * 1.6 + fm * 1.9];
+                };
+                const pisa = (b: [number, number, number, number]) => puestos.reduce((t, [px, py, pw, ph]) =>
+                    t + Math.max(0, Math.min(b[0] + b[2], px + pw) - Math.max(b[0], px)) * Math.max(0, Math.min(b[1] + b[3], py + ph) - Math.max(b[1], py)), 0);
+                const entra = (d: number) => { const b = caja(d, y0); return b[0] >= margen && b[0] + b[2] <= W - margen; };
+                const lados = [preferido, -preferido].filter(entra);
+                if (!lados.length) lados.push(preferido);
+                let mejor = { dir: lados[0], ey: y0, pisa: Infinity };
+                buscar: for (const d of lados) {
+                    for (const k of [0, 1, -1, 2, -2, 3, -3, 4, -4]) {
+                        const y = y0 + k * paso;
+                        if (y < yMin - 0.01 || y > yMax + 0.01) continue;
+                        const solape = pisa(caja(d, y));
+                        if (solape < mejor.pisa) mejor = { dir: d, ey: y, pisa: solape };
+                        if (solape < 0.5) break buscar;
+                    }
+                }
+                const dir = mejor.dir, ey = mejor.ey;
                 const ex = ax + dir * diag;
-                let ey = Math.max(f * 1.9, ay - diag);
-                // Dos rótulos que se pisarían: el segundo sube un escalón (o baja, si arriba no hay lugar).
-                const caja = (y: number): [number, number, number, number] => [Math.min(ex, ex + dir * largo), y - f * 1.6, largo, f * 1.6 + fm * 1.9];
-                const choca = (b: [number, number, number, number]) => puestos.some(([px, py, pw, ph]) => b[0] < px + pw && px < b[0] + b[2] && b[1] < py + ph && py < b[1] + b[3]);
-                for (let k = 0; k < 6 && choca(caja(ey)); k++) ey = ey - f * 2.9 >= f * 1.9 ? ey - f * 2.9 : ey + f * 2.9;
-                puestos.push(caja(ey));
+                puestos.push(caja(dir, ey));
                 const fx = ex + dir * largo;
                 const tx = ex + dir * margen;
                 const anchor = dir === 1 ? "start" : "end";
