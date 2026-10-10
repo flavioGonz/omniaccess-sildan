@@ -145,7 +145,7 @@ export default function AnaliticasVision() {
                             <span className="text-[13.5px] font-bold leading-tight group-hover:text-[var(--accion)] transition-colors">{a.nombre}</span>
                         </span>
                         <span className="block text-[11px] text-muted-foreground mt-0.5">{a.modo}{a.fase ? ` · fase ${a.fase}` : ""}</span>
-                        <span className="block text-[12px] text-muted-foreground leading-snug mt-1.5 line-clamp-2">{a.queHace}</span>
+                        <span className="text-[12px] text-muted-foreground leading-snug mt-1.5 line-clamp-2">{a.queHace}</span>
                     </span>
                 </button>
                 <div className="flex items-center gap-2 px-3.5 pb-3 pt-1 flex-wrap">
