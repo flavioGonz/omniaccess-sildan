@@ -97,7 +97,11 @@ export default function ReglasVision() {
     useEffect(() => {
         if (!datos || pedidaNueva.current) return;
         pedidaNueva.current = true;
-        const tipo = new URLSearchParams(window.location.search).get("nueva") as TipoRegla | null;
+        const sp = new URLSearchParams(window.location.search);
+        // «Editar la regla» desde Accesos llega con ?editar=<id>.
+        const aEditar = sp.get("editar") && datos.reglas.find((x) => x.id === sp.get("editar"));
+        if (aEditar) { window.history.replaceState(null, "", window.location.pathname); setEsNueva(false); setEditando(aEditar); return; }
+        const tipo = sp.get("nueva") as TipoRegla | null;
         if (!tipo || !(tipo in TIPOS_REGLA)) return;
         window.history.replaceState(null, "", window.location.pathname);
         setEsNueva(true);

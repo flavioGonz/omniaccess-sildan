@@ -28,7 +28,7 @@ require("dotenv").config();
 const crypto = require("crypto");
 const sharp = require("sharp");
 const { spawn } = require("child_process");
-const { PrismaClient } = require("@prisma/client");
+const { PrismaClient, Prisma } = require("@prisma/client");
 const { S3Client, PutObjectCommand, CreateBucketCommand, HeadBucketCommand, DeleteObjectsCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 
 const prisma = new PrismaClient();
@@ -73,7 +73,7 @@ const ESTADO_MS = 15_000;
 const LIMPIEZA_MS = 60 * 60_000;
 const LIMPIEZA_LOTE = 500;
 const RETENCION_DIAS_DEFECTO = 7;
-/** Los cruces (conteo por línea) no llevan foto y pesan poco: se guardan más para poder comparar semanas. */
+/** Los cruces (conteo por línea) pesan poco: se guardan más para poder comparar semanas. Su foto (sólo vehículos) vence con las detecciones. */
 const RETENCION_CRUCES_DIAS = 90;
 /**
  * Empresa por rotulado: el texto pintado en un vehículo no se lee en el substream (704×576),
@@ -460,6 +460,15 @@ async function limpiar() {
         if (claves.length) await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: claves, Quiet: true } })).catch((e) => log("limpieza S3 eventos:", e.message));
         await prisma.eventoVision.deleteMany({ where: { id: { in: viejos.map((v) => v.id) } } });
         if (viejos.length < LIMPIEZA_LOTE) break;
+    }
+    // Los cruces de vehículos tienen foto desde el 11/10: la foto vive lo que las detecciones,
+    // la fila (el conteo) sigue sus 90 días sin ella.
+    for (;;) {
+        const conFoto = await prisma.eventoVision.findMany({ where: { tipo: "CRUCE", foto: { not: null }, ts: { lt: limite } }, select: { id: true, foto: true }, take: LIMPIEZA_LOTE });
+        if (!conFoto.length) break;
+        await (await cliente()).send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Objects: conFoto.map((v) => ({ Key: v.foto })), Quiet: true } })).catch((e) => log("limpieza S3 cruces:", e.message));
+        await prisma.eventoVision.updateMany({ where: { id: { in: conFoto.map((v) => v.id) } }, data: { foto: null, caja: Prisma.DbNull } });
+        if (conFoto.length < LIMPIEZA_LOTE) break;
     }
     await prisma.eventoVision.deleteMany({ where: { tipo: "CRUCE", ts: { lt: new Date(Date.now() - RETENCION_CRUCES_DIAS * 86_400_000) } } }).catch(() => null);
     // Las relecturas viven lo mismo que las detecciones: son fotos de vehículos.

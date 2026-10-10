@@ -322,13 +322,13 @@ export const ANALITICAS: Analitica[] = [
     {
         id: "motos", nombre: "Conteo de motos", icono: "Bike", modo: "LPR",
         queHace: "Cuenta las motos que pasan por los accesos aunque no paren ni se lea su chapa.",
-        necesita: ["deteccion"], clases: ["motorcycle"], estado: "desarrollo", fase: 2, porDefecto: true,
+        necesita: ["deteccion"], clases: ["motorcycle"], estado: "corre", fase: 2, porDefecto: true,
         limite: "Se cuenta sobre los cruces de la regla de conteo del carril de cada acceso, no sobre todo el cuadro: por detrás de la rampa de LPR Salida pasa una calle. Medido el 10/10: el 95 % de los cruces de salida tienen lectura a ±10 s.",
     },
     {
         id: "sin-lectura", nombre: "Vehículo sin lectura", icono: "ScanLine", modo: "LPR",
         queHace: "Pasó un vehículo por un acceso y ninguna lectora leyó su matrícula en ±10 s: queda registrado con foto.",
-        necesita: ["deteccion"], clases: ["car", "truck", "motorcycle", "bus"], estado: "desarrollo", fase: 2, porDefecto: true,
+        necesita: ["deteccion"], clases: ["car", "truck", "motorcycle", "bus"], estado: "corre", fase: 2, porDefecto: true,
         limite: "Se cuenta sobre los cruces de la regla de conteo del carril de cada acceso, no sobre todo el cuadro: por detrás de la rampa de LPR Salida pasa una calle. Medido el 10/10: el 95 % de los cruces de salida tienen lectura a ±10 s.",
     },
     {
@@ -340,7 +340,7 @@ export const ANALITICAS: Analitica[] = [
     {
         id: "colado", nombre: "Posible colado", icono: "Layers", modo: "LPR",
         queHace: "Dos vehículos pegados y una sola lectura: el segundo entró detrás del primero.",
-        necesita: ["deteccion"], clases: ["car", "truck", "motorcycle"], estado: "desarrollo", fase: 2, porDefecto: true,
+        necesita: ["deteccion"], clases: ["car", "truck", "motorcycle"], estado: "corre", fase: 2, porDefecto: true,
         limite: "Es un aviso para mirar la grabación, no una prueba.",
     },
     {

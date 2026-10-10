@@ -246,7 +246,11 @@ function iniciar({ prisma, subir, log }) {
             if (previo && t - previo.t < REBOTE_MS) { cruces.set(k, { t, sentido }); continue; } // tiembla sobre la línea
             cruces.set(k, { t, sentido });
             if (r.tipo === "conteo") {
-                await evento({ tipo: "CRUCE", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, sentido, ts: ahora });
+                // Los vehículos llevan foto: en un acceso, el cruce que no tuvo lectura (OmniVision ›
+                // Accesos) sin foto no se puede revisar. Las personas siguen sin foto: son muchas y
+                // en un conteo no se miran una por una.
+                const f = o.grupo === "vehiculo" ? await foto(jpeg, ahora) : null;
+                await evento({ tipo: "CRUCE", reglaId: r.id, deviceId: cam.id, camara: cam.name, clase: o.clase, pista: o.pista, sentido, ts: ahora, ...(f ? { foto: f, caja: o.caja_norm } : {}) });
                 contadores.cruces++;
             } else if (r.tipo === "cruce") {
                 // Fuera de horario, o en el sentido que no interesa: no pasó nada para esta regla.
