@@ -25,7 +25,9 @@ import { tiposSegunModulos, tipoDeEquipo } from "@/components/devices/tipos";
 import { getEnabledModules } from "@/app/actions/modules";
 import type { ModuleId } from "@/lib/module-definitions";
 import { createDevice, updateDevice, getDevices } from "@/app/actions/devices";
-import { getNvrChannels, getNvrChannelMap, saveNvrChannelMap, importarCanalesNvr } from "@/app/actions/nvr";
+import { getNvrChannels, getNvrChannelMapFull, saveNvrChannelMapForNvr, mapearPorIp } from "@/app/actions/nvr";
+import { ImportarCanales, type CanalImportable } from "@/components/devices/ImportarCanales";
+import { FuncionesCamara, type FuncionesAlta } from "@/components/devices/FuncionesCamara";
 import { DRIVER_MODELS, type DeviceBrand as DriverDeviceBrand } from "@/lib/driver-models";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
@@ -179,6 +181,9 @@ const MODOS_DE_AVISO = [
     },
 ] as const;
 
+/** Los tipos que son cámaras: los que tienen «qué hace OmniAccess con esta cámara». */
+const ES_CAMARA = new Set(["LPR_CAMERA", "LPR_INTERIOR", "CAMERA"]);
+
 /** Cómo se llama cada hoja. Reemplaza a la barra de pasos: dice dónde se está, sin
  *  agregar una interfaz aparte que después hay que mirar. */
 const TITULOS: Record<string, string> = {
@@ -190,6 +195,7 @@ const TITULOS: Record<string, string> = {
     aviso: "¿Cómo avisa que pasó un auto?",
     video: "El canal de video",
     canales: "Los canales del grabador",
+    funciones: "¿Qué hace OmniAccess con esta cámara?",
     listo: "Comprobar que anda",
 };
 
@@ -270,6 +276,9 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
     }), [device]);
 
     const [f, setF] = useState(enBlanco());
+    /* Al dar de alta: si configurar la cámara para que avise y si OmniVision la mira. Se aplica
+       al crear (todavía no hay equipo al que preguntarle). */
+    const [funciones, setFunciones] = useState<FuncionesAlta>({ avisos: true, vision: true });
 
     // ── Prueba del RTSP
     const [probando, setProbando] = useState(false);
@@ -332,6 +341,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
         if (t?.aviso) l.push({ clave: "aviso", rotulo: "Cómo avisa" });
         if (t?.video) l.push({ clave: "video", rotulo: "Canal de video" });
         if (t?.canales) l.push({ clave: "canales", rotulo: "Canales" });
+        if (ES_CAMARA.has(f.deviceType)) l.push({ clave: "funciones", rotulo: "Qué hace" });
         /* La hoja de comprobación es sólo del alta. Editando, el equipo ya existe y su
            estado se ve en la ficha, que es otra pantalla y está siempre a la vista. */
         if (!esEdicion) l.push({ clave: "listo", rotulo: "Verificar" });
@@ -355,6 +365,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
         if (k === "aviso") return !!tipo?.aviso;
         if (k === "video") return !!tipo?.video;
         if (k === "canales") return !!tipo?.canales;
+        if (k === "funciones") return ES_CAMARA.has(f.deviceType);
         return true;
     };
     const ultimo = paso >= pasos.length - 1;
@@ -385,9 +396,14 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
         if (!abierto || f.deviceType !== "NVR") return;
         (async () => {
             try {
-                const [devs, mapa] = await Promise.all([getDevices(), getNvrChannelMap()]);
+                /* Sólo el mapa de ESTE grabador. Antes se traía el de todos como {ip: canal}, sin
+                   decir de qué grabador: el canal 2 del NVR 2 aparecía «asignado» en el NVR 6, y
+                   «Guardar el mapeo» escribía todo de vuelta sin grabador. */
+                const [devs, mapa] = await Promise.all([getDevices(), getNvrChannelMapFull()]);
                 setNvrCamaras((devs || []).filter(esCamara));
-                setNvrMapa(mapa || {});
+                const propio: Record<string, number> = {};
+                for (const [ip, v] of Object.entries(mapa || {})) if (device?.id && (v as any).nvr === device.id) propio[ip] = (v as any).ch;
+                setNvrMapa(propio);
             } catch { /* la pantalla sigue siendo utilizable sin esto */ }
         })();
     }, [abierto, f.deviceType]);
@@ -404,9 +420,11 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
             const r: any = await getNvrChannels({ ip: f.ip, username: f.username, password: f.password, authType: f.authType });
             if (r?.ok && r.channels?.length) {
                 setNvrCanales(r.channels);
+                /* Se propone el mapeo por IP sólo para las cámaras NUESTRAS (una IP del grabador que
+                   no es de ningún equipo no tiene nada que mapear); se guarda recién con el botón. */
                 setNvrMapa((prev) => {
                     const m = { ...prev };
-                    for (const ch of r.channels) if (ch.ip) m[ch.ip] = m[ch.ip] ?? ch.channel;
+                    for (const ch of r.channels) if (ch.ip && nvrCamaras.some((c: any) => c.ip === ch.ip)) m[ch.ip] = m[ch.ip] ?? ch.channel;
                     return m;
                 });
                 setNvrAviso(`${r.channels.length} canales leídos del grabador`);
@@ -418,36 +436,38 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
     const guardarMapa = async () => {
         setNvrOcupado(true);
         try {
-            const r: any = await saveNvrChannelMap(nvrMapa);
+            // Sólo los canales de este grabador, y sin tocar los de los otros.
+            const r: any = await saveNvrChannelMapForNvr(f.ip, nvrMapa);
             setNvrAviso(r?.ok ? "Mapeo guardado" : "No se pudo guardar el mapeo");
         } catch { setNvrAviso("No se pudo guardar el mapeo"); }
         finally { setNvrOcupado(false); }
     };
 
-    /* Importar canales del grabador como cámaras.
-       Antes "Crear la cámara" armaba un LPR_CAMERA Hikvision a mano: tipo equivocado (una
-       cámara de un grabador no abre barreras) y sin mapeo {nvr, ch}, así que el monitor de
-       intrusión no la veía y el vivo no sabía por qué grabador ir. Ahora pasa por
-       importarCanalesNvr, que la crea como CAMERA, la mapea y le registra el stream. */
-    const importarCanales = async (canales: number[]) => {
+    /* Importar canales del grabador como cámaras: abre el diálogo que pregunta qué es cada una
+       (ver ImportarCanales). Antes se creaban todas como cámara común, sin preguntar. */
+    const [importando, setImportando] = useState<CanalImportable[] | null>(null);
+    const importarCanales = (canales: number[]) => {
         if (!device?.id) { setNvrAviso("Guardá primero el grabador y volvé a abrirlo para importar sus canales."); return; }
-        if (!canales.length) return;
+        const elegidos = nvrCanales.filter((c: any) => canales.includes(c.channel));
+        if (elegidos.length) setImportando(elegidos);
+    };
+    const despuesDeImportar = async () => {
+        const devs: any = await getDevices();
+        setNvrCamaras((devs || []).filter(esCamara));
+        const mapa = await getNvrChannelMapFull();
+        const propio: Record<string, number> = {};
+        for (const [ip, v] of Object.entries(mapa || {})) if (device?.id && (v as any).nvr === device.id) propio[ip] = (v as any).ch;
+        setNvrMapa(propio);
+        onSuccess();
+    };
+    const completarPorIp = async () => {
+        if (!device?.id) return;
         setNvrOcupado(true);
         try {
-            const r = await importarCanalesNvr(device.id, canales);
-            if (!r.ok) { setNvrAviso("No se pudo importar: " + (r.error || "")); return; }
-            const devs: any = await getDevices();
-            setNvrCamaras((devs || []).filter(esCamara));
-            setNvrMapa((prev) => {
-                const m = { ...prev };
-                for (const d of r.detalle) if (d.ip && d.accion !== "omitida") m[d.ip] = d.channel;
-                return m;
-            });
-            const omitidas = r.detalle.filter((d) => d.accion === "omitida").length;
-            setNvrAviso(`${r.creadas} cámara${r.creadas === 1 ? "" : "s"} creada${r.creadas === 1 ? "" : "s"}, ${r.actualizadas} actualizada${r.actualizadas === 1 ? "" : "s"}${omitidas ? `, ${omitidas} omitida${omitidas === 1 ? "" : "s"}` : ""}`);
-            toast.success({ title: "Canales importados", description: `${r.creadas + r.actualizadas} cámara(s) listas en el monitor` });
-        } catch (e: any) {
-            setNvrAviso("No se pudo importar: " + (e?.message || ""));
+            const r = await mapearPorIp(device.id);
+            if (!r.ok) { setNvrAviso("No se pudo: " + (r.error || "")); return; }
+            setNvrMapa((prev) => { const m = { ...prev }; for (const x of r.mapeados) m[x.ip] = x.channel; return m; });
+            setNvrAviso(r.mapeados.length ? `${r.mapeados.length} canal${r.mapeados.length === 1 ? "" : "es"} mapeado${r.mapeados.length === 1 ? "" : "s"} por IP` : "Ningún canal tiene la IP de una cámara nuestra");
         } finally { setNvrOcupado(false); }
     };
     const crearCamaraDeCanal = (ch: any) => importarCanales([ch.channel]);
@@ -470,6 +490,27 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
         } finally { setProbando(false); }
     };
 
+    /** Lo elegido en «Qué hace» al dar de alta, aplicado al equipo recién creado. Cada paso que
+     *  falla se dice: un alta que «salió bien» con la cámara sin avisar es la que después no anda. */
+    const aplicarFunciones = async (id: string) => {
+        // La hora: una cámara nueva suele venir en el huso de fábrica y sus eventos quedarían corridos.
+        if (f.brand === "HIKVISION" && f.deviceType !== "LPR_CAMERA") {
+            try { await fetch("/api/devices/sync-time", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId: id }) }); }
+            catch { toast.error({ title: "No se pudo poner la hora en la cámara", description: "Se hace desde Dispositivos › Sincronizar hora." }); }
+        }
+        // La LPR Hikvision ya se pone a punto sola al crearla (incluye el servidor HTTP).
+        if (funciones.avisos && f.brand === "HIKVISION" && f.deviceType !== "LPR_CAMERA") {
+            try {
+                const a = await fetch(`/api/devices/alarm-host?deviceId=${id}`, { method: "POST" }).then((x) => x.json());
+                if (!a?.ok) toast.error({ title: "La cámara quedó sin avisarnos", description: (a?.error || "No aceptó la configuración") + ". Se reintenta desde su ficha, en «Qué hace OmniAccess»." });
+            } catch (e: any) { toast.error({ title: "La cámara quedó sin avisarnos", description: e?.message }); }
+        }
+        try {
+            const v = await fetch(`/api/vision/camaras/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ analiza: funciones.vision }) });
+            if (!v.ok) toast.error({ title: "No se guardó si OmniVision la mira", description: (await v.json().catch(() => ({})))?.error });
+        } catch (e: any) { toast.error({ title: "No se guardó si OmniVision la mira", description: e?.message }); }
+    };
+
     const guardar = async () => {
         if (!f.deviceType) { toast.error({ title: "Falta decir qué equipo es" }); return; }
         if (!f.name.trim()) { toast.error({ title: "Falta el nombre", description: "Es como va a figurar en las listas y en el historial." }); return; }
@@ -488,6 +529,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
             } else {
                 const r: any = await createDevice(datos);
                 toast.success({ title: "Equipo dado de alta" });
+                if (r?.id && ES_CAMARA.has(f.deviceType)) await aplicarFunciones(r.id);
                 onSuccess();
                 if (r?.id) setCreado(r.id);
                 else {
@@ -1075,6 +1117,14 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                         </>
                     )}
 
+                    {muestra("funciones") && (
+                        <CajonSeccion titulo={esEdicion ? "Qué hace OmniAccess con esta cámara" : ""} icono={esEdicion ? Video : undefined}
+                            ayuda={esEdicion ? "El tipo decide a qué pantalla va; los avisos y OmniVision se prenden por separado." : undefined}>
+                            <FuncionesCamara deviceId={esEdicion ? device.id : null} tipo={f.deviceType as any} marca={f.brand}
+                                alta={funciones} alCambiarAlta={setFunciones}
+                                alCambiarTipo={(t) => set("deviceType", t)} />
+                        </CajonSeccion>
+                    )}
                     {muestra("listo") && (
                         <CajonSeccion titulo="">
                             <Verificacion
@@ -1161,7 +1211,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                                                     {!hayCamaraConEsaIp && ch.ip && !asignada && (
                                                         <Button type="button" size="sm" className="w-full"
                                                             onClick={() => crearCamaraDeCanal(ch)} disabled={nvrOcupado}>
-                                                            <Plus size={12} /> Crear la cámara
+                                                            <Plus size={12} /> Importar esta cámara
                                                         </Button>
                                                     )}
                                                 </div>
@@ -1180,6 +1230,9 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                                             Importar {canalesSinCamara.length} canal{canalesSinCamara.length === 1 ? "" : "es"} sin cámara
                                         </Button>
                                     )}
+                                    <Button type="button" variant="outline" onClick={completarPorIp} disabled={nvrOcupado || !esEdicion} title="Mapea cada canal cuya IP es la de una cámara ya cargada">
+                                        Completar por IP
+                                    </Button>
                                     <Button type="button" variant="outline" onClick={guardarMapa} disabled={nvrOcupado || !nvrCanales.length}>
                                         Guardar el mapeo
                                     </Button>
@@ -1189,6 +1242,11 @@ export function CajonDispositivo({ device, groups = [], onSuccess, children, ope
                     )}
                 </PasoAnimado>
             </CajonContenido>
+            {device?.id && (
+                <ImportarCanales abierto={!!importando} alCerrar={() => setImportando(null)} nvrId={device.id} canales={importando || []}
+                    existentes={nvrCamaras.map((c: any) => ({ id: c.id, ip: c.ip, name: c.name, deviceType: c.deviceType }))}
+                    grupos={(groups || []).map((g: any) => ({ id: g.id, name: g.name }))} alTerminar={despuesDeImportar} />
+            )}
         </Cajon>
     );
 }

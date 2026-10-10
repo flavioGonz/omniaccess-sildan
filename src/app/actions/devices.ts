@@ -181,6 +181,21 @@ export async function updateDevice(id: string, formData: FormData) {
 
     const deviceModel = formData.get("deviceModel") as string;
 
+    /*
+     * Cambiar el tipo se puede (una cámara importada como común que en realidad es LPR), pero
+     * sólo dentro de la familia de las cámaras: un grabador no se vuelve cámara ni al revés —
+     * sus campos, sus canales y lo que cuelga de él no tienen equivalente. El formulario no lo
+     * ofrece; esto es para que tampoco se pueda por error o a mano.
+     */
+    const CAMARAS = ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA"];
+    const antes = await prisma.device.findUnique({ where: { id }, select: { deviceType: true } });
+    if (antes && deviceType && antes.deviceType !== deviceType && !(CAMARAS.includes(String(antes.deviceType)) && CAMARAS.includes(String(deviceType)))) {
+        throw new Error(`No se puede cambiar un ${antes.deviceType} por un ${deviceType}: sólo se cambia entre tipos de cámara.`);
+    }
+    const seguimiento = camposSeguimiento(formData);
+    // Sólo la cámara de seguimiento le pide cuadros a la pasarela: al dejar de serlo, se apaga.
+    if (deviceType && String(deviceType) !== "LPR_INTERIOR") (seguimiento as any).trackEnabled = false;
+
     await prisma.device.update({
         where: { id },
         data: {
@@ -196,7 +211,7 @@ export async function updateDevice(id: string, formData: FormData) {
             mac,
             port: portNum,
             deviceModel,
-            ...camposSeguimiento(formData),
+            ...seguimiento,
             ...(modelPhoto && { modelPhoto }),
             ...(brandLogo && { brandLogo }),
         },

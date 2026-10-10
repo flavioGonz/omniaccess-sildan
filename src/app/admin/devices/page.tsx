@@ -100,8 +100,9 @@ import {
     DropdownMenuSeparator
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, DownloadCloud, UploadCloud, Info } from "lucide-react";
-import { Radar } from "lucide-react";
+import { Radar, ScanEye } from "lucide-react";
 import { getDevicesWithAnalytics, getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections";
+import { rolesDeCamaras } from "@/app/actions/roles-camaras";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import {
     Tooltip,
@@ -252,6 +253,9 @@ export default function DevicesPage() {
     const [viewingLive, setViewingLive] = useState<any>(null);
     const [analyticsIds, setAnalyticsIds] = useState<Set<string>>(new Set());
     useEffect(() => { getDevicesWithAnalytics().then((ids) => setAnalyticsIds(new Set(ids))).catch(() => { }); }, []);
+    /* El rol configurado de cada cámara (si nos avisa, si OmniVision la mira): ver actions/roles-camaras. */
+    const [roles, setRoles] = useState<{ avisan: Set<string>; vision: Set<string> } | null>(null);
+    useEffect(() => { rolesDeCamaras().then((r) => setRoles({ avisan: new Set(r.avisan), vision: new Set(r.vision) })).catch(() => setRoles(null)); }, [devices]);
     const [managingPlates, setManagingPlates] = useState<any>(null);
     const [calibrating, setCalibrating] = useState<any>(null);
     const [calibrandoInterior, setCalibrandoInterior] = useState<any>(null);
@@ -526,7 +530,9 @@ export default function DevicesPage() {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 w-full lg:w-auto">
+                {/* flex-wrap: con los filtros, el buscador y tres botones no entra en una fila a
+                    1440 px, y sin envolver el botón «Nuevo» quedaba afuera de la pantalla. */}
+                <div className="flex items-center gap-3 w-full lg:w-auto flex-wrap lg:justify-end">
                     {/* Module-aware filter tabs */}
                     <div className="flex items-center gap-1 bg-card/80 p-1 rounded-lg border border-border/60">
                         <button
@@ -592,7 +598,7 @@ export default function DevicesPage() {
                         </Tooltip>
                     </TooltipProvider>
                     <CajonDispositivo groups={groups} onSuccess={loadData}>
-                        <Button className="bg-indigo-600 hover:bg-indigo-500 text-foreground font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs shrink-0 gap-1.5">
+                        <Button className="h-9 px-4 text-xs shrink-0 gap-1.5">
                             <Plus size={15} /> Nuevo
                         </Button>
                     </CajonDispositivo>
@@ -620,7 +626,7 @@ export default function DevicesPage() {
                 </div>
             )}
 
-            <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
+            <div className="border border-border/60 rounded-lg overflow-x-auto bg-background/50">
                 <Table>
                     <TableHeader className="bg-card/60">
                         <TableRow className="border-border/60 hover:bg-transparent">
@@ -691,9 +697,15 @@ export default function DevicesPage() {
                                             <div className="space-y-1.5">
                                                 <div className="flex items-center gap-1.5">
                                                     <p className="font-semibold text-foreground text-sm leading-none">{dev.name}</p>
+                                                    {/* Lo que PASÓ (mandó eventos), dicho como lo que es; el rol va en la columna Tipo. */}
                                                     {analyticsIds.has(dev.id) && (
-                                                        <span title="Con analíticas / alertas activas" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/30 text-[9px] font-bold uppercase tracking-wide">
-                                                            <Radar size={10} /> Analítica
+                                                        <span title="Mandó cruces o intrusiones en los últimos 7 días" className="chip-info inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wide">
+                                                            <Radar size={10} /> Eventos 7 d
+                                                        </span>
+                                                    )}
+                                                    {roles?.vision.has(dev.id) && dev.deviceType !== "NVR" && (
+                                                        <span title="OmniVision analiza su video (siluetas, búsqueda, reglas)" className="chip-neutro inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wide">
+                                                            <ScanEye size={10} /> OmniVision
                                                         </span>
                                                     )}
                                                 </div>
@@ -793,9 +805,10 @@ export default function DevicesPage() {
                                         ) : dev.deviceType === 'CAMERA' ? (
                                             /* Las perimetrales no tienen sentido de paso: lo que las define es
                                                si vigilan una línea o zona (intrusión) o sólo graban. */
-                                            <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border",
-                                                analyticsIds.has(dev.id) ? "chip-mal" : "chip-neutro")}>
-                                                {analyticsIds.has(dev.id) ? 'Intrusión' : 'Cámara'}
+                                            <span title={roles?.avisan.has(dev.ip) ? "La cámara nos avisa sus cruces e intrusiones (AcuSense)" : "La cámara no nos avisa: lo que se sabe sale de OmniVision"}
+                                                className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border",
+                                                    roles?.avisan.has(dev.ip) ? "chip-mal" : "chip-neutro")}>
+                                                {!roles ? "Cámara" : roles.avisan.has(dev.ip) ? "Intrusión" : roles.vision.has(dev.id) ? "Video" : "Cámara"}
                                             </span>
                                         ) : <span className="text-muted-foreground text-xs">-</span>}
                                     </TableCell>
