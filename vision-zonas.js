@@ -32,6 +32,11 @@ const LADO_MUESTRA = 384;
 /** Para dejar de estar en el estado que avisa hay que bajar este tanto del umbral: sin esto, una
  *  probabilidad que oscila en el umbral reinicia la cuenta del sostenido y avisa dos veces. */
 const HISTERESIS = 0.15;
+/** Más puntos por silueta no se ven y pesan en la base (el mismo tope que src/lib/vision-capa.ts). */
+const PUNTOS_SILUETA_MAX = 80;
+/** Umbral de la detección para dibujar lo que hay: más bajo que el del registro, porque acá no se
+ *  cuenta nada, se muestra para ayudar a etiquetar (un cono a medio tapar igual se dibuja). */
+const UMBRAL_DIBUJO = 0.35;
 /** Las muestras SIN etiquetar viven esto; las etiquetadas, siempre (son el entrenamiento). */
 const RETENCION_DIAS = 14;
 const LIMPIEZA_MS = 6 * 3600_000;
@@ -43,6 +48,12 @@ function aInt8(v) {
     const max = Math.max(...v.map((x) => Math.abs(x))) || 1;
     return { vector: Buffer.from(Int8Array.from(v, (x) => Math.round((x / max) * 127)).buffer), escala: max / 127 };
 }
+const r4 = (v) => Math.round(v * 10000) / 10000;
+function aligerar(poli) {
+    if (poli.length <= PUNTOS_SILUETA_MAX) return poli;
+    const paso = poli.length / PUNTOS_SILUETA_MAX;
+    return Array.from({ length: PUNTOS_SILUETA_MAX }, (_, i) => poli[Math.floor(i * paso)]);
+}
 function emitir(evento, datos) {
     try {
         const cuerpo = JSON.stringify({ __event: evento, ...datos });
@@ -52,7 +63,7 @@ function emitir(evento, datos) {
     } catch { }
 }
 
-function iniciar({ prisma, log, vision, subir, borrar, activa }) {
+function iniciar({ prisma, log, vision, subir, borrar, activa, segmentar }) {
     const contadores = { muestras: 0, avisos: 0, errores: 0, ultimoError: null };
     /** Vectores de las frases por zona: `${zonaId}` → { clave, pos, neg, escala }. Las frases cambian poco. */
     const frases = new Map();
@@ -100,6 +111,23 @@ function iniciar({ prisma, log, vision, subir, borrar, activa }) {
         if (!rv.ok || !Array.isArray(jv.vector)) throw new Error(jv.error || `omni-vision respondió ${rv.status}`);
         const v = normalizar(jv.vector);
 
+        // Lo que hay en el recorte, para dibujarlo al etiquetar. Sólo se muestra: si falla, la muestra
+        // vale igual (la clasificación no depende de esto).
+        let analisis = null;
+        try {
+            const tarea = segmentar() ? "segmentar" : "detectar";
+            const ra = await fetch(`${vision}/detectar?${new URLSearchParams({ tarea, umbral: String(UMBRAL_DIBUJO) })}`, { method: "POST", body: recorte, headers: { "content-type": "image/jpeg" }, signal: AbortSignal.timeout(20_000) });
+            const ja = await ra.json().catch(() => ({}));
+            if (ra.ok) analisis = {
+                ancho: ja.ancho, alto: ja.alto, tarea,
+                objetos: (ja.objetos || []).map((o) => ({
+                    clase: o.clase, nombre: o.nombre, grupo: o.grupo, confianza: Math.round(o.confianza * 1000) / 1000,
+                    caja: (o.caja_norm || []).map(r4),
+                    ...(Array.isArray(o.silueta) ? { silueta: o.silueta.map((p) => aligerar(p).map(([x, y]) => [r4(x), r4(y)])) } : {}),
+                })),
+            };
+        } catch { analisis = null; }
+
         let prob = null, fuente = "frases";
         const m = z.modelo;
         if (m && Array.isArray(m.w) && m.w.length === v.length) {
@@ -115,7 +143,7 @@ function iniciar({ prisma, log, vision, subir, borrar, activa }) {
         const dia = ahora.toISOString().slice(0, 10);
         const clave = `zonas/${z.id}/${dia}/${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}.jpg`;
         await subir(clave, recorte);
-        const muestra = await prisma.muestraZona.create({ data: { zonaId: z.id, recorte: clave, ...aInt8(v), prob, fuente } });
+        const muestra = await prisma.muestraZona.create({ data: { zonaId: z.id, recorte: clave, ...aInt8(v), prob, fuente, analisis } });
         contadores.muestras++;
 
         // Sostenido con histéresis, y un solo aviso hasta que vuelva a lo normal.
@@ -139,7 +167,7 @@ function iniciar({ prisma, log, vision, subir, borrar, activa }) {
             }
             log(`zona «${z.nombre}»: ${z.positivo} sostenido ${Math.round((ahora - Date.parse(positivoDesde)) / 60000)} min (prob ${prob.toFixed(2)})${z.avisar ? " · aviso a la guardia" : ""}`);
         }
-        const estado = { prob: +prob.toFixed(4), fuente, al: ahora.toISOString(), muestra: clave, muestraId: muestra.id, positivoDesde, avisado, eventoId, armada, error: null };
+        const estado = { prob: +prob.toFixed(4), fuente, al: ahora.toISOString(), muestra: clave, muestraId: muestra.id, analisis, positivoDesde, avisado, eventoId, armada, error: null };
         await prisma.zonaEntrenable.update({ where: { id: z.id }, data: { estado } });
         emitir("zona_estado", { id: z.id, estado });
     }

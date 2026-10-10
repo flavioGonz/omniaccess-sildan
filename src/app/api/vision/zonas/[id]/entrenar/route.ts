@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { deInt8, entrenar } from "@/lib/zona-entrenable";
+import { VISION_URL } from "@/lib/vision";
+import { deInt8, entrenar, guiaDeFrases, normalizar } from "@/lib/zona-entrenable";
 import { puedeCambiar, resumenModelo } from "@/lib/zona-entrenable-servidor";
 
 export const dynamic = "force-dynamic";
@@ -15,16 +16,26 @@ const EJEMPLOS_MAX_POR_ESTADO = 2000;
 export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     const { error, quien } = await puedeCambiar(); if (error) return error;
     const { id } = await params;
-    const z = await prisma.zonaEntrenable.findUnique({ where: { id }, select: { umbral: true } });
+    const z = await prisma.zonaEntrenable.findUnique({ where: { id }, select: { umbral: true, frasesPositivo: true, frasesNegativo: true } });
     if (!z) return NextResponse.json({ error: "No existe." }, { status: 404 });
     const leer = (etiqueta: "pos" | "neg") => prisma.muestraZona.findMany({ where: { zonaId: id, etiqueta }, orderBy: { createdAt: "desc" }, take: EJEMPLOS_MAX_POR_ESTADO, select: { vector: true, escala: true } });
     const [pos, neg] = await Promise.all([leer("pos"), leer("neg")]);
     const ejemplos = [...pos.map((m) => ({ v: deInt8(m.vector, m.escala), y: 1 as const })), ...neg.map((m) => ({ v: deInt8(m.vector, m.escala), y: 0 as const }))];
     const t0 = Date.now();
+    // Las frases como punto de partida (ver `prototipos`). Sin omni-vision se entrena igual, sólo
+    // con los ejemplos, y se dice: no es lo mismo y quien entrena lo tiene que saber.
+    let guia: Float64Array | null = null, sinFrases: string | null = null;
+    try {
+        const r = await fetch(`${VISION_URL()}/vector_texto`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ textos: [...z.frasesPositivo, ...z.frasesNegativo] }), signal: AbortSignal.timeout(30_000) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !Array.isArray(j.vectores)) throw new Error(j.error || `omni-vision respondió ${r.status}`);
+        const vs = j.vectores.map((x: number[]) => normalizar(Float32Array.from(x)));
+        guia = guiaDeFrases(vs.slice(0, z.frasesPositivo.length), vs.slice(z.frasesPositivo.length));
+    } catch (e: any) { sinFrases = e?.message || "omni-vision no contestó"; }
     let modelo;
-    try { modelo = entrenar(ejemplos, z.umbral, quien); }
+    try { modelo = entrenar(ejemplos, z.umbral, quien, guia); }
     catch (e: any) { return NextResponse.json({ error: e?.message || "No se pudo entrenar." }, { status: 400 }); }
     // La próxima muestra ya sale con el modelo nuevo: se pide una enseguida para que el estado lo refleje.
     await prisma.zonaEntrenable.update({ where: { id }, data: { modelo: modelo as any, forzarAt: new Date() } });
-    return NextResponse.json({ ok: true, modelo: resumenModelo(modelo), ms: Date.now() - t0 });
+    return NextResponse.json({ ok: true, modelo: resumenModelo(modelo), ms: Date.now() - t0, sinFrases });
 }

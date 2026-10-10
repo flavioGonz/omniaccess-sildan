@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Cajon, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { EditorGeometria } from "@/components/vision/EditorGeometria";
-import { CADA_SEG, SOSTENER_SEG, UMBRAL, type Punto, type Horario } from "@/lib/zona-entrenable";
+import { CADA_SEG, SOSTENER_SEG, UMBRAL, LARGO_NOMBRE, LARGO_ESTADO, type Punto, type Horario } from "@/lib/zona-entrenable";
 
 /**
  * Crear o cambiar una analítica entrenable. Lo único que de verdad hay que pensar es qué dos
@@ -80,14 +80,14 @@ export function CajonZona({ inicial, nueva, camaras, guardando, alCerrar, alGuar
                         </button>
                     )}
                     <CajonCampo etiqueta="Nombre">
-                        <Input value={f.nombre} onChange={(e) => cambiar({ nombre: e.target.value })} placeholder="Contenedor de la entrada" />
+                        <Input value={f.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => cambiar({ nombre: e.target.value })} placeholder="Contenedor de la entrada" />
                     </CajonCampo>
                     <div className="grid grid-cols-2 gap-3">
-                        <CajonCampo etiqueta="El estado que avisa" ayuda="Así se llama en el aviso.">
-                            <Input value={f.positivo} onChange={(e) => cambiar({ positivo: e.target.value })} placeholder="Desbordado" />
+                        <CajonCampo etiqueta="El estado que avisa" ayuda={`Así se llama en el aviso. Corto: «Falta el cono», «Desbordado» (hasta ${LARGO_ESTADO} letras).`}>
+                            <Input value={f.positivo} maxLength={LARGO_ESTADO} onChange={(e) => cambiar({ positivo: e.target.value })} placeholder="Desbordado" />
                         </CajonCampo>
                         <CajonCampo etiqueta="El normal">
-                            <Input value={f.negativo} onChange={(e) => cambiar({ negativo: e.target.value })} placeholder="Normal" />
+                            <Input value={f.negativo} maxLength={LARGO_ESTADO} onChange={(e) => cambiar({ negativo: e.target.value })} placeholder="Normal" />
                         </CajonCampo>
                     </div>
                     <div className="grid grid-cols-2 gap-3">

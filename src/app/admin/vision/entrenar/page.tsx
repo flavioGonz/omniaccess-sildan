@@ -10,39 +10,44 @@ import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { CajonZona, FORM_VACIO, aCuerpo, type FormZona } from "@/components/vision/FormZonaEntrenable";
 import { RECOMENDADO_POR_CLASE } from "@/lib/zona-entrenable";
-import { EstadoAhora, haceCuanto, type ZonaLista } from "@/components/vision/ZonaComun";
+import { haceCuanto, type ZonaLista } from "@/components/vision/ZonaComun";
+import { MuestraVista, Medidor } from "@/components/vision/entrenar/Piezas";
+import type { Analisis } from "@/lib/vision-capa";
+import { motion } from "motion/react";
 
 /**
  * OmniVision › Entrenar: las analíticas que arma uno. Cada tarjeta dice lo que importa para
  * confiar en ella: en qué estado está ahora, si decide con frases o con lo entrenado, y cuántos
  * ejemplos tiene.
  */
-function Tarjeta({ z }: { z: ZonaLista }) {
+function Tarjeta({ z, i }: { z: ZonaLista & { estado: (ZonaLista["estado"] & { analisis?: Analisis | null }) | null }; i: number }) {
     const ejemplos = z.conteo.pos + z.conteo.neg;
     return (
-        <Link href={`/admin/vision/entrenar/${z.id}`} className="rounded-[10px] border border-border bg-card overflow-hidden hover:border-[var(--accion)] transition-colors flex flex-col">
-            <div className="relative aspect-[4/3] bg-black">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {z.estado?.muestraUrl ? <img src={`${z.estado.muestraUrl}?w=640`} alt="" className="absolute inset-0 w-full h-full object-contain" />
-                    : <div className="absolute inset-0 grid place-items-center text-[12px] text-white/50">Sin muestras todavía</div>}
-                {!z.activa && <span className="absolute top-2 left-2"><Chip tono="quieto">Pausada</Chip></span>}
-            </div>
-            <div className="p-3 space-y-2 flex-1">
-                <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.35 }}>
+            <Link href={`/admin/vision/entrenar/${z.id}`} className="group rounded-[10px] border border-border bg-card overflow-hidden hover:border-[var(--accion)] transition-colors flex flex-col h-full">
+                <div className="relative">
+                    {z.estado?.muestraUrl ? <MuestraVista url={z.estado.muestraUrl} analisis={z.estado.analisis} ancho={640} className="aspect-[4/3] transition-transform duration-500 group-hover:scale-[1.02]" />
+                        : <div className="aspect-[4/3] bg-black grid place-items-center text-[12px] text-white/50">Sin muestras todavía</div>}
+                    {!z.activa && <span className="absolute top-2 left-2"><Chip tono="quieto">Pausada</Chip></span>}
+                </div>
+                <div className="p-3 flex gap-3 flex-1">
+                    <Medidor prob={z.estado?.prob ?? null} umbral={z.umbral} positivo={z.positivo} negativo={z.negativo} tam={84} />
+                    <div className="min-w-0 flex-1 space-y-1.5">
                         <div className="text-[14px] font-bold leading-tight truncate">{z.nombre}</div>
-                        <div className="text-[12px] text-muted-foreground truncate">{z.camara} · {z.positivo} / {z.negativo}</div>
+                        <div className="text-[12px] text-muted-foreground truncate">{z.camara}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            {z.modelo ? <Chip tono="bien">Entrenada · {z.modelo.exactitud != null ? `${Math.round(z.modelo.exactitud * 100)} %` : "sin medir"}</Chip> : <Chip tono="info">Con frases</Chip>}
+                            {!z.avisar && <Chip tono="quieto">Sólo registra</Chip>}
+                        </div>
+                        <div className="text-[11.5px] text-muted-foreground tabular-nums">
+                            {ejemplos ? `${z.conteo.pos} «${z.positivo}» + ${z.conteo.neg} «${z.negativo}»` : `sin ejemplos todavía (meta ${RECOMENDADO_POR_CLASE} de cada uno)`}
+                            {z.estado?.al && ` · ${haceCuanto(z.estado.al)}`}
+                        </div>
+                        {z.estado?.error && <div className="text-[11.5px] tono-mal truncate">{z.estado.error}</div>}
                     </div>
-                    <EstadoAhora z={z} />
                 </div>
-                <div className="flex items-center gap-2 flex-wrap text-[11.5px] text-muted-foreground tabular-nums">
-                    {z.modelo ? <Chip tono="bien">Entrenada · {z.modelo.exactitud != null ? `${Math.round(z.modelo.exactitud * 100)} % de acierto` : "sin medir"}</Chip> : <Chip tono="info">Con frases</Chip>}
-                    <span>{ejemplos ? `${z.conteo.pos} + ${z.conteo.neg} ejemplos` : `faltan ejemplos (meta ${RECOMENDADO_POR_CLASE} + ${RECOMENDADO_POR_CLASE})`}</span>
-                    {z.estado?.al && <span className="ml-auto">{haceCuanto(z.estado.al)}</span>}
-                </div>
-                {!z.avisar && <div className="text-[11.5px] text-muted-foreground">No avisa a la guardia: sólo registra.</div>}
-            </div>
-        </Link>
+            </Link>
+        </motion.div>
     );
 }
 
@@ -63,6 +68,11 @@ export default function EntrenarVision() {
     }, []);
     useEffect(() => { cargar(); }, [cargar]);
     useTiempoReal<{ id: string; estado: any }>("zona_estado", (d) => setDatos((x) => x ? { ...x, zonas: x.zonas.map((z) => z.id === d.id ? { ...z, estado: { ...d.estado, muestraUrl: d.estado?.muestra ? `/api/vision/imagen/${d.estado.muestra}` : z.estado?.muestraUrl } } : z) } : x));
+    const pasos = [
+        { n: 1, t: "Dibujá la zona", d: "Sobre el contenedor, el portón o el lugar que importa." },
+        { n: 2, t: "Describí los dos estados", d: "«Desbordado» y «Normal», con una frase de cómo se ve cada uno." },
+        { n: 3, t: "Enseñale con ejemplos", d: "Toma fotos solas; vos decís qué es cada una. Con 30 de cada uno, aprende tu lugar." },
+    ];
 
     async function crear(f: FormZona) {
         setGuardando(true);
@@ -92,6 +102,15 @@ export default function EntrenarVision() {
                 <Button onClick={() => setNueva(true)} disabled={!datos}><Plus size={15} /> Nueva</Button>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {pasos.map((p, i) => (
+                    <motion.div key={p.n} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="rounded-[10px] border border-border bg-card px-4 py-3 flex gap-3">
+                        <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--accion)] text-white text-[13px] font-bold tabular-nums shrink-0">{p.n}</span>
+                        <div><div className="text-[13px] font-bold">{p.t}</div><div className="text-[12px] text-muted-foreground leading-snug">{p.d}</div></div>
+                    </motion.div>
+                ))}
+            </div>
+
             {error && !datos ? <ErrorEstado mensaje={error} alReintentar={cargar} />
                 : !datos ? <Cargando texto="Trayendo las analíticas…" />
                     : datos.zonas.length === 0 ? (
@@ -99,7 +118,7 @@ export default function EntrenarVision() {
                             <p className="text-[13px] text-muted-foreground">Todavía no hay ninguna. Elegí una cámara, dibujá la zona y describí los dos estados.</p>
                             <Button onClick={() => setNueva(true)}><Plus size={15} /> Crear la primera</Button>
                         </div>
-                    ) : <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{datos.zonas.map((z) => <Tarjeta key={z.id} z={z} />)}</div>}
+                    ) : <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{datos.zonas.map((z, i) => <Tarjeta key={z.id} z={z} i={i} />)}</div>}
 
             {nueva && datos && <CajonZona inicial={FORM_VACIO} nueva camaras={datos.camaras} guardando={guardando} alCerrar={() => setNueva(false)} alGuardar={crear} />}
         </div>

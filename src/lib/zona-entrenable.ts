@@ -5,7 +5,7 @@
  *
  *  1. Sin ejemplos: frases. SigLIP compara el recorte con «contenedor desbordado, bolsas en el
  *     piso» contra «contenedor cerrado y ordenado». Sirve desde el primer minuto y junta muestras.
- *  2. Con ejemplos: un clasificador propio (prototipos calibrados) sobre el vector SigLIP del
+ *  2. Con ejemplos: un clasificador propio (prototipos calibrados, partiendo de las frases) sobre el vector SigLIP del
  *     recorte, entrenado con las muestras que alguien etiquetó. Aprende ESE contenedor, con esa
  *     luz y ese ángulo. Entrena en el procesador, en segundos: no toca la GPU del lector.
  *  3. El aviso: el estado que avisa sostenido `sostenerSeg` (una bolsa de paso no es un
@@ -27,6 +27,8 @@ export type ModeloZona = {
     w: number[]; b: number;
     /** Calibración (Platt): prob = sigmoide(a·puntaje + c), ajustada sobre la validación cruzada. */
     a: number; c: number; dim: number;
+    /** Cuánto pesan las frases en la dirección (0 = sólo ejemplos, 1 = sólo frases); lo elige la validación. */
+    guia?: number;
     n: { pos: number; neg: number };
     /** Exactitud balanceada en validación cruzada, en el punto de equilibrio (0,5). */
     exactitud: number | null;
@@ -59,12 +61,18 @@ export const MIN_POR_CLASE = 5;
 /** Lo que suele alcanzar para que el acierto se estabilice; se muestra como meta. */
 export const RECOMENDADO_POR_CLASE = 30;
 const FRASES_MAX = 6;
+/** Largos máximos: el formulario los muestra y el servidor los rechaza, nunca recorta callado. */
+export const LARGO_NOMBRE = 80;
+export const LARGO_ESTADO = 60;
 const HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export function validarZona(x: any): { datos: ZonaDatos | null; errores: string[] } {
     const errores: string[] = [];
     const texto = (v: any, max = 80) => String(v ?? "").trim().slice(0, max);
-    const nombre = texto(x?.nombre), positivo = texto(x?.positivo, 40), negativo = texto(x?.negativo, 40);
+    const nombre = texto(x?.nombre, LARGO_NOMBRE), positivo = texto(x?.positivo, LARGO_ESTADO), negativo = texto(x?.negativo, LARGO_ESTADO);
+    // Se rechaza en vez de recortar: «Cartel… Está prese» (10/10) salió de cortar en silencio.
+    if (String(x?.nombre ?? "").trim().length > LARGO_NOMBRE) errores.push(`El nombre es muy largo (hasta ${LARGO_NOMBRE} letras).`);
+    if (String(x?.positivo ?? "").trim().length > LARGO_ESTADO || String(x?.negativo ?? "").trim().length > LARGO_ESTADO) errores.push(`El nombre de un estado es muy largo (hasta ${LARGO_ESTADO} letras): es lo que sale en el aviso.`);
     if (!nombre) errores.push("Falta el nombre.");
     if (!positivo || !negativo) errores.push("Faltan los nombres de los dos estados.");
     if (positivo && negativo && positivo.toLowerCase() === negativo.toLowerCase()) errores.push("Los dos estados no pueden llamarse igual.");
@@ -128,15 +136,43 @@ export function puntuar(m: ModeloZona | null | undefined, v: Float32Array): numb
  * aprender quedan en 50 %, que es lo honesto. Y se explica en una frase: «se parece más a los
  * desbordados que a los normales».
  */
-function prototipos(X: Float32Array[], y: number[]) {
+const unitario = (a: ArrayLike<number>) => { let n = 0; for (let i = 0; i < a.length; i++) n += a[i] * a[i]; n = Math.sqrt(n) || 1; return Float64Array.from(a as ArrayLike<number>, (x) => x / n); };
+
+/**
+ * Prototipos, partiendo de las frases: la dirección es una mezcla de la de los ejemplos (promedio
+ * de los que avisan − promedio de los normales) y la de las frases (lo mismo con los vectores de
+ * texto), cada una de largo 1. El umbral se centra entre los dos promedios de los ejemplos.
+ *
+ * Por qué mezclar: con pocos ejemplos de lo raro, el promedio de 7 autos es ruido y la frase «un
+ * auto en la calle» sabe más. Medido el 10/10 con la zona de prueba de LPR Entrada (7 + 56
+ * etiquetados por Nico, dejando uno afuera cada vez): sólo ejemplos 65 %, sólo frases 79 %,
+ * 75 % frases + 25 % ejemplos 84 %. Con muchos ejemplos gana la otra punta; por eso el peso no
+ * es fijo sino que lo elige la validación cruzada en cada entrenamiento.
+ */
+function prototipos(X: Float32Array[], y: number[], guia: Float64Array | null, beta: number) {
     const d = X[0].length;
     const mp = new Float64Array(d), mn = new Float64Array(d);
     let np = 0, nn = 0;
     X.forEach((x, k) => { const m = y[k] ? mp : mn; if (y[k]) np++; else nn++; for (let i = 0; i < d; i++) m[i] += x[i]; });
-    const w = Float64Array.from(mp, (v, i) => v / np - mn[i] / nn);
-    const centro = Float64Array.from(mp, (v, i) => (v / np + mn[i] / nn) / 2);
+    for (let i = 0; i < d; i++) { mp[i] /= np; mn[i] /= nn; }
+    const propia = unitario(Float64Array.from(mp, (v, i) => v - mn[i]));
+    const w = guia ? Float64Array.from(propia, (v, i) => (1 - beta) * v + beta * guia[i]) : propia;
+    const centro = Float64Array.from(mp, (v, i) => (v + mn[i]) / 2);
     return { w, b: -producto(w, centro) };
 }
+
+/** La dirección de las frases (promedio de las del que avisa − promedio de las del normal), de largo 1. */
+export function guiaDeFrases(positivas: Float32Array[], negativas: Float32Array[]): Float64Array | null {
+    if (!positivas.length || !negativas.length) return null;
+    const d = positivas[0].length;
+    const g = new Float64Array(d);
+    for (const v of positivas) for (let i = 0; i < d; i++) g[i] += v[i] / positivas.length;
+    for (const v of negativas) for (let i = 0; i < d; i++) g[i] -= v[i] / negativas.length;
+    return unitario(g);
+}
+
+/** Los pesos de las frases que se prueban en cada entrenamiento. */
+const MEZCLAS = [0, 0.25, 0.5, 0.75, 1];
 
 /**
  * Calibración de Platt: de puntaje crudo a probabilidad, con pesos por clase (con 300 normales
@@ -162,32 +198,38 @@ function platt(puntos: { s: number; y: number }[]) {
  * (hasta 5 pliegues): cada muestra se predice con un modelo que no la vio. Ese número es el que
  * se muestra; el acierto sobre lo mismo que se entrenó siempre da cerca de 100 % y no dice nada.
  */
-export function entrenar(ejemplos: { v: Float32Array; y: 0 | 1 }[], umbral: number, por: string | null): ModeloZona {
+export function entrenar(ejemplos: { v: Float32Array; y: 0 | 1 }[], umbral: number, por: string | null, guia: Float64Array | null = null): ModeloZona {
     const pos = ejemplos.filter((e) => e.y === 1), neg = ejemplos.filter((e) => e.y === 0);
     if (pos.length < MIN_POR_CLASE || neg.length < MIN_POR_CLASE) throw new Error(`Hacen falta al menos ${MIN_POR_CLASE} ejemplos de cada estado (hay ${pos.length} y ${neg.length}).`);
     const pliegues = Math.min(5, pos.length, neg.length);
     // Estratificado: cada pliegue lleva su parte de cada estado, así ninguno queda sin positivos.
     const todos = [...pos.map((e, i) => ({ e, f: i % pliegues })), ...neg.map((e, i) => ({ e, f: i % pliegues }))];
-    const puntos: { s: number; y: number }[] = [];
-    for (let f = 0; f < pliegues; f++) {
-        const tren = todos.filter((t) => t.f !== f);
-        const m = prototipos(tren.map((t) => t.e.v), tren.map((t) => t.e.y));
-        for (const t of todos) if (t.f === f) puntos.push({ s: producto(m.w, t.e.v) + m.b, y: t.e.y });
-    }
-    const { a, c } = platt(puntos);
+    const validar = (beta: number) => {
+        const puntos: { s: number; y: number }[] = [];
+        for (let f = 0; f < pliegues; f++) {
+            const tren = todos.filter((t) => t.f !== f);
+            const m = prototipos(tren.map((t) => t.e.v), tren.map((t) => t.e.y), guia, beta);
+            for (const t of todos) if (t.f === f) puntos.push({ s: producto(m.w, t.e.v) + m.b, y: t.e.y });
+        }
+        const { a, c } = platt(puntos);
+        // El acierto se mide en el punto de equilibrio (0,5): es la calidad del modelo.
+        const bien = (y: number) => puntos.filter((p) => p.y === y && (sigmoide(a * p.s + c) >= 0.5 ? 1 : 0) === y).length / puntos.filter((p) => p.y === y).length;
+        return { beta, puntos, a, c, exactitud: 0.5 * (bien(1) + bien(0)) };
+    };
+    // La mezcla que mejor acierta en ejemplos que no vio; a igual acierto, la más cerca de la mitad.
+    const pruebas = (guia ? MEZCLAS : [0]).map(validar);
+    const mejor = pruebas.reduce((x, y) => (y.exactitud > x.exactitud + 1e-9 || (Math.abs(y.exactitud - x.exactitud) < 1e-9 && Math.abs(y.beta - 0.5) < Math.abs(x.beta - 0.5)) ? y : x));
+    // La matriz, en cambio, va al umbral de la zona: es lo que de verdad dispararía.
     const matriz = { vp: 0, fp: 0, vn: 0, fn: 0 };
-    for (const p of puntos) {
-        const dice = sigmoide(a * p.s + c) >= umbral;
+    for (const p of mejor.puntos) {
+        const dice = sigmoide(mejor.a * p.s + mejor.c) >= umbral;
         if (p.y) dice ? matriz.vp++ : matriz.fn++;
         else dice ? matriz.fp++ : matriz.vn++;
     }
-    // El acierto se mide en el punto de equilibrio (0,5): es la calidad del modelo. La matriz, en
-    // cambio, va al umbral de la zona: es lo que de verdad dispararía.
-    const bien = (y: number) => puntos.filter((p) => p.y === y && (sigmoide(a * p.s + c) >= 0.5 ? 1 : 0) === y).length / puntos.filter((p) => p.y === y).length;
-    const exactitud = 0.5 * (bien(1) + bien(0));
-    const final = prototipos(ejemplos.map((e) => e.v), ejemplos.map((e) => e.y));
+    const final = prototipos(ejemplos.map((e) => e.v), ejemplos.map((e) => e.y), guia, mejor.beta);
     return {
-        w: Array.from(final.w, (x) => +x.toFixed(6)), b: +final.b.toFixed(6), a: +a.toFixed(4), c: +c.toFixed(4), dim: final.w.length,
-        n: { pos: pos.length, neg: neg.length }, exactitud: +exactitud.toFixed(4), matriz, pliegues, entrenado: new Date().toISOString(), por,
+        w: Array.from(final.w, (x) => +x.toFixed(6)), b: +final.b.toFixed(6), a: +mejor.a.toFixed(4), c: +mejor.c.toFixed(4), dim: final.w.length,
+        guia: guia ? mejor.beta : 0,
+        n: { pos: pos.length, neg: neg.length }, exactitud: +mejor.exactitud.toFixed(4), matriz, pliegues, entrenado: new Date().toISOString(), por,
     };
 }

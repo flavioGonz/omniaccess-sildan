@@ -25,6 +25,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const z = await prisma.zonaEntrenable.findUnique({ where: { id }, select: { modelo: true, umbral: true } });
     if (!z) return NextResponse.json({ error: "No existe." }, { status: 404 });
     const vista = req.nextUrl.searchParams.get("vista") || "dudosas";
+    const limite = Math.min(POR_PAGINA, Math.max(1, Number(req.nextUrl.searchParams.get("limite")) || POR_PAGINA));
     const antes = req.nextUrl.searchParams.get("antes");
     const modelo = (z.modelo as ModeloZona | null) || null;
     const conProb = (m: { vector: Buffer | Uint8Array; escala: number; prob: number | null }) => {
@@ -33,20 +34,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     };
     const forma = (m: any) => ({
         id: m.id, url: imagen(m.recorte), prob: conProb(m) ?? null, probTomada: m.prob, fuente: m.fuente,
-        etiqueta: m.etiqueta, etiquetadoPor: m.etiquetadoPor, ts: m.createdAt.toISOString(),
+        etiqueta: m.etiqueta, etiquetadoPor: m.etiquetadoPor, ts: m.createdAt.toISOString(), analisis: m.analisis ?? null,
     });
-    const sel = { id: true, recorte: true, vector: true, escala: true, prob: true, fuente: true, etiqueta: true, etiquetadoPor: true, createdAt: true } as const;
+    const sel = { id: true, recorte: true, vector: true, escala: true, prob: true, fuente: true, etiqueta: true, etiquetadoPor: true, createdAt: true, analisis: true } as const;
 
     if (vista === "dudosas") {
         const filas = await prisma.muestraZona.findMany({ where: { zonaId: id, etiqueta: null }, orderBy: { createdAt: "desc" }, take: DUDOSAS_MAX, select: sel });
-        const muestras = filas.map(forma).filter((m) => m.prob != null).sort((a, b) => Math.abs(a.prob! - z.umbral) - Math.abs(b.prob! - z.umbral)).slice(0, POR_PAGINA);
+        const muestras = filas.map(forma).filter((m) => m.prob != null).sort((a, b) => Math.abs(a.prob! - z.umbral) - Math.abs(b.prob! - z.umbral)).slice(0, limite);
         return NextResponse.json({ muestras, hayMas: false }, { headers: { "Cache-Control": "no-store" } });
     }
     const where: any = { zonaId: id };
     if (vista === "sin") where.etiqueta = null; else if (vista === "pos" || vista === "neg") where.etiqueta = vista;
     if (antes) where.createdAt = { lt: new Date(antes) };
-    const filas = await prisma.muestraZona.findMany({ where, orderBy: { createdAt: "desc" }, take: POR_PAGINA + 1, select: sel });
-    return NextResponse.json({ muestras: filas.slice(0, POR_PAGINA).map(forma), hayMas: filas.length > POR_PAGINA }, { headers: { "Cache-Control": "no-store" } });
+    const filas = await prisma.muestraZona.findMany({ where, orderBy: { createdAt: "desc" }, take: limite + 1, select: sel });
+    return NextResponse.json({ muestras: filas.slice(0, limite).map(forma), hayMas: filas.length > limite }, { headers: { "Cache-Control": "no-store" } });
 }
 
 /** PATCH { ids: [...], etiqueta: "pos" | "neg" | null } — etiquetar (o desetiquetar) de a varias. */

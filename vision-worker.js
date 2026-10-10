@@ -577,7 +577,7 @@ async function principal() {
         }),
         bajar, subir,
     });
-    zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas });
+    zonero = zonasEntrenables.iniciar({ prisma, log, vision: VISION, subir, borrar, activa: () => ajustes.zonas, segmentar: () => !ajustes.apagadas.has("segmentar") });
     let ultEstado = 0, ultLimpieza = 0, hayTrabajo = false;
     while (corriendo) {
         const t0 = Date.now();

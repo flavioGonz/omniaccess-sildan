@@ -1353,6 +1353,8 @@ model MuestraZona {
   /// Lo que dijo el modelo vigente al tomarla, y con qué (frases | entrenado)
   prob          Float?
   fuente        String
+  /// Lo que omni-vision ve en el recorte (siluetas y nombres), para mostrarlo al etiquetar
+  analisis      Json?
   /// "pos" | "neg" | null (sin etiquetar). Las etiquetadas no vencen.
   etiqueta      String?
   etiquetadoPor String?
