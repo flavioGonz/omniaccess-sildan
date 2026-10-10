@@ -124,6 +124,27 @@ export const VEREDICTOS: Record<Veredicto, { rotulo: string; tono: "mal" | "avis
 /** De más fuerte a más débil: con dos fotos (captura y cuadro propio) vale la más fuerte. */
 export const ORDEN_VEREDICTO: Veredicto[] = ["CONFIRMADA", "PRESENTE", "ANIMAL", "NADA"];
 
+/**
+ * El filtro por lo que vio omni-vision, igual en todas las listas de detecciones (monitor de
+ * intrusión, cajón del monitor LPR, pared). Agrupa como piensa el guardia: «con alguien» es lo que
+ * hay que mirar; «sin nadie» (sólo un animal o la escena vacía) es lo que probablemente es falsa;
+ * «sin analizar» separa lo que omni-vision no miró —anterior al 9/10, sin foto o con error— de lo
+ * que miró y no encontró nada, que antes se confundían.
+ */
+export type FiltroVision = "todas" | "alguien" | "nadie" | "sin";
+export const FILTROS_VISION: { v: FiltroVision; rotulo: string; pista: string }[] = [
+    { v: "todas", rotulo: "Todas", pista: "Sin filtrar por omni-vision." },
+    { v: "alguien", rotulo: "Con alguien", pista: "omni-vision vio una persona o un vehículo: confirmada o «hay alguien»." },
+    { v: "nadie", rotulo: "Sin nadie", pista: "Sólo un animal o la escena vacía: probablemente falsas." },
+    { v: "sin", rotulo: "Sin analizar", pista: "omni-vision no la miró (todavía): anterior al 9/10, sin foto, con error o en cola." },
+];
+export function pasaVision(v: Veredicto | null | undefined, f: FiltroVision): boolean {
+    if (f === "todas") return true;
+    if (f === "sin") return !v;
+    if (f === "alguien") return v === "CONFIRMADA" || v === "PRESENTE";
+    return v === "ANIMAL" || v === "NADA";
+}
+
 /** El veredicto de una captura con la geometría de la cámara, y qué objetos tocan. */
 export function veredicto(a: Analisis, g: GeomNorm | null): { estado: Veredicto; tocan: boolean[] } {
     const tocan = a.objetos.map((o) => !!g && GRUPOS_RELEVANTES.has(o.grupo) && (tocaLinea(o, g.linea, a.ancho, a.alto) || tocaZona(o, g.zona, a.ancho, a.alto)));

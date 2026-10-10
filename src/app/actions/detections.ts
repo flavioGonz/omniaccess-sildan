@@ -1,6 +1,8 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { verificacionesDe, type Verificacion } from "@/lib/verificacion";
+import { pasaVision, type FiltroVision, type Veredicto } from "@/lib/vision-capa";
 
 export type DetItem = {
     id: string;
@@ -15,14 +17,18 @@ export type DetItem = {
     /** Si un operador ya la miró, y qué dijo: "real" | "false". */
     acknowledged?: boolean;
     ackKind?: string | null;
+    /** Lo que concluye omni-vision (lo agrega /api/detecciones): null = no la miró. */
+    veredicto?: Veredicto | null;
 };
 
 /** Últimas detecciones generales (analíticas). Por defecto excluye MOTION (ruidoso). */
-export async function getRecentDetections(limit = 40, includeMotion = false): Promise<DetItem[]> {
+export async function getRecentDetections(limit = 40, includeMotion = false, conVeredicto = false): Promise<DetItem[]> {
     const where = includeMotion ? {} : { type: { not: "MOTION" } };
     const rows = await prisma.detection.findMany({ where, orderBy: { timestamp: "desc" }, take: Math.min(150, limit) });
     const ids = [...new Set(rows.map((r) => r.deviceId).filter(Boolean))] as string[];
     const devs = ids.length ? await prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+    // El veredicto de omni-vision, con la geometría vigente (lib/verificacion): se pide sólo donde se muestra.
+    const ver = conVeredicto && rows.length ? await verificacionesDe(rows.map((r) => r.id), await getAnalyticsGeometryBatch(ids).catch(() => ({})) as any).catch(() => new Map()) : null;
     const nmeMap: Record<string, string> = {};
     devs.forEach((d) => (nmeMap[d.id] = d.name));
     return rows.map((r) => ({
@@ -36,6 +42,7 @@ export async function getRecentDetections(limit = 40, includeMotion = false): Pr
         label: r.label,
         acknowledged: r.acknowledged,
         ackKind: r.ackKind,
+        ...(ver ? { veredicto: ver.get(r.id)?.veredicto ?? null } : {}),
     }));
 }
 
@@ -196,10 +203,21 @@ export async function getAnalyticsGeometryBatch(ids: string[], fresco = false): 
 }
 
 
-export type DetHistItem = { id: string; deviceId: string | null; deviceName: string | null; nvrName: string | null; ch: number | null; type: string; eventType: string | null; snapshotPath: string | null; timestamp: string; acknowledged?: boolean; ackKind?: string | null; label?: string | null };
+export type DetHistItem = { id: string; deviceId: string | null; deviceName: string | null; nvrName: string | null; ch: number | null; type: string; eventType: string | null; snapshotPath: string | null; timestamp: string; acknowledged?: boolean; ackKind?: string | null; label?: string | null;
+    /** Con `conVeredicto`: lo que concluye omni-vision con la geometría vigente (null = no la miró). */
+    veredicto?: Veredicto | null };
+
+/**
+ * Con filtro por veredicto, cuántas de las más recientes (que cumplen el resto del filtro) se
+ * miran. El veredicto no está en la base —depende de dónde está HOY la línea de la cámara— y se
+ * calcula al pedir; medido el 10/10 hay 138 analizadas en total, así que la ventana sobra por
+ * meses. Si se llena, la respuesta lo dice (`truncado`, con el tamaño de la ventana) en vez de
+ * dar un total falso.
+ */
+const VENTANA_VEREDICTO = 2000;
 
 /** Historial paginado de detecciones (para la vista tipo /admin/history de intrusión). */
-export async function getDetectionHistory(opts: { page?: number; pageSize?: number; type?: string; deviceId?: string; from?: string; to?: string; ack?: "pending" | "done" | "all" } = {}): Promise<{ items: DetHistItem[]; total: number; page: number; pageSize: number }> {
+export async function getDetectionHistory(opts: { page?: number; pageSize?: number; type?: string; deviceId?: string; from?: string; to?: string; ack?: "pending" | "done" | "all"; vision?: FiltroVision; conVeredicto?: boolean } = {}): Promise<{ items: DetHistItem[]; total: number; page: number; pageSize: number; truncado?: number }> {
     const page = Math.max(0, opts.page ?? 0);
     const size = Math.min(100, opts.pageSize ?? 40);
     const where: any = {};
@@ -214,10 +232,31 @@ export async function getDetectionHistory(opts: { page?: number; pageSize?: numb
     if (opts.from) { const f = new Date(opts.from); if (!isNaN(f.getTime())) _ts.gte = f; }
     if (opts.to) { const t = new Date(opts.to); if (!isNaN(t.getTime())) _ts.lte = t; }
     if (Object.keys(_ts).length) where.timestamp = _ts;
-    const [rows, total] = await Promise.all([
-        prisma.detection.findMany({ where, orderBy: { timestamp: "desc" }, skip: page * size, take: size }),
-        prisma.detection.count({ where }),
-    ]);
+    const vision = opts.vision || "todas";
+    // «Sin analizar» se contesta en la base: es no tener verificación OK (o ninguna).
+    if (vision === "sin") where.OR = [{ verifEstado: null }, { verifEstado: { not: "OK" } }];
+    let rows: any[], total: number, truncado = 0;
+    let veredictos = new Map<string, Verificacion>();
+    if (vision === "alguien" || vision === "nadie") {
+        // El veredicto se calcula: se traen las analizadas de la ventana, se decide y se pagina acá.
+        const cand = await prisma.detection.findMany({ where: { ...where, verifEstado: "OK" }, orderBy: { timestamp: "desc" }, take: VENTANA_VEREDICTO, select: { id: true, deviceId: true } });
+        truncado = cand.length === VENTANA_VEREDICTO ? VENTANA_VEREDICTO : 0;
+        const geom = await getAnalyticsGeometryBatch([...new Set(cand.map((c) => c.deviceId).filter(Boolean))] as string[]).catch(() => ({}));
+        veredictos = await verificacionesDe(cand.map((c) => c.id), geom as any);
+        const pasan = cand.filter((c) => pasaVision(veredictos.get(c.id)?.veredicto, vision)).map((c) => c.id);
+        total = pasan.length;
+        const pagina = pasan.slice(page * size, (page + 1) * size);
+        rows = pagina.length ? await prisma.detection.findMany({ where: { id: { in: pagina } }, orderBy: { timestamp: "desc" } }) : [];
+    } else {
+        [rows, total] = await Promise.all([
+            prisma.detection.findMany({ where, orderBy: { timestamp: "desc" }, skip: page * size, take: size }),
+            prisma.detection.count({ where }),
+        ]);
+        if (opts.conVeredicto && rows.length) {
+            const geom = await getAnalyticsGeometryBatch([...new Set(rows.map((r) => r.deviceId).filter(Boolean))] as string[]).catch(() => ({}));
+            veredictos = await verificacionesDe(rows.map((r) => r.id), geom as any).catch(() => new Map());
+        }
+    }
     const ids = [...new Set(rows.map((r) => r.deviceId).filter(Boolean))] as string[];
     const [devs, nvrs, mapRow] = await Promise.all([
         ids.length ? prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, ip: true } }) : Promise.resolve([] as any[]),
@@ -230,9 +269,11 @@ export async function getDetectionHistory(opts: { page?: number; pageSize?: numb
     const items = rows.map((r) => {
         const d = r.deviceId ? dm[r.deviceId] : null;
         const e = d ? map[d.ip] : null; const nid = e ? (e.nvr || e.nvrId || null) : null;
-        return { id: r.id, deviceId: r.deviceId, deviceName: d?.name || null, nvrName: nid ? (nvrName[nid] || null) : null, ch: e ? Number(e.ch) : null, type: r.type, eventType: r.eventType, snapshotPath: r.snapshotPath, timestamp: r.timestamp.toISOString(), acknowledged: r.acknowledged, ackKind: r.ackKind, label: r.label };
+        const item: DetHistItem = { id: r.id, deviceId: r.deviceId, deviceName: d?.name || null, nvrName: nid ? (nvrName[nid] || null) : null, ch: e ? Number(e.ch) : null, type: r.type, eventType: r.eventType, snapshotPath: r.snapshotPath, timestamp: r.timestamp.toISOString(), acknowledged: r.acknowledged, ackKind: r.ackKind, label: r.label };
+        if (opts.conVeredicto || vision !== "todas") item.veredicto = veredictos.get(r.id)?.veredicto ?? null;
+        return item;
     });
-    return { items, total, page, pageSize: size };
+    return { items, total, page, pageSize: size, ...(truncado ? { truncado } : {}) };
 }
 
 

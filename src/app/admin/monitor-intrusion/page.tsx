@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, reclasificarComoFalsa, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
-import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye } from "lucide-react";
+import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Eye, ScanEye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { InteriorCalibrator } from "@/components/InteriorCalibrator";
@@ -20,6 +20,7 @@ import { LiveModal } from "@/components/intrusion/LiveModal";
 import { FichaDeteccion as DetailDialog } from "@/components/intrusion/FichaDeteccion";
 import { HorarioArmadoDialog, ResumenArmado, type HorariosCamara } from "@/components/intrusion/HorarioArmado";
 import { conAncho } from "@/lib/ancho-foto";
+import { FILTROS_VISION, VEREDICTOS, pasaVision, type FiltroVision, type Veredicto } from "@/lib/vision-capa";
 
 type Geom = { line: { x: number; y: number }[]; field: { x: number; y: number }[] };
 type AlarmChip = { id: string; type: string; label: string; ts: string };
@@ -475,6 +476,19 @@ function EvidencePlayModal({ d, onClose }: { d: DetHistItem; onClose: () => void
     );
 }
 
+/**
+ * Lo que concluyó omni-vision, sobre la foto. Usa los tonos de estado (lib/vision-capa): rojo
+ * confirmada, ámbar hay alguien, gris animal o nada. Nunca decide: la alarma la acepta una persona.
+ */
+function MarcaVeredicto({ v, grande, className }: { v: Veredicto; grande?: boolean; className?: string }) {
+    const x = VEREDICTOS[v];
+    return (
+        <span title={`omni-vision: ${x.explica}`} className={cn("inline-flex items-center gap-1 rounded-full border font-bold uppercase backdrop-blur-sm", grande ? "px-2 py-0.5 text-[10px]" : "px-1.5 py-px text-[8px]", `chip-${x.tono}`, className)}>
+            <ScanEye size={grande ? 11 : 8} /> {x.rotulo}
+        </span>
+    );
+}
+
 function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam[]; onClose: () => void; onOpen: (d: DetHistItem) => void; onPlay?: (d: DetHistItem) => void }) {
     const [items, setItems] = useState<DetHistItem[]>([]);
     const [total, setTotal] = useState(0);
@@ -487,27 +501,29 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
     const [from, setFrom] = useState("");
     const [to, setTo] = useState("");
     const [ack, setAck] = useState<"all" | "pending" | "done">("all");
+    const [vision, setVision] = useState<FiltroVision>("todas");
+    const [truncado, setTruncado] = useState(0);
     const [qApplied, setQApplied] = useState("");
     const size = 48;
-    useEffect(() => { setPage(0); setItems([]); setMore(true); }, [type, dev, from, to, ack]);
+    useEffect(() => { setPage(0); setItems([]); setMore(true); }, [type, dev, from, to, ack, vision]);
     useEffect(() => { const t = setTimeout(() => setQApplied(q), 220); return () => clearTimeout(t); }, [q]);
     useEffect(() => {
         let on = true; setLoading(true);
-        getDetectionHistory({ page, pageSize: size, type, deviceId: dev || undefined, from: from || undefined, to: to || undefined, ack }).then((r) => {
+        getDetectionHistory({ page, pageSize: size, type, deviceId: dev || undefined, from: from || undefined, to: to || undefined, ack, vision, conVeredicto: true }).then((r) => {
             if (!on) return;
-            setTotal(r.total);
+            setTotal(r.total); setTruncado(r.truncado || 0);
             setItems((prev) => (page === 0 ? r.items : [...prev, ...r.items]));
             setMore((page + 1) * size < r.total);
         }).catch(() => { }).finally(() => { if (on) setLoading(false); });
         return () => { on = false; };
-    }, [page, type, dev, from, to, ack]);
+    }, [page, type, dev, from, to, ack, vision]);
     const onScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; if (!loading && more && el.scrollTop + el.clientHeight >= el.scrollHeight - 400) setPage((p) => p + 1); };
     const shown = useMemo(() => { const term = qApplied.trim().toLowerCase(); return term ? items.filter((d) => (d.deviceName || "").toLowerCase().includes(term) || (d.nvrName || "").toLowerCase().includes(term)) : items; }, [items, qApplied]);
     const TF = [
         { k: "ANALYTIC", label: "Intrusión+", Icon: ShieldAlert }, { k: "INTRUSION", label: "Intrusión", Icon: ShieldAlert }, { k: "LINECROSS", label: "Línea", Icon: Radar }, { k: "MOTION", label: "Movimiento", Icon: Activity }, { k: "ALL", label: "Todo", Icon: Camera },
     ] as const;
-    const nActive = (q ? 1 : 0) + (dev ? 1 : 0) + (type !== "ANALYTIC" ? 1 : 0) + (ack !== "all" ? 1 : 0) + ((from || to) ? 1 : 0);
-    const clearAll = () => { setQ(""); setDev(""); setType("ANALYTIC"); setAck("all"); setFrom(""); setTo(""); };
+    const nActive = (q ? 1 : 0) + (dev ? 1 : 0) + (type !== "ANALYTIC" ? 1 : 0) + (ack !== "all" ? 1 : 0) + ((from || to) ? 1 : 0) + (vision !== "todas" ? 1 : 0);
+    const clearAll = () => { setQ(""); setDev(""); setType("ANALYTIC"); setAck("all"); setFrom(""); setTo(""); setVision("todas"); };
     const stats = useMemo(() => { const by: Record<string, number> = {}; let pend = 0, done = 0; for (const d of items) { by[d.type] = (by[d.type] || 0) + 1; if (d.acknowledged) done++; else pend++; } return { by, pend, done }; }, [items]);
     const [hoverId, setHoverId] = useState<string | null>(null);
     const [playId, setPlayId] = useState<string | null>(null);
@@ -554,6 +570,10 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                         )}
                     </Block>
                     <Block icon={<Check size={15} />} title="Estado"><div className="flex gap-1.5">{([["all", "Todas"], ["pending", "Pendientes"], ["done", "Revisadas"]] as const).map(([k, lbl]) => (<button key={k} onClick={() => setAck(k)} className={cn("flex-1 px-1.5 py-2 rounded-xl text-[11px] font-bold transition-colors", ack === k ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" : "bg-white/5 text-white/55 hover:bg-white/10")}>{lbl}</button>))}</div></Block>
+                    <Block icon={<ScanEye size={15} />} title="omni-vision">
+                        <div className="grid grid-cols-2 gap-1.5">{FILTROS_VISION.map((f) => (<button key={f.v} title={f.pista} onClick={() => setVision(f.v)} className={cn("px-2 py-2 rounded-xl text-[11px] font-bold transition-colors", vision === f.v ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40" : "bg-white/5 text-white/55 hover:bg-white/10")}>{f.rotulo}</button>))}</div>
+                        {truncado && <div className="mt-2 text-[10.5px] text-white/45 leading-snug">Se miraron las {truncado} más recientes: acotá el rango de fechas para ver más atrás.</div>}
+                    </Block>
                     <Block icon={<CalIco size={15} />} title="Rango de fechas"><div className="space-y-2"><label className="block"><span className="text-[11px] font-bold text-white/40">Desde</span><input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} className={cn(inp, "px-2.5 text-[12px]")} /></label><label className="block"><span className="text-[11px] font-bold text-white/40">Hasta</span><input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} className={cn(inp, "px-2.5 text-[12px]")} /></label></div></Block>
                 </div>
                 <div className="px-4 py-3 border-t border-white/10 flex items-center gap-2"><span className="text-[12px] font-bold text-white/50 tabular-nums">{total} eventos</span>{nActive > 0 && <button onClick={clearAll} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-[12px] font-bold text-white/70 transition">Limpiar</button>}</div>
@@ -594,6 +614,7 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                                                 <span className="relative inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/55 backdrop-blur-sm text-white text-[12px] font-bold shadow"><Loader2 size={14} className="animate-spin" /> Cargando evento<Dots /></span>
                                             </div>
                                         )}
+                                        {d.veredicto && <MarcaVeredicto v={d.veredicto} grande className="absolute top-9 right-2.5 z-[1]" />}
                                         {(() => { const st = !d.acknowledged ? { t: "Pendiente", c: "bg-amber-500/90" } : d.ackKind === "false" ? { t: "Falsa", c: "bg-slate-500/90" } : { t: "Real", c: "bg-red-600/90" }; return <span className={cn("absolute top-2.5 right-2.5 z-[1] inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide text-white shadow backdrop-blur-sm", st.c)}>{st.t}</span>; })()}
                                         <div className="absolute top-2.5 left-3 right-14"><div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div><div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow truncate">{(d.nvrName ? d.nvrName + (d.ch != null ? " · CH " + d.ch : "") + " · " : "") + when}</div></div>
                                         <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5">
@@ -809,7 +830,7 @@ export default function MonitorIntrusion() {
             .finally(() => setLoading(false));
     }, []);
 
-    useEffect(() => { getRecentDetections(60, filter !== "ANALYTIC").then(setDets).catch(() => { }); }, [filter]);
+    useEffect(() => { getRecentDetections(60, filter !== "ANALYTIC", true).then(setDets).catch(() => { }); }, [filter]);
 
     useEffect(() => {
         let s: any;
@@ -825,6 +846,13 @@ export default function MonitorIntrusion() {
                 }
             });
             s.on("detection_snapshot", (d: any) => { setDets((prev) => prev.map((x) => x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x)); });
+            // omni-vision terminó de mirar la captura (unos segundos después): se trae el veredicto.
+            s.on("detection_verified", (x: any) => {
+                if (!x?.id) return;
+                fetch(`/api/detecciones?ids=${encodeURIComponent(x.id)}`, { cache: "no-store" }).then((r) => r.ok ? r.json() : null)
+                    .then((j) => { const v = j?.veredictos?.[x.id]; if (v !== undefined) setDets((prev) => prev.map((d) => d.id === x.id ? { ...d, veredicto: v } : d)); })
+                    .catch(() => { /* queda sin veredicto: la ficha lo pide al abrirse */ });
+            });
         } catch { }
         return () => { try { s && s.disconnect(); } catch { } };
     }, [filter]);
@@ -841,7 +869,7 @@ export default function MonitorIntrusion() {
     /** Cerrar una intrusión confirmada desde su ficha: resuelta deja el registro como está; falsa lo corrige. */
     const cerrarAtencion = (id: string, como: "resuelta" | "falsa") => {
         resolveAttending(id);
-        if (como === "falsa") reclasificarComoFalsa(id).then(() => getRecentDetections(60, filter !== "ANALYTIC").then(setDets).catch(() => { })).catch(() => { });
+        if (como === "falsa") reclasificarComoFalsa(id).then(() => getRecentDetections(60, filter !== "ANALYTIC", true).then(setDets).catch(() => { })).catch(() => { });
     };
     const ackAlarm = (id: string, kind: "real" | "false" = "real") => {
         ackAlarms(id, kind).catch(() => { });
@@ -892,9 +920,10 @@ export default function MonitorIntrusion() {
         return list.sort((a, b) => score(b) - score(a) || String(a.name).localeCompare(String(b.name)));
     }, [cams, analyticsIds, lastByDev, q, alarms]);
 
-    const shownDets = filter === "MOTION" ? dets.filter((d) => d.type === "MOTION") : filter === "ANALYTIC" ? dets.filter((d) => d.type !== "MOTION") : dets;
+    const [vision, setVision] = useState<FiltroVision>("todas");
+    const shownDets = (filter === "MOTION" ? dets.filter((d) => d.type === "MOTION") : filter === "ANALYTIC" ? dets.filter((d) => d.type !== "MOTION") : dets).filter((d) => pasaVision(d.veredicto, vision));
     const [visN, setVisN] = useState(30); // render progresivo (rendimiento con muchas detecciones)
-    useEffect(() => { setVisN(30); }, [filter]);
+    useEffect(() => { setVisN(30); }, [filter, vision]);
     const onDetsScroll = (e: React.UIEvent<HTMLDivElement>) => { const el = e.currentTarget; if (el.scrollTop + el.clientHeight >= el.scrollHeight - 240) setVisN((n) => (n < shownDets.length ? n + 30 : n)); };
     // fila superior fija: los canales que suben al tope (actividad reciente) siempre visibles
     const topRow = shown.slice(0, 3);
@@ -983,10 +1012,20 @@ export default function MonitorIntrusion() {
                         <span className="text-xs font-bold uppercase tracking-wider">Detecciones</span>
                         <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-300 border border-red-500/30 tabular-nums">{shownDets.length}</span>
                     </div>
+                    {/* omni-vision: el mismo filtro que la pared y el cajón del monitor LPR (lib/vision-capa), sobre las 60 últimas. */}
+                    <div className="shrink-0 px-3 py-2 border-b border-border flex items-center gap-1 flex-wrap">
+                        <ScanEye size={12} className="text-muted-foreground mr-0.5" />
+                        {FILTROS_VISION.map((f) => (
+                            <button key={f.v} onClick={() => setVision(f.v)} aria-pressed={vision === f.v} data-tooltip-id="mi-tip" data-tooltip-content={f.pista}
+                                className={cn("h-6 px-2 rounded-full border text-[10.5px] font-semibold transition-colors", vision === f.v ? "border-[var(--accion)] tono-accion bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border text-muted-foreground hover:bg-accent")}>
+                                {f.rotulo}
+                            </button>
+                        ))}
+                    </div>
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-2.5" onScroll={onDetsScroll}>
                         {shownDets.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-40 text-muted-foreground gap-2">
-                                <ShieldAlert size={22} className="opacity-30" /><span className="text-[12px]">Sin detecciones recientes</span>
+                                <ShieldAlert size={22} className="opacity-30" /><span className="text-[12px]">{vision === "todas" ? "Sin detecciones recientes" : "Ninguna de las últimas con este filtro"}</span>
                             </div>
                         ) : (
                             <>
@@ -1003,6 +1042,7 @@ export default function MonitorIntrusion() {
                                                 <span className={cn("absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[8px] font-extrabold uppercase tracking-wide backdrop-blur-sm", m.cls)}>
                                                     <m.Icon size={8} /> {m.label}
                                                 </span>
+                                                {d.veredicto && <MarcaVeredicto v={d.veredicto} className="absolute top-1 right-1" />}
                                                 {/* pie permanente */}
                                                 <div className="absolute bottom-1 inset-x-1.5 pointer-events-none group-hover/dt:opacity-0 transition-opacity">
                                                     <div className="text-[9.5px] font-bold text-white leading-tight truncate drop-shadow">{d.deviceName || "Cámara"}</div>

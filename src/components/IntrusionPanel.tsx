@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Loader2, Check, X } from "lucide-react";
+import { ArrowUpRight, Camera, Radar, ShieldAlert, Shapes, Video, RefreshCw, Loader2, Check, X, ScanEye } from "lucide-react";
 import { getAnalyticsGeometryBatch, type DetItem, type ResumenDetecciones } from "@/app/actions/detections";
 import { useDestello, useTiempoReal } from "@/lib/tiempo-real";
 import { Estado, type Tono } from "@/components/ui/celdas";
@@ -12,6 +12,7 @@ import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
 import { fechaHoraSeg, hace, horaSeg, paraInput, ZONA } from "@/lib/fechas";
 import { conAncho } from "@/lib/ancho-foto";
 import { cn } from "@/lib/utils";
+import { FILTROS_VISION, VEREDICTOS, pasaVision, type FiltroVision } from "@/lib/vision-capa";
 import type { AlarmasIntrusion } from "@/components/intrusion/usarAlarmas";
 
 /**
@@ -88,6 +89,7 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
     const [trayendo, setTrayendo] = useState(false);
     const [conMovimiento, setConMovimiento] = useState(false);
     const [filtro, setFiltro] = useState<ClaveGrupo | null>(null);
+    const [vision, setVision] = useState<FiltroVision>("todas");
     const [ficha, setFicha] = useState<DetItem | null>(null);
     const [geom, setGeom] = useState<Record<string, Geom>>({});
     const { marcar, es } = useDestello();
@@ -121,6 +123,14 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
         }));
         marcar(d.id);
     });
+    // omni-vision terminó de mirar una captura (unos segundos después): se trae su veredicto.
+    useTiempoReal<any>("detection_verified", (x) => {
+        if (!x?.id) return;
+        fetch(`/api/detecciones?ids=${encodeURIComponent(x.id)}`, { cache: "no-store" })
+            .then((r) => r.ok ? r.json() : null)
+            .then((j) => { const v = j?.veredictos?.[x.id]; if (v !== undefined) setItems((prev) => prev && prev.map((d) => d.id === x.id ? { ...d, veredicto: v } : d)); })
+            .catch(() => { /* queda como estaba: «verificando» pasa solo a nada a los VERIFICANDO_MS */ });
+    });
     // La captura llega después de la detección: se completa la miniatura cuando aparece.
     useTiempoReal<any>("detection_snapshot", (d) => {
         setItems((prev) => prev && prev.map((x) => x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x));
@@ -135,8 +145,8 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
 
     const visibles = useMemo(() => {
         const g = GRUPOS.find((x) => x.clave === filtro);
-        return (items || []).filter((d) => !g || (g.tipos as readonly string[]).includes(d.type));
-    }, [items, filtro]);
+        return (items || []).filter((d) => (!g || (g.tipos as readonly string[]).includes(d.type)) && pasaVision(d.veredicto, vision));
+    }, [items, filtro, vision]);
 
     // Agrupadas por día del barrio, en el orden en que llegan (de la más nueva a la más vieja).
     const porDia = useMemo(() => {
@@ -207,10 +217,25 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
                 </div>
             )}
 
+            {/* omni-vision: el mismo filtro que la pared y el monitor de intrusión (lib/vision-capa). */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground mr-0.5"><ScanEye size={12} /> omni-vision</span>
+                {FILTROS_VISION.map((f) => (
+                    <Pista key={f.v} texto={f.pista}>
+                        <button type="button" onClick={() => setVision(f.v)} aria-pressed={vision === f.v}
+                            className={cn("h-7 px-2.5 rounded-full border text-[11px] font-semibold transition-colors",
+                                vision === f.v ? "border-[var(--accion)] tono-accion bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border text-muted-foreground hover:bg-accent")}>
+                            {f.rotulo}
+                        </button>
+                    </Pista>
+                ))}
+            </div>
+
             {/* Barra de la lista */}
             <div className="flex items-center gap-2">
                 <span className="text-[13px] font-bold text-foreground">
                     {filtro ? GRUPOS.find((g) => g.clave === filtro)?.titulo : "Todas"}
+                    {vision !== "todas" && <span className="font-semibold text-muted-foreground"> · {FILTROS_VISION.find((f) => f.v === vision)?.rotulo.toLowerCase()}</span>}
                 </span>
                 {items && <span className="text-[11px] text-muted-foreground tabular-nums">{visibles.length} {visibles.length === 1 ? "detección" : "detecciones"}</span>}
                 <div className="ml-auto flex items-center gap-1.5">
@@ -239,7 +264,7 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
             ) : items === null ? (
                 <p className="py-6 text-center text-[12px] text-muted-foreground flex items-center justify-center gap-2"><Loader2 size={13} className="animate-spin" /> Cargando…</p>
             ) : visibles.length === 0 ? (
-                <p className="py-6 text-center text-[12px] text-muted-foreground">Sin detecciones{filtro ? " de este tipo" : ""}{conMovimiento ? "" : " (sin contar movimiento)"}.</p>
+                <p className="py-6 text-center text-[12px] text-muted-foreground">Sin detecciones{filtro || vision !== "todas" ? " con este filtro" : ""}{conMovimiento ? "" : " (sin contar movimiento)"}{vision !== "todas" ? ` entre las ${items.length} cargadas` : ""}.</p>
             ) : (
                 <div className="flex flex-col gap-3">
                     {porDia.map(({ dia, filas }) => (
@@ -268,6 +293,7 @@ export function IntrusionPanel({ alAbrir, alarmas }: {
                                                 </span>
                                                 <span className="block mt-0.5 text-[12.5px] font-semibold text-foreground truncate">{d.deviceName || "Cámara sin identificar"}</span>
                                             </span>
+                                            <VeredictoFila d={d} />
                                             <EstadoRevision d={d} />
                                             <span className="shrink-0 text-right leading-tight" title={fechaHoraSeg(d.timestamp)}>
                                                 <span className="block text-[13px] font-semibold tabular-nums text-foreground">{horaSeg(d.timestamp)}</span>
@@ -310,6 +336,27 @@ function Contador({ titulo, valor, dia, activo, onClick, pista, Icono }: {
                 <span className={cn("block text-[22px] font-bold tabular-nums leading-tight tracking-[-0.01em]", activo ? "tono-accion" : "text-foreground", valor === null && "text-muted-foreground/40")}>{valor ?? "—"}</span>
                 <span className="block text-[10px] text-muted-foreground tabular-nums">24 h: {dia ?? "—"}</span>
             </button>
+        </Pista>
+    );
+}
+
+/** Una verificación tarda unos segundos (cola de vision-worker): hasta esto se dice «verificando». */
+const VERIFICANDO_MS = 2 * 60_000;
+
+/**
+ * Lo que concluyó omni-vision, en texto con su tono y no como otra pastilla: al lado del tipo
+ * (que ya es rojo en un cruce) dos pastillas rojas se leían como una sola cosa. Nunca decide:
+ * la alarma la confirma una persona.
+ */
+function VeredictoFila({ d }: { d: DetItem }) {
+    const v = d.veredicto ? VEREDICTOS[d.veredicto] : null;
+    if (!v) {
+        if (d.type === "MOTION" || Date.now() - new Date(d.timestamp).getTime() > VERIFICANDO_MS) return null;
+        return <span className="shrink-0 inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Loader2 size={11} className="animate-spin" /> verificando</span>;
+    }
+    return (
+        <Pista texto={`omni-vision: ${v.explica}`}>
+            <span className={cn("shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold", `tono-${v.tono}`)}><ScanEye size={11} /> {v.rotulo}</span>
         </Pista>
     );
 }
