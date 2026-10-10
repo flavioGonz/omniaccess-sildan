@@ -1,17 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-    DialogDescription,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { ConfirmarEnCajon } from "@/components/ui/cajon-confirmar";
 
 /**
  * Confirmar una eliminación. Uno solo para toda la aplicación.
@@ -78,99 +67,11 @@ interface ConfirmarAccionProps {
     onOpenChange?: (open: boolean) => void;
 }
 
-export function ConfirmarAccion({
-    id, title, description, onDelete, onSuccess, children, escribir, etiquetaAccion,
-    open: abiertoControlado, onOpenChange,
-}: ConfirmarAccionProps) {
-    const [abiertoPropio, setAbiertoPropio] = useState(false);
-    const abierto = abiertoControlado !== undefined ? abiertoControlado : abiertoPropio;
-    const setAbierto = onOpenChange !== undefined ? onOpenChange : setAbiertoPropio;
-
-    const [borrando, setBorrando] = useState(false);
-    const [fallo, setFallo] = useState<string | null>(null);
-    const [escrito, setEscrito] = useState("");
-    const habilitado = !escribir || escrito.trim().toUpperCase() === escribir.toUpperCase();
-
-    const borrar = async () => {
-        setBorrando(true);
-        setFallo(null);
-        try {
-            const r = await onDelete(id);
-            if (r && typeof r === "object" && r.success === false) {
-                setFallo(r.error || "El servidor rechazó la eliminación.");
-                return;
-            }
-            setAbierto(false);
-            onSuccess();
-        } catch (e: any) {
-            setFallo(e?.message || "No se pudo completar la eliminación.");
-        } finally {
-            setBorrando(false);
-        }
-    };
-
-    return (
-        <Dialog open={abierto} onOpenChange={(o) => { if (!o) { setFallo(null); setEscrito(""); } setAbierto(o); }}>
-            {children && <DialogTrigger asChild>{children}</DialogTrigger>}
-            <DialogContent className="max-w-[420px] p-0 gap-0 overflow-hidden">
-                <div className="flex flex-col items-center text-center px-8 pt-9 pb-6 space-y-5">
-                    <span className="w-14 h-14 rounded-2xl bg-[var(--mal-suave)] border border-border flex items-center justify-center text-[var(--mal-texto)]">
-                        <Trash2 size={24} />
-                    </span>
-
-                    <div className="space-y-2">
-                        <DialogHeader>
-                            <DialogTitle className="text-[17px] font-bold text-center">{title}</DialogTitle>
-                        </DialogHeader>
-                        <DialogDescription className="text-[13px] text-muted-foreground leading-relaxed">
-                            Esta acción no se puede deshacer.
-                        </DialogDescription>
-                    </div>
-
-                    {description && (
-                        <div className="w-full rounded-xl border border-border bg-[var(--mal-suave)] p-3.5 flex items-start gap-2.5 text-left">
-                            <AlertTriangle className="shrink-0 text-[var(--mal-texto)] mt-0.5" size={15} />
-                            <p className="text-[12px] text-muted-foreground leading-normal">{description}</p>
-                        </div>
-                    )}
-
-                    {escribir && (
-                        <div className="w-full text-left space-y-1.5">
-                            <p className="text-[12px] text-muted-foreground">
-                                Escribí <span className="font-bold text-foreground">{escribir}</span> para confirmar.
-                            </p>
-                            <Input value={escrito} onChange={(e) => setEscrito(e.target.value)}
-                                autoComplete="off" spellCheck={false} className="h-10" />
-                        </div>
-                    )}
-
-                    {fallo && (
-                        <div className="w-full rounded-xl border bg-[var(--mal-suave)] border-[color-mix(in_oklab,var(--mal)_34%,transparent)] p-3.5 text-left">
-                            <p className="text-[12px] font-semibold text-[var(--mal-texto)]">No se eliminó</p>
-                            <p className="text-[12px] text-muted-foreground leading-normal mt-0.5">{fallo}</p>
-                        </div>
-                    )}
-                </div>
-
-                <div className="px-6 pb-6 flex flex-col gap-2">
-                    <Button
-                        onClick={borrar}
-                        disabled={borrando || !habilitado}
-                        className="pleno-mal h-11 w-full rounded-lg hover:brightness-110 font-semibold text-[13px] transition-all disabled:opacity-40"
-                    >
-                        {borrando ? "Eliminando…" : fallo ? "Reintentar" : (etiquetaAccion || "Eliminar")}
-                    </Button>
-                    <Button
-                        onClick={() => setAbierto(false)}
-                        variant="ghost"
-                        className="h-11 w-full rounded-lg text-muted-foreground hover:text-foreground font-semibold text-[13px]"
-                    >
-                        Cancelar
-                    </Button>
-                </div>
-            </DialogContent>
-        </Dialog>
-    );
+export function ConfirmarAccion(props: ConfirmarAccionProps) {
+    // 10/10, pedido de Nico: el diálogo centrado (ícono, título y un botón rojo a todo el ancho)
+    // era la única ventana que no se parecía al resto. Ahora es el cajón de confirmar, con el
+    // mismo contrato: los veinte lugares que lo usan pasan a cajón sin tocarlos.
+    return <ConfirmarEnCajon {...props} description={props.description || `Se elimina «${props.title}».`} />;
 }
 
 /** El nombre anterior. Sigue siendo el mismo componente. */

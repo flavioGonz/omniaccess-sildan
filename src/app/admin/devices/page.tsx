@@ -1168,7 +1168,7 @@ export default function DevicesPage() {
                                                     <DeleteConfirmDialog
                                                         id={dev.id}
                                                         title={dev.name}
-                                                        description="Se eliminará este dispositivo."
+                                                        description="Se saca de OmniAccess: deja de aparecer en los monitores, el mapa y las pantallas. El equipo en sí no se toca. Lo ya registrado (lecturas, detecciones) queda en el historial, sin el equipo asociado."
                                                         onDelete={deleteDevice}
                                                         onSuccess={loadData}
                                                     >
@@ -1335,7 +1335,7 @@ export default function DevicesPage() {
                                                             <Settings2 size={14} /> Editar / Mapeo de canales
                                                         </DropdownMenuItem>
                                                         <DropdownMenuSeparator className="bg-foreground/10" />
-                                                        <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se eliminará este NVR." onDelete={deleteDevice} onSuccess={loadData}>
+                                                        <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se saca el NVR de OmniAccess. El NVR en sí no se toca. Las cámaras importadas de él quedan, pero sus grabaciones se pedían a este NVR: dejan de poder verse desde acá." onDelete={deleteDevice} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-red-500/10 hover:text-red-500 gap-2 text-red-400">
                                                                 <Trash2 size={14} /> Eliminar
                                                             </div>
