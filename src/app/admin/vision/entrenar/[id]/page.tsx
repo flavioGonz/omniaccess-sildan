@@ -242,7 +242,7 @@ export default function ZonaEntrenable() {
                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">
                                     {muestras.map((s) => (
                                         <div key={s.id} className={cn("rounded-[10px] border bg-card overflow-hidden", s.etiqueta === "pos" ? "border-[var(--aviso)]" : s.etiqueta === "neg" ? "border-[var(--bien)]" : "border-border")}>
-                                            <a href={s.url} target="_blank" rel="noreferrer" className="block relative aspect-square bg-black">
+                                            <a href={s.url} target="_blank" rel="noreferrer" className="block relative aspect-[4/3] bg-black">
                                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                                 <img src={`${s.url}?w=320`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-contain" />
                                                 {s.prob != null && <span className="absolute top-1.5 right-1.5"><Chip tono={s.prob >= zona.umbral ? "aviso" : "quieto"} pleno>{pct(s.prob)}</Chip></span>}
@@ -255,9 +255,11 @@ export default function ZonaEntrenable() {
                                                         <button type="button" onClick={() => etiquetar(s, null)} className="h-7 w-7 grid place-items-center rounded-md hover:bg-accent text-muted-foreground" title="Quitar la etiqueta"><Undo2 size={13} /></button>
                                                     </div>
                                                 ) : (
-                                                    <div className="grid grid-cols-2 gap-1.5">
-                                                        <button type="button" onClick={() => etiquetar(s, "pos")} className="h-8 rounded-md border border-border text-[11.5px] font-semibold hover:bg-accent inline-flex items-center justify-center gap-1 truncate px-1"><Check size={12} /> {zona.positivo}</button>
-                                                        <button type="button" onClick={() => etiquetar(s, "neg")} className="h-8 rounded-md border border-border text-[11.5px] font-semibold hover:bg-accent inline-flex items-center justify-center gap-1 truncate px-1"><X size={12} /> {zona.negativo}</button>
+                                                    // Uno por renglón: los nombres de los estados los elige cada uno y pueden ser largos
+                                                    // («Vehículo en el carril»); lado a lado se cortaban por el principio.
+                                                    <div className="grid gap-1">
+                                                        <button type="button" onClick={() => etiquetar(s, "pos")} title={zona.positivo} className="h-7 rounded-md border border-border text-[11.5px] font-semibold hover:bg-accent inline-flex items-center gap-1.5 px-2 min-w-0"><Check size={12} className="shrink-0" /><span className="truncate">{zona.positivo}</span></button>
+                                                        <button type="button" onClick={() => etiquetar(s, "neg")} title={zona.negativo} className="h-7 rounded-md border border-border text-[11.5px] font-semibold hover:bg-accent inline-flex items-center gap-1.5 px-2 min-w-0"><X size={12} className="shrink-0" /><span className="truncate">{zona.negativo}</span></button>
                                                     </div>
                                                 )}
                                             </div>
