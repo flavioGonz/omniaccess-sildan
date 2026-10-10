@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { GraduationCap, Plus } from "lucide-react";
+import { GraduationCap, Plus, Boxes } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
@@ -96,9 +96,12 @@ export default function EntrenarVision() {
                         {datos && !datos.activa && <Chip tono="quieto">Apagada en Analíticas: no mira ninguna</Chip>}
                     </div>
                     <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
-                        Una zona fija de una cámara que se distingue en dos estados: contenedor desbordado o normal, portón abierto o cerrado, lugar ocupado o libre. Arranca con frases; con ejemplos etiquetados aprende esa zona en particular. No sirve para cosas que aparecen en cualquier parte del cuadro (humo, una pelea).
+                        Una zona fija de una cámara que se distingue en dos estados: contenedor desbordado o normal, portón abierto o cerrado, lugar ocupado o libre. Arranca con frases; con ejemplos etiquetados aprende esa zona en particular. No sirve para cosas que aparecen en cualquier parte del cuadro: para eso, «Objetos nuevos» le enseña al detector con fotos dibujadas.
                     </p>
                 </div>
+                <Link href="/admin/vision/entrenar/objetos" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent" title="Enseñarle al detector cosas que no conoce, con fotos y recuadros">
+                    <Boxes size={15} /> Objetos nuevos
+                </Link>
                 <Button onClick={() => setNueva(true)} disabled={!datos}><Plus size={15} /> Nueva</Button>
             </div>
 

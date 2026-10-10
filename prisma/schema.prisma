@@ -1364,3 +1364,38 @@ model MuestraZona {
   @@index([zonaId, createdAt])
   @@index([zonaId, etiqueta])
 }
+
+/// Detector propio (OmniVision › Entrenar › Objetos): las clases que el detector de fábrica
+/// (RF-DETR, entrenado en COCO) no conoce —«contenedor de basura», «cono», «carretilla»— y que
+/// se le enseñan con fotos donde una persona dibujó un recuadro sobre cada una.
+model ClasePropia {
+  id          String   @id @default(cuid())
+  nombre      String
+  /// Cómo reconocerla, para quien dibuja: qué entra en el recuadro y qué no.
+  descripcion String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Una foto del conjunto de entrenamiento del detector propio, con sus recuadros.
+/// Una foto revisada sin recuadros es un ejemplo NEGATIVO («acá no hay ninguno»): le enseña al
+/// detector qué no confundir, y hace tanta falta como los positivos.
+model FotoEntrenamiento {
+  id        String   @id @default(cuid())
+  /// Clave en el bucket de visión: entrenamiento/<día>/<id>.jpg
+  clave     String
+  ancho     Int
+  alto      Int
+  /// CAMARA (cuadro HD tomado desde la pantalla) | SUBIDA | REGISTRO (cuadro del registro de detecciones)
+  origen    String
+  deviceId  String?
+  /// [{ clase: ClasePropia.id, caja: [x1, y1, x2, y2] normalizada 0-1 }]
+  cajas     Json     @default("[]")
+  /// La miró una persona y dibujó todo lo que había (o dijo que no había nada).
+  revisada  Boolean  @default(false)
+  revisadaPor String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([revisada, createdAt])
+}
