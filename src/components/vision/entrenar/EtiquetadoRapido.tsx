@@ -73,7 +73,7 @@ export function EtiquetadoRapido({ abierto, alCerrar, cola, positivo, negativo, 
     return (
         <Dialog open={abierto} onOpenChange={(o) => { if (!o) alCerrar(); }}>
             <DialogContent className="sm:max-w-5xl p-0 gap-0 overflow-hidden">
-                <div className="px-5 pt-4 pb-3 border-b border-border flex items-center gap-3">
+                <div className="pl-5 pr-14 pt-4 pb-3 border-b border-border flex items-center gap-3">
                     <div className="min-w-0 flex-1">
                         <DialogTitle className="text-[16px] font-bold">Enseñale con ejemplos</DialogTitle>
                         <DialogDescription className="text-[12px] text-muted-foreground">¿Qué se ve en la zona? Si no se distingue bien, salteala: una etiqueta dudosa enseña mal.</DialogDescription>

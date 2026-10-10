@@ -68,7 +68,10 @@ export function Medidor({ prob, umbral, positivo, negativo, tam = 132 }: { prob:
             <div className="absolute inset-0 grid place-items-center text-center px-4">
                 <div>
                     <div className="text-[24px] font-bold tabular-nums leading-none">{prob == null ? "—" : `${Math.round(prob * 100)}`}<span className="text-[13px] font-semibold">{prob == null ? "" : " %"}</span></div>
-                    <div className="text-[10.5px] font-semibold leading-tight mt-1 line-clamp-2" style={{ color }}>{prob == null ? "sin mirar" : avisa ? positivo : negativo}</div>
+                    {/* El número es lo del anillo (la probabilidad del estado que avisa); abajo, lo que decide.
+                        Sin el «dice», «43 % Carril vacío» se leía como 43 % de carril vacío. */}
+                    <div className="text-[9.5px] text-muted-foreground leading-none mt-1">{prob == null ? "" : "dice"}</div>
+                    <div className="text-[10.5px] font-semibold leading-tight line-clamp-2" style={{ color }}>{prob == null ? "sin mirar" : avisa ? positivo : negativo}</div>
                 </div>
             </div>
         </div>
