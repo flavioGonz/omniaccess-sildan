@@ -289,7 +289,7 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "verif-intrusion", nombre: "Doble verificación de intrusión", icono: "ShieldCheck", modo: "Intrusión",
-        queHace: "Cada cruce de línea o zona que manda la cámara se mira con la segmentación: queda \"confirmada\" (una persona o un vehículo toca la línea), \"hay alguien\", \"animal\" o \"no se ve a nadie\", con las siluetas dibujadas sobre la captura en el monitor de intrusión.",
+        queHace: "Cada cruce de línea o zona que manda la cámara se mira con la segmentación: queda \"confirmada\" (una persona o un vehículo toca la línea), \"hay alguien\", \"animal\" o \"no se ve a nadie\", con las siluetas dibujadas sobre la captura. El monitor de intrusión, el cajón de Detecciones del monitor LPR y la pared filtran por lo que vio: con alguien, sin nadie, sin analizar.",
         necesita: ["deteccion", "segmentacion"], clases: ["person", "car", "truck", "motorcycle", "bicycle", "dog", "cat", "bird"],
         estado: "corre", fase: 1, porDefecto: true,
         limite: "Nunca acepta ni descarta una alarma sola: decide una persona.",
@@ -323,11 +323,13 @@ export const ANALITICAS: Analitica[] = [
         id: "motos", nombre: "Conteo de motos", icono: "Bike", modo: "LPR",
         queHace: "Cuenta las motos que pasan por los accesos aunque no paren ni se lea su chapa.",
         necesita: ["deteccion"], clases: ["motorcycle"], estado: "desarrollo", fase: 2, porDefecto: true,
+        limite: "Se cuenta sobre los cruces de la regla de conteo del carril de cada acceso, no sobre todo el cuadro: por detrás de la rampa de LPR Salida pasa una calle. Medido el 10/10: el 95 % de los cruces de salida tienen lectura a ±10 s.",
     },
     {
         id: "sin-lectura", nombre: "Vehículo sin lectura", icono: "ScanLine", modo: "LPR",
         queHace: "Pasó un vehículo por un acceso y ninguna lectora leyó su matrícula en ±10 s: queda registrado con foto.",
         necesita: ["deteccion"], clases: ["car", "truck", "motorcycle", "bus"], estado: "desarrollo", fase: 2, porDefecto: true,
+        limite: "Se cuenta sobre los cruces de la regla de conteo del carril de cada acceso, no sobre todo el cuadro: por detrás de la rampa de LPR Salida pasa una calle. Medido el 10/10: el 95 % de los cruces de salida tienen lectura a ±10 s.",
     },
     {
         id: "relectura", nombre: "Relectura de NO_LEIDA", icono: "ScanLine", modo: "LPR",
@@ -354,7 +356,7 @@ export const ANALITICAS: Analitica[] = [
     },
     {
         id: "busqueda", nombre: "Búsqueda de objetos", icono: "ScanSearch", modo: "Búsqueda",
-        queHace: "Buscar en lo que vieron las cámaras por texto (\"camioneta blanca\", \"persona con mochila roja\") o por una foto, y abrir la grabación en ese instante. Como AcuSeek, sin depender del NVR.",
+        queHace: "Buscar en lo que vieron las cámaras por texto (\"camioneta blanca\", \"persona con mochila roja\") o con una foto —subida, sacada con el celular, arrastrada o pegada—, y abrir la grabación en ese instante. Como AcuSeek, sin depender del NVR.",
         necesita: ["deteccion", "clasificacion"], clases: ["person", "car", "truck", "motorcycle", "bicycle", "backpack", "handbag", "suitcase", "dog"],
         estado: "corre", fase: 3, porDefecto: true,
     },

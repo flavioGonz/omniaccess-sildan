@@ -2,11 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { GraduationCap, ListVideo, Plus, ScanLine, ScanSearch, ShieldCheck, Sparkles } from "lucide-react";
+import { Boxes, Car, FlaskConical, GraduationCap, Hash, ListVideo, Plus, ScanLine, ScanSearch, ShieldAlert, ShieldCheck, Sparkles, UserRound, Users } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
-import { FilaAnalitica, FichaAnalitica } from "@/components/vision/analiticas";
+import { Switch } from "@/components/ui/switch";
+import { Filtros } from "@/components/ui/filtros";
+import { FichaAnalitica, Ic, TONO_ANALITICA } from "@/components/vision/analiticas";
+import { cn } from "@/lib/utils";
 import { ANALITICAS, type Analitica } from "@/lib/vision-catalogo";
 import { TIPOS_REGLA, type TipoRegla, type ReglaVision } from "@/lib/vision-reglas";
 
@@ -37,6 +40,16 @@ const PANTALLA_DE_ANALITICA: Record<string, { href: string; rotulo: string; icon
     "zona-entrenable": { href: "/admin/vision/entrenar", rotulo: "Entrenar", icono: GraduationCap },
 };
 
+/**
+ * Los modos, en el orden en que se piensan en un barrio, con su ícono. Antes era una lista de
+ * treinta renglones de texto parejo: para encontrar «Merodeo» había que leerlos todos.
+ */
+const MODOS: { v: Analitica["modo"] | ""; r: string; i: typeof Sparkles }[] = [
+    { v: "", r: "Todas", i: Boxes }, { v: "Intrusión", r: "Intrusión", i: ShieldAlert }, { v: "LPR", r: "LPR", i: Car },
+    { v: "Conteo", r: "Conteo", i: Hash }, { v: "Búsqueda", r: "Búsqueda", i: ScanSearch }, { v: "Entrenables", r: "Entrenables", i: GraduationCap },
+    { v: "Face", r: "Face", i: UserRound }, { v: "Filas", r: "Filas", i: Users }, { v: "Prueba", r: "Prueba", i: FlaskConical },
+];
+
 const boton = "shrink-0 inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border text-[12px] font-semibold hover:bg-accent";
 
 export default function AnaliticasVision() {
@@ -44,6 +57,7 @@ export default function AnaliticasVision() {
     const [reglas, setReglas] = useState<ReglaVision[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [abierta, setAbierta] = useState<Analitica | null>(null);
+    const [modo, setModo] = useState<string>("");
 
     const cargar = useCallback(async () => {
         try {
@@ -104,37 +118,85 @@ export default function AnaliticasVision() {
     if (!estado && error) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><ErrorEstado mensaje={error} alReintentar={cargar} /></div>;
     if (!estado) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><Cargando texto="Trayendo las analíticas…" /></div>;
 
-    const corren = ANALITICAS.filter((a) => a.estado === "corre");
-    const resto = ANALITICAS.filter((a) => a.estado !== "corre");
-    const lista = (as: Analitica[]) => (
-        <div className="rounded-[10px] border border-border bg-card divide-y divide-border">
-            {as.map((a) => (
-                <FilaAnalitica key={a.id} a={a} prendida={!!estado.analiticas[a.id]} alCambiar={(v) => guardar(a.id, v)} alAbrir={() => setAbierta(a)} accion={acciones(a)} />
-            ))}
+    const visibles = ANALITICAS.filter((a) => !modo || a.modo === modo);
+    const corren = visibles.filter((a) => a.estado === "corre");
+    const resto = visibles.filter((a) => a.estado !== "corre");
+    // Los números de arriba son de todas, no del filtro: dicen cómo está el sistema.
+    const todas = ANALITICAS.filter((a) => a.estado === "corre");
+    const prendidas = todas.filter((a) => estado.analiticas[a.id]).length;
+    const sinRegla = todas.filter((a) => estado.analiticas[a.id] && TIPO_DE_ANALITICA[a.id] && !porTipo[TIPO_DE_ANALITICA[a.id]]?.total).length;
+    const reglasActivas = reglas.filter((r) => r.activa).length;
+    const modosConAlgo = MODOS.filter((m) => !m.v || ANALITICAS.some((a) => a.modo === m.v));
+
+    const tarjeta = (a: Analitica) => {
+        const on = !!estado.analiticas[a.id];
+        const t = TONO_ANALITICA[a.estado];
+        const corre = a.estado === "corre";
+        return (
+            <div key={a.id} className={cn("rounded-[10px] border bg-card flex flex-col transition-colors", on && corre ? "border-border" : "border-border/70", !corre && "bg-muted/30")}>
+                <button type="button" onClick={() => setAbierta(a)} className="flex items-start gap-3 p-3.5 pb-2 text-left flex-1 group">
+                    {/* El ícono lleno dice si está prendida: azul corre y mira, negro apagada, gris todavía no existe. */}
+                    <span className={cn("grid h-10 w-10 place-items-center rounded-[10px] shrink-0 transition-colors",
+                        !corre ? "bg-muted text-muted-foreground" : on ? "bg-[var(--accion)] text-white" : "bg-foreground text-background")}>
+                        <Ic n={a.icono} size={19} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-1.5">
+                            <span className="text-[13.5px] font-bold leading-tight group-hover:text-[var(--accion)] transition-colors">{a.nombre}</span>
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground mt-0.5">{a.modo}{a.fase ? ` · fase ${a.fase}` : ""}</span>
+                        <span className="block text-[12px] text-muted-foreground leading-snug mt-1.5 line-clamp-2">{a.queHace}</span>
+                    </span>
+                </button>
+                <div className="flex items-center gap-2 px-3.5 pb-3 pt-1 flex-wrap">
+                    {corre ? acciones(a) : <Chip tono={t.tono}>{t.texto}</Chip>}
+                    <span className="ml-auto inline-flex items-center gap-2">
+                        {!corre && <span className="text-[11px] text-muted-foreground">{on ? "se aplica cuando exista" : "apagada"}</span>}
+                        {a.id === "prueba" ? <span className="text-[11px] text-muted-foreground">siempre</span>
+                            : <Switch checked={on} onCheckedChange={(v) => guardar(a.id, v)} aria-label={`${on ? "Apagar" : "Prender"} ${a.nombre}`} />}
+                    </span>
+                </div>
+            </div>
+        );
+    };
+    const grilla = (as: Analitica[]) => <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-2.5">{as.map(tarjeta)}</div>;
+    const cifra = (n: number, r: string, tono?: string) => (
+        <div className="rounded-[10px] border border-border bg-card px-3.5 py-2.5 min-w-[130px]">
+            <div className={cn("text-[22px] font-bold tabular-nums leading-none", tono)}>{n}</div>
+            <div className="text-[11px] text-muted-foreground mt-1">{r}</div>
         </div>
     );
 
     return (
-        <div className="p-6 lg:p-8 space-y-6 max-w-[1500px] mx-auto">
-            <div className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-full bg-muted shrink-0"><Sparkles size={20} /></span>
-                <div className="min-w-0 flex-1">
+        <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
+            <div className="flex items-center gap-3">
+                <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><Sparkles size={18} strokeWidth={2.3} /></span>
+                <div className="min-w-0">
                     <h1 className="text-[17px] font-bold leading-tight">Analíticas</h1>
-                    <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
-                        Lo que se construye encima del detector. Prenderla es decidir que corra; las de línea o zona además necesitan una regla —qué cámara y dónde—, que se crea desde acá.
-                    </p>
+                    <p className="text-[12px] text-muted-foreground leading-snug">Lo que se construye encima del detector. Tocá una para ver qué hace y qué necesita.</p>
                 </div>
             </div>
 
-            <section className="space-y-2">
-                <h2 className="text-[13px] font-bold">Corren hoy <span className="text-muted-foreground font-semibold tabular-nums">· {corren.length}</span></h2>
-                {lista(corren)}
-            </section>
+            <div className="flex gap-2 flex-wrap">
+                {cifra(todas.length, "corren hoy")}
+                {cifra(prendidas, "prendidas", "tono-accion")}
+                {cifra(reglasActivas, reglasActivas === 1 ? "regla activa" : "reglas activas")}
+                {sinRegla > 0 && cifra(sinRegla, "prendidas sin regla: no miran nada", "tono-aviso")}
+            </div>
+
+            <Filtros solido grupos={[{ clave: "modo", titulo: "Modo", valor: modo, alElegir: setModo, opciones: modosConAlgo.map((m) => ({ valor: m.v, rotulo: m.r, icono: m.i })) }]} />
+
+            {corren.length > 0 && (
+                <section className="space-y-2">
+                    <h2 className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Corren hoy · <span className="tabular-nums">{corren.length}</span></h2>
+                    {grilla(corren)}
+                </section>
+            )}
             {resto.length > 0 && (
                 <section className="space-y-2">
-                    <h2 className="text-[13px] font-bold">Próximas <span className="text-muted-foreground font-semibold tabular-nums">· {resto.length}</span></h2>
-                    <p className="text-[12px] text-muted-foreground">Se pueden prender: se guarda la decisión y se aplica el día que la analítica exista. Cada fila dice en qué estado está.</p>
-                    {lista(resto)}
+                    <h2 className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Próximas · <span className="tabular-nums">{resto.length}</span></h2>
+                    <p className="text-[12px] text-muted-foreground">Se pueden prender: se guarda la decisión y se aplica el día que la analítica exista.</p>
+                    {grilla(resto)}
                 </section>
             )}
 
