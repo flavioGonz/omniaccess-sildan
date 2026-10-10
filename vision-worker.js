@@ -258,53 +258,6 @@ async function detectar(jpeg, deviceId, op = {}) {
 /** Pistas abiertas: `${deviceId}:${pista}` → estado en memoria de la fila. */
 const abiertas = new Map();
 
-/*
- * Unir pistas cortadas.
- *
- * ByteTrack asocia cajas de un cuadro al siguiente por superposición. Un auto chico y rápido
- * (la calle del fondo de LPR Salida, a 4 c/s) no se superpone consigo mismo entre cuadros, y
- * cada cuadro abría una pista nueva: medido el 10/10 en 24 h, 1.892 pistas de vehículo contra
- * 384 lecturas, el 74 % de menos de un segundo, repartidas a lo ancho de la calle del fondo
- * (pie en y≈0,3, x de 0,1 a 0,9). Un auto que cruza era cinco o seis «vehículos».
- *
- * Acá, donde está la historia, se arregla: una pista que aparece cerca de donde se PERDIÓ hace
- * un momento otra del mismo grupo —corriendo su último punto con su velocidad— es la misma, y
- * sigue en su fila. Sólo se toma una que no se vio en este cuadro (si se ve, son dos).
- */
-/** Hasta cuánto después de perderse una pista se la puede continuar. */
-const UNIR_MS = 2_000;
-/** Distancia máxima entre lo predicho y lo visto: una fracción del cuadro, o 1,5 cajas si es más grande. */
-const UNIR_DIST_MIN = 0.06;
-const UNIR_DIST_CAJAS = 1.5;
-
-function pie(o) { const [x1, , x2, y2] = o.caja_norm; return [(x1 + x2) / 2, y2]; }
-function heredera(cam, o, vistas, ahora) {
-    const [nx, ny] = pie(o);
-    let mejor = null, dmin = Infinity;
-    for (const p of new Set(abiertas.values())) {
-        if (p.deviceId !== cam.id || p.grupo !== o.grupo || vistas.has(p)) continue;
-        const dt = ahora - p.ultimaVez.getTime();
-        if (dt <= 0 || dt > UNIR_MS || !p.pie) continue;
-        const [vx, vy] = p.vel || [0, 0];
-        const px = p.pie[0] + vx * dt, py = p.pie[1] + vy * dt;
-        // El ancho de la última caja vista, no el de la mejor foto: el auto se achica al alejarse.
-        const ancho = p.ancho ?? (p.caja ? Math.abs(p.caja[2] - p.caja[0]) : 0);
-        const radio = Math.max(UNIR_DIST_MIN, UNIR_DIST_CAJAS * ancho);
-        const d = Math.hypot(nx - px, ny - py);
-        if (d <= radio && d < dmin) { dmin = d; mejor = p; }
-    }
-    return mejor;
-}
-/** Último pie y velocidad (fracción del cuadro por ms, suavizada) de la fila, para predecir dónde sigue. */
-function moverPie(p, o, ahora) {
-    const [x, y] = pie(o);
-    if (p.pie && p.pieT && ahora > p.pieT) {
-        const dt = ahora - p.pieT, v = [(x - p.pie[0]) / dt, (y - p.pie[1]) / dt];
-        p.vel = p.vel ? [0.5 * p.vel[0] + 0.5 * v[0], 0.5 * p.vel[1] + 0.5 * v[1]] : v;
-    }
-    p.pie = [x, y]; p.pieT = ahora; p.ancho = Math.abs(o.caja_norm[2] - o.caja_norm[0]);
-}
-
 function dia(d) { return d.toISOString().slice(0, 10); }
 
 async function abrir(cam, o, jpeg, r, ahora) {
@@ -399,7 +352,7 @@ function fila(p) {
 // ─────────────────────────── ciclo ───────────────────────────
 
 const porCamara = {};   // estado para la pantalla
-const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0, rotulos: 0, conTexto: 0, unidas: 0 };
+const contadores = { ciclos: 0, analizados: 0, saltados: 0, errores: 0, abiertas: 0, cerradas: 0, rotulos: 0, conTexto: 0 };
 const huellas = {};
 const ultimoAnalisis = {};
 let ultimoErrorLog = 0;
@@ -453,34 +406,21 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
     try { await reglero?.procesar(cam, r.objetos || [], jpeg, ahora); } catch (e) { est.error = `reglas: ${e.message}`; }
     const objetos = registra ? (r.objetos || []).filter((o) => clasePrendida(o.clase)) : [];
     est.objetos = (r.objetos || []).length;
-    // Las filas que se ven en este cuadro con su propio número: ésas no se pueden heredar.
-    const vistas = new Set(objetos.filter((o) => o.pista != null).map((o) => abiertas.get(`${cam.id}:${o.pista}`)).filter(Boolean));
     for (const o of objetos) {
         if (o.pista == null) continue;  // todavía no confirmada por el seguimiento
         const clave = `${cam.id}:${o.pista}`;
-        let p = abiertas.get(clave);
+        const p = abiertas.get(clave);
         try {
-            if (!p) {
-                const h = heredera(cam, o, vistas, ahora.getTime());
-                if (h) { abiertas.set(clave, h); p = h; vistas.add(h); contadores.unidas = (contadores.unidas || 0) + 1; }
-            }
-            if (!p) { await abrir(cam, o, jpeg, r, ahora); p = abiertas.get(clave); if (p) moverPie(p, o, ahora.getTime()); }
-            else { await seguir(p, o, jpeg, r, ahora); moverPie(p, o, ahora.getTime()); }
+            if (!p) await abrir(cam, o, jpeg, r, ahora);
+            else await seguir(p, o, jpeg, r, ahora);
         } catch (e) { est.error = `guardar: ${e.message}`; contadores.errores++; }
     }
 }
 
 async function cerrarVencidas(forzar = false) {
     const ahora = Date.now();
-    // Una fila unida vive bajo varias claves (una por número de pista): se cierra una vez y se
-    // sueltan todas sus claves.
-    const cerradas = new Set();
     for (const [clave, p] of [...abiertas]) {
-        if (!(forzar || ahora - p.ultimaVez.getTime() > PISTA_CERRADA_MS)) continue;
-        if (cerradas.has(p)) { abiertas.delete(clave); continue; }
-        cerradas.add(p);
-        for (const [k, q] of [...abiertas]) if (q === p && k !== clave) abiertas.delete(k);
-        await cerrar(clave, p);
+        if (forzar || ahora - p.ultimaVez.getTime() > PISTA_CERRADA_MS) await cerrar(clave, p);
     }
 }
 
