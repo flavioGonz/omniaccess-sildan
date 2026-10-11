@@ -99,8 +99,8 @@ export function SyncToDevicesDialog({ onSuccess, variante = "icono" }: { onSucce
                 </Button>
             ) : (
                 <button onClick={start} {...tip("Sincronizar matrículas en masa: compara la base con lo que tiene cada cámara LPR y aplica sólo las diferencias, paso a paso. También podés buscar un usuario y ver en qué cámaras está.")}
-                    className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border border-indigo-500/30 bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20">
-                    <Upload size={15} /> <span className="hidden 2xl:inline">Sincronizar matrículas</span>
+                    className="h-10 w-10 rounded-xl grid place-items-center border border-indigo-500/30 bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 transition-colors">
+                    <Upload size={17} />
                 </button>
             )}
 

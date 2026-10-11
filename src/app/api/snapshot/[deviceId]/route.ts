@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolveNvrById } from "@/lib/nvr-resolve";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import https from "https";
@@ -105,6 +106,21 @@ export async function GET(
     { params }: { params: Promise<{ deviceId: string }> }
 ) {
     const { deviceId } = await params;
+
+    // Canal de un NVR que todavía no es un equipo (importación): nvrch-<nvrId>-<canal>
+    if (deviceId.startsWith("nvrch-")) {
+        const k = deviceId.lastIndexOf("-");
+        const nvrId = deviceId.slice(6, k); const ch = parseInt(deviceId.slice(k + 1));
+        try {
+            const conn = await resolveNvrById(nvrId);
+            if (!conn || !ch) return new NextResponse(null, { status: 404 });
+            const path = String(conn.brand).toUpperCase() === "DAHUA" ? `/cgi-bin/snapshot.cgi?channel=${ch}` : `/ISAPI/Streaming/channels/${ch}01/picture`;
+            const data = await authenticatedRequest("GET", path, { ip: conn.ip, username: conn.user, password: conn.pass, authType: "DIGEST" } as any, { responseType: "arraybuffer", timeout: 8000 });
+            const w = parseInt(req.nextUrl.searchParams.get("w") || "") || 0;
+            const buf = await achicar(Buffer.from(data as any), w || undefined);
+            return new NextResponse(new Uint8Array(buf), { headers: { "Content-Type": "image/jpeg", "Cache-Control": "no-store" } });
+        } catch { return new NextResponse(null, { status: 502 }); }
+    }
 
     try {
         const device = await prisma.device.findUnique({

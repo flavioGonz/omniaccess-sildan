@@ -513,9 +513,10 @@ export default function DevicesPage() {
                 </Button>
             </header>
 
-            <div className="rounded-2xl border border-border/60 bg-card/50 p-2 flex flex-col xl:flex-row items-stretch xl:items-center gap-2">
+            <div className="rounded-2xl border border-border/60 bg-card/50 p-2 grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,680px)_1fr] items-center gap-2">
+                <div className="hidden lg:block" />
                 {/* Buscador al centro */}
-                <div className="relative flex-1 xl:max-w-2xl xl:mx-auto w-full group">
+                <div className="relative w-full group">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-indigo-500 transition-colors" size={17} />
                     <input ref={buscador} type="text" placeholder="Buscar por nombre, IP o ubicación…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full bg-background border border-border/70 h-11 rounded-xl pl-11 pr-20 text-[13.5px] font-medium outline-none transition-all placeholder:text-muted-foreground/70 text-foreground focus:border-indigo-500/60 focus:ring-4 focus:ring-indigo-500/10 shadow-sm" />
@@ -526,25 +527,25 @@ export default function DevicesPage() {
                     </div>
                 </div>
                 {/* Herramientas */}
-                <div className="flex items-center gap-1 shrink-0 xl:justify-end">
+                <div className="flex items-center gap-1.5 justify-end">
                     {(typeFilter === "LPR_CAMERA" || typeFilter === "CAMERA") && (
                         <button onClick={() => detectar(filteredDevices.map((d) => d.id))} disabled={!!detectando}
-                            data-tooltip-id="tt-grab" data-tooltip-content={`Busca cada cámara de esta vista (${filteredDevices.length}) en los canales de todos los NVR, por su IP, y vincula dónde graba. No borra vínculos existentes.`}
-                            className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border border-border/60 bg-background/60 hover:bg-accent">
-                            {detectando === "__todas__" ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} className="text-indigo-400" />} <span className="hidden 2xl:inline">Detectar grabaciones</span>
+                            data-tooltip-id="tt-grab" data-tooltip-content={`Detectar grabaciones: busca cada cámara de esta vista (${filteredDevices.length}) en los canales de todos los NVR, por su IP, y vincula dónde graba. No borra vínculos existentes.`}
+                            className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
+                            {detectando === "__todas__" ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={17} className="text-indigo-400" />}
                         </button>
                     )}
                     {typeFilter === "LPR_CAMERA" && <SyncToDevicesDialog variante="boton" onSuccess={() => loadUserCounts()} />}
                     {typeFilter === "LPR_CAMERA" && (
                         <button onClick={() => setShowReadRate(true)} data-tooltip-id="tt-grab" data-tooltip-content="Tasa de lectura: % de placas leídas vs no reconocidas, por cámara y por hora."
-                            className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border border-border/60 bg-background/60 hover:bg-accent">
-                            <ScanLine size={15} className="text-amber-400" /> <span className="hidden 2xl:inline">Tasa de lectura</span>
+                            className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
+                            <ScanLine size={17} className="text-amber-400" />
                         </button>
                     )}
                     <button onClick={() => setPedirHora(devices.filter((d) => ["LPR_CAMERA", "NVR"].includes(d.deviceType) && ["HIKVISION", "DAHUA"].includes(d.brand)))}
                         data-tooltip-id="tt-grab" data-tooltip-content="Sincronizar hora: muestra la hora y el desfase de cada cámara LPR y NVR y pregunta antes de poner la hora del servidor."
-                        className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border border-border/60 bg-background/60 hover:bg-accent">
-                        <TimerReset size={15} className="text-emerald-500" /> <span className="hidden 2xl:inline">Sincronizar hora</span>
+                        className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
+                        <TimerReset size={17} className="text-emerald-500" />
                     </button>
                 </div>
             </div>

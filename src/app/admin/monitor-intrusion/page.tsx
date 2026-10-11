@@ -27,6 +27,21 @@ const META: Record<string, { label: string; cls: string; ring: string; dot: stri
     OTHER: { label: "Evento", cls: "text-slate-300 border-slate-500/40 bg-slate-500/10", ring: "ring-slate-500", dot: "bg-slate-500", Icon: Activity },
 };
 
+
+/**
+ * La foto de un evento: su captura; si no la trajo, un cuadro de la GRABACIÓN en ese instante
+ * (/api/nvr/cuadro). La foto en vivo sólo para la ficha «en vivo» de una cámara sin eventos
+ * (id live-…): antes cualquier evento sin captura mostraba el vivo, otro momento.
+ */
+function fotoEvento(d: any, w: number, rk?: any): string | null {
+    if (!d) return null;
+    if (d.snapshotPath) return d.snapshotPath;
+    if (!d.deviceId) return null;
+    if (String(d.id || "").startsWith("live-")) return `/api/snapshot/${d.deviceId}?w=${w}&t=${rk ?? d.id}`;
+    const ms = Math.floor(new Date(d.timestamp).getTime());
+    return isNaN(ms) ? null : `/api/nvr/cuadro?deviceId=${d.deviceId}&t=${ms}&w=${w}`;
+}
+
 function ago(ts: string) {
     const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
     if (s < 60) return "hace " + s + "s";
@@ -371,7 +386,7 @@ function AlarmDialog({ cam, onClose, onStatus }: { cam: IntrusionCam; onClose: (
 function DetThumb({ d, fill }: { d: DetItem | DetHistItem; fill?: boolean }) {
     const [ok, setOk] = useState(true);
     const [loaded, setLoaded] = useState(false);
-    const src = (d as any).snapshotPath ? (d as any).snapshotPath : (d.deviceId ? `/api/snapshot/${d.deviceId}?w=320&t=${d.id}` : null);
+    const src = fotoEvento(d, 320);
     useEffect(() => { setOk(true); setLoaded(false); }, [src]);
     const img = (
         <>
@@ -456,7 +471,7 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
     const m = META[cur.type] || META.OTHER;
     const [rk] = useState(Date.now());
     const nvr = cur.nvrName || cam?.nvrName; const ch = cur.ch ?? cam?.ch;
-    const snap = cur.snapshotPath ? cur.snapshotPath : (cur.deviceId ? `/api/snapshot/${cur.deviceId}?w=960&t=${rk}_${cur.id}` : null);
+    const snap = fotoEvento({ ...cur, snapshotPath: cur.snapshotPath || sibs.find((x) => x.id === cur.id)?.snapshotPath || null }, 960, `${rk}_${cur.id}`);
     const fecha = new Date(cur.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const hasGeom = !!(geom && ((geom.line && geom.line.length === 2) || (geom.field && geom.field.length >= 3)));
     const hasPrev = idx >= 0 && idx < sibs.length - 1; // más viejo
@@ -493,8 +508,9 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
                     {hasAlarm && cur.deviceId && onResolveAlarm && (<><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-red-500/40 text-red-100">A</kbd> aceptar</span><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-amber-500/40 text-amber-100">F</kbd> falsa</span></>)}
                     <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">Esc</kbd> cerrar</span>
                 </div>
+                <div className="absolute inset-0 grid place-items-center text-white/30 pointer-events-none"><span className="flex flex-col items-center gap-1.5"><ImageOff size={30} /><span className="text-[11px] font-semibold">{snap?.includes("/api/nvr/cuadro") ? "Buscando el cuadro en la grabación…" : "Sin captura del evento"}</span></span></div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                {snap ? <img src={snap} alt="" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><ImageOff size={32} /></div>}
+                {snap ? <img key={snap} src={snap} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { const im = e.currentTarget; if (!im.dataset.r && snap.includes("/api/nvr/cuadro")) { im.dataset.r = "1"; setTimeout(() => { im.src = snap + "&r=1"; }, 4000); } else im.style.visibility = "hidden"; }} /> : null}
                 <GeomOverlay geom={geom} alert />
                 {hasGeom && (
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
@@ -538,7 +554,7 @@ function EvidencePlayModal({ d, onClose }: { d: DetHistItem; onClose: () => void
     useEffect(() => { let on = true; if (!d.deviceId) { setNvr(null); return; } fetch(`/api/nvr/channel?deviceId=${d.deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (on) setNvr(j && j.nvr ? String(j.nvr) : null); }).catch(() => { if (on) setNvr(null); }); return () => { on = false; }; }, [d.deviceId]);
     const ms = Math.floor(new Date(d.timestamp).getTime());
     const url = nvr && d.ch != null ? `/api/nvr/playback?ch=${d.ch}&t=${ms}&pre=6&dur=40&nvr=${nvr}` : null;
-    const snap = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?w=640&t=${d.id}` : undefined);
+    const snap = fotoEvento(d, 640) || undefined;
     const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const m = META[d.type] || META.OTHER;
     return (
@@ -665,7 +681,7 @@ function EvidenceGallery({ cams, onClose, onOpen, onPlay }: { cams: IntrusionCam
                         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
                             {shown.map((d) => {
                                 const m = META[d.type] || META.OTHER;
-                                const href = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
+                                const href = fotoEvento(d, 480);
                                 const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
                                 return (
                                     <button key={d.id} onClick={() => onOpen(d)} onMouseEnter={() => onCardEnter(d)} onMouseLeave={onCardLeave} className="group relative aspect-video rounded-2xl overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.02] transition-all duration-150 bg-neutral-900 text-left shadow-lg">
@@ -927,7 +943,7 @@ export default function MonitorIntrusion() {
     // Aceptar alarma abre la MISMA ficha del sidebar (con los botones real/falsa adentro).
     const openAlarmFicha = (c: IntrusionCam) => {
         const a = alarms[c.id]?.[0];
-        setDetail(a ? { id: a.id, deviceId: c.id, deviceName: c.name, type: a.type, eventType: null, snapshotPath: null, timestamp: a.ts }
+        setDetail(a ? { id: a.id, deviceId: c.id, deviceName: c.name, type: a.type, eventType: null, snapshotPath: (dets as any[]).find((x) => x.id === a.id)?.snapshotPath ?? null, timestamp: a.ts }
                     : (lastByDev[c.id] ?? { id: `live-${c.id}`, deviceId: c.id, deviceName: c.name, type: "OTHER", eventType: null, snapshotPath: null, timestamp: new Date().toISOString() }));
     };
     const openLive = (c: IntrusionCam) => { setLiveTab("live"); setPrevCam(null); setPlayMs(null); setLiveDev(c); };

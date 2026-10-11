@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { LiveModal } from "@/components/intrusion/LiveModal";
 import { AnimatePresence, motion } from "framer-motion";
 import { Tooltip } from "react-tooltip";
 import {
     Car, Radar, Ban, Loader2, Link2, LogIn, LogOut, Download, Search, Network, ImageOff, Layers,
-    Sparkles, Users, X, HardDrive, ScanEye, AlertTriangle, Maximize2, Info,
+    Sparkles, Users, X, HardDrive, ScanEye, AlertTriangle, Play, Info,
 } from "lucide-react";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
@@ -26,11 +28,11 @@ const tip = (t: string) => ({ "data-tooltip-id": TT, "data-tooltip-content": t }
 function Miniatura({ nvrId, ch, onAmpliar }: { nvrId: string; ch: number; onAmpliar: () => void }) {
     const [estado, setEstado] = useState<"cargando" | "ok" | "error">("cargando");
     return (
-        <button type="button" onClick={onAmpliar} disabled={estado === "error"}
+        <button type="button" onClick={onAmpliar} data-tooltip-id="tt-imp" data-tooltip-content="Ver en vivo y grabación"
             className="group relative w-[136px] h-[76px] shrink-0 rounded-lg overflow-hidden bg-neutral-900 border border-border/60">
             {estado === "cargando" && <span className="absolute inset-0 animate-pulse bg-gradient-to-br from-neutral-800 to-neutral-900" />}
             {estado === "error" ? (
-                <span className="absolute inset-0 grid place-items-center text-neutral-500" {...tip("El NVR no da foto de este canal (pasa con cámaras de otra marca conectadas por RTSP).")}>
+                <span className="absolute inset-0 grid place-items-center text-neutral-500">
                     <span className="flex flex-col items-center gap-1"><ImageOff size={18} /><span className="text-[9px] font-semibold">Sin vista previa</span></span>
                 </span>
             ) : (
@@ -40,7 +42,7 @@ function Miniatura({ nvrId, ch, onAmpliar }: { nvrId: string; ch: number; onAmpl
                     className={cn("w-full h-full object-cover transition-transform duration-300 group-hover:scale-105", estado !== "ok" && "opacity-0")} />
             )}
             <span className="absolute left-1 top-1 px-1.5 py-0.5 rounded bg-black/70 text-white text-[9.5px] font-bold font-mono">D{ch}</span>
-            {estado === "ok" && <span className="absolute right-1 bottom-1 h-5 w-5 rounded bg-black/60 text-white grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 size={11} /></span>}
+            <span className="absolute inset-0 grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30"><span className="h-8 w-8 rounded-full bg-white/90 text-black grid place-items-center shadow"><Play size={14} className="ml-0.5" /></span></span>
         </button>
     );
 }
@@ -59,7 +61,18 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
     const [importando, setImportando] = useState(false);
     const [filtro, setFiltro] = useState<Filtro>("todas");
     const [q, setQ] = useState("");
-    const [ampliada, setAmpliada] = useState<CanalParaImportar | null>(null);
+    const [vivo, setVivo] = useState<any>(null);
+    // La foto abre el visor universal (vivo + grabación). Si el canal ya es un equipo se usa ése;
+    // si no, se registra un vivo temporal del canal en go2rtc.
+    const abrirVivo = async (c: CanalParaImportar) => {
+        if (!nvr) return;
+        if (c.existente) { setVivo({ id: c.existente.id, name: c.existente.name, brand: c.marca, ip: c.ip || "", nvrName: nvr.name, nvrId: nvr.id, ch: c.channel, alarmOk: false }); return; }
+        try {
+            const r = await fetch("/api/nvr/canal-vivo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nvr: nvr.id, ch: c.channel }) }).then((x) => x.json());
+            if (!r?.ok) { toast.error({ title: "No se pudo abrir el vivo", description: r?.error }); return; }
+            setVivo({ id: r.id, name: `D${c.channel} · ${c.name}`, brand: c.marca, ip: c.ip || "", nvrName: nvr.name, nvrId: nvr.id, ch: c.channel, alarmOk: false });
+        } catch (e: any) { toast.error({ title: "No se pudo abrir el vivo", description: e?.message }); }
+    };
 
     const leer = () => {
         if (!nvr) return;
@@ -111,7 +124,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
 
     return (
         <Cajon open={open} onOpenChange={(v) => !importando && onOpenChange(v)}>
-            <CajonContenido ancho="ancho" titulo={`Importar cámaras de ${nvr?.name || "NVR"}`}
+            <CajonContenido ancho="medio" titulo={`Importar cámaras de ${nvr?.name || "NVR"}`}
                 descripcion="Elegí qué es cada cámara antes de crearla. Las que ya existen sólo se vinculan a su grabación."
                 encabezado={
                     <div className="px-6 py-3 space-y-3">
@@ -195,9 +208,9 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                                     const nueva = esNueva(c);
                                     return (
                                         <motion.div key={c.channel} layout initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                                            className={cn("flex items-center gap-4 rounded-xl border p-2.5 transition-colors",
+                                            className={cn("flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border p-2.5 transition-colors",
                                                 c.existente ? "border-emerald-500/20 bg-emerald-500/[0.03]" : nueva && e?.rol === "lpr" ? "border-amber-500/30 bg-amber-500/[0.04]" : nueva && e?.rol === "intrusion" ? "border-red-500/25 bg-red-500/[0.03]" : "border-border/70 bg-card/40")}>
-                                            {nvr && <Miniatura nvrId={nvr.id} ch={c.channel} onAmpliar={() => setAmpliada(c)} />}
+                                            {nvr && <Miniatura nvrId={nvr.id} ch={c.channel} onAmpliar={() => abrirVivo(c)} />}
                                             <div className="min-w-0 flex-1 space-y-1">
                                                 <div className="flex items-center gap-2 min-w-0">
                                                     <span className="font-bold text-[13.5px] truncate">{c.name}</span>
@@ -211,7 +224,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                                                     {c.sensorDe && <span className="px-1.5 py-px rounded text-[9px] font-bold uppercase bg-violet-500/10 text-violet-500 border border-violet-500/25" {...tip(`Misma IP que D${c.sensorDe}: otro sensor de la misma cámara (térmico + visible). No se crea aparte.`)}>2.º sensor de D{c.sensorDe}</span>}
                                                 </div>
                                             </div>
-                                            <div className="shrink-0 w-[300px] flex justify-end">
+                                            <div className="shrink-0 flex justify-end">
                                                 {c.existente ? (
                                                     <div className="flex items-center gap-2 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] px-3 py-1.5 max-w-full" {...tip(`Ya existe como «${c.existente.name}». Sólo se le vincula este canal como su grabación.${c.existente.marca !== c.marca && c.marca !== "OTRA" ? ` Su marca (${c.existente.marca}) se corrige a ${c.marca}.` : ""}`)}>
                                                         <IconoTipo tipo={c.existente.tipo} size={14} />
@@ -254,24 +267,8 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                     )}
                 </div>
 
-                {/* Vista ampliada del canal */}
-                <AnimatePresence>
-                    {ampliada && nvr && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setAmpliada(null)}
-                            className="fixed inset-0 z-[9998] bg-black/80 backdrop-blur-sm grid place-items-center p-8 cursor-zoom-out">
-                            <motion.div initial={{ scale: 0.96 }} animate={{ scale: 1 }} className="max-w-5xl w-full space-y-2" onClick={(e) => e.stopPropagation()}>
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={`/api/nvr/snapshot?nvr=${nvr.id}&ch=${ampliada.channel}&w=960`} alt="" className="w-full rounded-xl border border-white/10 bg-black" />
-                                <div className="flex items-center gap-3 text-white">
-                                    <HardDrive size={15} className="opacity-70" />
-                                    <span className="font-bold">D{ampliada.channel} · {ampliada.name}</span>
-                                    <span className="font-mono text-sm opacity-70">{ampliada.ip}</span>
-                                    <button onClick={() => setAmpliada(null)} className="ml-auto h-8 px-3 rounded-lg bg-white/10 hover:bg-white/20 text-sm font-semibold inline-flex items-center gap-1.5"><X size={14} /> Cerrar</button>
-                                </div>
-                            </motion.div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                {vivo && typeof document !== "undefined" && createPortal(
+                    <div className="fixed inset-0 z-[3300] pointer-events-auto"><LiveModal cam={vivo} initialTab="live" onClose={() => setVivo(null)} /></div>, document.body)}
                 <Tooltip id={TT} place="top" className="!max-w-[300px] !text-[12px] !rounded-lg !z-[9999]" />
             </CajonContenido>
         </Cajon>
