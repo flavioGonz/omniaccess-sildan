@@ -30,6 +30,9 @@ export async function getBarrioMap(): Promise<BarrioMapData> {
         if (!row?.value) return DEFAULT;
         const d = JSON.parse(row.value);
         return {
+            // Lo que esta función no modela viaja igual, para que el guardado lo devuelva
+            // intacto (arreglo traído de san-nicolas 5bae1a6: una clave desconocida se perdía).
+            ...d,
             center: Array.isArray(d.center) ? d.center : DEFAULT.center,
             zoom: typeof d.zoom === "number" ? d.zoom : DEFAULT.zoom,
             perimeter: Array.isArray(d.perimeter) ? d.perimeter : [],
@@ -46,10 +49,16 @@ export async function getBarrioMap(): Promise<BarrioMapData> {
 
 export async function saveBarrioMap(data: BarrioMapData): Promise<{ ok: boolean; error?: string }> {
     try {
+        // Se guarda ENCIMA de lo que hay, no en reemplazo: una pantalla que conoce menos
+        // claves que la base no puede borrar las demás (san-nicolas 5bae1a6).
+        const row = await prisma.setting.findUnique({ where: { key: "BARRIO_MAP" } });
+        let previo: any = {};
+        try { previo = row?.value ? JSON.parse(row.value) : {}; } catch { previo = {}; }
+        const fusionado = { ...previo, ...data };
         await prisma.setting.upsert({
             where: { key: "BARRIO_MAP" },
-            update: { value: JSON.stringify(data) },
-            create: { key: "BARRIO_MAP", value: JSON.stringify(data) },
+            update: { value: JSON.stringify(fusionado) },
+            create: { key: "BARRIO_MAP", value: JSON.stringify(fusionado) },
         });
         return { ok: true };
     } catch (e: any) {
