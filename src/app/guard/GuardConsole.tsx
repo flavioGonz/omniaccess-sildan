@@ -80,6 +80,8 @@ import { searchByPhotoAction } from "@/app/actions/face-verify";
 import { sileo as toast } from "sileo";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
+import { PanelVisitas } from "@/components/guard/PanelVisitas";
+import { avisosPendientes as avisosPendientesAccion } from "@/app/actions/visitas";
 import { io } from "socket.io-client";
 import { useInView } from "react-intersection-observer";
 import { saveGuardBranding, uploadBrandingFile } from "@/app/actions/settings";
@@ -104,10 +106,10 @@ interface GuardConsoleProps {
     guards: any[];
 }
 
-type TabType = "control" | "history" | "alerts" | "lpr" | "map" | "guardmap" | "face";
+type TabType = "control" | "history" | "visitas" | "alerts" | "lpr" | "map" | "guardmap" | "face";
 
 // Orden para swipe + dirección de transición (excluye alerts/face)
-const TAB_ORDER: TabType[] = ["control", "history", "lpr", "map", "guardmap"];
+const TAB_ORDER: TabType[] = ["control", "history", "visitas", "lpr", "map", "guardmap"];
 const tabVariants = {
     enter: (d: number) => ({ x: d > 0 ? 28 : -28, opacity: 0 }),
     center: { x: 0, opacity: 1 },
@@ -263,6 +265,12 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
     const [loginPass, setLoginPass] = useState("");
 
     const [guardName, setGuardName] = useState("");
+    // Visitas y patrones: avisos sin atender (badge del tab). Se refresca cada minuto.
+    const [avisosPendientes, setAvisosPendientes] = useState(0);
+    useEffect(() => {
+        const contar = () => avisosPendientesAccion().then((a) => setAvisosPendientes(a.length)).catch(() => { });
+        contar(); const t = setInterval(contar, 60_000); return () => clearInterval(t);
+    }, []);
     const [guardPhoto, setGuardPhoto] = useState<string | null>(null);
     const guardNameRef = useRef("");
     const guardPhotoRef = useRef<string | null>(null);
@@ -2570,6 +2578,11 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                                 </div>
                             </motion.div>
                         )}
+                        {activeTab === "visitas" && (
+                            <motion.div key="visitas" custom={tabDir} variants={tabVariants} initial="enter" animate="center" exit="exit" transition={tabTransition} className="h-full w-full relative z-0">
+                                <PanelVisitas guardName={guardName} socket={socket} onPendientes={setAvisosPendientes} />
+                            </motion.div>
+                        )}
                         {activeTab === "history" && (
                             <motion.div key="history" custom={tabDir} variants={tabVariants} initial="enter" animate="center" exit="exit" transition={tabTransition} className="h-full w-full overflow-y-auto px-8 pt-6 pb-40 custom-scrollbar">
                                 <div className="max-w-7xl mx-auto space-y-8">
@@ -2900,6 +2913,10 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
                     <nav className="flex items-center justify-center gap-1.5 md:gap-4 mx-auto">
                         <BottomTab icon={customIcons.control ? <Image src={customIcons.control} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <FileText size={20} className="md:w-6 md:h-6" />} active={activeTab === "control"} onClick={() => handleTabChange("control")} label="Acceso" alertActive={isAlertMode} />
                         <BottomTab icon={customIcons.history ? <Image src={customIcons.history} width={20} height={20} className="object-contain md:w-6 md:h-6" alt="Icon" /> : <HistoryIcon size={20} className="md:w-6 md:h-6" />} active={activeTab === "history"} onClick={() => handleTabChange("history")} label="Historial" alertActive={isAlertMode} />
+                        <div className="relative">
+                            <BottomTab icon={<Clock size={20} className="md:w-6 md:h-6" />} active={activeTab === "visitas"} onClick={() => handleTabChange("visitas")} label="Visitas" alertActive={isAlertMode} />
+                            {avisosPendientes > 0 && <span className="absolute -top-1 -right-1 min-w-[22px] h-[22px] px-1 rounded-full bg-red-600 text-white text-[11px] font-bold grid place-items-center tabular-nums pointer-events-none z-20">{avisosPendientes}</span>}
+                        </div>
 
                                 <div className="relative -mt-12 md:-mt-14 mx-2 md:mx-4">
                                 <div>

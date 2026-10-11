@@ -1467,6 +1467,8 @@ const handleWebhook = async (req, res, logPrefix) => {
         console.log(`${logPrefix} Event created: ${event.id} (${accessDecision}) - Plate: ${finalPlate}`);
 
         // ---- MERODEO (loitering) detection — LPR only ----
+        // Visitas y patrones: abrir/cerrar visitas de proveedores e invitados, avisos de patrones.
+        try { avisarMotorVisitas({ modulo: 'LPR', evento: event.decision === 'GRANT' ? 'ALLOW' : event.decision, deviceId: device ? device.id : null, deviceName: device ? device.name : null, plate: finalPlate, direction: event.direction, instante: (event.timestamp || new Date()).toISOString?.() || new Date().toISOString(), accessEventId: event.id }); } catch (e) { }
         try { await checkMerodeo(finalPlate, device, event, logPrefix); }
         catch (e) { console.error(`${logPrefix} Merodeo check error:`, (e && e.message) || e); }
 
@@ -2767,6 +2769,31 @@ async function notifyHostGuest(gm, plate, device, direction){
         const text=`✅ Tu invitado ${gm.name||plate} ${dir} ${hora} por ${(device&&device.name)||"un acceso"} (${plate}).`;
         await fetch(`${url}/api/sendText`, { method:"POST", headers, body:JSON.stringify({ session:(ws&&ws.value)||"default", chatId:`${phone}@c.us`, text }) }).catch(()=>{});
     }catch(e){}
+}
+
+// ---- Visitas y patrones (portado de san-nicolas): avisa al motor de Next cada lectura LPR.
+// Fire-and-forget: nunca demora ni rompe la ingesta ni la barrera.
+let _tokenVisitas = { valor: null, hasta: 0 };
+async function tokenVisitas() {
+    if (process.env.TRACKING_TOKEN) return process.env.TRACKING_TOKEN;
+    if (_tokenVisitas.hasta > Date.now()) return _tokenVisitas.valor;
+    try { const s = await prisma.setting.findUnique({ where: { key: 'TRACKING_TOKEN' } }); _tokenVisitas = { valor: s?.value || null, hasta: Date.now() + 60000 }; }
+    catch { _tokenVisitas = { valor: null, hasta: Date.now() + 60000 }; }
+    return _tokenVisitas.valor;
+}
+function avisarMotorVisitas(lectura) {
+    (async () => {
+        const token = await tokenVisitas();
+        if (!token) return;
+        const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+        try {
+            await fetch(`http://127.0.0.1:10001/api/visitas/lectura`, {
+                method: 'POST', headers: { 'content-type': 'application/json', 'x-tracking-token': token },
+                body: JSON.stringify(lectura), signal: ctl.signal,
+            });
+        } catch (e) { /* el motor de visitas es opcional */ }
+        finally { clearTimeout(t); }
+    })().catch(() => { });
 }
 
 async function checkMerodeo(plate, device, event, logPrefix) {

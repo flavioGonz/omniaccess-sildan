@@ -42,6 +42,7 @@ import {
     Sparkles,
     Ticket,
 } from "lucide-react";
+import { Clock } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import { getEnabledModules, type ModuleId } from "@/app/actions/modules";
@@ -239,6 +240,7 @@ export default function AdminLayout({
                             {collapsed && <div className="my-2 border-t border-border" />}
                             <SidebarItem icon={<ShieldCheck size={18} />} label="Consola de Guardia" href="/guard" active={pathname === "/guard"} collapsed={collapsed} />
                             <SidebarItem icon={<FileBarChart size={18} />} label="Bitácora" href="/admin/bitacora" active={pathname === "/admin/bitacora"} collapsed={collapsed} />
+                            <SidebarItem icon={<Clock size={18} />} label="Visitas" href="/admin/visitas" active={pathname === "/admin/visitas"} collapsed={collapsed} />
                             <SidebarItem icon={<ShieldCheck size={18} />} label="Consola / Puesto" href="/admin/consolas" active={pathname === "/admin/consolas"} collapsed={collapsed} />
                         </>
                     )}

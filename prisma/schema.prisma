@@ -803,3 +803,37 @@ model AvisoGuardia {
   @@index([tipo, plate, creado])
   @@index([visitaId])
 }
+
+model PerfilMatricula {
+  plate                  String    @id
+  primeraVez             DateTime
+  ultimaVez              DateTime
+  diasVistos             Int       @default(0)
+  entradas               Int       @default(0)
+  salidas                Int       @default(0)
+  visitasConSalida       Int       @default(0)
+  permanenciaMedianaMin  Int?
+  permanenciaP90Min      Int?
+  entradaNoVista         Boolean   @default(false) // leída en salida sin ninguna entrada leída (Entrada no lee de noche)
+  rutina                 Json?     // { dows: number[], minutoMedio, desvioMin, dias }
+  clase                  String    // RESIDENTE | HABITUAL | FRECUENTE | OCASIONAL | PRIMERA_VEZ
+  unitIdProbable         String?
+  actualizado            DateTime  @default(now())
+
+  @@index([clase])
+}
+
+model EjecucionTarea {
+  id      String    @id @default(cuid())
+  tarea   String
+  inicio  DateTime  @default(now())
+  fin     DateTime?
+  ok      Boolean?
+  /// Qué hizo (resumen corto) o por qué falló.
+  detalle String?
+  /// "cron" o el nombre de quien la corrió a mano desde el panel.
+  origen  String    @default("cron")
+
+  @@index([tarea, inicio])
+}
+

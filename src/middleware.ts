@@ -33,6 +33,8 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/api/apk') ||
         pathname.startsWith('/api/webhooks/') ||
         pathname.startsWith('/api/devices/health/tick') ||
+        pathname.startsWith('/api/visitas/tick') ||
+        pathname.startsWith('/api/visitas/lectura') ||
         pathname === '/api/subscribe' ||
         pathname.startsWith('/api/push/dispatch') ||
         pathname === '/api/events' ||
