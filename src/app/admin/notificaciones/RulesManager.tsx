@@ -6,7 +6,7 @@ import {
     ToggleLeft, ToggleRight, Bell, RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import {
     getNotificationRules, createNotificationRule, updateNotificationRule, deleteNotificationRule,
     getQueueDevices,

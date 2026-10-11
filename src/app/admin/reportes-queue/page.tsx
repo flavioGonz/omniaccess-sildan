@@ -19,7 +19,7 @@ import {
     getQueueDevices,
     getCameraOutages,
 } from "@/app/actions/queue";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 
 /* ── Types ─────────────────────────────────── */
 interface HourlyData { hour: number; avg: number; max: number; count: number; }

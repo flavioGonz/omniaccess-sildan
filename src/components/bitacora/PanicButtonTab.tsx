@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 
 export default function PanicButtonTab() {
     const [isAlertMode, setIsAlertMode] = useState(false);

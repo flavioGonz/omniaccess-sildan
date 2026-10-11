@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { createBitacoraEntry } from "@/app/actions/bitacora";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 
 export default function ManualRegisterForm() {
     const [type, setType] = useState<"ENTRY" | "EXIT">("ENTRY");

@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { getGuardsList, saveGuard, deleteGuard } from "@/app/actions/users";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 
 export default function GuardManagement() {
     const [guardsList, setGuardsList] = useState<any[]>([]);

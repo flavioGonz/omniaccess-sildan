@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { getSetting, updateSetting } from "@/app/actions/settings";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 
 interface DispatchChannel {
     key: string;

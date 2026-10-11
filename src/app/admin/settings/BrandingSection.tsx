@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Palette, Upload, Save, Image as ImageIcon, Loader2, Eye, Smartphone, X, MessageSquareQuote, Copy, ExternalLink, FileText } from "lucide-react";
 import { getAppBranding, saveAppBranding, uploadBrandingFile, savePwaIcon, getReportBranding } from "@/app/actions/settings";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import { cn } from "@/lib/utils";
 import SplashDesigner from "./SplashDesigner";
 

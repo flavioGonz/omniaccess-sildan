@@ -21,7 +21,7 @@ import {
     getQueueStatsToday,
 } from "@/app/actions/queue";
 import { getSetting, updateSetting } from "@/app/actions/settings";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 import io from "socket.io-client";
 import { OnvifDiscoveryPanel } from "@/components/OnvifDiscoveryPanel";
 

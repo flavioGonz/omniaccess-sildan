@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Smartphone, Image as ImageIcon, Video, Type, Palette, Save, Loader2, Upload, Layers } from "lucide-react";
 import { getSplashConfig, saveSplashConfig, uploadBrandingFile } from "@/app/actions/settings";
-import { toast } from "sonner";
+import { toast } from "@/lib/avisos";
 
 const TARGETS = [
     { k: "global", l: "Global (por defecto)" },
