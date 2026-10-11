@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
     LayoutDashboard,
     Radar,
+    MonitorPlay,
     Users,
     Car,
     Settings,
@@ -173,6 +174,7 @@ export default function AdminLayout({
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         <SidebarItem ver={puede} icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />
                     )}
+                    <SidebarItem ver={puede} icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />
                     {modules.MODULE_QUEUE ? (
                         <SidebarItem ver={puede} icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />
                     ) : (

@@ -23,3 +23,10 @@ export function getApiUrl() {
     // and avoids hydration mismatches/CORS/mixed-content issues.
     return '';
 }
+
+/** Path del socket a traves de la aplicacion (Next reescribe /io/* a server.js). */
+export const RUTA_SOCKET = "/io/socket.io";
+/** Opciones comunes (de san-nicolas): polling por el doble proxy del dominio. */
+export function opcionesSocket(extra: Record<string, any> = {}) {
+    return { path: RUTA_SOCKET, transports: ["polling"], upgrade: false, ...extra };
+}

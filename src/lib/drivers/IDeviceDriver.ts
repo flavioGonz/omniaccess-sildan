@@ -79,3 +79,6 @@ export function isLogDriver(driver: IDeviceDriver): driver is ILogDriver {
 export function isStatsDriver(driver: IDeviceDriver): driver is IStatsDriver {
     return 'getDeviceStats' in driver;
 }
+
+/** La lista de una lectora LPR: whiteList abre (rele), blackList no. */
+export type ListaCamara = \whiteList\ | lackList\;

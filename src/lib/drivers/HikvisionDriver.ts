@@ -10,6 +10,9 @@ import {
 } from "../digest-auth";
 import crypto from "crypto";
 
+/** La lista de la camara: whiteList abre (rele/semaforo verde), blackList no. */
+type ListaCamara = "whiteList" | "blackList";
+
 export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
     /**
      * JSON request with automatic Basic/Digest auth via shared module.
@@ -246,7 +249,29 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
         }
     }
 
-    async addPlateToCamera(device: Device, plate: string): Promise<void> {
+    async findPlateOnCamera(device: Device, plate: string): Promise<{ id: string; lista: ListaCamara } | null> {
+        const url = `/ISAPI/Traffic/channels/1/searchLPListAudit`;
+        const xml = `<?xml version="1.0" encoding="UTF-8"?><LPSearchCond><searchID>${Date.now().toString(36)}</searchID><maxResult>10</maxResult><searchResultPosition>0</searchResultPosition><LicensePlate>${plate}</LicensePlate></LPSearchCond>`;
+        const response: string = await this.requestXML("POST", url, xml, device);
+        const bloques = response.match(/<LicensePlateInfo>[\s\S]*?<\/LicensePlateInfo>/g) || [];
+        for (const b of bloques) {
+            const lp = (b.match(/<LicensePlate>([^<]*)<\/LicensePlate>/) || [])[1] || "";
+            if (lp.toUpperCase() !== plate.toUpperCase()) continue;   // el filtro de la cámara es "contiene"
+            const id = (b.match(/<id>([^<]*)<\/id>/) || [])[1] || "";
+            const tipo = (b.match(/<type>([^<]*)<\/type>/) || [])[1] || "whiteList";
+            if (id) return { id, lista: tipo === "blackList" ? "blackList" : "whiteList" };
+        }
+        return null;
+    }
+
+    async removePlateFromCamera(device: Device, plate: string): Promise<void> {
+        const hallada = await this.findPlateOnCamera(device, plate);
+        if (!hallada) return;   // no estaba: nada que borrar
+        const url = `/ISAPI/Traffic/channels/1/DelLicensePlateAuditData?format=json`;
+        await this.request("PUT", url, { id: [String(hallada.id)], deleteAllEnabled: false }, device);
+    }
+
+    async addPlateToCamera(device: Device, plate: string, lista: ListaCamara = "whiteList"): Promise<void> {
         const url = `/ISAPI/Traffic/channels/1/licensePlateAuditData/record?format=json`;
         const now = new Date();
         const createTime = now.toISOString().split('.')[0].replace('Z', ''); // YYYY-MM-DDTHH:mm:ss
@@ -259,7 +284,7 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
             LicensePlateInfoList: [
                 {
                     LicensePlate: plate,
-                    listType: "whiteList",
+                    listType: lista,
                     createTime: createTime,
                     effectiveStartDate: startDate,
                     effectiveTime: endDate,

@@ -106,8 +106,8 @@ export const CLIP_RETENCION_MIN = 10;
  * la otra. Face no está: los terminales faciales no exponen un stream que go2rtc republique.
  */
 export const TIPOS_POR_MODULO: Record<string, string[]> = {
-    LPR: ["LPR_CAMERA", "LPR_INTERIOR"],
-    INTRUSION: ["CAMERA", "LPR_CAMERA", "LPR_INTERIOR"],
+    LPR: ["LPR_CAMERA"],
+    INTRUSION: ["CAMERA", "LPR_CAMERA"],
 };
 
 /**

@@ -254,3 +254,38 @@ export async function getIntrusionStats(windowHours = 24): Promise<{ eventsToday
     const total = real + falseN;
     return { eventsToday, pending, ackedReal: real, ackedFalse: falseN, falsePct: total ? Math.round((falseN / total) * 100) : null, avgReactionSec: n ? Math.round(sum / n) : null, lastEventMs: last?.timestamp ? last.timestamp.getTime() : null };
 }
+
+/**
+ * Reclasificar como falsa una intrusión que ya se había confirmado como real.
+ *
+ * Existe porque la confirmación se toma rápido —el modal se confirma solo a los 20 s— y el
+ * operador recién después, con la foto grande delante, ve que era un perro o una rama. Sin
+ * esto, la única salida de "en atención" era "resuelto", y el registro quedaba diciendo que
+ * hubo una intrusión real donde no la hubo. Toca sólo lo aceptado como real en las últimas
+ * 6 horas de esa cámara, igual que la ventana de `ackAlarms`.
+ */
+export async function reclasificarComoFalsa(deviceId: string): Promise<{ ok: boolean; count: number }> {
+    const since = new Date(Date.now() - 6 * 3600 * 1000);
+    try {
+        const r = await prisma.detection.updateMany({
+            where: { deviceId, acknowledged: true, ackKind: "real", type: { not: "MOTION" }, timestamp: { gte: since } },
+            data: { ackKind: "false", ackAt: new Date() },
+        });
+        return { ok: true, count: r.count };
+    } catch { return { ok: false, count: 0 }; }
+}
+
+/**
+ * Corregir UNA detección: real o falsa alarma. Las otras acciones de esta pantalla van por
+ * cámara (aceptan todo lo pendiente de un canal); esta es para el registro de un evento ya
+ * mirado — "esa de las 09:20 no era nadie" — sin tocar las demás.
+ */
+export async function marcarDeteccion(id: string, kind: "real" | "false"): Promise<{ ok: boolean; error?: string }> {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return { ok: false, error: "Hace falta una sesión del panel." };
+    if (kind !== "real" && kind !== "false") return { ok: false, error: "Estado inválido" };
+    try {
+        await prisma.detection.update({ where: { id }, data: { acknowledged: true, ackKind: kind, ackAt: new Date() } });
+        return { ok: true };
+    } catch { return { ok: false, error: "No se encontró la detección" }; }
+}

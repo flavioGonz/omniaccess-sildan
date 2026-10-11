@@ -837,3 +837,56 @@ model EjecucionTarea {
   @@index([tarea, inicio])
 }
 
+
+model EnlacePantalla {
+  id           String    @id @default(cuid())
+  nombre       String
+  vista        String
+  tokenHash    String    @unique
+  creadoPor    String?
+  creadoEn     DateTime  @default(now())
+  ultimoUsoEn  DateTime?
+  ultimoUsoIp  String?
+  revocadoEn   DateTime?
+
+  @@index([vista])
+}
+
+model Relectura {
+  id            String   @id @default(cuid())
+  accessEventId String   @unique
+  /// LEIDA | DUDOSA | SIN_CHAPA | SIN_VEHICULO | SIN_FOTO | ERROR
+  estado        String
+  plate         String?
+  confianza     Float?
+  /// Las otras lecturas del recorte: [{plate, confianza}]
+  candidatos    Json?
+  /// Clase del vehiculo recortado (car, truck, bus, motorcycle)
+  vehiculo      String?
+  /// Cuantos vehiculos vio el detector en la foto
+  vehiculos     Int      @default(0)
+  /// Clave del recorte del vehiculo en el bucket de vision (objetos)
+  recorte       String?
+  /// Clave del recorte de la chapa (lo que el guardia mira para confirmar)
+  recorteChapa  String?
+  ms            Int?
+  error         String?
+  createdAt     DateTime @default(now())
+
+  @@index([plate])
+  @@index([createdAt])
+}
+
+model AnalisisFoto {
+  id            String   @id @default(cuid())
+  accessEventId String   @unique
+  /// OK | SIN_FOTO | ERROR
+  estado        String
+  analisis      Json?
+  ms            Int?
+  error         String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+}
+
