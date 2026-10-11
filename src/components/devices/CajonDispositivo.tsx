@@ -581,10 +581,10 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                 {tipo !== "NVR" && <Campo etiqueta="Ubicación / garita" icono={MapPin} value={f.location} onChange={(v) => set("location", v)} placeholder="Garita P1"
                                     ayuda="Texto libre. Ej.: «Garita P1», «Lote 120 fondo». En LPR, «P1»/«P2» agrupan el semáforo en el monitor." />}
                             </div>
+                            {tipo === "LPR_CAMERA" && <div><Etiqueta texto="Sentido" ayuda="Decide la columna del monitor, si suma a «adentro ahora» y si cierra visitas. Ej.: el carril de ingreso de P1 es Entrada." />{bloqueSentido}</div>}
                             <div><Etiqueta texto="Fabricante" ayuda="No se cambia en un equipo dado de alta." />{bloqueMarca}</div>
                         </Bloque>
                         <Bloque titulo="Conexión" icono={Network} ayuda="Cómo llega el servidor al equipo. Si cambiás IP o clave, «Comprobar» confirma que sigue respondiendo.">{bloqueConexion}</Bloque>
-                        {tipo === "LPR_CAMERA" && <Bloque titulo="Sentido" icono={MapPin} ayuda="Decide la columna del monitor, si suma a «adentro ahora» y si cierra visitas.">{bloqueSentido}</Bloque>}
                         {tipo !== "NVR" && (
                             <Bloque titulo="Grabación" icono={HardDrive} ayuda="En qué NVR y canal se graba: de ahí salen los clips y el playback."
                                 accion={<Button variant="outline" size="sm" onClick={calcRet} disabled={calculando || !actual} className="gap-1.5" {...tip("Busca en el NVR la grabación más vieja de este canal y calcula cuántos días guarda.")}>{calculando ? <Loader2 size={14} className="animate-spin" /> : <Server size={14} />} Calcular retención</Button>}>

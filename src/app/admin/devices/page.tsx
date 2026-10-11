@@ -559,7 +559,7 @@ export default function DevicesPage() {
                 <VistaArea estado={areas} areaId={areaSel} devices={devices.filter((d) => allowedTypes.includes(d.deviceType))} busqueda={searchTerm}
                     health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando}
                     onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)}
-                    onVivo={(d) => setViewingLive(d)} onCalibrar={(d) => (d.deviceType === "CAMERA" ? setCalibIntr(d) : setCalibrating(d))}
+                    onCalibrar={(d) => (d.deviceType === "CAMERA" ? setCalibIntr(d) : setCalibrating(d))}
                     onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
             ) : (<>
 
@@ -743,23 +743,6 @@ export default function DevicesPage() {
                                                 <ProvisionButton deviceId={dev.id} deviceName={dev.name} onDone={() => handleRefreshStats(dev.id)} />
                                             )}
 
-                                            {dev.deviceType !== 'NVR' && (
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            onClick={() => setViewingLive(dev)}
-                                                            className="h-7 w-7 rounded-md bg-card/50 text-muted-foreground hover:text-indigo-400 hover:bg-indigo-500/10 border border-border/50 hover:border-indigo-500/30 transition-all"
-                                                        >
-                                                            <Eye size={15} />
-                                                        </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent><p>Ver en Vivo</p></TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                            )}
 
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
@@ -892,7 +875,17 @@ export default function DevicesPage() {
                                                     </div>
                                                     <div>
                                                         <p className={cn("font-semibold text-foreground text-sm leading-none", claseNombreConAlerta(alertasDe[dev.id]))}>{dev.name}</p>
-                                                        <p className="text-[10px] text-muted-foreground mt-1">{dev.deviceModel || brand.label}</p>
+                                                        <p className="text-[10px] text-muted-foreground mt-1" data-tooltip-id="tt-grab" data-tooltip-content={[h?.machineName && `Nombre: ${h.machineName}`, h?.firmware && `Firmware: ${h.firmware}`, h?.serial && `Serie: ${h.serial}`].filter(Boolean).join(" · ") || "Modelo"}>{h?.model || dev.deviceModel || brand.label}</p>
+                                                        <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                                            {h?.channels && (
+                                                                <span className={cn("h-[17px] px-1.5 rounded text-[9px] font-bold inline-flex items-center gap-1", h.channels.caidos.length ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "bg-emerald-500/10 text-emerald-500")}
+                                                                    data-tooltip-id="tt-grab" data-tooltip-content={`${h.channels.conectados} de ${h.channels.usados} cámaras conectadas (${h.channels.total} canales)${h.channels.caidos.length ? `. Sin conexión: D${h.channels.caidos.join(", D")}` : ""}`}>
+                                                                    <Camera size={9} /> {h.channels.conectados}/{h.channels.usados}
+                                                                </span>
+                                                            )}
+                                                            {typeof h?.recording === "boolean" && <span className={cn("h-[17px] px-1.5 rounded text-[9px] font-bold inline-flex items-center gap-1", h.recording ? "bg-red-500/10 text-red-500" : "bg-muted text-muted-foreground")} data-tooltip-id="tt-grab" data-tooltip-content={h.recording ? "Grabando" : "No está grabando"}><span className={cn("w-1.5 h-1.5 rounded-full", h.recording ? "bg-red-500 animate-pulse" : "bg-muted-foreground")} /> REC</span>}
+                                                            {h?.linkMbps && <span className="h-[17px] px-1.5 rounded bg-sky-500/10 text-sky-500 text-[9px] font-bold inline-flex items-center gap-1" data-tooltip-id="tt-grab" data-tooltip-content={`Enlace de red ${h.linkMbps} Mbps${h.rxGB != null ? ` · recibidos ${h.rxGB} GB / enviados ${h.txGB} GB desde el arranque` : ""}`}><Network size={9} /> {h.linkMbps >= 1000 ? `${h.linkMbps / 1000}G` : `${h.linkMbps}M`}</span>}
+                                                        </div>
                                                         <AlertasFila alertas={alertasDe[dev.id]} onVer={() => setHealthHistory(dev)} />
                                                     </div>
                                                 </div>
@@ -912,7 +905,7 @@ export default function DevicesPage() {
                                             </TableCell>
                                             <TableCell>
                                                 <p className="text-xs text-foreground font-mono">{dev.ip}</p>
-                                                <p className="text-[10px] text-muted-foreground font-mono">{dev.mac || '—'}</p>
+                                                <p className="text-[10px] text-muted-foreground font-mono">{dev.mac || h?.mac || '—'}</p>
                                             </TableCell>
                                             <TableCell>
                                                 {disks.length > 0 ? (
@@ -940,14 +933,12 @@ export default function DevicesPage() {
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 <div className="flex flex-col items-center gap-0.5">
-                                                    <TooltipProvider>
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <span className="text-[9px] text-muted-foreground cursor-help">CPU: N/D</span>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent><p className="text-[10px] max-w-[180px]">Este NVR no expone uso de CPU por ISAPI. Se monitorea memoria, discos y uptime.</p></TooltipContent>
-                                                        </Tooltip>
-                                                    </TooltipProvider>
+                                                    {h?.cpuPct != null ? (
+                                                        <div className="w-16" data-tooltip-id="tt-grab" data-tooltip-content={`CPU ${h.cpuPct}%`}>
+                                                            <div className="flex items-center gap-1"><Cpu size={11} className={h.cpuPct >= 85 ? "text-amber-400" : "text-violet-400"} /><span className="text-[11px] font-mono text-foreground">{h.cpuPct}%</span></div>
+                                                            <div className="h-1 rounded-full bg-border/60 overflow-hidden mt-0.5"><div className={cn("h-full rounded-full", h.cpuPct >= 85 ? "bg-amber-400" : "bg-violet-400")} style={{ width: `${h.cpuPct}%` }} /></div>
+                                                        </div>
+                                                    ) : <span className="text-[9px] text-muted-foreground" data-tooltip-id="tt-grab" data-tooltip-content="Este equipo no informa uso de CPU.">CPU: N/D</span>}
                                                     {h?.memPct != null ? (
                                                         <div className="w-16">
                                                             <div className="flex items-center gap-1">
@@ -969,7 +960,7 @@ export default function DevicesPage() {
                                                 ) : <span className="text-red-400 text-[11px] inline-flex items-center gap-1"><AlertTriangle size={11} /> s/resp</span>}
                                             </TableCell>
                                             <TableCell className="text-center">
-                                                <span className="text-[11px] font-mono text-foreground">{fmtUptime(h?.uptimeSec)}</span>
+                                                {h?.uptimeSec ? <span className="text-[11px] font-mono text-foreground">{fmtUptime(h.uptimeSec)}</span> : <span className="text-[11px] text-muted-foreground" data-tooltip-id="tt-grab" data-tooltip-content={h?.memTotalMB ? `Memoria ${h.memUsedMB}/${h.memTotalMB} MB. El equipo no informa uptime.` : "El equipo no informa uptime."}>—</span>}
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 {h?.localTime ? (

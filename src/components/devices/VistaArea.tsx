@@ -18,7 +18,7 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
     onDetectar, onRetencion, onEditar, onVivo, onCalibrar, onSalud, onElegirArea }: {
     estado: EstadoAreas; areaId: string; devices: any[]; busqueda?: string; health?: Record<string, any>; alertasDe?: Record<string, AlertaEquipo[]>;
     grab?: Record<string, FilaGrabacion>; detectando?: string | null; calculando?: string | null;
-    onDetectar: (ids: string[]) => void; onRetencion: (id: string) => void; onEditar: (d: any) => void; onVivo: (d: any) => void;
+    onDetectar: (ids: string[]) => void; onRetencion: (id: string) => void; onEditar: (d: any) => void; onVivo?: (d: any) => void;
     onCalibrar: (d: any) => void; onSalud: (d: any) => void; onElegirArea: (id: string) => void;
 }) {
     const [tipo, setTipo] = useState<string>("todos");
@@ -81,7 +81,6 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
                     <span className={cn("w-1.5 h-1.5 rounded-full", on === null ? "bg-muted-foreground/40" : on ? "bg-emerald-500" : "bg-red-500")} />{on === null ? "…" : on ? "On" : "Off"}
                 </span>
                 <div className="flex items-center justify-end gap-0.5">
-                    {d.deviceType !== "NVR" && <button onClick={() => onVivo(d)} data-tooltip-id="tt-grab" data-tooltip-content="Ver en vivo" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-indigo-500 hover:bg-indigo-500/10"><Eye size={14} /></button>}
                     {(d.deviceType === "CAMERA" || (d.deviceType === "LPR_CAMERA" && d.brand === "HIKVISION")) && (
                         <button onClick={() => onCalibrar(d)} data-tooltip-id="tt-grab" data-tooltip-content={d.deviceType === "CAMERA" ? "Calibrar intrusión" : "Calibrar ANPR"} className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10">{d.deviceType === "CAMERA" ? <Crosshair size={14} /> : <Wand2 size={14} />}</button>
                     )}

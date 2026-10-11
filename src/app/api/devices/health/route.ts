@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { authenticatedRequest } from "@/lib/digest-auth";
 import { xmlField } from "@/lib/isapi-camera";
+import { rpc2Sesion, rpc2Varios } from "@/lib/dahua-rpc2";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,10 @@ async function probeDahua(d: any, res: any) {
     } catch { res.reachable = false; return res; }
     const jobs: Promise<void>[] = [];
     jobs.push((async () => {
-        try { const tr = await authenticatedRequest("GET", "/cgi-bin/global.cgi?action=getCurrentTime", auth(d), { responseType: "text", timeout: 4000 }); const m = /result=([\d\-: ]+)/.exec(tr); if (m) res.localTime = m[1].trim(); } catch { }
+        try {
+            const tr = await authenticatedRequest("GET", "/cgi-bin/global.cgi?action=getCurrentTime", auth(d), { responseType: "text", timeout: 4000 }); const m = /result=([\d\-: ]+)/.exec(tr);
+            if (m) { res.localTime = m[1].trim(); const t = Date.parse(res.localTime.replace(" ", "T") + "-03:00"); if (!isNaN(t)) res.driftSec = Math.round((t - Date.now()) / 1000); }
+        } catch { }
         try { const nt = await authenticatedRequest("GET", "/cgi-bin/configManager.cgi?action=getConfig&name=NTP", auth(d), { responseType: "text", timeout: 4000 }); res.timeMode = /\.Enable=true/i.test(nt) ? "NTP" : "manual"; } catch { }
     })());
     jobs.push((async () => {
@@ -66,6 +70,35 @@ async function probeDahua(d: any, res: any) {
             }
             res.disks = disks;
         } catch { res.disks = []; }
+    })());
+    // NVR Dahua: CPU, memoria, red, canales y grabación por RPC2 (el CGI no los expone).
+    if (d.deviceType === "NVR") jobs.push((async () => {
+        let s: any = null;
+        try {
+            s = await rpc2Sesion(d, 6000);
+            const r = await rpc2Varios(s, {
+                cpu: ["magicBox.getCPUUsage", { part: 0 }], mem: ["magicBox.getMemoryInfo"], tipo: ["magicBox.getDeviceType"],
+                ver: ["magicBox.getSoftwareVersion"], sn: ["magicBox.getSerialNo"], nombre: ["magicBox.getMachineName"],
+                red: ["netApp.getNetInterfaces"], canales: ["LogicDeviceManager.getCameraState", { uniqueChannels: [-1] }],
+                graba: ["recordManager.getState", { channel: 0 }], trafico: ["netApp.getNetDataStat", { Name: "eth0" }],
+            });
+            if (typeof r.cpu?.usage === "number") res.cpuPct = r.cpu.usage;
+            if (r.mem?.total) { res.memTotalMB = Math.round(r.mem.total / 1048576); res.memUsedMB = Math.round((r.mem.total - r.mem.free) / 1048576); res.memPct = Math.round(((r.mem.total - r.mem.free) / r.mem.total) * 100); }
+            if (r.tipo?.type) res.model = r.tipo.type;
+            if (r.ver?.version) res.firmware = `${r.ver.version.Version || ""}${r.ver.version.BuildDate ? ` (${r.ver.version.BuildDate})` : ""}`;
+            if (r.sn?.sn) res.serial = r.sn.sn;
+            if (r.nombre?.name) res.machineName = r.nombre.name;
+            const eth = (r.red?.netInterface || []).find((n: any) => n.ConnStatus === "Connected") || (r.red?.netInterface || [])[0];
+            if (eth) { res.mac = eth.PhysicalAddress; res.linkMbps = eth.Speed; res.linkUp = eth.ConnStatus === "Connected"; }
+            const st: any[] = r.canales?.states || [];
+            if (st.length) {
+                const usados = st.filter((c) => c.connectionState !== "Empty");
+                res.channels = { total: st.length, usados: usados.length, conectados: usados.filter((c) => c.connectionState === "Connected").length, caidos: usados.filter((c) => c.connectionState !== "Connected").map((c) => c.channel + 1) };
+            }
+            if (typeof r.graba?.state === "boolean") res.recording = r.graba.state;
+            if (r.trafico?.Receive) { res.rxGB = Math.round(r.trafico.Receive.bytes / 1e9); res.txGB = Math.round(r.trafico.Transmit?.bytes / 1e9); }
+        } catch (e: any) { res.rpc2Error = e?.message || "RPC2 sin respuesta"; }
+        finally { try { await s?.close(); } catch { } }
     })());
     await Promise.all(jobs);
     return res;
@@ -97,6 +130,8 @@ async function probe(d: any, streams: Record<string, { consumers: number; produc
         res.memTotalMB = Math.round(memUse + memFree);
     }
     const devTime = xmlField(statusXml, "currentDeviceTime");
+    const cpu = parseFloat(xmlField(statusXml, "cpuUtilization") || "");
+    if (!isNaN(cpu)) res.cpuPct = Math.round(cpu);
 
     // --- hora / NTP (en paralelo con discos si NVR)
     const jobs: Promise<void>[] = [];

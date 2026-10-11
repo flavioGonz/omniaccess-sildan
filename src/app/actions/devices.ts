@@ -230,7 +230,32 @@ export async function probeDeviceInfo(input: { ip: string; username?: string; pa
     const ip = (input.ip || "").trim();
     if (!ip) return { ok: false, error: "IP requerida" };
     const brand = (input.brand || "HIKVISION").toUpperCase();
-    if (brand !== "HIKVISION") return { ok: false, error: "Autodeteccion disponible solo para HIKVISION por ahora" };
+    if (brand === "DAHUA") {
+        // Dahua: RPC2 (lo mismo que usa su web). Modelo, firmware, serie, nombre y MAC.
+        try {
+            const { rpc2Sesion, rpc2Varios } = await import("@/lib/dahua-rpc2");
+            const sesion = await rpc2Sesion({ ip, username: input.username || "admin", password: input.password || "" }, 7000);
+            try {
+                const r = await rpc2Varios(sesion, { tipo: ["magicBox.getDeviceType"], ver: ["magicBox.getSoftwareVersion"], sn: ["magicBox.getSerialNo"], nombre: ["magicBox.getMachineName"], red: ["netApp.getNetInterfaces"] });
+                const eth = (r.red?.netInterface || []).find((n: any) => n.ConnStatus === "Connected") || (r.red?.netInterface || [])[0];
+                return { ok: true, online: true, authType: "DIGEST", model: r.tipo?.type || "", firmwareVersion: r.ver?.version?.Version || "", serialNumber: r.sn?.sn || "", deviceName: r.nombre?.name || "", macAddress: eth?.PhysicalAddress || "" };
+            } finally { await sesion.close(); }
+        } catch (e: any) {
+            // Fallback CGI (equipos viejos sin RPC2)
+            try {
+                const { authenticatedRequest } = await import("@/lib/digest-auth");
+                const dev: any = { ip, username: input.username || "admin", password: input.password || "", authType: "DIGEST" };
+                const tipo = String(await authenticatedRequest("GET", "/cgi-bin/magicBox.cgi?action=getDeviceType", dev, { responseType: "text", timeout: 6000 }));
+                const ver = String(await authenticatedRequest("GET", "/cgi-bin/magicBox.cgi?action=getSoftwareVersion", dev, { responseType: "text", timeout: 6000 }).catch(() => ""));
+                const sn = String(await authenticatedRequest("GET", "/cgi-bin/magicBox.cgi?action=getSerialNo", dev, { responseType: "text", timeout: 6000 }).catch(() => ""));
+                return { ok: true, online: true, authType: "DIGEST", model: (/type=(.+)/.exec(tipo)?.[1] || "").trim(), firmwareVersion: (/version=([^,\r\n]+)/.exec(ver)?.[1] || "").trim(), serialNumber: (/sn=(.+)/.exec(sn)?.[1] || "").trim(), macAddress: "" };
+            } catch (e2: any) {
+                const m = String(e?.message || e2?.message || "");
+                return { ok: false, online: false, error: /incorrect|401|Invalid Authority/i.test(m) ? "El equipo respondió pero no acepta ese usuario y contraseña" : m || "Sin respuesta (revisá IP/credenciales)" };
+            }
+        }
+    }
+    if (brand !== "HIKVISION") return { ok: false, error: `Autodetección no disponible para ${brand}` };
     const driver = new HikvisionDriver();
     const order = (input.authType || "DIGEST").toUpperCase() === "BASIC" ? ["BASIC", "DIGEST"] : ["DIGEST", "BASIC"];
     let lastErr = "";
