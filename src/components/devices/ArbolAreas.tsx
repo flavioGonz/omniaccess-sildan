@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Tooltip } from "react-tooltip";
 import {
     ChevronRight, Folder, FolderOpen, FolderPlus, Pencil, Trash2, Layers, Inbox, Car, Radar, HardDrive, Cpu,
-    Eye, EyeOff, ChevronsDownUp, ChevronsUpDown, GripVertical, Check, X, Palette, MousePointerClick,
+    Eye, EyeOff, ChevronsDownUp, ChevronsUpDown, GripVertical, Check, X, Palette, MousePointerClick, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
@@ -63,9 +63,12 @@ export function enArea(estado: EstadoAreas, deviceId: string, areaId: string): b
 
 type Zona = "antes" | "dentro" | "despues";
 
-export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActual, seleccion, onSeleccion, onAbrirEquipo, health = {}, alertasDe = {} }: {
+export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActual, seleccion, onSeleccion, onAbrirEquipo, health = {}, alertasDe = {}, tipos = [], onTipo, colapsado = false, onColapsar }: {
     estado: EstadoAreas; setEstado: (e: EstadoAreas) => void; devices: any[]; tiposVisibles: string[]; tipoActual: string;
     seleccion: string; onSeleccion: (id: string) => void; onAbrirEquipo?: (d: any) => void; health?: Record<string, any>; alertasDe?: Record<string, any[]>;
+    /** Filtros por tipo de equipo (debajo de las áreas). */
+    tipos?: { tipo: string; rotulo: string; cuenta: number; alertas?: number }[]; onTipo?: (t: string) => void;
+    colapsado?: boolean; onColapsar?: (v: boolean) => void;
 }) {
     const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
     const [verEquipos, setVerEquipos] = useState(true);
@@ -240,6 +243,48 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
 
     const raices = hijas(null);
     const todasAbiertas = estado.areas.length > 0 && estado.areas.every((a) => abiertas.has(a.id));
+    const filtros = tipos.length > 0 && (
+        <div className="p-2 border-t border-border/60 space-y-1">
+            <div className="px-1.5 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Tipo de equipo</div>
+            {tipos.map((t) => {
+                const activo = t.tipo === tipoActual; const m = ICONO_TIPO[t.tipo];
+                return (
+                    <button key={t.tipo} type="button" onClick={() => onTipo?.(t.tipo)}
+                        className={cn("w-full flex items-center gap-2.5 h-10 px-2.5 rounded-lg border transition-all text-left",
+                            activo ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)] shadow-sm" : "border-transparent hover:bg-accent/70")}>
+                        <span className={cn("h-7 w-7 rounded-md grid place-items-center", activo ? "bg-background shadow-sm" : "bg-muted/60")}><IconoTipo tipo={t.tipo} size={15} /></span>
+                        <span className={cn("flex-1 text-[12.5px]", activo ? "font-bold" : "font-semibold text-foreground/85")}>{t.rotulo}</span>
+                        {!!t.alertas && <span className="h-[18px] px-1.5 rounded-full bg-red-500/15 text-red-500 text-[10px] font-bold grid place-items-center tabular-nums" data-tooltip-id="tt-areas" data-tooltip-content={`${t.alertas} con alertas`}>{t.alertas}</span>}
+                        <span className={cn("min-w-[24px] h-[20px] px-1.5 rounded-full text-[10.5px] font-bold grid place-items-center tabular-nums", activo ? "bg-[var(--accion)] text-white" : "bg-muted text-muted-foreground")}>{t.cuenta}</span>
+                    </button>
+                );
+            })}
+        </div>
+    );
+
+    if (colapsado) return (
+        <aside className="w-[52px] shrink-0 rounded-xl border border-border/60 bg-card/50 flex flex-col items-center py-2 gap-1 sticky top-4">
+            <button type="button" onClick={() => onColapsar?.(false)} data-tooltip-id="tt-areas" data-tooltip-content="Mostrar áreas y filtros"
+                className="h-9 w-9 grid place-items-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"><PanelLeftOpen size={17} /></button>
+            <span className="w-6 h-px bg-border my-1" />
+            {tipos.map((t) => (
+                <button key={t.tipo} type="button" onClick={() => onTipo?.(t.tipo)} data-tooltip-id="tt-areas" data-tooltip-content={`${t.rotulo} (${t.cuenta})`}
+                    className={cn("relative h-9 w-9 grid place-items-center rounded-lg transition-colors", t.tipo === tipoActual ? "bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] ring-1 ring-[var(--accion)]" : "hover:bg-accent")}>
+                    <IconoTipo tipo={t.tipo} size={16} />
+                    {!!t.alertas && <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-red-500" />}
+                </button>
+            ))}
+            <span className="w-6 h-px bg-border my-1" />
+            {estado.areas.filter((a) => !a.padre).sort((a, b) => a.orden - b.orden).slice(0, 12).map((a) => (
+                <button key={a.id} type="button" onClick={() => onSeleccion(seleccion === a.id ? TODAS : a.id)} data-tooltip-id="tt-areas" data-tooltip-content={a.nombre}
+                    className={cn("h-8 w-8 grid place-items-center rounded-lg", seleccion === a.id ? "bg-accent ring-1 ring-border" : "hover:bg-accent/70")}>
+                    <Folder size={15} style={{ color: a.color }} fill={a.color} fillOpacity={0.2} />
+                </button>
+            ))}
+            <Tooltip id="tt-areas" place="right" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />
+        </aside>
+    );
+
     return (
         <aside className="w-[272px] shrink-0 rounded-xl border border-border/60 bg-card/50 flex flex-col max-h-[calc(100vh-190px)] sticky top-4">
             <div className="flex items-center gap-1 px-3 h-11 border-b border-border/60">
@@ -251,6 +296,8 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                 <button type="button" onClick={() => guardarAbiertas(todasAbiertas ? new Set() : new Set(estado.areas.map((a) => a.id)))}
                     data-tooltip-id="tt-areas" data-tooltip-content={todasAbiertas ? "Plegar todo" : "Desplegar todo"}
                     className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">{todasAbiertas ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}</button>
+                <button type="button" onClick={() => onColapsar?.(true)} data-tooltip-id="tt-areas" data-tooltip-content="Contraer el panel para darle más lugar a la tabla"
+                    className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><PanelLeftClose size={14} /></button>
                 <button type="button" onClick={() => nueva(null)} data-tooltip-id="tt-areas" data-tooltip-content="Nueva área. Ej.: «Portería», «Perímetro Norte», «Club House»."
                     className="h-7 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold inline-flex items-center gap-1"><FolderPlus size={13} /> Nueva</button>
             </div>
@@ -268,6 +315,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     {verEquipos && seleccion === SIN_AREA && sinArea.slice(0, 200).map((d) => <Fragment key={d.id}>{hoja(d, 0)}</Fragment>)}
                 </div>
             </div>
+            {filtros}
             <div className="px-3 py-2 border-t border-border/60 text-[10.5px] text-muted-foreground flex items-center gap-1.5"><GripVertical size={12} /> Arrastrá equipos y áreas para reorganizar</div>
             <Tooltip id="tt-areas" place="right" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />
         </aside>

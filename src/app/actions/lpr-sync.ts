@@ -131,3 +131,62 @@ export async function syncDeviceFull(deviceId: string) {
     for (const c of creds) { try { await driver.upsertCredential(c, device); added++; } catch { addFail++; } }
     return { ok: true, added, addFail, removed: before, remFail: 0, before, after: added };
 }
+
+/**
+ * Buscar un usuario (nombre, matrícula o lote) y ver, cámara por cámara, si sus matrículas
+ * están cargadas. Busca cada matrícula en la cámara (no baja la lista entera): es rápido.
+ */
+export async function buscarUsuarioEnCamaras(q: string) {
+    if (!(await getSession())) return { ok: false as const, error: "Hace falta una sesión del panel." };
+    const t = String(q || "").trim();
+    if (t.length < 2) return { ok: true as const, usuarios: [], camaras: [] };
+    const tn = norm(t);
+    const usuarios = await prisma.user.findMany({
+        where: {
+            OR: [
+                { name: { contains: t, mode: "insensitive" } },
+                ...(tn.length >= 2 ? [{ credentials: { some: { type: "PLATE" as any, value: { contains: tn, mode: "insensitive" as any } } } }] : []),
+                { unit: { name: { contains: t, mode: "insensitive" } } },
+            ],
+        },
+        select: { id: true, name: true, role: true, unit: { select: { name: true } }, credentials: { where: { type: "PLATE" as any }, select: { value: true } } },
+        take: 6,
+    });
+    const devices = await prisma.device.findMany({ where: { deviceType: "LPR_CAMERA", brand: "HIKVISION" }, orderBy: { name: "asc" } });
+    const driver = new HikvisionDriver();
+    const out = [];
+    for (const u of usuarios) {
+        const plates = [];
+        for (const c of u.credentials.slice(0, 6)) {
+            const estado: Record<string, string> = {};
+            await Promise.all(devices.map(async (d) => {
+                try { const h = await driver.findPlateOnCamera(d, c.value); estado[d.id] = h ? h.lista : "falta"; }
+                catch { estado[d.id] = "error"; }
+            }));
+            plates.push({ value: c.value, camaras: estado });
+        }
+        out.push({ id: u.id, name: u.name, role: String(u.role), lote: u.unit?.name || null, plates });
+    }
+    return { ok: true as const, usuarios: out, camaras: devices.map((d) => ({ id: d.id, name: d.name, direction: String(d.direction || "") })) };
+}
+
+/** Carga en todas las cámaras LPR las matrículas de UN usuario que les falten (lista blanca). */
+export async function sincronizarUsuario(userId: string) {
+    if (!(await getSession())) return { ok: false as const, error: "Hace falta una sesión del panel.", resultados: [] };
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { credentials: { where: { type: "PLATE" as any }, select: { value: true } } } });
+    if (!u) return { ok: false as const, error: "El usuario no existe", resultados: [] };
+    const devices = await prisma.device.findMany({ where: { deviceType: "LPR_CAMERA", brand: "HIKVISION" } });
+    const driver = new HikvisionDriver();
+    const resultados: { deviceId: string; agregadas: number; error?: string }[] = [];
+    await Promise.all(devices.map(async (d) => {
+        let agregadas = 0;
+        try {
+            for (const c of u.credentials) {
+                const h = await driver.findPlateOnCamera(d, c.value);
+                if (!h) { await driver.addPlateToCamera(d, c.value, "whiteList"); agregadas++; }
+            }
+            resultados.push({ deviceId: d.id, agregadas });
+        } catch (e: any) { resultados.push({ deviceId: d.id, agregadas, error: e?.message || "sin conexión" }); }
+    }));
+    return { ok: true as const, resultados };
+}

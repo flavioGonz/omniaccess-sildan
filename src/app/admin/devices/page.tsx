@@ -110,9 +110,10 @@ import { ConfirmarHora } from "@/components/devices/ConfirmarHora";
 import { IntrusionCalibrator as CalibradorIntrusion } from "@/components/IntrusionCalibrator";
 import { TablaIntrusion } from "@/components/devices/TablaIntrusion";
 import { ImportarCanalesNvr } from "@/components/devices/ImportarCanalesNvr";
-import { Car as CarIco, Radar as RadarIco, Server as ServerIco, ChevronDown as ChevronDownIco, Download as DownloadIco } from "lucide-react";
+import { Car as CarIco, Radar as RadarIco, Server as ServerIco, ChevronDown as ChevronDownIco, Download as DownloadIco, LogIn as LogInIco, LogOut as LogOutIco } from "lucide-react";
 import { grabacionesDe, detectarGrabaciones, calcularRetencion, type FilaGrabacion } from "@/app/actions/grabaciones";
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
+import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
 import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS } from "@/components/devices/ArbolAreas";
 import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 
@@ -252,6 +253,9 @@ export default function DevicesPage() {
     const setAreaSel = (v: string) => { setAreaSelState(v); try { localStorage.setItem("devices.area", v); } catch { } };
     useEffect(() => { leerAreas().then(setAreas).catch(() => { }); try { const v = localStorage.getItem("devices.area"); if (v) setAreaSelState(v); } catch { } }, []);
     const buscador = useRef<HTMLInputElement>(null);
+    const [panelCerrado, setPanelCerrado] = useState(false);
+    useEffect(() => { try { setPanelCerrado(localStorage.getItem("devices.panel") === "0"); } catch { } }, []);
+    const colapsarPanel = (v: boolean) => { setPanelCerrado(v); try { localStorage.setItem("devices.panel", v ? "0" : "1"); } catch { } };
     useEffect(() => {
         const k = (e: KeyboardEvent) => { if (e.key === "/" && !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) { e.preventDefault(); buscador.current?.focus(); } };
         window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
@@ -509,24 +513,8 @@ export default function DevicesPage() {
             </header>
 
             <div className="rounded-2xl border border-border/60 bg-card/50 p-2 flex flex-col xl:flex-row items-stretch xl:items-center gap-2">
-                {/* Tipos */}
-                <div className="flex items-center gap-1 bg-background/60 p-1 rounded-xl border border-border/50 shrink-0">
-                    {allowedTypes.map((type) => {
-                        const meta = TYPE_META[type];
-                        const activo = typeFilter === type;
-                        return (
-                            <button key={type} onClick={() => setFilter(type)}
-                                className={cn("h-8 px-3 rounded-lg text-[11px] font-bold transition-all inline-flex items-center gap-1.5",
-                                    activo ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground hover:bg-accent/60")}>
-                                <IconoTipo tipo={type} size={13} className={cn(!activo && "opacity-70")} />
-                                {meta?.label || type}
-                                <span className={cn("min-w-[20px] h-[18px] px-1 rounded-full text-[10px] grid place-items-center tabular-nums", activo ? "bg-indigo-500/15 text-indigo-500" : "bg-muted text-muted-foreground")}>{devices.filter((d) => d.deviceType === type).length}</span>
-                            </button>
-                        );
-                    })}
-                </div>
                 {/* Buscador al centro */}
-                <div className="relative flex-1 xl:max-w-xl xl:mx-auto w-full group">
+                <div className="relative flex-1 xl:max-w-2xl xl:mx-auto w-full group">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-indigo-500 transition-colors" size={17} />
                     <input ref={buscador} type="text" placeholder="Buscar por nombre, IP o ubicación…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full bg-background border border-border/70 h-11 rounded-xl pl-11 pr-20 text-[13.5px] font-medium outline-none transition-all placeholder:text-muted-foreground/70 text-foreground focus:border-indigo-500/60 focus:ring-4 focus:ring-indigo-500/10 shadow-sm" />
@@ -545,6 +533,7 @@ export default function DevicesPage() {
                             {detectando === "__todas__" ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} className="text-indigo-400" />} <span className="hidden 2xl:inline">Detectar grabaciones</span>
                         </button>
                     )}
+                    {typeFilter === "LPR_CAMERA" && <SyncToDevicesDialog variante="boton" onSuccess={() => loadUserCounts()} />}
                     {typeFilter === "LPR_CAMERA" && (
                         <button onClick={() => setShowReadRate(true)} data-tooltip-id="tt-grab" data-tooltip-content="Tasa de lectura: % de placas leídas vs no reconocidas, por cámara y por hora."
                             className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border border-border/60 bg-background/60 hover:bg-accent">
@@ -561,7 +550,9 @@ export default function DevicesPage() {
 
             <div className="flex gap-4 items-start">
                 <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
-                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)} health={health} alertasDe={alertasDe} />
+                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)} health={health} alertasDe={alertasDe}
+                    colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={setFilter}
+                    tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => d.deviceType === t).length, alertas: devices.filter((d) => d.deviceType === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
 
             {typeFilter !== "NVR" && typeFilter !== "CAMERA" && (
@@ -569,22 +560,18 @@ export default function DevicesPage() {
                 <Table>
                     <TableHeader className="bg-card/60">
                         <TableRow className="border-border/60 hover:bg-transparent">
-                            <TableHead className="text-muted-foreground font-semibold tracking-wide py-3 pl-5 uppercase text-[10px]">Dispositivo</TableHead>
-                            <TableHead className="text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">Marca / Modelo</TableHead>
+                            <TableHead className="text-muted-foreground font-semibold tracking-wide py-2.5 pl-4 uppercase text-[10px]">Equipo</TableHead>
                             <TableHead className="text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">Red</TableHead>
-                            <TableHead className="text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">Grabaciones</TableHead>
-                            <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Tipo</TableHead>
-                            <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Hora / NTP</TableHead>
-                            <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Enlace</TableHead>
-                            <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Usuarios</TableHead>
-                            <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Estado</TableHead>
-                            <TableHead className="text-right text-muted-foreground font-semibold tracking-wide pr-5 uppercase text-[10px]">Acciones</TableHead>
+                            <TableHead className="text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">Grabación</TableHead>
+                            <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Hora</TableHead>
+                            <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Estado · enlaces</TableHead>
+                            <TableHead className="text-right text-muted-foreground font-semibold tracking-wide pr-4 uppercase text-[10px]">Acciones</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {cameraDevices.length === 0 && !loading && (
                             <TableRow>
-                                <TableCell colSpan={10} className="text-center py-20">
+                                <TableCell colSpan={6} className="text-center py-20">
                                     <div className="flex flex-col items-center gap-3">
                                         <div className="p-5 bg-card/50 rounded-lg border border-dashed border-border">
                                             <Server size={36} className="text-muted-foreground" />
@@ -604,333 +591,102 @@ export default function DevicesPage() {
 
                             return (
                                 <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-grab active:cursor-grabbing", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
-                                    <TableCell className="py-3 pl-5">
-                                        <div className="flex items-center gap-4">
-                                            <div className="relative">
-                                                <div className="w-11 h-11 rounded-md bg-white flex items-center justify-center p-1.5 border border-border/30">
-                                                    <img
-                                                        src={
-                                                            dev.modelPhoto ||
-                                                            DRIVER_MODELS[dev.brand as keyof typeof DRIVER_MODELS]?.find((m: any) => m.value === dev.deviceModel)?.photo ||
-                                                            DEVICE_MODELS[dev.brand]?.[dev.deviceType] ||
-                                                            DEVICE_MODELS[dev.brand]?.DEFAULT ||
-                                                            brand.logoUrl ||
-                                                            PLACEHOLDER_DEVICE
-                                                        }
-                                                        alt={brand.label}
-                                                        className="w-full h-full object-contain"
-                                                        onError={(e) => {
-                                                            const fallback = brand.logoUrl || PLACEHOLDER_DEVICE;
-                                                            if ((e.target as any).src !== fallback) {
-                                                                (e.target as any).src = fallback;
-                                                            }
-                                                        }}
-                                                    />
-                                                    {dev.deviceType === "LPR_CAMERA" && (
-                                                        <span className="absolute -top-1.5 -left-1.5 h-5 w-5 rounded-md bg-amber-500 text-black grid place-items-center shadow ring-2 ring-background" data-tooltip-id="tt-grab" data-tooltip-content="Cámara LPR"><CarIco size={11} /></span>
-                                                    )}
-                                                    {dev.brandLogo && (
-                                                        <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-white rounded p-0.5 border border-border shadow-sm">
-                                                            <img src={dev.brandLogo} alt="Brand" className="w-full h-full object-contain" />
-                                                        </div>
-                                                    )}
+                                    <TableCell className="py-2 pl-4">
+                                        <div className="flex items-center gap-3 min-w-0">
+                                            <div className="relative shrink-0">
+                                                <div className="w-9 h-9 rounded-md bg-white flex items-center justify-center p-1 border border-border/30">
+                                                    <img src={dev.modelPhoto || DRIVER_MODELS[dev.brand as keyof typeof DRIVER_MODELS]?.find((m: any) => m.value === dev.deviceModel)?.photo || DEVICE_MODELS[dev.brand]?.[dev.deviceType] || DEVICE_MODELS[dev.brand]?.DEFAULT || brand.logoUrl || PLACEHOLDER_DEVICE}
+                                                        alt={brand.label} className="w-full h-full object-contain"
+                                                        onError={(e) => { const f = brand.logoUrl || PLACEHOLDER_DEVICE; if ((e.target as any).src !== f) (e.target as any).src = f; }} />
                                                 </div>
+                                                {dev.deviceType === "LPR_CAMERA" && (
+                                                    <span className="absolute -top-1.5 -left-1.5 h-[18px] w-[18px] rounded-md bg-amber-500 text-black grid place-items-center shadow ring-2 ring-background" data-tooltip-id="tt-grab" data-tooltip-content="Cámara LPR"><CarIco size={10} /></span>
+                                                )}
                                             </div>
-
-                                            <div className="space-y-1.5">
-                                                <div className="flex items-center gap-1.5">
-                                                    <p className={cn("font-semibold text-foreground text-sm leading-none", claseNombreConAlerta(alertasDe[dev.id]))}>{dev.name}</p>
-                                                    {analyticsIds.has(dev.id) && (
-                                                        <span title="Con analíticas / alertas activas" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/30 text-[9px] font-bold uppercase tracking-wide">
-                                                            <Radar size={10} /> Analítica
+                                            <div className="min-w-0 space-y-1">
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                    <p className={cn("font-semibold text-foreground text-[13px] leading-none truncate max-w-[200px]", claseNombreConAlerta(alertasDe[dev.id]))} data-tooltip-id="tt-grab" data-tooltip-content={dev.name}>{dev.name}</p>
+                                                    {dev.deviceType === "LPR_CAMERA" && dev.direction && (
+                                                        <span className={cn("h-[16px] px-1 rounded text-[9px] font-black grid place-items-center", dev.direction === "ENTRY" ? "bg-emerald-500/15 text-emerald-500" : "bg-orange-500/15 text-orange-500")}
+                                                            data-tooltip-id="tt-grab" data-tooltip-content={dev.direction === "ENTRY" ? "Entrada" : "Salida"}>{dev.direction === "ENTRY" ? <LogInIco size={10} /> : <LogOutIco size={10} />}</span>
+                                                    )}
+                                                    {analyticsIds.has(dev.id) && <span className="h-[16px] w-[16px] rounded bg-red-500/15 text-red-500 grid place-items-center" data-tooltip-id="tt-grab" data-tooltip-content="Con analíticas configuradas"><Radar size={10} /></span>}
+                                                </div>
+                                                <div className="flex items-center gap-1 flex-wrap">
+                                                    <span className="h-[17px] px-1.5 rounded bg-muted text-[9px] font-bold uppercase text-muted-foreground grid place-items-center" data-tooltip-id="tt-grab" data-tooltip-content={`${brand.label}${dev.deviceModel ? ` · ${dev.deviceModel}` : ""}`}>
+                                                        {(brand.label || dev.brand || "").slice(0, 3)}{dev.deviceModel ? ` · ${String(dev.deviceModel).replace(/^i?DS-/i, "").slice(0, 12)}` : ""}
+                                                    </span>
+                                                    <button onClick={() => handleTriggerRelay(dev.id)} disabled={isOpening}
+                                                        data-tooltip-id="tt-grab" data-tooltip-content={dev.doorStatus === "OPEN" ? "Barrera abierta · tocar para accionar el relé" : "Barrera cerrada · tocar para accionar el relé"}
+                                                        className={cn("h-[17px] px-1.5 rounded text-[9px] font-bold uppercase inline-flex items-center gap-1 border transition-colors",
+                                                            isOpening ? "bg-emerald-500 text-white border-emerald-500" : dev.doorStatus === "OPEN" ? "bg-red-500/15 text-red-500 border-red-500/30 animate-pulse" : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20")}>
+                                                        {isOpening ? <RefreshCw size={9} className="animate-spin" /> : dev.doorStatus === "OPEN" ? <Unlock size={9} /> : <Zap size={9} />} {isOpening ? "..." : "Relé"}
+                                                    </button>
+                                                    {dev.deviceType === "LPR_CAMERA" && dev.brand === "HIKVISION" && (
+                                                        <span className="h-[17px] px-1.5 rounded bg-blue-500/10 text-blue-500 text-[9px] font-bold font-mono inline-flex items-center gap-1" data-tooltip-id="tt-grab" data-tooltip-content="Matrículas cargadas en la lista de la cámara">
+                                                            <Users size={9} />{(loadingCounts && userCounts[dev.id] === undefined) ? <Loader2 size={9} className="animate-spin" /> : (userCounts[dev.id] ?? "—")}
                                                         </span>
                                                     )}
+                                                    {dev.lastEvent && <span className="h-[17px] px-1.5 rounded bg-indigo-500/10 text-indigo-500 text-[9px] font-semibold truncate max-w-[110px] inline-flex items-center" data-tooltip-id="tt-grab" data-tooltip-content="Última lectura">{dev.lastEvent.user?.name || dev.lastEvent.plateDetected || "Sistema"}</span>}
                                                 </div>
                                                 <AlertasFila alertas={alertasDe[dev.id]} onVer={() => setHealthHistory(dev)} />
-
-                                                    <div className="flex items-center gap-2 pt-0.5">
-                                                        <div className={cn(
-                                                            "px-2 py-0.5 rounded flex items-center gap-1 transition-all duration-500 border text-[9px] font-bold uppercase tracking-wide",
-                                                            dev.doorStatus === 'OPEN'
-                                                                ? "bg-red-500/15 border-red-500/30 text-red-400 animate-pulse"
-                                                                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                                        )}>
-                                                            {dev.doorStatus === 'OPEN' ? (
-                                                                <><Unlock size={9} /> Abierta</>
-                                                            ) : (
-                                                                <><Lock size={9} /> Cerrada</>
-                                                            )}
-                                                        </div>
-
-                                                        <TooltipProvider>
-                                                            <Tooltip>
-                                                                <TooltipTrigger asChild>
-                                                                    <Button
-                                                                        onClick={() => handleTriggerRelay(dev.id)}
-                                                                        disabled={isOpening}
-                                                                        size="icon"
-                                                                        className={cn(
-                                                                            "h-6 w-6 rounded transition-all border",
-                                                                            isOpening
-                                                                                ? "bg-emerald-500 border-emerald-400 text-foreground"
-                                                                                : "bg-card text-muted-foreground hover:text-emerald-400 hover:bg-emerald-500/10 border-border hover:border-emerald-500/30"
-                                                                        )}
-                                                                    >
-                                                                        {isOpening ? <Unlock className="animate-bounce" size={11} /> : <Zap size={11} />}
-                                                                    </Button>
-                                                                </TooltipTrigger>
-                                                                <TooltipContent><p>Accionar Relé</p></TooltipContent>
-                                                            </Tooltip>
-                                                        </TooltipProvider>
-
-                                                        {isOpening && (
-                                                            <span className="text-blue-400 text-[9px] font-semibold animate-pulse flex items-center gap-1">
-                                                                <RefreshCw size={9} className="animate-spin" /> Procesando
-                                                            </span>
-                                                        )}
-
-                                                        {dev.lastEvent && (
-                                                            <span className="text-[9px] font-semibold text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded border border-blue-500/20 animate-in fade-in duration-500">
-                                                                {dev.lastEvent.user?.name || dev.lastEvent.plateDetected || "Sistema"}
-                                                            </span>
-                                                        )}
-                                                    </div>
                                             </div>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="flex items-center gap-2.5">
-                                            <div className="w-8 h-8 rounded bg-foreground/10 border border-border/40 p-1.5 flex items-center justify-center overflow-hidden shrink-0">
-                                                <img
-                                                    src={dev.brandLogo || brand.logoUrl || PLACEHOLDER_BRAND}
-                                                    alt={brand.label}
-                                                    className="max-w-full max-h-full object-contain"
-                                                    onError={(e) => {
-                                                        const target = e.target as HTMLImageElement;
-                                                        target.src = PLACEHOLDER_BRAND;
-                                                    }}
-                                                />
-                                            </div>
-                                            <div>
-                                                <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">{brand.label}</p>
-                                                <p className="text-xs font-semibold text-foreground">{dev.deviceModel || "Default"}</p>
-                                            </div>
-                                        </div>
+                                        <p className="text-[12px] text-foreground font-mono" data-tooltip-id="tt-grab" data-tooltip-content={`MAC ${dev.mac || "—"}`}>{dev.ip}</p>
+                                        {dev.location && <p className="text-[10px] text-muted-foreground truncate max-w-[110px] flex items-center gap-1"><Globe size={9} /> {dev.location}</p>}
                                     </TableCell>
                                     <TableCell>
-                                        <div className="space-y-0.5">
-                                            <p className="text-xs text-foreground font-mono font-medium">{dev.ip}</p>
-                                            {dev.location ? (
-                                                <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                                    <Globe size={10} className="text-blue-400/70" /> {dev.location}
-                                                </p>
-                                            ) : (
-                                                <p className="text-[10px] text-muted-foreground font-mono">
-                                                    {dev.mac || "—"}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </TableCell>
-                                    {/* Grabaciones: en que NVR y canal graba (detectado) y cuanto guarda */}
-                                    <TableCell>
-                                        {dev.deviceType !== 'LPR_CAMERA' ? <span className="text-muted-foreground text-xs">-</span> : (
+                                        {dev.deviceType !== 'LPR_CAMERA' ? <span className="text-muted-foreground text-xs">—</span> : (
                                             <CeldaGrabacion g={grab[dev.id]} detectando={detectando === dev.id || detectando === "__todas__"} calculando={calculando === dev.id}
                                                 onDetectar={() => detectar([dev.id])} onRetencion={() => retencion(dev.id)} />
                                         )}
                                     </TableCell>
                                     <TableCell className="text-center">
-                                        {dev.deviceType === 'LPR_CAMERA' && dev.direction ? (
-                                            <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide border", dev.direction === 'ENTRY' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-orange-500/10 text-orange-400 border-orange-500/20")}>
-                                                {dev.direction === 'ENTRY' ? 'Entrada' : 'Salida'}
-                                            </span>
-                                        ) : <span className="text-muted-foreground text-xs">-</span>}
-                                    </TableCell>
-                                    {/* Hora / NTP */}
-                                    <TableCell className="text-center">
-                                        <div className="inline-flex items-center gap-1.5">
-                                        {h?.reachable && h?.localTime ? (
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <div className="inline-flex flex-col items-center cursor-help">
-                                                            <span className="inline-flex items-center gap-1 font-mono text-xs text-foreground">
-                                                                <Clock size={11} className={cn(Math.abs(h.driftSec ?? 0) > 90 ? "text-amber-400" : "text-emerald-400/70")} />
-                                                                {fmtClock(h.localTime)}
-                                                            </span>
-                                                            <span className={cn(
-                                                                "text-[8px] font-bold uppercase tracking-wide px-1 rounded",
-                                                                h.timeMode === 'NTP' ? "text-emerald-400" : "text-amber-400"
-                                                            )}>
-                                                                {h.timeMode === 'NTP' ? 'NTP' : 'Manual'}
-                                                                {typeof h.driftSec === 'number' && Math.abs(h.driftSec) > 90 ? ` · ${h.driftSec > 0 ? '+' : ''}${h.driftSec}s` : ''}
-                                                            </span>
-                                                        </div>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p className="text-[10px]">Reloj del equipo: <b>{fmtClock(h.localTime)}</b></p>
-                                                        <p className="text-[10px]">Modo: <b>{h.timeMode || '—'}</b></p>
-                                                        <p className="text-[10px]">Desfase vs servidor: <b className={cn(Math.abs(h.driftSec ?? 0) > 90 ? "text-amber-400" : "text-emerald-400")}>{typeof h.driftSec === 'number' ? `${h.driftSec > 0 ? '+' : ''}${h.driftSec}s` : '—'}</b></p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                        ) : (
-                                            <span className="text-muted-foreground text-xs font-mono">—</span>
-                                        )}
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <button
-                                                            onClick={() => setPedirHora([dev])}
-                                                            disabled={syncing === dev.id}
-                                                            className="h-6 w-6 rounded flex items-center justify-center border border-border/50 bg-card/50 text-muted-foreground hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
-                                                        >
-                                                            {syncing === dev.id ? <Loader2 size={11} className="animate-spin" /> : <TimerReset size={11} />}
-                                                        </button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent><p className="text-[10px]">Poner hora del servidor</p></TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
+                                        <div className="inline-flex items-center gap-1">
+                                            {h?.reachable && h?.localTime ? (
+                                                <span className="inline-flex flex-col items-center leading-tight cursor-help"
+                                                    data-tooltip-id="tt-grab" data-tooltip-content={`Reloj ${fmtClock(h.localTime)} · ${h.timeMode || "—"} · desfase ${typeof h.driftSec === "number" ? `${h.driftSec > 0 ? "+" : ""}${h.driftSec}s` : "—"}`}>
+                                                    <span className={cn("font-mono text-[11.5px]", Math.abs(h.driftSec ?? 0) > 90 ? "text-amber-500 font-bold" : "text-foreground")}>{fmtClock(h.localTime)}</span>
+                                                    <span className={cn("text-[8px] font-black uppercase", h.timeMode === "NTP" ? "text-emerald-500" : "text-amber-500")}>{h.timeMode === "NTP" ? "NTP" : "MAN"}{typeof h.driftSec === "number" && Math.abs(h.driftSec) > 90 ? ` ${h.driftSec > 0 ? "+" : ""}${h.driftSec}s` : ""}</span>
+                                                </span>
+                                            ) : <span className="text-muted-foreground text-xs font-mono">—</span>}
+                                            <button onClick={() => setPedirHora([dev])} data-tooltip-id="tt-grab" data-tooltip-content="Poner la hora del servidor (pide confirmación)"
+                                                className="h-6 w-6 rounded grid place-items-center text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10"><TimerReset size={12} /></button>
                                         </div>
-                                    </TableCell>
-                                    <TableCell className="text-center">
-                                        <div className="flex items-center justify-center gap-2">
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger>
-                                                        <div className={cn(
-                                                            "w-7 h-7 rounded flex items-center justify-center transition-all border",
-                                                            (dev.lastOnlinePull && (new Date().getTime() - new Date(dev.lastOnlinePull).getTime()) < 5 * 60 * 1000)
-                                                                ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
-                                                                : "bg-card/50 border-border/50 text-muted-foreground"
-                                                        )}>
-                                                            <DownloadCloud size={13} />
-                                                        </div>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p className="font-semibold text-xs">PULL</p>
-                                                        <p className="text-[10px] text-muted-foreground">{dev.lastOnlinePull ? new Date(dev.lastOnlinePull).toLocaleTimeString() : 'Nunca'}</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger>
-                                                        <div className={cn(
-                                                            "w-7 h-7 rounded flex items-center justify-center transition-all border",
-                                                            (dev.lastOnlinePush && (new Date().getTime() - new Date(dev.lastOnlinePush).getTime()) < 5 * 60 * 1000)
-                                                                ? "bg-blue-500/10 border-blue-500/25 text-blue-400"
-                                                                : "bg-card/50 border-border/50 text-muted-foreground"
-                                                        )}>
-                                                            <UploadCloud size={13} />
-                                                        </div>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p className="font-semibold text-xs">PUSH</p>
-                                                        <p className="text-[10px] text-muted-foreground">{dev.lastOnlinePush ? new Date(dev.lastOnlinePush).toLocaleTimeString() : 'Nunca'}</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-
-                                            {dev.deviceType === 'LPR_CAMERA' && (
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger>
-                                                        <div className={cn(
-                                                            "w-7 h-7 rounded flex items-center justify-center transition-all border",
-                                                            !h ? "bg-card/50 border-border/50 text-muted-foreground"
-                                                                : (h.streamConfigured && h.streamProducers > 0) ? "bg-violet-500/10 border-violet-500/25 text-violet-400"
-                                                                    : h.streamConfigured ? "bg-card/50 border-border/50 text-muted-foreground"
-                                                                        : "bg-red-500/10 border-red-500/25 text-red-400"
-                                                        )}>
-                                                            {streamBusy === dev.id ? <Loader2 size={12} className="animate-spin" /> : <Radio size={13} />}
-                                                        </div>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p className="font-semibold text-xs">Stream go2rtc</p>
-                                                        <p className="text-[10px] text-muted-foreground">{!h ? 'Sondeando…' : h.streamConfigured ? `Configurado · ${h.streamProducers} fuente(s)` : 'No configurado'}</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                            )}
-                                        </div>
-                                    </TableCell>
-                                    {/* Usuarios cargados = matrículas en la lista blanca de la cámara */}
-                                    <TableCell className="text-center">
-                                        {dev.deviceType === 'LPR_CAMERA' && dev.brand === 'HIKVISION' ? (
-                                            <TooltipProvider>
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <span className={cn(
-                                                            "inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold font-mono cursor-help",
-                                                            userCounts[dev.id] == null ? "bg-card/50 text-muted-foreground border-border/50"
-                                                                : "bg-blue-500/10 text-blue-400 border-blue-500/25"
-                                                        )}>
-                                                            <Users size={11} />
-                                                            {(loadingCounts && userCounts[dev.id] === undefined)
-                                                                ? <Loader2 size={10} className="animate-spin" />
-                                                                : (userCounts[dev.id] == null ? '—' : userCounts[dev.id])}
-                                                        </span>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent>
-                                                        <p className="text-[10px] font-semibold">Matrículas cargadas en la cámara</p>
-                                                        <p className="text-[10px] text-muted-foreground">Lista blanca ANPR (whitelist del equipo)</p>
-                                                    </TooltipContent>
-                                                </Tooltip>
-                                            </TooltipProvider>
-                                        ) : (
-                                            <span className="text-muted-foreground text-xs">—</span>
-                                        )}
                                     </TableCell>
                                     <TableCell className="text-center">
                                         {(() => {
-                                            const now = new Date().getTime();
+                                            const now = Date.now();
+                                            const pull = dev.lastOnlinePull && now - new Date(dev.lastOnlinePull).getTime() < 5 * 60 * 1000;
+                                            const push = dev.lastOnlinePush && now - new Date(dev.lastOnlinePush).getTime() < 5 * 60 * 1000;
+                                            const st = !h ? "nd" : (h.streamConfigured && h.streamProducers > 0) ? "ok" : h.streamConfigured ? "cfg" : "no";
                                             const lastPull = dev.lastOnlinePull ? new Date(dev.lastOnlinePull).getTime() : 0;
                                             const lastPush = dev.lastOnlinePush ? new Date(dev.lastOnlinePush).getTime() : 0;
-
-                                            // Diff calculation with math abs to handle slight clock skews
-                                            const diffPull = Math.abs(now - lastPull);
-                                            const diffPush = Math.abs(now - lastPush);
-
-                                            // Sondeo activo (ISAPI) manda; si aún no corrió, cae a la heurística pull/push
-                                            const probed = h && typeof h.reachable === 'boolean';
-                                            const isOnline = probed
-                                                ? h.reachable
-                                                : ((lastPull > 0 && diffPull < 10 * 60 * 1000) || (lastPush > 0 && diffPush < 10 * 60 * 1000));
-
-                                            const lastSeenMsg = probed
-                                                ? (h.reachable ? `Sondeo OK · ${h.latencyMs ?? '?'} ms` : 'Sin respuesta ISAPI')
-                                                : lastPull > lastPush
-                                                    ? `Sincro: ${new Date(lastPull).toLocaleTimeString()}`
-                                                    : lastPush > 0 ? `Evento: ${new Date(lastPush).toLocaleTimeString()}` : 'Sin datos';
-
+                                            const probed = h && typeof h.reachable === "boolean";
+                                            const on = probed ? h.reachable : ((lastPull > 0 && now - lastPull < 600000) || (lastPush > 0 && now - lastPush < 600000));
+                                            const msg = probed ? (h.reachable ? `Responde · ${h.latencyMs ?? "?"} ms` : "Sin respuesta") : "Sin sondeo todavía";
                                             return (
-                                                <TooltipProvider>
-                                                    <Tooltip>
-                                                        <TooltipTrigger asChild>
-                                                            <Badge
-                                                                variant="outline"
-                                                                className={cn(
-                                                                    "text-[9px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded border cursor-help",
-                                                                    isOnline
-                                                                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
-                                                                        : "bg-red-500/10 text-red-400 border-red-500/25"
-                                                                )}
-                                                            >
-                                                                <span className={cn("w-1.5 h-1.5 rounded-full mr-1.5 inline-block", isOnline ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
-                                                                {isOnline ? "Online" : "Offline"}
-                                                            </Badge>
-                                                        </TooltipTrigger>
-                                                        <TooltipContent>
-                                                            <p className="font-bold uppercase text-[10px]">{lastSeenMsg}</p>
-                                                        </TooltipContent>
-                                                    </Tooltip>
-                                                </TooltipProvider>
+                                                <div className="inline-flex items-center gap-1">
+                                                    <span className={cn("h-6 px-2 rounded-md text-[9.5px] font-bold uppercase inline-flex items-center gap-1 border", on ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/25" : "bg-red-500/10 text-red-500 border-red-500/25")}
+                                                        data-tooltip-id="tt-grab" data-tooltip-content={msg}>
+                                                        <span className={cn("w-1.5 h-1.5 rounded-full", on ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />{on ? "On" : "Off"}
+                                                    </span>
+                                                    <span className={cn("h-6 w-6 rounded grid place-items-center", pull ? "text-emerald-500 bg-emerald-500/10" : "text-muted-foreground/50")} data-tooltip-id="tt-grab" data-tooltip-content={`Pull: ${dev.lastOnlinePull ? new Date(dev.lastOnlinePull).toLocaleTimeString("es-UY") : "nunca"}`}><DownloadCloud size={12} /></span>
+                                                    <span className={cn("h-6 w-6 rounded grid place-items-center", push ? "text-blue-500 bg-blue-500/10" : "text-muted-foreground/50")} data-tooltip-id="tt-grab" data-tooltip-content={`Push (eventos): ${dev.lastOnlinePush ? new Date(dev.lastOnlinePush).toLocaleTimeString("es-UY") : "nunca"}`}><UploadCloud size={12} /></span>
+                                                    {dev.deviceType === "LPR_CAMERA" && (
+                                                        <span className={cn("h-6 w-6 rounded grid place-items-center", st === "ok" ? "text-violet-500 bg-violet-500/10" : st === "no" ? "text-red-500 bg-red-500/10" : "text-muted-foreground/50")}
+                                                            data-tooltip-id="tt-grab" data-tooltip-content={`Video en vivo: ${st === "nd" ? "sondeando…" : st === "no" ? "no configurado" : `configurado · ${h.streamProducers} fuente(s)`}`}>
+                                                            {streamBusy === dev.id ? <Loader2 size={11} className="animate-spin" /> : <Radio size={12} />}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             );
                                         })()}
                                     </TableCell>
-                                    <TableCell className="text-right pr-5">
-                                        <div className="flex justify-end items-center gap-2">
+                                    <TableCell className="text-right pr-4">
+                                        <div className="flex justify-end items-center gap-1">
                                             {/* Face/Tags Stats Badge */}
                                             {dev.deviceType === 'FACE_TERMINAL' && dev.brand !== 'HIKVISION' && (
                                                 <div className="flex items-center gap-2 bg-card/60 p-1 rounded-md border border-border/50">
@@ -965,7 +721,7 @@ export default function DevicesPage() {
                                                             variant="ghost"
                                                             size="icon"
                                                             onClick={() => setCalibrating(dev)}
-                                                            className="h-8 w-8 rounded-md bg-card/50 text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 border border-border/50 hover:border-amber-500/30 transition-all"
+                                                            className="h-7 w-7 rounded-md bg-card/50 text-muted-foreground hover:text-amber-400 hover:bg-amber-500/10 border border-border/50 hover:border-amber-500/30 transition-all"
                                                         >
                                                             <Wand2 size={15} />
                                                         </Button>
@@ -987,7 +743,7 @@ export default function DevicesPage() {
                                                             variant="ghost"
                                                             size="icon"
                                                             onClick={() => setViewingLive(dev)}
-                                                            className="h-8 w-8 rounded-md bg-card/50 text-muted-foreground hover:text-indigo-400 hover:bg-indigo-500/10 border border-border/50 hover:border-indigo-500/30 transition-all"
+                                                            className="h-7 w-7 rounded-md bg-card/50 text-muted-foreground hover:text-indigo-400 hover:bg-indigo-500/10 border border-border/50 hover:border-indigo-500/30 transition-all"
                                                         >
                                                             <Eye size={15} />
                                                         </Button>
