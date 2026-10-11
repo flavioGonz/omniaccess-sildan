@@ -94,111 +94,87 @@ export function PtzControls({ deviceId, config = false, speed: speedProp, onSpee
 
     const anguloActivo = activo ? ANG[activo.dir] : null;
 
+    const vidrio = "bg-black/35 backdrop-blur-md ring-1 ring-white/15 shadow-[0_6px_24px_rgba(0,0,0,0.45)]";
     return (
         <motion.div drag dragListener={false} dragControls={arrastre} dragMomentum={false} dragElastic={0}
             initial={{ opacity: 0, scale: 0.92, y: 14 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ type: "spring", stiffness: 380, damping: 26 }}
             onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
-            className="w-[272px] rounded-[22px] bg-gradient-to-b from-neutral-900/85 to-black/75 backdrop-blur-2xl ring-1 ring-white/12 shadow-[0_12px_48px_rgba(0,0,0,0.65)] overflow-hidden select-none touch-none">
-            {/* manija: arrastrar el panel */}
+            className="relative flex flex-col items-end gap-2 select-none touch-none">
+            {/* manija + estado: una píldora chica, sin panel */}
             <div onPointerDown={(e) => { e.stopPropagation(); arrastre.start(e); }}
-                className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-red-500/20 via-red-500/5 to-transparent border-b border-white/[0.06] cursor-grab active:cursor-grabbing">
-                <Joystick size={13} className="text-red-400" />
-                <span className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-white/85">Control PTZ</span>
-                <span className="ml-auto text-[9.5px] font-bold tabular-nums text-white/50">{activo ? `${activo.dir.toUpperCase()} · v${activo.v}` : zoom ? `ZOOM ${zoom === "in" ? "+" : "−"}` : "listo"}</span>
-                <GripHorizontal size={13} className="text-white/30" />
+                className={cn("flex items-center gap-1.5 h-7 px-2.5 rounded-full cursor-grab active:cursor-grabbing", vidrio)} data-tooltip-id="mi-tip" data-tooltip-content="Arrastrá para mover los controles">
+                <GripHorizontal size={12} className="text-white/60" />
+                <Joystick size={12} className={activo || zoom ? "text-red-400" : "text-white/70"} />
+                <span className="text-[9.5px] font-bold uppercase tracking-wider tabular-nums text-white/85">{activo ? `${activo.dir} · v${activo.v}` : zoom ? `zoom ${zoom === "in" ? "+" : "−"}` : "PTZ"}</span>
             </div>
 
-            <div className="p-3.5 flex flex-col gap-3">
-                <div className="flex items-center gap-3">
-                    {/* Palanca */}
-                    <div ref={base}
-                        onPointerDown={(e) => { e.stopPropagation(); (e.currentTarget as Element).setPointerCapture?.(e.pointerId); actualizar(e.clientX, e.clientY); }}
-                        onPointerMove={(e) => { if ((e.currentTarget as Element).hasPointerCapture?.(e.pointerId)) actualizar(e.clientX, e.clientY); }}
-                        onPointerUp={soltar} onPointerCancel={soltar}
-                        className="relative h-[148px] w-[148px] shrink-0 rounded-full cursor-grab active:cursor-grabbing"
-                        style={{ background: "radial-gradient(circle at 50% 40%, rgba(255,255,255,0.10), rgba(255,255,255,0.02) 62%, rgba(0,0,0,0.35))", boxShadow: "inset 0 2px 14px rgba(0,0,0,0.7), inset 0 0 0 1px rgba(255,255,255,0.08)" }}>
-                        {/* marcas de dirección */}
-                        {Object.entries(ANG).map(([k, a]) => (
-                            <span key={k} className={cn("absolute left-1/2 top-1/2 h-[3px] rounded-full transition-all duration-150", activo?.dir === k ? "w-4 bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.9)]" : "w-2.5 bg-white/25")}
-                                style={{ transform: `rotate(${a}deg) translateX(62px) translateY(-50%)`, transformOrigin: "0 0" }} />
-                        ))}
-                        {/* arco de intensidad hacia la dirección */}
-                        {anguloActivo !== null && (
-                            <span className="absolute inset-0 rounded-full pointer-events-none transition-opacity"
-                                style={{ background: `conic-gradient(from ${anguloActivo + 90 - 30}deg, rgba(239,68,68,${0.15 + (activo?.f || 0) * 0.45}) 0deg, transparent 60deg, transparent 360deg)`, maskImage: "radial-gradient(circle, transparent 52%, black 54%)", WebkitMaskImage: "radial-gradient(circle, transparent 52%, black 54%)" }} />
-                        )}
-                        <span className="absolute inset-[34%] rounded-full border border-dashed border-white/10 pointer-events-none" />
-                        {/* perilla */}
-                        <motion.div style={{ x, y }}
-                            className={cn("absolute left-1/2 top-1/2 -ml-[30px] -mt-[30px] h-[60px] w-[60px] rounded-full grid place-items-center pointer-events-none transition-shadow",
-                                activo ? "shadow-[0_0_0_4px_rgba(239,68,68,0.25),0_8px_22px_rgba(0,0,0,0.6)]" : "shadow-[0_8px_22px_rgba(0,0,0,0.6)]")}>
-                            <span className="absolute inset-0 rounded-full" style={{ background: activo ? "radial-gradient(circle at 35% 30%, #fca5a5, #ef4444 45%, #991b1b)" : "radial-gradient(circle at 35% 30%, #e5e5e5, #737373 50%, #262626)" }} />
-                            <span className="absolute inset-[18%] rounded-full border border-white/25" />
-                            <Crosshair size={16} className="relative text-white/80" />
-                        </motion.div>
-                    </div>
-
-                    {/* Gatillos de zoom */}
-                    <div className="flex-1 flex flex-col items-center gap-2">
-                        <motion.button whileTap={{ scale: 0.9 }} {...gatillo("zoomin")} data-tooltip-id="mi-tip" data-tooltip-content="Acercar (mantener)"
-                            className={cn("w-full h-[62px] rounded-2xl grid place-items-center ring-1 transition-colors", zoom === "in" ? "bg-red-500 ring-red-400 text-white shadow-[0_0_18px_rgba(239,68,68,0.6)]" : "bg-white/[0.07] ring-white/10 text-white/80 hover:bg-white/15")}>
-                            <ZoomIn size={20} />
-                        </motion.button>
-                        <span className="text-[8.5px] font-bold uppercase tracking-[0.2em] text-white/40">Zoom</span>
-                        <motion.button whileTap={{ scale: 0.9 }} {...gatillo("zoomout")} data-tooltip-id="mi-tip" data-tooltip-content="Alejar (mantener)"
-                            className={cn("w-full h-[62px] rounded-2xl grid place-items-center ring-1 transition-colors", zoom === "out" ? "bg-red-500 ring-red-400 text-white shadow-[0_0_18px_rgba(239,68,68,0.6)]" : "bg-white/[0.07] ring-white/10 text-white/80 hover:bg-white/15")}>
-                            <ZoomOut size={20} />
-                        </motion.button>
-                    </div>
+            <div className="flex items-end gap-3">
+                {/* Gatillos de zoom (izquierda de la palanca, a mano del pulgar) */}
+                <div className="flex flex-col items-center gap-2">
+                    <motion.button whileTap={{ scale: 0.88 }} {...gatillo("zoomin")} data-tooltip-id="mi-tip" data-tooltip-content="Acercar (mantener)"
+                        className={cn("h-12 w-12 rounded-full grid place-items-center transition-colors", zoom === "in" ? "bg-red-500 text-white shadow-[0_0_18px_rgba(239,68,68,0.7)]" : cn(vidrio, "text-white/90 hover:bg-black/55"))}>
+                        <ZoomIn size={19} />
+                    </motion.button>
+                    <motion.button whileTap={{ scale: 0.88 }} {...gatillo("zoomout")} data-tooltip-id="mi-tip" data-tooltip-content="Alejar (mantener)"
+                        className={cn("h-12 w-12 rounded-full grid place-items-center transition-colors", zoom === "out" ? "bg-red-500 text-white shadow-[0_0_18px_rgba(239,68,68,0.7)]" : cn(vidrio, "text-white/90 hover:bg-black/55"))}>
+                        <ZoomOut size={19} />
+                    </motion.button>
                 </div>
 
-                {/* Velocidad máxima */}
-                <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.06] px-2.5 py-2">
-                    <Gauge size={13} className="text-white/50 shrink-0" />
-                    <span className="text-[9.5px] font-bold uppercase tracking-wider text-white/50">Vel. máx</span>
-                    <div className="flex-1 flex items-center gap-[3px]">
-                        {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                            <button key={n} type="button" onClick={(e) => { e.stopPropagation(); setVmax(n); }}
-                                className={cn("flex-1 rounded-[3px] transition-all", n <= vmax ? "bg-red-500" : "bg-white/12 hover:bg-white/25")} style={{ height: 6 + n * 1.6 }} />
-                        ))}
-                    </div>
-                    <span className="text-[10.5px] font-bold tabular-nums text-white/80 w-3 text-right">{vmax}</span>
+                {/* Palanca flotante */}
+                <div ref={base}
+                    onPointerDown={(e) => { e.stopPropagation(); (e.currentTarget as Element).setPointerCapture?.(e.pointerId); actualizar(e.clientX, e.clientY); }}
+                    onPointerMove={(e) => { if ((e.currentTarget as Element).hasPointerCapture?.(e.pointerId)) actualizar(e.clientX, e.clientY); }}
+                    onPointerUp={soltar} onPointerCancel={soltar}
+                    className="relative h-[148px] w-[148px] shrink-0 rounded-full cursor-grab active:cursor-grabbing backdrop-blur-[3px] transition-opacity opacity-80 hover:opacity-100"
+                    style={{ background: "radial-gradient(circle at 50% 45%, rgba(255,255,255,0.10), rgba(0,0,0,0.28) 70%)", boxShadow: "inset 0 0 0 1.5px rgba(255,255,255,0.22), 0 6px 26px rgba(0,0,0,0.35)" }}>
+                    {Object.entries(ANG).map(([k, a]) => (
+                        <span key={k} className={cn("absolute left-1/2 top-1/2 h-[3px] rounded-full transition-all duration-150", activo?.dir === k ? "w-4 bg-red-400 shadow-[0_0_8px_rgba(248,113,113,0.9)]" : "w-2.5 bg-white/40")}
+                            style={{ transform: `rotate(${a}deg) translateX(62px) translateY(-50%)`, transformOrigin: "0 0" }} />
+                    ))}
+                    {anguloActivo !== null && (
+                        <span className="absolute inset-0 rounded-full pointer-events-none"
+                            style={{ background: `conic-gradient(from ${anguloActivo + 90 - 30}deg, rgba(239,68,68,${0.2 + (activo?.f || 0) * 0.5}) 0deg, transparent 60deg, transparent 360deg)`, maskImage: "radial-gradient(circle, transparent 52%, black 54%)", WebkitMaskImage: "radial-gradient(circle, transparent 52%, black 54%)" }} />
+                    )}
+                    <motion.div style={{ x, y }}
+                        className={cn("absolute left-1/2 top-1/2 -ml-[29px] -mt-[29px] h-[58px] w-[58px] rounded-full grid place-items-center pointer-events-none",
+                            activo ? "shadow-[0_0_0_4px_rgba(239,68,68,0.3),0_8px_22px_rgba(0,0,0,0.55)]" : "shadow-[0_8px_22px_rgba(0,0,0,0.55)]")}>
+                        <span className="absolute inset-0 rounded-full" style={{ background: activo ? "radial-gradient(circle at 35% 30%, #fecaca, #ef4444 45%, #991b1b)" : "radial-gradient(circle at 35% 30%, rgba(255,255,255,0.95), rgba(160,160,160,0.85) 50%, rgba(40,40,40,0.9))" }} />
+                        <span className="absolute inset-[18%] rounded-full border border-white/30" />
+                        <Crosshair size={15} className="relative text-white/85" />
+                    </motion.div>
                 </div>
-
-                {/* Presets */}
-                <div>
-                    <div className="text-[8.5px] font-bold uppercase tracking-widest text-white/35 mb-1">Presets</div>
-                    <div className="flex items-center gap-1">
-                        {[1, 2, 3, 4, 5, 6].map((n) => (
-                            <motion.button whileTap={{ scale: 0.86 }} key={n} onClick={(e) => { e.stopPropagation(); send("preset", { preset: n }); }} data-tooltip-id="mi-tip" data-tooltip-content={`Ir a preset ${n}`}
-                                className="grid place-items-center flex-1 h-8 rounded-lg bg-white/[0.06] hover:bg-red-500/70 ring-1 ring-white/10 text-white/80 hover:text-white text-[11.5px] font-bold transition">{n}</motion.button>
-                        ))}
-                    </div>
-                </div>
-
-                {config && (
-                    <div className="pt-2.5 border-t border-white/10 flex flex-col gap-2">
-                        <div className="flex items-center gap-1.5">
-                            <Bookmark size={12} className="text-amber-400 shrink-0" />
-                            <span className="text-[10px] font-bold text-white/70">Guardar posición</span>
-                            <select value={slot} onChange={(e) => setSlot(parseInt(e.target.value))} onClick={(e) => e.stopPropagation()} className="ml-auto bg-white/10 rounded-md text-[11px] text-white px-1.5 py-0.5 outline-none">
-                                {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => <option key={n} value={n} className="bg-neutral-900">P{n}</option>)}
-                            </select>
-                            <motion.button whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); send("setpreset", { preset: slot }); setGuardado(true); setTimeout(() => setGuardado(false), 900); }}
-                                className={cn("inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold transition", guardado ? "bg-emerald-500 text-white" : "bg-amber-500/80 hover:bg-amber-500 text-black")}><Save size={12} /> {guardado ? "OK" : "Set"}</motion.button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="text-[10px] font-bold text-white/70">Crucero</span>
-                            <motion.button whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); send("tourstart", { preset: 1 }); }} className="ml-auto inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600/80 hover:bg-emerald-500 text-white text-[10px] font-bold transition"><Play size={11} /> Iniciar</motion.button>
-                            <motion.button whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); send("tourstop", { preset: 1 }); }} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white/80 text-[10px] font-bold transition"><Square size={11} /> Parar</motion.button>
-                        </div>
-                    </div>
-                )}
-
-                {!compact && (
-                    <p className="text-[8.5px] text-white/35 leading-tight text-center">Arrastrá la palanca: más lejos del centro, más rápido · Soltá para frenar · Flechas y +/− también</p>
-                )}
             </div>
+
+            {/* Velocidad + presets: una tira fina */}
+            <div className={cn("flex items-center gap-2 h-8 pl-2.5 pr-1 rounded-full", vidrio)}>
+                <Gauge size={12} className="text-white/60 shrink-0" />
+                <div className="flex items-end gap-[2px] h-4" data-tooltip-id="mi-tip" data-tooltip-content={`Velocidad máxima ${vmax}/8`}>
+                    {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
+                        <button key={n} type="button" onClick={(e) => { e.stopPropagation(); setVmax(n); }}
+                            className={cn("w-[5px] rounded-[2px] transition-all", n <= vmax ? "bg-red-500" : "bg-white/25 hover:bg-white/50")} style={{ height: 4 + n * 1.5 }} />
+                    ))}
+                </div>
+                <span className="w-px h-4 bg-white/20 mx-0.5" />
+                {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <motion.button whileTap={{ scale: 0.85 }} key={n} onClick={(e) => { e.stopPropagation(); send("preset", { preset: n }); }} data-tooltip-id="mi-tip" data-tooltip-content={`Ir a preset ${n}`}
+                        className="h-6 w-6 rounded-full grid place-items-center text-[10.5px] font-bold text-white/85 hover:bg-red-500 hover:text-white transition">{n}</motion.button>
+                ))}
+            </div>
+
+            {config && (
+                <div className={cn("flex items-center gap-1.5 h-8 px-2 rounded-full", vidrio)}>
+                    <Bookmark size={12} className="text-amber-400" />
+                    <select value={slot} onChange={(e) => setSlot(parseInt(e.target.value))} onClick={(e) => e.stopPropagation()} className="bg-transparent text-[11px] text-white outline-none">
+                        {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => <option key={n} value={n} className="bg-neutral-900">P{n}</option>)}
+                    </select>
+                    <motion.button whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); send("setpreset", { preset: slot }); setGuardado(true); setTimeout(() => setGuardado(false), 900); }} data-tooltip-id="mi-tip" data-tooltip-content="Guardar la posición actual en este preset"
+                        className={cn("inline-flex items-center gap-1 h-6 px-2 rounded-full text-[10px] font-bold", guardado ? "bg-emerald-500 text-white" : "bg-amber-500/90 text-black")}><Save size={11} /> {guardado ? "OK" : "Guardar"}</motion.button>
+                    <span className="w-px h-4 bg-white/20" />
+                    <motion.button whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); send("tourstart", { preset: 1 }); }} data-tooltip-id="mi-tip" data-tooltip-content="Iniciar recorrido" className="h-6 w-6 rounded-full grid place-items-center bg-emerald-600/90 text-white"><Play size={11} /></motion.button>
+                    <motion.button whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); send("tourstop", { preset: 1 }); }} data-tooltip-id="mi-tip" data-tooltip-content="Parar recorrido" className="h-6 w-6 rounded-full grid place-items-center bg-white/15 text-white"><Square size={11} /></motion.button>
+                </div>
+            )}
         </motion.div>
     );
 }

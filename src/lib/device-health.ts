@@ -7,6 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { authenticatedRequest } from "@/lib/digest-auth";
 import { xmlField } from "@/lib/isapi-camera";
 import { sendTelegramMessage } from "@/lib/telegram";
+import net from "net";
+import { getChannelMap } from "@/lib/nvr-resolve";
+import { rpc2Sesion } from "@/lib/dahua-rpc2";
 
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
 
@@ -95,32 +98,97 @@ async function probe(d: any, viewers: Record<string, number>): Promise<HealthRes
     return res;
 }
 
+/** Tiempo de conexión TCP (ms) o null. No necesita credenciales: sirve para cualquier equipo. */
+function tcpMs(ip: string, port: number, ms = 2000): Promise<number | null> {
+    return new Promise((resolve) => {
+        const t0 = Date.now(); const s = new net.Socket(); let done = false;
+        const fin = (v: number | null) => { if (done) return; done = true; try { s.destroy(); } catch { } resolve(v); };
+        s.setTimeout(ms); s.once("connect", () => fin(Date.now() - t0)); s.once("timeout", () => fin(null)); s.once("error", () => fin(null));
+        try { s.connect(port, ip); } catch { fin(null); }
+    });
+}
+
+/**
+ * Estado de cada cámara según el NVR que la graba (ip → conectada). Una consulta por NVR:
+ * Hikvision InputProxy/channels/status, Dahua RPC2 LogicDeviceManager.getCameraState.
+ * Es la fuente más fiel para las cámaras de intrusión: muchas no aceptan las credenciales
+ * del panel, pero el NVR sí sabe si le llega video.
+ */
+async function estadoPorNvr(): Promise<Record<string, boolean>> {
+    const out: Record<string, boolean> = {};
+    try {
+        const [mapa, nvrs] = await Promise.all([getChannelMap(), prisma.device.findMany({ where: { deviceType: "NVR" as any }, select: { id: true, ip: true, username: true, password: true, authType: true, brand: true } })]);
+        const porNvr: Record<string, Record<number, boolean>> = {};
+        await Promise.all(nvrs.map(async (n) => {
+            const est: Record<number, boolean> = {};
+            try {
+                if (String(n.brand).toUpperCase() === "DAHUA") {
+                    const s = await rpc2Sesion(n, 6000);
+                    try { const r = await s.call("LogicDeviceManager.getCameraState", { uniqueChannels: [-1] }); for (const c of r?.states || []) if (c.connectionState !== "Empty") est[c.channel + 1] = c.connectionState === "Connected"; }
+                    finally { await s.close(); }
+                } else {
+                    const xml: string = await authenticatedRequest("GET", "/ISAPI/ContentMgmt/InputProxy/channels/status", auth(n), { responseType: "text", accept: "application/xml", timeout: 6000 });
+                    for (const b of String(xml).split(/<InputProxyChannelStatus>/i).slice(1)) {
+                        const id = parseInt((b.match(/<id>\s*(\d+)\s*<\/id>/i) || [])[1] || ""); const on = (b.match(/<online>\s*(\w+)\s*<\/online>/i) || [])[1];
+                        if (id && on) est[id] = on === "true";
+                    }
+                }
+            } catch { /* NVR caído: sus cámaras caen al sondeo TCP */ }
+            porNvr[n.id] = est;
+        }));
+        const defecto = nvrs.find((n) => n.brand === "HIKVISION")?.id;
+        for (const [ip, e] of Object.entries(mapa)) {
+            const v = porNvr[e.nvrId || defecto || ""]?.[e.ch];
+            if (typeof v === "boolean") out[ip] = v;
+        }
+    } catch { }
+    return out;
+}
+
+/** Equipos sin sondeo propio (cámaras de intrusión, terminales…): NVR + TCP. */
+async function probeGenerico(d: any, viewers: Record<string, number>, porNvr: Record<string, boolean>): Promise<HealthResult> {
+    const t = (await tcpMs(d.ip, 80)) ?? (await tcpMs(d.ip, 554));
+    const nvr = porNvr[d.ip];
+    return {
+        id: d.id, name: d.name, deviceType: d.deviceType, ip: d.ip,
+        reachable: typeof nvr === "boolean" ? nvr : t != null, latencyMs: t,
+        memPct: null, uptimeSec: null, driftSec: null, disksOk: null, viewers: viewers[`lpr_${d.id}`] ?? 0, vcaMode: null,
+    };
+}
+
 export async function probeAllDevices(): Promise<HealthResult[]> {
     const devices = await prisma.device.findMany({
-        where: { brand: { in: ["HIKVISION", "DAHUA"] }, deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
         select: { id: true, name: true, ip: true, username: true, password: true, authType: true, deviceType: true, brand: true },
     });
-    const viewers = await go2rtcViewers();
-    return Promise.all(devices.map((d) => probe(d, viewers).catch((): HealthResult => ({
-        id: d.id, name: d.name, deviceType: d.deviceType, ip: d.ip, reachable: false,
-        latencyMs: null, memPct: null, uptimeSec: null, driftSec: null, disksOk: null, viewers: 0, vcaMode: null,
-    }))));
+    const [viewers, porNvr] = await Promise.all([go2rtcViewers(), estadoPorNvr()]);
+    const completo = (d: any) => ["HIKVISION", "DAHUA"].includes(String(d.brand)) && ["LPR_CAMERA", "NVR"].includes(String(d.deviceType));
+    const res: HealthResult[] = [];
+    // De a 16 para no abrir cientos de conexiones juntas.
+    for (let i = 0; i < devices.length; i += 16) {
+        res.push(...await Promise.all(devices.slice(i, i + 16).filter((d) => d.ip).map((d) => (completo(d) ? probe(d, viewers) : probeGenerico(d, viewers, porNvr)).catch((): HealthResult => ({
+            id: d.id, name: d.name, deviceType: d.deviceType, ip: d.ip, reachable: false,
+            latencyMs: null, memPct: null, uptimeSec: null, driftSec: null, disksOk: null, viewers: 0, vcaMode: null,
+        })))));
+    }
+    return res;
 }
 
 // ── Reglas de alerta ──
 const MEM_OPEN = 95, MEM_CLOSE = 90, DRIFT_LIMIT = 120;
 
-async function ensureAlert(deviceId: string, name: string, type: string, severity: string, message: string) {
+async function ensureAlert(deviceId: string, name: string, type: string, severity: string, message: string, avisar = true) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
     if (existing) return;
     await prisma.deviceAlert.create({ data: { deviceId, type, severity, message, active: true } });
+    if (!avisar) return;
     const icon = severity === "critical" ? "🔴" : "🟠";
     await sendTelegramMessage(`${icon} <b>ALERTA · ${name}</b>\n${message}`).catch(() => { });
 }
-async function resolveAlert(deviceId: string, name: string, type: string) {
+async function resolveAlert(deviceId: string, name: string, type: string, avisar = true) {
     const existing = await prisma.deviceAlert.findFirst({ where: { deviceId, type, active: true } });
     if (!existing) return;
     await prisma.deviceAlert.update({ where: { id: existing.id }, data: { active: false, resolvedAt: new Date() } });
+    if (!avisar) return;
     await sendTelegramMessage(`🟢 <b>NORMALIZADO · ${name}</b>\n${type === "offline" ? "Volvió a responder" : "Condición resuelta (" + type + ")"}`).catch(() => { });
 }
 
@@ -133,10 +201,12 @@ export async function persistAndAlert(results: HealthResult[]) {
         }).catch(() => { });
 
         // OFFLINE (2 muestras seguidas sin respuesta, para no titilar)
+        // Telegram sólo para LPR y NVR; las demás (intrusión, terminales) quedan en el panel.
+        const avisar = r.deviceType === "LPR_CAMERA" || r.deviceType === "NVR";
         if (!r.reachable) {
-            if (prev && prev.reachable === false) await ensureAlert(r.id, r.name, "offline", "critical", "Sin respuesta ISAPI (offline)");
+            if (prev && prev.reachable === false) await ensureAlert(r.id, r.name, "offline", "critical", avisar ? "Sin respuesta ISAPI (offline)" : "Sin respuesta (ni el NVR ni la red la ven)", avisar);
         } else {
-            await resolveAlert(r.id, r.name, "offline");
+            await resolveAlert(r.id, r.name, "offline", avisar);
             // DISCO (NVR)
             if (r.disksOk === false) await ensureAlert(r.id, r.name, "disk", "critical", "Disco del NVR degradado / SMART no OK");
             else if (r.disksOk === true) await resolveAlert(r.id, r.name, "disk");

@@ -187,6 +187,21 @@ export async function GET() {
         const results = await Promise.all(devices.map((d) => probe(d, streams).catch(() => ({ id: d.id, name: d.name, deviceType: d.deviceType, brand: d.brand, ip: d.ip, reachable: false }))));
         const map: Record<string, any> = {};
         for (const r of results) map[r.id] = r;
+        // El resto (intrusión, terminales…): la última muestra del sondeo por minuto (NVR + TCP), sin sondear de nuevo acá.
+        try {
+            const otros = await prisma.device.findMany({ where: { id: { notIn: devices.map((d) => d.id) } }, select: { id: true, name: true, ip: true, deviceType: true, brand: true } });
+            if (otros.length) {
+                const desde = new Date(Date.now() - 10 * 60 * 1000);
+                const muestras = await prisma.deviceHealthSample.findMany({ where: { deviceId: { in: otros.map((o) => o.id) }, ts: { gte: desde } }, orderBy: { ts: "desc" }, select: { deviceId: true, reachable: true, latencyMs: true, viewers: true, ts: true } });
+                const ult: Record<string, any> = {};
+                for (const m of muestras) if (!ult[m.deviceId]) ult[m.deviceId] = m;
+                for (const o of otros) {
+                    const m = ult[o.id]; if (!m) continue;
+                    const st = streams[`lpr_${o.id}`];
+                    map[o.id] = { id: o.id, name: o.name, deviceType: o.deviceType, brand: o.brand, ip: o.ip, reachable: m.reachable, latencyMs: m.latencyMs ?? null, viewers: st?.consumers ?? m.viewers ?? 0, streamConfigured: !!st?.configured, streamProducers: st?.producers ?? 0, muestra: m.ts };
+                }
+            }
+        } catch { }
         return NextResponse.json({ ok: true, ts: Date.now(), devices: map });
     } catch (e: any) {
         return NextResponse.json({ ok: false, error: e?.message || "health failed" }, { status: 500 });
