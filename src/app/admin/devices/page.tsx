@@ -114,6 +114,7 @@ import { Car as CarIco, Radar as RadarIco, Server as ServerIco, ChevronDown as C
 import { grabacionesDe, detectarGrabaciones, calcularRetencion, type FilaGrabacion } from "@/app/actions/grabaciones";
 import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
 import { SyncToDevicesDialog } from "@/components/SyncToDevicesDialog";
+import { VistaArea } from "@/components/devices/VistaArea";
 import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS } from "@/components/devices/ArbolAreas";
 import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 
@@ -551,9 +552,16 @@ export default function DevicesPage() {
             <div className="flex gap-4 items-start">
                 <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
                     seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)} health={health} alertasDe={alertasDe}
-                    colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={setFilter}
+                    colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { setAreaSel(TODAS); setFilter(t); }}
                     tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => d.deviceType === t).length, alertas: devices.filter((d) => d.deviceType === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
+            {areaSel !== TODAS ? (
+                <VistaArea estado={areas} areaId={areaSel} devices={devices.filter((d) => allowedTypes.includes(d.deviceType))} busqueda={searchTerm}
+                    health={health} alertasDe={alertasDe} grab={grab} detectando={detectando} calculando={calculando}
+                    onDetectar={(ids) => detectar(ids)} onRetencion={retencion} onEditar={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)}
+                    onVivo={(d) => setViewingLive(d)} onCalibrar={(d) => (d.deviceType === "CAMERA" ? setCalibIntr(d) : setCalibrating(d))}
+                    onSalud={(d) => setHealthHistory(d)} onElegirArea={setAreaSel} />
+            ) : (<>
 
             {typeFilter !== "NVR" && typeFilter !== "CAMERA" && (
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
@@ -1010,6 +1018,7 @@ export default function DevicesPage() {
                 </div>
             )}
 
+            </>)}
                 </div>
             </div>
             <ReactTooltip id="tt-grab" place="top" className="!max-w-[300px] !text-[12px] !rounded-lg !z-[60]" />
