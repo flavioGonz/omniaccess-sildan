@@ -471,6 +471,7 @@ function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () 
     // según hacia dónde vaya la línea.
     const imgRef = useRef<HTMLImageElement>(null);
     const [caja, setCaja] = useState({ w: 0, h: 0 });
+    const [imgBroken, setImgBroken] = useState(false);
     useEffect(() => {
         const el = imgRef.current; if (!el) return;
         const medir = () => setCaja({ w: el.clientWidth, h: el.clientHeight });
@@ -479,7 +480,7 @@ function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () 
         return () => ro.disconnect();
     }, [data?.mapUrl, loading]);
     useEffect(() => {
-        let alive = true;
+        let alive = true; setImgBroken(false);
         Promise.all([getPlateParking(plate), getParkingElements().catch(() => null)])
             .then(([d, e]) => { if (alive) { setData(d); setElems(e); setLoading(false); } })
             .catch(() => { if (alive) setLoading(false); });
@@ -540,10 +541,21 @@ function ParkingLocationDialog({ plate, onClose }: { plate: string; onClose: () 
                     <div className="bg-card p-20 flex flex-col items-center gap-3 text-muted-foreground"><Loader2 size={24} className="animate-spin" /><span className="text-xs font-bold uppercase tracking-widest">Buscando plaza…</span></div>
                 ) : !data?.found ? (
                     <div className="bg-card p-14 text-center"><MapPin size={30} className="mx-auto text-red-400 mb-3" /><p className="text-base font-bold text-foreground">Sin plaza asignada</p><p className="text-xs text-muted-foreground mt-1">{data?.resident ? `${data.resident}${data.unitNumber ? " · Unidad " + data.unitNumber : ""}` : `${plate} no tiene una plaza en el barrio.`}</p></div>
+                ) : (!data.mapUrl || imgBroken) ? (
+                    <div className="bg-card p-12 text-center">
+                        <div className="mx-auto w-14 h-14 rounded-2xl bg-blue-500/15 grid place-items-center mb-3"><SquareParking size={28} className="text-blue-400" /></div>
+                        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Plaza</p>
+                        <p className="text-3xl font-extrabold text-blue-300 leading-tight mt-0.5">{data.label}</p>
+                        <div className="flex items-center justify-center gap-6 mt-2 text-sm">
+                            {data.unitNumber && <span className="text-foreground"><span className="text-muted-foreground">Unidad </span><b>{data.unitNumber}</b></span>}
+                            {data.resident && <span className="text-foreground"><span className="text-muted-foreground">Residente </span><b>{data.resident}</b></span>}
+                        </div>
+                        <div className="mt-5 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500 text-xs font-semibold"><MapPin size={14} /> No hay plano del barrio cargado. Subilo en Plazas para ver el mapa y el camino.</div>
+                    </div>
                 ) : (
                     <div className="relative bg-black">
                         {data.mapUrl ? (
-                            <img ref={imgRef} src={data.mapUrl} alt="Plano del barrio" className="w-full max-h-[82vh] object-contain grayscale opacity-55 invert select-none pointer-events-none" draggable={false} onLoad={() => setCaja({ w: imgRef.current?.clientWidth || 0, h: imgRef.current?.clientHeight || 0 })} />
+                            <img ref={imgRef} src={data.mapUrl} alt="Plano del barrio" className="w-full max-h-[82vh] object-contain grayscale opacity-55 invert select-none pointer-events-none" draggable={false} onError={() => setImgBroken(true)} onLoad={() => setCaja({ w: imgRef.current?.clientWidth || 0, h: imgRef.current?.clientHeight || 0 })} />
                         ) : <div className="p-16 text-center text-xs text-muted-foreground">No hay plano del barrio cargado.</div>}
                         {data.mapUrl && caja.w > 0 && (
                             <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox={`0 0 ${caja.w} ${caja.h}`}>
