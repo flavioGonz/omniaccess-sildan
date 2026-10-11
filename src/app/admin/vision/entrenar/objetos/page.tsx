@@ -171,7 +171,7 @@ export default function ObjetosPropios() {
             {/* ── 1. Qué enseñar ── */}
             <section id="clases" className="scroll-mt-4 space-y-2">
                 <Titulo n={1} titulo="Qué querés enseñarle" texto="Una clase es una cosa que se ve siempre parecida y que el detector todavía no conoce." />
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-3">
+                <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-3 items-start">
                     <div className="rounded-[10px] border border-border bg-card divide-y divide-border">
                         {estado.clases.length === 0 && (
                             <div className="px-4 py-5 space-y-2">
