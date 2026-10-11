@@ -201,3 +201,77 @@ export async function saveNvrChannelMap(
         return { ok: true };
     } catch { return { ok: false }; }
 }
+
+/* ───────────────── Importar canales del NVR clasificando cada cámara (Olivos) ─────────────────
+ * Antes la importación creaba todo como cámara común. Ahora cada canal se clasifica antes de
+ * crearlo: LPR (de entrada o de salida) o intrusión; lo que ya existe con esa IP sólo se mapea. */
+export type RolImport = "lpr" | "intrusion" | "omitir";
+export type CanalParaImportar = { channel: number; ip: string | null; name: string; model?: string | null; existente: { id: string; name: string; tipo: string } | null; sugerido: { rol: RolImport; direction: "ENTRY" | "EXIT"; por: string } };
+
+const ES_LPR = /\b(lpr|anpr)\b|matr[ií]cula|patente|entrada|salida|acceso|barrera/i;
+export async function canalesParaImportar(nvrDeviceId: string): Promise<{ ok: boolean; error?: string; canales: CanalParaImportar[] }> {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return { ok: false, error: "Hace falta una sesión del panel.", canales: [] };
+    const nvr = await prisma.device.findUnique({ where: { id: nvrDeviceId } });
+    if (!nvr || String(nvr.deviceType) !== "NVR") return { ok: false, error: "El NVR no existe", canales: [] };
+    const r: any = await getNvrChannels({ ip: nvr.ip, username: nvr.username || undefined, password: nvr.password || undefined, authType: (nvr.authType as any) || undefined });
+    if (!r?.ok) return { ok: false, error: r?.error || "No se pudieron leer los canales del NVR", canales: [] };
+    const ips = (r.channels || []).map((c: any) => c.ip).filter(Boolean);
+    const existentes = await prisma.device.findMany({ where: { ip: { in: ips } }, select: { id: true, name: true, ip: true, deviceType: true } });
+    const porIp = new Map(existentes.map((e) => [e.ip, e]));
+    return {
+        ok: true,
+        canales: (r.channels || []).map((c: any) => {
+            const name = (c.name && String(c.name).trim()) || `${nvr.name} · ch ${c.channel}`;
+            const e = c.ip ? porIp.get(c.ip) : null;
+            const lpr = ES_LPR.test(`${name} ${c.model || ""}`);
+            return {
+                channel: c.channel, ip: c.ip || null, name, model: c.model || null,
+                existente: e ? { id: e.id, name: e.name, tipo: String(e.deviceType) } : null,
+                sugerido: { rol: lpr ? "lpr" : "intrusion", direction: /salida|exit/i.test(name) ? "EXIT" : "ENTRY", por: lpr ? "el nombre habla de matrículas / accesos" : "cámara del perímetro" },
+            } as CanalParaImportar;
+        }),
+    };
+}
+
+export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: { channel: number; rol: RolImport; direction?: "ENTRY" | "EXIT"; groupId?: string | null }[]): Promise<{ ok: boolean; error?: string; creadas: number; mapeadas: number; detalle: { channel: number; name: string; accion: string; motivo?: string }[] }> {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return { ok: false, error: "Hace falta una sesión del panel.", creadas: 0, mapeadas: 0, detalle: [] };
+    const detalle: { channel: number; name: string; accion: string; motivo?: string }[] = [];
+    const nvr = await prisma.device.findUnique({ where: { id: nvrDeviceId } });
+    if (!nvr || String(nvr.deviceType) !== "NVR") return { ok: false, error: "El NVR no existe", creadas: 0, mapeadas: 0, detalle };
+    const r: any = await getNvrChannels({ ip: nvr.ip, username: nvr.username || undefined, password: nvr.password || undefined, authType: (nvr.authType as any) || undefined });
+    if (!r?.ok) return { ok: false, error: r?.error || "No se pudieron leer los canales", creadas: 0, mapeadas: 0, detalle };
+    const porCanal = new Map((r.channels || []).map((c: any) => [Number(c.channel), c]));
+    const mapa = await getChannelMap();
+    const nuevo: Record<string, { nvr: string | null; ch: number }> = {};
+    for (const k of Object.keys(mapa)) nuevo[k] = { nvr: mapa[k].nvrId, ch: mapa[k].ch };
+    let creadas = 0, mapeadas = 0;
+    for (const p of pedidos) {
+        const c: any = porCanal.get(Number(p.channel));
+        if (!c) { detalle.push({ channel: p.channel, name: `Canal ${p.channel}`, accion: "omitida", motivo: "el NVR ya no tiene ese canal" }); continue; }
+        const name = (c.name && String(c.name).trim()) || `${nvr.name} · ch ${c.channel}`;
+        if (p.rol === "omitir") continue;
+        if (!c.ip) { detalle.push({ channel: c.channel, name, accion: "omitida", motivo: "el canal no tiene IP" }); continue; }
+        const existente = await prisma.device.findFirst({ where: { ip: c.ip } });
+        nuevo[c.ip] = { nvr: nvr.id, ch: Number(c.channel) };
+        if (existente) { mapeadas++; detalle.push({ channel: c.channel, name: existente.name, accion: "mapeada", motivo: "ya existía: sólo se vinculó la grabación" }); continue; }
+        const lpr = p.rol === "lpr";
+        const dev = await prisma.device.create({
+            data: {
+                name, ip: c.ip, brand: nvr.brand, deviceType: (lpr ? "LPR_CAMERA" : "CAMERA") as any,
+                username: nvr.username, password: nvr.password,
+                authType: (nvr.brand === "HIKVISION" && lpr ? "DIGEST" : nvr.authType) as any,
+                deviceModel: c.model || undefined,
+                direction: (lpr ? (p.direction === "EXIT" ? "EXIT" : "ENTRY") : "ENTRY") as any,
+                accessGroups: lpr && p.groupId && p.groupId !== "none" ? { connect: { id: p.groupId } } : undefined,
+            },
+        });
+        creadas++;
+        detalle.push({ channel: c.channel, name, accion: lpr ? "creada como LPR" : "creada como intrusión" });
+        try { const { syncLprStream } = await import("@/lib/go2rtc-sync"); await syncLprStream(dev as any); } catch { }
+        if (lpr && dev.brand === "HIKVISION") { try { const { provisionLprDevice } = await import("@/app/actions/provision"); await provisionLprDevice(dev.id, false); } catch { } }
+    }
+    await prisma.setting.upsert({ where: { key: "NVR_CHANNEL_MAP" }, update: { value: JSON.stringify(nuevo) }, create: { key: "NVR_CHANNEL_MAP", value: JSON.stringify(nuevo) } });
+    return { ok: true, creadas, mapeadas, detalle };
+}

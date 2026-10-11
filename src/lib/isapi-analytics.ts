@@ -95,3 +95,32 @@ export async function writeField(d: CamDev, ch: number, data: { enabled: boolean
     xml = replaceFirstCoords(xml, "RegionCoordinatesList", inner);
     await put(d, pathField(ch), xml);
 }
+
+
+/* ── Sensibilidad y objetivo (calibrador de intrusión) ─────────────────────────────────────
+ * Hikvision guarda en LineDetection/FieldDetection un <sensitivityLevel> (1-100) por regla y,
+ * en las AcuSense, un <detectionTarget> (all | human | vehicle | human,vehicle). Se leen del
+ * primer ítem y se escriben en todos (read-modify-write, sin tocar el resto del XML). */
+export type AjustesAnalitica = { sensibilidad: number | null; objetivo: string | null; objetivoSoportado: boolean };
+
+export async function leerAjustes(d: CamDev, kind: "line" | "field", ch = 1): Promise<AjustesAnalitica> {
+    try {
+        const xml = await get(d, kind === "line" ? pathLine(ch) : pathField(ch));
+        const sens = xml.match(/<sensitivityLevel>\s*(\d+)\s*<\/sensitivityLevel>/i)?.[1];
+        const obj = xml.match(/<detectionTarget>\s*([\w,]+)\s*<\/detectionTarget>/i)?.[1] || null;
+        return { sensibilidad: sens ? parseInt(sens, 10) : null, objetivo: obj, objetivoSoportado: !!obj };
+    } catch { return { sensibilidad: null, objetivo: null, objetivoSoportado: false }; }
+}
+
+export async function escribirAjustes(d: CamDev, kind: "line" | "field", ch: number, a: { sensibilidad?: number; objetivo?: string }): Promise<void> {
+    const p = kind === "line" ? pathLine(ch) : pathField(ch);
+    let xml = await get(d, p);
+    if (a.sensibilidad != null) {
+        const v = Math.max(1, Math.min(100, Math.round(a.sensibilidad)));
+        xml = xml.replace(/<sensitivityLevel>\s*\d+\s*<\/sensitivityLevel>/gi, `<sensitivityLevel>${v}</sensitivityLevel>`);
+    }
+    if (a.objetivo && /<detectionTarget>/i.test(xml)) {
+        xml = xml.replace(/<detectionTarget>\s*[\w,]+\s*<\/detectionTarget>/gi, `<detectionTarget>${a.objetivo}</detectionTarget>`);
+    }
+    await put(d, p, xml);
+}

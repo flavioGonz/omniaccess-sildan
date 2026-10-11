@@ -6,7 +6,7 @@ import { getSocketUrl } from "@/lib/socket-config";
 import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
+import { IntrusionCalibrator as LineZoneCalibrator } from "@/components/IntrusionCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
 import { PlaybackTimeline } from "@/components/PlaybackTimeline";
 import { Scrub } from "@/components/Scrub";

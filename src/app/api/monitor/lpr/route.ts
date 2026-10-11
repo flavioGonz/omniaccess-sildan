@@ -46,7 +46,7 @@ const AVISOS_MAX = 30;
  *    calculado (que marcaba a cualquier no registrado leído cuatro veces) se reemplaza por los
  *    avisos de patrones a la guardia.
  */
-export async function GET() {
+export async function GET(req: Request) {
     const p = await autorizarMonitor("/api/monitor/lpr");
     if (p.error) return p.error;
     const aj = await leerAjustesVisitas();
@@ -54,9 +54,13 @@ export async function GET() {
     const hoy = inicioDelDia();
     const desdeAtencion = new Date(Date.now() - ATENCION_HORAS * 3600 * 1000);
     const inc = INCLUIR_LECTURA;
+    /* Olivos: una pantalla puede mirar sólo algunas cámaras (su garita): ?camaras=id1,id2. Filtra la
+       lectura grande y la tira; los contadores del día siguen siendo del barrio entero. */
+    const camaras = (new URL(req.url).searchParams.get("camaras") || "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 50);
+    const deCamaras = camaras.length ? { deviceId: { in: camaras } } : {};
     const soloPermitidas = abierto ? {} : { decision: "GRANT" as any };
     const [ultimas, entradas, salidas, denegados, recientes, visitas, avisos] = await Promise.all([
-        prisma.accessEvent.findMany({ orderBy: { timestamp: "desc" }, take: ULTIMAS_EN_TIRA + 1, include: inc }),
+        prisma.accessEvent.findMany({ where: deCamaras, orderBy: { timestamp: "desc" }, take: ULTIMAS_EN_TIRA + 1, include: inc }),
         prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "ENTRY", ...soloPermitidas } }),
         prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, direction: "EXIT", ...soloPermitidas } }),
         abierto ? Promise.resolve(0) : prisma.accessEvent.count({ where: { timestamp: { gte: hoy }, decision: "DENY" } }),
@@ -71,7 +75,7 @@ export async function GET() {
     const ident = await identidadDeLecturas(ultimas as any).catch(() => new Map());
     // Lo que omni-vision vio en cada foto (vision-analisis.js): siluetas y color/carrocería.
     const analisis = new Map((await prisma.analisisFoto.findMany({ where: { accessEventId: { in: ultimas.map((e: any) => e.id) }, estado: "OK" }, select: { accessEventId: true, analisis: true } }).catch(() => [])).map((x) => [x.accessEventId, x.analisis]));
-    const conRegistro = (e: any) => { const f = forma(e); const ch = normalizarMatricula(f.plate); return { ...f, registrada: !!(ch && reg.has(ch)), ...(ident.get(e.id) || {}), analisis: analisis.get(e.id) || null }; };
+    const conRegistro = (e: any) => { const f = forma(e); const ch = normalizarMatricula(f.plate); return { ...f, deviceId: e.deviceId || null, registrada: !!(ch && reg.has(ch)), ...(ident.get(e.id) || {}), analisis: analisis.get(e.id) || null }; };
 
     let adentro = 0, noRegistrados = 0;
     let enBarrio: any[] = [];
@@ -135,3 +139,4 @@ export async function GET() {
         semaforos: await semaforosLpr().catch(() => null),
     }, { headers: SIN_CACHE });
 }
+

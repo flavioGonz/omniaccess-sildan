@@ -202,7 +202,7 @@ export default function AdminLayout({
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-amber-500/60 uppercase tracking-widest">LPR</div>}
                             {(<SidebarItem ver={puede} icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
-                            {(<SidebarItem ver={puede} icon={<Video size={18} />} label="Dispositivos LPR" href="/admin/devices?type=LPR_CAMERA" active={pathname?.includes("devices") && pathname.includes("type=LPR")} collapsed={collapsed} />)}
+                            {(<SidebarItem ver={puede} icon={<Video size={18} />} label="Dispositivos" href="/admin/devices" active={!!pathname?.startsWith("/admin/devices")} collapsed={collapsed} />)}
                             {acuseekOk && <SidebarItem ver={puede} icon={<Sparkles size={18} />} label="Búsqueda inteligente" href="/admin/acuseek" active={pathname === "/admin/acuseek"} collapsed={collapsed} />}
                         </>
                     )}

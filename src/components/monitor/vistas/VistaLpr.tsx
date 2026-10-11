@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     LogIn, LogOut, ShieldCheck, ShieldX, ShieldAlert, Search, Repeat, Camera, Clock, Users, X, Radio,
     PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2, CircleDashed, AlertTriangle, Timer, Activity,
-    ScanEye,
+    ScanEye, SlidersHorizontal, Siren, Building2,
 } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
@@ -168,7 +168,31 @@ const desdeEvento = (e: any): Lectura | null => e?.id && e?.timestamp ? ({
     foto: e.snapshotPath || e.imagePath || null, detalles: e.details || null, metodo: metodoDeLectura(e.details || null),
 }) : null;
 
-const esListaNegra = (l: Lectura) => /lista negra/i.test(l.detalles || "");
+const esListaNegra = (l: Lectura) => l.clase === "alerta" || /lista negra/i.test(l.detalles || "");
+
+/**
+ * Olivos: el color de quien pasa, para leerlo de lejos sin leer nada. Verde residente, amarillo
+ * proveedor, rojo lista negra; el resto de los conocidos en azul y los desconocidos neutros.
+ * Tiñe el fondo de la pantalla, el borde de la lectura grande y la tarjeta de lote y nombre.
+ */
+type Tinte = "residente" | "proveedor" | "negra" | "otro" | "desconocido";
+const tinteDe = (l: Lectura | null | undefined): Tinte => {
+    if (!l) return "desconocido";
+    if (esListaNegra(l)) return "negra";
+    if (l.clase === "residentes" || l.clase === "vip") return "residente";
+    if (l.clase === "proveedores") return "proveedor";
+    if (l.clase || l.persona) return "otro";
+    return "desconocido";
+};
+const TINTE: Record<Tinte, { fondo: string; tarjeta: string; texto: string; anillo: string; rotulo: string }> = {
+    residente: { fondo: "rgba(16,185,129,0.20)", tarjeta: "bg-emerald-600/95 border-emerald-300/60", texto: "text-white", anillo: "ring-emerald-400", rotulo: "Residente" },
+    proveedor: { fondo: "rgba(245,158,11,0.22)", tarjeta: "bg-amber-400/95 border-amber-100/70", texto: "text-black", anillo: "ring-amber-400", rotulo: "Proveedor" },
+    negra: { fondo: "rgba(239,68,68,0.34)", tarjeta: "bg-red-600/95 border-red-200/70", texto: "text-white", anillo: "ring-red-500", rotulo: "Lista negra" },
+    otro: { fondo: "rgba(59,130,246,0.16)", tarjeta: "bg-sky-600/90 border-sky-200/60", texto: "text-white", anillo: "ring-sky-400", rotulo: "" },
+    desconocido: { fondo: "rgba(120,120,120,0.08)", tarjeta: "bg-neutral-800/90 border-white/20", texto: "text-white", anillo: "ring-white/25", rotulo: "Desconocido" },
+};
+const CLAVE_CAMARAS = "monitorLpr.camaras";
+const CLAVE_CERRADOS = "monitorLpr.incidentesCerrados";
 /**
  * El motivo del denegado, sacado de `details`. Ese campo mezcla el motivo con la ficha del
  * vehículo que leyó la cámara ("Marca: …, Modelo: …, Color: …"): se descartan esos pares y
@@ -217,7 +241,39 @@ export function VistaLpr() {
     const { latir, setTitulo, ajustes, silencio, tactil } = useMarco();
     useEffect(() => { setTitulo("Control LPR"); }, [setTitulo]);
     usarReloj();
-    const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/lpr", INTERVALO_MS, latir);
+    /* Qué cámaras mira ESTA pantalla: una garita puede querer ver sólo sus lectoras. Se guarda en el
+       navegador (cada pantalla la suya) y también se puede fijar por la URL: ?camaras=id1,id2. */
+    const [camSel, setCamSel] = useState<string[] | null>(null);
+    const [selListo, setSelListo] = useState(false);
+    useEffect(() => {
+        try {
+            const u = new URLSearchParams(window.location.search).get("camaras");
+            const v = u ? u.split(",").filter(Boolean) : JSON.parse(localStorage.getItem(CLAVE_CAMARAS) || "null");
+            if (Array.isArray(v) && v.length) setCamSel(v);
+        } catch { }
+        setSelListo(true);
+    }, []);
+    const guardarSel = useCallback((v: string[] | null) => {
+        setCamSel(v && v.length ? v : null);
+        try { if (v && v.length) localStorage.setItem(CLAVE_CAMARAS, JSON.stringify(v)); else localStorage.removeItem(CLAVE_CAMARAS); } catch { }
+    }, []);
+    const pasaCam = useCallback((id?: string | null) => !camSel || !id || camSel.includes(id), [camSel]);
+    const { datos, error, recargar } = usarDatos<Datos>(selListo ? `/api/monitor/lpr${camSel ? `?camaras=${encodeURIComponent(camSel.join(","))}` : ""}` : null, INTERVALO_MS, latir);
+    const [verSel, setVerSel] = useState(false);
+    /* Lista negra: un incidente que tapa la pantalla y titila hasta que alguien lo cierra. */
+    const [incidentes, setIncidentes] = useState<Lectura[]>([]);
+    const cerrados = useRef<Set<string>>(new Set());
+    useEffect(() => { try { cerrados.current = new Set(JSON.parse(localStorage.getItem(CLAVE_CERRADOS) || "[]")); } catch { } }, []);
+    const abrirIncidente = useCallback((l: Lectura) => {
+        if (cerrados.current.has(l.id)) return;
+        if (Date.now() - new Date(l.ts).getTime() > 15 * 60_000) return;
+        setIncidentes((xs) => (xs.some((x) => x.id === l.id) ? xs : [...xs, l]));
+    }, []);
+    const cerrarIncidente = useCallback((id: string) => {
+        cerrados.current.add(id);
+        try { localStorage.setItem(CLAVE_CERRADOS, JSON.stringify([...cerrados.current].slice(-200))); } catch { }
+        setIncidentes((xs) => xs.filter((x) => x.id !== id));
+    }, []);
     const [ultima, setUltima] = useState<Lectura | null>(null);
     const [tira, setTira] = useState<Lectura[]>([]);
     const [fijada, setFijada] = useState<Lectura | null>(null);
@@ -230,6 +286,7 @@ export function VistaLpr() {
     const semaforoSeg = datos?.semaforos?.seg ?? 8;
     useEffect(() => { if (!datos) return; setUltima((u) => (u && datos.ultima && u.ts > datos.ultima.ts ? u : datos.ultima)); setTira((t) => { const base = datos.tira; const ids = new Set(base.map((x) => x.id)); return [...t.filter((x) => !ids.has(x.id) && (!datos.ultima || x.id !== datos.ultima.id) && (!base[0] || x.ts > base[0].ts)), ...base].slice(0, ULTIMAS_EN_TIRA); }); }, [datos]);
 
+    useEffect(() => { if (!datos) return; [datos.ultima, ...(datos.tira || [])].forEach((l) => { if (l && tinteDe(l) === "negra") abrirIncidente(l); }); }, [datos, abrirIncidente]);
     const modoSonido = ajustes?.sonido?.lpr || "off";
     const comportamiento = useMemo(() => normalizarComportamiento(datos?.comportamiento || COMPORTAMIENTO_DEFECTO), [datos?.comportamiento]);
     /** Barrio abierto o cerrado (Ajustes → Visitas y patrones); lo trae la consulta. */
@@ -241,6 +298,9 @@ export function VistaLpr() {
             const rele = l.decision === "GRANT" && /Source:\s*Camera/i.test(l.detalles || "");
             setSemaforos((xs) => xs.map((c) => c.deviceId === l.deviceId ? { ...c, ultima: { id: l.id, ts: l.ts, plate: l.plate, decision: l.decision, rele } } : c));
         }
+        if (!pasaCam(l.deviceId)) return;   // esta pantalla no mira esa cámara
+        l.clase = claseDeLectura(e.user, e.watch?.category);
+        if (tinteDe(l) === "negra") abrirIncidente(l);
         setUltima((prev) => { if (prev && prev.id !== l.id) setTira((t) => [prev, ...t.filter((x) => x.id !== prev.id)].slice(0, ULTIMAS_EN_TIRA)); return l; });
         if (!silencio && modoSonido !== "off") {
             // La clase sale del socket (usuario y vigilancia del evento), igual que en el monitor LPR.
@@ -277,11 +337,12 @@ export function VistaLpr() {
     const alternarFiltro = (f: Filtro) => setFiltro((x) => (x === f ? "todas" : f));
 
     return (
-        <div className="absolute inset-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4">
+        <div className="absolute inset-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4 transition-colors duration-700"
+            style={{ backgroundImage: `radial-gradient(130% 100% at 30% 15%, ${TINTE[tinteDe(protagonista)].fondo}, transparent 72%)` }}>
             <div className="min-w-0 min-h-[420px] lg:min-h-0 flex-1 flex flex-col gap-3 lg:gap-4">
                 {/* Protagonista */}
                 <div className={cn("relative flex-1 min-h-[220px] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
-                    !protagonista ? "ring-white/10" : estadoDe(protagonista, modo).ok ? "ring-[var(--bien)]" : estadoDe(protagonista, modo).error ? "ring-[var(--mal)]" : "ring-white/25")}>
+                    !protagonista ? "ring-white/10" : tinteDe(protagonista) !== "desconocido" ? cn("ring-4", TINTE[tinteDe(protagonista)].anillo) : estadoDe(protagonista, modo).error ? "ring-[var(--mal)]" : "ring-white/25")}>
                     <AnimatePresence mode="popLayout" initial={false}>
                         {protagonista ? (
                             <motion.div key={protagonista.id} initial={{ opacity: 0, scale: 1.015 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={SUAVE} className="absolute inset-0">
@@ -335,6 +396,19 @@ export function VistaLpr() {
                                 {f.l}
                             </button>
                         ))}
+                        <div className="relative">
+                            <button type="button" onClick={() => setVerSel((v) => !v)} aria-expanded={verSel}
+                                className={cn("h-11 px-4 rounded-full border text-[15px] font-semibold whitespace-nowrap inline-flex items-center gap-2", tocable,
+                                    camSel ? "bg-[var(--accion)] text-white border-transparent" : "bg-card text-muted-foreground border-border")}>
+                                <SlidersHorizontal size={16} /> {camSel ? `${camSel.length} cámara${camSel.length !== 1 ? "s" : ""}` : "Todas las cámaras"}
+                            </button>
+                            <AnimatePresence>
+                                {verSel && (
+                                    <SelectorCamaras camaras={semaforos} sel={camSel} alCerrar={() => setVerSel(false)}
+                                        alCambiar={(v) => { guardarSel(v); setTira([]); setUltima(null); }} />
+                                )}
+                            </AnimatePresence>
+                        </div>
                         <span className="ml-auto pl-3 text-[13px] text-muted-foreground whitespace-nowrap tabular-nums">{visibles.length} de las últimas {tira.length}</span>
                     </div>
                     <div className="h-[124px] flex gap-3 overflow-x-auto overscroll-x-contain snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -370,7 +444,7 @@ export function VistaLpr() {
 
             {/* Contadores (filtran la tira) y fila de atención (abre la ficha). */}
             <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
-                <PanelSemaforos camaras={semaforos} seg={semaforoSeg} alTocar={(id) => setFichaId(id)} />
+                <PanelSemaforos camaras={camSel ? semaforos.filter((c) => camSel.includes(c.deviceId)) : semaforos} seg={semaforoSeg} alTocar={(id) => setFichaId(id)} />
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
                     <Contador rotulo={rotulos.adentro} valor={c?.adentro ?? 0} Icono={Users} tono="info" />
                     <Contador rotulo={rotulos.entradas} valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" activo={filtro === "entradas"} alTocar={() => alternarFiltro("entradas")} />
@@ -404,6 +478,11 @@ export function VistaLpr() {
                 </div>
             </aside>
 
+            <AnimatePresence>
+                {incidentes[0] && <IncidenteListaNegra key={incidentes[0].id} l={incidentes[0]} total={incidentes.length}
+                    empresa={incidentes[0].plate ? datos?.logos?.[incidentes[0].plate] : null}
+                    alCerrar={() => cerrarIncidente(incidentes[0].id)} alVerFicha={() => setFichaId(incidentes[0].id)} />}
+            </AnimatePresence>
             <FichaLectura id={fichaId} modo={modo} alCerrar={() => setFichaId(null)} alVerOtra={setFichaId} alAmpliar={setAmpliada}
                 alFijar={(l) => { setFijada(ultima && l.id === ultima.id ? null : l); setFichaId(null); }} />
 
@@ -479,9 +558,22 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
                     </div>
                     {esNoLeida(l.plate) && l.relectura?.plate && <div className="mt-3"><Relectura r={l.relectura} grande /></div>}
                     <ResumenVehiculo a={l.analisis} />
+                    {(l.persona || l.ficha) && (() => { const t = tinteDe(l); return (
+                        <div className={cn("mt-3 inline-flex items-stretch rounded-2xl border overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,.55)] max-w-full", TINTE[t].tarjeta, TINTE[t].texto, t === "negra" && "animate-pulse")}>
+                            {l.unidad && (
+                                <div className="px-5 py-2 flex flex-col justify-center border-r border-black/15 shrink-0">
+                                    <span className="text-[12px] font-bold uppercase tracking-[0.2em] opacity-80">Lote</span>
+                                    <span className="text-[clamp(28px,3.4vw,48px)] font-black leading-none tabular-nums">{l.unidad}</span>
+                                </div>
+                            )}
+                            <div className="px-5 py-2 flex flex-col justify-center min-w-0">
+                                <span className="text-[12px] font-bold uppercase tracking-[0.2em] opacity-80">{TINTE[t].rotulo || (l.clase ? ESTILO_MONITOR[l.clase].etiqueta : "Conocido")}</span>
+                                <span className="text-[clamp(20px,2.3vw,32px)] font-bold leading-tight truncate">{l.ficha?.nombre || l.persona}</span>
+                                {empresa && <span className="text-[13px] font-semibold opacity-85 inline-flex items-center gap-1"><Building2 size={13} /> {empresa.nombre}</span>}
+                            </div>
+                        </div>); })()}
                     <div className="mt-3 flex items-center gap-3">
-                        <EtiquetaClase l={l} comp={comp} grande />
-                        <span className="text-[20px] lg:text-[22px] font-semibold text-white truncate">{quien(l)}</span>
+                        {!(l.persona || l.ficha) && <><EtiquetaClase l={l} comp={comp} grande /><span className="text-[20px] lg:text-[22px] font-semibold text-white truncate">{quien(l)}</span></>}
                         <button type="button" onClick={alAbrirFicha}
                             className={cn("pointer-events-auto inline-flex items-center gap-2 rounded-full bg-white/15 backdrop-blur-md text-white font-semibold border border-white/20 shrink-0", tactil ? "h-12 px-5 text-[16px]" : "h-10 px-4 text-[14px]", tocable)}>
                             <PanelRightOpen size={18} /> Ficha
@@ -767,5 +859,99 @@ function Bloque({ Icono, titulo, children }: { Icono: any; titulo: string; child
             <div className="mb-2 flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><Icono size={14} /> {titulo}</div>
             {children}
         </section>
+    );
+}
+
+/** Qué cámaras mira esta pantalla, agrupadas por garita. */
+function SelectorCamaras({ camaras, sel, alCambiar, alCerrar }: { camaras: EstadoSemaforo[]; sel: string[] | null; alCambiar: (v: string[] | null) => void; alCerrar: () => void }) {
+    const [marcadas, setMarcadas] = useState<Set<string>>(new Set(sel || camaras.map((c) => c.deviceId)));
+    const garitas = useMemo(() => {
+        const m = new Map<string, EstadoSemaforo[]>();
+        for (const c of camaras) m.set(c.garita, [...(m.get(c.garita) || []), c]);
+        return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0], "es", { numeric: true }));
+    }, [camaras]);
+    const alternar = (ids: string[]) => setMarcadas((prev) => {
+        const n = new Set(prev); const todas = ids.every((i) => n.has(i));
+        ids.forEach((i) => (todas ? n.delete(i) : n.add(i))); return n;
+    });
+    const aplicar = () => { const v = [...marcadas]; alCambiar(v.length === camaras.length ? null : v); alCerrar(); };
+    return (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE} className="fixed inset-0 z-[70] grid place-items-center bg-black/60 p-4" onClick={alCerrar}>
+        <motion.div initial={{ scale: 0.97, y: 8 }} animate={{ scale: 1, y: 0 }} transition={SUAVE} onClick={(e) => e.stopPropagation()}
+            className="w-[min(560px,94vw)] rounded-2xl bg-background border border-border shadow-2xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+                <SlidersHorizontal size={16} className="text-muted-foreground" />
+                <span className="font-bold text-[15px]">Cámaras de esta pantalla</span>
+                <button type="button" onClick={() => setMarcadas(new Set(camaras.map((c) => c.deviceId)))} className="ml-auto text-[13px] text-muted-foreground hover:text-foreground">Todas</button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 max-h-[46vh] overflow-y-auto">
+                {garitas.map(([g, cams]) => (
+                    <div key={g} className="rounded-xl border border-border p-2">
+                        <button type="button" onClick={() => alternar(cams.map((c) => c.deviceId))} className="text-[12px] font-black uppercase tracking-wider text-muted-foreground mb-1 hover:text-foreground">Garita {g}</button>
+                        {cams.map((c) => (
+                            <label key={c.deviceId} className="flex items-center gap-2 py-1.5 text-[14px] cursor-pointer select-none">
+                                <input type="checkbox" checked={marcadas.has(c.deviceId)} onChange={() => alternar([c.deviceId])} className="h-5 w-5 accent-[var(--accion)]" />
+                                <span className="truncate">{c.nombre}</span>
+                            </label>
+                        ))}
+                    </div>
+                ))}
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+                <button type="button" onClick={alCerrar} className={cn("h-11 px-4 rounded-xl border border-border text-[14px]", tocable)}>Cancelar</button>
+                <button type="button" onClick={aplicar} disabled={!marcadas.size} className={cn("h-11 px-5 rounded-xl bg-[var(--accion)] text-white font-bold text-[14px] disabled:opacity-50", tocable)}>Aplicar</button>
+            </div>
+        </motion.div>
+        </motion.div>
+    );
+}
+
+/**
+ * Lista negra en la garita: la pantalla entera titila en rojo y no se va sola. El guardia tiene
+ * que cerrar el incidente (dos toques: «Cerrar incidente» y confirmar), así no pasa inadvertido
+ * aunque nadie estuviera mirando en el segundo en que entró.
+ */
+function IncidenteListaNegra({ l, total, empresa, alCerrar, alVerFicha }: { l: Lectura; total: number; empresa?: Logo | null; alCerrar: () => void; alVerFicha: () => void }) {
+    const [confirmar, setConfirmar] = useState(false);
+    const foto = getImagePath(l.foto);
+    return (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[80] grid place-items-center p-4" role="alertdialog" aria-label="Incidente de lista negra">
+            <motion.div className="absolute inset-0 bg-red-700" animate={{ opacity: [0.55, 0.88, 0.55] }} transition={{ duration: 1.1, repeat: Infinity }} />
+            <motion.div initial={{ scale: 0.94, y: 12 }} animate={{ scale: 1, y: 0 }} className="relative w-[min(920px,96vw)] rounded-3xl bg-neutral-950 border-4 border-red-500 shadow-[0_0_80px_rgba(239,68,68,.7)] overflow-hidden">
+                <div className="flex items-center gap-3 px-6 py-4 bg-red-600 text-white">
+                    <Siren size={34} className="animate-pulse" />
+                    <div className="flex-1">
+                        <div className="text-[clamp(26px,3vw,40px)] font-black uppercase tracking-[0.12em] leading-none">Lista negra</div>
+                        <div className="text-[15px] font-semibold opacity-90 mt-1">{l.sentido === "EXIT" ? "Salida" : "Entrada"} · {l.camara || "—"} · {horaCorta(l.ts)} ({hace(l.ts)})</div>
+                    </div>
+                    {total > 1 && <span className="px-3 py-1 rounded-full bg-black/30 font-bold">1 de {total}</span>}
+                </div>
+                <div className="grid md:grid-cols-[1.4fr_1fr] gap-0">
+                    <div className="relative aspect-video bg-black">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {foto ? <img src={foto} alt="" className="absolute inset-0 w-full h-full object-contain" /> : <span className="absolute inset-0 grid place-items-center text-white/30"><Camera size={56} /></span>}
+                    </div>
+                    <div className="p-5 flex flex-col gap-3 text-white">
+                        <div className="flex items-center gap-3 flex-wrap">
+                            <span className="px-4 py-1.5 rounded-xl bg-white text-black text-[clamp(30px,3.4vw,46px)] font-black tabular-nums tracking-[0.14em] leading-none">{l.plate || "S/L"}</span>
+                            <LogoSobreFoto empresa={empresa} className="h-12 max-w-[160px]" />
+                        </div>
+                        {(l.ficha?.nombre || l.persona) && <div className="text-[22px] font-bold">{l.ficha?.nombre || l.persona}{l.unidad ? <span className="text-white/70 font-semibold"> · Lote {l.unidad}</span> : null}</div>}
+                        <div className="rounded-xl bg-red-500/15 border border-red-500/40 p-3 text-[16px]"><b>Motivo:</b> {l.ficha?.motivo || motivoDenegado(l)}</div>
+                        <div className="mt-auto flex flex-col gap-2">
+                            <button type="button" onClick={alVerFicha} className={cn("h-12 rounded-xl bg-white/10 border border-white/20 font-semibold inline-flex items-center justify-center gap-2", tocable)}><PanelRightOpen size={18} /> Ver ficha</button>
+                            {!confirmar ? (
+                                <button type="button" onClick={() => setConfirmar(true)} className={cn("h-14 rounded-xl bg-red-600 hover:bg-red-500 font-black text-[17px] uppercase tracking-wide", tocable)}>Cerrar incidente</button>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <button type="button" onClick={() => setConfirmar(false)} className={cn("flex-1 h-14 rounded-xl bg-white/10 font-semibold", tocable)}>Volver</button>
+                                    <button type="button" onClick={alCerrar} className={cn("flex-[2] h-14 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-black text-[16px]", tocable)}>Sí, ya lo atendí</button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </motion.div>
+        </motion.div>
     );
 }

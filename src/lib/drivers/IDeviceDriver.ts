@@ -81,4 +81,4 @@ export function isStatsDriver(driver: IDeviceDriver): driver is IStatsDriver {
 }
 
 /** La lista de una lectora LPR: whiteList abre (rele), blackList no. */
-export type ListaCamara = \whiteList\ | lackList\;
+export type ListaCamara = "whiteList" | "blackList";

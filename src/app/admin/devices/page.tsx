@@ -104,6 +104,9 @@ import {
 import { cn } from "@/lib/utils";
 import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
 import { CajonCamaraLpr } from "@/components/devices/CajonCamaraLpr";
+import { TablaIntrusion } from "@/components/devices/TablaIntrusion";
+import { ImportarCanalesNvr } from "@/components/devices/ImportarCanalesNvr";
+import { Car as CarIco, Radar as RadarIco, Server as ServerIco, ChevronDown as ChevronDownIco, Download as DownloadIco } from "lucide-react";
 import { grabacionesLpr, detectarGrabaciones, calcularRetencion, type FilaGrabacion } from "@/app/actions/grabaciones";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
@@ -111,7 +114,8 @@ const PLACEHOLDER_DEVICE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns=
 const PLACEHOLDER_BRAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="4" fill="%23262626"/><circle cx="16" cy="16" r="8" stroke="%23525252" stroke-width="1.5" fill="none"/><path d="M16 12v4l3 3" stroke="%23525252" stroke-width="1.5" stroke-linecap="round"/></svg>')}`;
 
 const TYPE_META: Record<string, { label: string; color: string; activeClass: string }> = {
-    LPR_CAMERA: { label: "LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+    LPR_CAMERA: { label: "Cámaras LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+    CAMERA: { label: "Intrusión", color: "text-red-400", activeClass: "bg-red-500/15 text-red-300 border-red-500/30" },
     FACE_TERMINAL: { label: "Face", color: "text-teal-400", activeClass: "bg-teal-500/15 text-teal-300 border-teal-500/30" },
     QUEUE_COUNTER: { label: "Queue", color: "text-violet-400", activeClass: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
     NVR: { label: "NVR", color: "text-blue-400", activeClass: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
@@ -263,18 +267,22 @@ export default function DevicesPage() {
         MODULE_QUEUE: false,
     });
 
-    const typeFilter = searchParams.get('type');
-
-    // Build allowed device types based on active modules
+    // Cada clase de equipo en su vista (como san-nicolas): LPR, intrusión y NVR no se mezclan.
     const allowedTypes: string[] = [];
-    if (modules.MODULE_LPR) { allowedTypes.push("LPR_CAMERA"); allowedTypes.push("NVR"); }
+    if (modules.MODULE_LPR) { allowedTypes.push("LPR_CAMERA"); allowedTypes.push("CAMERA"); allowedTypes.push("NVR"); }
     if (modules.MODULE_FACE) allowedTypes.push("FACE_TERMINAL");
     if (modules.MODULE_QUEUE) allowedTypes.push("QUEUE_COUNTER");
+    const pedido = searchParams.get('type');
+    const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
+    // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
+    const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "otro">(null);
+    const [menuAlta, setMenuAlta] = useState(false);
+    const [importandoDe, setImportandoDe] = useState<any>(null);
 
     const filteredDevices = devices.filter(d => {
         // Only show devices whose type belongs to an active module
         if (!allowedTypes.includes(d.deviceType)) return false;
-        const matchesType = !typeFilter || d.deviceType === typeFilter || (typeFilter === "LPR_CAMERA" && d.deviceType === "NVR");
+        const matchesType = d.deviceType === typeFilter;
         const matchesSearch = d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             d.ip.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (d.location && d.location.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -478,15 +486,6 @@ export default function DevicesPage() {
                 <div className="flex items-center gap-3 w-full lg:w-auto">
                     {/* Module-aware filter tabs */}
                     <div className="flex items-center gap-1 bg-card/80 p-1 rounded-lg border border-border/60">
-                        <button
-                            onClick={() => setFilter()}
-                            className={cn(
-                                "h-8 px-3 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all",
-                                !typeFilter ? "bg-foreground/10 text-foreground" : "text-muted-foreground hover:text-muted-foreground hover:bg-accent"
-                            )}
-                        >
-                            Todos
-                        </button>
                         {allowedTypes.map(type => {
                             const meta = TYPE_META[type];
                             return (
@@ -498,7 +497,7 @@ export default function DevicesPage() {
                                         typeFilter === type ? meta.activeClass : "text-muted-foreground hover:text-muted-foreground hover:bg-accent"
                                     )}
                                 >
-                                    {meta.label}
+                                    {meta.label} <span className="opacity-60 tabular-nums">{devices.filter((d) => d.deviceType === type).length}</span>
                                 </button>
                             );
                         })}
@@ -514,7 +513,7 @@ export default function DevicesPage() {
                             className="w-full bg-card/80 border border-border/60 h-9 rounded-lg pl-9 pr-3 text-xs font-medium focus:ring-1 focus:ring-indigo-500/30 focus:border-indigo-500/30 outline-none transition-all placeholder:text-muted-foreground text-foreground"
                         />
                     </div>
-                    <TooltipProvider>
+                    {typeFilter === "LPR_CAMERA" && <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button onClick={() => setShowReadRate(true)} variant="outline" className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
@@ -523,7 +522,7 @@ export default function DevicesPage() {
                             </TooltipTrigger>
                             <TooltipContent><p className="text-xs max-w-[200px]">% de placas leídas vs no reconocidas, por cámara y por hora</p></TooltipContent>
                         </Tooltip>
-                    </TooltipProvider>
+                    </TooltipProvider>}
                     <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -540,7 +539,7 @@ export default function DevicesPage() {
                             <TooltipContent><p className="text-xs max-w-[200px]">Pone la hora del servidor en todas las cámaras y el NVR (funciona sin internet)</p></TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
-                    <TooltipProvider>
+                    {typeFilter === "LPR_CAMERA" && <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button onClick={() => detectar()} disabled={detectando} variant="outline" className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
@@ -549,19 +548,29 @@ export default function DevicesPage() {
                             </TooltipTrigger>
                             <TooltipContent><p className="text-xs max-w-[240px]">Busca cada cámara LPR en los canales de todos los NVR (por su IP) y asigna sola dónde graba. No borra asignaciones existentes.</p></TooltipContent>
                         </Tooltip>
-                    </TooltipProvider>
-                    {modules.MODULE_LPR && (
-                        <CajonCamaraLpr groups={groups} onSuccess={() => { loadData(); cargarGrab(); }}>
-                            <Button className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs shrink-0 gap-1.5">
-                                <Plus size={15} /> Nueva cámara LPR
-                            </Button>
-                        </CajonCamaraLpr>
-                    )}
-                    <DeviceFormDialog groups={groups} onSuccess={loadData}>
-                        <Button variant="outline" className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
-                            <Plus size={15} /> {modules.MODULE_LPR ? "Otro equipo" : "Nuevo"}
+                    </TooltipProvider>}
+                    <div className="relative shrink-0">
+                        <Button onClick={() => setMenuAlta((v) => !v)} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs gap-1.5">
+                            <Plus size={15} /> Agregar <ChevronDownIco size={14} className={cn("transition-transform", menuAlta && "rotate-180")} />
                         </Button>
-                    </DeviceFormDialog>
+                        {menuAlta && (
+                            <>
+                                <div className="fixed inset-0 z-40" onClick={() => setMenuAlta(false)} />
+                                <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-[300px] rounded-xl bg-card border border-border shadow-2xl p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                                    {(modules.MODULE_LPR ? [
+                                        { k: "lpr", t: "Cámara LPR", d: "Lectora de matrículas de una garita: alta guiada con grabación, hora y servidor de alarmas.", I: CarIco, c: "text-amber-400 bg-amber-500/10" },
+                                        { k: "intrusion", t: "Cámara de intrusión", d: "Cámara de perímetro con línea o zona (AcuSense). Después se calibra.", I: RadarIco, c: "text-red-400 bg-red-500/10" },
+                                        { k: "nvr", t: "NVR", d: "Grabador. Al guardarlo podés importar sus cámaras clasificándolas (LPR o intrusión).", I: ServerIco, c: "text-blue-400 bg-blue-500/10" },
+                                    ] : [{ k: "otro", t: "Nuevo equipo", d: "Terminal, contador u otro equipo.", I: Plus, c: "text-indigo-400 bg-indigo-500/10" }]).map((o: any) => (
+                                        <button key={o.k} onClick={() => { setMenuAlta(false); setAlta(o.k); }} className="w-full flex items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-accent transition-colors">
+                                            <span className={cn("grid h-9 w-9 place-items-center rounded-lg shrink-0", o.c)}><o.I size={17} /></span>
+                                            <span><span className="block text-sm font-bold text-foreground">{o.t}</span><span className="block text-[11px] text-muted-foreground leading-snug">{o.d}</span></span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </div>
                 </div>
             </header>
 
@@ -586,6 +595,7 @@ export default function DevicesPage() {
                 </div>
             )}
 
+            {typeFilter !== "NVR" && typeFilter !== "CAMERA" && (
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
                 <Table>
                     <TableHeader className="bg-card/60">
@@ -1120,9 +1130,18 @@ export default function DevicesPage() {
                     </TableBody >
                 </Table >
             </div >
+            )}
+
+            {/* ─────────────── Cámaras de intrusión ─────────────── */}
+            {typeFilter === "CAMERA" && (
+                <TablaIntrusion devices={filteredDevices} health={health} analyticsIds={analyticsIds} groups={groups} onReload={loadData} />
+            )}
 
             {/* ─────────────── Tabla de salud del NVR ─────────────── */}
-            {nvrDevices.length > 0 && (
+            {typeFilter === "NVR" && nvrDevices.length === 0 && (
+                <div className="border border-dashed border-border rounded-lg p-10 text-center text-sm text-muted-foreground">No hay NVR dados de alta. Agregalo con «Agregar → NVR».</div>
+            )}
+            {typeFilter === "NVR" && nvrDevices.length > 0 && (
                 <div className="space-y-2">
                     <div className="flex items-center gap-2 pt-1">
                         <Server size={15} className="text-blue-400" />
@@ -1261,6 +1280,9 @@ export default function DevicesPage() {
                                                         <DropdownMenuItem onClick={() => setHealthHistory(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-indigo-400 focus:bg-foreground/10 focus:text-indigo-400">
                                                             <Activity size={14} /> Historial de salud
                                                         </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => setImportandoDe(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-amber-400 focus:bg-foreground/10 focus:text-amber-400">
+                                                            <DownloadIco size={14} /> Importar cámaras (clasificar)
+                                                        </DropdownMenuItem>
                                                         <DeviceFormDialog device={dev} groups={groups} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-accent hover:text-blue-400 gap-2">
                                                                 <Settings2 size={14} /> Editar / Mapeo de canales
@@ -1287,6 +1309,12 @@ export default function DevicesPage() {
             {calibrating && (
                 <CameraCalibrator device={calibrating} onClose={() => setCalibrating(null)} />
             )}
+
+            {/* Altas desde el botón «Agregar» */}
+            <CajonCamaraLpr groups={groups} open={alta === "lpr"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => { loadData(); cargarGrab(); }} />
+            <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "intrusion" || alta === "nvr" || alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)}
+                tipoInicial={alta === "intrusion" ? "CAMERA" : alta === "nvr" ? "NVR" : undefined} />
+            <ImportarCanalesNvr nvr={importandoDe} groups={groups} open={!!importandoDe} onOpenChange={(v) => !v && setImportandoDe(null)} onListo={() => { loadData(); cargarGrab(); }} />
 
             {healthHistory && (
                 <HealthHistoryDialog device={healthHistory} onClose={() => setHealthHistory(null)} />

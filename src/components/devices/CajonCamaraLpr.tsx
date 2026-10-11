@@ -64,8 +64,10 @@ function IconoEstado({ e }: { e: Estado }) {
     return <span className="h-5 w-5 rounded-full border-2 border-dashed border-border" />;
 }
 
-export function CajonCamaraLpr({ groups = [], onSuccess, children }: { groups?: any[]; onSuccess: () => void; children: React.ReactNode }) {
-    const [abierto, setAbierto] = useState(false);
+export function CajonCamaraLpr({ groups = [], onSuccess, children, open: abiertoExt, onOpenChange }: { groups?: any[]; onSuccess: () => void; children?: React.ReactNode; open?: boolean; onOpenChange?: (v: boolean) => void }) {
+    const [abiertoInt, setAbiertoInt] = useState(false);
+    const abierto = abiertoExt ?? abiertoInt;
+    const setAbierto = (v: boolean) => { if (abiertoExt === undefined) setAbiertoInt(v); onOpenChange?.(v); };
     const [paso, setPaso] = useState(0);
     const [hacia, setHacia] = useState(1);
     const ir = (i: number) => { setHacia(i > paso ? 1 : -1); setPaso(i); };
@@ -220,7 +222,7 @@ export function CajonCamaraLpr({ groups = [], onSuccess, children }: { groups?: 
 
     return (
         <Cajon open={abierto} onOpenChange={(v) => { if (!corriendo) setAbierto(v); }}>
-            <CajonDisparador asChild>{children}</CajonDisparador>
+            {children && <CajonDisparador asChild>{children}</CajonDisparador>}
             <CajonContenido ancho="medio" titulo="Nueva cámara LPR" descripcion="Alta guiada: conexión, ubicación, grabación y puesta a punto automática."
                 encabezado={<BarraDePasos pasos={PASOS} actual={paso} alIr={(i) => !corriendo && !terminado && ir(i)} />} pie={pie}>
                 <PasoAnimado clave={clave} hacia={hacia}>

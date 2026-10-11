@@ -6,7 +6,7 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSmartSupport, readLine, readField, writeLine, writeField } from "@/lib/isapi-analytics";
+import { getSmartSupport, readLine, readField, writeLine, writeField , leerAjustes, escribirAjustes } from "@/lib/isapi-analytics";
 import { resolveForCamera } from "@/lib/nvr-resolve";
 import { readDahuaIvs, writeDahuaField, writeDahuaLine } from "@/lib/dahua-ivs";
 
@@ -34,7 +34,8 @@ export async function GET(req: NextRequest) {
         const support = await getSmartSupport(d as any);
         const line = support.line ? await readLine(d as any, ch) : { supported: false, enabled: false, points: [] };
         const field = support.field ? await readField(d as any, ch) : { supported: false, enabled: false, points: [] };
-        return NextResponse.json({ ok: true, support, line: { enabled: line.enabled, points: line.points, supported: line.supported, direction: (line as any).dir }, field: { enabled: field.enabled, points: field.points, supported: field.supported } }, { headers: { "Cache-Control": "no-store" } });
+        const [ajLine, ajField] = await Promise.all([support.line ? leerAjustes(d as any, "line", ch) : null, support.field ? leerAjustes(d as any, "field", ch) : null]);
+        return NextResponse.json({ ok: true, support, line: { enabled: line.enabled, points: line.points, supported: line.supported, direction: (line as any).dir, ajustes: ajLine }, field: { enabled: field.enabled, points: field.points, supported: field.supported, ajustes: ajField } }, { headers: { "Cache-Control": "no-store" } });
     } catch (e: any) {
         return NextResponse.json({ ok: false, error: e?.message || "ISAPI error" }, { status: 502 });
     }
@@ -49,6 +50,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { kind, enabled, points, direction } = body as { kind: "line" | "field"; enabled: boolean; points: { x: number; y: number }[]; direction?: string };
     if (kind !== "line" && kind !== "field") return NextResponse.json({ ok: false, error: "kind inválido" }, { status: 400 });
+    // Sólo sensibilidad / objetivo (sin geometría): calibrador de intrusión.
+    if ((body as any).soloAjustes) {
+        try {
+            await escribirAjustes(d as any, kind, ch, { sensibilidad: (body as any).sensibilidad, objetivo: (body as any).objetivo });
+            return NextResponse.json({ ok: true });
+        } catch (e: any) { return NextResponse.json({ ok: false, error: e?.message || "La cámara no aceptó el ajuste" }, { status: 502 }); }
+    }
     if (!Array.isArray(points) || points.length < 2) return NextResponse.json({ ok: false, error: "puntos insuficientes" }, { status: 400 });
     const camP = await resolveForCamera(id);
     if (camP && String((camP.nvr as any).brand).toUpperCase() === "DAHUA") {
