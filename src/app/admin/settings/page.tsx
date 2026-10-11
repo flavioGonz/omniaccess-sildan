@@ -73,6 +73,7 @@ import { Switch } from "@/components/ui/switch";
 import PlaybackSection from "./PlaybackSection";
 import EmpresasSection from "./EmpresasSection";
 import VisitasSection from "./VisitasSection";
+import AccesosSection from "./AccesosSection";
 import { Building2, Clock } from "lucide-react";
 import { Film } from "lucide-react";
 import {
@@ -171,7 +172,7 @@ const NAV_GROUPS = [
         { sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
         { sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
         { sec: "database", btab: "", label: "Database", icon: Database },
-        { sec: "users", btab: "", label: "Usuarios", icon: Users },
+        { sec: "users", btab: "", label: "Accesos al panel", icon: Users },
     ]},
     { id: "branding", label: "Branding", icon: Palette, items: [
         { sec: "branding", btab: "identidad", label: "Identidad Corporativa", icon: Palette },
@@ -461,9 +462,7 @@ export default function SettingsPage() {
                     )}
 
                     {/* Users Section */}
-                    {activeSection === "users" && (
-                        <AdminsSection />
-                    )}
+                    {activeSection === "users" && <AccesosSection />}
 
                     {activeSection === "database" && (
                         /* ... existing database code ... */

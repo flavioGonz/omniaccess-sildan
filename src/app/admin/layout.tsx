@@ -59,7 +59,9 @@ interface SidebarItemProps {
     collapsed: boolean;
 }
 
-function SidebarItem({ icon, label, href, active, collapsed }: SidebarItemProps) {
+function SidebarItem({ icon, label, href, active, collapsed, ver }: SidebarItemProps & { ver?: (ruta: string) => boolean }) {
+    // El menu se arma por permiso del rol de aplicacion (lib/permisos).
+    if (ver && !ver(href.split("?")[0])) return null;
     return (
         <Link
             href={href}
@@ -94,7 +96,7 @@ export default function AdminLayout({
     const pathname = usePathname();
     const router = useRouter();
     const [collapsed, setCollapsed] = useState(false);
-    const { role: sessionRole, loaded: roleLoaded } = useSessionRole();
+    const { role: sessionRole, loaded: roleLoaded, puede } = useSessionRole();
     const isAdmin = sessionRole === "ADMIN";
     const [loggingOut, setLoggingOut] = useState(false);
     const [acuseekOk, setAcuseekOk] = useState(false);
@@ -162,92 +164,92 @@ export default function AdminLayout({
 
                 <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
                     {modules.MODULE_QUEUE ? (
-                        <SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-queue" active={pathname === "/admin/monitor-queue"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-queue" active={pathname === "/admin/monitor-queue"} collapsed={collapsed} />
                     ) : modules.MODULE_FACE ? (
-                        <SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-face" active={pathname === "/admin/monitor-face"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-face" active={pathname === "/admin/monitor-face"} collapsed={collapsed} />
                     ) : (
-                        <SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />
                     )}
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        <SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />
                     )}
                     {modules.MODULE_QUEUE ? (
-                        <SidebarItem icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />
                     ) : (
-                        <SidebarItem icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<History size={18} />} label="Historial de Acceso" href="/admin/history" active={pathname === "/admin/history"} collapsed={collapsed} />
                     )}
                     {modules.MODULE_QUEUE && (
-                        <SidebarItem icon={<MapIcon size={18} />} label="Mapas" href="/admin/mapas" active={pathname === "/admin/mapas"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<MapIcon size={18} />} label="Mapas" href="/admin/mapas" active={pathname === "/admin/mapas"} collapsed={collapsed} />
                     )}
                     {!modules.MODULE_QUEUE && (
-                        <SidebarItem icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<MapIcon size={18} />} label="Mapa" href="/admin/mapa" active={pathname === "/admin/mapa"} collapsed={collapsed} />
                     )}
 
                     {!modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Gestión</div>}
                             {collapsed && <div className="my-2 border-t border-border" />}
-                            {isAdmin && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users"} collapsed={collapsed} />)}
-                            {isAdmin && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
-                            <SidebarItem icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />
-                            {modules.MODULE_LPR && (<SidebarItem icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />)}
+                            {(<SidebarItem ver={puede} icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users"} collapsed={collapsed} />)}
+                            {(<SidebarItem ver={puede} icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
+                            <SidebarItem ver={puede} icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />
+                            {modules.MODULE_LPR && (<SidebarItem ver={puede} icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />)}
                         </>
                     )}
 
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-amber-500/60 uppercase tracking-widest">LPR</div>}
-                            {isAdmin && (<SidebarItem icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
-                            {isAdmin && (<SidebarItem icon={<Video size={18} />} label="Dispositivos LPR" href="/admin/devices?type=LPR_CAMERA" active={pathname?.includes("devices") && pathname.includes("type=LPR")} collapsed={collapsed} />)}
-                            {acuseekOk && <SidebarItem icon={<Sparkles size={18} />} label="Búsqueda inteligente" href="/admin/acuseek" active={pathname === "/admin/acuseek"} collapsed={collapsed} />}
+                            {(<SidebarItem ver={puede} icon={<Car size={18} />} label="Vehículos / Matrículas" href="/admin/vehicles" active={pathname === "/admin/vehicles" || pathname === "/admin/credentials"} collapsed={collapsed} />)}
+                            {(<SidebarItem ver={puede} icon={<Video size={18} />} label="Dispositivos LPR" href="/admin/devices?type=LPR_CAMERA" active={pathname?.includes("devices") && pathname.includes("type=LPR")} collapsed={collapsed} />)}
+                            {acuseekOk && <SidebarItem ver={puede} icon={<Sparkles size={18} />} label="Búsqueda inteligente" href="/admin/acuseek" active={pathname === "/admin/acuseek"} collapsed={collapsed} />}
                         </>
                     )}
 
                     {modules.MODULE_FACE && !modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-teal-500/60 uppercase tracking-widest">Face</div>}
-                            <SidebarItem icon={<ScanFace size={18} />} label="Dispositivos Faciales" href="/admin/devices?type=FACE_TERMINAL" active={pathname?.includes("devices") && pathname.includes("type=FACE")} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<ScanFace size={18} />} label="Dispositivos Faciales" href="/admin/devices?type=FACE_TERMINAL" active={pathname?.includes("devices") && pathname.includes("type=FACE")} collapsed={collapsed} />
                         </>
                     )}
 
                     {modules.MODULE_QUEUE && (
                         <>
                             {!collapsed && <div className="pt-2 pb-0.5 px-3 text-[8px] font-bold text-violet-500/60 uppercase tracking-widest">Filas</div>}
-                            <SidebarItem icon={<Rows3 size={18} />} label="Filas" href="/admin/filas" active={pathname === "/admin/filas"} collapsed={collapsed} />
-                            <SidebarItem icon={<Send size={18} />} label="Despachos" href="/admin/despachos" active={pathname === "/admin/despachos"} collapsed={collapsed} />
-                            <SidebarItem icon={<FileBarChart size={18} />} label="Reportes" href="/admin/reportes-queue" active={pathname === "/admin/reportes-queue"} collapsed={collapsed} />
-                            <SidebarItem icon={<Video size={18} />} label="Dispositivos Conteo" href="/admin/devices?type=QUEUE_COUNTER" active={pathname?.includes("devices") && pathname.includes("type=QUEUE")} collapsed={collapsed} />
-                            <SidebarItem icon={<Calendar size={18} />} label="Horarios de Filas" href="/admin/horarios-filas" active={pathname === "/admin/horarios-filas"} collapsed={collapsed} />
-                            <SidebarItem icon={<LayoutGrid size={18} />} label="Pantalla / Kiosko" href="/admin/kiosko" active={pathname === "/admin/kiosko"} collapsed={collapsed} />
-                            <SidebarItem icon={<SlidersHorizontal size={18} />} label="Calibración" href="/admin/calibracion-aforo" active={pathname === "/admin/calibracion-aforo"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<Rows3 size={18} />} label="Filas" href="/admin/filas" active={pathname === "/admin/filas"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<Send size={18} />} label="Despachos" href="/admin/despachos" active={pathname === "/admin/despachos"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<FileBarChart size={18} />} label="Reportes" href="/admin/reportes-queue" active={pathname === "/admin/reportes-queue"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<Video size={18} />} label="Dispositivos Conteo" href="/admin/devices?type=QUEUE_COUNTER" active={pathname?.includes("devices") && pathname.includes("type=QUEUE")} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<Calendar size={18} />} label="Horarios de Filas" href="/admin/horarios-filas" active={pathname === "/admin/horarios-filas"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<LayoutGrid size={18} />} label="Pantalla / Kiosko" href="/admin/kiosko" active={pathname === "/admin/kiosko"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<SlidersHorizontal size={18} />} label="Calibración" href="/admin/calibracion-aforo" active={pathname === "/admin/calibracion-aforo"} collapsed={collapsed} />
                         </>
                     )}
 
                     {!modules.MODULE_QUEUE && (
                         <>
-                            {isAdmin && (<SidebarItem icon={<CreditCard size={18} />} label="Tags RFID" href="/admin/rfid" active={pathname === "/admin/rfid"} collapsed={collapsed} />)}
-                            {isAdmin && (<SidebarItem icon={<Users size={18} />} label="Grupos de Acceso" href="/admin/groups" active={pathname === "/admin/groups"} collapsed={collapsed} />)}
+                            {(<SidebarItem ver={puede} icon={<CreditCard size={18} />} label="Tags RFID" href="/admin/rfid" active={pathname === "/admin/rfid"} collapsed={collapsed} />)}
+                            {(<SidebarItem ver={puede} icon={<Users size={18} />} label="Grupos de Acceso" href="/admin/groups" active={pathname === "/admin/groups"} collapsed={collapsed} />)}
                         </>
                     )}
 
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
-                        <SidebarItem icon={<LayoutGrid size={18} />} label="Plazas de Parking" href="/admin/plazas" active={pathname === "/admin/plazas"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<LayoutGrid size={18} />} label="Plazas de Parking" href="/admin/plazas" active={pathname === "/admin/plazas"} collapsed={collapsed} />
                     )}
 
                     {modules.MODULE_LPR && modules.MODULE_GUARD && (
                         <>
                             {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Guardia</div>}
                             {collapsed && <div className="my-2 border-t border-border" />}
-                            <SidebarItem icon={<ShieldCheck size={18} />} label="Consola de Guardia" href="/guard" active={pathname === "/guard"} collapsed={collapsed} />
-                            <SidebarItem icon={<FileBarChart size={18} />} label="Bitácora" href="/admin/bitacora" active={pathname === "/admin/bitacora"} collapsed={collapsed} />
-                            <SidebarItem icon={<Clock size={18} />} label="Visitas" href="/admin/visitas" active={pathname === "/admin/visitas"} collapsed={collapsed} />
-                            <SidebarItem icon={<ShieldCheck size={18} />} label="Consola / Puesto" href="/admin/consolas" active={pathname === "/admin/consolas"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<ShieldCheck size={18} />} label="Consola de Guardia" href="/guard" active={pathname === "/guard"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<FileBarChart size={18} />} label="Bitácora" href="/admin/bitacora" active={pathname === "/admin/bitacora"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<Clock size={18} />} label="Visitas" href="/admin/visitas" active={pathname === "/admin/visitas"} collapsed={collapsed} />
+                            <SidebarItem ver={puede} icon={<ShieldCheck size={18} />} label="Consola / Puesto" href="/admin/consolas" active={pathname === "/admin/consolas"} collapsed={collapsed} />
                         </>
                     )}
 
                     <div className="my-2 border-t border-border" />
-                    <SidebarItem icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />
-                            {isAdmin && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />)}
+                    <SidebarItem ver={puede} icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />
+                            {(<SidebarItem ver={puede} icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />)}
                 </nav>
 
                 <div className="p-3 border-t border-border space-y-2">
@@ -298,11 +300,13 @@ export default function AdminLayout({
                     collapsed ? "ml-[70px]" : "ml-64"
                 )}
             >
-                {roleLoaded && !isAdmin && ["/admin/settings", "/admin/users", "/admin/units", "/admin/devices", "/admin/groups", "/admin/rfid", "/admin/vehicles"].some((r) => pathname?.startsWith(r)) ? (
+                {/* El corte real lo hace el middleware (redirige a /admin/sin-permiso); esto es
+                    el respaldo para la navegacion del lado del cliente. */}
+                {roleLoaded && pathname && !puede(pathname) ? (
                     <div className="flex flex-col items-center justify-center h-[70vh] text-center gap-3 text-muted-foreground p-8">
                         <ShieldCheck size={40} className="text-amber-500" />
-                        <h2 className="text-lg font-bold text-foreground">Acceso restringido</h2>
-                        <p className="text-sm max-w-sm">Tu cuenta es de solo lectura: podés ver y operar el sistema, pero la gestión de usuarios/dispositivos y la configuración son para administradores.</p>
+                        <h2 className="text-lg font-bold text-foreground">Esta pantalla no está en tu rol</h2>
+                        <p className="text-sm max-w-sm">Un administrador puede agregar el permiso en Ajustes → Accesos al panel; después hay que volver a iniciar sesión.</p>
                     </div>
                 ) : children}
             </main>

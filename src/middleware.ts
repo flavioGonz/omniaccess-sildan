@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { jwtVerify } from 'jose'
+import { puedeAbrir, permisosDeSesion } from '@/lib/permisos'
 
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null
@@ -80,7 +81,15 @@ export async function middleware(request: NextRequest) {
             return NextResponse.redirect(new URL('/login', request.url))
         }
         try {
-            await jwtVerify(session, key, { algorithms: ['HS256'] })
+            const { payload } = await jwtVerify(session, key, { algorithms: ['HS256'] })
+            // Permisos del rol de aplicacion (lib/permisos). Administrador ve todo; una sesion
+            // vieja sin `perms` se trata como antes (ADMIN todo, OPERATOR lo de operar).
+            const perms = permisosDeSesion(payload as any)
+            if (pathname !== '/admin/sin-permiso' && !puedeAbrir(perms, pathname)) {
+                const url = new URL('/admin/sin-permiso', request.url)
+                url.searchParams.set('ruta', pathname)
+                return NextResponse.redirect(url)
+            }
             return NextResponse.next()
         } catch {
             return NextResponse.redirect(new URL('/login', request.url))
