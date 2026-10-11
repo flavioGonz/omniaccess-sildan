@@ -1,4 +1,4 @@
-const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
+const { S3Client, CreateBucketCommand, ListObjectsV2Command, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 const { Upload } = require("@aws-sdk/lib-storage");
 const { PrismaClient } = require("@prisma/client");
 
@@ -102,6 +102,18 @@ async function uploadToS3(fileBuffer, filename, mimeType, bucketType = "lpr") {
         await upload.done();
         return `/api/files/${bucketName}/${filename}`;
     } catch (error) {
+        // El bucket no existe (una instalación nueva, o un bucket que sólo usa un módulo,
+        // como `intrusion`): se crea y se reintenta una vez. El 6/10 en San Nicolás las
+        // capturas de intrusión "se subían" a un bucket inexistente y nunca aparecían.
+        if (error.name === "NoSuchBucket" || error.Code === "NoSuchBucket" || /NoSuchBucket/.test(String(error.message))) {
+            try {
+                await s3Client.send(new CreateBucketCommand({ Bucket: bucketName }));
+                console.log(`[S3] bucket '${bucketName}' no existía: creado`);
+                const retry = new Upload({ client: s3Client, params: { Bucket: bucketName, Key: filename, Body: fileBuffer, ContentType: mimeType } });
+                await retry.done();
+                return `/api/files/${bucketName}/${filename}`;
+            } catch (e2) { console.error(`[S3] no se pudo crear el bucket '${bucketName}': ${e2.message}`); throw e2; }
+        }
         if (error.message?.includes("minimum free drive threshold") || error.code === "QuotaExceededException") {
             console.warn(`[S3] 🚨 STORAGE FULL. Triggering emergency recycling...`);
             await recycleOldestObjects(s3Client, bucketName, 200);
