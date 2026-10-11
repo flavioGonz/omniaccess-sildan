@@ -49,6 +49,29 @@ async function resolveNvr(d: any): Promise<{ ip: string; name: string; user: str
     return { ip: conn.ip, name: nvrDev?.name || conn.ip, user: conn.user, pass: conn.pass };
 }
 
+/**
+ * Por dónde le llegan a OmniAccess los eventos de este equipo.
+ *
+ * Un NVR graba cámaras de otras marcas (el Dahua del perímetro tiene Hikvision por ONVIF; los
+ * Hikvision tienen Dahua por RTSP), así que la marca de la cámara sola no alcanza:
+ *  - Detrás de un NVR Dahua → suscripción al NVR (eventManager), sea cual sea la cámara.
+ *  - Cámara Hikvision (directa o detrás de un Hikvision) → servidor de alarma por ISAPI.
+ *  - Cámara de otra marca detrás de un Hikvision → el NVR no analiza canales ajenos: no hay vía.
+ */
+async function via(d: any): Promise<"dahua-nvr" | "isapi" | "sin-via"> {
+    if (String(d.deviceType) === "NVR") return String(d.brand).toUpperCase() === "DAHUA" ? "dahua-nvr" : "isapi";
+    try {
+        const map = await getChannelMap();
+        const entry = d.ip ? map[d.ip] : null;
+        if (entry?.nvrId) {
+            const n = await prisma.device.findUnique({ where: { id: entry.nvrId }, select: { brand: true } });
+            if (String(n?.brand).toUpperCase() === "DAHUA") return "dahua-nvr";
+        } else if (entry && !entry.nvrId && String(d.brand).toUpperCase() === "DAHUA") return "dahua-nvr";
+    } catch { }
+    return String(d.brand).toUpperCase() === "HIKVISION" ? "isapi" : String(d.brand).toUpperCase() === "DAHUA" ? "sin-via" : "isapi";
+}
+const SIN_VIA = { ok: false, hosts: [], hasOmni: false, error: "Cámara Dahua grabada por un NVR Hikvision: ese NVR no analiza canales de otra marca y la cámara no acepta las credenciales del NVR. Los eventos se configuran en la propia cámara (su web) o se pasa la cámara a un NVR Dahua." };
+
 /** Verifica que el NVR Dahua sea alcanzable y autentique (la suscripción eventManager corre en el proceso webhooks). */
 async function dahuaStatus(d: any) {
     const nvr = await resolveNvr(d);
@@ -76,7 +99,9 @@ export async function GET(req: NextRequest) {
     if (!id) return NextResponse.json({ ok: false, error: "deviceId requerido" }, { status: 400 });
     const d = await load(id);
     if (!d) return NextResponse.json({ ok: false, error: "device no existe" }, { status: 404 });
-    if (String(d.brand).toUpperCase() === "DAHUA") {
+    const v = await via(d);
+    if (v === "sin-via") { await markAlarm(d.ip, false); return NextResponse.json(SIN_VIA, { headers: { "Cache-Control": "no-store" } }); }
+    if (v === "dahua-nvr") {
         const r = await dahuaStatus(d);
         await markAlarm(d.ip, !!(r as any).ok);
         return NextResponse.json(r, { headers: { "Cache-Control": "no-store" } });
@@ -91,7 +116,9 @@ export async function POST(req: NextRequest) {
     if (!id) return NextResponse.json({ ok: false, error: "deviceId requerido" }, { status: 400 });
     const d = await load(id);
     if (!d) return NextResponse.json({ ok: false, error: "device no existe" }, { status: 404 });
-    if (String(d.brand).toUpperCase() === "DAHUA") {
+    const v = await via(d);
+    if (v === "sin-via") { await markAlarm(d.ip, false); return NextResponse.json(SIN_VIA, { status: 422 }); }
+    if (v === "dahua-nvr") {
         const r: any = await dahuaStatus(d);
         await markAlarm(d.ip, !!r.ok);
         // ambas acciones (ensure/test) sólo verifican la suscripción al NVR

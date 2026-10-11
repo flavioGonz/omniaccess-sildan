@@ -33,6 +33,16 @@ function setTag(xml: string, tag: string, val: string): string {
 }
 
 async function syncOne(d: any, mode: string, ntpServer: string): Promise<any> {
+    // Dahua (NVR o cámara): CGI global.cgi. Hora local de Montevideo, sin offset.
+    if (String(d.brand || "").toUpperCase() === "DAHUA") {
+        try {
+            if (mode === "ntp") return { id: d.id, ok: false, error: "NTP por CGI no implementado para Dahua: usar «hora del servidor»" };
+            const local = montevideoNow().slice(0, 19).replace("T", " ");
+            const r: string = await authenticatedRequest("GET", `/cgi-bin/global.cgi?action=setCurrentTime&time=${encodeURIComponent(local)}`, auth(d), { responseType: "text", timeout: 8000 });
+            if (!/ok/i.test(String(r || ""))) throw new Error(String(r || "sin respuesta").slice(0, 120));
+            return { id: d.id, ok: true, mode: "now", localTime: local };
+        } catch (e: any) { return { id: d.id, ok: false, error: e?.message || "CGI error" }; }
+    }
     try {
         let xml: string = await authenticatedRequest("GET", TIME, auth(d), { responseType: "text", accept: "application/xml", timeout: 6000 });
         if (mode === "ntp") {
@@ -55,15 +65,18 @@ async function syncOne(d: any, mode: string, ntpServer: string): Promise<any> {
 
 export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
-    const { deviceId, all, mode = "now", ntpServer = "192.168.1.16" } = body as any;
+    const { deviceId, all, ids, mode = "now", ntpServer = "192.168.1.16" } = body as any;
     let devices: any[] = [];
-    if (all) {
+    const SEL = { id: true, ip: true, username: true, password: true, authType: true, brand: true };
+    if (Array.isArray(ids) && ids.length) {
+        devices = await prisma.device.findMany({ where: { id: { in: ids.map(String) } }, select: SEL });
+    } else if (all) {
         devices = await prisma.device.findMany({
-            where: { brand: "HIKVISION", deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
-            select: { id: true, ip: true, username: true, password: true, authType: true },
+            where: { brand: { in: ["HIKVISION", "DAHUA"] as any }, deviceType: { in: ["LPR_CAMERA", "NVR"] as any } },
+            select: SEL,
         });
     } else if (deviceId) {
-        const d = await prisma.device.findUnique({ where: { id: deviceId }, select: { id: true, ip: true, username: true, password: true, authType: true } });
+        const d = await prisma.device.findUnique({ where: { id: deviceId }, select: SEL });
         if (d) devices = [d];
     }
     if (!devices.length) return NextResponse.json({ ok: false, error: "sin dispositivos" }, { status: 400 });

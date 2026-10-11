@@ -18,6 +18,26 @@ function tcpReachable(ip: string, port = 554, ms = 1500): Promise<boolean> {
     });
 }
 
+/**
+ * ¿El RTSP directo a la cámara responde CON ESTAS credenciales?
+ *
+ * Que el puerto 554 esté abierto no alcanza: medido en Olivos, las Dahua del perímetro
+ * tienen otra clave que la del NVR (401) y una Hikvision colgada del Dahua estaba con la ruta
+ * Dahua. Con sólo mirar el puerto se elegía «directo» y el vivo quedaba en negro. ffprobe
+ * pide el SDP (OPTIONS + DESCRIBE con auth): si contesta un video, el directo sirve.
+ */
+async function rtspResponde(url: string, ms = 5000): Promise<boolean> {
+    const { spawn } = await import("child_process");
+    return new Promise((resolve) => {
+        let ok = false;
+        const p = spawn("ffprobe", ["-v", "error", "-rtsp_transport", "tcp", "-timeout", String(ms * 1000), "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0", url]);
+        const t = setTimeout(() => { try { p.kill("SIGKILL"); } catch { } }, ms + 1500);
+        p.stdout.on("data", (d) => { if (String(d).trim()) ok = true; });
+        p.on("close", () => { clearTimeout(t); resolve(ok); });
+        p.on("error", () => { clearTimeout(t); resolve(false); });
+    });
+}
+
 const CONFIG = process.env.GO2RTC_CONFIG || "/opt/OmniAccess/go2rtc.yaml";
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
 
@@ -102,7 +122,9 @@ export async function syncLprStream(dev: Dev): Promise<void> {
                         // VIVO SD: directo a la cámara si su RTSP responde (menos latencia + descarga al NVR);
                         //          si no responde (cámara aislada detrás del NVR), cae al NVR.
                         // VIVO HD: siempre por el NVR (el main es H265 y se transcodifica igual).
-                        const direct = await tcpReachable(dev.ip, 554, 1500);
+                        // Sólo si la marca es conocida (Hikvision/Dahua) y el RTSP directo responde con estas credenciales.
+                        const marcaOk = ["HIKVISION", "DAHUA"].includes(String(dev.brand || "").toUpperCase());
+                        const direct = marcaOk && await tcpReachable(dev.ip, 554, 1500) && await rtspResponde(rtspDirect(dev, "102"));
                         const sd = direct ? rtspDirect(dev, "102") : rtspViaNvr(nvr, entry.ch, false);
                         console.log(`[go2rtc-sync] ${dev.ip} SD=${direct ? "directo-cámara" : "vía-NVR"}`);
                         await writeStreams(name, nameHd, sd, rtspViaNvr(nvr, entry.ch, true));

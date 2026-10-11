@@ -8,14 +8,15 @@ import { getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections
 import { deleteDevice } from "@/app/actions/devices";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
+import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
 
 /**
  * Las cámaras de INTRUSIÓN, en su propia vista (no mezcladas con las LPR ni con los NVR).
  * Cada fila dice dónde graba (NVR y canal), si tiene la analítica dibujada, si le avisa a
  * OmniAccess y deja calibrarla con el calibrador de intrusión.
  */
-export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload, onEditar }: {
-    devices: any[]; health: Record<string, any>; analyticsIds: Set<string>; groups: any[]; onReload: () => void; onEditar?: (d: any) => void;
+export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload, onEditar, alertasDe = {}, onVerSalud }: {
+    devices: any[]; health: Record<string, any>; analyticsIds: Set<string>; groups: any[]; onReload: () => void; onEditar?: (d: any) => void; alertasDe?: Record<string, AlertaEquipo[]>; onVerSalud?: (d: any) => void;
 }) {
     const [cams, setCams] = useState<Record<string, IntrusionCam>>({});
     const [cargando, setCargando] = useState(true);
@@ -74,14 +75,15 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                         {filas.map((d) => {
                             const c = cams[d.id]; const h = health[d.id]; const ana = analyticsIds.has(d.id);
                             return (
-                                <tr key={d.id} className="border-t border-border/50 hover:bg-foreground/[0.04] transition-colors">
+                                <tr key={d.id} className={cn("border-t border-border/50 hover:bg-foreground/[0.04] transition-colors", alertasDe[d.id] && "bg-red-500/[0.035]")}>
                                     <td className="py-2.5 pl-5">
                                         <div className="flex items-center gap-3">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img src={`/api/snapshot/${d.id}?w=160`} alt="" loading="lazy" className="w-20 h-11 rounded-md object-cover bg-black border border-border/40" onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
                                             <div className="min-w-0">
-                                                <p className="font-semibold text-foreground text-sm leading-tight truncate max-w-[240px]">{d.name}</p>
+                                                <p className={cn("font-semibold text-foreground text-sm leading-tight truncate max-w-[240px]", claseNombreConAlerta(alertasDe[d.id]))}>{d.name}</p>
                                                 <p className="text-[10px] text-muted-foreground">{d.brand}{d.deviceModel ? ` · ${d.deviceModel}` : ""}</p>
+                                                <AlertasFila alertas={alertasDe[d.id]} onVer={() => onVerSalud?.(d)} />
                                             </div>
                                         </div>
                                     </td>

@@ -1,6 +1,6 @@
 import { spawn } from "child_process";
 import type { NvrConn } from "@/lib/nvr-resolve";
-import { configClips, filtroEscala, CRF_POR_CALIDAD, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN, type ConfigClip } from "@/lib/clips";
+import { configClips, filtroEscala, CRF_POR_CALIDAD, MARCA_AGUA_ANCHO, MARCA_AGUA_MARGEN, overlayMarca, posicionMarca, type ConfigClip, type PosicionMarca } from "@/lib/clips";
 
 /**
  * Cortar video de la grabación de un NVR: la URL RTSP de playback, el códec del canal y los
@@ -144,7 +144,7 @@ export const CORTE_TOPE_MS = 45_000;
  * playback: el que reproduce el WebView de Android y el que acepta WhatsApp. Devuelve si
  * quedó un archivo; no inventa nada si el NVR no tiene ese tramo.
  */
-export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, opciones: { forceTx?: boolean; cfg?: ConfigClip; topeMs?: number; marcaAgua?: string | null } = {}): Promise<boolean> {
+export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number, durSeg: number, destino: string, opciones: { forceTx?: boolean; cfg?: ConfigClip; topeMs?: number; marcaAgua?: string | null; posicion?: PosicionMarca } = {}): Promise<boolean> {
     const { url, canCopy, DEC, SWUP, VF, ENC } = await planDeCorte(conn, ch, startMs, durSeg, opciones);
     const cfg = opciones.cfg || await configClips();
     // Altura "tal cual graba el NVR" (0) no se conoce sin sondear: se asume 1080, la de estos equipos.
@@ -152,6 +152,7 @@ export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number,
     const anchoSalida = Math.round(altoSalida * 16 / 9);
     const logoAncho = Math.round(anchoSalida * MARCA_AGUA_ANCHO / 2) * 2;
     const logoMargen = Math.round(anchoSalida * MARCA_AGUA_MARGEN);
+    const posLogo = opciones.marcaAgua ? (opciones.posicion || await posicionMarca()) : "inf-der";
     // Con logo: siempre por software (copy no puede dibujar nada encima, y VAAPI no compone un
     // PNG con transparencia). En San Nicolás ya se recodificaba (los NVR graban HEVC), así que
     // no agrega espera; donde se copiaba, cuesta un transcode de un clip corto.
@@ -163,7 +164,7 @@ export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number,
            // a un 8 % y aplastado (visto el 7/10 en el primer clip enviado).
            `[1:v]scale=${logoAncho}:-1[m];` +
            `[0:v]scale=-2:${altoSalida},format=yuv420p[v];` +
-           `[v][m]overlay=x=W-w-${logoMargen}:y=H-h-${logoMargen},format=yuv420p`,
+           `[v][m]overlay=${overlayMarca(posLogo, logoMargen)},format=yuv420p`,
            "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-threads", "4",
            "-movflags", "+faststart", "-y", destino]
         : canCopy

@@ -35,7 +35,7 @@ type Marca = "HIKVISION" | "DAHUA";
 type Estado = "espera" | "corriendo" | "ok" | "error" | "salteado";
 type Tarea = { clave: string; titulo: string; ayuda: string; icono: any; estado: Estado; detalle?: string };
 type Ubic = { nvrId: string | null; nvrNombre: string | null; ch: number; canalNombre?: string | null };
-type Canal = { channel: number; ip: string | null; name: string; model?: string | null; existente: { id: string; name: string; tipo: string } | null };
+type Canal = { channel: number; ip: string | null; name: string; model?: string | null; marca: string; protocolo?: string | null; sensorDe?: number | null; existente: { id: string; name: string; tipo: string } | null };
 
 const TT = "tt-cajon-disp";
 const tip = (texto: string) => ({ "data-tooltip-id": TT, "data-tooltip-content": texto });
@@ -230,13 +230,13 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             const porIp = new Map((devs || []).map((d: any) => [d.ip, d]));
             const lista: Canal[] = (r.channels || []).map((c: any) => {
                 const e: any = c.ip ? porIp.get(c.ip) : null;
-                return { channel: Number(c.channel), ip: c.ip || null, name: (c.name && String(c.name).trim()) || `Canal ${c.channel}`, model: c.model || null, existente: e ? { id: e.id, name: e.name, tipo: String(e.deviceType) } : null };
+                return { channel: Number(c.channel), ip: c.ip || null, name: (c.name && String(c.name).trim()) || `Canal ${c.channel}`, model: c.model || null, marca: c.brand || f.brand, protocolo: c.protocolo || null, sensorDe: c.sensorDe ?? null, existente: e ? { id: e.id, name: e.name, tipo: String(e.deviceType) } : null };
             });
             setCanales(lista);
-            setEleccion(Object.fromEntries(lista.map((c) => [c.channel, { rol: (c.existente || !c.ip ? "omitir" : ES_LPR.test(`${c.name} ${c.model || ""}`) ? "lpr" : "intrusion") as RolImport, direction: (/salida|exit/i.test(c.name) ? "EXIT" : "ENTRY") as "ENTRY" | "EXIT" }])));
+            setEleccion(Object.fromEntries(lista.map((c) => [c.channel, { rol: (c.existente || !c.ip || c.sensorDe ? "omitir" : ES_LPR.test(`${c.name} ${c.model || ""}`) ? "lpr" : "intrusion") as RolImport, direction: (/salida|exit/i.test(c.name) ? "EXIT" : "ENTRY") as "ENTRY" | "EXIT" }])));
         } catch (e: any) { setErrorCanales(e?.message || "No se pudo leer el NVR"); }
         finally { setLeyendo(false); }
-    }, [f.ip, f.username, f.password, f.authType]);
+    }, [f.ip, f.username, f.password, f.authType, f.brand]);
     useEffect(() => { if (open && clave === "canales" && !canales && !leyendo && !errorCanales) leerCanales(); }, [open, clave, canales, leyendo, errorCanales, leerCanales]);
 
     const grabacionElegida: Ubic | null = donde?.ubicacion || (manual.nvrId && Number(manual.ch) > 0 ? { nvrId: manual.nvrId, nvrNombre: nvrs.find((n) => n.id === manual.nvrId)?.name || null, ch: Number(manual.ch) } : null);
@@ -380,7 +380,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const fallas = tareas.filter((t) => t.estado === "error");
     const nvrActual = actual ? nvrs.find((n) => n.id === actual.nvr) : null;
     const resumenCanales = useMemo(() => {
-        const v = (canales || []).filter((c) => !c.existente && c.ip);
+        const v = (canales || []).filter((c) => !c.existente && c.ip && !c.sensorDe);
         return { lpr: v.filter((c) => eleccion[c.channel]?.rol === "lpr").length, intr: v.filter((c) => eleccion[c.channel]?.rol === "intrusion").length, ya: (canales || []).filter((c) => c.existente).length };
     }, [canales, eleccion]);
 
@@ -689,7 +689,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                             <div className="ml-auto flex items-center gap-1.5 text-muted-foreground">
                                                 Marcar todas:
                                                 {([["lpr", "LPR"], ["intrusion", "Intrusión"], ["omitir", "Ninguna"]] as const).map(([v, t]) => (
-                                                    <button key={v} type="button" onClick={() => setEleccion((p) => Object.fromEntries(Object.entries(p).map(([k, e]) => [k, (canales.find((c) => c.channel === Number(k))?.existente || !canales.find((c) => c.channel === Number(k))?.ip) ? e : { ...e, rol: v }])))}
+                                                    <button key={v} type="button" onClick={() => setEleccion((p) => Object.fromEntries(Object.entries(p).map(([k, e]) => [k, (canales.find((c) => c.channel === Number(k))?.existente || !canales.find((c) => c.channel === Number(k))?.ip || canales.find((c) => c.channel === Number(k))?.sensorDe) ? e : { ...e, rol: v }])))}
                                                         className="px-2 h-6 rounded-md border border-border font-semibold hover:bg-accent">{t}</button>
                                                 ))}
                                             </div>
@@ -702,11 +702,15 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                                         <span className="w-9 text-center font-mono text-[11px] text-muted-foreground">D{c.channel}</span>
                                                         <div className="min-w-0 flex-1">
                                                             <div className="text-[12.5px] font-semibold truncate">{c.name}</div>
-                                                            <div className="text-[10.5px] text-muted-foreground font-mono">{c.ip || "sin IP"}{c.model ? ` · ${c.model}` : ""}</div>
+                                                            <div className="text-[10.5px] text-muted-foreground font-mono flex items-center gap-1.5 flex-wrap">{c.ip || "sin IP"}{c.model ? ` · ${c.model}` : ""}
+                                                                <span {...tip(`Fabricante de la cámara según el NVR${c.protocolo ? ` (protocolo ${c.protocolo})` : ""}. Un NVR puede grabar cámaras de otras marcas: esto decide cómo se le habla directo; las grabaciones siempre salen del NVR.`)}
+                                                                    className={cn("font-sans px-1.5 rounded text-[9px] font-bold uppercase border", c.marca === "HIKVISION" ? "bg-red-500/10 text-red-500 border-red-500/25" : c.marca === "DAHUA" ? "bg-sky-500/10 text-sky-500 border-sky-500/25" : "bg-muted text-muted-foreground border-border")}>{c.marca === "OTRA" ? "Otra marca" : c.marca}</span>
+                                                                {c.sensorDe && <span {...tip(`Misma IP que D${c.sensorDe}: otro sensor de la misma cámara (térmico + visible). Se graba igual; no se crea aparte.`)} className="font-sans px-1.5 rounded text-[9px] font-bold uppercase bg-violet-500/10 text-violet-500 border border-violet-500/25">2.º sensor</span>}
+                                                            </div>
                                                         </div>
                                                         {c.existente ? (
                                                             <span {...tip(`Ya existe como «${c.existente.name}». Sólo se le vincula este canal como su grabación.`)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"><Link2 size={12} /> Se vincula</span>
-                                                        ) : !c.ip ? <span className="text-[11px] text-muted-foreground">No importable</span> : (
+                                                        ) : !c.ip || c.sensorDe ? <span className="text-[11px] text-muted-foreground">{c.sensorDe ? `con D${c.sensorDe}` : "No importable"}</span> : (
                                                             <div className="flex items-center gap-1.5">
                                                                 <div className="inline-flex rounded-lg bg-muted/60 p-0.5">
                                                                     {([["lpr", "LPR", Car], ["intrusion", "Intrusión", Radar], ["omitir", "No", Ban]] as const).map(([v, t, I]) => (

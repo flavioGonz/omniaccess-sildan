@@ -121,3 +121,26 @@ export const ARCHIVO_MARCA_AGUA = "marca-agua-sildan.png";
 /** Ancho del logo respecto del ancho de la imagen, y margen al borde: visible sin tapar la escena. */
 export const MARCA_AGUA_ANCHO = 0.18;
 export const MARCA_AGUA_MARGEN = 0.02;
+
+/** Dónde va el logo en el clip exportado. Global para todo el barrio (Ajustes → Video del evento). */
+export const AJUSTE_MARCA_POSICION = "MARCA_AGUA_POSICION";
+export const POSICIONES_MARCA = ["sup-izq", "sup-centro", "sup-der", "centro-izq", "centro", "centro-der", "inf-izq", "inf-centro", "inf-der"] as const;
+export type PosicionMarca = (typeof POSICIONES_MARCA)[number];
+export const POSICION_MARCA_DEFECTO: PosicionMarca = "inf-der";
+export const ROTULO_POSICION: Record<PosicionMarca, string> = {
+    "sup-izq": "Arriba a la izquierda", "sup-centro": "Arriba al centro", "sup-der": "Arriba a la derecha",
+    "centro-izq": "Al centro a la izquierda", "centro": "En el centro", "centro-der": "Al centro a la derecha",
+    "inf-izq": "Abajo a la izquierda", "inf-centro": "Abajo al centro", "inf-der": "Abajo a la derecha",
+};
+export function esPosicionMarca(v: any): v is PosicionMarca { return (POSICIONES_MARCA as readonly string[]).includes(String(v)); }
+/** x/y del filtro overlay de ffmpeg (W,H = video; w,h = logo) para una posición y un margen en px. */
+export function overlayMarca(pos: PosicionMarca, m: number): string {
+    const [v, h] = pos === "centro" ? ["centro", "centro"] : pos.split("-");
+    const x = h === "izq" ? `${m}` : h === "der" ? `W-w-${m}` : `(W-w)/2`;
+    const y = v === "sup" ? `${m}` : v === "inf" ? `H-h-${m}` : `(H-h)/2`;
+    return `x=${x}:y=${y}`;
+}
+export async function posicionMarca(): Promise<PosicionMarca> {
+    const v = (await prisma.setting.findUnique({ where: { key: AJUSTE_MARCA_POSICION } }).catch(() => null))?.value;
+    return esPosicionMarca(v) ? v : POSICION_MARCA_DEFECTO;
+}

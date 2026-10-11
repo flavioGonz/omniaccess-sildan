@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
+import { Tooltip as ReactTooltip } from "react-tooltip";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
     getDevices,
@@ -104,6 +105,8 @@ import {
 import { cn } from "@/lib/utils";
 import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
 import { CajonDispositivo } from "@/components/devices/CajonDispositivo";
+import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
+import { ConfirmarHora } from "@/components/devices/ConfirmarHora";
 import { IntrusionCalibrator as CalibradorIntrusion } from "@/components/IntrusionCalibrator";
 import { TablaIntrusion } from "@/components/devices/TablaIntrusion";
 import { ImportarCanalesNvr } from "@/components/devices/ImportarCanalesNvr";
@@ -231,6 +234,7 @@ export default function DevicesPage() {
     const [userCounts, setUserCounts] = useState<Record<string, number | null>>({});
     const [loadingCounts, setLoadingCounts] = useState(false);
     const [alerts, setAlerts] = useState<any[]>([]);
+    const alertasDe = useMemo(() => { const m: Record<string, AlertaEquipo[]> = {}; for (const a of alerts) (m[a.deviceId] ||= []).push(a); return m; }, [alerts]);
     const [healthHistory, setHealthHistory] = useState<any>(null);
     const [showReadRate, setShowReadRate] = useState(false);
     // Grabaciones de las camaras LPR: NVR + canal (detectado) y retencion calculada.
@@ -279,6 +283,8 @@ export default function DevicesPage() {
     const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "otro">(null);
     const [editando, setEditando] = useState<any>(null);
     const [calibIntr, setCalibIntr] = useState<any>(null);
+    // Sincronizar hora: siempre se pregunta antes (lista de equipos + desfase actual).
+    const [pedirHora, setPedirHora] = useState<any[] | null>(null);
     const [importandoDe, setImportandoDe] = useState<any>(null);
 
     const filteredDevices = devices.filter(d => {
@@ -529,7 +535,7 @@ export default function DevicesPage() {
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button
-                                    onClick={() => syncTime({ all: true })}
+                                    onClick={() => setPedirHora(devices.filter((d) => ["LPR_CAMERA", "NVR"].includes(d.deviceType) && ["HIKVISION", "DAHUA"].includes(d.brand)))}
                                     disabled={syncing === "__all__"}
                                     variant="outline"
                                     className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent"
@@ -538,7 +544,7 @@ export default function DevicesPage() {
                                     <span className="hidden sm:inline">Sincronizar hora</span>
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent><p className="text-xs max-w-[200px]">Pone la hora del servidor en todas las cámaras y el NVR (funciona sin internet)</p></TooltipContent>
+                            <TooltipContent><p className="text-xs max-w-[220px]">Muestra la hora y el desfase de cada cámara LPR y NVR (Hikvision y Dahua) y pregunta antes de poner la hora del servidor. Funciona sin internet.</p></TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
                     {typeFilter === "LPR_CAMERA" && <TooltipProvider>
@@ -558,27 +564,6 @@ export default function DevicesPage() {
                     </TooltipTrigger><TooltipContent><p className="text-xs max-w-[240px]">Abre el alta guiada: primero elegís qué equipo es (cámara LPR, cámara de intrusión o NVR) y después sólo se piden los datos de ese tipo.</p></TooltipContent></Tooltip></TooltipProvider>
                 </div>
             </header>
-
-            {alerts.length > 0 && (
-                <div className="border border-red-500/30 bg-red-500/[0.07] rounded-lg p-3 space-y-2 animate-in fade-in duration-300">
-                    <div className="flex items-center gap-2 text-red-400 text-[11px] font-bold uppercase tracking-wide">
-                        <AlertTriangle size={14} className="animate-pulse" /> {alerts.length} alerta{alerts.length !== 1 ? "s" : ""} activa{alerts.length !== 1 ? "s" : ""}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                        {alerts.slice(0, 10).map((a) => {
-                            const dev = devices.find((d) => d.id === a.deviceId);
-                            return (
-                                <button key={a.id} onClick={() => dev && setHealthHistory(dev)}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-card/70 border border-red-500/25 text-[11px] hover:bg-red-500/10 transition">
-                                    <span className={cn("w-1.5 h-1.5 rounded-full", a.severity === "critical" ? "bg-red-500 animate-pulse" : "bg-amber-500")} />
-                                    <span className="font-semibold text-foreground">{dev?.name || "Equipo"}</span>
-                                    <span className="text-muted-foreground">· {a.message}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-            )}
 
             {typeFilter !== "NVR" && typeFilter !== "CAMERA" && (
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
@@ -619,7 +604,7 @@ export default function DevicesPage() {
                             const h = health[dev.id];
 
                             return (
-                                <TableRow key={dev.id} className="border-border/50 hover:bg-foreground/[0.04] transition-colors group">
+                                <TableRow key={dev.id} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                     <TableCell className="py-3 pl-5">
                                         <div className="flex items-center gap-4">
                                             <div className="relative">
@@ -652,13 +637,14 @@ export default function DevicesPage() {
 
                                             <div className="space-y-1.5">
                                                 <div className="flex items-center gap-1.5">
-                                                    <p className="font-semibold text-foreground text-sm leading-none">{dev.name}</p>
+                                                    <p className={cn("font-semibold text-foreground text-sm leading-none", claseNombreConAlerta(alertasDe[dev.id]))}>{dev.name}</p>
                                                     {analyticsIds.has(dev.id) && (
                                                         <span title="Con analíticas / alertas activas" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/30 text-[9px] font-bold uppercase tracking-wide">
                                                             <Radar size={10} /> Analítica
                                                         </span>
                                                     )}
                                                 </div>
+                                                <AlertasFila alertas={alertasDe[dev.id]} onVer={() => setHealthHistory(dev)} />
 
                                                     <div className="flex items-center gap-2 pt-0.5">
                                                         <div className={cn(
@@ -823,7 +809,7 @@ export default function DevicesPage() {
                                                 <Tooltip>
                                                     <TooltipTrigger asChild>
                                                         <button
-                                                            onClick={() => syncTime({ deviceId: dev.id })}
+                                                            onClick={() => setPedirHora([dev])}
                                                             disabled={syncing === dev.id}
                                                             className="h-6 w-6 rounded flex items-center justify-center border border-border/50 bg-card/50 text-muted-foreground hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
                                                         >
@@ -1063,7 +1049,7 @@ export default function DevicesPage() {
 
                                                     {dev.deviceType === 'LPR_CAMERA' && (
                                                         <>
-                                                            <DropdownMenuItem onClick={() => syncTime({ deviceId: dev.id })} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-emerald-400 focus:bg-foreground/10 focus:text-emerald-400">
+                                                            <DropdownMenuItem onClick={() => setPedirHora([dev])} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-emerald-400 focus:bg-foreground/10 focus:text-emerald-400">
                                                                 <TimerReset size={14} /> Sincronizar hora
                                                             </DropdownMenuItem>
                                                             <DropdownMenuItem onClick={() => probeStream(dev.id)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-violet-400 focus:bg-foreground/10 focus:text-violet-400">
@@ -1125,7 +1111,7 @@ export default function DevicesPage() {
 
             {/* ─────────────── Cámaras de intrusión ─────────────── */}
             {typeFilter === "CAMERA" && (
-                <TablaIntrusion devices={filteredDevices} health={health} analyticsIds={analyticsIds} groups={groups} onReload={loadData} onEditar={setEditando} />
+                <TablaIntrusion devices={filteredDevices} health={health} analyticsIds={analyticsIds} groups={groups} onReload={loadData} onEditar={setEditando} alertasDe={alertasDe} onVerSalud={setHealthHistory} />
             )}
 
             {/* ─────────────── Tabla de salud del NVR ─────────────── */}
@@ -1162,15 +1148,16 @@ export default function DevicesPage() {
                                     const disksOk = disks.length > 0 && disks.every((d) => d.status === 'ok');
                                     const healthy = h?.reachable && (disks.length === 0 || disksOk) && (h?.memPct == null || h.memPct < 95);
                                     return (
-                                        <TableRow key={dev.id} className="border-border/50 hover:bg-foreground/[0.04] transition-colors">
+                                        <TableRow key={dev.id} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                             <TableCell className="py-3 pl-5">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-10 h-10 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
                                                         <Server size={18} className="text-blue-400" />
                                                     </div>
                                                     <div>
-                                                        <p className="font-semibold text-foreground text-sm leading-none">{dev.name}</p>
+                                                        <p className={cn("font-semibold text-foreground text-sm leading-none", claseNombreConAlerta(alertasDe[dev.id]))}>{dev.name}</p>
                                                         <p className="text-[10px] text-muted-foreground mt-1">{dev.deviceModel || brand.label}</p>
+                                                        <AlertasFila alertas={alertasDe[dev.id]} onVer={() => setHealthHistory(dev)} />
                                                     </div>
                                                 </div>
                                             </TableCell>
@@ -1265,7 +1252,7 @@ export default function DevicesPage() {
                                                     </DropdownMenuTrigger>
                                                     <DropdownMenuContent align="end" className="w-48 bg-card border-border text-foreground">
                                                         <DropdownMenuLabel className="text-xs font-bold uppercase tracking-widest text-muted-foreground">NVR</DropdownMenuLabel>
-                                                        <DropdownMenuItem onClick={() => syncTime({ deviceId: dev.id })} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-emerald-400 focus:bg-foreground/10 focus:text-emerald-400">
+                                                        <DropdownMenuItem onClick={() => setPedirHora([dev])} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-emerald-400 focus:bg-foreground/10 focus:text-emerald-400">
                                                             <TimerReset size={14} /> Sincronizar hora
                                                         </DropdownMenuItem>
                                                         <DropdownMenuItem onClick={() => setHealthHistory(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-indigo-400 focus:bg-foreground/10 focus:text-indigo-400">
@@ -1305,6 +1292,8 @@ export default function DevicesPage() {
             <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
                 alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
             <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />
+            <ConfirmarHora equipos={pedirHora || []} health={health} open={!!pedirHora} onOpenChange={(v) => !v && setPedirHora(null)} onListo={() => setTimeout(refreshHealth, 1500)} />
+            <ReactTooltip id="tt-alertas" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[60]" />
             {calibIntr && <CalibradorIntrusion device={calibIntr} onClose={() => { setCalibIntr(null); loadData(); }} />}
             <ImportarCanalesNvr nvr={importandoDe} groups={groups} open={!!importandoDe} onOpenChange={(v) => !v && setImportandoDe(null)} onListo={() => { loadData(); cargarGrab(); }} />
 

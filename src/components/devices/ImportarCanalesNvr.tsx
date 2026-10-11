@@ -28,11 +28,11 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
         canalesParaImportar(nvr.id).then((r) => {
             if (!r.ok) { setError(r.error || "No se pudieron leer los canales"); return; }
             setCanales(r.canales);
-            setEleccion(Object.fromEntries(r.canales.map((c) => [c.channel, { rol: c.existente ? "omitir" : c.ip ? c.sugerido.rol : "omitir", direction: c.sugerido.direction }])));
+            setEleccion(Object.fromEntries(r.canales.map((c) => [c.channel, { rol: c.existente || c.sensorDe ? "omitir" : c.ip ? c.sugerido.rol : "omitir", direction: c.sugerido.direction }])));
         }).catch((e) => setError(e?.message || "Error")).finally(() => setCargando(false));
     }, [open, nvr]);
 
-    const nuevos = canales.filter((c) => !c.existente && c.ip);
+    const nuevos = canales.filter((c) => !c.existente && c.ip && !c.sensorDe);
     const resumen = useMemo(() => {
         const v = Object.entries(eleccion).filter(([ch]) => nuevos.some((c) => c.channel === Number(ch)));
         return { lpr: v.filter(([, e]) => e.rol === "lpr").length, intr: v.filter(([, e]) => e.rol === "intrusion").length };
@@ -85,12 +85,19 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                                                 <td>
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
                                                     <div className="flex items-center gap-2"><span className="font-semibold truncate max-w-[220px]">{c.name}</span>{c.model && <span className="text-[10px] text-muted-foreground">{c.model}</span>}</div>
+                                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                                        <span className={cn("px-1.5 rounded text-[9px] font-bold uppercase border", c.marca === "HIKVISION" ? "bg-red-500/10 text-red-500 border-red-500/25" : c.marca === "DAHUA" ? "bg-sky-500/10 text-sky-500 border-sky-500/25" : "bg-muted text-muted-foreground border-border")}
+                                                            data-tooltip-id="tt-imp" data-tooltip-content={`Fabricante de la cámara según el NVR${c.protocolo ? ` (protocolo ${c.protocolo})` : ""}. Decide cómo se le habla directo; las grabaciones se piden siempre al NVR.`}>{c.marca === "OTRA" ? "Otra marca" : c.marca}</span>
+                                                        {c.protocolo && <span className="text-[10px] text-muted-foreground">{c.protocolo}</span>}
+                                                        {c.sensorDe && <span className="px-1.5 rounded text-[9px] font-bold uppercase bg-violet-500/10 text-violet-500 border border-violet-500/25" data-tooltip-id="tt-imp" data-tooltip-content={`Misma IP que el canal ${c.sensorDe}: es otro sensor de la misma cámara (p.ej. térmico + visible). No se crea aparte.`}>2.º sensor de D{c.sensorDe}</span>}
+                                                        {c.existente && c.existente.marca !== c.marca && c.marca !== "OTRA" && <span className="text-[10px] text-amber-500" data-tooltip-id="tt-imp" data-tooltip-content={`Está guardada como ${c.existente.marca}; al importar se corrige a ${c.marca}.`}>marca a corregir</span>}
+                                                    </div>
                                                 </td>
                                                 <td className="font-mono text-xs">{c.ip || <span className="text-muted-foreground">sin IP</span>}</td>
                                                 <td>
                                                     {c.existente ? (
                                                         <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-600 font-semibold" data-tooltip-id="tt-imp" data-tooltip-content={`Ya existe como «${c.existente.name}» (${c.existente.tipo}). Sólo se le vincula este canal como su grabación.`}><Link2 size={13} /> Ya existe · se vincula</span>
-                                                    ) : !c.ip ? <span className="text-[11px] text-muted-foreground">No se puede importar</span> : (
+                                                    ) : !c.ip || c.sensorDe ? <span className="text-[11px] text-muted-foreground">{c.sensorDe ? "Se graba con el canal " + c.sensorDe : "No se puede importar"}</span> : (
                                                         <div className="inline-flex rounded-lg bg-muted/50 p-0.5" data-tooltip-id="tt-imp" data-tooltip-content={`Sugerido: ${c.sugerido.rol === "lpr" ? "LPR" : "intrusión"} (${c.sugerido.por}).`}>
                                                             {([["lpr", "LPR", Car], ["intrusion", "Intrusión", Radar], ["omitir", "No", Ban]] as const).map(([v, t, I]) => (
                                                                 <button key={v} type="button" onClick={() => set(c.channel, { rol: v })}
