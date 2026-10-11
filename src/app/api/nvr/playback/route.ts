@@ -113,9 +113,9 @@ export async function GET(req: NextRequest) {
         const path = await import("path");
         const tmp = path.join(os.tmpdir(), `clip_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
         const args = canCopy
-            ? ["-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+            ? ["-allowed_media_types", "video", "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
                "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", tmp]
-            : [...DEC, "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+            : [...DEC, "-allowed_media_types", "video", "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
                "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "23", "-movflags", "+faststart", "-y", tmp];
         const ok = await new Promise<boolean>((resolve) => {
             const ff2 = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "ignore"] });
@@ -150,7 +150,7 @@ export async function GET(req: NextRequest) {
         ? [
             "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
             "-probesize", "500000", "-analyzeduration", "500000",
-            "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+            "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
             "-an", "-c:v", "copy",
             "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
             "-f", "mp4", "pipe:1",
@@ -161,12 +161,17 @@ export async function GET(req: NextRequest) {
             "-allowed_media_types", "video", "-fflags", "genpts",
             "-probesize", "500000", "-analyzeduration", "500000",
             ...DEC,
-            "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
+            "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
             "-an", ...SWUP, "-vf", VF, "-c:v", "h264_vaapi", "-qp", "24",
             "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
             "-f", "mp4", "pipe:1",
         ];
     const ff = spawn("ffmpeg", streamArgs, { stdio: ["ignore", "pipe", "ignore"] });
+    // Tope duro: un ffmpeg que no recibe nada (rango sin grabacion, codec que no decodifica) quedaba
+    // colgado para siempre ocupando una sesion de playback del NVR; con varias colgadas el NVR deja
+    // de entregar a todos (clips de WhatsApp incluidos).
+    const tope = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } }, (dur + 45) * 1000);
+    ff.on("close", () => clearTimeout(tope));
 
     const stream = new ReadableStream({
         start(controller) {

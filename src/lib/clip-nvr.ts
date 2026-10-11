@@ -156,7 +156,7 @@ export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number,
     // PNG con transparencia). En San Nicolás ya se recodificaba (los NVR graban HEVC), así que
     // no agrega espera; donde se copiaba, cuesta un transcode de un clip corto.
     const args = opciones.marcaAgua
-        ? ["-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-i", opciones.marcaAgua, "-t", String(durSeg),
+        ? ["-allowed_media_types", "video", "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-i", opciones.marcaAgua, "-t", String(durSeg),
            "-filter_complex",
            // El logo se dimensiona en píxeles a partir de la altura de salida (16:9 de las cámaras):
            // con scale2ref las variables main_w/iw quedaban al revés en este ffmpeg y el logo salía
@@ -167,9 +167,9 @@ export async function cortarDesdeNvr(conn: NvrConn, ch: string, startMs: number,
            "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-threads", "4",
            "-movflags", "+faststart", "-y", destino]
         : canCopy
-        ? ["-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(durSeg),
+        ? ["-allowed_media_types", "video", "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(durSeg),
            "-an", "-c:v", "copy", "-movflags", "+faststart", "-y", destino]
-        : [...DEC, "-allowed_media_types", "video", "-rtsp_transport", "tcp", "-i", url, "-t", String(durSeg),
+        : [...DEC, "-allowed_media_types", "video", "-timeout", "10000000", "-rtsp_transport", "tcp", "-i", url, "-t", String(durSeg),
            "-an", ...SWUP, "-vf", VF, ...ENC, "-movflags", "+faststart", "-y", destino];
     return new Promise<boolean>((resolve) => {
         const ff = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "ignore"] });
