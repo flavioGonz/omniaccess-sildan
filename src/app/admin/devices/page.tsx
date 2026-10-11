@@ -103,6 +103,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
+import { CajonCamaraLpr } from "@/components/devices/CajonCamaraLpr";
 import { grabacionesLpr, detectarGrabaciones, calcularRetencion, type FilaGrabacion } from "@/app/actions/grabaciones";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
@@ -549,9 +550,16 @@ export default function DevicesPage() {
                             <TooltipContent><p className="text-xs max-w-[240px]">Busca cada cámara LPR en los canales de todos los NVR (por su IP) y asigna sola dónde graba. No borra asignaciones existentes.</p></TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
+                    {modules.MODULE_LPR && (
+                        <CajonCamaraLpr groups={groups} onSuccess={() => { loadData(); cargarGrab(); }}>
+                            <Button className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs shrink-0 gap-1.5">
+                                <Plus size={15} /> Nueva cámara LPR
+                            </Button>
+                        </CajonCamaraLpr>
+                    )}
                     <DeviceFormDialog groups={groups} onSuccess={loadData}>
-                        <Button className="bg-indigo-600 hover:bg-indigo-500 text-foreground font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs shrink-0 gap-1.5">
-                            <Plus size={15} /> Nuevo
+                        <Button variant="outline" className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
+                            <Plus size={15} /> {modules.MODULE_LPR ? "Otro equipo" : "Nuevo"}
                         </Button>
                     </DeviceFormDialog>
                 </div>

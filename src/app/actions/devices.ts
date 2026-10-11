@@ -84,12 +84,14 @@ export async function createDevice(formData: FormData) {
 
     // Puesta a punto automatica (config rapida): hora, HTTP host->server, ANPR, codec H264, stream.
     // Las matriculas NO aca (puede tardar): se cargan con el boton "Poner a punto".
-    if (newDevice.brand === "HIKVISION" && (newDevice.deviceType as any) === "LPR_CAMERA") {
+    if (newDevice.brand === "HIKVISION" && (newDevice.deviceType as any) === "LPR_CAMERA" && formData.get("puestaManual") !== "1") {
         try { const { provisionLprDevice } = await import("@/app/actions/provision"); await provisionLprDevice(newDevice.id, false); }
         catch (err) { console.error("auto-provision failed on create:", err); }
     }
 
     revalidatePath("/admin/devices");
+    // El alta guiada (CajonCamaraLpr) necesita el id para seguir con la puesta a punto.
+    return { id: newDevice.id };
 }
 
 export async function updateDevice(id: string, formData: FormData) {
