@@ -10,6 +10,7 @@ import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
 import { PtzControls, ptzAngleToDir } from "@/components/PtzControls";
 import { PlaybackTimeline } from "@/components/PlaybackTimeline";
 import { Scrub } from "@/components/Scrub";
+import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { motion, AnimatePresence } from "framer-motion";
 import { Tooltip as RTooltip } from "react-tooltip";
 import "react-tooltip/dist/react-tooltip.css";
@@ -114,6 +115,10 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     const [tab, setTab] = useState<"live" | "rec" | "evi">(initialTab);
     const isPtz = /ptz/i.test(cam.name || "");
     const [showPtz, setShowPtz] = useState(true);
+    // Diálogo "Descargar / Enviar por WhatsApp" (traído de san-nicolas 67face2) y la ventana de Ajustes → Video del evento.
+    const [descarga, setDescarga] = useState<number | null>(null);
+    const [ventanaClip, setVentanaClip] = useState<VentanaClip>({ antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } });
+    useEffect(() => { fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d && typeof d.antes === "number") setVentanaClip(d); }).catch(() => { }); }, []);
     const [ptzSpeed, setPtzSpeed] = useState(5);
     const ptzSend = (action: string, opts: any = {}) => fetch(`/api/devices/ptz?deviceId=${cam.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, speed: ptzSpeed, ...opts }) }).catch(() => { });
     const dragRefP = useRef<{ active: boolean; dir: string; ox: number; oy: number }>({ active: false, dir: "", ox: 0, oy: 0 });
@@ -557,13 +562,24 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                                 className={cn("px-2.5 h-9 grid place-items-center rounded-full text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm transition-colors", hd ? "bg-sky-500/90 text-white" : "bg-black/40 text-white/80 hover:bg-black/70")}>{hd ? "HD" : "SD"}</button>
                         )}
                         {tab === "rec" && nvrId && cam.ch != null && (
-                            <a href={`/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(recLoadT)}&pre=10&dur=60&download=1&nvr=${nvrId}`} download
-                                data-tooltip-id="mi-tip" data-tooltip-content="Descargar clip (60s alrededor de este instante)"
-                                className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-sky-500/80 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><Download size={17} /></a>
+                            <button onClick={() => {
+                                    // El instante que se está viendo: el clip arranca 4 s antes de recLoadT (pre=4 del playbackUrl).
+                                    const v = recVideo.current;
+                                    setDescarga(v && Number.isFinite(v.currentTime) && v.currentTime > 0 ? recLoadT - 4000 + v.currentTime * 1000 : recLoadT);
+                                }}
+                                data-tooltip-id="mi-tip" data-tooltip-content={`Descargar o enviar por WhatsApp · ${ventanaClip.antes} s antes y ${ventanaClip.despues} s después de este instante`}
+                                className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-sky-500/80 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><Download size={17} /></button>
                         )}
                         <button onClick={onClose} className="w-9 h-9 grid place-items-center rounded-full bg-black/40 hover:bg-black/70 text-white/80 hover:text-white transition-colors backdrop-blur-sm"><X size={18} /></button>
                     </div>
                 </div>
+                {descarga != null && nvrId && cam.ch != null && (
+                    <div className="fixed inset-0 z-[700]">
+                        <DescargaClip instante={descarga} ventana={ventanaClip}
+                            href={(antes, despues, instante) => `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1&nvr=${nvrId}`}
+                            onClose={() => setDescarga(null)} deviceId={cam.id} camara={cam.name} />
+                    </div>
+                )}
 
                 {/* abajo-izq (sólo vivo) */}
                 {tab === "live" && (

@@ -14,6 +14,7 @@ import { getCarLogo } from "@/lib/car-logos";
 import { getRelatedSessionEvents } from "@/app/actions/history";
 import { getImagePath } from "@/lib/image-path";
 import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
+import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { AcuSearchPanel, AcuMatch } from "@/components/dashboard/AcuSearchPanel";
 import { getWatchlist, addWatch, deleteWatch } from "@/app/actions/watchlist";
@@ -107,6 +108,10 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     const [nvrChannel, setNvrChannel] = useState<number | null>(null);
     const [nvrId, setNvrId] = useState<string | null>(null);
     const [showVideo, setShowVideo] = useState(false);
+    // "Clip": diálogo Descargar / Enviar por WhatsApp con la ventana de Ajustes → Video del evento (de san-nicolas).
+    const [clipDlg, setClipDlg] = useState(false);
+    const [ventanaClip, setVentanaClip] = useState<VentanaClip>({ antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } });
+    useEffect(() => { if (!clipDlg) return; fetch("/api/playback/ventana", { cache: "no-store" }).then((r) => r.json()).then((d) => { if (d && typeof d.antes === "number") setVentanaClip(d); }).catch(() => { }); }, [clipDlg]);
     const [stats, setStats] = useState<PlateStats | null>(null);
     const [watch, setWatch] = useState<{ id: string; category: string } | null>(null);
     const [watchBusy, setWatchBusy] = useState(false);
@@ -497,7 +502,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                         <Action icon={<PlayCircle size={18} />} label="Grabación" tone="blue" tip={nvrChannel ? "Ver grabación del NVR en este instante" : "Cámara sin canal NVR mapeado"} disabled={!nvrChannel} onClick={() => setShowVideo(true)} />
                                         <Action icon={<Search size={18} />} label="Similares" tone="fuchsia" tip="Encuadrar el objetivo y buscarlo en todas las cámaras" disabled={!displayImage} onClick={() => { setCropMode(true); setCrop(null); }} active={cropMode} />
                                         <div className="w-px bg-border/70 my-3 mx-0.5 shrink-0" />
-                                        <Action icon={<Download size={18} />} label="Clip" tone="neutral" tip={nvrChannel ? "Descargar clip MP4 (30 s)" : "Sin canal NVR"} href={clipHref} download disabled={!clipHref} />
+                                        <Action icon={<Download size={18} />} label="Clip" tone="neutral" tip={nvrChannel ? "Descargar o enviar el clip por WhatsApp" : "Sin canal NVR"} onClick={() => setClipDlg(true)} disabled={!clipHref} />
                                         <Action icon={<Archive size={18} />} label="Exportar" tone="neutral" tip="ZIP con foto + clip + datos del evento" onClick={exportZip} busy={exporting} />
                                         {((!isVerified || !isGrant) || hasPlate) && <div className="w-px bg-border/70 my-3 mx-0.5 shrink-0" />}
                                         {(!isVerified || !isGrant) && <Action icon={<UserPlus size={18} />} label="Registrar" tone="emerald" tip={hasPlate ? `Dar de alta un usuario con ${plateText}` : "Registrar"} onClick={doRegister} />}
@@ -614,6 +619,14 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
             </Dialog>
             <NvrTimeMachine open={showVideo} onClose={() => setShowVideo(false)} deviceId={(event as any).device?.id} channel={nvrChannel} eventTimeMs={eventMs} deviceName={(event as any).device?.name} evidenceUrl={displayImage || undefined} plate={event.plateDetected} />
             {tm && <NvrTimeMachine open onClose={() => setTm(null)} deviceId={tm.deviceId} channel={tm.channel} eventTimeMs={tm.eventTimeMs} deviceName={tm.deviceName} />}
+            {clipDlg && nvrChannel && (
+                <div className="fixed inset-0 z-[3300]">
+                    <DescargaClip instante={eventMs} ventana={ventanaClip}
+                        href={(antes, despues, instante) => `/api/nvr/playback?ch=${nvrChannel}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1${nvrId ? `&nvr=${nvrId}` : ""}`}
+                        onClose={() => setClipDlg(false)} deviceId={(event as any).device?.id || null} camara={(event as any).device?.name || null}
+                        matricula={event.plateDetected && !["unknown", "NO_LEIDA"].includes(String(event.plateDetected)) ? event.plateDetected : null} />
+                </div>
+            )}
         </>
     );
 }

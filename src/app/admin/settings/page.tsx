@@ -70,6 +70,8 @@ import { sileo as toast } from "sileo";
 import { getEnabledModules, toggleModule, setExclusiveMode } from "@/app/actions/modules";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import { Switch } from "@/components/ui/switch";
+import PlaybackSection from "./PlaybackSection";
+import { Film } from "lucide-react";
 import {
     Dialog,
     DialogContent,
@@ -183,6 +185,7 @@ const NAV_GROUPS = [
         { sec: "audit", btab: "", label: "Auditoría Hardware", icon: ShieldCheck },
         { sec: "whatsapp", btab: "", label: "Chatbot (OpenWA)", icon: MessageSquare },
         { sec: "prerec", btab: "", label: "Pre-grabación", icon: Video },
+        { sec: "playback", btab: "", label: "Video del evento", icon: Film },
     ]},
 ];
 
@@ -477,6 +480,7 @@ export default function SettingsPage() {
                         </div>
                     )}
 
+                    {activeSection === "playback" && <PlaybackSection />}
                     {activeSection === "prerec" && (
                         <div className="space-y-6 animate-in zoom-in-95 duration-500">
                             <div className="flex items-center justify-between mb-2">
