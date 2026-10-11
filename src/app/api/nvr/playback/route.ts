@@ -156,7 +156,9 @@ export async function GET(req: NextRequest) {
             "-f", "mp4", "pipe:1",
         ]
         : [
-            "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
+            // Sin nobuffer/low_delay al transcodificar: con el decodificador HEVC por software
+            // el clip salía gris (san-nicolas 458bf86). En la rama copy no molestan.
+            "-allowed_media_types", "video", "-fflags", "genpts",
             "-probesize", "500000", "-analyzeduration", "500000",
             ...DEC,
             "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),

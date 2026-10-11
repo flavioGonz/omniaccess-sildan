@@ -99,12 +99,12 @@ function CamTile({ cam, alarms, last, geom, hasAnalytics, alarmActive, attending
         const iob = new IntersectionObserver((ents) => { visRef.current = ents[0]?.isIntersecting ?? false; }, { rootMargin: "200px" });
         iob.observe(el);
         // refrescar snapshot sólo cuando el tile está a la vista (alivia 79 canales)
-        const iv = setInterval(() => { if (visRef.current) setRk((x) => x + 1); }, 4000);
+        const iv = setInterval(() => { if (visRef.current && document.visibilityState === "visible") setRk((x) => x + 1); }, 4000);
         return () => { iob.disconnect(); clearInterval(iv); };
     }, []);
     const [, tick] = useState(0);
     useEffect(() => { if (!last) return; const iv = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(iv); }, [last]);
-    const src = `/api/snapshot/${cam.id}?t=${rk}`;
+    const src = `/api/snapshot/${cam.id}?w=640&t=${rk}`;
     const m = last ? (META[last.type] || META.OTHER) : null;
     const tc = m ? m.cls.split(" ")[0] : "text-white/60";
     const isPtzCam = /ptz/i.test(cam.name || "");
@@ -371,7 +371,7 @@ function AlarmDialog({ cam, onClose, onStatus }: { cam: IntrusionCam; onClose: (
 function DetThumb({ d, fill }: { d: DetItem | DetHistItem; fill?: boolean }) {
     const [ok, setOk] = useState(true);
     const [loaded, setLoaded] = useState(false);
-    const src = (d as any).snapshotPath ? (d as any).snapshotPath : (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
+    const src = (d as any).snapshotPath ? (d as any).snapshotPath : (d.deviceId ? `/api/snapshot/${d.deviceId}?w=320&t=${d.id}` : null);
     useEffect(() => { setOk(true); setLoaded(false); }, [src]);
     const img = (
         <>
@@ -403,7 +403,7 @@ function AlarmAckModal({ cam, alarms, onResolve, onClose }: { cam: IntrusionCam;
     useEffect(() => { const iv = setInterval(() => setLeft((l) => l - 1), 1000); return () => clearInterval(iv); }, []);
     useEffect(() => { if (left <= 0) onResolve("real"); }, [left]); // eslint-disable-line react-hooks/exhaustive-deps
     const first = alarms[0]; const m = first ? (META[first.type] || META.OTHER) : META.OTHER;
-    const snap = `/api/snapshot/${cam.id}?t=${Date.now()}`;
+    const snap = `/api/snapshot/${cam.id}?w=960&t=${Date.now()}`;
     return (
         <div className="fixed inset-0 z-[2300] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8" onClick={onClose}>
             {/* ventana grande, sin bordes, controles overlay sobre la captura */}
@@ -456,7 +456,7 @@ function DetailDialog({ det, cam, geom, onClose, onResolveAlarm, hasAlarm }: { d
     const m = META[cur.type] || META.OTHER;
     const [rk] = useState(Date.now());
     const nvr = cur.nvrName || cam?.nvrName; const ch = cur.ch ?? cam?.ch;
-    const snap = cur.snapshotPath ? cur.snapshotPath : (cur.deviceId ? `/api/snapshot/${cur.deviceId}?t=${rk}_${cur.id}` : null);
+    const snap = cur.snapshotPath ? cur.snapshotPath : (cur.deviceId ? `/api/snapshot/${cur.deviceId}?w=960&t=${rk}_${cur.id}` : null);
     const fecha = new Date(cur.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const hasGeom = !!(geom && ((geom.line && geom.line.length === 2) || (geom.field && geom.field.length >= 3)));
     const hasPrev = idx >= 0 && idx < sibs.length - 1; // más viejo
@@ -538,7 +538,7 @@ function EvidencePlayModal({ d, onClose }: { d: DetHistItem; onClose: () => void
     useEffect(() => { let on = true; if (!d.deviceId) { setNvr(null); return; } fetch(`/api/nvr/channel?deviceId=${d.deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((j) => { if (on) setNvr(j && j.nvr ? String(j.nvr) : null); }).catch(() => { if (on) setNvr(null); }); return () => { on = false; }; }, [d.deviceId]);
     const ms = Math.floor(new Date(d.timestamp).getTime());
     const url = nvr && d.ch != null ? `/api/nvr/playback?ch=${d.ch}&t=${ms}&pre=6&dur=40&nvr=${nvr}` : null;
-    const snap = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : undefined);
+    const snap = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?w=640&t=${d.id}` : undefined);
     const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
     const m = META[d.type] || META.OTHER;
     return (

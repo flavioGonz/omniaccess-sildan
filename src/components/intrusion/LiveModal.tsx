@@ -175,10 +175,10 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
         };
         cancelAnimationFrame(paintRAF.current); paintRAF.current = requestAnimationFrame(step);
     };
-    const [snap, setSnap] = useState(`/api/snapshot/${cam.id}?t=${Date.now()}`);
+    const [snap, setSnap] = useState(`/api/snapshot/${cam.id}?w=960&t=${Date.now()}`);
     const [qFlash, setQFlash] = useState(0);
     // grabación
-    const [nvrId, setNvrId] = useState<string | null>(null);
+    const [nvrId, setNvrId] = useState<string | null>((cam as any).nvrId || null);
     const [recT, setRecT] = useState(initialRecMs || (Date.now() - 60000));      // posición del slider (inmediata)
     const [recLoadT, setRecLoadT] = useState(initialRecMs || (Date.now() - 60000)); // tiempo confirmado (debounced) que se reproduce
     const [globalEnd] = useState(() => initialRecMs ? Math.max(Date.now(), initialRecMs + 60000) : Date.now());
@@ -220,10 +220,10 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     const [eviBig, setEviBig] = useState<string | null>(null);
 
     useEffect(() => { fetch(`/api/devices/stream?deviceId=${cam.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ensure" }) }).catch(() => { }); }, [cam.id]);
-    useEffect(() => { fetch(`/api/nvr/channel?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNvrId(d && d.nvr ? String(d.nvr) : null)).catch(() => { }); }, [cam.id]);
+    useEffect(() => { if ((cam as any).nvrId) { setNvrId((cam as any).nvrId); return; } fetch(`/api/nvr/channel?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNvrId(d && d.nvr ? String(d.nvr) : null)).catch(() => { }); }, [cam.id, (cam as any).nvrId]);
     useEffect(() => { if (tab !== "evi") return; getDetectionHistory({ deviceId: cam.id, pageSize: 30 }).then((r) => setEvi(r.items)).catch(() => { }); }, [tab, cam.id]);
     useEffect(() => { if (tab !== "rec") return; getDetectionHistory({ deviceId: cam.id, pageSize: 100 }).then((r) => setRecEvents(r.items)).catch(() => { }); }, [tab, cam.id]);
-    useEffect(() => { if (ready || tab !== "live") return; const iv = setInterval(() => setSnap(`/api/snapshot/${cam.id}?t=${Date.now()}`), 1500); return () => clearInterval(iv); }, [ready, cam.id, tab]);
+    useEffect(() => { if (ready || tab !== "live") return; const iv = setInterval(() => setSnap(`/api/snapshot/${cam.id}?w=960&t=${Date.now()}`), 1500); return () => clearInterval(iv); }, [ready, cam.id, tab]);
 
     // ── LIVE loader (paciencia > warmup del transcode HW, sin churn) ──
     // NO depende de `tab`: el vivo sigue corriendo aunque estés en Grabación/Evidencia,
@@ -348,7 +348,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                                             <div className={cn("absolute w-52 rounded-xl overflow-hidden bg-black/85 backdrop-blur-md ring-1 ring-white/20 shadow-2xl pointer-events-none z-10", l.y < 0.42 ? "top-full mt-2" : "bottom-full mb-2", l.x < 0.2 ? "left-0" : l.x > 0.8 ? "right-0" : "left-1/2 -translate-x-1/2")}>
                                                 <div className="relative aspect-video bg-black">
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                    <img src={`/api/snapshot/${c!.id}?t=hover`} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                                                    <img src={`/api/snapshot/${c!.id}?w=320&t=hover`} alt="" className="absolute inset-0 w-full h-full object-cover" />
                                                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                                                     <video autoPlay muted playsInline src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${c!.id}`)}&video=h264`} className="absolute inset-0 w-full h-full object-cover" />
                                                     <span className="absolute top-1 left-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/55 text-[8px] font-extrabold uppercase tracking-wide text-amber-300"><Crosshair size={7} /> Seguir</span>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import https from "https";
 import { HikvisionDriver } from "@/lib/drivers/HikvisionDriver";
@@ -57,6 +58,48 @@ async function nvrSnapshot(deviceId: string): Promise<Buffer | null> {
  * Live snapshot from the camera. HIKVISION usa el driver (Digest-aware);
  * otras marcas usan el fetch directo con Basic.
  */
+// ── Velocidad (idea de san-nicolas 6e02d9c, adaptada a Olivos) ─────────────────────────
+// Medido 11/10 en Olivos: foto completa de una perimetral 260-400 KB en 0,13-1,2 s, pedida
+// sin caché por cada baldosa. Pedirla achicada a la cámara (como SN) tarda MÁS (0,7-0,85 s)
+// y una cámara contesta 503; por eso se pide completa y se achica acá con sharp.
+const FOTO_VIGENTE_MS = 1500;
+const _g = globalThis as any;
+const fotos: Map<string, { buf: Buffer; t: number }> = _g.__snapFotos ?? (_g.__snapFotos = new Map());
+const enCurso: Map<string, Promise<Buffer | null>> = _g.__snapEnCurso ?? (_g.__snapEnCurso = new Map());
+const ANCHOS = new Set([320, 480, 640, 960, 1280]);
+
+async function achicar(buf: Buffer, ancho?: number): Promise<Buffer> {
+    if (!ancho) return buf;
+    try { return await sharp(buf).resize({ width: ancho, withoutEnlargement: true }).jpeg({ quality: 72 }).toBuffer(); }
+    catch { return buf; }
+}
+
+async function capturarCompleta(device: any, deviceId: string): Promise<Buffer | null> {
+    if (device.brand === "HIKVISION") {
+        let buf = await new HikvisionDriver().captureSnapshot(device as any);
+        if (!buf) buf = await nvrSnapshot(deviceId);
+        if (!buf) buf = await go2rtcFrameRetry(deviceId);
+        return buf;
+    }
+    const headers: Record<string, string> = {};
+    if (device.username && device.password) {
+        headers["Authorization"] = `Basic ${Buffer.from(`${device.username}:${device.password}`).toString("base64")}`;
+    }
+    let snapshotUrl: string;
+    switch (device.brand) {
+        case "BOSCH":
+            snapshotUrl = `https://${device.ip}/snap.jpg?JpegSize=L`; break;
+        case "DAHUA":
+            snapshotUrl = `http://${device.ip}/cgi-bin/snapshot.cgi?channel=1`; break;
+        default:
+            snapshotUrl = `http://${device.ip}/snap.jpg`;
+    }
+    let imageBuffer = await fetchSnapshot(snapshotUrl, headers);
+    if (!imageBuffer) imageBuffer = await nvrSnapshot(deviceId);
+    if (!imageBuffer) imageBuffer = await go2rtcFrameRetry(deviceId);
+    return imageBuffer;
+}
+
 export async function GET(
     req: NextRequest,
     { params }: { params: Promise<{ deviceId: string }> }
@@ -78,40 +121,32 @@ export async function GET(
             return new NextResponse(null, { status: 204 });
         }
 
-        // HIKVISION: capturar por ISAPI con Digest/Basic automatico (driver)
-        if (device.brand === "HIKVISION") {
-            let buf = await new HikvisionDriver().captureSnapshot(device as any);
-            if (!buf) buf = await nvrSnapshot(deviceId);
-            if (!buf) buf = await go2rtcFrameRetry(deviceId);
-            if (!buf) return new NextResponse("No snapshot available", { status: 502 });
-            return new NextResponse(buf as any, {
-                status: 200,
-                headers: {
-                    "Content-Type": "image/jpeg",
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                },
-            });
+        // Una sola captura por cámara cada FOTO_VIGENTE_MS, compartida entre pedidos (la
+        // grilla, el visor y varios operadores piden la misma cámara a la vez), y achicada
+        // en el servidor al ancho pedido (?w=640): 260-400 KB -> ~36 KB en 9 ms con sharp.
+        const w = Number(req.nextUrl.searchParams.get("w") || 0);
+        const ancho = ANCHOS.has(w) ? w : undefined;
+        const guardada = fotos.get(deviceId);
+        let full: Buffer | null = guardada && Date.now() - guardada.t < FOTO_VIGENTE_MS ? guardada.buf : null;
+        if (!full) {
+            let p = enCurso.get(deviceId);
+            if (!p) {
+                p = capturarCompleta(device, deviceId)
+                    .then((buf) => {
+                        if (buf) {
+                            fotos.set(deviceId, { buf, t: Date.now() });
+                            if (fotos.size > 400) { const lim = Date.now() - 60000; for (const [k, v] of fotos) if (v.t < lim) fotos.delete(k); }
+                        }
+                        return buf;
+                    })
+                    .finally(() => enCurso.delete(deviceId));
+                enCurso.set(deviceId, p);
+            }
+            full = await p;
         }
-
-        // Otras marcas: fetch directo
-        const headers: Record<string, string> = {};
-        if (device.username && device.password) {
-            headers["Authorization"] = `Basic ${Buffer.from(`${device.username}:${device.password}`).toString("base64")}`;
-        }
-        let snapshotUrl: string;
-        switch (device.brand) {
-            case "BOSCH":
-                snapshotUrl = `https://${device.ip}/snap.jpg?JpegSize=L`; break;
-            case "DAHUA":
-                snapshotUrl = `http://${device.ip}/cgi-bin/snapshot.cgi?channel=1`; break;
-            default:
-                snapshotUrl = `http://${device.ip}/snap.jpg`;
-        }
-        let imageBuffer = await fetchSnapshot(snapshotUrl, headers);
-        if (!imageBuffer) imageBuffer = await nvrSnapshot(deviceId);
-        if (!imageBuffer) imageBuffer = await go2rtcFrameRetry(deviceId);
-        if (!imageBuffer) return new NextResponse("No snapshot available", { status: 502 });
-        return new NextResponse(imageBuffer, {
+        if (!full) return new NextResponse("No snapshot available", { status: 502 });
+        const out = await achicar(full, ancho);
+        return new NextResponse(out as any, {
             status: 200,
             headers: {
                 "Content-Type": "image/jpeg",

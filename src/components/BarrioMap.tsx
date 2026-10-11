@@ -273,7 +273,7 @@ function IntrAlertCard({ card, clip, onAck, onClose, onViewRec }: { card: { devi
     return (
         <div className="intr-alert-card">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`} alt="" className="intr-alert-img" />
+            <img src={`/api/snapshot/${card.deviceId}?w=640&t=${card.id || card.ms}`} alt="" className="intr-alert-img" />
             <div className="absolute top-0 inset-x-0 flex items-center justify-between px-3 py-2 bg-gradient-to-b from-black/80 via-black/35 to-transparent z-10">
                 <div className="flex items-center gap-2 text-[12px] font-extrabold uppercase tracking-wide text-white" style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)" }}><span className="flex items-center gap-1.5"><ShieldAlert size={14} className="text-red-400" /> {card.type === "LINECROSS" ? "Cruce de línea" : card.type === "INTRUSION" ? "Intrusión" : "Detección"}</span>{card.label ? <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-black" style={{ background: card.label === "vehicle" ? "#06b6d4" : "#f59e0b", color: "#06121f", textShadow: "none" }}>{card.label === "vehicle" ? <Car size={12} /> : <UserIcon size={12} />}{card.label === "vehicle" ? "AUTO" : "PERSONA"}</span> : null}</div>
                 <button onClick={onClose} className="p-1 rounded text-white/90 hover:bg-white/20"><X size={14} /></button>
@@ -322,7 +322,7 @@ function RecModal({ card, camList, onClose }: { card: { deviceId: string; ms: nu
     const [tab, setTab] = useState<"live" | "rec" | "evi">("rec");
     const cam = camList.find((c) => c.id === card.deviceId);
     const clip = cam && cam.ch != null && cam.nvrId ? `/api/nvr/playback?ch=${cam.ch}&t=${Math.floor(card.ms)}&pre=5&dur=40&nvr=${cam.nvrId}` : null;
-    const snap = `/api/snapshot/${card.deviceId}?t=${card.id || card.ms}`;
+    const snap = `/api/snapshot/${card.deviceId}?w=640&t=${card.id || card.ms}`;
     const tabs = [{ k: "live", label: "Vivo", Icon: Video }, { k: "rec", label: "Grabación", Icon: Play }, { k: "evi", label: "Evidencia", Icon: Eye }] as const;
     return createPortal(
         <div className="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
@@ -1314,7 +1314,7 @@ export default function BarrioMap() {
                                     className="w-full flex items-center gap-2 rounded-xl border border-border bg-background/60 p-1.5 hover:bg-accent/40 transition-colors text-left">
                                     <div className="relative w-[64px] h-[40px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={`/api/snapshot/${it.deviceId}?t=${it.id || it.ms}`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                        <img src={`/api/snapshot/${it.deviceId}?w=320&t=${it.id || it.ms}`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-[11.5px] font-bold truncate flex items-center gap-1">{it.type === "INTRUSION" ? <ShieldAlert size={11} className="text-red-500 shrink-0" /> : <Route size={11} className="text-sky-500 shrink-0" />}{it.type === "INTRUSION" ? "Intrusión" : it.type === "LINECROSS" ? "Cruce" : "Detección"}{it.label ? <span className="text-muted-foreground">· {it.label === "vehicle" ? "Auto" : "Persona"}</span> : null}</div>
@@ -1640,7 +1640,7 @@ export default function BarrioMap() {
                                     className={cn("rounded-xl border border-border bg-background/60 p-1.5 flex items-center gap-2 cursor-grab active:cursor-grabbing", pendingCam === d.id && "ring-1 ring-blue-500")}>
                                     <div className="relative w-[72px] h-[44px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={`/api/snapshot/${d.id}?t=pl`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" draggable={false} />
+                                        <img src={`/api/snapshot/${d.id}?w=320&t=pl`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" draggable={false} />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-[12px] font-bold truncate">{d.name}</div>
@@ -1671,7 +1671,7 @@ export default function BarrioMap() {
                                     <div key={c.id} className="rounded-xl border border-border bg-background/60 p-2 flex gap-2">
                                         <div className="relative w-[84px] h-[52px] rounded-md overflow-hidden bg-black shrink-0 ring-1 ring-border">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img src={`/api/snapshot/${c.id}?t=dr`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                            <img src={`/api/snapshot/${c.id}?w=320&t=dr`} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
                                             <MiniGeomOverlay geom={intrGeomPrev[c.id]} />
                                         </div>
                                         <div className="flex-1 min-w-0">

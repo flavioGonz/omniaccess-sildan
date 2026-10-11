@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getChannelMap, resolveNvrById, type NvrConn } from "@/lib/nvr-resolve";
 import { getS3Client } from "@/lib/s3";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { spawn } from "child_process";
@@ -13,6 +14,11 @@ import { PassThrough, Readable } from "stream";
 import archiver from "archiver";
 
 const NVR_TZ = "America/Montevideo";
+function fmtDahua(ms: number): string {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: NVR_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date(ms));
+    const g = (k: string) => parts.find((p) => p.type === k)?.value || "00";
+    return `${g("year")}_${g("month")}_${g("day")}_${g("hour") === "24" ? "00" : g("hour")}_${g("minute")}_${g("second")}`;
+}
 function fmtNvr(ms: number): string {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: NVR_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date(ms));
     const g = (t: string) => parts.find((p) => p.type === t)?.value || "00";
@@ -58,12 +64,15 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     const base = `evento_${plate}_${stamp}`;
 
     // canal NVR
-    let channel: number | null = null; let nvr: any = null;
+    // Por el mapa multi-NVR {ip:{nvr,ch}}, como el playback. El mapa viejo {ip:canal} daba
+    // NaN con el formato nuevo y el ZIP salía sin clip (san-nicolas 9c9113d).
+    let channel: number | null = null; let nvr: NvrConn | null = null;
     try {
-        const rows = await prisma.setting.findMany({ where: { key: { in: ["NVR_HOST", "NVR_USER", "NVR_PASS", "NVR_PORT", "NVR_CHANNEL_MAP"] } } });
-        const cfg: any = {}; rows.forEach((r: any) => (cfg[r.key] = r.value));
-        nvr = cfg;
-        if (cfg.NVR_CHANNEL_MAP && ev.device?.ip) { const map = JSON.parse(cfg.NVR_CHANNEL_MAP); if (map[ev.device.ip] != null) channel = Number(map[ev.device.ip]); }
+        if (ev.device?.ip) {
+            const map = await getChannelMap();
+            const e = map[ev.device.ip];
+            if (e) { channel = Number(e.ch); nvr = await resolveNvrById(e.nvrId); }
+        }
     } catch { /* sin NVR */ }
 
     const zip = archiver("zip", { zlib: { level: 6 } });
@@ -90,9 +99,12 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
     zip.append(JSON.stringify(info, null, 2), { name: `${base}/evento.json` });
 
     // 3) clip del NVR (ffmpeg → mp4 con moov al final, apto para reproducir en cualquier player)
-    if (channel && nvr?.NVR_HOST) {
+    if (channel && nvr) {
         const startMs = t.getTime() - pre * 1000;
-        const url = `rtsp://${nvr.NVR_USER}:${nvr.NVR_PASS}@${nvr.NVR_HOST}:${nvr.NVR_PORT || "554"}/Streaming/tracks/${channel}01/?starttime=${fmtNvr(startMs)}&endtime=${fmtNvr(startMs + dur * 1000)}`;
+        const port = nvr.rtspPort || "554";
+        const url = String(nvr.brand).toUpperCase() === "DAHUA"
+            ? `rtsp://${nvr.user}:${nvr.pass}@${nvr.ip}:${port}/cam/playback?channel=${channel}&starttime=${fmtDahua(startMs)}&endtime=${fmtDahua(startMs + dur * 1000)}`
+            : `rtsp://${nvr.user}:${nvr.pass}@${nvr.ip}:${port}/Streaming/tracks/${channel}01/?starttime=${fmtNvr(startMs)}&endtime=${fmtNvr(startMs + dur * 1000)}`;
         const ff = spawn("ffmpeg", ["-rtsp_transport", "tcp", "-i", url, "-t", String(dur), "-an", "-c:v", "copy", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"] });
         const timer = setTimeout(() => { try { ff.kill("SIGKILL"); } catch { } }, (dur + 40) * 1000);
         ff.on("close", () => clearTimeout(timer));
