@@ -6,7 +6,6 @@ import { Tooltip } from "react-tooltip";
 import { cn } from "@/lib/utils";
 import { getIntrusionCameras, type IntrusionCam } from "@/app/actions/detections";
 import { deleteDevice } from "@/app/actions/devices";
-import { DeviceFormDialog } from "@/components/DeviceFormDialog";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
 
@@ -15,8 +14,8 @@ import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
  * Cada fila dice dónde graba (NVR y canal), si tiene la analítica dibujada, si le avisa a
  * OmniAccess y deja calibrarla con el calibrador de intrusión.
  */
-export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload }: {
-    devices: any[]; health: Record<string, any>; analyticsIds: Set<string>; groups: any[]; onReload: () => void;
+export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload, onEditar }: {
+    devices: any[]; health: Record<string, any>; analyticsIds: Set<string>; groups: any[]; onReload: () => void; onEditar?: (d: any) => void;
 }) {
     const [cams, setCams] = useState<Record<string, IntrusionCam>>({});
     const [cargando, setCargando] = useState(true);
@@ -108,9 +107,7 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                                         <div className="inline-flex items-center gap-1.5">
                                             <button onClick={() => setCalibrando(d)} data-tooltip-id="tt-intr" data-tooltip-content="Calibrar la intrusión: línea, zona, sentido, sensibilidad, objetivo y aviso a OmniAccess, sobre el video en vivo."
                                                 className="h-8 px-2.5 rounded-md bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20 text-[11px] font-bold inline-flex items-center gap-1.5"><Crosshair size={13} /> Calibrar</button>
-                                            <DeviceFormDialog device={d} groups={groups} onSuccess={onReload}>
-                                                <button className="h-8 w-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground grid place-items-center" data-tooltip-id="tt-intr" data-tooltip-content="Editar la cámara"><Settings2 size={14} /></button>
-                                            </DeviceFormDialog>
+                                            <button onClick={() => onEditar?.(d)} className="h-8 w-8 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground grid place-items-center" data-tooltip-id="tt-intr" data-tooltip-content="Editar la cámara: nombre, conexión y grabación"><Settings2 size={14} /></button>
                                             <DeleteConfirmDialog id={d.id} title={d.name} description="Se saca de OmniAccess (la cámara y su grabación en el NVR no se tocan)." onDelete={deleteDevice} onSuccess={onReload}>
                                                 <button className="h-8 w-8 rounded-md hover:bg-red-500/10 text-red-400 grid place-items-center" data-tooltip-id="tt-intr" data-tooltip-content="Quitar de OmniAccess"><Trash2 size={14} /></button>
                                             </DeleteConfirmDialog>

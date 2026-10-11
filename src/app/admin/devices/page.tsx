@@ -103,7 +103,8 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
-import { CajonCamaraLpr } from "@/components/devices/CajonCamaraLpr";
+import { CajonDispositivo } from "@/components/devices/CajonDispositivo";
+import { IntrusionCalibrator as CalibradorIntrusion } from "@/components/IntrusionCalibrator";
 import { TablaIntrusion } from "@/components/devices/TablaIntrusion";
 import { ImportarCanalesNvr } from "@/components/devices/ImportarCanalesNvr";
 import { Car as CarIco, Radar as RadarIco, Server as ServerIco, ChevronDown as ChevronDownIco, Download as DownloadIco } from "lucide-react";
@@ -276,7 +277,8 @@ export default function DevicesPage() {
     const typeFilter = pedido && allowedTypes.includes(pedido) ? pedido : (allowedTypes[0] || "LPR_CAMERA");
     // Alta: un solo botón que pregunta qué se agrega (LPR, intrusión o NVR) e importar canales de un NVR.
     const [alta, setAlta] = useState<null | "lpr" | "intrusion" | "nvr" | "otro">(null);
-    const [menuAlta, setMenuAlta] = useState(false);
+    const [editando, setEditando] = useState<any>(null);
+    const [calibIntr, setCalibIntr] = useState<any>(null);
     const [importandoDe, setImportandoDe] = useState<any>(null);
 
     const filteredDevices = devices.filter(d => {
@@ -549,28 +551,11 @@ export default function DevicesPage() {
                             <TooltipContent><p className="text-xs max-w-[240px]">Busca cada cámara LPR en los canales de todos los NVR (por su IP) y asigna sola dónde graba. No borra asignaciones existentes.</p></TooltipContent>
                         </Tooltip>
                     </TooltipProvider>}
-                    <div className="relative shrink-0">
-                        <Button onClick={() => setMenuAlta((v) => !v)} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs gap-1.5">
-                            <Plus size={15} /> Agregar <ChevronDownIco size={14} className={cn("transition-transform", menuAlta && "rotate-180")} />
+                    <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild>
+                        <Button onClick={() => setAlta(modules.MODULE_LPR ? "lpr" : "otro")} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs gap-1.5 shrink-0">
+                            <Plus size={15} /> Agregar
                         </Button>
-                        {menuAlta && (
-                            <>
-                                <div className="fixed inset-0 z-40" onClick={() => setMenuAlta(false)} />
-                                <div className="absolute right-0 top-[calc(100%+6px)] z-50 w-[300px] rounded-xl bg-card border border-border shadow-2xl p-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                                    {(modules.MODULE_LPR ? [
-                                        { k: "lpr", t: "Cámara LPR", d: "Lectora de matrículas de una garita: alta guiada con grabación, hora y servidor de alarmas.", I: CarIco, c: "text-amber-400 bg-amber-500/10" },
-                                        { k: "intrusion", t: "Cámara de intrusión", d: "Cámara de perímetro con línea o zona (AcuSense). Después se calibra.", I: RadarIco, c: "text-red-400 bg-red-500/10" },
-                                        { k: "nvr", t: "NVR", d: "Grabador. Al guardarlo podés importar sus cámaras clasificándolas (LPR o intrusión).", I: ServerIco, c: "text-blue-400 bg-blue-500/10" },
-                                    ] : [{ k: "otro", t: "Nuevo equipo", d: "Terminal, contador u otro equipo.", I: Plus, c: "text-indigo-400 bg-indigo-500/10" }]).map((o: any) => (
-                                        <button key={o.k} onClick={() => { setMenuAlta(false); setAlta(o.k); }} className="w-full flex items-start gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-accent transition-colors">
-                                            <span className={cn("grid h-9 w-9 place-items-center rounded-lg shrink-0", o.c)}><o.I size={17} /></span>
-                                            <span><span className="block text-sm font-bold text-foreground">{o.t}</span><span className="block text-[11px] text-muted-foreground leading-snug">{o.d}</span></span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </>
-                        )}
-                    </div>
+                    </TooltipTrigger><TooltipContent><p className="text-xs max-w-[240px]">Abre el alta guiada: primero elegís qué equipo es (cámara LPR, cámara de intrusión o NVR) y después sólo se piden los datos de ese tipo.</p></TooltipContent></Tooltip></TooltipProvider>
                 </div>
             </header>
 
@@ -1101,11 +1086,17 @@ export default function DevicesPage() {
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
+                                                    {dev.deviceType === "LPR_CAMERA" ? (
+                                                        <DropdownMenuItem onClick={() => setEditando(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
+                                                            <Settings2 size={14} /> Editar configuración
+                                                        </DropdownMenuItem>
+                                                    ) : (
                                                     <DeviceFormDialog device={dev} groups={groups} onSuccess={loadData}>
                                                         <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-accent hover:text-blue-400 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 gap-2">
                                                             <Settings2 size={14} /> Editar Configuración
                                                         </div>
                                                     </DeviceFormDialog>
+                                                    )}
 
                                                     <DropdownMenuSeparator className="bg-foreground/10" />
 
@@ -1134,7 +1125,7 @@ export default function DevicesPage() {
 
             {/* ─────────────── Cámaras de intrusión ─────────────── */}
             {typeFilter === "CAMERA" && (
-                <TablaIntrusion devices={filteredDevices} health={health} analyticsIds={analyticsIds} groups={groups} onReload={loadData} />
+                <TablaIntrusion devices={filteredDevices} health={health} analyticsIds={analyticsIds} groups={groups} onReload={loadData} onEditar={setEditando} />
             )}
 
             {/* ─────────────── Tabla de salud del NVR ─────────────── */}
@@ -1283,11 +1274,9 @@ export default function DevicesPage() {
                                                         <DropdownMenuItem onClick={() => setImportandoDe(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-amber-400 focus:bg-foreground/10 focus:text-amber-400">
                                                             <DownloadIco size={14} /> Importar cámaras (clasificar)
                                                         </DropdownMenuItem>
-                                                        <DeviceFormDialog device={dev} groups={groups} onSuccess={loadData}>
-                                                            <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-accent hover:text-blue-400 gap-2">
-                                                                <Settings2 size={14} /> Editar / Mapeo de canales
-                                                            </div>
-                                                        </DeviceFormDialog>
+                                                        <DropdownMenuItem onClick={() => setEditando(dev)} className="cursor-pointer gap-2 text-xs font-bold hover:bg-accent hover:text-blue-400 focus:bg-foreground/10 focus:text-blue-400">
+                                                            <Settings2 size={14} /> Editar configuración
+                                                        </DropdownMenuItem>
                                                         <DropdownMenuSeparator className="bg-foreground/10" />
                                                         <DeleteConfirmDialog id={dev.id} title={dev.name} description="Se eliminará este NVR." onDelete={deleteDevice} onSuccess={loadData}>
                                                             <div className="relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-xs font-bold outline-none transition-colors hover:bg-red-500/10 hover:text-red-500 gap-2 text-red-400">
@@ -1311,9 +1300,12 @@ export default function DevicesPage() {
             )}
 
             {/* Altas desde el botón «Agregar» */}
-            <CajonCamaraLpr groups={groups} open={alta === "lpr"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => { loadData(); cargarGrab(); }} />
-            <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "intrusion" || alta === "nvr" || alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)}
-                tipoInicial={alta === "intrusion" ? "CAMERA" : alta === "nvr" ? "NVR" : undefined} />
+            <CajonDispositivo groups={groups} open={alta === "lpr"} onOpenChange={(v) => !v && setAlta(null)} onSuccess={() => { loadData(); cargarGrab(); }}
+                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
+            <CajonDispositivo device={editando} groups={groups} open={!!editando} onOpenChange={(v) => !v && setEditando(null)} onSuccess={() => { loadData(); cargarGrab(); }}
+                alCalibrar={(d) => setCalibIntr(d)} alImportar={(d) => setImportandoDe(d)} />
+            <DeviceFormDialog groups={groups} onSuccess={() => { loadData(); }} abierto={alta === "otro"} alCambiarAbierto={(v) => !v && setAlta(null)} />
+            {calibIntr && <CalibradorIntrusion device={calibIntr} onClose={() => { setCalibIntr(null); loadData(); }} />}
             <ImportarCanalesNvr nvr={importandoDe} groups={groups} open={!!importandoDe} onOpenChange={(v) => !v && setImportandoDe(null)} onListo={() => { loadData(); cargarGrab(); }} />
 
             {healthHistory && (

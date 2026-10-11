@@ -149,11 +149,24 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             return false;
         };
 
+        // Historial del bot (Ajustes -> Chatbot -> Historial del bot): una fila por mensaje recibido
+        // con la primera respuesta. Olivos no lo escribia (solo lo hacia la ruta vieja de Next que
+        // ya no recibe nada), por eso el historial venia vacio con el bot andando. (de san-nicolas)
+        let _registrado = false;
+        const registrar = async (status, detalle) => {
+            if (_registrado) return; _registrado = true;
+            try {
+                await senderTail();
+                await prisma.wahaRequestLog.create({ data: { fromNumber: String(chatDestino || from).replace(/@.*$/, ''), messageBody: String(body_text).slice(0, 500), status, responseDetails: detalle ? String(detalle).slice(0, 400) : null } });
+            } catch (e) {}
+        };
+
         const sendText = async (text) => {
             const headers = {};
             if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
             await senderTail();
             await axios.post(`${wahaUrl}/api/sendText`, { session: session || 'default', chatId: chatDestino, text }, { headers });
+            registrar('OK', text);
         };
 
         // La foto va como JPEG chico en base64, no como URL: la captura de una LPR pesa ~2 MB
@@ -171,17 +184,20 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                 let buf = Buffer.from(r.data);
                 try { const sharp = require('sharp'); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { console.error('[WAHA] sharp:', e.message); }
                 await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/jpeg', filename: 'captura.jpg', data: buf.toString('base64') }, caption }, { headers, timeout: 40000 });
+                registrar('OK', '[foto] ' + (caption || ''));
                 return;
             } catch (e) {
                 console.error('[WAHA] imagen local falló, se manda por URL:', e.response?.data || e.message);
             }
             await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { url, mimetype: 'image/jpeg', filename: 'captura.jpg' }, caption }, { headers, timeout: 40000 });
+            registrar('OK', '[foto] ' + (caption || ''));
         };
 
         const sendImageB64 = async (b64, caption) => {
             const headers = {}; if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
             await senderTail();
             await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/png', filename: 'pase.png', data: b64 }, caption }, { headers });
+            registrar('OK', '[pase QR] ' + (caption || ''));
         };
 
         // --- HIKVISION HELPERS (Internal JS version of HikvisionDriver) ---
