@@ -22,6 +22,7 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/guard-iphone') ||
         pathname.startsWith('/pwa') ||
         pathname.startsWith('/invitado') ||
+        pathname.startsWith('/api/invitado/') ||
         pathname.startsWith('/residente')
     ) {
         return NextResponse.next()

@@ -85,6 +85,19 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         console.log(`${logPrefix} [WAHA] Message from ${from}: "${body_text}"`);
 
+        // ── Interruptores del cajón "Comandos del bot" (Setting WAHA_COMMANDS) ──
+        // Hasta acá la pantalla guardaba [{id, active}] y nadie lo leía: un interruptor
+        // apagado seguía contestando. Ahora cada comando pregunta antes de actuar; lo que
+        // no está en la lista se considera prendido, para no apagar nada por accidente.
+        let _cmdCfg = null;
+        const cmdActivo = async (id) => {
+            if (_cmdCfg === null) {
+                _cmdCfg = {};
+                try { const r = await prisma.setting.findUnique({ where: { key: 'WAHA_COMMANDS' } }); for (const c of JSON.parse(r?.value || '[]')) if (c && c.id) _cmdCfg[c.id] = c.active !== false; } catch (e) {}
+            }
+            return _cmdCfg[id] !== false;
+        };
+
         // Notification for UI
         if (global.io) {
             global.io.emit("webhook-event", {
@@ -106,7 +119,12 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         const serverBaseUrl = baseUrlSetting?.value || "http://192.168.99.99:10001";
 
         // ── Resolver número real del remitente (WhatsApp manda @lid oculto) ──
+        // Además del número (para reconocer al residente) se guarda el chat "@c.us": el motor
+        // WEBJS contesta texto a un @lid, pero sendImage a un @lid falla con "Data passed to
+        // getter must include an id property" → el pase llegaba sin QR. A partir de acá todo
+        // se manda al chat resuelto; si no se pudo resolver, al @lid original.
         let _senderTailCache = null;
+        let chatDestino = chatId;
         const senderTail = async () => {
             if (_senderTailCache !== null) return _senderTailCache;
             let id = from || "";
@@ -115,7 +133,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                     const lid = id.replace('@lid','');
                     const headers = {}; if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
                     const r = await axios.get(`${wahaUrl}/api/${session || 'default'}/lids/${lid}`, { headers, timeout: 8000 });
-                    if (r.data && r.data.pn) id = r.data.pn;
+                    if (r.data && r.data.pn) { id = r.data.pn; chatDestino = r.data.pn; }
                 } catch (e) { console.error('[WAHA] lid resolve error:', e.message); }
             }
             _senderTailCache = String(id).replace(/\D/g,'').slice(-8);
@@ -134,32 +152,36 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         const sendText = async (text) => {
             const headers = {};
             if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
-            await axios.post(`${wahaUrl}/api/sendText`, { session: session || 'default', chatId, text }, { headers });
+            await senderTail();
+            await axios.post(`${wahaUrl}/api/sendText`, { session: session || 'default', chatId: chatDestino, text }, { headers });
         };
 
+        // La foto va como JPEG chico en base64, no como URL: la captura de una LPR pesa ~2 MB
+        // (2560×1440) y WhatsApp la trata como "HD" → el residente ve una miniatura borrosa con
+        // un botón de 2 MB que no siempre baja. Se lee del propio server (127.0.0.1:10001,
+        // sin pasar por el dominio público), se achica a 1280 px y queda en ~150–250 KB,
+        // que WhatsApp muestra al instante. Si algo falla, se manda por URL como antes.
         const sendImage = async (url, caption) => {
             const headers = {};
             if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
-
-            // For WEBJS Core (Free), /api/sendMedia is often more reliable than /api/sendImage
-            // The structure for sendMedia uses 'file' as a link or object
-            const body = {
-                session: session || 'default',
-                chatId,
-                file: {
-                    url: url
-                },
-                caption: caption
-            };
-
-            console.log(`[WAHA-DEBUG] Sending image via URL: ${url}`);
-            // Switching back to /api/sendImage but keeping the URL logic
-            await axios.post(`${wahaUrl}/api/sendImage`, body, { headers });
+            await senderTail();
+            try {
+                const local = serverBaseUrl && url.startsWith(serverBaseUrl) ? url.replace(serverBaseUrl, 'http://127.0.0.1:10001') : url;
+                const r = await axios.get(local, { responseType: 'arraybuffer', timeout: 15000 });
+                let buf = Buffer.from(r.data);
+                try { const sharp = require('sharp'); buf = await sharp(buf).rotate().resize({ width: 1280, withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(); } catch (e) { console.error('[WAHA] sharp:', e.message); }
+                await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/jpeg', filename: 'captura.jpg', data: buf.toString('base64') }, caption }, { headers, timeout: 40000 });
+                return;
+            } catch (e) {
+                console.error('[WAHA] imagen local falló, se manda por URL:', e.response?.data || e.message);
+            }
+            await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { url, mimetype: 'image/jpeg', filename: 'captura.jpg' }, caption }, { headers, timeout: 40000 });
         };
 
         const sendImageB64 = async (b64, caption) => {
             const headers = {}; if (wahaApiKey) headers['X-Api-Key'] = wahaApiKey;
-            await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId, file: { mimetype: 'image/png', filename: 'pase.png', data: b64 }, caption }, { headers });
+            await senderTail();
+            await axios.post(`${wahaUrl}/api/sendImage`, { session: session || 'default', chatId: chatDestino, file: { mimetype: 'image/png', filename: 'pase.png', data: b64 }, caption }, { headers });
         };
 
         // --- HIKVISION HELPERS (Internal JS version of HikvisionDriver) ---
@@ -270,7 +292,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         // TRIGGER: "agregar matricula"
         const addPlateRegex = /^(?:agregar|añadir|nuevo|nueva)\s+(?:matricula|matrícula|vehiculo|vehículo)/i;
-        if (addPlateRegex.test(lowerBody) && await isAdminSender()) {
+        if (addPlateRegex.test(lowerBody) && await cmdActivo('agregar_matricula') && await isAdminSender()) {
             await prisma.whatsAppSession.upsert({
                 where: { phoneNumber: from },
                 create: { phoneNumber: from, step: 'ADD_PLATE_PLATE' },
@@ -294,8 +316,9 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             try { const r=await prisma.setting.findUnique({ where:{ key:'INVITE_WA_ALLOWLIST' } }); const arr=JSON.parse(r?.value||'[]'); const hit=arr.find(e=>String((typeof e==='string'?e:e.phone)||'').replace(/\D/g,'').slice(-8)===tail); if(hit) return { userId:(hit.userId||null), name:(hit.name||'Residente'), unitId:(hit.unitId||null), label:(hit.label||'') }; } catch(e){}
             return null;
         };
-        const parseWhen = (text) => {
-            const t=(text||'').toLowerCase().trim(); const now=new Date(); const base=new Date(now);
+        const _SHIFT_MVD = (() => { const a = new Date(); return new Date(a.toLocaleString('en-US', { timeZone: 'America/Montevideo' })).getTime() - new Date(a.toLocaleString('en-US')).getTime(); })();
+        const parseWhenPared = (text) => {
+            const t=(text||'').toLowerCase().trim(); const now=new Date(Date.now()+_SHIFT_MVD); const base=new Date(now);
             const wd={ 'domingo':0,'lunes':1,'martes':2,'miercoles':3,'miércoles':3,'jueves':4,'viernes':5,'sabado':6,'sábado':6 };
             const WORDN={ 'media':0.5,'medio':0.5,'un':1,'una':1,'uno':1,'dos':2,'tres':3,'cuatro':4,'cinco':5,'seis':6,'siete':7,'ocho':8,'nueve':9,'diez':10 };
             const num=(w)=>{ if(WORDN[w]!=null) return WORDN[w]; const n=parseFloat(String(w).replace(',','.')); return isNaN(n)?null:n; };
@@ -310,20 +333,26 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             // 2) hasta las 18 / hasta las 18:30
             const mh=t.match(/hasta (?:las? )?(\d{1,2})(?:[:.](\d{2}))?/);
             if(mh){ const fromD=new Date(now); const toD=new Date(base); toD.setHours(+mh[1], +(mh[2]||0),0,0); if(toD<=fromD) toD.setDate(toD.getDate()+1); return { from:fromD, to:toD }; }
-            // 3) duración: (por) N horas/días/semanas/minutos (admite palabras: una, dos, media…)
-            const md=t.match(/(?:por\s*)?(\d+(?:[.,]\d+)?|media|medio|una?|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*(semanas?|sem|d[ií]as?|horas?|hs?|minutos?|mins?|h|d|m)\b/);
-            if(md){ const n=num(md[1]); const u=md[2]; if(n!=null){ const fromD=new Date(now); const toD=new Date(fromD); if(/^sem/.test(u)) toD.setDate(toD.getDate()+Math.round(n*7)); else if(/^d/.test(u)) toD.setDate(toD.getDate()+Math.round(n)); else if(/^h/.test(u)) toD.setTime(toD.getTime()+n*3600*1000); else toD.setTime(toD.getTime()+n*60*1000); return { from:fromD, to:toD }; } }
-            // 4) todo el día / medio día
+            // 3) todo el día / medio día — van ANTES de las duraciones: "medio día" también casa con
+            //    "medio" + "día" como duración de 0,5 días, y redondeado daba un día entero (de san-nicolas).
             if(/todo el d[ií]a/.test(t)){ const sameDay = base.toDateString()===now.toDateString(); const fromD = sameDay ? new Date(now) : (function(){const y=new Date(base);y.setHours(0,0,0,0);return y;})(); return { from:fromD, to:eod(base) }; }
             if(/medio d[ií]a/.test(t)){ const fromD=new Date(now); return { from:fromD, to:new Date(fromD.getTime()+6*3600*1000) }; }
+            // 4) duración: (por) N horas/días/semanas/minutos (admite palabras: una, dos, media…).
+            //    Días y semanas se suman en horas para que "1,5 días" no se redondee a 2.
+            const md=t.match(/(?:por\s*)?(\d+(?:[.,]\d+)?|media|medio|una?|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s*(semanas?|sem|d[ií]as?|horas?|hs?|minutos?|mins?|h|d|m)\b/);
+            if(md){ const n=num(md[1]); const u=md[2]; if(n!=null){ const fromD=new Date(now); const toD=new Date(fromD); if(/^sem/.test(u)) toD.setTime(toD.getTime()+n*7*24*3600*1000); else if(/^d/.test(u)) toD.setTime(toD.getTime()+n*24*3600*1000); else if(/^h/.test(u)) toD.setTime(toD.getTime()+n*3600*1000); else toD.setTime(toD.getTime()+n*60*1000); return { from:fromD, to:toD }; } }
             // 5) hoy / default: ese día hasta 23:59 (hoy desde ahora; futuro desde 08:00)
             const sameDay = base.toDateString()===now.toDateString();
             const fromD = sameDay ? new Date(now) : (function(){const y=new Date(base);y.setHours(8,0,0,0);return y;})();
             return { from:fromD, to:eod(base) };
         };
+        // El proceso corre en UTC y el residente habla en hora de Uruguay: "hasta las 18" vencía a
+        // las 15:00 locales. parseWhenPared trabaja con la hora de pared de Montevideo y acá se la
+        // vuelve a hora absoluta. El desfase se mide (si el proceso ya estuviera en Montevideo, es 0).
+        const parseWhen = (text) => { const r = parseWhenPared(text); return r ? { ...r, from: new Date(r.from.getTime() - _SHIFT_MVD), to: new Date(r.to.getTime() - _SHIFT_MVD) } : r; };
 
         const inviteTrigger = /^(?:invitar|invito|invitaci(o|ó)n|invitacion|visita|pase)\b/i;
-        if (inviteTrigger.test(lowerBody)) {
+        if (inviteTrigger.test(lowerBody) && await cmdActivo('invitar')) {
             const host = await resolveHost();
             if(!host){ await sendText("🔒 Este servicio es solo para residentes registrados. Si sos residente y no te reconoce, pedile al administrador que cargue tu número."); res.writeHead(200); res.end('OK'); return; }
             await prisma.whatsAppSession.upsert({ where:{ phoneNumber:from }, create:{ phoneNumber:from, step:'INV_NAME', data:JSON.stringify(host) }, update:{ step:'INV_NAME', data:JSON.stringify(host) } });
@@ -496,16 +525,23 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
                     }});
                     const qrToken = crypto.randomBytes(18).toString('base64url');
                     await prisma.guest.create({ data:{ invitationId: inv.id, name: d.guestName || "", qrToken, status:'APPROVED', plates: d.plate ? { create:[{ plate:d.plate }] } : undefined } });
-                    const fmt = (x)=> new Date(x).toLocaleString('es-UY',{ weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+                    const fmt = (x)=> new Date(x).toLocaleString('es-UY',{ timeZone:'America/Montevideo', weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
                     const caption = `✅ *Pase creado*\n👤 ${d.guestName}${d.plate?(" ("+d.plate+")"):" (a pie)"}\n🕒 ${fmt(win.from)} → ${fmt(win.to)}\n🏠 Invita: ${d.name||""}${d.label?(" · "+d.label):""}\n\nReenviá este QR a tu invitado para que lo muestre en la garita.`;
                     let imgSent = false;
                     try {
-                        if (QRLIB) {
+                        // El QR lo dibuja la app (/api/invitado/<token>/qr.png): una sola
+                        // implementación, con el logo del barrio configurado en Ajustes. Si la
+                        // app no responde, se arma acá sin logo antes que no mandar nada.
+                        let b64 = null;
+                        try {
+                            const r = await axios.get(`http://127.0.0.1:10001/api/invitado/${encodeURIComponent(qrToken)}/qr.png`, { responseType: 'arraybuffer', timeout: 15000 });
+                            if (r.status === 200 && r.data && r.data.byteLength > 500) b64 = Buffer.from(r.data).toString('base64');
+                        } catch (e) { console.error('[WAHA] qr.png de la app falló, va sin logo:', e.message); }
+                        if (!b64 && QRLIB) {
                             const link = `${serverBaseUrl.replace(/\/+$/,'')}/invitado/${qrToken}`;
-                            const du = await QRLIB.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: 'M' });
-                            await sendImageB64(du.split(',')[1], caption);
-                            imgSent = true;
+                            b64 = (await QRLIB.toDataURL(link, { width: 512, margin: 1, errorCorrectionLevel: 'M' })).split(',')[1];
                         }
+                        if (b64) { await sendImageB64(b64, caption); imgSent = true; }
                     } catch (e) { console.error('[WAHA] QR image send error:', e.message); }
                     if (!imgSent) await sendText(caption);
                 } catch (e) {
@@ -529,7 +565,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         }
 
         // 1. NOTIFICATIONS
-        if (lowerBody.includes('configurar alerta') || lowerBody.includes('activar notifica')) {
+        if ((lowerBody.includes('configurar alerta') || lowerBody.includes('activar notifica')) && await cmdActivo('notificaciones')) {
             await prisma.setting.upsert({
                 where: { key: 'WAHA_NOTIFICATION_NUMBER' },
                 update: { value: from },
@@ -540,13 +576,13 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         }
 
         // 2. STATUS / DEVICES
-        if (lowerBody === 'estado' || lowerBody.includes('camara') || lowerBody.includes('viva')) {
+        if ((lowerBody === 'estado' || lowerBody.includes('camara') || lowerBody.includes('viva')) && await cmdActivo('estado')) {
             const devices = await prisma.device.findMany();
             let response = `📸 *Estado de Dispositivos*\n\n`;
             if (devices.length === 0) response += "_No hay dispositivos registrados._";
             devices.forEach(d => {
                 const icon = d.lastOnlinePush ? '🟢' : '🔴';
-                const lastSeen = d.lastOnlinePush ? new Date(d.lastOnlinePush).toLocaleString('es-UY') : 'Nunca';
+                const lastSeen = d.lastOnlinePush ? new Date(d.lastOnlinePush).toLocaleString('es-UY', { timeZone: 'America/Montevideo' }) : 'Nunca';
                 response += `${icon} *${d.name}*\n   ├ IP: ${d.ip}\n   ├ Tipo: ${d.deviceType}\n   └ Visto: ${lastSeen}\n\n`;
             });
             await sendText(response);
@@ -556,7 +592,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
         // 3. EVENT QUERIES (Latest event/entry/exit)
         const isEventQuery = /^(?:ultimo|último|ultima|última|eventos|entradas|salidas|accesos|foti?o)/i.test(lowerBody);
 
-        if (isEventQuery) {
+        if (isEventQuery && await cmdActivo('eventos')) {
             const isPlural = /s\b/i.test(lowerBody.split(" ").pop() || "") || /(?:eventos|accesos|entradas|salidas)/i.test(lowerBody);
             const limit = isPlural ? 20 : 1;
             const whereClause = {};
@@ -640,7 +676,7 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
 
         // 4. PLATE QUERY (Ends with dot OR implicit if nums exist)
         const plateQueryMatch = body_text.trim().match(/^([A-Za-z0-9]{3,10})(\.)?$/);
-        if (plateQueryMatch) {
+        if (plateQueryMatch && await cmdActivo('matricula')) {
             const rawPlate = plateQueryMatch[1];
             const hasDot = !!plateQueryMatch[2];
             const hasNumber = /[0-9]/.test(rawPlate);
@@ -718,7 +754,10 @@ const handleWahaWebhook = async (req, res, logPrefix, prisma) => {
             `• Agrega un punto (ej: *ABC123.*) para ver fotos e historial.\n\n` +
             `⚙️ *SISTEMA Y GESTIÓN*\n` +
             `• *"estado"* - Ver cámaras online/offline.\n` +
-            `• *"notificaciones"* - Activar alertas en este chat.\n\n` +
+            `• *"configurar alerta"* - Activar alertas en este chat.\n` +
+            `• *"agregar matrícula"* - Dar de alta un vehículo.\n\n` +
+            `🎟️ *VISITAS*\n` +
+            `• *"invitar"* - Un residente crea un pase de visita y recibe el QR.\n\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
             `💡 _Tip: Puedes buscar personas escribiendo su nombre._`;
 
