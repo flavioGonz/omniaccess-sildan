@@ -71,6 +71,8 @@ import { getEnabledModules, toggleModule, setExclusiveMode } from "@/app/actions
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import { Switch } from "@/components/ui/switch";
 import PlaybackSection from "./PlaybackSection";
+import EmpresasSection from "./EmpresasSection";
+import { Building2 } from "lucide-react";
 import { Film } from "lucide-react";
 import {
     Dialog,
@@ -179,6 +181,7 @@ const NAV_GROUPS = [
     ]},
     { id: "modos", label: "Modos", icon: Layers, items: [
         { sec: "modo", btab: "", label: "Modos (LPR / Face / Cola)", icon: Layers },
+        { sec: "empresas", btab: "", label: "Empresas (delivery, taxis)", icon: Building2 },
     ]},
     { id: "avanzado", label: "Avanzado", icon: SlidersHorizontal, items: [
         { sec: "drivers", btab: "", label: "Drivers & Protocolos", icon: Camera },
@@ -481,6 +484,7 @@ export default function SettingsPage() {
                     )}
 
                     {activeSection === "playback" && <PlaybackSection />}
+                    {activeSection === "empresas" && <EmpresasSection />}
                     {activeSection === "prerec" && (
                         <div className="space-y-6 animate-in zoom-in-95 duration-500">
                             <div className="flex items-center justify-between mb-2">

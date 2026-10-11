@@ -45,6 +45,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
+import { logosPorMatricula } from "@/app/actions/empresas";
+import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
+/** Matrícula → logo de su empresa (delivery, taxi): proveedores registrados y visitas abiertas (de san-nicolas). */
+type LogosMatricula = Awaited<ReturnType<typeof logosPorMatricula>>;
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
@@ -261,7 +265,7 @@ function PlateCommandBar() {
     );
 }
 
-function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string) => void }) {
+function CenterShot({ ev, onRegister, logos }: { ev: any; onRegister?: (plate?: string) => void; logos?: LogosMatricula }) {
     const router = useRouter();
     const [flash, setFlash] = useState(false);
     const last = useRef<string | undefined>(undefined);
@@ -282,6 +286,7 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
     const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
     const dir = ev.direction;
     const tipo = tipoDeteccion(ev, (ev as any).watch);
+    const empresa = plate && logos ? logos[String(plate).toUpperCase()] : null;
     const ring = dir === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
     return (
         <div className="p-4">
@@ -299,6 +304,8 @@ function CenterShot({ ev, onRegister }: { ev: any; onRegister?: (plate?: string)
                         <ThumbImg src={crop} className="w-full h-auto object-contain bg-black" />
                     </div>
                 )}
+                {/* Logo de la empresa (delivery, taxi): abajo a la izquierda, sin tapar patente ni matrícula. */}
+                {empresa && <div className="absolute left-3 bottom-3 z-20"><LogoSobreFoto empresa={empresa} className="h-[clamp(20px,2.6vw,40px)] max-w-[9vw]" /></div>}
                 <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-3 pt-14 flex flex-col items-center">
                     {anomalous ? (
                         <div className="flex flex-col items-center gap-2">
@@ -372,7 +379,7 @@ function VehicleCardSkeleton() {
     );
 }
 
-const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking, watchMap }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string>; watchMap?: Record<string, any> }) {
+const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking, watchMap, logos }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string>; watchMap?: Record<string, any>; logos?: LogosMatricula }) {
     const router = useRouter();
     const meta = parseMeta(event.details);
     const logoUrl = getCarLogo(meta.Marca);
@@ -381,6 +388,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const hasPlaza = !!(event.plateDetected && platesWithParking && platesWithParking.has(String(event.plateDetected).toUpperCase()));
     const _wp = event.plateDetected ? String(event.plateDetected).toUpperCase() : "";
     const watch = (event as any).watch || (watchMap && _wp ? watchMap[_wp] : null);
+    const empresa = _wp && logos ? logos[_wp] : null;
     const watchMeta = watch ? watchCatMeta(watch.category) : null;
     const watchStyle = watchMeta ? { ring: watchMeta.ring, badge: watchMeta.badge, label: watchMeta.label.toUpperCase() } : null;
     const tipo = tipoDeteccion(event, watch);
@@ -390,7 +398,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
     return (
       <>
-        <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)}>
+        <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)} empresa={empresa}>
             <div className={cn(
                 "relative p-3 cursor-pointer transition-all group border-b border-border last:border-0",
                 isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent",
@@ -413,6 +421,8 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             )}
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
                             {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {empresa && <img src={empresa.logo} alt={empresa.nombre} title={empresa.nombre} className="h-4 w-auto max-w-16 object-contain" />}
                             {!watchStyle && tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && event.user?.unit?.name ? ` · ${event.user.unit.name}` : ""}</span>}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
@@ -830,6 +840,10 @@ export default function MonitorLPR() {
     const audioCtxRef = useRef<any>(null);
     const lastAlertRef = useRef<Record<string, number>>({});
     const refreshWatch = useCallback(() => { getWatchMap().then((m) => setWatchMap(m || {})).catch(() => { }); }, []);
+    // Qué matrícula es de qué empresa (con logo). Al ritmo de la lista de vigilancia: una visita nueva tarda a lo sumo un minuto.
+    const [logos, setLogos] = useState<LogosMatricula>({});
+    const refrescarLogos = useCallback(() => { logosPorMatricula().then(setLogos).catch(() => { }); }, []);
+    useEffect(() => { refrescarLogos(); const iv = setInterval(refrescarLogos, 60000); return () => clearInterval(iv); }, [refrescarLogos]);
     useEffect(() => { refreshWatch(); const iv = setInterval(refreshWatch, 60000); return () => clearInterval(iv); }, [refreshWatch]);
     // El navegador bloquea el audio hasta que el usuario interactúa: desbloqueamos el
     // AudioContext en el primer gesto (click/tecla) para que las alertas suenen.
@@ -1198,7 +1212,7 @@ export default function MonitorLPR() {
                                     <span className="text-xs">Sin capturas recientes</span>
                                 </div>
                             ) : (
-                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)
+                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} logos={logos} />)
                             )}
                         </div>
                     </div>
@@ -1206,7 +1220,7 @@ export default function MonitorLPR() {
                     {/* CENTER: fixed spotlight + independently scrolling recent list */}
                     <div className="flex flex-col overflow-hidden">
                         <div className="shrink-0">
-                            <CenterShot ev={filteredEvents[0]} onRegister={openRegister} />
+                            <CenterShot ev={filteredEvents[0]} onRegister={openRegister} logos={logos} />
                         </div>
                         <IntrusionPanel />
                         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -1215,7 +1229,7 @@ export default function MonitorLPR() {
                             </div>
                             {eventsLoading && filteredEvents.length === 0
                                 ? Array.from({ length: 6 }).map((_, i) => <VehicleCardSkeleton key={i} />)
-                                : filteredEvents.slice(1, 15).map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)}
+                                : filteredEvents.slice(1, 15).map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} logos={logos} />)}
                         </div>
                     </div>
 
@@ -1245,7 +1259,7 @@ export default function MonitorLPR() {
                                     <span className="text-xs">Sin capturas recientes</span>
                                 </div>
                             ) : (
-                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} />)
+                                filteredEvents.map(e => <VehicleCard key={e.id} event={e} onRegister={openRegister} platesWithParking={platesPark} watchMap={watchMap} logos={logos} />)
                             )}
                         </div>
                     </div>
