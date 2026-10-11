@@ -10,6 +10,7 @@ import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { img, nombreClase } from "@/components/vision/ObjetoRegistro";
 import { fechaHoraSeg, horaSeg, hace } from "@/lib/fechas";
 import { VENTANA_S, COLADO_S, type ResumenAcceso } from "@/lib/accesos-vision-comun";
+import { useNombresPropios } from "@/lib/nombres-propios";
 
 /**
  * OmniVision › Accesos (fase 2): lo que cruzó la línea de conteo de cada cámara de acceso,
@@ -29,6 +30,7 @@ const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)} %` : "�
 const SENTIDO: Record<string, string> = { ab: "de A a B", ba: "de B a A" };
 
 export default function AccesosVision() {
+    useNombresPropios();  // las clases del detector propio con su nombre, no «propio:…»
     const [h, setH] = useState("24");
     const [datos, setDatos] = useState<Respuesta | null>(null);
     const [error, setError] = useState<string | null>(null);

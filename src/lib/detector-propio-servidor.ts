@@ -1,8 +1,13 @@
+import fs from "fs";
+import path from "path";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
-import { LADO_MAX, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
+import { LADO_MAX, PARIDAD_MIN, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
+
+/** Setting con el detector propio activo (quién, cuándo, qué clases). */
+const CLAVE_ACTIVO = "DETECTOR_PROPIO_ACTIVO";
 
 /** El bucket del registro de visión: las fotos de entrenamiento son de las mismas cámaras. */
 export const BUCKET = process.env.VISION_BUCKET || "objetos";
@@ -43,4 +48,42 @@ export async function filaFoto(f: any, camaras?: Map<string, string>): Promise<F
         id: f.id, url: `/api/vision/imagen/${f.clave}`, ancho: f.ancho, alto: f.alto, origen: f.origen, deviceId: f.deviceId,
         camara: f.deviceId ? camaras?.get(f.deviceId) ?? null : null, cajas: (f.cajas as Caja[]) || [], revisada: f.revisada, createdAt: f.createdAt.toISOString(),
     };
+}
+
+/**
+ * El detector propio ACTIVO: el que omni-vision corre al lado del de fábrica. Vive en
+ * entrenamientos/activo/ (montada en omni-vision como /propio, ver services/omni-vision/run.sh):
+ * `modelo.onnx` y `modelo.json`. omni-vision mira la fecha de modelo.json cada 20 s y recarga;
+ * por eso se escribe primero el ONNX y al final el json, y los dos con renombre (de una vez).
+ */
+const CARPETAS = process.env.ENTRENAMIENTOS_DIR || path.join(process.cwd(), "entrenamientos");
+const ACTIVO = path.join(CARPETAS, "activo");
+export type Activo = { entrenamiento: string; clases: { id: string; nombre: string }[]; umbral: number; activadoAt: string; activadoPor: string | null };
+
+export async function activar(t: { id: string; carpeta: string | null; resultado: any }, quien: string | null): Promise<Activo> {
+    const r = t.resultado;
+    const onnx = path.join(t.carpeta || path.join(CARPETAS, t.id), "modelo.onnx");
+    if (!r?.ok || !fs.existsSync(onnx)) throw new Error("Ese entrenamiento no dejó un modelo.");
+    if (r.paridad != null && r.paridad < PARIDAD_MIN) throw new Error("El modelo exportado no da lo mismo que el entrenado: no se activa.");
+    fs.mkdirSync(ACTIVO, { recursive: true });
+    fs.copyFileSync(onnx, path.join(ACTIVO, ".modelo.onnx.tmp"));
+    fs.renameSync(path.join(ACTIVO, ".modelo.onnx.tmp"), path.join(ACTIVO, "modelo.onnx"));
+    const meta = { entrenamiento: t.id, clases: r.clases, umbral: r.medicion?.umbral ?? 0.4, preproceso: r.preproceso, resolucion: r.resolucion };
+    fs.writeFileSync(path.join(ACTIVO, ".modelo.json.tmp"), JSON.stringify(meta));
+    fs.renameSync(path.join(ACTIVO, ".modelo.json.tmp"), path.join(ACTIVO, "modelo.json"));
+    const activo: Activo = { entrenamiento: t.id, clases: r.clases.map((c: any) => ({ id: c.id, nombre: c.nombre })), umbral: meta.umbral, activadoAt: new Date().toISOString(), activadoPor: quien };
+    await prisma.setting.upsert({ where: { key: CLAVE_ACTIVO }, update: { value: JSON.stringify(activo) }, create: { key: CLAVE_ACTIVO, value: JSON.stringify(activo) } });
+    return activo;
+}
+
+/** Saca el detector propio: omni-vision lo suelta en su próxima mirada (≤ 20 s). */
+export async function desactivar(): Promise<void> {
+    for (const f of ["modelo.json", "modelo.onnx"]) fs.rmSync(path.join(ACTIVO, f), { force: true });
+    await prisma.setting.deleteMany({ where: { key: CLAVE_ACTIVO } });
+}
+
+export async function activoActual(): Promise<Activo | null> {
+    const s = await prisma.setting.findUnique({ where: { key: CLAVE_ACTIVO } });
+    if (!s || !fs.existsSync(path.join(ACTIVO, "modelo.json"))) return null;
+    try { return JSON.parse(s.value); } catch { return null; }
 }

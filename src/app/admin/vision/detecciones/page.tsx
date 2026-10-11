@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ListVideo, Camera, Loader2, Activity, User, Car, PawPrint, Backpack, Shapes,
-    type LucideIcon,
-} from "lucide-react";
+    type LucideIcon, Boxes } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -13,6 +12,7 @@ import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { TarjetaObjeto as Tarjeta, FichaObjeto as Ficha, pct, hora, fecha, duracion, nombreClase, type FilaObjeto as Fila } from "@/components/vision/ObjetoRegistro";
+import { useNombresPropios } from "@/lib/nombres-propios";
 
 /**
  * Detecciones: lo que guardó el registro de detecciones (vision-worker).
@@ -47,6 +47,8 @@ const RANGOS = [{ v: "1", r: "1 h" }, { v: "6", r: "6 h" }, { v: "24", r: "24 h"
 const GRUPOS: { v: string; r: string; icono: LucideIcon }[] = [
     { v: "", r: "Todo", icono: Shapes }, { v: "persona", r: "Personas", icono: User }, { v: "vehiculo", r: "Vehículos", icono: Car },
     { v: "animal", r: "Animales", icono: PawPrint }, { v: "objeto", r: "Bultos", icono: Backpack },
+    // Lo que encuentra el detector propio (OmniVision › Entrenar › Objetos nuevos). Sólo se ofrece si hay.
+    { v: "propio", r: "Propios", icono: Boxes },
 ];
 
 
@@ -58,6 +60,7 @@ function haceCuanto(iso: string | null) {
 
 
 export default function DeteccionesVision() {
+    useNombresPropios();  // las clases del detector propio con su nombre, no «propio:…»
     const [datos, setDatos] = useState<Respuesta | null>(null);
     const [mas, setMas] = useState<Fila[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -192,7 +195,7 @@ export default function DeteccionesVision() {
                 <Filtros grupos={[
                     { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
                     { clave: "rotulo", titulo: "Rotulado", valor: conRotulo ? "si" : "", alElegir: (v) => setConRotulo(v === "si"), opciones: [{ valor: "", rotulo: "Todo" }, { valor: "si", rotulo: "Con texto leído" }] },
-                    { clave: "grupo", titulo: "Qué", valor: grupo, alElegir: (v) => { setGrupo(v); setClase(""); }, opciones: GRUPOS.map((g) => ({ valor: g.v, rotulo: g.r, cuenta: porGrupo(g.v) })) },
+                    { clave: "grupo", titulo: "Qué", valor: grupo, alElegir: (v) => { setGrupo(v); setClase(""); }, opciones: GRUPOS.filter((g) => g.v !== "propio" || porGrupo("propio") > 0 || grupo === "propio").map((g) => ({ valor: g.v, rotulo: g.r, cuenta: porGrupo(g.v) })) },
                 ]} />
                 {datos.porClase.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">

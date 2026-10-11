@@ -18,6 +18,6 @@ WORKDIR /app
 # Los pesos de partida se bajan al construir (rfdetr los guarda en la carpeta actual): entrenar
 # no depende de internet.
 RUN python -c "import rfdetr; rfdetr.RFDETRNano(); rfdetr.RFDETRSmall()" && ls -la /app
-COPY omni-vision/detector.py omni-vision/motor.py omni-entrenador/entrenar.py ./
+COPY omni-vision/detector.py omni-vision/motor.py omni-vision/propio.py omni-entrenador/entrenar.py ./
 ENV PYTHONUNBUFFERED=1 OMP_NUM_THREADS=3
 ENTRYPOINT ["python", "entrenar.py"]

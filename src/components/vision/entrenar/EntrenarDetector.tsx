@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CircleAlert, Clock, Cpu, Loader2, Moon, Play, Square, Zap } from "lucide-react";
+import { CircleAlert, CircleCheck, Clock, Cpu, Loader2, Moon, Play, Power, Square, Zap } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Chip, ErrorEstado } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
-import { MODELOS_ENTRENAMIENTO, PARAMETROS_DEFECTO, type ClaseResumen } from "@/lib/detector-propio";
+import { MODELOS_ENTRENAMIENTO, PARAMETROS_DEFECTO, PARIDAD_MIN, type ClaseResumen } from "@/lib/detector-propio";
 import { fechaHoraSeg } from "@/lib/fechas";
 
 /**
@@ -40,6 +40,8 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
     const [cuando, setCuando] = useState<"noche" | "ahora">("noche");
     const [aunAsi, setAunAsi] = useState(false);
     const [mandando, setMandando] = useState(false);
+    const [activo, setActivo] = useState<{ activo: any; enVision: any } | null>(null);
+    const [activando, setActivando] = useState<string | null>(null);
 
     const cargar = useCallback(async () => {
         try {
@@ -47,9 +49,22 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
             const j = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
             setDatos(j); setError(null);
+            fetch("/api/vision/objetos/activo", { cache: "no-store" }).then((x) => (x.ok ? x.json() : null)).then((a) => a && setActivo(a)).catch(() => { });
         } catch (e: any) { setError(e?.message || "No se pudo leer"); }
     }, []);
     useEffect(() => { cargar(); const iv = setInterval(cargar, REFRESCO_MS); return () => clearInterval(iv); }, [cargar]);
+
+    async function usar(id: string | null) {
+        setActivando(id || "sacar");
+        try {
+            const r = await fetch("/api/vision/objetos/activo", id ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entrenamiento: id }) } : { method: "DELETE" });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            toast.success(id ? { title: "En uso en las cámaras", description: "omni-vision lo toma en menos de 20 s, en todas las cámaras que analiza." } : { title: "Ya no se usa", description: "Lo registrado con él queda." });
+            await cargar();
+        } catch (e: any) { toast.error({ title: id ? "No se activó" : "No se sacó", description: e?.message }); }
+        finally { setActivando(null); }
+    }
 
     async function pedir() {
         setMandando(true);
@@ -72,7 +87,7 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
     if (error && !datos) return <ErrorEstado mensaje={error} alReintentar={cargar} />;
     if (!datos) return null;
     const ent = datos.entrenador;
-    const activo = datos.entrenamientos.find((t) => ACTIVOS.includes(t.estado));
+    const enCurso = datos.entrenamientos.find((t) => ACTIVOS.includes(t.estado));
     const nombre = (id: string) => clases.find((c) => c.id === id)?.nombre || id;
 
     return (
@@ -85,7 +100,16 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
                         : <Chip tono="bien">Entrenador listo · ventana {ent.ventana}</Chip>}
             </div>
 
-            {activo ? <EnCurso t={activo} alCancelar={() => cancelar(activo.id)} /> : (
+            {activo?.activo && (
+                <div className="rounded-[10px] border chip-bien px-3.5 py-2.5 flex items-center gap-2 flex-wrap text-[12.5px]">
+                    <CircleCheck size={15} />
+                    <span><b>En uso en las cámaras:</b> {activo.activo.clases.map((c: any) => c.nombre).join(", ")} · umbral {activo.activo.umbral}</span>
+                    <span className="text-foreground/70">{activo.enVision?.activo && activo.enVision.entrenamiento === activo.activo.entrenamiento ? "· omni-vision lo cargó" : activo.enVision?.error ? `· omni-vision no lo pudo cargar: ${activo.enVision.error}` : "· omni-vision lo toma en menos de 20 s"}</span>
+                    <Button size="sm" variant="outline" className="ml-auto" onClick={() => usar(null)} disabled={activando === "sacar"}><Power size={13} /> Dejar de usar</Button>
+                </div>
+            )}
+
+            {enCurso ? <EnCurso t={enCurso} alCancelar={() => cancelar(enCurso.id)} /> : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                         <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Modelo</div>
@@ -123,8 +147,10 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
             {datos.entrenamientos.filter((t) => !ACTIVOS.includes(t.estado)).length > 0 && (
                 <div className="space-y-2">
                     <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Anteriores</div>
-                    {datos.entrenamientos.filter((t) => !ACTIVOS.includes(t.estado)).map((t) => <Terminado key={t.id} t={t} nombre={nombre} />)}
-                    <p className="text-[11.5px] text-muted-foreground">El modelo entrenado todavía no se usa en las cámaras: activarlo es el paso siguiente.</p>
+                    {datos.entrenamientos.filter((t) => !ACTIVOS.includes(t.estado)).map((t) => (
+                        <Terminado key={t.id} t={t} nombre={nombre} enUso={activo?.activo?.entrenamiento === t.id} ocupado={activando === t.id}
+                            alUsar={() => usar(t.id)} />
+                    ))}
                 </div>
             )}
         </section>
@@ -165,7 +191,9 @@ function EnCurso({ t, alCancelar }: { t: Entrenamiento; alCancelar: () => void }
     );
 }
 
-function Terminado({ t, nombre }: { t: Entrenamiento; nombre: (id: string) => string }) {
+function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
+    t: Entrenamiento; nombre: (id: string) => string; enUso: boolean; ocupado: boolean; alUsar: () => void;
+}) {
     const [abierto, setAbierto] = useState(false);
     const r = t.resultado;
     const e = ESTADO[t.estado] || { t: t.estado, tono: "quieto" as const };
@@ -179,6 +207,13 @@ function Terminado({ t, nombre }: { t: Entrenamiento; nombre: (id: string) => st
                 {r?.segundos != null && <span className="text-muted-foreground tabular-nums">· {Math.round(r.segundos / 60)} min</span>}
                 {t.conjunto?.corto?.length > 0 && <Chip tono="quieto">de prueba: conjunto chico</Chip>}
                 {med && <span className="ml-auto font-semibold">F1 {pct(med.f1)} · umbral {med.umbral}</span>}
+                {/* Se puede usar si dejó modelo y el ONNX da lo mismo que lo entrenado (lo medido vale). */}
+                {enUso ? <Chip tono="bien" icono={CircleCheck}>En uso</Chip>
+                    : r?.ok && (r.paridad == null || r.paridad >= PARIDAD_MIN) && (t.estado === "LISTO" || t.estado === "CANCELADO") && (
+                        <Button size="sm" variant={med?.f1 ? "default" : "outline"} onClick={alUsar} disabled={ocupado} title={t.conjunto?.corto?.length ? "Se entrenó con un conjunto chico: sirve para probar" : undefined}>
+                            {ocupado ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />} Usar en las cámaras
+                        </Button>
+                    )}
             </div>
             {med && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -190,7 +225,7 @@ function Terminado({ t, nombre }: { t: Entrenamiento; nombre: (id: string) => st
                     ))}
                 </div>
             )}
-            {r && r.paridad != null && r.paridad < 0.9 && <p className="text-[12px] tono-aviso">El ONNX no da lo mismo que el modelo entrenado (paridad {pct(r.paridad)}): no conviene usarlo.</p>}
+            {r && r.paridad != null && r.paridad < PARIDAD_MIN && <p className="text-[12px] tono-aviso">El ONNX no da lo mismo que el modelo entrenado (paridad {pct(r.paridad)}): no conviene usarlo.</p>}
             {r && r.paridad == null && t.estado === "LISTO" && <p className="text-[12px] text-muted-foreground">No se pudo comprobar la paridad del ONNX: el modelo no dio ninguna detección en validación.</p>}
             {r?.conjunto?.valida_sobre_las_mismas && <p className="text-[12px] text-muted-foreground">Con tan pocas fotos se validó sobre las mismas del entrenamiento: la medición es optimista.</p>}
             {t.error && (

@@ -157,7 +157,7 @@ export function validarReglas(x: unknown): { reglas: ReglaVision[]; errores: str
         const regla: ReglaVision = {
             id: String(r.id || "").replace(/[^a-z0-9-]/gi, "").slice(0, 40) || Math.random().toString(36).slice(2, 12),
             tipo, deviceId: String(r.deviceId), nombre, activa: r.activa !== false,
-            clases: (Array.isArray(r.clases) ? r.clases : t.clasesDefecto).map(String).filter((c: string) => /^[a-z ]+$/.test(c)).slice(0, 20),
+            clases: (Array.isArray(r.clases) ? r.clases : t.clasesDefecto).map(String).filter((c: string) => /^([a-z ]+|propio:[a-z0-9]+)$/.test(c)).slice(0, 20),
             avisar: typeof r.avisar === "boolean" ? r.avisar : t.avisarDefecto,
         };
         if (!regla.clases.length) { errores.push(`${nombre}: elegí al menos una clase`); continue; }

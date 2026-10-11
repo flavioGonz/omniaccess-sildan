@@ -44,6 +44,12 @@ export const EPOCAS_MAX = 200;
  */
 export const PARAMETROS_DEFECTO = { modelo: "RFDETRNano", epocas: 80, lote: 4, acumular: 4, lr: 1e-4, max_minutos: 180, paciencia: 15, hilos: 2, semilla: 7 };
 
+/**
+ * Debajo de esto el ONNX no da lo mismo que el modelo entrenado (con el pre/posproceso de
+ * omni-vision): lo medido no vale para lo que correría, y no se deja activar.
+ */
+export const PARIDAD_MIN = 0.9;
+
 export type Caja = { clase: string; caja: [number, number, number, number] };
 export type ClaseResumen = { id: string; nombre: string; descripcion: string | null; cajas: number; fotos: number };
 export type FotoFila = {

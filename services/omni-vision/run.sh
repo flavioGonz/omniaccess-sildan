@@ -16,8 +16,11 @@ set -e
 cd "$(dirname "$0")"
 [ "${SIN_BUILD:-0}" = "1" ] || docker build -t omni-vision:gpu .
 docker rm -f omni-vision 2>/dev/null || true
+# El detector propio activo (lo escribe la app al activar un entrenamiento). Vacía = no hay.
+mkdir -p "${VISION_PROPIO_DIR:-/opt/OmniAccess/entrenamientos/activo}"
 docker run -d --name omni-vision --gpus all --restart unless-stopped \
   -p 127.0.0.1:8010:8010 \
+  -v "${VISION_PROPIO_DIR:-/opt/OmniAccess/entrenamientos/activo}":/propio:ro \
   -e VISION_MODELO="${VISION_MODELO:-rfdetr-small}" \
   --cpus 2 --memory "${VISION_MEMORIA:-6g}" \
   omni-vision:gpu

@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo } from "react";
-import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Dog, Luggage, Motorbike, PawPrint, ScanEye, Truck, User, type LucideIcon } from "lucide-react";
+import { Backpack, Bike, Bird, Briefcase, Bus, Car, Cat, Dog, Luggage, Motorbike, PawPrint, ScanEye, Truck, User, type LucideIcon, Boxes } from "lucide-react";
 import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type Pt } from "@/lib/vision-capa";
 
 /**
@@ -29,7 +29,7 @@ const ICONO_CLASE: Record<string, LucideIcon> = {
     person: User, car: Car, truck: Truck, bus: Bus, motorcycle: Motorbike, bicycle: Bike,
     dog: Dog, cat: Cat, bird: Bird, backpack: Backpack, handbag: Briefcase, suitcase: Luggage,
 };
-const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo: Car, animal: PawPrint };
+const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo: Car, animal: PawPrint, propio: Boxes };
 
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");

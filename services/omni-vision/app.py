@@ -41,6 +41,7 @@ from motor import Cola, Modelo
 from seguimiento import Sesiones
 from texto import Lector
 from busqueda import Buscador, vector_imagen
+from propio import Propio
 
 CARPETA = Path(os.environ.get("VISION_MODELOS", "/modelos"))
 MODELO = os.environ.get("VISION_MODELO", "rfdetr-small")
@@ -68,6 +69,7 @@ describidor = Describidor(CARPETA)
 sesiones = Sesiones()
 lector = Lector()
 buscador = Buscador(CARPETA)
+propio = Propio()
 NOMBRE_MODELO = {"detectar": MODELO, "segmentar": MODELO_SILUETAS, "pose": MODELO_POSE}
 arranque = time.time()
 
@@ -264,6 +266,7 @@ def salud():
             "texto": {"modelo": "RapidOCR · PP-OCR", "licencia": "Apache-2.0", **lector.estado(), "activa": "texto" not in apagadas},
         },
         "busqueda": buscador.estado(),
+        "propio": propio.estado(),
         "seguimiento": {"sesiones": sesiones.cuantas(), "licencia": "Apache-2.0 (trackers · ByteTrack)", "activa": "seguimiento" not in apagadas},
         "apagadas": sorted(apagadas),
         # Lo medido por tarea (ver _paso) y lo que ocupa el proceso entero ahora.
@@ -291,6 +294,14 @@ def _procesar(datos: bytes, tarea: str, umbral: float, atributos: bool, sesion: 
         return D.decodificar(s["dets"], s["labels"], ancho, alto, umbral)
     objetos = _paso(tarea, principal)
     pasos[tarea] = round(float(m.ultimo_ms), 1)
+    # El detector propio (si hay uno activo) mira la misma imagen y suma sus objetos antes del
+    # seguimiento, así tienen pista como los demás. No en la pose: es sólo de personas.
+    if tarea != "pose" and propio.activo():
+        try:
+            objetos = objetos + propio.detectar(img)
+            pasos["propio"] = round(float(propio.modelo.ultimo_ms), 1)
+        except Exception as e:  # un modelo propio roto no tira la detección de fábrica
+            propio.error = f"{type(e).__name__}: {e}"
     if atributos and objetos:
         n = _paso("atributos", lambda: describidor.describir(img, objetos))
         if n:

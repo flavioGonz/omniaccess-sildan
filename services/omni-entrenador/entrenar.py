@@ -209,7 +209,8 @@ def main() -> None:
         return [(int(c), [x1 / w, y1 / h, x2 / w, y2 / h]) for (x1, y1, x2, y2), c in zip(d.xyxy.tolist(), d.class_id.tolist())]
 
     sys.path.insert(0, str(Path(__file__).parent))  # detector.py y motor.py van al lado (Dockerfile)
-    from detector import decodificar, preparar_lineal as preparar  # el mismo archivo que omni-vision (sin antialias, como rfdetr)
+    from detector import decodificar  # los mismos archivos que omni-vision
+    from propio import preparar_lineal as preparar  # sin antialias, como rfdetr
     from motor import Modelo
     m_onnx = Modelo(str(TRABAJO / "modelo.onnx"), "detectar", usar_gpu=False)
     nombres = {i: f"propio:{c['id']}" for i, c in enumerate(clases)}

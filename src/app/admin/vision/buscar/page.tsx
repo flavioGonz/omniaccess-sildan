@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Backpack, Bike, Camera, Car, Clock, Dog, HardHat, Layers, Loader2, PawPrint, ScanSearch, Search, Truck, User, Video, X } from "lucide-react";
+import { Backpack, Bike, Camera, Car, Clock, Dog, HardHat, Layers, Loader2, PawPrint, ScanSearch, Search, Truck, User, Video, X, Boxes } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Pista } from "@/components/ui/pista";
@@ -10,6 +10,7 @@ import { Filtros } from "@/components/ui/filtros";
 import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { TarjetaObjeto, FichaObjeto, img, nombreClase, fecha, hora, type FilaObjeto } from "@/components/vision/ObjetoRegistro";
 import { FotoParaBuscar, type FotoElegida } from "@/components/vision/FotoParaBuscar";
+import { useNombresPropios } from "@/lib/nombres-propios";
 
 /**
  * OmniVision › Buscar: encontrar en lo que vieron las cámaras algo escrito con palabras
@@ -27,7 +28,7 @@ type Resultado = FilaObjeto & { coseno: number; prob: number | null };
 type Respuesta = { resultados: Resultado[]; comparados: number; sinHuella: number; h: number; ms: number; modo: "texto" | "parecido" | "foto" };
 
 const RANGOS = [{ v: "24", r: "24 h" }, { v: "168", r: "7 días" }, { v: "720", r: "30 días" }];
-const GRUPOS = [{ v: "", r: "Todo", i: Layers }, { v: "persona", r: "Personas", i: User }, { v: "vehiculo", r: "Vehículos", i: Car }, { v: "animal", r: "Animales", i: PawPrint }, { v: "objeto", r: "Bultos", i: Backpack }];
+const GRUPOS = [{ v: "", r: "Todo", i: Layers }, { v: "persona", r: "Personas", i: User }, { v: "vehiculo", r: "Vehículos", i: Car }, { v: "animal", r: "Animales", i: PawPrint }, { v: "objeto", r: "Bultos", i: Backpack }, { v: "propio", r: "Propios", i: Boxes }];
 /**
  * Para arrancar: lo que se suele buscar en un barrio. Iban como seis píldoras arriba de los
  * filtros, siempre a la vista: una fila más de ruido justo cuando ya se estaba buscando otra
@@ -50,6 +51,8 @@ const EJEMPLOS = [
 const PROB_PARECE = 0.01;
 
 export default function BuscarVision() {
+    // Las clases del detector propio con su nombre (no «propio:…»), y si hay para ofrecer el filtro.
+    const hayPropias = useNombresPropios() > 0;
     const [texto, setTexto] = useState("");
     const [pedido, setPedido] = useState<{ q?: string; parecido?: FilaObjeto; foto?: FotoElegida } | null>(null);
     const [archivo, setArchivo] = useState<File | null>(null);
@@ -162,7 +165,7 @@ export default function BuscarVision() {
                 <Clock size={15} className="text-muted-foreground" />
                 <Filtros solido grupos={[
                     { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
-                    { clave: "g", titulo: "Qué", valor: grupo, alElegir: setGrupo, opciones: GRUPOS.map((x) => ({ valor: x.v, rotulo: x.r, icono: x.i })) },
+                    { clave: "g", titulo: "Qué", valor: grupo, alElegir: setGrupo, opciones: GRUPOS.filter((x) => x.v !== "propio" || hayPropias).map((x) => ({ valor: x.v, rotulo: x.r, icono: x.i })) },
                 ]} />
                 <label className={cn("relative inline-flex items-center h-[34px] rounded-lg pl-2.5 pr-2 gap-1.5 text-[12px] font-semibold cursor-pointer",
                     camara ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-foreground")}>

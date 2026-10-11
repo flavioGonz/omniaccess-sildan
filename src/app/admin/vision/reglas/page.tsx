@@ -20,6 +20,7 @@ import {
     TIPOS_REGLA, CLASES_REGLA, CLASES_OBJETO, CON_HORARIO, NOMBRE_CLASE_REGLA, TIPOS_EVENTO, duracionCorta,
     type ReglaVision, type TipoRegla, type Punto,
 } from "@/lib/vision-reglas";
+import { listaPropias, nombrePropio, useNombresPropios } from "@/lib/nombres-propios";
 
 /**
  * Reglas de visión: conteo por línea, sentido contrario, tiempo de permanencia y aglomeración.
@@ -74,6 +75,7 @@ function reglaNueva(tipo: TipoRegla, deviceId: string): ReglaVision {
 }
 
 export default function ReglasVision() {
+    useNombresPropios();  // para ofrecer y nombrar las clases del detector propio
     const [datos, setDatos] = useState<Respuesta | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [editando, setEditando] = useState<ReglaVision | null>(null);
@@ -285,7 +287,7 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: Reg
             )}
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                 {r.avisar ? <span className="inline-flex items-center gap-1"><BellRing size={11} /> avisa a la guardia</span> : <span className="inline-flex items-center gap-1"><BellOff size={11} /> sólo registra</span>}
-                <span>· {r.clases.map((c) => NOMBRE_CLASE_REGLA[c] || c).join(", ")}</span>
+                <span>· {r.clases.map((c) => NOMBRE_CLASE_REGLA[c] || nombrePropio(c) || c).join(", ")}</span>
             </div>
         </div>
     );
@@ -379,7 +381,9 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
 
                 <CajonSeccion titulo="Qué cuenta">
                     <div className="flex flex-wrap gap-1.5">
-                        {(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA).map((c) => {
+                        {/* Las clases del detector propio (Entrenar › Objetos nuevos) se ofrecen en todas: un contenedor
+                            puede faltar (retirado), quedarse en una zona o cruzar una línea. */}
+                        {[...(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA), ...listaPropias()].map((c) => {
                             const on = r.clases.includes(c.clase);
                             return (
                                 <button key={c.clase} type="button" aria-pressed={on} onClick={() => cambiar({ clases: on ? r.clases.filter((x) => x !== c.clase) : [...r.clases, c.clase] })}

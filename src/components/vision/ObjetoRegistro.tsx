@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Type, Video, Clock, Route, User, Car, PawPrint, Backpack, Shapes, ScanSearch, type LucideIcon } from "lucide-react";
+import { Type, Video, Clock, Route, User, Car, PawPrint, Backpack, Shapes, ScanSearch, type LucideIcon, Boxes } from "lucide-react";
+import { nombrePropio } from "@/lib/nombres-propios";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Chip } from "@/components/ui/estados";
@@ -36,8 +37,8 @@ export function duracion(a: string, b: string) {
     const s = Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 1000));
     return s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
 }
-export const nombreClase = (c: string) => CLASE_POR_NOMBRE[c]?.nombre || c;
-export const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo: Car, animal: PawPrint, objeto: Backpack };
+export const nombreClase = (c: string) => nombrePropio(c) ?? CLASE_POR_NOMBRE[c]?.nombre ?? c;
+export const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo: Car, animal: PawPrint, objeto: Backpack, propio: Boxes };
 
 export function AtributosCortos({ a, max = 2 }: { a: Atributo[] | null; max?: number }) {
     const claros = (a || []).filter((x) => !x.dudoso && !(x.tipo === "si_no" && x.valor === "no"));
