@@ -43,9 +43,11 @@ function veredicto(f1: number) {
         : f1 >= F1_SIRVE ? { t: "Sirve, con cuidado", tono: "aviso" as const, d: "Anda, pero conviene revisar lo que marca en Detecciones los primeros días." }
             : { t: "Todavía no", tono: "mal" as const, d: "Se equivoca demasiado: hacen falta más fotos dibujadas." };
 }
+/** Debajo de esta proporción de errores (sobre los recuadros de la clase) no vale la pena aconsejar nada. */
+const ERROR_PARA_CONSEJO = 0.1;
 /** El consejo que sale de los números: qué tipo de foto sumar. */
-function consejo(escapados: number, deMas: number) {
-    if (!escapados && !deMas) return null;
+function consejo(escapados: number, deMas: number, recuadros: number) {
+    if (Math.max(escapados, deMas) <= Math.max(1, recuadros * ERROR_PARA_CONSEJO)) return null;
     return escapados >= deMas
         ? "Se le escapan: sumá fotos donde el objeto se vea chico, lejos, de noche o tapado en parte."
         : "Marca de más: sumá fotos del mismo lugar SIN el objeto, y marcalas con «No hay ninguno».";
@@ -227,7 +229,7 @@ function EnCurso({ t, alCancelar }: { t: Entrenamiento; alCancelar: () => void }
     );
 }
 
-function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
+export function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
     t: Entrenamiento; nombre: (id: string) => string; enUso: boolean; ocupado: boolean; alUsar: () => void;
 }) {
     const [abierto, setAbierto] = useState(false);
@@ -246,7 +248,7 @@ function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
                 {/* Se puede usar si dejó modelo y el ONNX da lo mismo que lo entrenado (lo medido vale). */}
                 {enUso ? <Chip tono="bien" icono={CircleCheck}>En uso</Chip>
                     : r?.ok && (r.paridad == null || r.paridad >= PARIDAD_MIN) && (t.estado === "LISTO" || t.estado === "CANCELADO") && (
-                        <Button size="sm" variant={med?.f1 ? "default" : "outline"} onClick={alUsar} disabled={ocupado} title={t.conjunto?.corto?.length ? "Se entrenó con un conjunto chico: sirve para probar" : undefined}>
+                        <Button size="sm" variant={(med?.f1 || 0) >= F1_SIRVE ? "default" : "outline"} onClick={alUsar} disabled={ocupado} title={t.conjunto?.corto?.length ? "Se entrenó con un conjunto chico: sirve para probar" : undefined}>
                             {ocupado ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />} Usar en las cámaras
                         </Button>
                     )}
@@ -262,11 +264,11 @@ function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                             {Object.entries(med.por_clase || {}).map(([id, c]: [string, any]) => {
                                 const escapados = c.recuadros - c.encontrados;
-                                const tip = consejo(escapados, c.de_mas);
+                                const tip = consejo(escapados, c.de_mas, c.recuadros);
                                 return (
                                     <div key={id} className="rounded-[8px] bg-muted/50 px-3 py-2.5 text-[12px] space-y-1">
                                         <div className="font-bold text-[13px]">{nombre(id)}</div>
-                                        <div className="tabular-nums"><b>Encontró {c.encontrados} de {c.recuadros}</b>{escapados ? ` · se le escaparon ${escapados}` : " · no se le escapó ninguno"}</div>
+                                        <div className="tabular-nums"><b>Encontró {c.encontrados} de {c.recuadros}</b>{escapados ? ` · se le ${escapados === 1 ? "escapó 1" : `escaparon ${escapados}`}` : " · no se le escapó ninguno"}</div>
                                         <div className="tabular-nums">{c.de_mas ? <>Marcó <b>{c.de_mas}</b> donde no había</> : "No marcó nada donde no había"}</div>
                                         {tip && <div className="text-muted-foreground leading-snug">{tip}</div>}
                                     </div>
