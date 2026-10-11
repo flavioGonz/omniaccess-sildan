@@ -131,6 +131,22 @@ def preparar(imagen: Image.Image, resolucion: int, medias=MEDIAS, desvios=DESVIO
     return x[None].astype(np.float32)
 
 
+def preparar_lineal(imagen: Image.Image, resolucion: int, medias=MEDIAS, desvios=DESVIOS) -> np.ndarray:
+    """Igual que `preparar`, pero achicando SIN antialias, como rfdetr (F.resize(antialias=False) ≡
+    cv2.INTER_LINEAR) al entrenar y en `predict`.
+
+    Lo usa el detector propio. Los modelos de fábrica siguen con `preparar` (PIL, con antialias):
+    pasan la paridad con 0,05 de tolerancia y cambiarles la entrada es cambiar lo que ya está
+    verificado. Uno afinado con pocas fotos es más sensible: medido el 10/10 sobre cuadros de
+    704×576, con PIL la confianza se corría hasta 0,06-0,13 y aparecían cajas que rfdetr no da.
+    """
+    import cv2
+    x = np.asarray(imagen.convert("RGB"), dtype=np.float32) / 255.0
+    x = cv2.resize(x, (resolucion, resolucion), interpolation=cv2.INTER_LINEAR).transpose(2, 0, 1)
+    x = (x - medias) / desvios
+    return x[None].astype(np.float32)
+
+
 def _caja(cajas: np.ndarray, consulta: int, ancho: int, alto: int):
     cx, cy, w, h = (float(v) for v in cajas[0, consulta])
     x1 = min(max((cx - w / 2), 0.0), 1.0); y1 = min(max((cy - h / 2), 0.0), 1.0)

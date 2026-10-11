@@ -1399,3 +1399,32 @@ model FotoEntrenamiento {
 
   @@index([revisada, createdAt])
 }
+
+/// Un entrenamiento del detector propio. Lo corre scripts/entrenador.js (pm2) en el contenedor
+/// omni-entrenador: lo pone en cola la pantalla, y el entrenador lo toma cuando le toca (de noche,
+/// o ya si se pidió «ahora»), para omni-vision mientras usa la GPU y lo vuelve a levantar.
+model EntrenamientoDetector {
+  id          String    @id @default(cuid())
+  /// EN_COLA | PREPARANDO | ENTRENANDO | EXPORTANDO | LISTO | FALLO | CANCELADO
+  estado      String    @default("EN_COLA")
+  /// "noche" (dentro de la ventana de ENTRENADOR_VENTANA) | "ahora"
+  cuando      String    @default("noche")
+  /// { modelo, epocas, lote, acumular, lr, max_minutos, semilla }
+  parametros  Json
+  /// Las clases y cuántas fotos/recuadros había al ponerlo en cola (el conjunto puede cambiar después).
+  conjunto    Json?
+  /// Lo último de progreso.json: época, de cuántas, métricas de validación.
+  progreso    Json?
+  /// resultado.json: medición por clase, umbral elegido, paridad con rfdetr, clases del ONNX.
+  resultado   Json?
+  error       String?
+  /// Carpeta del trabajo en el CT (crudo/, coco/, salida/, modelo.onnx).
+  carpeta     String?
+  pedidoPor   String?
+  cancelar    Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  iniciadoAt  DateTime?
+  terminadoAt DateTime?
+
+  @@index([estado, createdAt])
+}

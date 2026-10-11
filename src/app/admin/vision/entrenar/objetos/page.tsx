@@ -12,13 +12,13 @@ import { Pista } from "@/components/ui/pista";
 import { ErrorEstado, Cargando } from "@/components/ui/estados";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { Anotador } from "@/components/vision/entrenar/Anotador";
+import { EntrenarDetector } from "@/components/vision/entrenar/EntrenarDetector";
 import { CAJAS_META, CAJAS_MINIMO, LARGO_NOMBRE, NEGATIVAS_FRACCION, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
 
 /**
  * OmniVision › Entrenar › Objetos nuevos: el conjunto de fotos para enseñarle al detector cosas
- * que no trae de fábrica. Es el primer paso del detector propio —juntar y dibujar—; el
- * entrenamiento en sí es el siguiente, y la pantalla no muestra un botón que todavía no hace
- * nada: dice qué falta para llegar.
+ * que no trae de fábrica, y el entrenamiento (EntrenarDetector). Usar el modelo entrenado en las
+ * cámaras es el paso siguiente, y la pantalla lo dice.
  */
 type Estado = { clases: ClaseResumen[]; fotos: { total: number; revisadas: number; sinRevisar: number; negativas: number }; falta: string[] };
 
@@ -175,7 +175,7 @@ export default function ObjetosPropios() {
                                 <span className="font-semibold text-foreground">Para poder entrenar falta:</span>
                                 <ul className="list-disc pl-5 mt-1 space-y-0.5">{estado.falta.map((x) => <li key={x}>{x}</li>)}</ul>
                             </>
-                        ) : <span className="tono-bien font-semibold">El conjunto alcanza para entrenar. El entrenamiento es el paso siguiente: todavía no está en esta pantalla.</span>}
+                        ) : <span className="tono-bien font-semibold">El conjunto alcanza para entrenar.</span>}
                         {estado.fotos.revisadas > 0 && <p className="mt-1.5 tabular-nums">Fotos sin ningún objeto: {estado.fotos.negativas} (conviene {negMeta} o más).</p>}
                     </div>
                 </div>
@@ -188,6 +188,8 @@ export default function ObjetosPropios() {
                     <p className="text-[11.5px] text-muted-foreground leading-snug">Una clase es una cosa que se ve siempre parecida. «Contenedor» sí; «algo raro» no: el detector aprende formas, no situaciones.</p>
                 </form>
             </section>
+
+            <EntrenarDetector clases={estado.clases} falta={estado.falta} />
 
             {/* Juntar fotos. */}
             <section className="rounded-[10px] border border-border bg-card p-3 flex items-center gap-2 flex-wrap">

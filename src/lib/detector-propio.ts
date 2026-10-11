@@ -26,6 +26,23 @@ export const LARGO_DESCRIPCION = 300;
 /** Lado mayor con que se guarda una foto: lo que mira el entrenamiento, sin guardar 4K. */
 export const LADO_MAX = 1920;
 
+/**
+ * Los tamaños de RF-DETR que se pueden entrenar acá. Nano por defecto: entra cómodo en la GPU de
+ * 6 GB que comparte con el lector. Small ve mejor lo chico y lo lejano, y tarda el doble.
+ */
+export const MODELOS_ENTRENAMIENTO = [
+    { id: "RFDETRNano", rotulo: "Rápido (Nano)", detalle: "384 px. El que conviene para empezar." },
+    { id: "RFDETRSmall", rotulo: "Preciso (Small)", detalle: "512 px. Mejor con objetos chicos o lejos; tarda el doble." },
+];
+/** Épocas tope: con «parar si no mejora» casi nunca se llega, pero acota la noche. */
+export const EPOCAS_MAX = 200;
+/**
+ * Lo que se usa si no se elige nada. Lote 4 × acumular 4 = 16 fotos por paso, lo que recomienda
+ * rfdetr. La VRAM que pide en la 3050 se mide en la primera corrida con datos reales (ver
+ * claude/detector-propio.md). Se corta solo a los 15 épocas sin mejorar, o a las 3 horas.
+ */
+export const PARAMETROS_DEFECTO = { modelo: "RFDETRNano", epocas: 80, lote: 4, acumular: 4, lr: 1e-4, max_minutos: 180, paciencia: 15, hilos: 2, semilla: 7 };
+
 export type Caja = { clase: string; caja: [number, number, number, number] };
 export type ClaseResumen = { id: string; nombre: string; descripcion: string | null; cajas: number; fotos: number };
 export type FotoFila = {

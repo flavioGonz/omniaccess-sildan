@@ -226,6 +226,18 @@ async function levantarVision() {
 }
 
 /**
+ * ¿Está omni-vision parado a propósito? El entrenador del detector propio (scripts/entrenador.js)
+ * lo para para tener la GPU y deja VISION_PAUSA = { hasta, motivo }. Con `hasta` vencido la pausa
+ * no vale: si el entrenador se cae sin levantarlo, el vigía lo levanta igual.
+ */
+async function visionEnPausa() {
+    try {
+        const p = JSON.parse(await ajuste("VISION_PAUSA", "null"));
+        return p && Date.parse(p.hasta) > Date.now() ? (p.motivo || "pausa") : null;
+    } catch { return null; }
+}
+
+/**
  * ¿Está instalado omni-vision? Una instalación sin el detector no tiene por qué figurar
  * caída ni recibir intentos de levantarlo: se mira sólo si el contenedor existe.
  */
@@ -348,7 +360,12 @@ async function vuelta() {
     await atender("webhooks", "los webhooks", () => porHttp(`${WEBHOOKS}/health`), levantarPm2("omniaccess-webhooks"));
     await atender("lector:contenedor", "el contenedor del lector", () => porDocker("omni-lpr"), levantarLector);
     await atender("lector:api", "la API del lector", () => porHttp(`${LECTOR}/api/health`), levantarLector);
-    if (await hayVision()) {
+    const pausa = await visionEnPausa();
+    if (pausa) {
+        // Parado a propósito (un entrenamiento usa la GPU): no se levanta ni se avisa. Se dice
+        // en el estado, para que nadie lo lea como caído.
+        for (const id of ["vision:contenedor", "vision:api"]) { const m = memoria(id); m.detalle = `en pausa: ${pausa}`; m.fallas = 0; m.caido = false; }
+    } else if (await hayVision()) {
         await atender("vision:contenedor", "el contenedor de omni-vision", () => porDocker("omni-vision"), levantarVision);
         await atender("vision:api", "la API de omni-vision", () => porHttp(`${VISION}/salud`), levantarVision);
     }
