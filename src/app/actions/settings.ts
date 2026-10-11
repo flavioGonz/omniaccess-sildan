@@ -133,6 +133,13 @@ export async function getBucketLifecycle(bucketName: string) {
 }
 
 export async function updateBucketLifecycle(bucketName: string, days: number) {
+    /* El bucket de OmniVision no lleva borrado por fecha: la regla va sin prefijo, así que se
+       llevaría también las fotos dibujadas para entrenar y los modelos guardados (entrenamiento/,
+       modelos/), que no vencen. El registro de visión ya tiene su retención, por fila, en
+       vision-worker.js (VISION_RETENCION_DIAS). */
+    if (days > 0 && bucketName === (process.env.VISION_BUCKET || "objetos")) {
+        return { success: false, message: "El bucket de OmniVision tiene su propia retención y guarda las fotos de entrenamiento: no se le pone borrado por fecha." };
+    }
     try {
         const client = await getS3InternalClient();
         const command = new PutBucketLifecycleConfigurationCommand({

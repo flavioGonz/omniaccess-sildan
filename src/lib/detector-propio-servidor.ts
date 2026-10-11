@@ -1,10 +1,12 @@
 import fs from "fs";
 import path from "path";
-import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { Readable } from "stream";
+import { pipeline } from "stream/promises";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
-import { LADO_MAX, PARIDAD_MIN, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
+import { LADO_MAX, MODELOS_GUARDADOS, PARIDAD_MIN, type ArchivoModelo, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
 
 /** Setting con el detector propio activo (quién, cuándo, qué clases). */
 const CLAVE_ACTIVO = "DETECTOR_PROPIO_ACTIVO";
@@ -60,14 +62,35 @@ const CARPETAS = process.env.ENTRENAMIENTOS_DIR || path.join(process.cwd(), "ent
 const ACTIVO = path.join(CARPETAS, "activo");
 export type Activo = { entrenamiento: string; clases: { id: string; nombre: string }[]; umbral: number; activadoAt: string; activadoPor: string | null };
 
+/**
+ * Trae el ONNX de un entrenamiento a `destino`. Desde MinIO si se archivó (lo normal: el
+ * entrenador no deja nada en el disco del CT); si no, de su carpeta de trabajo, que es donde queda
+ * cuando la subida falló o el entrenamiento es anterior a la retención.
+ */
+async function traerModelo(t: { id: string; carpeta: string | null; resultado: any }, destino: string): Promise<void> {
+    const a: ArchivoModelo | undefined = t.resultado?.archivo;
+    if (a?.borradoAt) throw new Error(`Ese modelo ya se borró: se guardan los últimos ${MODELOS_GUARDADOS}.`);
+    if (a?.clave) {
+        const r = await (await getS3Client()).send(new GetObjectCommand({ Bucket: BUCKET, Key: a.clave })).catch((e) => {
+            throw new Error(e?.name === "NoSuchKey" ? "El modelo no está en el almacenamiento (¿se borró a mano?)." : `No se pudo bajar el modelo: ${e?.message || e}`);
+        });
+        await pipeline(r.Body as Readable, fs.createWriteStream(destino));
+        if (a.bytes && fs.statSync(destino).size !== a.bytes) throw new Error("El modelo bajó incompleto: no se activa.");
+        return;
+    }
+    const local = path.join(t.carpeta || path.join(CARPETAS, t.id), "modelo.onnx");
+    if (!fs.existsSync(local)) throw new Error("Ese entrenamiento no dejó un modelo.");
+    fs.copyFileSync(local, destino);
+}
+
 export async function activar(t: { id: string; carpeta: string | null; resultado: any }, quien: string | null): Promise<Activo> {
     const r = t.resultado;
-    const onnx = path.join(t.carpeta || path.join(CARPETAS, t.id), "modelo.onnx");
-    if (!r?.ok || !fs.existsSync(onnx)) throw new Error("Ese entrenamiento no dejó un modelo.");
+    if (!r?.ok) throw new Error("Ese entrenamiento no dejó un modelo.");
     if (r.paridad != null && r.paridad < PARIDAD_MIN) throw new Error("El modelo exportado no da lo mismo que el entrenado: no se activa.");
     fs.mkdirSync(ACTIVO, { recursive: true });
-    fs.copyFileSync(onnx, path.join(ACTIVO, ".modelo.onnx.tmp"));
-    fs.renameSync(path.join(ACTIVO, ".modelo.onnx.tmp"), path.join(ACTIVO, "modelo.onnx"));
+    const tmp = path.join(ACTIVO, ".modelo.onnx.tmp");
+    try { await traerModelo(t, tmp); } catch (e) { fs.rmSync(tmp, { force: true }); throw e; }
+    fs.renameSync(tmp, path.join(ACTIVO, "modelo.onnx"));
     const meta = { entrenamiento: t.id, clases: r.clases, umbral: r.medicion?.umbral ?? 0.4, preproceso: r.preproceso, resolucion: r.resolucion };
     fs.writeFileSync(path.join(ACTIVO, ".modelo.json.tmp"), JSON.stringify(meta));
     fs.renameSync(path.join(ACTIVO, ".modelo.json.tmp"), path.join(ACTIVO, "modelo.json"));

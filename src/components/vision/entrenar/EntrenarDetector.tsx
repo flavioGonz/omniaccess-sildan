@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CircleAlert, CircleCheck, Clock, Cpu, Loader2, Moon, Play, Power, Square, Zap } from "lucide-react";
+import { Archive, CircleAlert, CircleCheck, Clock, Cpu, Loader2, Moon, Play, Power, Square, Zap } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Chip, ErrorEstado } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
-import { MODELOS_ENTRENAMIENTO, PARAMETROS_DEFECTO, PARIDAD_MIN, type ClaseResumen } from "@/lib/detector-propio";
+import { MODELOS_ENTRENAMIENTO, MODELOS_GUARDADOS, PARAMETROS_DEFECTO, PARIDAD_MIN, type ClaseResumen } from "@/lib/detector-propio";
 import { fechaHoraSeg } from "@/lib/fechas";
 
 /**
@@ -21,7 +21,7 @@ type Entrenamiento = {
     id: string; estado: string; cuando: string; parametros: any; conjunto: any; progreso: any; resultado: any; error: string | null;
     pedidoPor: string | null; cancelar: boolean; createdAt: string; iniciadoAt: string | null; terminadoAt: string | null;
 };
-type Entrenador = { vivo: boolean; imagen?: boolean; ventana?: string; enVentana?: boolean; latido?: string };
+type Entrenador = { vivo: boolean; imagen?: boolean; ventana?: string; enVentana?: boolean; latido?: string; libreGB?: number | null; minimoGB?: number };
 
 const ACTIVOS = ["EN_COLA", "PREPARANDO", "ENTRENANDO", "EXPORTANDO"];
 const ESTADO: Record<string, { t: string; tono: "bien" | "aviso" | "mal" | "info" | "quieto" }> = {
@@ -111,6 +111,8 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
     const ent = datos.entrenador;
     const enCurso = datos.entrenamientos.find((t) => ACTIVOS.includes(t.estado));
     const nombre = (id: string) => clases.find((c) => c.id === id)?.nombre || id;
+    // El entrenador no arranca con menos de esto (lo mismo que mira scripts/entrenador.js): decirlo antes de pedir.
+    const sinEspacio = ent.libreGB != null && ent.minimoGB != null && ent.libreGB < ent.minimoGB;
 
     return (
         <section className="rounded-[10px] border border-border bg-card p-4 space-y-4">
@@ -119,7 +121,11 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
                 <h2 className="text-[15px] font-bold">Entrenar</h2>
                 {!ent.vivo ? <Chip tono="mal" icono={CircleAlert}>El entrenador no está corriendo</Chip>
                     : ent.imagen === false ? <Chip tono="aviso" icono={CircleAlert}>Falta construir el entrenador en el servidor</Chip>
-                        : <Chip tono="bien">Entrenador listo · ventana {ent.ventana}</Chip>}
+                        : sinEspacio ? <Chip tono="mal" icono={CircleAlert}>Sin espacio para entrenar: quedan {ent.libreGB} GB, hacen falta {ent.minimoGB}</Chip>
+                            : <Chip tono="bien">Entrenador listo · ventana {ent.ventana}</Chip>}
+                <Pista ancho={320} texto={`Al terminar, el modelo se guarda en el almacenamiento de objetos (MinIO) y lo intermedio se borra: el disco del servidor no se llena. Se guardan los últimos ${MODELOS_GUARDADOS} modelos, más el que esté en uso. Las fotos dibujadas no se borran nunca solas.`}>
+                    <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-muted-foreground"><Archive size={13} /> Se guardan los últimos {MODELOS_GUARDADOS} modelos</span>
+                </Pista>
             </div>
 
             {activo?.activo && (
@@ -175,7 +181,7 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
                                 <span>Entrenar igual, para probar. Con menos de lo pedido el modelo aprende esas fotos y no mucho más: sirve para ver que todo funcione, no para usarlo.</span>
                             </label>
                         )}
-                        <Button className="ml-auto" onClick={pedir} disabled={mandando || !ent.vivo || ent.imagen === false || (falta.length > 0 && !aunAsi) || !clases.some((c) => c.cajas > 0)}>
+                        <Button className="ml-auto" onClick={pedir} disabled={mandando || !ent.vivo || ent.imagen === false || sinEspacio || (falta.length > 0 && !aunAsi) || !clases.some((c) => c.cajas > 0)}>
                             {mandando ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} {cuando === "ahora" ? "Entrenar ahora" : "Dejar para esta noche"}
                         </Button>
                     </div>
@@ -247,6 +253,7 @@ export function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
                 {med && <span className="ml-auto font-semibold tabular-nums">acierta {pct(med.f1)}</span>}
                 {/* Se puede usar si dejó modelo y el ONNX da lo mismo que lo entrenado (lo medido vale). */}
                 {enUso ? <Chip tono="bien" icono={CircleCheck}>En uso</Chip>
+                    : r?.archivo?.borradoAt ? <Pista texto={`Se guardan los últimos ${MODELOS_GUARDADOS} modelos; este se borró el ${fechaHoraSeg(r.archivo.borradoAt)}. Lo medido queda para comparar.`} ancho={280}><Chip tono="quieto">Modelo borrado</Chip></Pista>
                     : r?.ok && (r.paridad == null || r.paridad >= PARIDAD_MIN) && (t.estado === "LISTO" || t.estado === "CANCELADO") && (
                         <Button size="sm" variant={(med?.f1 || 0) >= F1_SIRVE ? "default" : "outline"} onClick={alUsar} disabled={ocupado} title={t.conjunto?.corto?.length ? "Se entrenó con un conjunto chico: sirve para probar" : undefined}>
                             {ocupado ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />} Usar en las cámaras

@@ -50,6 +50,26 @@ export const PARAMETROS_DEFECTO = { modelo: "RFDETRNano", epocas: 80, lote: 4, a
  */
 export const PARIDAD_MIN = 0.9;
 
+/**
+ * Retención (la aplica scripts/entrenador.js, que repite estos números: es CommonJS y no importa
+ * TypeScript; si se cambian acá, se cambian allá).
+ *
+ * El disco que se llena es el del CT (118 GB, compartido con Docker), no el de datos (3,6 TB,
+ * donde vive MinIO). Por eso un entrenamiento no deja nada en el CT: al terminar, el ONNX y su
+ * resultado suben a MinIO, bajo MODELOS_PREFIJO, y la carpeta de trabajo (fotos copiadas,
+ * conjunto COCO, checkpoints de cientos de MB cada uno) se borra entera.
+ *
+ * En MinIO quedan los últimos MODELOS_GUARDADOS modelos, más el que está en uso aunque sea más
+ * viejo. Un modelo ocupa ~110 MB: es poco, pero sin tope cada prueba se suma para siempre.
+ * Las fotos DIBUJADAS no tienen retención: son el trabajo de una persona y sin ellas no se
+ * puede volver a entrenar. Viven en el mismo bucket que el registro, pero la limpieza del
+ * registro borra por fila (ObjetoVisto, EventoVision…), así que nunca las toca.
+ */
+export const MODELOS_GUARDADOS = 5;
+export const MODELOS_PREFIJO = "modelos/";
+/** Lo que se guarda de un modelo en MinIO; `borradoAt` = lo sacó la retención (ya no se puede usar). */
+export type ArchivoModelo = { clave: string; bytes: number; guardadoAt: string; borradoAt?: string };
+
 export type Caja = { clase: string; caja: [number, number, number, number] };
 export type ClaseResumen = { id: string; nombre: string; descripcion: string | null; cajas: number; fotos: number };
 export type FotoFila = {

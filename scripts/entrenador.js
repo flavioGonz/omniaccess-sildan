@@ -21,7 +21,7 @@ const path = require("path");
 const { promisify } = require("util");
 const { exec } = require("child_process");
 const { PrismaClient } = require("@prisma/client");
-const { S3Client, GetObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 
 const correr = promisify(exec);
 const prisma = new PrismaClient();
@@ -30,6 +30,27 @@ const log = (...a) => console.log(new Date().toISOString(), "[entrenador]", ...a
 const CADA_MS = 20_000;
 const BUCKET = process.env.VISION_BUCKET || "objetos";
 const CARPETAS = process.env.ENTRENAMIENTOS_DIR || path.join(__dirname, "..", "entrenamientos");
+/**
+ * Dónde se trabaja. Por defecto, al lado de la carpeta del modelo activo; en San Nicolás va al
+ * disco de datos (ENTRENADOR_TRABAJO=/datos/entrenamientos en el .env): el del CT es de 118 GB y
+ * lo comparte con Docker, mientras que /datos tiene 3,6 TB. Es temporal: se borra al terminar.
+ */
+const TRABAJO = process.env.ENTRENADOR_TRABAJO || CARPETAS;
+/**
+ * Retención: los mismos números que src/lib/detector-propio.ts (MODELOS_GUARDADOS,
+ * MODELOS_PREFIJO; allá está el porqué). Si se cambian acá, se cambian allá.
+ */
+const MODELOS_GUARDADOS = 5;
+const MODELOS_PREFIJO = "modelos/";
+const CADA_PODA_MS = 60 * 60_000;
+/**
+ * Espacio libre que tiene que haber donde se trabaja antes de empezar. Estimado, no medido con
+ * un conjunto real: copia de las fotos dos veces (crudo y COCO, ~300 KB cada una) y cuatro o cinco
+ * checkpoints de unos 450 MB (pesos + EMA + estado del optimizador) — unos 3 GB con 1.000 fotos.
+ * El doble y algo, porque quedarse sin disco a la mitad deja el CT sin espacio para la app.
+ */
+const ESPACIO_MIN_GB = 8;
+const TERMINADOS = ["LISTO", "CANCELADO", "FALLO"];
 const IMAGEN = "omni-entrenador:gpu";
 const CONTENEDOR = "omni-entrenando";
 const ZONA = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
@@ -134,10 +155,12 @@ async function terminar(t, carpeta, { codigo, cola }) {
 }
 
 async function correrUno(t) {
-    const carpeta = path.join(CARPETAS, t.id);
+    const carpeta = path.join(TRABAJO, t.id);
     const max = Number(t.parametros?.max_minutos) || 180;
     try {
         await sh(`docker image inspect ${IMAGEN} --format '{{.Id}}'`).catch(() => { throw new Error(`Falta la imagen ${IMAGEN}: hay que construirla una vez (services/omni-entrenador/Dockerfile).`); });
+        const libre = libreGB(TRABAJO);
+        if (libre != null && libre < ESPACIO_MIN_GB) throw new Error(`Falta espacio en ${TRABAJO}: quedan ${libre.toFixed(1)} GB y hacen falta ${ESPACIO_MIN_GB} para entrenar sin llenar el disco.`);
         await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado: "PREPARANDO", iniciadoAt: new Date(), carpeta } });
         const conjunto = await preparar(t, carpeta);
         await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { conjunto } });
@@ -150,9 +173,69 @@ async function correrUno(t) {
         log(`${t.id}: falló: ${e.message}`);
         await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado: "FALLO", error: e.message, terminadoAt: new Date() } }).catch(() => null);
     } finally {
-        if (fs.existsSync(path.join(CARPETAS, t.id, "crudo"))) fs.rmSync(path.join(CARPETAS, t.id, "crudo"), { recursive: true, force: true });
-        if (fs.existsSync(path.join(CARPETAS, t.id, "coco"))) fs.rmSync(path.join(CARPETAS, t.id, "coco"), { recursive: true, force: true });
         await reanudarVision();
+        await guardarYLimpiar(t.id, carpeta).catch((e) => log(`${t.id}: no se pudo archivar:`, e.message));
+        await podar().catch((e) => log("retención:", e.message));
+    }
+}
+
+/** GB libres en el disco de esa carpeta (null si no se puede saber). */
+function libreGB(dir) {
+    try { fs.mkdirSync(dir, { recursive: true }); const s = fs.statfsSync(dir); return (s.bavail * s.bsize) / 1e9; } catch { return null; }
+}
+
+const borrarCarpeta = (c) => fs.rmSync(c, { recursive: true, force: true });
+
+/**
+ * Un entrenamiento terminado no deja nada en el disco: si dejó modelo, el ONNX y su resultado
+ * suben a MinIO (MODELOS_PREFIJO/<id>/) y la fila guarda dónde (resultado.archivo); después se
+ * borra la carpeta entera, checkpoints incluidos. Si la subida falla, la carpeta queda SIN los
+ * checkpoints (el ONNX solo, ~110 MB) para que se pueda usar igual, y se reintenta en la poda.
+ */
+async function guardarYLimpiar(id, carpeta) {
+    if (!fs.existsSync(carpeta)) return;
+    for (const d of ["crudo", "coco", "salida"]) borrarCarpeta(path.join(carpeta, d));
+    const t = await prisma.entrenamientoDetector.findUnique({ where: { id } });
+    if (t && !TERMINADOS.includes(t.estado)) return;  // corriendo o en cola: no es de la poda
+    const onnx = path.join(carpeta, "modelo.onnx");
+    const r = t?.resultado;
+    if (t && r?.ok && !r.archivo && fs.existsSync(onnx) && (t.estado === "LISTO" || t.estado === "CANCELADO")) {
+        const clave = `${MODELOS_PREFIJO}${id}/modelo.onnx`;
+        const bytes = fs.statSync(onnx).size;
+        const c = await s3();
+        await c.send(new PutObjectCommand({ Bucket: BUCKET, Key: clave, Body: fs.createReadStream(onnx), ContentLength: bytes, ContentType: "application/octet-stream" }));
+        await c.send(new PutObjectCommand({ Bucket: BUCKET, Key: `${MODELOS_PREFIJO}${id}/resultado.json`, Body: JSON.stringify(r), ContentType: "application/json" }));
+        await prisma.entrenamientoDetector.update({ where: { id }, data: { resultado: { ...r, archivo: { clave, bytes, guardadoAt: new Date().toISOString() } } } });
+        log(`${id}: modelo en MinIO (${(bytes / 1e6).toFixed(0)} MB)`);
+    }
+    borrarCarpeta(carpeta);
+}
+
+/**
+ * La retención: en MinIO, los últimos MODELOS_GUARDADOS modelos más el que esté en uso; y en
+ * disco, ninguna carpeta de un entrenamiento terminado (las que quedaron de antes, o de una
+ * subida que falló, se archivan y se borran acá). La fila queda: dice qué se entrenó y cómo dio.
+ */
+async function podar() {
+    for (const dir of new Set([TRABAJO, CARPETAS])) {
+        if (!fs.existsSync(dir)) continue;
+        for (const n of fs.readdirSync(dir)) {
+            if (n === "activo" || !fs.statSync(path.join(dir, n)).isDirectory()) continue;
+            if (!(await prisma.entrenamientoDetector.findUnique({ where: { id: n }, select: { id: true } }))) continue;  // no es de un entrenamiento: no se toca
+            await guardarYLimpiar(n, path.join(dir, n)).catch((e) => log(`${n}: no se pudo archivar:`, e.message));
+        }
+    }
+    let activo = null;
+    try { activo = JSON.parse((await ajuste("DETECTOR_PROPIO_ACTIVO")) || "null")?.entrenamiento || null; } catch { activo = null; }
+    const conModelo = (await prisma.entrenamientoDetector.findMany({ where: { estado: { in: ["LISTO", "CANCELADO"] } }, orderBy: { createdAt: "desc" } }))
+        .filter((t) => t.resultado?.archivo?.clave && !t.resultado.archivo.borradoAt);
+    const sobran = conModelo.slice(MODELOS_GUARDADOS).filter((t) => t.id !== activo);
+    if (!sobran.length) return;
+    const c = await s3();
+    for (const t of sobran) {
+        await c.send(new DeleteObjectsCommand({ Bucket: BUCKET, Delete: { Quiet: true, Objects: [{ Key: t.resultado.archivo.clave }, { Key: `${MODELOS_PREFIJO}${t.id}/resultado.json` }] } }));
+        await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { resultado: { ...t.resultado, archivo: { ...t.resultado.archivo, borradoAt: new Date().toISOString() } } } });
+        log(`retención: modelo de ${t.id} borrado (se guardan los últimos ${MODELOS_GUARDADOS})`);
     }
 }
 
@@ -167,7 +250,8 @@ async function vuelta() {
         // El latido: la pantalla dice «el entrenador no está corriendo» o «falta la imagen» en vez
         // de dejar un entrenamiento en cola para siempre sin que nadie sepa por qué.
         const imagen = await sh(`docker image inspect ${IMAGEN} --format '{{.Id}}'`).then(() => true).catch(() => false);
-        await escribirAjuste("ENTRENADOR_ESTADO", JSON.stringify({ latido: new Date().toISOString(), imagen, ventana, enVentana: enVentana(ventana) }));
+        const libre = libreGB(TRABAJO);
+        await escribirAjuste("ENTRENADOR_ESTADO", JSON.stringify({ latido: new Date().toISOString(), imagen, ventana, enVentana: enVentana(ventana), libreGB: libre == null ? null : Math.round(libre * 10) / 10, minimoGB: ESPACIO_MIN_GB }));
         const t = await prisma.entrenamientoDetector.findFirst({ where: { estado: "EN_COLA" }, orderBy: { createdAt: "asc" } });
         if (t && (t.cuando === "ahora" || enVentana(ventana))) { log(`toma ${t.id} (${t.cuando})`); await correrUno(t); }
     } catch (e) { log("vuelta:", e.message); }
@@ -185,18 +269,23 @@ async function recuperar() {
     if (await corriendo()) {
         log(`${t.id}: el contenedor sigue; se retoma el seguimiento`);
         ocupado = true;
-        try { await terminar(t, carpeta, await seguir(t, carpeta)); } finally { await reanudarVision(); ocupado = false; }
+        try { await terminar(t, carpeta, await seguir(t, carpeta)); } finally { await reanudarVision(); await guardarYLimpiar(t.id, carpeta).catch(() => null); ocupado = false; }
     } else {
         await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado: "FALLO", error: "El entrenador se reinició a la mitad y el contenedor ya no corría.", terminadoAt: new Date() } });
         await sh(`docker rm -f ${CONTENEDOR}`).catch(() => null);
         await reanudarVision();
+        await guardarYLimpiar(t.id, carpeta).catch(() => null);
     }
 }
 
 (async () => {
     fs.mkdirSync(CARPETAS, { recursive: true });
-    log(`arranca; carpeta ${CARPETAS}; ventana por defecto ${VENTANA_DEFECTO} (${ZONA})`);
+    fs.mkdirSync(TRABAJO, { recursive: true });
+    log(`arranca; modelo activo en ${CARPETAS}, trabajo en ${TRABAJO}; ventana por defecto ${VENTANA_DEFECTO} (${ZONA})`);
     await recuperar().catch((e) => log("recuperar:", e.message));
+    const poda = async () => { if (ocupado) return; ocupado = true; try { await podar(); } catch (e) { log("retención:", e.message); } finally { ocupado = false; } };
+    await poda();
+    setInterval(poda, CADA_PODA_MS);
     setInterval(vuelta, CADA_MS);
     vuelta();
 })();
