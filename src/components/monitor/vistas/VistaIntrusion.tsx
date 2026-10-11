@@ -62,12 +62,15 @@ type Det = { id: string; deviceId: string | null; deviceName: string | null; nvr
     verif?: Verificacion | null };
 /** Una verificación tarda unos segundos (cola de vision-worker): antes de esto se dice «verificando», después «sin verificar». */
 const VERIFICANDO_MS = 2 * 60_000;
+/** Cuantos canales se ven en foco (a 16:9). El resto va a la lista compacta. */
+const MAX_EN_FOCO = 12;
 
 /** El veredicto de omni-vision, como pastilla. Nunca decide: la alarma la acepta una persona. */
 function Veredicto({ d, grande }: { d: Det; grande?: boolean }) {
     const v = d.verif?.veredicto ? VEREDICTOS[d.verif.veredicto] : null;
     const cls = grande ? "px-3 py-1 text-[13px]" : "px-2 py-0.5 text-[11px]";
     if (!v) {
+        if (!d.verif) return null;   // Olivos: sin omni-vision, nada que esperar
         if (d.verif?.estado === "SIN_FOTO" || d.verif?.estado === "ERROR" || Date.now() - +new Date(d.timestamp) > VERIFICANDO_MS) return null;
         return <span className={cn("inline-flex items-center gap-1 rounded-full border border-white/25 bg-black/50 text-white/80 font-semibold", cls)}><Loader2 size={grande ? 13 : 10} className="animate-spin" /> verificando</span>;
     }
@@ -99,7 +102,7 @@ function Canal({ cam, pendientes, confirmada, grande, alTocar }: { cam: Cam; pen
     const m = cam.ultima ? metaDe(cam.ultima.type) : null;
     return (
         <motion.button type="button" layout onClick={alTocar} aria-label={`Ver la cámara ${cam.name}`} transition={{ type: "spring", stiffness: 260, damping: 30 }}
-            className={cn("relative rounded-2xl overflow-hidden bg-neutral-900 ring-1 ring-white/10 text-left", tocable, grande ? "col-span-2 row-span-2" : "")}>
+            className={cn("relative rounded-2xl overflow-hidden bg-neutral-900 ring-1 ring-white/10 text-left aspect-video", tocable, grande ? "col-span-2 row-span-2" : "")}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`/api/snapshot/${cam.id}?w=640&t=${k}`} alt={cam.name} draggable={false} className="absolute inset-0 w-full h-full object-cover" />
             <GeomOverlay geom={cam.geom} alert={enAlarma} />
@@ -110,7 +113,7 @@ function Canal({ cam, pendientes, confirmada, grande, alTocar }: { cam: Cam; pen
                     camara={`${cam.name}${cam.nvrName ? ` · ${cam.nvrName}` : ""}${cam.ch != null ? ` · CH ${cam.ch}` : ""}`} />
             )}
             <div className="absolute top-0 inset-x-0 px-4 pt-3 pb-8 bg-gradient-to-b from-black/80 via-black/30 to-transparent z-[42]">
-                <div className={cn("font-bold text-white drop-shadow leading-tight", grande ? "text-[28px]" : "text-[20px]")}>{cam.name}</div>
+                <div className={cn("font-bold text-white drop-shadow leading-tight truncate", grande ? "text-[28px]" : "text-[18px]")}>{cam.name}</div>
                 <div className="flex items-center gap-3 mt-0.5 text-[13px] text-white/70">
                     {cam.nvrName && <span className="inline-flex items-center gap-1"><Server size={12} /> {cam.nvrName}{cam.ch != null ? ` · CH ${cam.ch}` : ""}</span>}
                 </div>
@@ -207,18 +210,63 @@ export function VistaIntrusion() {
     }, [vivas, modo, silencio]);
 
     const n = camaras.length;
-    const cols = grandeId ? 4 : n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
+    /*
+     * Olivos tiene mas de cien camaras de perimetro: en un mosaico de todas cada canal quedaba de
+     * un dedo de alto, ilegible, y pedia una foto por camara cada pocos segundos. La pared muestra
+     * EN FOCO las que importan (en alarma primero, despues las de deteccion mas reciente) a 16:9,
+     * y todas las demas en una lista compacta con su estado, que se toca para abrir la ficha.
+     */
+    const foco = useMemo(() => {
+        const prio = (c: Cam) => (porCamara.has(c.id) || atendiendo.has(c.id) ? 2 : 0);
+        const ts = (c: Cam) => porCamara.get(c.id)?.[0]?.ts || c.ultima?.timestamp || "";
+        const orden = [...ordenadas].sort((a, b) => (a.id === grandeId ? -1 : b.id === grandeId ? 1 : 0) || prio(b) - prio(a) || ts(b).localeCompare(ts(a)));
+        return orden.slice(0, MAX_EN_FOCO);
+    }, [ordenadas, porCamara, atendiendo, grandeId]);
+    const idsFoco = useMemo(() => new Set(foco.map((c) => c.id)), [foco]);
+    const resto = useMemo(() => camaras.filter((c) => !idsFoco.has(c.id)).sort((a, b) => a.name.localeCompare(b.name, "es", { numeric: true })), [camaras, idsFoco]);
+    const enAlarmaN = camaras.filter((c) => porCamara.has(c.id) || atendiendo.has(c.id)).length;
+    const f = foco.length + (grandeId ? 3 : 0);
+    const cols = f <= 1 ? 1 : f <= 4 ? 2 : f <= 9 ? 3 : 4;
     const camAbierta = camId ? camaras.find((c) => c.id === camId) || null : null;
     const abrirCamara = useCallback((id: string) => { setDet(null); setCamId(id); }, []);
 
     return (
         <div className="absolute inset-0 flex flex-col p-4">
             <div className="flex-1 min-h-0 flex gap-4">
-                <div className="flex-1 min-w-0 grid gap-4 auto-rows-fr" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
-                    {!datos && !error && <div className="col-span-full grid place-items-center text-[20px] text-muted-foreground">Cargando cámaras…</div>}
-                    {error && !datos && <div className="col-span-full grid place-items-center text-[20px] text-[var(--mal-texto)]">No se pudo leer el monitor: {error}</div>}
-                    {datos && n === 0 && <div className="col-span-full grid place-items-center text-[20px] text-muted-foreground">No hay cámaras de intrusión dadas de alta.</div>}
-                    {ordenadas.map((c) => <Canal key={c.id} cam={c} pendientes={porCamara.get(c.id) || []} confirmada={atendiendo.has(c.id)} grande={c.id === grandeId} alTocar={() => abrirCamara(c.id)} />)}
+                <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-3">
+                <div className="flex items-center gap-3 px-1 text-[13px] text-muted-foreground shrink-0">
+                    <span className="font-bold uppercase tracking-[0.14em]">En foco</span>
+                    <span className="tabular-nums">{foco.length} de {n} cámaras</span>
+                    {enAlarmaN > 0 && <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full pleno-mal font-bold"><ShieldAlert size={13} /> {enAlarmaN} en alarma</span>}
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1 [scrollbar-width:thin]">
+                <div className="grid gap-3 [grid-auto-flow:dense] content-start" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+                    {!datos && !error && <div className="col-span-full grid place-items-center text-[20px] text-muted-foreground py-20">Cargando cámaras…</div>}
+                    {error && !datos && <div className="col-span-full grid place-items-center text-[20px] text-[var(--mal-texto)] py-20">No se pudo leer el monitor: {error}</div>}
+                    {datos && n === 0 && <div className="col-span-full grid place-items-center text-[20px] text-muted-foreground py-20">No hay cámaras de intrusión dadas de alta.</div>}
+                    {foco.map((c) => <Canal key={c.id} cam={c} pendientes={porCamara.get(c.id) || []} confirmada={atendiendo.has(c.id)} grande={c.id === grandeId && cols > 1} alTocar={() => abrirCamara(c.id)} />)}
+                </div>
+                </div>
+                {resto.length > 0 && (
+                    <div className="shrink-0 max-h-[24vh] flex flex-col gap-2 rounded-2xl bg-card border border-border p-3">
+                        <div className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><Camera size={13} /> El resto del perímetro · {resto.length}</div>
+                        <div className="min-h-0 overflow-y-auto overscroll-contain flex flex-wrap gap-1.5 [scrollbar-width:thin]">
+                            {resto.map((c) => {
+                                const al = porCamara.has(c.id) || atendiendo.has(c.id);
+                                const reciente = c.ultima && Date.now() - +new Date(c.ultima.timestamp) < 3_600_000;
+                                return (
+                                    <button key={c.id} type="button" onClick={() => abrirCamara(c.id)}
+                                        title={c.ultima ? `${metaDe(c.ultima.type).label} · ${horaCorta(c.ultima.timestamp)} (${hace(c.ultima.timestamp)})` : "Sin detecciones"}
+                                        className={cn("inline-flex items-center gap-1.5 h-9 px-3 rounded-full border text-[13px] font-semibold whitespace-nowrap", tocable,
+                                            al ? "pleno-mal border-transparent" : "bg-muted/40 border-border text-foreground/85")}>
+                                        <span className={cn("h-2 w-2 rounded-full shrink-0", al ? "bg-white animate-pulse" : reciente ? "bg-amber-400" : "bg-white/25")} />
+                                        {c.name}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
                 </div>
 
                 {/* La franja: se desliza con el dedo y se filtra. Cada detección abre su ficha. */}

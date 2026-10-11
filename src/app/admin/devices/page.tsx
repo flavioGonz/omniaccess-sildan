@@ -102,6 +102,8 @@ import {
     TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
+import { grabacionesLpr, detectarGrabaciones, calcularRetencion, type FilaGrabacion } from "@/app/actions/grabaciones";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
 const PLACEHOLDER_DEVICE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="8" fill="%23262626"/><path d="M24 14a4 4 0 100 8 4 4 0 000-8zm-6 14c0-2 4-3.1 6-3.1S30 26 30 28v1H18v-1z" fill="%23525252"/><rect x="14" y="32" width="20" height="3" rx="1.5" fill="%23525252"/></svg>')}`;
@@ -225,6 +227,35 @@ export default function DevicesPage() {
     const [alerts, setAlerts] = useState<any[]>([]);
     const [healthHistory, setHealthHistory] = useState<any>(null);
     const [showReadRate, setShowReadRate] = useState(false);
+    // Grabaciones de las camaras LPR: NVR + canal (detectado) y retencion calculada.
+    const [grab, setGrab] = useState<Record<string, FilaGrabacion>>({});
+    const [detectando, setDetectando] = useState(false);
+    const [calculando, setCalculando] = useState<string | null>(null);
+    const cargarGrab = async () => { try { setGrab(await grabacionesLpr()); } catch { } };
+    useEffect(() => { cargarGrab(); }, []);
+    async function detectar(ids?: string[]) {
+        setDetectando(true);
+        try {
+            const r = await detectarGrabaciones(ids);
+            if (!r.ok) toast.error("No se pudo detectar", { description: r.error });
+            else {
+                const caidos = r.nvrs.filter((n) => !n.ok);
+                toast.success(r.cambios.length ? `Grabación detectada en ${r.cambios.length} cámara${r.cambios.length !== 1 ? "s" : ""}` : `Revisados ${r.nvrs.length} NVR: el mapa ya estaba bien`, {
+                    description: [r.cambios.slice(0, 4).join(" · "), r.sinNvr.length ? `Sin NVR: ${r.sinNvr.slice(0, 4).join(", ")}${r.sinNvr.length > 4 ? "…" : ""} (agregá su NVR o no tendrán grabaciones)` : "", caidos.length ? `No respondió: ${caidos.map((n) => n.nombre).join(", ")}` : ""].filter(Boolean).join(" — ") || undefined,
+                });
+            }
+            await cargarGrab();
+        } finally { setDetectando(false); }
+    }
+    async function retencion(id: string) {
+        setCalculando(id);
+        try {
+            const r = await calcularRetencion(id);
+            if (r.ok && r.retencion && !r.retencion.error) toast.success(`Retención: ${r.retencion.dias} días`, { description: `La grabación más vieja es del ${r.retencion.desde}${r.retencion.grabando === false ? " · OJO: no está grabando ahora" : ""}` });
+            else toast.error("No se pudo calcular la retención", { description: r.error || r.retencion?.error });
+            await cargarGrab();
+        } finally { setCalculando(null); }
+    }
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
         MODULE_LPR: true,
         MODULE_FACE: true,
@@ -508,6 +539,16 @@ export default function DevicesPage() {
                             <TooltipContent><p className="text-xs max-w-[200px]">Pone la hora del servidor en todas las cámaras y el NVR (funciona sin internet)</p></TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button onClick={() => detectar()} disabled={detectando} variant="outline" className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
+                                    {detectando ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} className="text-indigo-400" />} <span className="hidden sm:inline">Detectar grabaciones</span>
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p className="text-xs max-w-[240px]">Busca cada cámara LPR en los canales de todos los NVR (por su IP) y asigna sola dónde graba. No borra asignaciones existentes.</p></TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
                     <DeviceFormDialog groups={groups} onSuccess={loadData}>
                         <Button className="bg-indigo-600 hover:bg-indigo-500 text-foreground font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs shrink-0 gap-1.5">
                             <Plus size={15} /> Nuevo
@@ -544,6 +585,7 @@ export default function DevicesPage() {
                             <TableHead className="text-muted-foreground font-semibold tracking-wide py-3 pl-5 uppercase text-[10px]">Dispositivo</TableHead>
                             <TableHead className="text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">Marca / Modelo</TableHead>
                             <TableHead className="text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">Red</TableHead>
+                            <TableHead className="text-muted-foreground font-semibold tracking-wide uppercase text-[10px]">Grabaciones</TableHead>
                             <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Tipo</TableHead>
                             <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Hora / NTP</TableHead>
                             <TableHead className="text-muted-foreground font-semibold tracking-wide text-center uppercase text-[10px]">Enlace</TableHead>
@@ -555,7 +597,7 @@ export default function DevicesPage() {
                     <TableBody>
                         {cameraDevices.length === 0 && !loading && (
                             <TableRow>
-                                <TableCell colSpan={9} className="text-center py-20">
+                                <TableCell colSpan={10} className="text-center py-20">
                                     <div className="flex flex-col items-center gap-3">
                                         <div className="p-5 bg-card/50 rounded-lg border border-dashed border-border">
                                             <Server size={36} className="text-muted-foreground" />
@@ -697,6 +739,44 @@ export default function DevicesPage() {
                                                 </p>
                                             )}
                                         </div>
+                                    </TableCell>
+                                    {/* Grabaciones: en que NVR y canal graba (detectado) y cuanto guarda */}
+                                    <TableCell>
+                                        {dev.deviceType !== 'LPR_CAMERA' ? <span className="text-muted-foreground text-xs">-</span> : (() => {
+                                            const g = grab[dev.id];
+                                            const u = g?.ubicacion;
+                                            const r = g?.retencion;
+                                            const calc = calculando === dev.id;
+                                            if (!g) return <span className="inline-block h-8 w-28 rounded bg-muted/50 animate-pulse" />;
+                                            if (!u) return (
+                                                <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                                                    <button onClick={() => detectar([dev.id])} disabled={detectando}
+                                                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-500 text-[10px] font-bold uppercase tracking-wide hover:bg-amber-500/20 transition">
+                                                        {detectando ? <Loader2 size={11} className="animate-spin" /> : <ScanSearch size={11} />} Sin NVR · detectar
+                                                    </button>
+                                                </TooltipTrigger><TooltipContent><p className="text-xs max-w-[240px]">No sabemos dónde se graba esta cámara. «Detectar» busca su IP en los canales de todos los NVR dados de alta y la asigna sola. Sin NVR no hay clips ni playback de sus lecturas.</p></TooltipContent></Tooltip></TooltipProvider>
+                                            );
+                                            return (
+                                                <div className="flex items-center gap-2 min-w-[180px]">
+                                                    <div className="space-y-0.5 min-w-0">
+                                                        <p className="text-xs font-semibold text-foreground flex items-center gap-1 truncate"><HardDriveIco size={11} className="text-indigo-400 shrink-0" /> <span className="truncate max-w-[130px]">{u.nvrNombre || "NVR"}</span> <span className="px-1.5 py-0 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-bold font-mono shrink-0">CH {u.ch}</span></p>
+                                                        {r ? (
+                                                            <p className={cn("text-[10px] flex items-center gap-1", r.error ? "text-red-400" : "text-muted-foreground")}>
+                                                                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", r.grabando === false ? "bg-red-500" : r.grabando ? "bg-emerald-500" : "bg-muted-foreground/40")} />
+                                                                {r.error ? r.error : <><b className="text-foreground tabular-nums">{r.dias} días</b> · desde {r.desde.slice(0, 10).split("-").reverse().join("/")}</>}
+                                                                {r.grabando === false && !r.error && <span className="text-red-400 font-semibold">· no graba ahora</span>}
+                                                            </p>
+                                                        ) : <p className="text-[10px] text-muted-foreground">Retención sin calcular</p>}
+                                                    </div>
+                                                    <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                                                        <Button size="icon" variant="outline" onClick={() => retencion(dev.id)} disabled={calc}
+                                                            className="h-7 w-7 rounded-md border-border/60 bg-card/80 hover:bg-indigo-500/10 hover:text-indigo-400 shrink-0">
+                                                            {calc ? <Loader2 size={13} className="animate-spin" /> : <Calculator size={13} />}
+                                                        </Button>
+                                                    </TooltipTrigger><TooltipContent><p className="text-xs max-w-[240px]">Calcular la retención: busca en el NVR la grabación más vieja que queda de este canal. De ese día a hoy es lo que se está guardando. También dice si está grabando ahora.{r ? ` Último cálculo: ${new Date(r.calculado).toLocaleString("es-UY")}.` : ""}</p></TooltipContent></Tooltip></TooltipProvider>
+                                                </div>
+                                            );
+                                        })()}
                                     </TableCell>
                                     <TableCell className="text-center">
                                         {dev.deviceType === 'LPR_CAMERA' && dev.direction ? (
