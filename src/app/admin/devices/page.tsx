@@ -111,7 +111,10 @@ import { IntrusionCalibrator as CalibradorIntrusion } from "@/components/Intrusi
 import { TablaIntrusion } from "@/components/devices/TablaIntrusion";
 import { ImportarCanalesNvr } from "@/components/devices/ImportarCanalesNvr";
 import { Car as CarIco, Radar as RadarIco, Server as ServerIco, ChevronDown as ChevronDownIco, Download as DownloadIco } from "lucide-react";
-import { grabacionesLpr, detectarGrabaciones, calcularRetencion, type FilaGrabacion } from "@/app/actions/grabaciones";
+import { grabacionesDe, detectarGrabaciones, calcularRetencion, type FilaGrabacion } from "@/app/actions/grabaciones";
+import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
+import { ArbolAreas, arrastrarEquipos, enArea, IconoTipo, TODAS } from "@/components/devices/ArbolAreas";
+import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
 const PLACEHOLDER_DEVICE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="8" fill="%23262626"/><path d="M24 14a4 4 0 100 8 4 4 0 000-8zm-6 14c0-2 4-3.1 6-3.1S30 26 30 28v1H18v-1z" fill="%23525252"/><rect x="14" y="32" width="20" height="3" rx="1.5" fill="%23525252"/></svg>')}`;
@@ -239,12 +242,22 @@ export default function DevicesPage() {
     const [showReadRate, setShowReadRate] = useState(false);
     // Grabaciones de las camaras LPR: NVR + canal (detectado) y retencion calculada.
     const [grab, setGrab] = useState<Record<string, FilaGrabacion>>({});
-    const [detectando, setDetectando] = useState(false);
+    const [detectando, setDetectando] = useState<string | null>(null);
     const [calculando, setCalculando] = useState<string | null>(null);
-    const cargarGrab = async () => { try { setGrab(await grabacionesLpr()); } catch { } };
+    const cargarGrab = async () => { try { setGrab(await grabacionesDe(["LPR_CAMERA", "CAMERA"])); } catch { } };
     useEffect(() => { cargarGrab(); }, []);
+    // Áreas (árbol para agrupar equipos) y el nodo elegido, que filtra la tabla.
+    const [areas, setAreas] = useState<EstadoAreas>({ areas: [], equipos: {} });
+    const [areaSel, setAreaSelState] = useState<string>(TODAS);
+    const setAreaSel = (v: string) => { setAreaSelState(v); try { localStorage.setItem("devices.area", v); } catch { } };
+    useEffect(() => { leerAreas().then(setAreas).catch(() => { }); try { const v = localStorage.getItem("devices.area"); if (v) setAreaSelState(v); } catch { } }, []);
+    const buscador = useRef<HTMLInputElement>(null);
+    useEffect(() => {
+        const k = (e: KeyboardEvent) => { if (e.key === "/" && !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) { e.preventDefault(); buscador.current?.focus(); } };
+        window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k);
+    }, []);
     async function detectar(ids?: string[]) {
-        setDetectando(true);
+        setDetectando(ids?.length === 1 ? ids[0] : "__todas__");
         try {
             const r = await detectarGrabaciones(ids);
             if (!r.ok) toast.error("No se pudo detectar", { description: r.error });
@@ -255,7 +268,7 @@ export default function DevicesPage() {
                 });
             }
             await cargarGrab();
-        } finally { setDetectando(false); }
+        } finally { setDetectando(null); }
     }
     async function retencion(id: string) {
         setCalculando(id);
@@ -294,7 +307,8 @@ export default function DevicesPage() {
         const matchesSearch = d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             d.ip.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (d.location && d.location.toLowerCase().includes(searchTerm.toLowerCase()));
-        return matchesType && matchesSearch;
+        const matchesArea = areaSel === TODAS || !areas.areas.length && areaSel !== "__sin__" ? true : enArea(areas, d.id, areaSel);
+        return matchesType && matchesSearch && matchesArea;
     });
 
     // El NVR va en su propia tabla de salud debajo; el resto en la tabla principal
@@ -475,95 +489,80 @@ export default function DevicesPage() {
 
     return (
         <div className="p-6 space-y-4 animate-in fade-in duration-500">
-            {/* Compact Header */}
-            <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            {/* Encabezado: título y alta a la izquierda/derecha; abajo la barra con tipos, buscador al centro y herramientas */}
+            <header className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-indigo-500/10 rounded-lg border border-indigo-500/20">
+                    <div className="p-2.5 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
                         <Network className="text-indigo-400" size={20} />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold text-foreground">
-                            Dispositivos
-                        </h1>
+                        <h1 className="text-2xl font-bold text-foreground leading-tight">Dispositivos</h1>
                         <p className="text-[11px] text-muted-foreground">
-                            {filteredDevices.length} dispositivo{filteredDevices.length !== 1 ? "s" : ""} {typeFilter ? `· ${TYPE_META[typeFilter]?.label || typeFilter}` : ""}
+                            {filteredDevices.length} {TYPE_META[typeFilter]?.label || typeFilter}{areaSel !== TODAS ? ` · ${areaSel === "__sin__" ? "sin área" : areas.areas.find((a) => a.id === areaSel)?.nombre || "área"}` : ""}{searchTerm ? ` · «${searchTerm}»` : ""}
                         </p>
                     </div>
                 </div>
-
-                <div className="flex items-center gap-3 w-full lg:w-auto">
-                    {/* Module-aware filter tabs */}
-                    <div className="flex items-center gap-1 bg-card/80 p-1 rounded-lg border border-border/60">
-                        {allowedTypes.map(type => {
-                            const meta = TYPE_META[type];
-                            return (
-                                <button
-                                    key={type}
-                                    onClick={() => setFilter(type)}
-                                    className={cn(
-                                        "h-8 px-3 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all border border-transparent",
-                                        typeFilter === type ? meta.activeClass : "text-muted-foreground hover:text-muted-foreground hover:bg-accent"
-                                    )}
-                                >
-                                    {meta.label} <span className="opacity-60 tabular-nums">{devices.filter((d) => d.deviceType === type).length}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    <div className="relative flex-1 lg:w-64">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
-                        <input
-                            type="text"
-                            placeholder="Buscar dispositivo..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-card/80 border border-border/60 h-9 rounded-lg pl-9 pr-3 text-xs font-medium focus:ring-1 focus:ring-indigo-500/30 focus:border-indigo-500/30 outline-none transition-all placeholder:text-muted-foreground text-foreground"
-                        />
-                    </div>
-                    {typeFilter === "LPR_CAMERA" && <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button onClick={() => setShowReadRate(true)} variant="outline" className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
-                                    <ScanLine size={15} className="text-amber-400" /> <span className="hidden sm:inline">Tasa de lectura</span>
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p className="text-xs max-w-[200px]">% de placas leídas vs no reconocidas, por cámara y por hora</p></TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>}
-                    <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button
-                                    onClick={() => setPedirHora(devices.filter((d) => ["LPR_CAMERA", "NVR"].includes(d.deviceType) && ["HIKVISION", "DAHUA"].includes(d.brand)))}
-                                    disabled={syncing === "__all__"}
-                                    variant="outline"
-                                    className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent"
-                                >
-                                    {syncing === "__all__" ? <Loader2 size={15} className="animate-spin" /> : <TimerReset size={15} />}
-                                    <span className="hidden sm:inline">Sincronizar hora</span>
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p className="text-xs max-w-[220px]">Muestra la hora y el desfase de cada cámara LPR y NVR (Hikvision y Dahua) y pregunta antes de poner la hora del servidor. Funciona sin internet.</p></TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
-                    {typeFilter === "LPR_CAMERA" && <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button onClick={() => detectar()} disabled={detectando} variant="outline" className="h-9 px-3 rounded-lg text-xs shrink-0 gap-1.5 border-border/60 bg-card/80 hover:bg-accent">
-                                    {detectando ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} className="text-indigo-400" />} <span className="hidden sm:inline">Detectar grabaciones</span>
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p className="text-xs max-w-[240px]">Busca cada cámara LPR en los canales de todos los NVR (por su IP) y asigna sola dónde graba. No borra asignaciones existentes.</p></TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>}
-                    <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild>
-                        <Button onClick={() => setAlta(modules.MODULE_LPR ? "lpr" : "otro")} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-9 px-4 rounded-lg transition-all active:scale-95 text-xs gap-1.5 shrink-0">
-                            <Plus size={15} /> Agregar
-                        </Button>
-                    </TooltipTrigger><TooltipContent><p className="text-xs max-w-[240px]">Abre el alta guiada: primero elegís qué equipo es (cámara LPR, cámara de intrusión o NVR) y después sólo se piden los datos de ese tipo.</p></TooltipContent></Tooltip></TooltipProvider>
-                </div>
+                <Button onClick={() => setAlta(modules.MODULE_LPR ? "lpr" : "otro")} data-tooltip-id="tt-grab" data-tooltip-content="Alta guiada: primero elegís qué equipo es (cámara LPR, cámara de intrusión o NVR) y después sólo se piden los datos de ese tipo."
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-10 px-5 rounded-xl transition-all active:scale-95 text-sm gap-2 shrink-0 shadow-lg shadow-indigo-600/20">
+                    <Plus size={16} /> Agregar
+                </Button>
             </header>
+
+            <div className="rounded-2xl border border-border/60 bg-card/50 p-2 flex flex-col xl:flex-row items-stretch xl:items-center gap-2">
+                {/* Tipos */}
+                <div className="flex items-center gap-1 bg-background/60 p-1 rounded-xl border border-border/50 shrink-0">
+                    {allowedTypes.map((type) => {
+                        const meta = TYPE_META[type];
+                        const activo = typeFilter === type;
+                        return (
+                            <button key={type} onClick={() => setFilter(type)}
+                                className={cn("h-8 px-3 rounded-lg text-[11px] font-bold transition-all inline-flex items-center gap-1.5",
+                                    activo ? "bg-card text-foreground shadow-sm ring-1 ring-border" : "text-muted-foreground hover:text-foreground hover:bg-accent/60")}>
+                                <IconoTipo tipo={type} size={13} className={cn(!activo && "opacity-70")} />
+                                {meta?.label || type}
+                                <span className={cn("min-w-[20px] h-[18px] px-1 rounded-full text-[10px] grid place-items-center tabular-nums", activo ? "bg-indigo-500/15 text-indigo-500" : "bg-muted text-muted-foreground")}>{devices.filter((d) => d.deviceType === type).length}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+                {/* Buscador al centro */}
+                <div className="relative flex-1 xl:max-w-xl xl:mx-auto w-full group">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-indigo-500 transition-colors" size={17} />
+                    <input ref={buscador} type="text" placeholder="Buscar por nombre, IP o ubicación…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full bg-background border border-border/70 h-11 rounded-xl pl-11 pr-20 text-[13.5px] font-medium outline-none transition-all placeholder:text-muted-foreground/70 text-foreground focus:border-indigo-500/60 focus:ring-4 focus:ring-indigo-500/10 shadow-sm" />
+                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                        {searchTerm ? (
+                            <button onClick={() => setSearchTerm("")} className="h-6 px-2 rounded-md text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Limpiar</button>
+                        ) : <kbd className="h-6 px-2 rounded-md border border-border bg-muted/60 text-[11px] font-mono text-muted-foreground grid place-items-center" data-tooltip-id="tt-grab" data-tooltip-content="Atajo: tecla / para buscar">/</kbd>}
+                    </div>
+                </div>
+                {/* Herramientas */}
+                <div className="flex items-center gap-1 shrink-0 xl:justify-end">
+                    {(typeFilter === "LPR_CAMERA" || typeFilter === "CAMERA") && (
+                        <button onClick={() => detectar(filteredDevices.map((d) => d.id))} disabled={!!detectando}
+                            data-tooltip-id="tt-grab" data-tooltip-content={`Busca cada cámara de esta vista (${filteredDevices.length}) en los canales de todos los NVR, por su IP, y vincula dónde graba. No borra vínculos existentes.`}
+                            className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border border-border/60 bg-background/60 hover:bg-accent">
+                            {detectando === "__todas__" ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} className="text-indigo-400" />} <span className="hidden 2xl:inline">Detectar grabaciones</span>
+                        </button>
+                    )}
+                    {typeFilter === "LPR_CAMERA" && (
+                        <button onClick={() => setShowReadRate(true)} data-tooltip-id="tt-grab" data-tooltip-content="Tasa de lectura: % de placas leídas vs no reconocidas, por cámara y por hora."
+                            className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border border-border/60 bg-background/60 hover:bg-accent">
+                            <ScanLine size={15} className="text-amber-400" /> <span className="hidden 2xl:inline">Tasa de lectura</span>
+                        </button>
+                    )}
+                    <button onClick={() => setPedirHora(devices.filter((d) => ["LPR_CAMERA", "NVR"].includes(d.deviceType) && ["HIKVISION", "DAHUA"].includes(d.brand)))}
+                        data-tooltip-id="tt-grab" data-tooltip-content="Sincronizar hora: muestra la hora y el desfase de cada cámara LPR y NVR y pregunta antes de poner la hora del servidor."
+                        className="h-9 px-3 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border border-border/60 bg-background/60 hover:bg-accent">
+                        <TimerReset size={15} className="text-emerald-500" /> <span className="hidden 2xl:inline">Sincronizar hora</span>
+                    </button>
+                </div>
+            </div>
+
+            <div className="flex gap-4 items-start">
+                <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
+                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)} health={health} alertasDe={alertasDe} />
+                <div className="flex-1 min-w-0 space-y-4">
 
             {typeFilter !== "NVR" && typeFilter !== "CAMERA" && (
             <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
@@ -604,11 +603,11 @@ export default function DevicesPage() {
                             const h = health[dev.id];
 
                             return (
-                                <TableRow key={dev.id} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-grab active:cursor-grabbing", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                     <TableCell className="py-3 pl-5">
                                         <div className="flex items-center gap-4">
                                             <div className="relative">
-                                                <div className="w-11 h-11 rounded-md bg-white flex items-center justify-center p-1.5 border border-border/30 overflow-hidden">
+                                                <div className="w-11 h-11 rounded-md bg-white flex items-center justify-center p-1.5 border border-border/30">
                                                     <img
                                                         src={
                                                             dev.modelPhoto ||
@@ -627,6 +626,9 @@ export default function DevicesPage() {
                                                             }
                                                         }}
                                                     />
+                                                    {dev.deviceType === "LPR_CAMERA" && (
+                                                        <span className="absolute -top-1.5 -left-1.5 h-5 w-5 rounded-md bg-amber-500 text-black grid place-items-center shadow ring-2 ring-background" data-tooltip-id="tt-grab" data-tooltip-content="Cámara LPR"><CarIco size={11} /></span>
+                                                    )}
                                                     {dev.brandLogo && (
                                                         <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-white rounded p-0.5 border border-border shadow-sm">
                                                             <img src={dev.brandLogo} alt="Brand" className="w-full h-full object-contain" />
@@ -731,41 +733,10 @@ export default function DevicesPage() {
                                     </TableCell>
                                     {/* Grabaciones: en que NVR y canal graba (detectado) y cuanto guarda */}
                                     <TableCell>
-                                        {dev.deviceType !== 'LPR_CAMERA' ? <span className="text-muted-foreground text-xs">-</span> : (() => {
-                                            const g = grab[dev.id];
-                                            const u = g?.ubicacion;
-                                            const r = g?.retencion;
-                                            const calc = calculando === dev.id;
-                                            if (!g) return <span className="inline-block h-8 w-28 rounded bg-muted/50 animate-pulse" />;
-                                            if (!u) return (
-                                                <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                                                    <button onClick={() => detectar([dev.id])} disabled={detectando}
-                                                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-amber-500/30 bg-amber-500/10 text-amber-500 text-[10px] font-bold uppercase tracking-wide hover:bg-amber-500/20 transition">
-                                                        {detectando ? <Loader2 size={11} className="animate-spin" /> : <ScanSearch size={11} />} Sin NVR · detectar
-                                                    </button>
-                                                </TooltipTrigger><TooltipContent><p className="text-xs max-w-[240px]">No sabemos dónde se graba esta cámara. «Detectar» busca su IP en los canales de todos los NVR dados de alta y la asigna sola. Sin NVR no hay clips ni playback de sus lecturas.</p></TooltipContent></Tooltip></TooltipProvider>
-                                            );
-                                            return (
-                                                <div className="flex items-center gap-2 min-w-[180px]">
-                                                    <div className="space-y-0.5 min-w-0">
-                                                        <p className="text-xs font-semibold text-foreground flex items-center gap-1 truncate"><HardDriveIco size={11} className="text-indigo-400 shrink-0" /> <span className="truncate max-w-[130px]">{u.nvrNombre || "NVR"}</span> <span className="px-1.5 py-0 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-bold font-mono shrink-0">CH {u.ch}</span></p>
-                                                        {r ? (
-                                                            <p className={cn("text-[10px] flex items-center gap-1", r.error ? "text-red-400" : "text-muted-foreground")}>
-                                                                <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", r.grabando === false ? "bg-red-500" : r.grabando ? "bg-emerald-500" : "bg-muted-foreground/40")} />
-                                                                {r.error ? r.error : <><b className="text-foreground tabular-nums">{r.dias} días</b> · desde {r.desde.slice(0, 10).split("-").reverse().join("/")}</>}
-                                                                {r.grabando === false && !r.error && <span className="text-red-400 font-semibold">· no graba ahora</span>}
-                                                            </p>
-                                                        ) : <p className="text-[10px] text-muted-foreground">Retención sin calcular</p>}
-                                                    </div>
-                                                    <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                                                        <Button size="icon" variant="outline" onClick={() => retencion(dev.id)} disabled={calc}
-                                                            className="h-7 w-7 rounded-md border-border/60 bg-card/80 hover:bg-indigo-500/10 hover:text-indigo-400 shrink-0">
-                                                            {calc ? <Loader2 size={13} className="animate-spin" /> : <Calculator size={13} />}
-                                                        </Button>
-                                                    </TooltipTrigger><TooltipContent><p className="text-xs max-w-[240px]">Calcular la retención: busca en el NVR la grabación más vieja que queda de este canal. De ese día a hoy es lo que se está guardando. También dice si está grabando ahora.{r ? ` Último cálculo: ${new Date(r.calculado).toLocaleString("es-UY")}.` : ""}</p></TooltipContent></Tooltip></TooltipProvider>
-                                                </div>
-                                            );
-                                        })()}
+                                        {dev.deviceType !== 'LPR_CAMERA' ? <span className="text-muted-foreground text-xs">-</span> : (
+                                            <CeldaGrabacion g={grab[dev.id]} detectando={detectando === dev.id || detectando === "__todas__"} calculando={calculando === dev.id}
+                                                onDetectar={() => detectar([dev.id])} onRetencion={() => retencion(dev.id)} />
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-center">
                                         {dev.deviceType === 'LPR_CAMERA' && dev.direction ? (
@@ -1111,7 +1082,8 @@ export default function DevicesPage() {
 
             {/* ─────────────── Cámaras de intrusión ─────────────── */}
             {typeFilter === "CAMERA" && (
-                <TablaIntrusion devices={filteredDevices} health={health} analyticsIds={analyticsIds} groups={groups} onReload={loadData} onEditar={setEditando} alertasDe={alertasDe} onVerSalud={setHealthHistory} />
+                <TablaIntrusion devices={filteredDevices} health={health} analyticsIds={analyticsIds} groups={groups} onReload={loadData} onEditar={setEditando} alertasDe={alertasDe} onVerSalud={setHealthHistory}
+                    grab={grab} detectando={detectando} calculando={calculando} onDetectar={(ids) => detectar(ids)} onRetencion={retencion} />
             )}
 
             {/* ─────────────── Tabla de salud del NVR ─────────────── */}
@@ -1148,7 +1120,7 @@ export default function DevicesPage() {
                                     const disksOk = disks.length > 0 && disks.every((d) => d.status === 'ok');
                                     const healthy = h?.reachable && (disks.length === 0 || disksOk) && (h?.memPct == null || h.memPct < 95);
                                     return (
-                                        <TableRow key={dev.id} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                        <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-grab active:cursor-grabbing", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                             <TableCell className="py-3 pl-5">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-10 h-10 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
@@ -1281,6 +1253,10 @@ export default function DevicesPage() {
                     </div>
                 </div>
             )}
+
+                </div>
+            </div>
+            <ReactTooltip id="tt-grab" place="top" className="!max-w-[300px] !text-[12px] !rounded-lg !z-[60]" />
 
             {calibrating && (
                 <CameraCalibrator device={calibrating} onClose={() => setCalibrating(null)} />

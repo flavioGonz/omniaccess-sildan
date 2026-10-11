@@ -21,6 +21,30 @@ export async function grabacionesLpr(): Promise<Record<string, FilaGrabacion>> {
 }
 
 /**
+ * NVR, canal y retención de las cámaras de los tipos pedidos (LPR, intrusión), leyendo el mapa
+ * de canales y los nombres de NVR UNA sola vez (con 100+ cámaras de intrusión, por cámara eran
+ * 200 consultas).
+ */
+export async function grabacionesDe(tipos: string[] = ["LPR_CAMERA", "CAMERA"]): Promise<Record<string, FilaGrabacion>> {
+    await conSesion();
+    const [cams, mapa, ret, nvrs] = await Promise.all([
+        prisma.device.findMany({ where: { deviceType: { in: tipos as any } }, select: { id: true, ip: true } }),
+        getChannelMap(), leerRetenciones(),
+        prisma.device.findMany({ where: { deviceType: "NVR" as any }, select: { id: true, name: true } }),
+    ]);
+    const nombre = new Map(nvrs.map((n) => [n.id, n.name]));
+    const porDefecto = (await prisma.setting.findUnique({ where: { key: "NVR_HOST" } }))?.value || null;
+    const nvrDefecto = porDefecto ? (await prisma.device.findFirst({ where: { deviceType: "NVR" as any, ip: porDefecto }, select: { id: true } }))?.id || null : null;
+    const out: Record<string, FilaGrabacion> = {};
+    for (const c of cams) {
+        const e = c.ip ? mapa[c.ip] : null;
+        const nvrId = e ? (e.nvrId || nvrDefecto) : null;
+        out[c.id] = { deviceId: c.id, ip: c.ip, ubicacion: e ? { nvrId, nvrNombre: (nvrId && nombre.get(nvrId)) || null, ch: e.ch } : null, retencion: ret[c.ip] || null };
+    }
+    return out;
+}
+
+/**
  * Busca en TODOS los NVR donde graba cada camara (por su IP en los canales) y guarda lo hallado
  * en el mapa de canales. No borra nada: una camara que no aparece conserva lo que tenia.
  */

@@ -9,14 +9,18 @@ import { deleteDevice } from "@/app/actions/devices";
 import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { IntrusionCalibrator } from "@/components/IntrusionCalibrator";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
+import { CeldaGrabacion } from "@/components/devices/CeldaGrabacion";
+import { arrastrarEquipos } from "@/components/devices/ArbolAreas";
+import type { FilaGrabacion } from "@/app/actions/grabaciones";
 
 /**
  * Las cámaras de INTRUSIÓN, en su propia vista (no mezcladas con las LPR ni con los NVR).
  * Cada fila dice dónde graba (NVR y canal), si tiene la analítica dibujada, si le avisa a
  * OmniAccess y deja calibrarla con el calibrador de intrusión.
  */
-export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload, onEditar, alertasDe = {}, onVerSalud }: {
+export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload, onEditar, alertasDe = {}, onVerSalud, grab = {}, detectando = null, calculando = null, onDetectar, onRetencion }: {
     devices: any[]; health: Record<string, any>; analyticsIds: Set<string>; groups: any[]; onReload: () => void; onEditar?: (d: any) => void; alertasDe?: Record<string, AlertaEquipo[]>; onVerSalud?: (d: any) => void;
+    grab?: Record<string, FilaGrabacion>; detectando?: string | null; calculando?: string | null; onDetectar?: (ids: string[]) => void; onRetencion?: (id: string) => void;
 }) {
     const [cams, setCams] = useState<Record<string, IntrusionCam>>({});
     const [cargando, setCargando] = useState(true);
@@ -27,12 +31,14 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
     const cargar = () => { setCargando(true); getIntrusionCameras().then((l) => setCams(Object.fromEntries(l.map((c) => [c.id, c])))).catch(() => { }).finally(() => setCargando(false)); };
     useEffect(() => { cargar(); }, [devices.length]);
 
-    const nvrs = useMemo(() => [...new Set(Object.values(cams).map((c) => c.nvrName || "Sin NVR"))].sort(), [cams]);
+    const nvrDe = (id: string) => grab[id]?.ubicacion?.nvrNombre || cams[id]?.nvrName || "Sin NVR";
+    const chDe = (id: string) => grab[id]?.ubicacion?.ch ?? cams[id]?.ch ?? 999;
+    const nvrs = useMemo(() => [...new Set(devices.map((d) => nvrDe(d.id)))].sort(), [devices, cams, grab]);
     const filas = useMemo(() => devices
         .filter((d) => !q || d.name.toLowerCase().includes(q.toLowerCase()) || d.ip.includes(q))
-        .filter((d) => nvr === "todos" || (cams[d.id]?.nvrName || "Sin NVR") === nvr)
-        .sort((a, b) => (cams[a.id]?.nvrName || "").localeCompare(cams[b.id]?.nvrName || "") || (cams[a.id]?.ch ?? 999) - (cams[b.id]?.ch ?? 999) || a.name.localeCompare(b.name)),
-    [devices, cams, q, nvr]);
+        .filter((d) => nvr === "todos" || nvrDe(d.id) === nvr)
+        .sort((a, b) => nvrDe(a.id).localeCompare(nvrDe(b.id)) || chDe(a.id) - chDe(b.id) || a.name.localeCompare(b.name)),
+    [devices, cams, grab, q, nvr]);
     const conAnalitica = devices.filter((d) => analyticsIds.has(d.id)).length;
     const conAviso = Object.values(cams).filter((c) => c.alarmOk).length;
 
@@ -49,10 +55,6 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                         <option value="todos">Todos los NVR</option>
                         {nvrs.map((n) => <option key={n} value={n}>{n}</option>)}
                     </select>
-                    <div className="relative">
-                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar cámara o IP…" className="h-9 w-56 rounded-lg bg-card border border-border pl-8 pr-3 text-xs outline-none focus:ring-1 focus:ring-red-500/30" />
-                    </div>
                 </div>
             </div>
 
@@ -75,11 +77,14 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                         {filas.map((d) => {
                             const c = cams[d.id]; const h = health[d.id]; const ana = analyticsIds.has(d.id);
                             return (
-                                <tr key={d.id} className={cn("border-t border-border/50 hover:bg-foreground/[0.04] transition-colors", alertasDe[d.id] && "bg-red-500/[0.035]")}>
+                                <tr key={d.id} draggable onDragStart={(e) => arrastrarEquipos(e, [d.id], d.name)} className={cn("border-t border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-grab active:cursor-grabbing", alertasDe[d.id] && "bg-red-500/[0.035]")}>
                                     <td className="py-2.5 pl-5">
                                         <div className="flex items-center gap-3">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img src={`/api/snapshot/${d.id}?w=160`} alt="" loading="lazy" className="w-20 h-11 rounded-md object-cover bg-black border border-border/40" onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
+                                            <span className="relative shrink-0">
+                                                <img src={`/api/snapshot/${d.id}?w=160`} alt="" loading="lazy" className="w-20 h-11 rounded-md object-cover bg-black border border-border/40" onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
+                                                <span className="absolute -top-1.5 -left-1.5 h-5 w-5 rounded-md bg-red-500 text-white grid place-items-center shadow ring-2 ring-background" data-tooltip-id="tt-intr" data-tooltip-content="Cámara de intrusión"><Radar size={11} /></span>
+                                            </span>
                                             <div className="min-w-0">
                                                 <p className={cn("font-semibold text-foreground text-sm leading-tight truncate max-w-[240px]", claseNombreConAlerta(alertasDe[d.id]))}>{d.name}</p>
                                                 <p className="text-[10px] text-muted-foreground">{d.brand}{d.deviceModel ? ` · ${d.deviceModel}` : ""}</p>
@@ -88,9 +93,8 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                                         </div>
                                     </td>
                                     <td>
-                                        {c?.nvrName ? (
-                                            <span className="inline-flex items-center gap-1.5 text-xs"><Server size={12} className="text-blue-400" /> <span className="truncate max-w-[160px]">{c.nvrName}</span> {c.ch != null && <span className="px-1.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[9px] font-bold font-mono">CH {c.ch}</span>}</span>
-                                        ) : <span className="text-[10px] font-bold uppercase text-amber-500">Sin NVR</span>}
+                                        <CeldaGrabacion g={grab[d.id]} detectando={detectando === d.id || detectando === "__todas__"} calculando={calculando === d.id}
+                                            onDetectar={() => onDetectar?.([d.id])} onRetencion={() => onRetencion?.(d.id)} />
                                     </td>
                                     <td><p className="text-xs font-mono text-foreground">{d.ip}</p></td>
                                     <td className="text-center">
