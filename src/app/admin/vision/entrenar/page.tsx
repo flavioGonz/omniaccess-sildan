@@ -88,21 +88,41 @@ export default function EntrenarVision() {
 
     return (
         <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
-            <div className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-start gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-full bg-muted shrink-0"><GraduationCap size={20} /></span>
-                <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <h1 className="text-[17px] font-bold leading-tight">Analíticas entrenables</h1>
-                        {datos && !datos.activa && <Chip tono="quieto">Apagada en Analíticas: no mira ninguna</Chip>}
-                    </div>
-                    <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
-                        Una zona fija de una cámara que se distingue en dos estados: contenedor desbordado o normal, portón abierto o cerrado, lugar ocupado o libre. Arranca con frases; con ejemplos etiquetados aprende esa zona en particular. No sirve para cosas que aparecen en cualquier parte del cuadro: para eso, «Objetos nuevos» le enseña al detector con fotos dibujadas.
-                    </p>
+            <div className="flex items-center gap-3">
+                <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><GraduationCap size={18} strokeWidth={2.3} /></span>
+                <div className="min-w-0">
+                    <h1 className="text-[17px] font-bold leading-tight">Entrenar</h1>
+                    <p className="text-[12.5px] text-muted-foreground leading-snug">Enseñarle a OmniVision algo nuevo. Hay dos formas, según qué querés que aprenda.</p>
                 </div>
-                <Link href="/admin/vision/entrenar/objetos" className="shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border text-[13px] font-semibold hover:bg-accent" title="Enseñarle al detector cosas que no conoce, con fotos y recuadros">
-                    <Boxes size={15} /> Objetos nuevos
+            </div>
+
+            {/* Las dos formas, lado a lado: elegir mal es lo que más tiempo hace perder (zonas para
+                objetos que se mueven, o cientos de recuadros para algo que es un estado de un lugar). */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <a href="#zonas" className="rounded-[10px] border-2 border-[var(--accion)] bg-card p-4 flex gap-3.5 hover:bg-accent transition-colors">
+                    <IlustracionZona />
+                    <div className="min-w-0">
+                        <div className="text-[14px] font-bold">Cómo está un lugar</div>
+                        <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5">La cámara mira siempre el mismo lugar y le enseñás a distinguir dos estados.</p>
+                        <p className="text-[12px] mt-1.5"><b>Ej.:</b> contenedor desbordado o normal · portón abierto o cerrado · lugar ocupado o libre.</p>
+                        <p className="text-[11.5px] text-muted-foreground mt-1.5">Con 30 ejemplos de cada estado. Es esta página.</p>
+                    </div>
+                </a>
+                <Link href="/admin/vision/entrenar/objetos" className="rounded-[10px] border border-border bg-card p-4 flex gap-3.5 hover:bg-accent hover:border-[var(--accion)] transition-colors">
+                    <IlustracionObjeto />
+                    <div className="min-w-0">
+                        <div className="text-[14px] font-bold inline-flex items-center gap-1.5">Un objeto nuevo <Boxes size={14} /></div>
+                        <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5">Le enseñás al detector una cosa que no conoce, para que la encuentre en cualquier cámara y lugar.</p>
+                        <p className="text-[12px] mt-1.5"><b>Ej.:</b> contenedor de basura · cono · carretilla · volqueta.</p>
+                        <p className="text-[11.5px] text-muted-foreground mt-1.5">Con 100 a 300 fotos dibujadas. Abre «Objetos nuevos».</p>
+                    </div>
                 </Link>
-                <Button onClick={() => setNueva(true)} disabled={!datos}><Plus size={15} /> Nueva</Button>
+            </div>
+
+            <div id="zonas" className="scroll-mt-4 flex items-center gap-2 flex-wrap pt-1">
+                <h2 className="text-[15px] font-bold">Zonas entrenables</h2>
+                {datos && !datos.activa && <Chip tono="quieto">Apagada en Analíticas: no mira ninguna</Chip>}
+                <Button className="ml-auto" onClick={() => setNueva(true)} disabled={!datos}><Plus size={15} /> Nueva zona</Button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -125,5 +145,33 @@ export default function EntrenarVision() {
 
             {nueva && datos && <CajonZona inicial={FORM_VACIO} nueva camaras={datos.camaras} guardando={guardando} alCerrar={() => setNueva(false)} alGuardar={crear} />}
         </div>
+    );
+}
+
+/** Una cámara mirando siempre el mismo rectángulo, con dos estados: lleno y vacío. */
+function IlustracionZona() {
+    return (
+        <svg viewBox="0 0 96 64" className="w-24 h-16 shrink-0 rounded-[8px]" aria-hidden>
+            <rect width={96} height={64} fill="var(--muted)" />
+            <rect x={8} y={14} width={36} height={36} rx={2} fill="none" stroke="var(--accion)" strokeWidth={2} strokeDasharray="4 3" />
+            <rect x={14} y={30} width={24} height={18} fill="var(--muted-foreground)" /><circle cx={20} cy={26} r={5} fill="var(--muted-foreground)" /><circle cx={30} cy={24} r={6} fill="var(--muted-foreground)" />
+            <rect x={52} y={14} width={36} height={36} rx={2} fill="none" stroke="var(--accion)" strokeWidth={2} strokeDasharray="4 3" />
+            <rect x={58} y={30} width={24} height={18} fill="var(--muted-foreground)" />
+            <text x={26} y={60} fontSize={7} textAnchor="middle" fill="var(--muted-foreground)">lleno</text>
+            <text x={70} y={60} fontSize={7} textAnchor="middle" fill="var(--muted-foreground)">normal</text>
+        </svg>
+    );
+}
+/** El mismo objeto en dos cámaras distintas, cada uno con su recuadro. */
+function IlustracionObjeto() {
+    return (
+        <svg viewBox="0 0 96 64" className="w-24 h-16 shrink-0 rounded-[8px]" aria-hidden>
+            <rect width={96} height={64} fill="var(--muted)" />
+            <line x1={0} y1={52} x2={96} y2={52} stroke="var(--border)" strokeWidth={2} />
+            <rect x={10} y={30} width={22} height={20} fill="var(--muted-foreground)" /><rect x={8} y={26} width={26} height={5} fill="var(--muted-foreground)" />
+            <rect x={6} y={24} width={30} height={28} fill="none" stroke="var(--bien)" strokeWidth={1.8} />
+            <rect x={66} y={40} width={11} height={10} fill="var(--muted-foreground)" /><rect x={65} y={38} width={13} height={3} fill="var(--muted-foreground)" />
+            <rect x={63} y={36} width={17} height={16} fill="none" stroke="var(--bien)" strokeWidth={1.8} />
+        </svg>
     );
 }

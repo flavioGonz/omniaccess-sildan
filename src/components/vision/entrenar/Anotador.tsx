@@ -18,7 +18,8 @@ import { CAJA_MIN, type Caja, type ClaseResumen, type FotoFila } from "@/lib/det
  *    detector que el objeto que estaba ahí es fondo.
  *  · ← → se mueven entre fotos guardando lo que cambió.
  *
- * Un recuadro va AJUSTADO al objeto, entero aunque esté tapado en parte, y uno por objeto: tres
+ * Un recuadro va AJUSTADO a la parte visible del objeto (como en COCO, con lo que se entrenó el
+ * detector de fábrica), y uno por objeto: tres
  * conos son tres recuadros. Lo dice la ayuda de abajo, porque es lo que más arruina un conjunto.
  */
 export function Anotador({ fotos, inicio, clases, alGuardar, alBorrar, alCerrar }: {
@@ -162,7 +163,7 @@ export function Anotador({ fotos, inicio, clases, alGuardar, alBorrar, alCerrar 
                         )}
                     </AnimatePresence>
                 </motion.div>
-                <p className="text-center text-[11.5px] text-white/70 mt-2">Arrastrá para marcar. El recuadro, ajustado y con el objeto entero aunque esté tapado; uno por objeto. 1-9 cambia la clase, Supr borra el elegido.</p>
+                <p className="text-center text-[11.5px] text-white/70 mt-2">Arrastrá para marcar: el recuadro ajustado a lo que se ve del objeto, uno por objeto. 1-9 cambia la clase, Supr borra el elegido, N si no hay ninguno.</p>
             </DialogContent>
         </Dialog>
     );

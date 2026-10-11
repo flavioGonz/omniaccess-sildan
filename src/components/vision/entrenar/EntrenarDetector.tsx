@@ -31,6 +31,26 @@ const ESTADO: Record<string, { t: string; tono: "bien" | "aviso" | "mal" | "info
 /** Lo que se pausa mientras se entrena, en las palabras de las pantallas que lo muestran. */
 const SE_PAUSA = "la verificación de intrusión, el registro de detecciones, la búsqueda, las zonas entrenables y las fotos de Accesos";
 const REFRESCO_MS = 10_000;
+/**
+ * Cómo se lee el resultado, en palabras. F1 junta las dos maneras de equivocarse (lo que se le
+ * escapa y lo que marca de más): con 0,8 o más se puede usar tranquilo; entre 0,6 y 0,8 sirve
+ * mirando lo que marca; debajo, todavía no.
+ */
+const F1_BUENO = 0.8;
+const F1_SIRVE = 0.6;
+function veredicto(f1: number) {
+    return f1 >= F1_BUENO ? { t: "Listo para usar", tono: "bien" as const, d: "Encuentra casi todos y casi no marca de más." }
+        : f1 >= F1_SIRVE ? { t: "Sirve, con cuidado", tono: "aviso" as const, d: "Anda, pero conviene revisar lo que marca en Detecciones los primeros días." }
+            : { t: "Todavía no", tono: "mal" as const, d: "Se equivoca demasiado: hacen falta más fotos dibujadas." };
+}
+/** El consejo que sale de los números: qué tipo de foto sumar. */
+function consejo(escapados: number, deMas: number) {
+    if (!escapados && !deMas) return null;
+    return escapados >= deMas
+        ? "Se le escapan: sumá fotos donde el objeto se vea chico, lejos, de noche o tapado en parte."
+        : "Marca de más: sumá fotos del mismo lugar SIN el objeto, y marcalas con «No hay ninguno».";
+}
+
 const pct = (v: any) => (typeof v === "number" ? `${Math.round(v * 100)} %` : "—");
 
 export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; falta: string[] }) {
@@ -109,10 +129,26 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
                 </div>
             )}
 
+            {!enCurso && (
+                <ol className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-[12px]">
+                    {[
+                        ["Junta las fotos", "Las dibujadas, y las marcadas «no hay ninguno»."],
+                        ["Aprende", "Repasa las fotos muchas veces. Mientras tanto se pausa OmniVision."],
+                        ["Se toma un examen", "Con 1 de cada 7 fotos que aparta y no le muestra al aprender."],
+                        ["Te dice cuánto acierta", "Por clase: cuántos encontró y cuántos marcó de más."],
+                    ].map(([t, d], i) => (
+                        <li key={t} className="rounded-[8px] bg-muted/50 px-3 py-2">
+                            <div className="font-bold"><span className="tabular-nums text-muted-foreground mr-1">{i + 1}.</span>{t}</div>
+                            <div className="text-muted-foreground leading-snug mt-0.5">{d}</div>
+                        </li>
+                    ))}
+                </ol>
+            )}
+
             {enCurso ? <EnCurso t={enCurso} alCancelar={() => cancelar(enCurso.id)} /> : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Modelo</div>
+                        <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Qué tan fino</div>
                         {MODELOS_ENTRENAMIENTO.map((m) => (
                             <button key={m.id} type="button" onClick={() => setModelo(m.id)} className={cn("w-full text-left rounded-[10px] border px-3 py-2 transition-colors", modelo === m.id ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent")}>
                                 <div className="text-[13px] font-semibold">{m.rotulo}</div><div className="text-[11.5px] text-muted-foreground">{m.detalle}</div>
@@ -146,7 +182,7 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
 
             {datos.entrenamientos.filter((t) => !ACTIVOS.includes(t.estado)).length > 0 && (
                 <div className="space-y-2">
-                    <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Anteriores</div>
+                    <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Resultados</div>
                     {datos.entrenamientos.filter((t) => !ACTIVOS.includes(t.estado)).map((t) => (
                         <Terminado key={t.id} t={t} nombre={nombre} enUso={activo?.activo?.entrenamiento === t.id} ocupado={activando === t.id}
                             alUsar={() => usar(t.id)} />
@@ -206,7 +242,7 @@ function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
                 <span className="text-muted-foreground">· {MODELOS_ENTRENAMIENTO.find((m) => m.id === t.parametros?.modelo)?.rotulo || t.parametros?.modelo}</span>
                 {r?.segundos != null && <span className="text-muted-foreground tabular-nums">· {Math.round(r.segundos / 60)} min</span>}
                 {t.conjunto?.corto?.length > 0 && <Chip tono="quieto">de prueba: conjunto chico</Chip>}
-                {med && <span className="ml-auto font-semibold">F1 {pct(med.f1)} · umbral {med.umbral}</span>}
+                {med && <span className="ml-auto font-semibold tabular-nums">acierta {pct(med.f1)}</span>}
                 {/* Se puede usar si dejó modelo y el ONNX da lo mismo que lo entrenado (lo medido vale). */}
                 {enUso ? <Chip tono="bien" icono={CircleCheck}>En uso</Chip>
                     : r?.ok && (r.paridad == null || r.paridad >= PARIDAD_MIN) && (t.estado === "LISTO" || t.estado === "CANCELADO") && (
@@ -215,16 +251,34 @@ function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
                         </Button>
                     )}
             </div>
-            {med && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                    {Object.entries(med.por_clase || {}).map(([id, v]: [string, any]) => (
-                        <div key={id} className="rounded-md bg-muted/50 px-3 py-2 text-[12px]">
-                            <div className="font-semibold">{nombre(id)}</div>
-                            <div className="tabular-nums text-muted-foreground">encontró {v.encontrados} de {v.recuadros} · {v.de_mas} de más</div>
+            {med && (() => {
+                const v = veredicto(med.f1 || 0);
+                return (
+                    <>
+                        <div className={cn("rounded-[8px] border px-3 py-2 text-[12.5px]", `chip-${v.tono}`)}>
+                            <b>{v.t}.</b> {v.d}
+                            <span className="text-foreground/70"> Acierta {pct(med.f1)} en el examen{r?.conjunto?.validacion ? ` (${r.conjunto.validacion} fotos que no vio al aprender)` : ""}.</span>
                         </div>
-                    ))}
-                </div>
-            )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {Object.entries(med.por_clase || {}).map(([id, c]: [string, any]) => {
+                                const escapados = c.recuadros - c.encontrados;
+                                const tip = consejo(escapados, c.de_mas);
+                                return (
+                                    <div key={id} className="rounded-[8px] bg-muted/50 px-3 py-2.5 text-[12px] space-y-1">
+                                        <div className="font-bold text-[13px]">{nombre(id)}</div>
+                                        <div className="tabular-nums"><b>Encontró {c.encontrados} de {c.recuadros}</b>{escapados ? ` · se le escaparon ${escapados}` : " · no se le escapó ninguno"}</div>
+                                        <div className="tabular-nums">{c.de_mas ? <>Marcó <b>{c.de_mas}</b> donde no había</> : "No marcó nada donde no había"}</div>
+                                        {tip && <div className="text-muted-foreground leading-snug">{tip}</div>}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <p className="text-[11.5px] text-muted-foreground leading-snug">
+                            Umbral {med.umbral}: qué tan seguro tiene que estar para marcar uno. Se eligió el que mejor anduvo en el examen; más bajo encuentra más pero se equivoca más.
+                        </p>
+                    </>
+                );
+            })()}
             {r && r.paridad != null && r.paridad < PARIDAD_MIN && <p className="text-[12px] tono-aviso">El ONNX no da lo mismo que el modelo entrenado (paridad {pct(r.paridad)}): no conviene usarlo.</p>}
             {r && r.paridad == null && t.estado === "LISTO" && <p className="text-[12px] text-muted-foreground">No se pudo comprobar la paridad del ONNX: el modelo no dio ninguna detección en validación.</p>}
             {r?.conjunto?.valida_sobre_las_mismas && <p className="text-[12px] text-muted-foreground">Con tan pocas fotos se validó sobre las mismas del entrenamiento: la medición es optimista.</p>}
