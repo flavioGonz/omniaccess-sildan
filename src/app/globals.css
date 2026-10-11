@@ -820,3 +820,135 @@ video::-webkit-media-controls { display: none !important; }
   --mal-texto: oklch(0.760 0.150 17);
   --sombra-flotante: 0 12px 34px -10px rgba(0, 0, 0, 0.55);
 }
+
+
+/* ── Clases de la pantalla de Usuarios (traídas de san-nicolas): buscador sek, chips/tonos, pleno-mal, accion ── */
+.sek {--bg: var(--background);
+  --font-ui: var(--font-sans);
+  --ink: var(--foreground);
+  --ink-2: color-mix(in oklab, var(--foreground) 82%, var(--background));
+  --ink-3: color-mix(in oklab, var(--foreground) 62%, var(--background));
+  --ink-4: color-mix(in oklab, var(--foreground) 46%, var(--background));
+  --ink-5: color-mix(in oklab, var(--foreground) 34%, var(--background));
+  
+  --ink-rgb: 10 10 10;
+  --pane: var(--card);
+  --pane-edge: var(--border);
+  
+  --g-blur: 2px;
+  --g-sat: 120%;}
+.dark .sek {--ink-rgb: 250 250 250;}
+[data-stroke="on"] .sek-skin::before {border-color: var(--pane-edge);}
+.sek {position: relative;
+  display: grid;
+  place-items: center;
+  
+  width: var(--frame, 380px);
+  height: var(--frameh, 96px);
+  font-family: var(--font-ui);}
+.sek-skin {position: relative;
+  width: var(--w);
+  
+  height: var(--shut);
+  
+  
+  border-radius: var(--sek-r, 999px);
+  
+  background: var(--pane);
+  -webkit-backdrop-filter:
+    blur(var(--g-blur, 2px)) saturate(var(--g-sat, 150%)) brightness(var(--g-bright, 100%));
+  backdrop-filter:
+    blur(var(--g-blur, 2px)) saturate(var(--g-sat, 150%)) brightness(var(--g-bright, 100%));
+  isolation: isolate;
+  
+  transform: translate(var(--lx), var(--ly)) scale(var(--sk, 1));
+  transition:
+    transform 260ms cubic-bezier(0.22, 0.9, 0.28, 1),
+    background 220ms ease;
+  
+  overflow: hidden;}
+.sek-skin::before {content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  pointer-events: none;
+  z-index: 2;}
+.sek:not([data-open="true"]) .sek-skin:hover {--sk: 1.045;
+  
+  --g-bright: 104%;}
+.sek[data-press="true"] .sek-skin {--sk: 0.93;
+  transition: transform 90ms cubic-bezier(0.4, 0, 0.6, 1);}
+.sek[data-open="true"] .sek-skin {cursor: text;}
+.sek-lens {position: absolute;
+  left: var(--inset);
+  top: 50%;
+  width: var(--lens);
+  height: var(--lens);
+  margin-top: calc(var(--lens) / -2);
+  fill: none;
+  stroke: var(--ink-3);
+  
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  pointer-events: none;
+  transition: stroke 200ms ease, stroke-width 200ms ease;}
+.sek-skin:hover .sek-lens {stroke: var(--ink);}
+.sek[data-open="true"] .sek-lens {stroke: var(--ink-4);}
+.sek[data-busy="true"] .sek-lens {stroke: var(--ink-2); stroke-width: 1.8;}
+.sek-field {position: absolute;
+  left: calc(var(--inset) + var(--lens) + 11px);
+  right: 14px;
+  top: 0;
+  height: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  
+  font-size: var(--sek-tipo, 18px);
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  outline: none;
+  opacity: var(--say);
+  transform: translateX(calc((1 - var(--say)) * -6px));
+  
+  pointer-events: var(--say-hit, none);}
+.sek[data-open="true"] .sek-field {--say-hit: auto;}
+.sek-field::placeholder {color: var(--ink-5);}
+.sek-hit {position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  cursor: pointer;}
+.sek-hit:focus-visible {outline: none;
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px rgba(var(--ink-rgb), 0.4);}
+.tono-bien {color: var(--bien-texto);}
+.tono-aviso {color: var(--aviso-texto);}
+.tono-mal {color: var(--mal-texto);}
+.tono-info {color: var(--info-texto);}
+.chip-bien {color: var(--bien-texto);   background: var(--bien-suave);   border-color: color-mix(in oklab, var(--bien) 34%, transparent);}
+.chip-aviso {color: var(--aviso-texto);  background: var(--aviso-suave);  border-color: color-mix(in oklab, var(--aviso) 34%, transparent);}
+.chip-mal {color: var(--mal-texto);    background: var(--mal-suave);    border-color: color-mix(in oklab, var(--mal) 34%, transparent);}
+.chip-info {color: var(--info-texto);   background: var(--info-suave);   border-color: color-mix(in oklab, var(--info) 34%, transparent);}
+.chip-neutro {color: var(--muted-foreground); background: var(--muted); border-color: var(--border);}
+.pleno-mal {background: var(--mal);    color: #fff;}
+.sombra-flotante {box-shadow: var(--sombra-flotante);}
+.accion {background: var(--accion); color: var(--accion-texto);}
+.accion:hover {background: var(--accion-sobre);}
+.tono-accion {color: var(--accion);}
+
+/* Tonos de texto de la pantalla de Usuarios (san-nicolas) */
+:root {
+  --accion-sobre: oklch(0.62 0.20 256);
+  --accion-texto: oklch(1 0 0);
+  --bien-texto:  oklch(0.508 0.130 163);
+  --aviso-texto: oklch(0.556 0.130 62);
+  --info-texto:  oklch(0.543 0.155 249);
+}
+.dark {
+  --accion-sobre: oklch(0.68 0.19 256);
+  --bien-texto:   oklch(0.792 0.145 163);
+  --aviso-texto:  oklch(0.828 0.130 82);
+  --info-texto:   oklch(0.780 0.120 249);
+}

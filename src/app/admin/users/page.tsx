@@ -283,12 +283,12 @@ export default function UsersPage() {
                             return (
                                 <button key={p.clave} type="button" onClick={() => elegirPestania(p.clave)} aria-pressed={activa}
                                     className={cn("h-8 px-3.5 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5 border border-transparent",
-                                        negra ? (activa ? "pleno-mal" : "chip-mal ml-1 hover:brightness-110")
+                                        negra ? (activa ? "pleno-mal ml-1 ring-2 ring-offset-2 ring-offset-background ring-[var(--mal)]" : "pleno-mal ml-1 opacity-85 hover:opacity-100")
                                             : activa ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground")}>
                                     <Ic size={13} />
                                     {p.titulo}
                                     <span className={cn("tabular-nums text-[10px] px-1.5 py-0.5 rounded-md",
-                                        negra ? (activa ? "bg-white/20 text-white" : "pleno-mal") : "bg-muted text-muted-foreground")}>
+                                        negra ? "bg-white/20 text-white" : "bg-muted text-muted-foreground")}>
                                         {cuentas[p.clave]}
                                     </span>
                                 </button>
