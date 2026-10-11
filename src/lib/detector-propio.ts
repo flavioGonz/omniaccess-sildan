@@ -81,8 +81,8 @@ export function validarCajas(x: unknown, clases: Set<string>): { cajas: Caja[] }
 export function falta(clases: ClaseResumen[], revisadas: number, negativas: number): string[] {
     const l: string[] = [];
     if (!clases.length) l.push("Crear al menos una clase.");
-    for (const c of clases) if (c.cajas < CAJAS_MINIMO) l.push(`«${c.nombre}»: ${CAJAS_MINIMO - c.cajas} recuadros más (tiene ${c.cajas}).`);
+    for (const c of clases) if (c.cajas < CAJAS_MINIMO) { const n = CAJAS_MINIMO - c.cajas; l.push(`«${c.nombre}»: ${n} ${n === 1 ? "recuadro" : "recuadros"} más (tiene ${c.cajas}).`); }
     const negMin = Math.ceil(revisadas * NEGATIVAS_FRACCION);
-    if (revisadas && negativas < negMin) l.push(`${negMin - negativas} fotos más sin ningún objeto (el mismo lugar, vacío).`);
+    if (revisadas && negativas < negMin) { const n = negMin - negativas; l.push(`${n} ${n === 1 ? "foto" : "fotos"} más sin ningún objeto (el mismo lugar, vacío).`); }
     return l;
 }
