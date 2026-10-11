@@ -792,3 +792,31 @@ video::-webkit-media-controls { display: none !important; }
 .intr-alert-card { position: relative; width: 320px; height: 196px; border-radius: 18px; overflow: hidden; background: #000; animation: intrAlertGlow 1.15s ease-in-out infinite; }
 .intr-alert-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 @keyframes intrAlertGlow { 0%,100% { box-shadow: 0 16px 42px rgba(0,0,0,.55), 0 0 0 2px rgba(239,68,68,.85), 0 0 16px rgba(239,68,68,.45); } 50% { box-shadow: 0 16px 42px rgba(0,0,0,.55), 0 0 0 3px rgba(239,68,68,1), 0 0 36px rgba(239,68,68,.9); } }
+
+
+/* ── Tokens de la pantalla de Usuarios (traídos de san-nicolas): capas y colores con significado ── */
+:root {
+  --accion: oklch(0.57 0.20 256);
+  --aviso: oklch(0.706 0.150 70);
+  --aviso-suave: oklch(0.706 0.150 70 / 0.14);
+  --bien: oklch(0.596 0.145 163);
+  --bien-suave: oklch(0.596 0.145 163 / 0.12);
+  --capa-menu: 4000;
+  --capa-panel: 3000;
+  --capa-pista: 9000;
+  --info: oklch(0.623 0.162 249);
+  --info-suave: oklch(0.623 0.162 249 / 0.12);
+  --mal: oklch(0.597 0.216 17);
+  --mal-suave: oklch(0.597 0.216 17 / 0.12);
+  --mal-texto: oklch(0.540 0.200 17);
+  --sombra-flotante: 0 12px 34px -10px rgba(0, 0, 0, 0.28);
+}
+.dark {
+  --accion: oklch(0.62 0.20 256);
+  --aviso-suave: oklch(0.706 0.150 70 / 0.16);
+  --bien-suave: oklch(0.596 0.145 163 / 0.16);
+  --info-suave: oklch(0.623 0.162 249 / 0.16);
+  --mal-suave: oklch(0.597 0.216 17 / 0.16);
+  --mal-texto: oklch(0.760 0.150 17);
+  --sombra-flotante: 0 12px 34px -10px rgba(0, 0, 0, 0.55);
+}

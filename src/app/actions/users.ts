@@ -1,12 +1,87 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { heredarListaNegraSiCorresponde } from "@/app/actions/watchlist";
 import { revalidatePath } from "next/cache";
-import { UserRole } from "@prisma/client";
+import { UserRole, type VehicleType } from "@prisma/client";
 import { addDevicePlate } from "./devices";
 import fs from "fs/promises";
 import path from "path";
 import { uploadToS3 } from "@/lib/s3";
+import { credencialesVisibles, esCuentaDelPanel } from "@/lib/credenciales-visibles";
+import { getSession } from "@/app/actions/auth";
+
+/**
+ * Las matrículas de una persona. Varias, no una.
+ *
+ * El formulario mandaba UNA, y la base siempre supo de varias: `User.vehicles` es una
+ * lista. Con un solo campo, la persona que tiene dos autos se cargaba con uno y el otro
+ * entraba por la pantalla de vehículos — y a partir de ahí el alta de la persona era un
+ * campo minado: `updateUser` agarraba el PRIMER vehículo con findFirst y le pisaba la
+ * chapa, así que editarle el teléfono a alguien podía renombrarle un auto.
+ *
+ * Acá la lista es la verdad: lo que no está en ella deja de ser de esta persona.
+ */
+function leerMatriculas(formData: FormData): string[] | null {
+    const limpiar = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, "").trim();
+    /* `plates` es lo que manda el cajon; `plate` queda por si algo viejo todavia manda una
+       sola. Si no viene ninguno de los dos, no se toca nada: un formulario que no incluye
+       un campo no esta diciendo "borralo". */
+    const varias = formData.get("plates");
+    if (varias != null) {
+        return [...new Set(String(varias).split(",").map(limpiar).filter(Boolean))];
+    }
+    const una = formData.get("plate");
+    if (una != null) {
+        const v = limpiar(String(una));
+        return v ? [v] : [];
+    }
+    return null;
+}
+
+async function ponerMatriculas(userId: string, chapas: string[], tipo: VehicleType) {
+    /* Las credenciales se reemplazan enteras: son un reflejo de la lista, no tienen datos
+       propios que valga la pena conservar. */
+    const previas = (await prisma.credential.findMany({ where: { userId, type: "PLATE" }, select: { value: true } })).map((c) => c.value);
+    await prisma.credential.deleteMany({ where: { userId, type: "PLATE" } });
+    if (chapas.length) {
+        await prisma.credential.createMany({
+            data: chapas.map((value) => ({ type: "PLATE" as const, value, userId })),
+        });
+    }
+    // Una persona marcada en lista negra arrastra sus matrículas nuevas a la lista (y a la
+    // lista negra de las lectoras). Sin esto, agregarle un auto a alguien marcado lo dejaba
+    // afuera de la lista hasta que alguien se diera cuenta.
+    for (const plate of chapas.filter((p) => !previas.includes(p))) {
+        await heredarListaNegraSiCorresponde(userId, plate).catch(() => null);
+    }
+
+    const suyos = await prisma.vehicle.findMany({ where: { userId } });
+    const sobran = suyos.filter((v) => !chapas.includes(v.plate));
+    if (sobran.length) {
+        await prisma.vehicle.deleteMany({ where: { id: { in: sobran.map((v) => v.id) } } });
+    }
+
+    for (const plate of chapas.filter((p) => !suyos.some((v) => v.plate === p))) {
+        /* La matrícula es única en todo el sistema. Si ya es de otro, el error de Prisma
+           dice "Unique constraint failed on the fields: (plate)", que no le sirve a nadie.
+           Con el nombre de quién la tiene, el problema se resuelve solo. */
+        const ajeno = await prisma.vehicle.findUnique({
+            where: { plate }, include: { user: { select: { name: true } } },
+        });
+        if (ajeno) throw new Error(`La matrícula ${plate} ya está cargada a nombre de ${ajeno.user?.name || "otra persona"}.`);
+        await prisma.vehicle.create({ data: { plate, type: tipo, userId } });
+    }
+}
+
+/** El tipo de vehículo que se le pone a los que se crean acá. */
+function leerTipoVehiculo(formData: FormData): VehicleType {
+    const v = String(formData.get("vehicleType") || "").toUpperCase();
+    /* El desplegable existía en el formulario desde siempre y NADIE lo leía: todo vehículo
+       nacía SEDAN, eligiera lo que eligiera el operador. Un control que se dibuja y no hace
+       nada es peor que no tenerlo. */
+    return (v || "SEDAN") as VehicleType;
+}
 
 export async function getUsers(options?: { take?: number, skip?: number }) {
     const users = await prisma.user.findMany({
@@ -20,6 +95,8 @@ export async function getUsers(options?: { take?: number, skip?: number }) {
             },
             vehicles: true,
             parkingSlot: true,
+            // Empleado de un proveedor: la ficha dice para quién trabaja (ver actions/proveedores).
+            empleador: { select: { id: true, name: true, empresa: true } },
         },
         orderBy: {
             createdAt: 'desc'
@@ -27,7 +104,15 @@ export async function getUsers(options?: { take?: number, skip?: number }) {
         take: options?.take,
         skip: options?.skip
     });
-    return users;
+    // Ningún secreto ajeno sale al navegador: sin contraseñas, y el PIN de otra cuenta del
+    // panel llega vacío y marcado `oculto` (ver lib/credenciales-visibles).
+    const yo = await quienSoy();
+    return users.map((u) => ({ ...u, credentials: credencialesVisibles(u.credentials, u, yo) }));
+}
+
+/** El id del usuario de la sesión, o null. */
+async function quienSoy(): Promise<string | null> {
+    try { const s: any = await getSession(); return (s?.sub as string) || null; } catch { return null; }
 }
 
 export async function getUsersCount() {
@@ -50,17 +135,52 @@ export async function getGuardsList() {
 }
 
 // R5: verificación de PIN/contraseña del guardia en el SERVIDOR (los secretos nunca salen).
-export async function verifyGuardCredential(identifier: string, secret: string): Promise<{ ok: boolean; name?: string; cara?: string | null }> {
+/**
+ * Intentos fallidos de PIN por usuario. La identificación del guardia se puede invocar sin
+ * sesión (es la puerta de la consola), así que sin un tope un PIN de 4 cifras se prueba
+ * entero en minutos. Vive en memoria: alcanza para frenar una prueba en serie y se vacía
+ * sola al reiniciar.
+ */
+const FALLOS_PIN_MAX = 8;
+const FALLOS_PIN_VENTANA_MS = 10 * 60_000;
+const fallosPin = new Map<string, number[]>();
+
+export async function verifyGuardCredential(identifier: string, secret: string): Promise<{ ok: boolean; name?: string; cara?: string | null; bloqueado?: boolean }> {
     if (!identifier || !secret) return { ok: false };
     const id = identifier.trim().toLowerCase();
+    const ahora = Date.now();
+    const recientes = (fallosPin.get(id) || []).filter((t) => ahora - t < FALLOS_PIN_VENTANA_MS);
+    if (recientes.length >= FALLOS_PIN_MAX) return { ok: false, bloqueado: true };
+    const fallar = () => { fallosPin.set(id, [...recientes, ahora]); return { ok: false }; };
     const guards = await prisma.user.findMany({
         where: { role: { in: ['STAFF', 'ADMIN'] } },
         include: { credentials: true },
     });
     const guard = guards.find((g) => ((g.username || '').toLowerCase() === id) || ((g.name || '').toLowerCase() === id));
-    if (!guard) return { ok: false };
+    if (!guard) return fallar();
     const secretVal = guard.credentials.find((c) => c.type === 'PASSWORD')?.value || guard.credentials.find((c) => c.type === 'PIN')?.value || '';
-    return secretVal && secretVal === secret ? { ok: true, name: guard.name, cara: guard.cara } : { ok: false };
+    if (!(secretVal && secretVal === secret)) return fallar();
+    fallosPin.delete(id);
+    // La identidad del guardia queda firmada en una cookie: es con lo que el servidor sabe quién
+    // registra una visita o atiende un aviso desde la consola (lib/sesion-guardia).
+    try { const { firmarGuardia } = await import("@/lib/sesion-guardia"); await firmarGuardia(guard.name); } catch { /* fuera de una acción no hay cookies; la verificación igual vale */ }
+    return { ok: true, name: guard.name, cara: guard.cara };
+}
+
+/**
+ * ¿Sigue vigente la identificación del guardia en este navegador? Devuelve su nombre y la
+ * renueva (otras 14 h desde ahora).
+ *
+ * La consola recordaba al guardia en el navegador (localStorage) y entraba sin pedir nada,
+ * aunque la cookie firmada ya hubiera vencido: la pantalla decía "identificado" y el
+ * servidor rechazaba todo lo que necesitaba saber quién era. Ahora, al abrir, la consola
+ * pregunta acá; si no hay identificación vigente, vuelve a pedir el PIN.
+ */
+export async function guardiaVigente(): Promise<string | null> {
+    const { leerGuardia, firmarGuardia } = await import("@/lib/sesion-guardia");
+    const nombre = await leerGuardia();
+    if (nombre) { try { await firmarGuardia(nombre); } catch { /* se renueva la próxima */ } }
+    return nombre;
 }
 
 export async function getAdminsList() {
@@ -290,6 +410,42 @@ export async function getQuickCreateData() {
     return { units, groups, devices, parkingSlots };
 }
 
+/**
+ * Lo de proveedor: la empresa y el tipo de visita que se le abre al entrar. Sólo cuenta si
+ * el rol es Proveedor; si alguien deja de serlo se limpia, para que un ex proveedor pasado
+ * a residente no siga abriendo visitas de 15 minutos cada vez que entra.
+ */
+function leerProveedor(formData: FormData, role: string): { empresa: string | null; tipoVisita: string | null } | null {
+    if (!formData.has("proveedorEnviado")) return null;
+    if (role !== "PROVIDER") return { empresa: null, tipoVisita: null };
+    const empresa = String(formData.get("empresa") || "").trim() || null;
+    const tipo = String(formData.get("tipoVisita") || "").trim();
+    return { empresa, tipoVisita: tipo && tipo !== "ninguna" ? tipo : null };
+}
+
+/**
+ * Los grupos elegidos en la ficha de la persona.
+ *
+ * La ficha mandaba un `groupId` por cada píldora prendida y ni createUser ni updateUser lo
+ * leían: se elegía un grupo, se guardaba, y al reabrir la ficha no estaba. `null` = el
+ * formulario no trae grupos (otros diálogos más viejos), y entonces no se tocan.
+ */
+function leerGrupos(formData: FormData): { id: string }[] | null {
+    if (!formData.has("gruposEnviados")) return null;
+    return [...new Set(formData.getAll("groupId").map(String).filter(Boolean))].map((id) => ({ id }));
+}
+
+/**
+ * VIP: una marca de Residentes y Personal (antes era una lista aparte, «Lista blanca»). Sólo se
+ * toca si el formulario la trae (`vipEnviado`): otras pantallas que guardan una persona no la
+ * mandan y no tienen por qué borrarla. En un rol que no admite VIP queda apagada.
+ */
+const ROLES_CON_VIP = ["RESIDENT", "WHITELISTED", "STAFF", "SECURITY", "ADMIN", "OPERATOR"];
+function leerVip(formData: FormData, role: string): boolean | null {
+    if (!formData.has("vipEnviado")) return null;
+    return ROLES_CON_VIP.includes(String(role)) && formData.get("vip") === "1";
+}
+
 export async function createUser(formData: FormData) {
     const name = formData.get("name") as string;
     const email = formData.get("email") as string;
@@ -299,7 +455,6 @@ export async function createUser(formData: FormData) {
     const cara = formData.get("cara") as string; // Optional snapshot path
 
     // Optional fields
-    const plate = formData.get("plate") as string;
     const accessTags = formData.get("accessTags") as string;
     const pin = formData.get("pin") as string;
 
@@ -320,29 +475,20 @@ export async function createUser(formData: FormData) {
     if (unitId && unitId !== "none") {
         userPayload.unitId = unitId;
     }
+    const gruposNuevos = leerGrupos(formData);
+    if (gruposNuevos?.length) userPayload.accessGroups = { connect: gruposNuevos };
+    const provNuevo = leerProveedor(formData, role);
+    if (provNuevo) Object.assign(userPayload, provNuevo);
+    const vipNuevo = leerVip(formData, role);
+    if (vipNuevo !== null) userPayload.vip = vipNuevo;
 
     const newUser = await prisma.user.create({
         data: userPayload,
     });
 
-    // Handle Vehicle/Plate creation if provided
-    if (plate && plate.trim() !== "") {
-        await prisma.vehicle.create({
-            data: {
-                plate: plate.toUpperCase().trim(),
-                type: 'SEDAN', // Default type, can be enhanced later
-                userId: newUser.id
-            }
-        });
-
-        // Also add as explicit PLATE credential
-        await prisma.credential.create({
-            data: {
-                type: 'PLATE',
-                value: plate.toUpperCase().trim(),
-                userId: newUser.id
-            }
-        });
+    const chapas = leerMatriculas(formData);
+    if (chapas?.length) {
+        await ponerMatriculas(newUser.id, chapas, leerTipoVehiculo(formData));
     }
 
     // Handle Access Tags (RFID) creation
@@ -384,7 +530,6 @@ export async function updateUser(id: string, formData: FormData) {
     const role = formData.get("role") as UserRole;
     const unitId = formData.get("unitId") as string;
 
-    const plate = formData.get("plate") as string;
     const accessTags = formData.get("accessTags") as string;
     const pin = formData.get("pin") as string;
 
@@ -406,58 +551,28 @@ export async function updateUser(id: string, formData: FormData) {
     } else {
         userPayload.unitId = null;
     }
+    const grupos = leerGrupos(formData);
+    if (grupos) userPayload.accessGroups = { set: grupos };
+    const prov = leerProveedor(formData, role);
+    if (prov) Object.assign(userPayload, prov);
+    const vip = leerVip(formData, role);
+    if (vip !== null) userPayload.vip = vip;
+    // Empleado de la planilla: la autorización la cambia su ficha también. Se anota cuándo
+    // cambió, para marcar las pasadas posteriores (ver getPlanilla).
+    if (formData.get("autorizadoEnviado")) {
+        const nuevo = formData.get("autorizado") === "1";
+        const antes = await prisma.user.findUnique({ where: { id }, select: { autorizado: true } });
+        if (antes && antes.autorizado !== nuevo) Object.assign(userPayload, { autorizado: nuevo, autorizadoCambio: new Date() });
+    }
 
     const updatedUser = await prisma.user.update({
         where: { id },
         data: userPayload,
     });
 
-    // Update or Create Vehicle/Plate
-    if (plate !== null) {
-        const existingVehicle = await prisma.vehicle.findFirst({
-            where: { userId: id }
-        });
-
-        if (plate.trim() === "") {
-            if (existingVehicle) {
-                await prisma.vehicle.delete({ where: { id: existingVehicle.id } });
-            }
-            await prisma.credential.deleteMany({
-                where: { userId: id, type: 'PLATE' }
-            });
-        } else {
-            if (existingVehicle) {
-                await prisma.vehicle.update({
-                    where: { id: existingVehicle.id },
-                    data: { plate: plate.toUpperCase().trim() }
-                });
-            } else {
-                await prisma.vehicle.create({
-                    data: {
-                        plate: plate.toUpperCase().trim(),
-                        type: 'SEDAN',
-                        userId: id
-                    }
-                });
-            }
-            const existingCred = await prisma.credential.findFirst({
-                where: { userId: id, type: 'PLATE' }
-            });
-            if (existingCred) {
-                await prisma.credential.update({
-                    where: { id: existingCred.id },
-                    data: { value: plate.toUpperCase().trim() }
-                });
-            } else {
-                await prisma.credential.create({
-                    data: {
-                        type: 'PLATE',
-                        value: plate.toUpperCase().trim(),
-                        userId: id
-                    }
-                });
-            }
-        }
+    const chapas = leerMatriculas(formData);
+    if (chapas !== null) {
+        await ponerMatriculas(id, chapas, leerTipoVehiculo(formData));
     }
 
     // Update or Create Access Tags (RFID)
@@ -485,7 +600,10 @@ export async function updateUser(id: string, formData: FormData) {
     }
 
     // Update or Create PIN
-    if (pin !== null) {
+    // El PIN de otra cuenta del panel le llega oculto (vacío) a quien edita: un campo vacío
+    // ahí no quiere decir "borralo", quiere decir "no lo toqué". Sólo se resetea escribiendo uno.
+    const pinAjenoOculto = esCuentaDelPanel(updatedUser as any) && updatedUser.id !== (await quienSoy());
+    if (pin !== null && !(pinAjenoOculto && pin.trim() === "")) {
         const existingPin = await prisma.credential.findFirst({
             where: { userId: id, type: 'PIN' }
         });
@@ -684,24 +802,27 @@ export async function getWhitelist() {
 }
 
 export async function toggleBlacklist(userId: string, isBlacklisted: boolean, reason?: string, creator?: string) {
-    // If we are un-blacklisting, check if we should go to WHITELISTED or just VISITOR
-    // For now, if called with isBlacklisted=false, we move to WHITELISTED by default if it was initiated from dashboard as "Promover"
-
-    // Actually, let's look at the current role first
-    const currentUser = await prisma.user.findUnique({ where: { id: userId } });
-
-    let newRole: UserRole = isBlacklisted ? 'BLACKLISTED' : 'WHITELISTED';
-
-    // If it was already STAFF or ADMIN, we shouldn't downgrade it to WHITELISTED/VISITOR unless specified
-    if (!isBlacklisted && currentUser && ['STAFF', 'ADMIN', 'RESIDENT'].includes(currentUser.role)) {
-        newRole = currentUser.role;
-    }
+    /*
+     * El rol de la persona para el módulo facial (las lectoras de rostro deciden por rol).
+     *
+     * Al sacarla de la lista negra se la pasaba a WHITELISTED a secas: una VISITOR que entró
+     * a la lista por error salía con acceso permanente. Ahora al entrar se guarda el rol que
+     * tenía (`rolAnterior`) y al salir se le devuelve ese; sin dato (personas marcadas antes
+     * de este cambio) vuelve a VISITOR, que es el rol que menos concede.
+     */
+    const currentUser = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, rolAnterior: true } });
+    if (!currentUser) throw new Error("La persona no existe");
+    const yaEstaba = currentUser.role === 'BLACKLISTED';
+    const newRole: UserRole = isBlacklisted
+        ? 'BLACKLISTED'
+        : (currentUser.rolAnterior && currentUser.rolAnterior !== 'BLACKLISTED' ? currentUser.rolAnterior : 'VISITOR');
 
     const user = await prisma.user.update({
         where: { id: userId },
         data: {
             role: newRole,
-            blacklistReason: reason || null,
+            rolAnterior: isBlacklisted ? (yaEstaba ? currentUser.rolAnterior : currentUser.role) : null,
+            blacklistReason: isBlacklisted ? (reason || null) : null,
             createdBy: creator || null,
             updatedAt: new Date()
         }

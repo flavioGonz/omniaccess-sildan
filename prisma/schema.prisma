@@ -72,6 +72,26 @@ model User {
   unit            Unit?         @relation(fields: [unitId], references: [id])
   vehicles        Vehicle[]
   accessGroups    AccessGroup[] @relation("AccessGroupToUser")
+  /// El rol que tenia antes de pasar a BLACKLISTED, para devolverselo al sacarla de la lista.
+  rolAnterior     UserRole?
+  /// Proveedor: la empresa o el servicio.
+  empresa         String?
+  /// Proveedor: el tipo de visita que se le abre sola al leer su matrícula.
+  tipoVisita      String?
+  /// VIP: una marca dentro de Residentes o Personal. No cambia lo que decide la barrera.
+  vip             Boolean       @default(false)
+  /// Acceso al panel: el rol de la aplicacion (que pantallas puede abrir).
+  appRoleId       String?
+  appRole         AppRole?      @relation(fields: [appRoleId], references: [id])
+  /// Planilla de un proveedor: la empresa (otro User, rol PROVIDER) para la que trabaja.
+  empleadorId     String?
+  empleador       User?         @relation("Planilla", fields: [empleadorId], references: [id], onDelete: SetNull)
+  empleados       User[]        @relation("Planilla")
+  /// Si su empresa lo autoriza a entrar.
+  autorizado      Boolean       @default(true)
+  autorizadoCambio DateTime?
+
+  @@index([empleadorId])
 }
 
 model Credential {
@@ -475,6 +495,9 @@ model CameraOutage {
 model NotificationRule {
   id          String    @id @default(cuid())
   name        String
+  modulo      String    @default("QUEUE") // QUEUE | LPR | FACE
+  eventos     String? // csv: ALLOW,DENY,UNKNOWN,WATCHLIST
+  verificacion String   @default("avisar")
   enabled     Boolean   @default(true)
   deviceId    String?   // null = todas las cámaras
   channelName String?   // zona/canal ("Aforo","Entrada","Salida"); null = cualquiera
@@ -573,14 +596,35 @@ model DeviceAlert {
 
 // ── Watchlist / lista negra de matrículas (resaltado + sonido + alerta) ──
 model PlateWatch {
-  id        String   @id @default(cuid())
-  plate     String   @unique
-  label     String   @default("")
-  category  String   @default("negra") // busca | negra | vip
-  color     String?
-  notify    Boolean  @default(true)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id            String    @id @default(cuid())
+  plate         String    @unique
+  label         String    @default("")
+  category      String    @default("BLACKLISTED") // BLACKLISTED | WHITELISTED | SEARCH
+  color         String?
+  notify        Boolean   @default(true)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  /// Por que esta en la lista, en palabras de quien la cargo.
+  motivo        String?
+  /// Quien la cargo: nombre del operador o numero de WhatsApp.
+  createdBy     String?
+  /// Si existe porque una PERSONA fue marcada en lista negra: todas sus matriculas
+  /// llevan su id, y desmarcarla las desactiva. Sin vinculo, la entrada es de la
+  /// matricula sola y la persona no la arrastra.
+  userId        String?
+  /// La baja no borra: queda cuando se saco, para el historial.
+  deactivatedAt DateTime?
+  /// Foto de la persona (rostro) cargada al marcarla, como foto del registro. Queda lista para
+  /// cargarla mas adelante en la biblioteca de rostros de los equipos; hoy no se sincroniza.
+  fotoUrl       String?
+  /// La ficha de la pestaña Lista negra a la que pertenece: las matriculas de una misma ficha
+  /// (una persona, o un vehiculo sin identificar) comparten este id. Null = entrada suelta.
+  ficha         String?
+
+  @@index([userId])
+  @@index([active, category])
+  @@index([ficha])
 }
 
 
@@ -699,4 +743,63 @@ enum GuestStatus {
   PENDING
   APPROVED
   DENIED
+}
+
+model AppRole {
+  id          String   @id @default(cuid())
+  nombre      String   @unique
+  descripcion String   @default("")
+  permisos    String[] @default([])
+  esSistema   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  users       User[]
+}
+
+model Visita {
+  id                    String    @id @default(cuid())
+  plate                 String?   // normalizada; null = sin matrícula visible (motos)
+  tipo                  String    // clave de VISITA_TIPOS (DELIVERY, SERVICIO, OBRA, VISITA…)
+  unitId                String?
+  loteNombre            String?
+  nombre                String?
+  empresa               String?
+  origen                String    @default("GUARDIA") // GUARDIA | INVITACION | PROVEEDOR
+  registradaPor         String?
+  invitationId          String?
+  entra                 DateTime  @default(now())
+  vence                 DateTime
+  sale                  DateTime?
+  cierre                String?   // CAMARA_SALIDA | GUARDIA | FIN_DEL_DIA
+  cerradaPor            String?
+  extensiones           Json?     // [{ quien, minutos, cuando }]
+  vistoAdentroAt        DateTime? // última lectura de una cámara interior
+  accessEventEntradaId  String?
+  accessEventSalidaId   String?
+  avisadaExcedidaAt     DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([plate, sale])
+  @@index([sale, vence])
+  @@index([entra])
+}
+
+model AvisoGuardia {
+  id             String    @id @default(cuid())
+  tipo           String    // VISITA_EXCEDIDA | FUERA_DE_RUTINA | PERMANENCIA_INUSUAL | PRIMERA_VEZ_NOCHE | DA_VUELTAS | SIN_REGISTRAR
+  plate          String?
+  visitaId       String?
+  accessEventId  String?
+  camara         String?
+  motivo         String
+  datos          Json?
+  creado         DateTime  @default(now())
+  atendidoPor    String?
+  atendidoAt     DateTime?
+  nota           String?
+
+  @@index([atendidoAt, creado])
+  @@index([tipo, plate, creado])
+  @@index([visitaId])
 }

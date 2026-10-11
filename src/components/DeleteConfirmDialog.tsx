@@ -1,105 +1,78 @@
 "use client";
 
-import { useState } from "react";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-    DialogFooter,
-    DialogDescription,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Trash2, ShieldAlert, AlertTriangle } from "lucide-react";
-import { deleteUser } from "@/app/actions/users";
-import { cn } from "@/lib/utils";
+import { ConfirmarEnCajon } from "@/components/ui/cajon-confirmar";
 
-interface DeleteConfirmDialogProps {
+/**
+ * Confirmar una eliminación. Uno solo para toda la aplicación.
+ *
+ * Tres cosas estaban mal, y las tres se notaban recién en el peor momento:
+ *
+ *   **Decía «este usuario» siempre.** El texto de advertencia estaba escrito fijo — «Si
+ *   eliminas este usuario del dispositivo, dejará de tener acceso inmediatamente» — así que
+ *   al borrar un vehículo, una unidad o un grupo el diálogo hablaba de un usuario que no
+ *   existía. Peor: `description`, la prop pensada justamente para decir qué se pierde en
+ *   cada caso, estaba declarada y **nunca se usaba**.
+ *
+ *   **Un borrado fallido se veía igual que uno exitoso.** `onDelete` devuelve
+ *   `{ success, error }` en casi todas las acciones, y acá se ignoraba: el diálogo cerraba
+ *   y avisaba éxito aunque la base hubiera rechazado la operación. El registro volvía a
+ *   aparecer al recargar y nadie sabía por qué. Ahora, si falla, el diálogo queda abierto y
+ *   muestra el motivo.
+ *
+ *   **El botón rojo usaba `text-foreground`**, que en tema claro es casi negro: texto
+ *   oscuro sobre rojo. El blanco sobre rojo no depende del tema, y por eso va fijo.
+ */
+
+type Resultado = void | { success?: boolean; error?: string | null } | null | undefined;
+
+/*
+ * Se llama ConfirmarAccion y no DeleteConfirmDialog porque no todas las acciones que hay
+ * que confirmar son borrados: cambiar la base de datos, volcar el padrón sobre un equipo o
+ * resetear un plano no borran un registro y son igual de difíciles de deshacer. El nombre
+ * viejo queda exportado al final del archivo para no tener que tocar los veinte lugares que
+ * ya lo usan — cambiarlos todos de golpe sería churn sin ninguna ganancia.
+ */
+
+interface ConfirmarAccionProps {
     id: string;
+    /** Qué se va a borrar, con su nombre. Es lo que el operador lee para confirmar. */
     title: string;
+    /** Qué se pierde exactamente. Si no viene, se dice lo genérico y nada más. */
     description?: string;
-    onDelete: (id: string) => Promise<void>;
+    onDelete: (id: string) => Promise<Resultado>;
     onSuccess: () => void;
+    /**
+     * El disparador. Es OPCIONAL: sin él, el diálogo es puramente controlado.
+     *
+     * Hay dos maneras legítimas de pedir una confirmación. Una es envolver el botón que la
+     * dispara — cómoda cuando el botón existe y está ahí. La otra es abrirla desde un
+     * manejador que ya está corriendo, que es el caso de todo lo que antes usaba
+     * `confirm()`: ahí no hay un botón que envolver, hay una función a mitad de camino.
+     * Soportar las dos evita que aparezca un quinto mecanismo de confirmación para el
+     * segundo caso.
+     */
+    /**
+     * Si viene, hay que ESCRIBIR esta palabra para que el botón se habilite.
+     *
+     * Es para lo que no tiene vuelta atrás y afecta a muchos registros a la vez — purgar
+     * una tabla entera, por ejemplo. Un botón de confirmar se aprieta por reflejo; nadie
+     * escribe una palabra por reflejo. No es burocracia: es el único freno que obliga a
+     * leer qué se está por hacer.
+     */
+    escribir?: string;
+    /** Qué dice el botón. Por defecto "Eliminar". */
+    etiquetaAccion?: string;
     children?: React.ReactNode;
     open?: boolean;
     onOpenChange?: (open: boolean) => void;
 }
 
-export function DeleteConfirmDialog({ id, title, description, onDelete, onSuccess, children, open: controlledOpen, onOpenChange }: DeleteConfirmDialogProps) {
-    const [internalOpen, setInternalOpen] = useState(false);
-
-    const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
-    const setOpen = onOpenChange !== undefined ? onOpenChange : setInternalOpen;
-
-    const [isDeleting, setIsDeleting] = useState(false);
-
-    const handleDelete = async () => {
-        setIsDeleting(true);
-        try {
-            await onDelete(id);
-            setOpen(false);
-            onSuccess();
-        } catch (error) {
-            console.error("Error deleting record:", error);
-        } finally {
-            setIsDeleting(false);
-        }
-    };
-
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                {children}
-            </DialogTrigger>
-            <DialogContent className="max-w-[400px] bg-card border border-border text-foreground p-0 gap-0 shadow-lg backdrop-blur-xl sm:rounded-3xl overflow-hidden">
-                <div className="flex flex-col items-center text-center p-8 pt-10 space-y-6">
-                    {/* Icon with subtle red ambient glow */}
-                    <div className="relative group">
-                        <div className="absolute inset-0 bg-red-600 blur-2xl opacity-20 group-hover:opacity-30 transition-opacity duration-500" />
-                        <div className="relative bg-card/80 border border-border p-5 rounded-3xl text-red-500 shadow-lg ring-1 ring-border group-hover:scale-105 transition-transform duration-300">
-                            <Trash2 size={32} strokeWidth={2} />
-                        </div>
-                    </div>
-
-                    <div className="space-y-2 max-w-[280px] mx-auto">
-                        <DialogHeader>
-                            <DialogTitle className="text-xl font-bold text-foreground uppercase tracking-tight text-center">
-                                {title}
-                            </DialogTitle>
-                        </DialogHeader>
-                        <DialogDescription className="text-sm font-medium text-muted-foreground leading-relaxed">
-                            Esta acción es <span className="text-red-500 font-bold">irreversible</span>.
-                            El registro se eliminará permanentemente del sistema.
-                        </DialogDescription>
-                    </div>
-
-                    {/* Warning Box */}
-                    <div className="w-full bg-red-500/5 border border-red-500/10 rounded-2xl p-4 flex items-start gap-3 text-left">
-                        <AlertTriangle className="shrink-0 text-red-500 mt-0.5" size={16} />
-                        <p className="text-[11px] font-medium text-red-200/60 leading-normal">
-                            Si eliminas este usuario del dispositivo, dejará de tener acceso inmediatamente.
-                        </p>
-                    </div>
-                </div>
-
-                <div className="p-6 pt-0 flex flex-col gap-3">
-                    <Button
-                        onClick={handleDelete}
-                        disabled={isDeleting}
-                        className="h-12 w-full rounded-xl bg-red-600 hover:bg-red-500 text-foreground font-bold text-xs uppercase tracking-widest shadow-lg shadow-red-900/20 hover:shadow-red-500/20 transition-all active:scale-[0.98]"
-                    >
-                        {isDeleting ? "Eliminando..." : "Confirmar Eliminación"}
-                    </Button>
-                    <Button
-                        onClick={() => setOpen(false)}
-                        variant="ghost"
-                        className="h-12 w-full rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent font-bold text-xs uppercase tracking-widest transition-all"
-                    >
-                        Cancelar
-                    </Button>
-                </div>
-            </DialogContent>
-        </Dialog>
-    );
+export function ConfirmarAccion(props: ConfirmarAccionProps) {
+    // 10/10, pedido de Nico: el diálogo centrado (ícono, título y un botón rojo a todo el ancho)
+    // era la única ventana que no se parecía al resto. Ahora es el cajón de confirmar, con el
+    // mismo contrato: los veinte lugares que lo usan pasan a cajón sin tocarlos.
+    return <ConfirmarEnCajon {...props} description={props.description || `Se elimina «${props.title}».`} />;
 }
+
+/** El nombre anterior. Sigue siendo el mismo componente. */
+export const DeleteConfirmDialog = ConfirmarAccion;
