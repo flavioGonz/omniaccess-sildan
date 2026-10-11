@@ -38,8 +38,9 @@ export const MODELOS_ENTRENAMIENTO = [
 export const EPOCAS_MAX = 200;
 /**
  * Lo que se usa si no se elige nada. Lote 4 × acumular 4 = 16 fotos por paso, lo que recomienda
- * rfdetr. La VRAM que pide en la 3050 se mide en la primera corrida con datos reales (ver
- * claude/detector-propio.md). Se corta solo a los 15 épocas sin mejorar, o a las 3 horas.
+ * rfdetr. Medido el 10/10 en la 3050 con Nano: pico de 3,7 GB de VRAM contando omni-lpr (con
+ * omni-vision corriendo quedaban 2,6 GB libres: por eso se lo pausa). Se corta solo a las 15
+ * épocas sin mejorar, o a las 3 horas.
  */
 export const PARAMETROS_DEFECTO = { modelo: "RFDETRNano", epocas: 80, lote: 4, acumular: 4, lr: 1e-4, max_minutos: 180, paciencia: 15, hilos: 2, semilla: 7 };
 

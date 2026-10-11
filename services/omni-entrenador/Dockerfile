@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libglib2
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu130 torch==2.14.1 torchvision==0.29.1
 RUN pip install --no-cache-dir "rfdetr[train,loggers]==1.11.2" onnx onnxscript onnxruntime==1.31.0 opencv-python-headless
+# Triton (lo usa PyTorch en la GPU) compila un lanzador en C la primera vez que corre: sin gcc el
+# entrenamiento se caía a los 15 s en la 3050 («Failed to find C compiler»). En CPU no pasa.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Los pesos de partida se bajan al construir (rfdetr los guarda en la carpeta actual): entrenar
 # no depende de internet.
