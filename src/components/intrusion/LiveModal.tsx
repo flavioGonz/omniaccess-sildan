@@ -111,7 +111,10 @@ function MovablePip({ children, defaultW = 208, ring = "ring-white/15" }: { chil
 }
 
 
-export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStatus, initialRecMs, onClose, onOpenEvent, onSwitchCam, onDismissFrom }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; fromCam?: IntrusionCam | null; camStatus?: Record<string, { recent: boolean; alarm: boolean }>; initialRecMs?: number; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void; onDismissFrom?: () => void }) {
+/** Una lectura LPR que se muestra primera en Evidencia cuando el visor se abre desde el monitor LPR o la ficha del evento. */
+export type EvidenciaLpr = { url: string | null; plate?: string | null; ms: number; decision?: string | null };
+
+export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, camStatus, initialRecMs, onClose, onOpenEvent, onSwitchCam, onDismissFrom, evidenciaLpr, lpr }: { cam: IntrusionCam; cams?: IntrusionCam[]; geom?: Geom; initialTab?: "live" | "rec" | "evi"; fromCam?: IntrusionCam | null; camStatus?: Record<string, { recent: boolean; alarm: boolean }>; initialRecMs?: number; onClose: () => void; onOpenEvent?: (d: DetHistItem) => void; onSwitchCam?: (c: IntrusionCam) => void; onDismissFrom?: () => void; evidenciaLpr?: EvidenciaLpr | null; lpr?: boolean }) {
     const [tab, setTab] = useState<"live" | "rec" | "evi">(initialTab);
     const isPtz = /ptz/i.test(cam.name || "");
     const [showPtz, setShowPtz] = useState(true);
@@ -218,11 +221,22 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     const tryPlayCushion = useCallback(() => {
         const v = recVideo.current; if (!v || recStartedRef.current) return;
         let cushion = 0; try { if (v.buffered.length) cushion = v.buffered.end(v.buffered.length - 1) - (v.currentTime || 0); } catch { }
-        if (cushion >= 2.5 || v.readyState >= 4) { v.play().catch(() => { }); }
+        if (cushion >= 1 || v.readyState >= 4) { v.play().catch(() => { }); }
     }, []);
     // evidencia
     const [evi, setEvi] = useState<DetHistItem[]>([]);
     const [eviBig, setEviBig] = useState<string | null>(null);
+    // Vivo: sólo cuando se mira la pestaña (de san-nicolas 3781426). Abierto en Grabación, no corre escondido.
+    const [vivoVisto, setVivoVisto] = useState(initialTab === "live");
+    useEffect(() => { if (tab === "live") setVivoVisto(true); }, [tab]);
+    // Evidencia LPR: la lectura que abrió el visor y las otras de esta cámara alrededor de esa hora.
+    const [eviLpr, setEviLpr] = useState<{ id: string; plate: string | null; ms: number; url: string | null; decision: string; direction: string }[] | null>(null);
+    useEffect(() => {
+        if (tab !== "evi" || !lpr || eviLpr) return;
+        const t = Math.floor(evidenciaLpr?.ms || initialRecMs || Date.now());
+        fetch(`/api/lpr/evidencia?deviceId=${encodeURIComponent(cam.id)}&t=${t}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setEviLpr(Array.isArray(d?.items) ? d.items : [])).catch(() => setEviLpr([]));
+    }, [tab, lpr, cam.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    const irAGrabacion = (ms: number) => { setRecT(ms); setRecLoadT(ms); setTab("rec"); };
 
     useEffect(() => { fetch(`/api/devices/stream?deviceId=${cam.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ensure" }) }).catch(() => { }); }, [cam.id]);
     useEffect(() => { if ((cam as any).nvrId) { setNvrId((cam as any).nvrId); return; } fetch(`/api/nvr/channel?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNvrId(d && d.nvr ? String(d.nvr) : null)).catch(() => { }); }, [cam.id, (cam as any).nvrId]);
@@ -234,7 +248,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     // NO depende de `tab`: el vivo sigue corriendo aunque estés en Grabación/Evidencia,
     // así volver a "Vivo" es instantáneo (no recarga el stream).
     useEffect(() => {
-        const video = videoRef.current; if (!video) return;
+        const video = videoRef.current; if (!video || !vivoVisto) return;
         let stopped = false, tries = 0; let wd: any = null, st: any = null;
         const base = `/go2rtc/api/stream.mp4?src=${encodeURIComponent(streamName)}&video=h264`;
         setReadyV(false); setStalled(false);
@@ -249,7 +263,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
         video.addEventListener("playing", onPlaying); video.addEventListener("waiting", onWaiting); video.addEventListener("stalled", onWaiting); video.addEventListener("ended", onEnded); video.addEventListener("error", onErr); video.addEventListener("progress", onProgress);
         const boot = setTimeout(start, 120);
         return () => { stopped = true; cancelAnimationFrame(paintRAF.current); clearTimeout(wd); clearTimeout(st); clearTimeout(boot); video.removeEventListener("playing", onPlaying); video.removeEventListener("waiting", onWaiting); video.removeEventListener("stalled", onWaiting); video.removeEventListener("ended", onEnded); video.removeEventListener("error", onErr); video.removeEventListener("progress", onProgress); try { video.pause(); video.removeAttribute("src"); video.load(); } catch { } };
-    }, [streamName, cam.id]);
+    }, [streamName, cam.id, vivoVisto]);
     const toggleHd = () => { setHd((h) => !h); setQFlash(Date.now()); };
     useEffect(() => { if (!qFlash) return; const t = setTimeout(() => setQFlash(0), 1200); return () => clearTimeout(t); }, [qFlash]);
 
@@ -259,7 +273,7 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     // watchdog: si el clip no empieza, reintenta; si tras los reintentos sigue sin frames, es que no hay grabación en ese horario.
     useEffect(() => {
         if (tab !== "rec") return; setNoRec(false); setRecRebuf(false); recStartedRef.current = false; const v = recVideo.current;
-        const fp = setTimeout(() => { const vv = recVideo.current; if (vv && !recStartedRef.current) vv.play().catch(() => { }); }, 3500);
+        const fp = setTimeout(() => { const vv = recVideo.current; if (vv && !recStartedRef.current) vv.play().catch(() => { }); }, 600);
         const wd = setTimeout(() => {
             if (v && v.readyState < 2) {
                 if (recTriesRef.current < 2) { recTriesRef.current++; setRecRetry((r) => r + 1); }
@@ -488,7 +502,10 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
                 )}
 
                 {/* ── EVIDENCIA ── */}
-                {tab === "evi" && (
+                {tab === "evi" && lpr && (
+                    <EvidenciaLprPanel principal={evidenciaLpr || null} items={eviLpr} camara={cam.name} onAmpliar={setEviBig} onIr={irAGrabacion} big={eviBig} onCerrarBig={() => setEviBig(null)} />
+                )}
+                {tab === "evi" && !lpr && (
                     <div className="absolute inset-0 z-10 bg-black/70 backdrop-blur-sm overflow-y-auto custom-scrollbar p-4 pt-14 pl-20">
                         {evi.length === 0 ? (
                             <div className="h-full grid place-items-center text-white/50 text-sm">Sin capturas de evidencia para este canal.</div>
@@ -596,3 +613,66 @@ export function LiveModal({ cam, cams = [], geom, initialTab = "live", fromCam, 
     );
 }
 
+/** Pestaña Evidencia para cámaras LPR: la lectura que abrió el visor, grande, y las demás de la cámara. */
+function EvidenciaLprPanel({ principal, items, camara, onAmpliar, onIr, big, onCerrarBig }: {
+    principal: EvidenciaLpr | null;
+    items: { id: string; plate: string | null; ms: number; url: string | null; decision: string; direction: string }[] | null;
+    camara: string; onAmpliar: (u: string) => void; onIr: (ms: number) => void; big: string | null; onCerrarBig: () => void;
+}) {
+    const hora = (ms: number) => new Date(ms).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const fecha = (ms: number) => new Date(ms).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" });
+    const otros = (items || []).filter((x) => !(principal && Math.abs(x.ms - principal.ms) < 1500 && (x.plate || "") === (principal.plate || "")));
+    const Chapa = ({ p }: { p?: string | null }) => p ? <span className="px-2 py-0.5 rounded-md bg-white text-black font-mono font-extrabold text-[13px] tracking-wider shadow">{p}</span> : <span className="px-2 py-0.5 rounded-md bg-white/15 text-white/70 text-[11px] font-bold">Sin lectura</span>;
+    const Decision = ({ d }: { d?: string | null }) => d ? <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide", d === "GRANT" ? "bg-emerald-500/85 text-white" : "bg-red-600/85 text-white")}>{d === "GRANT" ? <Check size={11} /> : <X size={11} />}{d === "GRANT" ? "Permitido" : "Denegado"}</span> : null;
+    return (
+        <div className="absolute inset-0 z-10 bg-black/75 backdrop-blur-sm overflow-y-auto custom-scrollbar p-4 pt-14 pl-20">
+            {principal && (
+                <div className="mb-5 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_260px] gap-4 items-start">
+                    <button onClick={() => principal.url && onAmpliar(principal.url)} className="relative aspect-video rounded-2xl overflow-hidden ring-2 ring-sky-400/60 bg-neutral-900 shadow-2xl text-left">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {principal.url ? <img src={principal.url} alt="" className="absolute inset-0 w-full h-full object-contain bg-black" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><ImageOff size={28} /></div>}
+                        <span className="absolute top-3 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-500/90 text-white text-[11px] font-extrabold uppercase tracking-wide shadow"><Car size={13} /> Esta lectura</span>
+                    </button>
+                    <div className="rounded-2xl bg-white/[0.06] ring-1 ring-white/10 p-4 space-y-3">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/50">Lectura LPR</div>
+                        <div className="flex items-center gap-2 flex-wrap"><Chapa p={principal.plate} /><Decision d={principal.decision} /></div>
+                        <div className="text-white text-[13px] font-semibold">{camara}</div>
+                        <div className="text-white/70 text-[12px] tabular-nums flex items-center gap-1.5"><Clock size={12} /> {fecha(principal.ms)} · {hora(principal.ms)}</div>
+                        <div className="flex flex-col gap-2 pt-1">
+                            <button onClick={() => onIr(principal.ms)} className="h-9 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold"><Film size={14} /> Ver la grabación de este instante</button>
+                            {principal.url && <button onClick={() => onAmpliar(principal.url!)} className="h-9 inline-flex items-center justify-center gap-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-[12.5px] font-bold"><ZoomIn size={14} /> Ampliar foto</button>}
+                        </div>
+                    </div>
+                </div>
+            )}
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/55 mb-2">Otras lecturas de esta cámara</div>
+            {items === null ? (
+                <div className="py-10 grid place-items-center text-white/50 text-sm"><Loader2 size={18} className="animate-spin" /></div>
+            ) : otros.length === 0 ? (
+                <div className="py-8 text-white/45 text-sm">Sin otras lecturas cerca de esta hora.</div>
+            ) : (
+                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {otros.map((x) => (
+                        <div key={x.id} className="group relative aspect-video rounded-xl overflow-hidden ring-1 ring-white/10 hover:ring-sky-400/60 bg-neutral-900 shadow-lg">
+                            <button onClick={() => x.url && onAmpliar(x.url)} className="absolute inset-0">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                {x.url ? <img src={`${x.url}${x.url.includes("?") ? "&" : "?"}w=480`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><ImageOff size={20} /></div>}
+                            </button>
+                            <div className="absolute inset-x-0 bottom-0 p-2 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none">
+                                <div className="flex items-center justify-between gap-1"><Chapa p={x.plate} /><span className="text-[11px] font-bold text-white/85 tabular-nums">{hora(x.ms)}</span></div>
+                            </div>
+                            <button onClick={() => onIr(x.ms)} title="Ver la grabación de este instante" className="absolute top-2 right-2 w-8 h-8 grid place-items-center rounded-full bg-black/55 hover:bg-sky-500 text-white opacity-0 group-hover:opacity-100 transition"><Film size={14} /></button>
+                            {x.decision && <span className={cn("absolute top-2 left-2 w-2.5 h-2.5 rounded-full ring-2 ring-black/40", x.decision === "GRANT" ? "bg-emerald-400" : "bg-red-500")} />}
+                        </div>
+                    ))}
+                </div>
+            )}
+            {big && (
+                <div className="fixed inset-0 z-[2200] bg-black/90 grid place-items-center p-6" onClick={onCerrarBig}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={big} alt="" className="max-w-full max-h-full object-contain rounded-xl" />
+                </div>
+            )}
+        </div>
+    );
+}

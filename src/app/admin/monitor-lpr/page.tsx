@@ -44,7 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
-import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
+import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
@@ -351,12 +351,9 @@ function parseMeta(details: string | null) {
     return meta;
 }
 
-const _nvrChCache = new Map<string, Promise<number | null>>();
+/* Canal y NVR con la misma caché que el visor: al tocar el botón ya los tiene y pide la grabación en el acto. */
 function fetchNvrChannel(deviceId: string): Promise<number | null> {
-    if (!_nvrChCache.has(deviceId)) {
-        _nvrChCache.set(deviceId, fetch(`/api/nvr/channel?deviceId=${deviceId}`, { cache: "no-store" }).then((r) => r.json()).then((d) => (d && d.channel != null ? Number(d.channel) : null)).catch(() => null));
-    }
-    return _nvrChCache.get(deviceId)!;
+    return canalDe(deviceId).then((c) => c.ch);
 }
 
 function VehicleCardSkeleton() {
@@ -440,7 +437,10 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
             </div>
         </EventDetailsDialog>
         {showPark && <ParkingLocationDialog plate={event.plateDetected || ""} onClose={() => setShowPark(false)} />}
-        {showVid && nvrCh != null && <NvrTimeMachine open={showVid} onClose={() => setShowVid(false)} deviceId={(event as any).device?.id} channel={nvrCh} eventTimeMs={new Date(event.timestamp).getTime()} deviceName={(event as any).device?.name} evidenceUrl={fullImageUrl || undefined} plate={event.plateDetected} />}
+        {/* El visor único (vivo · grabación · evidencia), abierto en Grabación en el instante de la lectura. */}
+        {showVid && nvrCh != null && (event as any).device?.id && <VerGrabacion deviceId={(event as any).device.id} nombre={(event as any).device?.name} canal={nvrCh} instanteMs={new Date(event.timestamp).getTime()}
+            evidencia={{ url: fullImageUrl || null, plate: event.plateDetected && !["unknown", "NO_LEIDA"].includes(String(event.plateDetected)) ? event.plateDetected : null, ms: new Date(event.timestamp).getTime(), decision: (event as any).decision || null }}
+            onClose={() => setShowVid(false)} />}
       </>
     );
 });

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, Search, AlertTriangle, ChevronDown, Camera, Clock, Film, Info, X, History, Car, User, Bike, SlidersHorizontal, RotateCw, Lightbulb, CalendarDays, ImagePlus, Trash2, Video, ScanLine, LogIn, LogOut, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
+import { VerGrabacion } from "@/components/video/VerGrabacion";
 
 const imgProxy = (u?: string) => u ? `/api/acuseek/image?u=${encodeURIComponent(u)}` : "";
 const RANGES = [{ k: "today", l: "Hoy", days: 0 }, { k: "3d", l: "3 días", days: 3 }, { k: "7d", l: "7 días", days: 7 }, { k: "30d", l: "30 días", days: 30 }];
@@ -631,7 +631,7 @@ export default function AcuSeekPage() {
                 )}
             </AnimatePresence>
 
-            {tm?.open && <NvrTimeMachine open={tm.open} onClose={() => setTm(null)} deviceId={tm.deviceId} channel={tm.channel} eventTimeMs={tm.eventTimeMs} deviceName={tm.deviceName} />}
+            {tm?.open && tm.deviceId && <VerGrabacion deviceId={tm.deviceId} nombre={tm.deviceName} canal={tm.channel} instanteMs={tm.eventTimeMs} onClose={() => setTm(null)} />}
         </div>
     );
 }

@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 import { getCarLogo } from "@/lib/car-logos";
 import { getRelatedSessionEvents } from "@/app/actions/history";
 import { getImagePath } from "@/lib/image-path";
-import { NvrTimeMachine } from "@/components/dashboard/NvrTimeMachine";
+import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { AcuSearchPanel, AcuMatch } from "@/components/dashboard/AcuSearchPanel";
@@ -108,6 +108,11 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     const [nvrChannel, setNvrChannel] = useState<number | null>(null);
     const [nvrId, setNvrId] = useState<string | null>(null);
     const [showVideo, setShowVideo] = useState(false);
+    // El visor único necesita el foco y los clics: la ficha (diálogo modal) se cierra un momento y vuelve al cerrar el visor (de san-nicolas).
+    const [volverAFicha, setVolverAFicha] = useState(false);
+    const autoAbierta = useRef(false);
+    const abrirGrabacion = () => { setVolverAFicha(true); setIsOpen(false); setShowVideo(true); };
+    const cerrarGrabacion = () => { setShowVideo(false); setTm(null); if (volverAFicha) { setVolverAFicha(false); setIsOpen(true); } };
     // "Clip": diálogo Descargar / Enviar por WhatsApp con la ventana de Ajustes → Video del evento (de san-nicolas).
     const [clipDlg, setClipDlg] = useState(false);
     const [ventanaClip, setVentanaClip] = useState<VentanaClip>({ antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } });
@@ -136,7 +141,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     useEffect(() => {
         const dev = (event as any).device;
         if (isOpen && dev?.id && (event.accessType === "PLATE" || event.plateDetected)) {
-            fetch(`/api/nvr/channel?deviceId=${dev.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => { const ch = (d && d.channel != null) ? Number(d.channel) : null; setNvrChannel(ch); setNvrId(d && d.nvr ? String(d.nvr) : null); if (autoRecording && ch) setShowVideo(true); }).catch(() => { setNvrChannel(null); setNvrId(null); });
+            fetch(`/api/nvr/channel?deviceId=${dev.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => { const ch = (d && d.channel != null) ? Number(d.channel) : null; setNvrChannel(ch); setNvrId(d && d.nvr ? String(d.nvr) : null); if (autoRecording && ch && !autoAbierta.current) { autoAbierta.current = true; abrirGrabacion(); } }).catch(() => { setNvrChannel(null); setNvrId(null); });
         }
     }, [isOpen]);
 
@@ -301,7 +306,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                     {similar && (
                         <AcuSearchPanel image={similar.blob} previewUrl={similar.preview} engine={similar.engine} onEngineChange={(e) => setSimilar(s => s ? { ...s, engine: e } : s)}
                             centerTimeMs={eventMs} title={`Similares a ${hasPlate ? plateText : "este objetivo"}`} onBack={() => setSimilar(null)}
-                            onOpenRecording={(m: AcuMatch) => setTm({ deviceId: m.deviceId || "", channel: m.channel, eventTimeMs: m.time ? Date.parse(m.time) : eventMs, deviceName: m.deviceName })} />
+                            onOpenRecording={(m: AcuMatch) => { setVolverAFicha(true); setIsOpen(false); setTm({ deviceId: m.deviceId || "", channel: m.channel, eventTimeMs: m.time ? Date.parse(m.time) : eventMs, deviceName: m.deviceName }); }} />
                     )}
 
                     {/* con el panel de similares abierto el modal toma toda la altura, para que la grilla respire */}
@@ -499,7 +504,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                 {/* acciones */}
                                 <div className="px-4 py-2.5 border-b border-border/50">
                                     <div className="flex items-stretch rounded-2xl border border-border/60 bg-gradient-to-b from-muted/30 to-transparent p-1 [&>span]:flex [&>span]:flex-1 [&>span]:min-w-0">
-                                        <Action icon={<PlayCircle size={18} />} label="Grabación" tone="blue" tip={nvrChannel ? "Ver grabación del NVR en este instante" : "Cámara sin canal NVR mapeado"} disabled={!nvrChannel} onClick={() => setShowVideo(true)} />
+                                        <Action icon={<PlayCircle size={18} />} label="Grabación" tone="blue" tip={nvrChannel ? "Ver grabación del NVR en este instante" : "Cámara sin canal NVR mapeado"} disabled={!nvrChannel} onClick={abrirGrabacion} />
                                         <Action icon={<Search size={18} />} label="Similares" tone="fuchsia" tip="Encuadrar el objetivo y buscarlo en todas las cámaras" disabled={!displayImage} onClick={() => { setCropMode(true); setCrop(null); }} active={cropMode} />
                                         <div className="w-px bg-border/70 my-3 mx-0.5 shrink-0" />
                                         <Action icon={<Download size={18} />} label="Clip" tone="neutral" tip={nvrChannel ? "Descargar o enviar el clip por WhatsApp" : "Sin canal NVR"} onClick={() => setClipDlg(true)} disabled={!clipHref} />
@@ -617,8 +622,10 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                     </div>
                 </DialogContent>
             </Dialog>
-            <NvrTimeMachine open={showVideo} onClose={() => setShowVideo(false)} deviceId={(event as any).device?.id} channel={nvrChannel} eventTimeMs={eventMs} deviceName={(event as any).device?.name} evidenceUrl={displayImage || undefined} plate={event.plateDetected} />
-            {tm && <NvrTimeMachine open onClose={() => setTm(null)} deviceId={tm.deviceId} channel={tm.channel} eventTimeMs={tm.eventTimeMs} deviceName={tm.deviceName} />}
+            {showVideo && (event as any).device?.id && <VerGrabacion deviceId={(event as any).device.id} nombre={(event as any).device?.name} canal={nvrChannel} nvrId={nvrId} instanteMs={eventMs}
+                evidencia={isLPR ? { url: displayImage || null, plate: event.plateDetected && !["unknown", "NO_LEIDA"].includes(String(event.plateDetected)) ? event.plateDetected : null, ms: eventMs, decision: event.decision || null } : null}
+                onClose={cerrarGrabacion} />}
+            {tm && tm.deviceId && <VerGrabacion deviceId={tm.deviceId} nombre={tm.deviceName} canal={tm.channel} instanteMs={tm.eventTimeMs} onClose={cerrarGrabacion} />}
             {clipDlg && nvrChannel && (
                 <div className="fixed inset-0 z-[3300]">
                     <DescargaClip instante={eventMs} ventana={ventanaClip}
