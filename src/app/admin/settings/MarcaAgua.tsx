@@ -6,8 +6,8 @@
  * (global para todo el barrio). Las descargas de evidencia no lo llevan. Se muestra cómo
  * queda, no se describe.
  */
-import { useEffect, useState } from "react";
-import { Loader2, Info, Check } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2, Info, Check, Upload, Trash2, Play, Palette, ImageIcon } from "lucide-react";
 import { Tooltip } from "react-tooltip";
 import { sileo as toast } from "sileo";
 import { Switch } from "@/components/ui/switch";
@@ -34,10 +34,18 @@ export default function MarcaAgua() {
        módulo del servidor no se importa desde una pantalla del navegador. */
     const [intro, setIntro] = useState(true);
     const [vuelta, setVuelta] = useState(0);
+    const [color, setColor] = useState("#0ea5e9");
+    const [logoV, setLogoV] = useState(0);          // fuerza a recargar la imagen del logo
+    const [hayLogoIntro, setHayLogoIntro] = useState(false);
+    const [subiendo, setSubiendo] = useState(false);
+    const [muestra, setMuestra] = useState<string | null>(null);
+    const [armando, setArmando] = useState(false);
+    const archivoRef = useRef<HTMLInputElement>(null);
+    useEffect(() => { fetch(`/api/clip/intro-logo?v=${logoV}`, { cache: "no-store" }).then((r) => setHayLogoIntro(r.ok)).catch(() => setHayLogoIntro(false)); }, [logoV]);
 
     useEffect(() => {
-        Promise.all([getSetting(AJUSTE_MARCA_AGUA), getSetting(AJUSTE_MARCA_POSICION), getSetting("CLIP_INTRO")])
-            .then(([a, p, i]: any[]) => { setOn(a?.value !== "false"); if (esPosicionMarca(p?.value)) setPos(p.value); setIntro(i?.value !== "false"); })
+        Promise.all([getSetting(AJUSTE_MARCA_AGUA), getSetting(AJUSTE_MARCA_POSICION), getSetting("CLIP_INTRO"), getSetting("CLIP_INTRO_COLOR")])
+            .then(([a, p, i, c]: any[]) => { setOn(a?.value !== "false"); if (esPosicionMarca(p?.value)) setPos(p.value); setIntro(i?.value !== "false"); if (/^#[0-9a-fA-F]{6}$/.test(c?.value || "")) setColor(c.value); })
             .catch(() => { }).finally(() => setCargando(false));
     }, []);
 
@@ -52,6 +60,33 @@ export default function MarcaAgua() {
         try { await updateSetting("CLIP_INTRO", v ? "true" : "false"); toast.success({ title: v ? "Intro animada activada" : "Intro animada desactivada" }); }
         catch (e: any) { setIntro(!v); toast.error({ title: "No se pudo guardar", description: e?.message }); }
         finally { setGuardando(false); }
+    };
+    const elegirColor = async (c: string) => {
+        setColor(c);
+        try { await updateSetting("CLIP_INTRO_COLOR", c); } catch (e: any) { toast.error({ title: "No se pudo guardar el color", description: e?.message }); }
+    };
+    const subirLogo = async (f: File) => {
+        setSubiendo(true);
+        try {
+            const fd = new FormData(); fd.append("archivo", f);
+            const r = await fetch("/api/clip/intro-logo", { method: "POST", body: fd }).then((x) => x.json());
+            if (!r.ok) throw new Error(r.error);
+            toast.success({ title: "Logo de la intro actualizado" }); setLogoV((v) => v + 1); setMuestra(null);
+        } catch (e: any) { toast.error({ title: "No se pudo subir el logo", description: e?.message }); }
+        finally { setSubiendo(false); if (archivoRef.current) archivoRef.current.value = ""; }
+    };
+    const quitarLogo = async () => {
+        await fetch("/api/clip/intro-logo", { method: "DELETE" }).catch(() => null);
+        toast.success({ title: "Logo de la intro quitado", description: "Vuelve a usar el logo de la marca de agua." }); setLogoV((v) => v + 1); setMuestra(null);
+    };
+    const verMuestra = async () => {
+        setArmando(true);
+        try {
+            const r = await fetch(`/api/clip/intro-prueba?color=${encodeURIComponent(color)}`, { cache: "no-store" });
+            if (!r.ok) throw new Error(await r.text());
+            const b = await r.blob(); if (muestra) URL.revokeObjectURL(muestra); setMuestra(URL.createObjectURL(b));
+        } catch (e: any) { toast.error({ title: "No se pudo armar la muestra", description: e?.message }); }
+        finally { setArmando(false); }
     };
     const ubicar = async (p: PosicionMarca) => {
         if (p === pos) return;
@@ -103,23 +138,73 @@ export default function MarcaAgua() {
                 <div className="flex items-start gap-4">
                     <div className="min-w-0 flex-1">
                         <div className="text-[15px] font-bold text-foreground">Intro animada antes del video</div>
-                        <p className="text-[12px] text-muted-foreground mt-0.5">Los clips que se descargan o se mandan por WhatsApp empiezan con una placa de 4 s: el logo en el centro, la descripción que escribe el operador y cámara, fecha, hora y matrícula. Después funde al video.</p>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">Los clips que se descargan o se mandan por WhatsApp empiezan con una placa clara de 4 s: el logo en el centro, la descripción que escribe el operador y cámara, fecha, hora y matrícula. Después pasa al video.</p>
                     </div>
                     {cargando ? <Loader2 size={16} className="animate-spin text-muted-foreground" /> : <Switch checked={intro} onCheckedChange={cambiarIntro} disabled={guardando} aria-label="Intro animada" />}
                 </div>
-                <button type="button" onClick={() => setVuelta((v) => v + 1)} data-tooltip-id="tt-marca" data-tooltip-content="Vista previa: tocá para repetir la animación."
-                    className={cn("relative w-full aspect-video rounded-[8px] overflow-hidden border border-border text-left transition-opacity", !intro && "opacity-50")}
-                    style={{ background: "radial-gradient(120% 90% at 50% 42%, #13233d 0%, #0b1220 55%, #050814 100%)" }}>
-                    <style>{`@keyframes iLogo{0%{opacity:0;transform:translate(-50%,-50%) scale(.9)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}@keyframes iLinea{0%{width:0}100%{width:18%}}@keyframes iTxt{0%{opacity:0;transform:translate(-50%,8px)}100%{opacity:1;transform:translate(-50%,0)}}@keyframes iRec{0%,60%{opacity:1}61%,100%{opacity:.3}}`}</style>
-                    <div key={vuelta} className="absolute inset-0">
-                        <span className="absolute left-[3%] top-[6%] flex items-center gap-1.5 text-[8px] font-semibold tracking-wider text-white/75"><span className="h-1.5 w-1.5 rounded-full bg-red-500" style={{ animation: "iRec 1s infinite" }} /> REGISTRO DE VIDEO</span>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={`/${ARCHIVO_MARCA_AGUA}`} alt="" className="absolute left-1/2 top-[33%] w-[30%]" style={{ animation: "iLogo .75s .15s both cubic-bezier(.2,.8,.2,1)" }} />
-                        <span className="absolute left-1/2 top-[50%] h-[2px] -translate-x-1/2 bg-sky-400" style={{ animation: "iLinea .45s .75s both ease-out" }} />
-                        <span className="absolute left-1/2 top-[56%] text-[13px] font-semibold text-white whitespace-nowrap" style={{ animation: "iTxt .5s 1s both ease-out" }}>Descripción del clip</span>
-                        <span className="absolute left-1/2 top-[68%] text-[8.5px] text-slate-400 whitespace-nowrap tracking-wide" style={{ animation: "iTxt .5s 1.4s both ease-out" }}>CÁMARA P1 · 12/10/2026 09:41:09 · ABC1234</span>
+                <div className={cn("grid grid-cols-1 sm:grid-cols-[1fr_200px] gap-4 transition-opacity", !intro && "opacity-50 pointer-events-none")}>
+                    {/* Vista previa: la muestra real (video) o la animación aproximada */}
+                    <div className="space-y-2">
+                        {muestra ? (
+                            <video key={muestra} src={muestra} autoPlay controls playsInline className="w-full aspect-video rounded-[8px] border border-border bg-black" />
+                        ) : (
+                            <button type="button" onClick={() => setVuelta((v) => v + 1)} data-tooltip-id="tt-marca" data-tooltip-content="Vista previa aproximada: tocá para repetir. «Ver la intro real» arma la de verdad."
+                                className="relative w-full aspect-video rounded-[8px] overflow-hidden border border-border text-left"
+                                style={{ background: `linear-gradient(135deg, #ffffff 0%, #f1f5f9 55%, color-mix(in oklab, ${color} 14%, white) 100%)` }}>
+                                <style>{`@keyframes iLogo{0%{opacity:0;transform:translate(-50%,-50%) scale(.86)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}@keyframes iLinea{0%{width:0}100%{width:16%}}@keyframes iTxt{0%{opacity:0;transform:translate(-50%,8px)}100%{opacity:1;transform:translate(-50%,0)}}@keyframes iRec{0%,60%{opacity:1}61%,100%{opacity:.3}}@keyframes iBar{0%{width:0}100%{width:100%}}@keyframes iB1{0%{transform:translate(0,0)}100%{transform:translate(12%,0)}}`}</style>
+                                <div key={vuelta} className="absolute inset-0">
+                                    <span className="absolute -left-[20%] -top-[45%] w-[75%] aspect-square rounded-full opacity-50 blur-2xl" style={{ background: color, animation: "iB1 4s linear both" }} />
+                                    <span className="absolute left-[60%] top-[40%] w-[75%] aspect-square rounded-full opacity-40 blur-2xl" style={{ background: color, animation: "iB1 4s linear reverse both" }} />
+                                    <span className="absolute left-[3%] top-[6%] flex items-center gap-1.5 text-[8px] font-semibold tracking-wider text-slate-600"><span className="h-1.5 w-1.5 rounded-full bg-red-500" style={{ animation: "iRec 1s infinite" }} /> REGISTRO DE VIDEO</span>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={hayLogoIntro ? `/api/clip/intro-logo?v=${logoV}` : `/${ARCHIVO_MARCA_AGUA}`} alt="" className="absolute left-1/2 top-[33%] max-w-[30%] max-h-[24%] object-contain drop-shadow-[0_6px_14px_rgba(0,0,0,.18)]" style={{ animation: "iLogo .75s .15s both cubic-bezier(.2,.8,.2,1)" }} />
+                                    <span className="absolute left-1/2 top-[51%] h-[3px] -translate-x-1/2 rounded-full" style={{ background: color, animation: "iLinea .5s .75s both ease-out" }} />
+                                    <span className="absolute left-1/2 top-[57%] text-[13px] font-semibold text-slate-900 whitespace-nowrap" style={{ animation: "iTxt .55s 1s both ease-out" }}>Descripción del clip</span>
+                                    <span className="absolute left-1/2 top-[68%] text-[8.5px] text-slate-500 whitespace-nowrap tracking-wide" style={{ animation: "iTxt .5s 1.4s both ease-out" }}>CÁMARA P1 · 12/10/2026 09:41:09 · ABC1234</span>
+                                    <span className="absolute left-0 bottom-0 h-[3px]" style={{ background: color, animation: "iBar 4s linear both" }} />
+                                </div>
+                            </button>
+                        )}
+                        <div className="flex items-center gap-2">
+                            <button type="button" onClick={verMuestra} disabled={armando}
+                                className="h-8 px-3 rounded-lg bg-[var(--accion)] text-white text-[12px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-60">
+                                {armando ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Ver la intro real
+                            </button>
+                            {muestra && <button type="button" onClick={() => setMuestra(null)} className="h-8 px-3 rounded-lg border border-border text-[12px] hover:bg-accent">Volver a la animación</button>}
+                        </div>
                     </div>
-                </button>
+                    {/* Logo y color */}
+                    <div className="space-y-4">
+                        <div>
+                            <div className="text-[12px] font-semibold text-foreground/85 mb-1.5 flex items-center gap-1.5"><ImageIcon size={13} /> Logo de la intro
+                                <span data-tooltip-id="tt-marca" data-tooltip-content="Puede ser distinto del de la marca de agua: va grande en el centro sobre fondo claro. PNG con fondo transparente, ej. el logo a color de la empresa." className="text-muted-foreground/60 hover:text-[var(--accion)] cursor-help"><Info size={12.5} /></span></div>
+                            <div className="rounded-[8px] border border-dashed border-border bg-white h-20 grid place-items-center overflow-hidden">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={hayLogoIntro ? `/api/clip/intro-logo?v=${logoV}` : `/${ARCHIVO_MARCA_AGUA}`} alt="" className="max-h-16 max-w-[90%] object-contain" />
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-1">{hayLogoIntro ? "Logo propio de la intro." : "Usa el logo de la marca de agua."}</p>
+                            <div className="flex gap-1.5 mt-1.5">
+                                <input ref={archivoRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) subirLogo(f); }} />
+                                <button type="button" onClick={() => archivoRef.current?.click()} disabled={subiendo}
+                                    className="flex-1 h-8 rounded-lg border border-border text-[12px] font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-accent">{subiendo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Subir</button>
+                                {hayLogoIntro && <button type="button" onClick={quitarLogo} data-tooltip-id="tt-marca" data-tooltip-content="Quitar: vuelve al logo de la marca de agua" className="h-8 w-8 grid place-items-center rounded-lg border border-border text-red-500 hover:bg-red-500/10"><Trash2 size={13} /></button>}
+                            </div>
+                        </div>
+                        <div>
+                            <div className="text-[12px] font-semibold text-foreground/85 mb-1.5 flex items-center gap-1.5"><Palette size={13} /> Color de acento</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {["#0ea5e9", "#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#0f172a"].map((c) => (
+                                    <button key={c} type="button" onClick={() => elegirColor(c)} aria-label={c}
+                                        className={cn("h-7 w-7 rounded-full ring-2 ring-offset-2 ring-offset-background transition", color === c ? "ring-foreground" : "ring-transparent hover:ring-border")} style={{ background: c }} />
+                                ))}
+                                <label className="h-7 w-7 rounded-full border border-dashed border-border grid place-items-center cursor-pointer overflow-hidden relative" data-tooltip-id="tt-marca" data-tooltip-content="Otro color">
+                                    <input type="color" value={color} onChange={(e) => elegirColor(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" />
+                                    <Palette size={12} className="text-muted-foreground" />
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             <Tooltip id="tt-marca" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[9999]" />
         </div>

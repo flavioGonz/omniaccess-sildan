@@ -169,12 +169,12 @@ export default function AdminLayout({
                     ) : modules.MODULE_FACE ? (
                         <SidebarItem ver={puede} icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-face" active={pathname === "/admin/monitor-face"} collapsed={collapsed} />
                     ) : (
-                        <SidebarItem ver={puede} icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />
+                        <SidebarItem ver={puede} icon={<LayoutDashboard size={18} />} label="Monitor LPR" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />
                     )}
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         <SidebarItem ver={puede} icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />
                     )}
-                    <SidebarItem ver={puede} icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />
+                    {modules.MODULE_QUEUE && <SidebarItem ver={puede} icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />}
                     {modules.MODULE_QUEUE ? (
                         <SidebarItem ver={puede} icon={<TrendingUp size={18} />} label="Flujo de Filas" href="/admin/flujo-filas" active={pathname === "/admin/flujo-filas"} collapsed={collapsed} />
                     ) : (
@@ -195,6 +195,7 @@ export default function AdminLayout({
                             {(<SidebarItem ver={puede} icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             <SidebarItem ver={puede} icon={<Calendar size={18} />} label="Calendario" href="/admin/calendar" active={pathname === "/admin/calendar"} collapsed={collapsed} />
                             {modules.MODULE_LPR && (<SidebarItem ver={puede} icon={<Ticket size={18} />} label="Invitados" href="/admin/invitados" active={pathname === "/admin/invitados"} collapsed={collapsed} />)}
+                            <SidebarItem ver={puede} icon={<MonitorPlay size={18} />} label="Monitores" href="/admin/monitores" active={pathname === "/admin/monitores"} collapsed={collapsed} />
                         </>
                     )}
 

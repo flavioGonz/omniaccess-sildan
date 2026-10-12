@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById, type NvrConn } from "@/lib/nvr-resolve";
 import { configClips, nombreDeClip, type ConfigClip } from "@/lib/clips";
 import { cortarDesdeNvr } from "@/lib/clip-nvr";
-import { ponerIntro, introActiva } from "@/lib/intro-clip";
+import { ponerIntro, introActiva, logoIntro } from "@/lib/intro-clip";
 import { CRF_POR_CALIDAD } from "@/lib/clips";
 import { ventanaPlayback } from "@/lib/ventana-playback";
 import {
@@ -232,7 +232,7 @@ export async function clipDeInstante(p: { deviceId: string; instante: number; an
     // Lo que se exporta a mano (descarga o WhatsApp) va con la intro animada: logo, descripción
     // y datos del registro (lib/intro-clip). Si falla, el clip sale igual, sin intro.
     if (p.para === "envio" && p.intro !== false && (await introActiva())) {
-        const puesta = await ponerIntro(destino, { descripcion: p.descripcion, camara: dev?.name || null, instante: p.instante, matricula: p.matricula || null, logo: await marcaAguaArchivo() }, CRF_POR_CALIDAD[cfg.calidad]);
+        const puesta = await ponerIntro(destino, { descripcion: p.descripcion, camara: dev?.name || null, instante: p.instante, matricula: p.matricula || null, logo: logoIntro() || marcaAguaArchivo() }, CRF_POR_CALIDAD[cfg.calidad]);
         if (puesta) { try { bytes = fs.statSync(destino).size; } catch { } }
     }
     return { ok: true, archivo: destino, nombre, url: `/api/clip/${nombre}`, fuente: fuente.tipo, ventana, bytes };
