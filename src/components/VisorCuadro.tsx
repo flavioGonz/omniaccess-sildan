@@ -815,8 +815,10 @@ export function VisorCuadro({
                         una calle de día necesita un fondo que le gane, no una caja. */}
                     <div className={cn("absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/80 via-black/45 to-transparent transition-opacity duration-300",
                         (acercado || limpio) && "opacity-0")} />
-                    <div className={cn("visor-orbe absolute left-[-6%] top-[24%] w-[460px] h-[460px] rounded-full z-[4] pointer-events-none transition-opacity duration-300",
-                        (acercado || limpio) && "!opacity-0")} />
+                    {/* El orbe late con una animación de opacidad, que le gana a la clase: en la
+                        vista limpia directamente no se dibuja. */}
+                    {!limpio && <div className={cn("visor-orbe absolute left-[-6%] top-[24%] w-[460px] h-[460px] rounded-full z-[4] pointer-events-none transition-opacity duration-300",
+                        acercado && "!opacity-0")} />}
                 </div>
 
                 {/* Sin recuadro no hay a qué anclarla, pero el estado sigue siendo un
@@ -962,9 +964,12 @@ export function VisorCuadro({
 
                     {/* La marca: del padrón si está cargada, si no la que reconoció la cámara. */}
                     <div className="flex items-center gap-3.5">
-                        <span className="relative w-11 h-11 rounded-[10px] bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
+                        {/* Fondo claro: los logos de marca son oscuros (los anillos de Audi, el león de
+                            Peugeot) y sobre vidrio oscuro no se veían. */}
+                        <span className={cn("relative w-11 h-11 rounded-[10px] flex items-center justify-center shrink-0",
+                            logo ? "bg-white/90" : "bg-white/10 border border-white/20")}>
                             {logo
-                                ? <Image src={logo} alt={marca || ""} fill sizes="44px" className="object-contain p-2.5" />
+                                ? <Image src={logo} alt={marca || ""} fill sizes="44px" className="object-contain p-2" />
                                 : <Car size={20} className="text-white/70" />}
                         </span>
                         <div className="min-w-0">
