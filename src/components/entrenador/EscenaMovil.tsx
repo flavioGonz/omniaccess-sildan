@@ -106,7 +106,7 @@ export function EscenaMovil({ zona, alVolver }: { zona: ZonaMovil; alVolver: () 
                 {(["pos", "neg"] as const).map((k) => (
                     <div key={k} className="rounded-[10px] border border-border px-3 py-2">
                         <div className="font-semibold truncate">{k === "pos" ? zona.positivo : zona.negativo}</div>
-                        <div className="tabular-nums text-muted-foreground"><b className="text-foreground">{conteo[k]}</b> de {RECOMENDADO_POR_CLASE} ejemplos</div>
+                        <div className="tabular-nums text-muted-foreground"><b className="text-foreground">{conteo[k]}</b> {conteo[k] === 1 ? "ejemplo" : "ejemplos"}{conteo[k] < RECOMENDADO_POR_CLASE ? ` · meta ${RECOMENDADO_POR_CLASE}` : " · alcanza"}</div>
                         <div className="mt-1 h-1.5 rounded-full bg-muted overflow-hidden"><span className={cn("block h-full rounded-full", k === "pos" ? "bg-[var(--aviso)]" : "bg-[var(--bien)]")} style={{ width: `${Math.min(100, (conteo[k] / RECOMENDADO_POR_CLASE) * 100)}%` }} /></div>
                     </div>
                 ))}
