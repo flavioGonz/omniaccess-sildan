@@ -14,7 +14,9 @@ export async function getAccessEvents(options?: {
     name?: string,
     from?: Date,
     to?: Date,
-    omitEnrichment?: boolean
+    omitEnrichment?: boolean,
+    /** Contar el total (COUNT sobre todo el filtro). Por defecto sólo en la primera página: al hacer scroll no hace falta repetirlo. */
+    conTotal?: boolean
 }) {
     const whereClause: any = {};
 
@@ -96,7 +98,7 @@ export async function getAccessEvents(options?: {
                     bitacora: true,
                 },
             }),
-            prisma.accessEvent.count({ where: whereClause })
+            (options?.conTotal ?? !(options?.skip)) ? prisma.accessEvent.count({ where: whereClause }) : Promise.resolve(-1)
         ]);
 
         if (options?.omitEnrichment) {
@@ -258,6 +260,14 @@ async function enrichEventsWithDuration(events: any[]) {
         }
     }
 
+    // Sólo hace falta la lectura anterior de cada uno: se mira desde 7 días antes de la más vieja
+    // de la página hasta la más nueva (antes leía TODA la historia de cada matrícula).
+    const tiempos = events.map((e) => new Date(e.timestamp).getTime());
+    const ventana = {
+        desde: new Date(Math.min(...tiempos) - 7 * 86400_000).toISOString(),
+        hasta: new Date(Math.max(...tiempos) + 1000).toISOString(),
+    };
+
     // Build a map of eventId -> previous event info using raw SQL with LAG()
     const previousMap = new Map<string, { duration: number; previousDirection: string }>();
 
@@ -271,6 +281,7 @@ async function enrichEventsWithDuration(events: any[]) {
                 FROM "AccessEvent"
                 WHERE UPPER("plateDetected") IN (${Array.from(plateIds).map(p => `'${p.replace(/'/g, "''")}'`).join(',')})
                   AND "accessType" = 'PLATE'
+                  AND timestamp BETWEEN '${ventana.desde}' AND '${ventana.hasta}'
                 ORDER BY timestamp DESC
             `);
 
@@ -291,6 +302,7 @@ async function enrichEventsWithDuration(events: any[]) {
                 FROM "AccessEvent"
                 WHERE "userId" IN (${Array.from(userIds).map(u => `'${u.replace(/'/g, "''")}'`).join(',')})
                   AND "accessType" = 'FACE'
+                  AND timestamp BETWEEN '${ventana.desde}' AND '${ventana.hasta}'
                 ORDER BY timestamp DESC
             `);
 

@@ -26,6 +26,8 @@ interface EventDetailsDialogProps {
     children: React.ReactNode;
     timeStatus?: { label: string; value: string; color: string } | null;
     autoRecording?: boolean;
+    /** Montado ya abierto (el historial usa una sola ficha para todas las filas). */
+    abrirAlMontar?: boolean;
     onRegister?: (plate: string) => void;
     /** La empresa de la matrícula (delivery, taxi), si se sabe: su logo va sobre la captura. */
     empresa?: { nombre: string; logo: string; transparente: boolean } | null;
@@ -97,9 +99,9 @@ function Action({ icon, label, tip, onClick, href, download, tone = "neutral", d
 
 const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
 
-export function EventDetailsDialog({ event, children, timeStatus, autoRecording, onRegister , empresa }: EventDetailsDialogProps) {
+export function EventDetailsDialog({ event, children, timeStatus, autoRecording, onRegister , empresa, abrirAlMontar }: EventDetailsDialogProps) {
     const router = useRouter();
-    const [isOpen, setIsOpen] = useState(false);
+    const [isOpen, setIsOpen] = useState(!!abrirAlMontar);
     const [isEditing, setIsEditing] = useState(false);
     const [editedUser, setEditedUser] = useState(event.user?.name || "");
     const [editedUnit, setEditedUnit] = useState(event.user?.unit?.name || "");
