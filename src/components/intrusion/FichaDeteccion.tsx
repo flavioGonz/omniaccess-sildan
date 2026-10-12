@@ -138,9 +138,11 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
         if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: k }));
     };
 
+    const objetosVeredicto = (verif?.fuente === "propio" && propio ? propio : verif?.analisis)?.objetos || [];
     const lineasCompartir = [
         `${fechaCorta(momento)} ${horaSeg(momento)}${nvr ? ` · ${nvr}${ch != null ? ` CH ${ch}` : ""}` : ""}`,
-        ver ? `OmniVision: ${ver.rotulo}${verif?.analisis?.objetos.length ? ` — ${verif.analisis.objetos.slice(0, 4).map((o) => [o.nombre, ...rasgosDe(o)].join(" ")).join("; ")}` : ""}` : "",
+        // Los objetos de la foto que dio el veredicto: si fue el cuadro propio, los de ése.
+        ver ? `OmniVision: ${ver.rotulo}${objetosVeredicto.length ? ` — ${objetosVeredicto.slice(0, 4).map((o) => [o.nombre, ...rasgosDe(o)].join(" ")).join("; ")}` : ""}${verif?.fuente === "propio" ? " (cuadro propio)" : ""}` : "",
         estado,
     ].filter(Boolean);
 
@@ -288,9 +290,9 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                             <dl>
                                                 <Dato rotulo="Episodio" valor={`${alrededor.rafaga.cantidad} ${alrededor.rafaga.cantidad === 1 ? "detección" : "detecciones"}`}
                                                     sufijo={alrededor.rafaga.cantidad > 1 ? `${horaSeg(alrededor.rafaga.desde)} a ${horaSeg(alrededor.rafaga.hasta)}` : null} />
-                                                <Dato rotulo="Hoy, esta cámara" valor={String(alrededor.ritmo.hoy)} sufijo={`${alrededor.ritmo.hoyEnLaHora} en esta hora · suele ${alrededor.ritmo.habitualPorHora}`} />
-                                                <Dato rotulo="Falsas, esta cámara" valor={alrededor.historial.revisadas >= 5 ? `${Math.round((alrededor.historial.falsas / alrededor.historial.revisadas) * 100)} %` : null}
-                                                    falta="pocas revisadas aún" sufijo={alrededor.historial.revisadas >= 5 ? `de ${alrededor.historial.revisadas} revisadas` : null} />
+                                                <Dato rotulo="Hoy" valor={`${alrededor.ritmo.hoy} en esta cámara`} sufijo={`${alrededor.ritmo.hoyEnLaHora} en esta hora · suele ${alrededor.ritmo.habitualPorHora}`} />
+                                                <Dato rotulo="Falsas" valor={alrededor.historial.revisadas >= 5 ? `${Math.round((alrededor.historial.falsas / alrededor.historial.revisadas) * 100)} %` : null}
+                                                    falta="pocas revisadas aún" sufijo={alrededor.historial.revisadas >= 5 ? `de ${alrededor.historial.revisadas} revisadas en esta cámara` : null} />
                                             </dl>
                                             {alrededor.indicios.length > 0 && (
                                                 <ul className="mt-1.5 space-y-1">
