@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { Readable } from "stream";
 import { pipeline } from "stream/promises";
-import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import sharp from "sharp";
 import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
@@ -109,4 +109,32 @@ export async function activoActual(): Promise<Activo | null> {
     const s = await prisma.setting.findUnique({ where: { key: CLAVE_ACTIVO } });
     if (!s || !fs.existsSync(path.join(ACTIVO, "modelo.json"))) return null;
     try { return JSON.parse(s.value); } catch { return null; }
+}
+
+/**
+ * Borrar un entrenamiento terminado: su modelo archivado, su carpeta de trabajo y la fila.
+ *
+ * Los entrenamientos de prueba (conjunto chico, cancelados, fallidos) se acumulaban en la lista
+ * sin forma de sacarlos. El que está EN USO no se borra: primero hay que dejar de usarlo, porque
+ * omni-vision lo está corriendo y la lista es la única forma de volver a él. Lo que no se pudo
+ * borrar del almacenamiento o del disco no frena el borrado de la fila: se informa.
+ */
+export async function borrarEntrenamiento(id: string): Promise<{ ok: true; avisos: string[] } | { ok: false; error: string; estado?: number }> {
+    const t = await prisma.entrenamientoDetector.findUnique({ where: { id } });
+    if (!t) return { ok: false, error: "No existe ese entrenamiento", estado: 404 };
+    if (["EN_COLA", "PREPARANDO", "ENTRENANDO", "EXPORTANDO"].includes(t.estado)) return { ok: false, error: "Está en curso: primero cancelalo.", estado: 409 };
+    const activo = await activoActual().catch(() => null);
+    if (activo?.entrenamiento === id) return { ok: false, error: "Es el modelo que están usando las cámaras: primero dejá de usarlo.", estado: 409 };
+    const avisos: string[] = [];
+    const a: ArchivoModelo | undefined = (t.resultado as any)?.archivo;
+    if (a?.clave && !a.borradoAt) {
+        await (await getS3Client()).send(new DeleteObjectCommand({ Bucket: BUCKET, Key: a.clave })).catch((e) => avisos.push(`modelo en el almacenamiento: ${e?.message || e}`));
+    }
+    for (const dir of [...new Set([(t as any).carpeta, path.join(CARPETAS, id), process.env.ENTRENADOR_TRABAJO ? path.join(process.env.ENTRENADOR_TRABAJO, id) : null].filter(Boolean) as string[])]) {
+        // Sólo carpetas con el id del entrenamiento como último tramo: nunca algo más arriba.
+        if (path.basename(dir) !== id) continue;
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e: any) { avisos.push(`carpeta ${dir}: ${e?.message || e}`); }
+    }
+    await prisma.entrenamientoDetector.delete({ where: { id } });
+    return { ok: true, avisos };
 }

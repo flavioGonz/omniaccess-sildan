@@ -4,7 +4,8 @@ import { AlCelular } from "@/components/vision/entrenar/AlCelular";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { GraduationCap, Plus, Boxes } from "lucide-react";
+import { GraduationCap, Plus, Boxes, Trash2 } from "lucide-react";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { sileo as toast } from "sileo";
 import { Button } from "@/components/ui/button";
 import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
@@ -21,10 +22,27 @@ import { motion } from "motion/react";
  * confiar en ella: en qué estado está ahora, si decide con frases o con lo entrenado, y cuántos
  * ejemplos tiene.
  */
-function Tarjeta({ z, i }: { z: ZonaLista & { estado: (ZonaLista["estado"] & { analisis?: Analisis | null }) | null }; i: number }) {
+function Tarjeta({ z, i, alBorrada }: { z: ZonaLista & { estado: (ZonaLista["estado"] & { analisis?: Analisis | null }) | null }; i: number; alBorrada: () => void }) {
     const ejemplos = z.conteo.pos + z.conteo.neg;
     return (
-        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.35 }}>
+        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.35 }} className="relative group/tarjeta">
+            {/* Borrar a la vista: antes estaba sólo adentro del cajón de edición de cada analítica. */}
+            <span className="absolute top-2 right-2 z-10 opacity-0 group-hover/tarjeta:opacity-100 focus-within:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                <DeleteConfirmDialog id={z.id} title={`«${z.nombre}»`}
+                    description="Se borra la analítica con sus ejemplos (las fotos etiquetadas) y lo entrenado. No se puede deshacer."
+                    onDelete={async (id: string) => {
+                        const r = await fetch(`/api/vision/zonas/${id}`, { method: "DELETE" }).catch(() => null);
+                        const j = await r?.json().catch(() => ({}));
+                        if (r?.ok && j?.recortesBorrados === false) toast.warning({ title: "Borrada", description: "Las fotos quedaron en el almacenamiento: no se pudieron borrar." });
+                        return r?.ok ? { success: true } : { success: false, error: j?.error || "No se pudo borrar" };
+                    }}
+                    onSuccess={alBorrada}>
+                    <button type="button" title="Eliminar esta analítica" aria-label="Eliminar esta analítica"
+                        className="w-8 h-8 rounded-full grid place-items-center bg-black/55 text-white hover:bg-[var(--mal)] transition-colors">
+                        <Trash2 size={14} />
+                    </button>
+                </DeleteConfirmDialog>
+            </span>
             <Link href={`/admin/vision/entrenar/${z.id}`} className="group rounded-[10px] border border-border bg-card overflow-hidden hover:border-[var(--accion)] transition-colors flex flex-col h-full">
                 <div className="relative">
                     {z.estado?.muestraUrl ? <MuestraVista url={z.estado.muestraUrl} analisis={z.estado.analisis} ancho={640} className="aspect-[4/3] transition-transform duration-500 group-hover:scale-[1.02]" />
@@ -143,7 +161,7 @@ export default function EntrenarVision() {
                             <p className="text-[13px] text-muted-foreground">Todavía no hay ninguna. Elegí una cámara, dibujá la zona y describí los dos estados.</p>
                             <Button onClick={() => setNueva(true)}><Plus size={15} /> Crear la primera</Button>
                         </div>
-                    ) : <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{datos.zonas.map((z, i) => <Tarjeta key={z.id} z={z} i={i} />)}</div>}
+                    ) : <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{datos.zonas.map((z, i) => <Tarjeta key={z.id} z={z} i={i} alBorrada={cargar} />)}</div>}
 
             {nueva && datos && <CajonZona inicial={FORM_VACIO} nueva camaras={datos.camaras} guardando={guardando} alCerrar={() => setNueva(false)} alGuardar={crear} />}
         </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Archive, CircleAlert, CircleCheck, Clock, Cpu, Loader2, Moon, Play, Power, Square, Zap } from "lucide-react";
+import { Archive, CircleAlert, CircleCheck, Clock, Cpu, Loader2, Moon, Play, Power, Square, Trash2, Zap } from "lucide-react";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -193,7 +194,7 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
                     <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Resultados</div>
                     {datos.entrenamientos.filter((t) => !ACTIVOS.includes(t.estado)).map((t) => (
                         <Terminado key={t.id} t={t} nombre={nombre} enUso={activo?.activo?.entrenamiento === t.id} ocupado={activando === t.id}
-                            alUsar={() => usar(t.id)} />
+                            alUsar={() => usar(t.id)} alBorrado={cargar} />
                     ))}
                 </div>
             )}
@@ -246,8 +247,10 @@ function EnCurso({ t, espera, alCancelar }: { t: Entrenamiento; espera?: string 
     );
 }
 
-export function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
+export function Terminado({ t, nombre, enUso, ocupado, alUsar, alBorrado }: {
     t: Entrenamiento; nombre: (id: string) => string; enUso: boolean; ocupado: boolean; alUsar: () => void;
+    /** Con esto aparece «Eliminar» (no en el que está en uso: primero hay que dejar de usarlo). */
+    alBorrado?: () => void;
 }) {
     const [abierto, setAbierto] = useState(false);
     const r = t.resultado;
@@ -270,6 +273,22 @@ export function Terminado({ t, nombre, enUso, ocupado, alUsar }: {
                             {ocupado ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />} Usar en las cámaras
                         </Button>
                     )}
+                {alBorrado && !enUso && (
+                    <DeleteConfirmDialog id={t.id} title={`Entrenamiento del ${fechaHoraSeg(t.createdAt)}`}
+                        description="Se borra de la lista, con su modelo y su carpeta de trabajo. Las fotos dibujadas no se tocan: se pueden volver a entrenar."
+                        onDelete={async (id: string) => {
+                            const r = await fetch(`/api/vision/objetos/entrenamientos/${id}?borrar=1`, { method: "DELETE" });
+                            const j = await r.json().catch(() => ({}));
+                            if (r.ok && j.avisos?.length) toast.warning({ title: "Borrado, con avisos", description: j.avisos.join(" · ") });
+                            return r.ok ? { success: true } : { success: false, error: j.error || `El servidor respondió ${r.status}` };
+                        }}
+                        onSuccess={alBorrado}>
+                        <button type="button" title="Eliminar este entrenamiento" aria-label="Eliminar este entrenamiento"
+                            className={cn("w-8 h-8 rounded-md grid place-items-center text-muted-foreground hover:text-[var(--mal-texto)] hover:bg-[var(--mal-suave)] transition-colors", !med && "ml-auto")}>
+                            <Trash2 size={14} />
+                        </button>
+                    </DeleteConfirmDialog>
+                )}
             </div>
             {med && (() => {
                 const v = veredicto(med.f1 || 0);
