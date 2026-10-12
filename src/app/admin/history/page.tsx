@@ -39,6 +39,8 @@ export default function HistoryPage() {
     const [vista, setVista] = useVista();
 
     const [activeMode, setActiveMode] = useState<"LPR" | "FACE" | "QUEUE" | null>(null);
+    /** Hasta saber qué módulos hay no se ofrece el filtro de identificación: aparecía y se iba en el primer segundo. */
+    const [modosListos, setModosListos] = useState(false);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
@@ -52,6 +54,7 @@ export default function HistoryPage() {
             else if (modules.MODULE_FACE && !modules.MODULE_LPR) { setActiveMode("FACE"); cambiar("identificacion", "FACE"); }
             else if (modules.MODULE_LPR && !modules.MODULE_FACE) { setActiveMode("LPR"); cambiar("identificacion", "PLATE"); }
             else setActiveMode(null);
+            setModosListos(true);
         });
     }, [cambiar]);
 
@@ -130,15 +133,16 @@ export default function HistoryPage() {
                     <div className="min-w-0">
                         <h1 className="text-[17px] font-bold leading-tight whitespace-nowrap">Historial</h1>
                         <Pista titulo="Última actualización" texto="El registro se refresca solo con cada evento nuevo. Tocá para volver a consultar ahora.">
-                            <button type="button" onClick={recargar} className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground">
+                            <button type="button" onClick={recargar} className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground whitespace-nowrap">
                                 <span className="w-1.5 h-1.5 rounded-full bg-[var(--bien)] animate-pulse shrink-0" />
                                 en vivo · <span className="tabular-nums" suppressHydrationWarning>{lastUpdate ? horaSeg(lastUpdate) : "--:--:--"}</span>
                                 <RefreshCw size={11} />
                             </button>
                         </Pista>
                     </div>
-                    <span className="hidden 2xl:block w-px h-8 bg-border mx-1" />
-                    <div className="hidden 2xl:block"><PulsoActividad dias={60} /></div>
+                    {/* El pulso sólo donde entra sin apretar al título: con menos ancho empujaba el buscador. */}
+                    <span className="hidden min-[1800px]:block w-px h-8 bg-border mx-1" />
+                    <div className="hidden min-[1800px]:block"><PulsoActividad dias={60} /></div>
                 </div>
 
                 <div ref={cajaBuscar} className="flex justify-center min-w-0">
@@ -167,7 +171,7 @@ export default function HistoryPage() {
                 barra={
                     <BarraFiltros f={f} cambiar={cambiar} limpiar={limpiarFiltros} puestos={puestos}
                         camarasDisponibles={resumen.camaras} colores={resumen.colores} tiposVeh={resumen.tipos}
-                        soloSeguimiento={soloSeguimiento} modo={activeMode} merodeando={chapasMerodeo.size} />
+                        soloSeguimiento={soloSeguimiento} modo={modosListos ? activeMode : "LPR"} merodeando={chapasMerodeo.size} />
                 }
                 buscar={searchTerm}
                 desde={f.desde}

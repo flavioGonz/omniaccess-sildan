@@ -20,6 +20,7 @@ import { Cronometro, useTranscurrido, leerDuracion } from "@/components/tracking
 import { Timer } from "lucide-react";
 import { MosaicoHistorial, type Vista } from "@/components/history/MosaicoHistorial";
 import type { VisionFila } from "@/lib/historial-vision";
+import { getImagePath } from "@/lib/image-path";
 import { Sparkles } from "lucide-react";
 
 export type FilaHistorial = {
@@ -124,6 +125,13 @@ function desdeEvento(ev: any): FilaHistorial | null {
  * no va el cronómetro con sus tonos de estadía, que pintarían de rojo cualquier lectura de
  * hace tres horas. Lo que sí sirve al que barre la tabla en vivo es saber hace cuánto fue.
  */
+/** La foto de una fila pedida chica: /api/files la achica y la guarda en disco; las otras rutas ignoran `w`. */
+const MINIATURA_W = 160;
+function miniatura(foto: string | null): string | null {
+    const u = getImagePath(foto);
+    return u ? `${u}${u.includes("?") ? "&" : "?"}w=${MINIATURA_W}` : null;
+}
+
 /** Lo que vio OmniVision, en una línea: «persona ×2 · auto», y la relectura si la hubo. */
 export function textoVision(v?: VisionFila | null): string {
     if (!v) return "";
@@ -431,7 +439,9 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                la que busca. */
             ayuda: "La foto del momento: hacé clic para verla grande y acercarla, que es como se juzga una matrícula chica.",
             celda: (f) => (
-                <Miniatura src={f.foto} alt={f.plate || ""}
+                /* Al ancho justo (el doble de la miniatura, por pantallas densas): la foto de una LPR
+                   pesa 1–2 MB y la lista pedía sesenta enteras para dibujarlas de 80 px. */
+                <Miniatura src={miniatura(f.foto)} alt={f.plate || ""}
                     alAbrir={f.foto ? () => setViendo(f) : undefined} />
             ),
         },
