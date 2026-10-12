@@ -28,6 +28,7 @@ import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
 import { PanelComportamiento, type ComportamientoVisor } from "@/components/visor/PanelComportamiento";
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
+import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
 import { describirObjeto } from "@/components/visor/FichaVisor";
 import { chapaDe, esSinLectura, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 
@@ -334,16 +335,17 @@ export function VisorCuadro({
     /** El diálogo para mandar el evento por WhatsApp o Telegram. */
     const [compartir, setCompartir] = useState(false);
     /**
-     * Si la cámara graba en un NVR. Sólo se pregunta cuando quien abre el visor no trajo su propia
-     * forma de ver la grabación (`onGrabacion`): un botón de grabación sin grabación no se dibuja.
+     * Si la cámara graba en un NVR: entonces la grabación se mira ACÁ, en el lugar de la foto
+     * (GrabacionVisor). Sin canal, se usa lo que haya traído quien abrió el visor (`onGrabacion`),
+     * y si tampoco, no hay botón: un botón de grabación sin grabación no se dibuja.
      */
     const [hayGrabacion, setHayGrabacion] = useState(false);
     useEffect(() => {
-        if (onGrabacion || !fila.deviceId) { setHayGrabacion(false); return; }
+        if (!fila.deviceId) { setHayGrabacion(false); return; }
         let vivo = true;
         canalDe(fila.deviceId).then((c) => { if (vivo) setHayGrabacion(c.ch != null); });
         return () => { vivo = false; };
-    }, [fila.deviceId, onGrabacion]);
+    }, [fila.deviceId]);
     /**
      * La proporcion de la foto. Arranca en 16:9 — que es lo que entrega cualquier camara
      * de seguridad — y se corrige con la medida real en cuanto la imagen carga. Arrancar
@@ -351,7 +353,7 @@ export function VisorCuadro({
      */
     const [proporcion, setProporcion] = useState(AR_VENTANA);
     /** Qué se está mirando: el cuadro guardado o lo que la cámara ve ahora. */
-    const [modo, setModo] = useState<"foto" | "vivo">("foto");
+    const [modo, setModo] = useState<"foto" | "vivo" | "grabacion">("foto");
     const [vivoListo, setVivoListo] = useState(false);
     const vivoRef = useRef<HTMLVideoElement | null>(null);
     const marco = useRef<HTMLDivElement | null>(null);
@@ -371,7 +373,7 @@ export function VisorCuadro({
     }, []);
 
     // Cada foto se abre sin acercar: heredar el zoom de la anterior desorienta.
-    useEffect(() => { reiniciar(); setProporcion(AR_VENTANA); setModo("foto"); setPasoViendo(null); }, [fila.snapshotUrl, reiniciar]);
+    useEffect(() => { reiniciar(); setProporcion(AR_VENTANA); setModo("foto"); setLimpio(false); setPasoViendo(null); }, [fila.snapshotUrl, reiniciar]);
     // Al pasar a un paso anterior (o volver), la foto es otra: se abre sin acercar y se vuelve a medir.
     useEffect(() => { reiniciar(); setProporcion(AR_VENTANA); }, [pasoViendo?.foto, reiniciar]);
 
@@ -482,11 +484,14 @@ export function VisorCuadro({
                 if (acercado) { reiniciar(); return; }
                 if (pasoViendo) { setPasoViendo(null); return; }
                 if (panel) { setPanel(null); return; }
+                if (modo !== "foto") { setModo("foto"); setLimpio(false); return; }
                 if (limpio) { setLimpio(false); return; }
                 onCerrar();
                 return;
             }
             if (e.key === "h" || e.key === "H") { setLimpio((v) => !v); return; }
+            // En la grabación, las flechas, el espacio y la E son del reproductor (GrabacionVisor).
+            if (modo === "grabacion") return;
             if (e.key === "ArrowLeft" && hayAnterior && !acercado) onAnterior?.();
             if (e.key === "ArrowRight" && haySiguiente && !acercado) onSiguiente?.();
             if (e.key === "+" || e.key === "=") zoomEn(escala * 1.5);
@@ -498,7 +503,7 @@ export function VisorCuadro({
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -607,7 +612,8 @@ export function VisorCuadro({
     /** Mirando un paso anterior: la foto es otra y lo que se dibuja encima (chapa, siluetas, cápsula) es del evento. */
     const enPaso = !!pasoViendo?.foto;
     const fotoUrl = enPaso ? pasoViendo!.foto! : (fila.snapshotUrl || "");
-    const verGrabacion = onGrabacion || (hayGrabacion ? () => setAbrirCamara("rec") : undefined);
+    /* La grabación se mira limpia, como el vivo: el reproductor trae su propia barra. */
+    const verGrabacion = hayGrabacion ? () => { setPasoViendo(null); reiniciar(); setModo("grabacion"); setLimpio(true); } : onGrabacion;
 
     /** Lo que sale al compartir: lo mismo que dice la ficha, en renglones (sin lo que no se sabe). */
     const textoCompartir = useMemo(() => {
@@ -843,9 +849,16 @@ export function VisorCuadro({
                         acercado && "!opacity-0")} />}
                 </div>
 
+                {/* La grabación del NVR, en el lugar de la foto y con su propia barra de tiempo. */}
+                {modo === "grabacion" && fila.deviceId && (
+                    <GrabacionVisor deviceId={fila.deviceId} camara={fila.cameraName} instanteMs={momento.getTime()}
+                        poster={fila.snapshotUrl} matricula={chapaVisor.plate}
+                        marcas={pasos.filter((p) => p.camara && p.camara === fila.cameraName).map((p) => ({ ms: new Date(p.momento).getTime(), titulo: `Paso anterior · ${fechaCorta(p.momento)} ${horaSeg(p.momento)}` }))} />
+                )}
+
                 {/* Sin recuadro no hay a qué anclarla, pero el estado sigue siendo un
                     dato: va arriba al centro, donde no tapa la ficha ni los controles. */}
-                {!rotulo && !enPaso && (
+                {!rotulo && !enPaso && modo !== "grabacion" && (
                     <div className={cn("absolute top-24 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-200",
                         (acercado || limpio) && "opacity-0 pointer-events-none")}>
                         {capsula}
@@ -923,10 +936,12 @@ export function VisorCuadro({
                     le pasa el mouse, para no ensuciar lo que se pidió ver limpio. */}
                 {limpio && (
                     <div className="absolute top-4 right-4 z-40 flex items-center gap-1.5 opacity-40 hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        {modo === "vivo" && (
+                        {modo !== "foto" && (
                             <>
                                 <span className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 text-[11.5px] font-semibold flex items-center gap-1.5">
-                                    <Radio size={12} className="animate-pulse text-[var(--mal)]" /> En vivo · {fila.cameraName || "Cámara"}
+                                    {modo === "vivo"
+                                        ? <><Radio size={12} className="animate-pulse text-[var(--mal)]" /> En vivo · {fila.cameraName || "Cámara"}</>
+                                        : <><PlayCircle size={12} /> Grabación · {fila.cameraName || "Cámara"}</>}
                                 </span>
                                 <button type="button" onClick={() => { setModo("foto"); setLimpio(false); }} title="Volver a la foto del evento"
                                     className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 hover:text-white text-[11.5px] font-semibold flex items-center gap-1.5">
@@ -959,7 +974,7 @@ export function VisorCuadro({
                     de la ventana, así que se desplaza (centrada si entra). */}
                 <div className={cn(
                     "absolute left-5 md:left-8 top-[88px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity duration-200",
-                    panel === "pasos" ? "bottom-[214px]" : "bottom-12",
+                    panel === "pasos" ? "bottom-[214px]" : modo === "grabacion" ? "bottom-[150px]" : "bottom-12",
                     (acercado || limpio) && "opacity-0 pointer-events-none",
                 )}>
                 <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
@@ -1170,7 +1185,8 @@ export function VisorCuadro({
                                 <Cctv size={15} />
                             </BotonRiel>
                             {verGrabacion && (
-                                <BotonRiel onClick={verGrabacion} title="Ver la grabación del NVR en este instante">
+                                <BotonRiel activo={modo === "grabacion"} onClick={modo === "grabacion" ? () => { setModo("foto"); setLimpio(false); } : verGrabacion}
+                                    title={modo === "grabacion" ? "Volver a la foto del evento" : "Ver la grabación del NVR en este instante, acá"}>
                                     <PlayCircle size={15} />
                                 </BotonRiel>
                             )}
@@ -1186,6 +1202,7 @@ export function VisorCuadro({
                             <BotonRiel activo={verContorno} onClick={() => setVerContorno((v) => !v)} title="Marcar lo que detectó el lector  ( C )"><Scan size={15} /></BotonRiel>
                         </>
                     )}
+                    {modo !== "grabacion" && <>
                     <span className="w-4 h-px bg-white/15" />
                     <BotonRiel onClick={() => zoomEn(escala * 1.6)} disabled={escala >= ESCALA_MAX} title="Acercar  ( + )"><ZoomIn size={15} /></BotonRiel>
                     <span className="text-[10.5px] font-bold tabular-nums text-white/65 select-none">
@@ -1193,10 +1210,11 @@ export function VisorCuadro({
                     </span>
                     <BotonRiel onClick={() => zoomEn(escala / 1.6)} disabled={!acercado} title="Alejar  ( − )"><ZoomOut size={15} /></BotonRiel>
                     <BotonRiel onClick={reiniciar} disabled={!acercado} title="Volver al tamaño original  ( 0 )"><Maximize2 size={14} /></BotonRiel>
+                    </>}
                 </div>
 
                 {/* ── ABAJO · con qué se está mirando ──────────────────────────────── */}
-                {!panel && (
+                {!panel && modo !== "grabacion" && (
                     <div className={cn("absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums transition-opacity",
                         limpio && "opacity-0")}>
                         <span className="flex items-center gap-2.5">
