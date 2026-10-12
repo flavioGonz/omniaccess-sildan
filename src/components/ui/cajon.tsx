@@ -111,6 +111,13 @@ function CajonContenido({
                 )}
                 {...props}>
 
+                {tituloOculto ? (
+                    /* Sin barra de título: el contenido trae su propia cabecera (y su botón de cerrar). */
+                    <>
+                        <DialogPrimitive.Title className="sr-only">{titulo}</DialogPrimitive.Title>
+                        {descripcion && <DialogPrimitive.Description className="sr-only">{descripcion}</DialogPrimitive.Description>}
+                    </>
+                ) : (
                 <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-border">
                     <div className="min-w-0 flex-1">
                         <DialogPrimitive.Title className={cn("text-[17px] font-bold text-foreground truncate",
@@ -130,6 +137,7 @@ function CajonContenido({
                         <X size={17} />
                     </DialogPrimitive.Close>
                 </div>
+                )}
 
                 {encabezado && <div className="shrink-0 border-b border-border">{encabezado}</div>}
 

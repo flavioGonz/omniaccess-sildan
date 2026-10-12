@@ -8,7 +8,7 @@ import {
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
     ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users,
 } from "lucide-react";
-import { Cajon, CajonContenido } from "@/components/ui/cajon";
+import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarraDePasos, PasoAnimado } from "@/components/devices/Pasos";
@@ -541,7 +541,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
 
     return (
         <Cajon open={open} onOpenChange={(v) => { if (!corriendo) onOpenChange(v); }}>
-            <CajonContenido ancho="medio"
+            <CajonContenido ancho={esEdicion ? "intermedio" : "medio"} tituloOculto={esEdicion}
                 titulo={esEdicion ? (device?.name || "Equipo") : TITULOS[clave] || "Nuevo equipo"}
                 descripcion={esEdicion ? `${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}` : clave === "tipo" ? "Lo primero, porque de esto dependen los pasos que siguen." : `${meta?.rotulo} · alta guiada`}
                 encabezado={esEdicion ? undefined : clave === "tipo"
@@ -552,7 +552,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                 {esEdicion ? (
                     /* ───────── FICHA (edición) ───────── */
                     <div>
-                        <CabeceraVideo device={device} tipo={tipo} meta={meta} f={f} actual={actual} nvrNombre={nvrActual?.name || null}
+                        <CabeceraVideo device={device} titulo={f.name || device?.name || "Equipo"} subtitulo={`${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}`} tipo={tipo} meta={meta} f={f} actual={actual} nvrNombre={nvrActual?.name || null}
                             detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} />
                         <Bloque titulo="Identidad" icono={Tag} ayuda="Cómo se llama el equipo y dónde está. Es lo que se ve en el monitor, el historial y los avisos.">
                             <Campo etiqueta="Nombre" icono={Type} value={f.name} onChange={(v) => set("name", v)}
@@ -790,15 +790,15 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
  * datos encima (tipo, sentido, IP, grabación, estado) y «Comprobar» como botón flotante.
  * Para un NVR (sin video propio) una banda con su ícono y los mismos datos.
  */
-function CabeceraVideo({ device, tipo, meta, f, actual, nvrNombre, detectando, puedeDetectar, onComprobar, info }: any) {
+function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNombre, detectando, puedeDetectar, onComprobar, info }: any) {
     const [listo, setListo] = useState(false);
     const [falla, setFalla] = useState(false);
     const esVideo = tipo !== "NVR";
     const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
     // Queda fijo arriba al hacer scroll en la ficha (sticky dentro del área que scrollea del cajón).
     return (
-        <div className="sticky top-0 z-20 px-4 pt-4 pb-3 bg-background/95 backdrop-blur-sm">
-        <div className={cn("relative w-full overflow-hidden rounded-2xl bg-black shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] ring-1 ring-black/10", esVideo ? "aspect-video" : "h-28 bg-gradient-to-br from-sky-950 via-neutral-900 to-black")}>
+        <div className="sticky top-0 z-20 pb-3 bg-background">
+        <div className={cn("relative w-full overflow-hidden rounded-b-2xl bg-black shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)]", esVideo ? "aspect-video" : "h-40 bg-gradient-to-br from-sky-950 via-neutral-900 to-black")}>
             {esVideo && (<>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`/api/snapshot/${device.id}?w=960`} alt="" className={cn("absolute inset-0 w-full h-full object-cover transition-all duration-500", listo ? "opacity-0" : "opacity-100 blur-[2px] scale-105")} onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
@@ -808,13 +808,21 @@ function CabeceraVideo({ device, tipo, meta, f, actual, nvrNombre, detectando, p
             </>)}
             {!esVideo && <span className="absolute right-6 top-1/2 -translate-y-1/2 text-sky-400/25"><HardDrive size={72} /></span>}
             {/* degradados para leer los datos */}
-            <span className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
+            <span className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
             <span className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
             {/* arriba: tipo, sentido, en vivo */}
-            <div className="absolute left-4 top-3 right-4 flex items-center gap-1.5">
-                {meta && <span className={chip}><meta.icono size={12} /> {meta.rotulo}</span>}
-                {tipo === "LPR_CAMERA" && <span className={cn(chip, f.direction === "EXIT" ? "!bg-orange-500/80" : "!bg-emerald-600/80")}>{f.direction === "EXIT" ? "Salida" : "Entrada"}</span>}
-                {esVideo && listo && <span className={cn(chip, "ml-auto !bg-red-600/85")}><span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> EN VIVO</span>}
+            {/* arriba: título del cajón dentro del video + cerrar */}
+            <div className="absolute left-5 top-4 right-4 flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                    <h2 className="text-[19px] font-bold text-white leading-tight truncate drop-shadow">{titulo}</h2>
+                    <p className="text-[12px] text-white/75 truncate drop-shadow">{subtitulo}</p>
+                    <div className="flex items-center gap-1.5 mt-2">
+                        {meta && <span className={chip}><meta.icono size={12} /> {meta.rotulo}</span>}
+                        {tipo === "LPR_CAMERA" && <span className={cn(chip, f.direction === "EXIT" ? "!bg-orange-500/80" : "!bg-emerald-600/80")}>{f.direction === "EXIT" ? "Salida" : "Entrada"}</span>}
+                        {esVideo && listo && <span className={cn(chip, "!bg-red-600/85")}><span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> EN VIVO</span>}
+                    </div>
+                </div>
+                <CajonCerrar className="shrink-0 h-9 w-9 rounded-full bg-black/45 hover:bg-black/70 backdrop-blur-md text-white grid place-items-center ring-1 ring-white/15 transition-colors" aria-label="Cerrar"><X size={17} /></CajonCerrar>
             </div>
             {/* abajo: IP, MAC, grabación + comprobar */}
             <div className="absolute left-4 right-4 bottom-3 flex items-end gap-3">
