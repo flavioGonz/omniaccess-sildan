@@ -552,25 +552,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                 {esEdicion ? (
                     /* ───────── FICHA (edición) ───────── */
                     <div>
-                        <div className="px-6 pt-6">
-                            <div className="rounded-xl border border-border bg-card/50 p-4 flex items-center gap-4">
-                                {tipo !== "NVR" ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={`/api/snapshot/${device.id}?w=320`} alt="" className="w-40 h-[90px] rounded-lg object-cover bg-black border border-border/50" onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
-                                ) : <span className="grid w-14 h-14 place-items-center rounded-xl bg-sky-500/10 text-sky-500"><HardDrive size={26} /></span>}
-                                <div className="min-w-0 flex-1 space-y-1">
-                                    <div className="flex items-center gap-2">
-                                        {meta && <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold uppercase tracking-wide", meta.color)}><meta.icono size={11} /> {meta.rotulo}</span>}
-                                        {tipo === "LPR_CAMERA" && <span className={cn("px-2 py-0.5 rounded-md text-[10px] font-bold uppercase", f.direction === "EXIT" ? "bg-orange-500/15 text-orange-500" : "bg-emerald-500/15 text-emerald-500")}>{f.direction === "EXIT" ? "Salida" : "Entrada"}</span>}
-                                    </div>
-                                    <div className="text-[12px] text-muted-foreground font-mono">{f.ip}{f.mac ? ` · ${f.mac}` : ""}</div>
-                                    {tipo !== "NVR" && <div className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><HardDrive size={12} /> {actual ? `${nvrActual?.name || "NVR"} · canal ${actual.ch}` : "Sin grabación vinculada"}</div>}
-                                </div>
-                                <Button variant="outline" size="sm" onClick={detectar} disabled={detectando || !ipValida} className="gap-1.5 self-start" {...tip("Consulta el equipo ahora (modelo, MAC, firmware) para confirmar que responde con estas credenciales.")}>
-                                    {detectando ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Comprobar
-                                </Button>
-                            </div>
-                        </div>
+                        <CabeceraVideo device={device} tipo={tipo} meta={meta} f={f} actual={actual} nvrNombre={nvrActual?.name || null}
+                            detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} />
                         <Bloque titulo="Identidad" icono={Tag} ayuda="Cómo se llama el equipo y dónde está. Es lo que se ve en el monitor, el historial y los avisos.">
                             <Campo etiqueta="Nombre" icono={Type} value={f.name} onChange={(v) => set("name", v)}
                                 placeholder={tipo === "NVR" ? "NVR Sildan" : tipo === "CAMERA" ? "Perímetro Norte 12" : "P1 - Entrada (207)"}
@@ -798,5 +781,55 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                 <Tooltip id={TT} place="top" className="!max-w-[300px] !text-[12px] !leading-snug !rounded-lg !z-[9999]" />
             </CajonContenido>
         </Cajon>
+    );
+}
+
+
+/**
+ * Cabecera de la ficha: el video en vivo de la cámara de borde a borde, sin marco, con los
+ * datos encima (tipo, sentido, IP, grabación, estado) y «Comprobar» como botón flotante.
+ * Para un NVR (sin video propio) una banda con su ícono y los mismos datos.
+ */
+function CabeceraVideo({ device, tipo, meta, f, actual, nvrNombre, detectando, puedeDetectar, onComprobar, info }: any) {
+    const [listo, setListo] = useState(false);
+    const [falla, setFalla] = useState(false);
+    const esVideo = tipo !== "NVR";
+    const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
+    return (
+        <div className={cn("relative w-full overflow-hidden bg-black", esVideo ? "aspect-video" : "h-28 bg-gradient-to-br from-sky-950 via-neutral-900 to-black")}>
+            {esVideo && (<>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/api/snapshot/${device.id}?w=960`} alt="" className={cn("absolute inset-0 w-full h-full object-cover transition-all duration-500", listo ? "opacity-0" : "opacity-100 blur-[2px] scale-105")} onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
+                {!falla && <video key={device.id} src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${device.id}`)}&video=h264`} autoPlay muted playsInline
+                    onPlaying={() => setListo(true)} onError={() => setFalla(true)} className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", listo ? "opacity-100" : "opacity-0")} />}
+                {!listo && !falla && <span className="absolute inset-0 grid place-items-center"><span className="flex items-center gap-2 text-white/80 text-[12px] font-semibold"><Loader2 size={15} className="animate-spin" /> Conectando el vivo…</span></span>}
+            </>)}
+            {!esVideo && <span className="absolute right-6 top-1/2 -translate-y-1/2 text-sky-400/25"><HardDrive size={72} /></span>}
+            {/* degradados para leer los datos */}
+            <span className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
+            <span className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
+            {/* arriba: tipo, sentido, en vivo */}
+            <div className="absolute left-4 top-3 right-4 flex items-center gap-1.5">
+                {meta && <span className={chip}><meta.icono size={12} /> {meta.rotulo}</span>}
+                {tipo === "LPR_CAMERA" && <span className={cn(chip, f.direction === "EXIT" ? "!bg-orange-500/80" : "!bg-emerald-600/80")}>{f.direction === "EXIT" ? "Salida" : "Entrada"}</span>}
+                {esVideo && listo && <span className={cn(chip, "ml-auto !bg-red-600/85")}><span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> EN VIVO</span>}
+            </div>
+            {/* abajo: IP, MAC, grabación + comprobar */}
+            <div className="absolute left-4 right-4 bottom-3 flex items-end gap-3">
+                <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={cn(chip, "font-mono")}><Network size={11} /> {f.ip}</span>
+                        {f.mac && <span className={cn(chip, "font-mono font-semibold")}>{f.mac}</span>}
+                        {tipo !== "NVR" && <span className={chip}><HardDrive size={11} /> {actual ? `${nvrNombre || "NVR"} · CH ${actual.ch}` : "Sin grabación"}</span>}
+                    </div>
+                    {info && <div className={cn(chip, "max-w-full truncate", info.ok ? "!bg-emerald-600/80" : "!bg-red-600/80")}>{info.ok ? <Check size={11} /> : <AlertTriangle size={11} />} {info.ok ? `${info.model || "Responde"}${info.firmwareVersion ? ` · ${info.firmwareVersion}` : ""}` : (info.error || "No respondió")}</div>}
+                </div>
+                <button type="button" onClick={onComprobar} disabled={detectando || !puedeDetectar}
+                    data-tooltip-id={TT} data-tooltip-content="Comprobar: consulta el equipo ahora (modelo, MAC, firmware) para confirmar que responde con estas credenciales."
+                    className="shrink-0 h-9 px-3 rounded-full bg-white/90 hover:bg-white text-black text-[12px] font-bold inline-flex items-center gap-1.5 shadow-lg disabled:opacity-60">
+                    {detectando ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Comprobar
+                </button>
+            </div>
+        </div>
     );
 }

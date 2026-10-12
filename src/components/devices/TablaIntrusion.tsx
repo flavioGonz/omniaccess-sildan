@@ -77,7 +77,7 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                         {filas.map((d) => {
                             const c = cams[d.id]; const h = health[d.id]; const ana = analyticsIds.has(d.id);
                             return (
-                                <tr key={d.id} draggable onDragStart={(e) => arrastrarEquipos(e, [d.id], d.name)} className={cn("border-t border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-grab active:cursor-grabbing", alertasDe[d.id] && "bg-red-500/[0.035]")}>
+                                <tr key={d.id} draggable onDragStart={(e) => arrastrarEquipos(e, [d.id], d.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; onEditar?.(d); }} className={cn("border-t border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-pointer", alertasDe[d.id] && "bg-red-500/[0.035]")}>
                                     <td className="py-2.5 pl-5">
                                         <div className="flex items-center gap-3">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}

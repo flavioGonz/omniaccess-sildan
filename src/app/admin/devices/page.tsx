@@ -495,7 +495,8 @@ export default function DevicesPage() {
     return (
         <div className="p-6 space-y-4 animate-in fade-in duration-500">
             {/* Encabezado: título y alta a la izquierda/derecha; abajo la barra con tipos, buscador al centro y herramientas */}
-            <header className="flex items-center justify-between gap-4">
+            {/* Una sola fila: título · buscador al centro · acciones + Agregar */}
+            <header className="grid grid-cols-1 xl:grid-cols-[minmax(220px,1fr)_minmax(0,620px)_minmax(220px,1fr)] items-center gap-3">
                 <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
                         <Network className="text-indigo-400" size={20} />
@@ -507,16 +508,7 @@ export default function DevicesPage() {
                         </p>
                     </div>
                 </div>
-                <Button onClick={() => setAlta(modules.MODULE_LPR ? "lpr" : "otro")} data-tooltip-id="tt-grab" data-tooltip-content="Alta guiada: primero elegís qué equipo es (cámara LPR, cámara de intrusión o NVR) y después sólo se piden los datos de ese tipo."
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-10 px-5 rounded-xl transition-all active:scale-95 text-sm gap-2 shrink-0 shadow-lg shadow-indigo-600/20">
-                    <Plus size={16} /> Agregar
-                </Button>
-            </header>
-
-            <div className="rounded-2xl border border-border/60 bg-card/50 p-2 grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,680px)_1fr] items-center gap-2">
-                <div className="hidden lg:block" />
-                {/* Buscador al centro */}
-                <div className="relative w-full group">
+                <div className="relative w-full group order-3 xl:order-none">
                     <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-indigo-500 transition-colors" size={17} />
                     <input ref={buscador} type="text" placeholder="Buscar por nombre, IP o ubicación…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
                         className="w-full bg-background border border-border/70 h-11 rounded-xl pl-11 pr-20 text-[13.5px] font-medium outline-none transition-all placeholder:text-muted-foreground/70 text-foreground focus:border-indigo-500/60 focus:ring-4 focus:ring-indigo-500/10 shadow-sm" />
@@ -526,7 +518,6 @@ export default function DevicesPage() {
                         ) : <kbd className="h-6 px-2 rounded-md border border-border bg-muted/60 text-[11px] font-mono text-muted-foreground grid place-items-center" data-tooltip-id="tt-grab" data-tooltip-content="Atajo: tecla / para buscar">/</kbd>}
                     </div>
                 </div>
-                {/* Herramientas */}
                 <div className="flex items-center gap-1.5 justify-end">
                     {(typeFilter === "LPR_CAMERA" || typeFilter === "CAMERA") && (
                         <button onClick={() => detectar(filteredDevices.map((d) => d.id))} disabled={!!detectando}
@@ -547,8 +538,13 @@ export default function DevicesPage() {
                         className="h-10 w-10 rounded-xl grid place-items-center border border-border/60 bg-background/70 hover:bg-accent hover:border-border transition-colors">
                         <TimerReset size={17} className="text-emerald-500" />
                     </button>
+                                    <span className="w-px h-7 bg-border mx-1" />
+                    <Button onClick={() => setAlta(modules.MODULE_LPR ? "lpr" : "otro")} data-tooltip-id="tt-grab" data-tooltip-content="Alta guiada: primero elegís qué equipo es (cámara LPR, cámara de intrusión o NVR) y después sólo se piden los datos de ese tipo."
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-10 px-5 rounded-xl transition-all active:scale-95 text-sm gap-2 shrink-0 shadow-lg shadow-indigo-600/20">
+                    <Plus size={16} /> Agregar
+                </Button>
                 </div>
-            </div>
+            </header>
 
             <div className="flex gap-4 items-start">
                 <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
@@ -599,7 +595,7 @@ export default function DevicesPage() {
                             const h = health[dev.id];
 
                             return (
-                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-grab active:cursor-grabbing", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; if (["LPR_CAMERA", "CAMERA", "NVR"].includes(dev.deviceType)) setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                     <TableCell className="py-2 pl-4">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <div className="relative shrink-0">
@@ -868,7 +864,7 @@ export default function DevicesPage() {
                                     const disksOk = disks.length > 0 && disks.every((d) => d.status === 'ok');
                                     const healthy = h?.reachable && (disks.length === 0 || disksOk) && (h?.memPct == null || h.memPct < 95);
                                     return (
-                                        <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-grab active:cursor-grabbing", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                        <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                             <TableCell className="py-3 pl-5">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-10 h-10 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">

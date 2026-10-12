@@ -49,8 +49,8 @@ export function VistaArea({ estado, areaId, devices, busqueda = "", health = {},
         const h = health[d.id];
         const on = h ? h.reachable : null;
         return (
-            <motion.div key={d.id} layout draggable onDragStart={(e: any) => arrastrarEquipos(e, [d.id], d.name)}
-                className={cn("group grid grid-cols-[minmax(0,1.6fr)_110px_minmax(0,1.3fr)_78px_auto] items-center gap-3 px-3 py-2 border-t border-border/50 hover:bg-foreground/[0.03] cursor-grab active:cursor-grabbing", alertasDe[d.id] && "bg-red-500/[0.035]")}>
+            <motion.div key={d.id} layout draggable onDragStart={(e: any) => arrastrarEquipos(e, [d.id], d.name)} onClick={(e: any) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; onEditar(d); }}
+                className={cn("group grid grid-cols-[minmax(0,1.6fr)_110px_minmax(0,1.3fr)_78px_auto] items-center gap-3 px-3 py-2 border-t border-border/50 hover:bg-foreground/[0.03] cursor-pointer", alertasDe[d.id] && "bg-red-500/[0.035]")}>
                 <div className="flex items-center gap-2.5 min-w-0">
                     <GripVertical size={12} className="text-muted-foreground/30 group-hover:text-muted-foreground shrink-0 -ml-1" />
                     {d.deviceType === "NVR" ? (
