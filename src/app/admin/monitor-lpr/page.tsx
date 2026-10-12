@@ -1121,10 +1121,11 @@ export default function MonitorLPR() {
 
     return (
         <TooltipProvider>
-            <div className="relative h-full flex flex-col bg-background text-foreground">
+            <div className="relative h-full flex flex-col bg-background text-foreground transition-[background-color] duration-700"
+                style={colorUltima ? { backgroundColor: `color-mix(in oklab, rgb(${colorUltima.rgb}) ${colorUltima.key === "negra" ? 34 : 24}%, var(--background))` } : undefined}>
                 {/* Todo el monitor toma el color de la última detección (marco interior, sin tapar las fotos). */}
                 {colorUltima && <div aria-hidden className="pointer-events-none absolute inset-0 z-[5] transition-[box-shadow,background-color] duration-700"
-                    style={{ boxShadow: `inset 0 0 0 3px rgba(${colorUltima.rgb},0.85), inset 0 0 140px rgba(${colorUltima.rgb},0.38)`, backgroundColor: `rgba(${colorUltima.rgb},0.035)` }} />}
+                    style={{ boxShadow: `inset 0 0 0 3px rgba(${colorUltima.rgb},0.85), inset 0 0 120px rgba(${colorUltima.rgb},0.30)` }} />}
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-3">

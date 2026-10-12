@@ -340,7 +340,7 @@ export function VistaLpr() {
 
     return (
         <div className="absolute inset-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4 transition-colors duration-700"
-            style={{ backgroundColor: TINTE[tinte].suave, backgroundImage: `radial-gradient(130% 100% at 30% 15%, ${TINTE[tinte].fondo}, transparent 75%)` }}>
+            style={{ backgroundColor: tinte === "desconocido" ? undefined : `color-mix(in oklab, ${TINTE[tinte].fondo.replace(/,[\d.]+\)$/, ",1)")} ${tinte === "negra" ? 58 : 44}%, #050505)`, backgroundImage: tinte === "desconocido" ? undefined : `radial-gradient(120% 90% at 30% 10%, rgba(255,255,255,0.10), transparent 70%)`, transition: "background-color 600ms ease" }}>
             <div className="min-w-0 min-h-[420px] lg:min-h-0 flex-1 flex flex-col gap-3 lg:gap-4">
                 {/* Protagonista */}
                 <div className={cn("relative flex-1 min-h-[220px] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
