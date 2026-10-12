@@ -150,7 +150,7 @@ export default function HistoryPage() {
                 </div>
 
                 <div ref={cajaBuscar} className="flex justify-center min-w-0">
-                    <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Buscar matrícula, persona o cámara…  ( / )" startOpen width={420} alto={38} />
+                    <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Matrícula, persona, cámara o lo que vio OmniVision (moto blanca, chaleco)…  ( / )" startOpen width={420} alto={38} />
                 </div>
 
                 <div className="flex items-center justify-start lg:justify-end gap-1.5">

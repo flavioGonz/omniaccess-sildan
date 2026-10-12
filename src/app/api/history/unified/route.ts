@@ -96,6 +96,56 @@ async function idsVision(ids: string[], desde: Date | null, hasta: Date | null):
     return { ids: filas.slice(0, VISION_IDS_MAX).map((f) => f.id), truncado: filas.length > VISION_IDS_MAX };
 }
 
+/** Palabras que no dicen nada de un objeto: «persona CON chaleco», «auto DE color blanco». */
+const PALABRAS_VACIAS = new Set(["con", "de", "del", "y", "en", "la", "el", "los", "las", "un", "una", "color", "que", "sin"]);
+/**
+ * La raíz de una palabra para comparar sin género ni número: «blanca», «blancos» y «blanco» dan
+ * «blanc». OmniVision escribe los colores en masculino («blanco») y el operador escribe como habla
+ * («moto blanca»). Sin tildes, porque el análisis las tiene («sedán») y el que busca a veces no.
+ */
+function raiz(p: string) {
+    let w = p.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9ñ]/g, "");
+    if (w.length > 4 && w.endsWith("s")) w = w.slice(0, -1);
+    if (w.length >= 4 && /[aoe]$/.test(w)) w = w.slice(0, -1);
+    return w;
+}
+
+/**
+ * Los accesos donde OmniVision vio lo que se busca, de los más nuevos, hasta VISION_IDS_MAX.
+ *
+ * El buscador miraba sólo la matrícula, la persona y la cámara: «moto blanca» o «persona con
+ * chaleco» no encontraba nada aunque OmniVision lo hubiera visto en la foto. Ahora TODAS las
+ * palabras tienen que estar en el MISMO objeto (su nombre, su clase o sus rasgos seguros: «moto
+ * blanca» es una moto blanca, no una moto y algo blanco), y además se busca la chapa que releyó
+ * OmniVision en las NO_LEIDA. Los rasgos sí/no cuentan por su nombre sólo cuando son «sí».
+ */
+async function idsBusquedaVision(buscar: string, desde: Date | null, hasta: Date | null): Promise<string[]> {
+    const palabras = [...new Set(buscar.split(/\s+/).map((p) => p.trim()).filter((p) => p && !PALABRAS_VACIAS.has(p.toLowerCase())).map(raiz).filter((p) => p.length >= 2))].slice(0, 6);
+    const rango = Prisma.sql`${desde ? Prisma.sql`AND e.timestamp >= ${sinZona(desde)}::timestamp` : Prisma.empty} ${hasta ? Prisma.sql`AND e.timestamp <= ${sinZona(hasta)}::timestamp` : Prisma.empty}`;
+    const partes: Prisma.Sql[] = [];
+    if (palabras.length) {
+        partes.push(Prisma.sql`
+            SELECT e.id, e.timestamp FROM "AnalisisFoto" a JOIN "AccessEvent" e ON e.id = a."accessEventId"
+            WHERE a.estado = 'OK' ${rango} AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements(COALESCE(a.analisis->'objetos', '[]'::jsonb)) o,
+                LATERAL (SELECT translate(lower(concat_ws(' ', o->>'nombre', o->>'clase', o->>'grupo',
+                    (SELECT string_agg(CASE WHEN t->>'valor' IN ('sí', 'si') THEN t->>'nombre' WHEN t->>'valor' = 'no' THEN '' ELSE t->>'valor' END, ' ')
+                       FROM jsonb_array_elements(COALESCE(o->'atributos', '[]'::jsonb)) t
+                      WHERE COALESCE((t->>'dudoso')::boolean, false) = false))), 'áéíóúüñ', 'aeiouun') AS txt) x
+                WHERE (SELECT bool_and(x.txt LIKE '%' || w || '%') FROM unnest(${palabras}::text[]) w))`);
+    }
+    const chapa = buscar.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (chapa.length >= 3) {
+        partes.push(Prisma.sql`
+            SELECT e.id, e.timestamp FROM "Relectura" r JOIN "AccessEvent" e ON e.id = r."accessEventId"
+            WHERE r.estado = ANY(${RELECTURA_CON_CHAPA}::text[]) AND r.plate LIKE ${"%" + chapa + "%"} ${rango}`);
+    }
+    if (!partes.length) return [];
+    const filas = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM (${Prisma.join(partes, " UNION ")}) x ORDER BY timestamp DESC LIMIT ${VISION_IDS_MAX}`.catch(() => []);
+    return filas.map((f) => f.id);
+}
+
 /** Qué vio OmniVision en cada acceso de la lista: clases (con cuántas) y la relectura, si hubo. */
 async function visionDe(ids: string[]): Promise<Map<string, VisionFila>> {
     const m = new Map<string, VisionFila>();
@@ -200,6 +250,7 @@ export async function GET(req: NextRequest) {
 
     const pedirAccesos = quiere("ACCESO");
     const porVision = vision.length && pedirAccesos ? await idsVision(vision, desde, hasta) : null;
+    const porBusquedaVision = buscar && pedirAccesos ? await idsBusquedaVision(buscar, desde, hasta) : [];
 
     /**
      * Qué estados de seguimiento entran.
@@ -229,6 +280,8 @@ export async function GET(req: NextRequest) {
                                 { plateNumber: { contains: buscar, mode: "insensitive" } },
                                 { location: { contains: buscar, mode: "insensitive" } },
                                 { user: { name: { contains: buscar, mode: "insensitive" } } },
+                                // Lo que vio OmniVision en la foto, y la chapa que releyó (ver idsBusquedaVision).
+                                ...(porBusquedaVision.length ? [{ id: { in: porBusquedaVision } }] : []),
                             ],
                         }
                         : {}),
