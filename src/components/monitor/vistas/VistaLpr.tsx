@@ -171,25 +171,26 @@ const desdeEvento = (e: any): Lectura | null => e?.id && e?.timestamp ? ({
 const esListaNegra = (l: Lectura) => l.clase === "alerta" || /lista negra/i.test(l.detalles || "");
 
 /**
- * Olivos: el color de quien pasa, para leerlo de lejos sin leer nada. Verde residente, amarillo
- * proveedor, rojo lista negra; el resto de los conocidos en azul y los desconocidos neutros.
- * Tiñe el fondo de la pantalla, el borde de la lectura grande y la tarjeta de lote y nombre.
+ * Olivos: el color de quien pasa, para leerlo de lejos sin leer nada. Rojo no autorizado (y
+ * lista negra, más fuerte), verde autorizado, amarillo proveedor, violeta visita. Tiñe el fondo
+ * de toda la pantalla, el borde de la lectura grande y la tarjeta de lote y nombre.
  */
-type Tinte = "residente" | "proveedor" | "negra" | "otro" | "desconocido";
-const tinteDe = (l: Lectura | null | undefined): Tinte => {
+type Tinte = "autorizado" | "proveedor" | "visita" | "negra" | "denegado" | "desconocido";
+const tinteDe = (l: Lectura | null | undefined, conEmpresa?: boolean): Tinte => {
     if (!l) return "desconocido";
-    if (esListaNegra(l)) return "negra";
-    if (l.clase === "residentes" || l.clase === "vip") return "residente";
-    if (l.clase === "proveedores") return "proveedor";
-    if (l.clase || l.persona) return "otro";
-    return "desconocido";
+    if (esListaNegra(l) || l.clase === "busqueda") return "negra";
+    if (l.decision !== "GRANT") return "denegado";
+    if (l.clase === "proveedores" || conEmpresa) return "proveedor";
+    if (l.clase === "visitas") return "visita";
+    return "autorizado";
 };
-const TINTE: Record<Tinte, { fondo: string; tarjeta: string; texto: string; anillo: string; rotulo: string }> = {
-    residente: { fondo: "rgba(16,185,129,0.20)", tarjeta: "bg-emerald-600/95 border-emerald-300/60", texto: "text-white", anillo: "ring-emerald-400", rotulo: "Residente" },
-    proveedor: { fondo: "rgba(245,158,11,0.22)", tarjeta: "bg-amber-400/95 border-amber-100/70", texto: "text-black", anillo: "ring-amber-400", rotulo: "Proveedor" },
-    negra: { fondo: "rgba(239,68,68,0.34)", tarjeta: "bg-red-600/95 border-red-200/70", texto: "text-white", anillo: "ring-red-500", rotulo: "Lista negra" },
-    otro: { fondo: "rgba(59,130,246,0.16)", tarjeta: "bg-sky-600/90 border-sky-200/60", texto: "text-white", anillo: "ring-sky-400", rotulo: "" },
-    desconocido: { fondo: "rgba(120,120,120,0.08)", tarjeta: "bg-neutral-800/90 border-white/20", texto: "text-white", anillo: "ring-white/25", rotulo: "Desconocido" },
+const TINTE: Record<Tinte, { fondo: string; suave: string; tarjeta: string; texto: string; anillo: string; rotulo: string }> = {
+    autorizado: { fondo: "rgba(16,185,129,0.24)", suave: "rgba(16,185,129,0.1)", tarjeta: "bg-emerald-600/95 border-emerald-300/60", texto: "text-white", anillo: "ring-emerald-400", rotulo: "" },
+    proveedor: { fondo: "rgba(245,158,11,0.26)", suave: "rgba(245,158,11,0.108)", tarjeta: "bg-amber-400/95 border-amber-100/70", texto: "text-black", anillo: "ring-amber-400", rotulo: "Proveedor" },
+    visita: { fondo: "rgba(139,92,246,0.26)", suave: "rgba(139,92,246,0.108)", tarjeta: "bg-violet-600/95 border-violet-200/60", texto: "text-white", anillo: "ring-violet-400", rotulo: "Visita" },
+    denegado: { fondo: "rgba(239,68,68,0.24)", suave: "rgba(239,68,68,0.1)", tarjeta: "bg-red-600/95 border-red-200/70", texto: "text-white", anillo: "ring-red-500", rotulo: "No autorizado" },
+    negra: { fondo: "rgba(239,68,68,0.38)", suave: "rgba(239,68,68,0.158)", tarjeta: "bg-red-600/95 border-red-200/70", texto: "text-white", anillo: "ring-red-500", rotulo: "Lista negra" },
+    desconocido: { fondo: "rgba(120,120,120,0.08)", suave: "rgba(120,120,120,0.033)", tarjeta: "bg-neutral-800/90 border-white/20", texto: "text-white", anillo: "ring-white/25", rotulo: "" },
 };
 const CLAVE_CAMARAS = "monitorLpr.camaras";
 const CLAVE_CERRADOS = "monitorLpr.incidentesCerrados";
@@ -330,6 +331,7 @@ export function VistaLpr() {
 
     const c = datos?.contadores;
     const protagonista = fijada || ultima;
+    const tinte = tinteDe(protagonista, !!(protagonista?.plate && datos?.logos?.[protagonista.plate]));
     const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
     const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro, modo)), [tira, filtro, modo]);
     const rotulos = rotulosContadores(modo);
@@ -338,11 +340,11 @@ export function VistaLpr() {
 
     return (
         <div className="absolute inset-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4 transition-colors duration-700"
-            style={{ backgroundImage: `radial-gradient(130% 100% at 30% 15%, ${TINTE[tinteDe(protagonista)].fondo}, transparent 72%)` }}>
+            style={{ backgroundColor: TINTE[tinte].suave, backgroundImage: `radial-gradient(130% 100% at 30% 15%, ${TINTE[tinte].fondo}, transparent 75%)` }}>
             <div className="min-w-0 min-h-[420px] lg:min-h-0 flex-1 flex flex-col gap-3 lg:gap-4">
                 {/* Protagonista */}
                 <div className={cn("relative flex-1 min-h-[220px] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
-                    !protagonista ? "ring-white/10" : tinteDe(protagonista) !== "desconocido" ? cn("ring-4", TINTE[tinteDe(protagonista)].anillo) : estadoDe(protagonista, modo).error ? "ring-[var(--mal)]" : "ring-white/25")}>
+                    !protagonista ? "ring-white/10" : tinte !== "desconocido" ? cn("ring-4", TINTE[tinte].anillo) : estadoDe(protagonista, modo).error ? "ring-[var(--mal)]" : "ring-white/25")}>
                     <AnimatePresence mode="popLayout" initial={false}>
                         {protagonista ? (
                             <motion.div key={protagonista.id} initial={{ opacity: 0, scale: 1.015 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={SUAVE} className="absolute inset-0">
@@ -558,7 +560,7 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
                     </div>
                     {esNoLeida(l.plate) && l.relectura?.plate && <div className="mt-3"><Relectura r={l.relectura} grande /></div>}
                     <ResumenVehiculo a={l.analisis} />
-                    {(l.persona || l.ficha) && (() => { const t = tinteDe(l); return (
+                    {(l.persona || l.ficha) && (() => { const t = tinteDe(l, !!empresa); return (
                         <div className={cn("mt-3 inline-flex items-stretch rounded-2xl border overflow-hidden shadow-[0_8px_30px_rgba(0,0,0,.55)] max-w-full", TINTE[t].tarjeta, TINTE[t].texto, t === "negra" && "animate-pulse")}>
                             {l.unidad && (
                                 <div className="px-5 py-2 flex flex-col justify-center border-r border-black/15 shrink-0">
