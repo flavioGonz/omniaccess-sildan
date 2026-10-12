@@ -100,6 +100,23 @@ function aclarar(c: string, p: number): string {
     return "0x" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Versión pastel y luminosa del color de acento, para el fondo: mismo tono, saturación alta y
+ * luz alta. Así un acento oscuro (azul marino, negro) no ensucia el fondo de gris.
+ */
+function pastel(c: string, luz = 0.78): string {
+    const n = parseInt(c.replace("#", ""), 16);
+    let r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    let h = 0; const d = mx - mn;
+    if (d) { h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; if (h < 0) h += 360; }
+    else h = 222; // gris/negro: se toma un azul pizarra
+    const sat = d ? Math.max(0.7, d / (1 - Math.abs(mx + mn - 1) || 1)) : 0.55;
+    const C = (1 - Math.abs(2 * luz - 1)) * sat, X = C * (1 - Math.abs(((h / 60) % 2) - 1)), m = luz - C / 2;
+    [r, g, b] = h < 60 ? [C, X, 0] : h < 120 ? [X, C, 0] : h < 180 ? [0, C, X] : h < 240 ? [0, X, C] : h < 300 ? [X, 0, C] : [C, 0, X];
+    return "#" + [r, g, b].map((v) => Math.round((v + m) * 255).toString(16).padStart(2, "0")).join("");
+}
+
 /** Mancha de luz redonda (PNG con alfa) del color dado; se genera una vez y queda en caché. */
 async function mancha(color: string): Promise<string | null> {
     const dir = path.join(os.tmpdir(), "omni-intro");
@@ -109,6 +126,29 @@ async function mancha(color: string): Promise<string | null> {
     const n = parseInt(color.replace("#", ""), 16);
     const r = await correr("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=black:s=800x800",
         "-vf", `format=rgba,geq=r=${(n >> 16) & 255}:g=${(n >> 8) & 255}:b=${n & 255}:a='255*pow(max(0\\,1-hypot(X-400\\,Y-400)/400)\\,1.8)'`, "-frames:v", "1", fp], 20_000);
+    return r.ok && fs.existsSync(fp) ? fp : null;
+}
+
+/** Trama de puntos (PNG con alfa) para la textura del fondo; en caché por tamaño. */
+async function trama(w: number, h: number, paso: number): Promise<string | null> {
+    const dir = path.join(os.tmpdir(), "omni-intro");
+    try { fs.mkdirSync(dir, { recursive: true }); } catch { }
+    const fp = path.join(dir, `trama-${w}x${h}-${paso}.png`);
+    if (fs.existsSync(fp)) return fp;
+    const r2 = Math.max(1.2, paso / 16).toFixed(2);
+    const r = await correr("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `color=c=black:s=${w}x${h}`,
+        "-vf", `format=rgba,geq=r=71:g=85:b=105:a='if(lt(hypot(mod(X\\,${paso})-${paso / 2}\\,mod(Y\\,${paso})-${paso / 2})\\,${r2})\\,70\\,0)'`, "-frames:v", "1", fp], 30_000);
+    return r.ok && fs.existsSync(fp) ? fp : null;
+}
+
+/** Banda de brillo (blanca, bordes suaves, inclinada) que cruza la placa una vez. */
+async function brillo(h: number): Promise<string | null> {
+    const dir = path.join(os.tmpdir(), "omni-intro");
+    const fp = path.join(dir, `brillo-${h}.png`);
+    if (fs.existsSync(fp)) return fp;
+    const bw = Math.round(h * 0.5), bh = Math.round(h * 1.6);
+    const r = await correr("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `color=c=white:s=${bw}x${bh}`,
+        "-vf", `format=rgba,geq=r=255:g=255:b=255:a='255*0.55*exp(-pow((X-${bw / 2})/${(bw / 5).toFixed(1)}\\,2))',rotate=a=0.35:c=none:ow=rotw(0.35):oh=roth(0.35)`, "-frames:v", "1", fp], 30_000);
     return r.ok && fs.existsSync(fp) ? fp : null;
 }
 
@@ -132,7 +172,8 @@ export async function ponerIntro(clip: string, d: DatosIntro, crf = 24): Promise
         fs.writeFileSync(path.join(tmp, "rotulo.txt"), (d.titulo || "Registro de video").toUpperCase());
 
         const logo = d.logo && fs.existsSync(d.logo) ? d.logo : null;
-        const blob = await mancha(acento);
+        const suave = pastel(acento);
+        const blob = await mancha(suave);
         const logoW = Math.round(W * 0.30 / 2) * 2;
         const logoHmax = Math.round(H * 0.24);
         const hayTexto = lineas.length > 0;
@@ -143,22 +184,33 @@ export async function ponerIntro(clip: string, d: DatosIntro, crf = 24): Promise
         const yMeta = yDesc0 + lineas.length * Math.round(fsDesc * 1.25) + px(lineas.length ? 22 : 8);
         const a = (desde: number, dur: number) => `'min(1\\,max(0\\,(t-${desde})/${dur}))'`;
 
-        // Entradas: 0 fondo, [1 mancha], [2 logo], clip al final.
-        const entradas: string[] = ["-f", "lavfi", "-i", `gradients=s=${W}x${H}:d=${DUR}:r=30:c0=0xffffff:c1=0xf1f5f9:c2=${aclarar(acento, 0.14)}:type=linear:x0=0:y0=0:x1=${W}:y1=${H}:speed=0.006`];
+        // Entradas: 0 fondo, manchas, trama, brillo, logo y el clip al final.
+        const paso = Math.max(18, Math.round(W / 46));
+        const [tr, br] = await Promise.all([trama(W + paso * 4, H + paso * 4, paso), brillo(H)]);
+        const entradas: string[] = ["-f", "lavfi", "-i",
+            `gradients=s=${W}x${H}:d=${DUR}:r=30:nb_colors=4:c0=0xffffff:c1=${aclarar(suave, 0.30)}:c2=0xf8fafc:c3=${aclarar(pastel(acento, 0.86), 0.25)}:type=radial:x0=${Math.round(W * 0.3)}:y0=${Math.round(H * 0.2)}:x1=${W}:y1=${H}:speed=0.03`];
         let i = 1;
-        const iBlob = blob ? i++ : -1; if (blob) entradas.push("-loop", "1", "-t", String(DUR), "-i", blob);
-        const iLogo = logo ? i++ : -1; if (logo) entradas.push("-loop", "1", "-t", String(DUR), "-i", logo);
+        const add = (fp: string | null, loop = true) => { if (!fp) return -1; entradas.push(...(loop ? ["-loop", "1", "-t", String(DUR)] : []), "-i", fp); return i++; };
+        const iBlob = add(blob), iTrama = add(tr), iBrillo = add(br), iLogo = add(logo);
         const iClip = i; entradas.push("-i", clip);
 
         const f: string[] = [];
         f.push(`[0:v]format=rgba[bg0]`);
         let ult = "bg0";
-        if (blob) {
-            const bw = Math.round(W * 0.75 / 2) * 2;
-            f.push(`[${iBlob}:v]scale=${bw}:${bw},format=rgba,colorchannelmixer=aa=0.55,split[b1][b2]`);
-            f.push(`[${ult}][b1]overlay=x='-W*0.22+${px(36)}*t':y='-H*0.42':eval=frame:shortest=1[bg1]`);
-            f.push(`[bg1][b2]overlay=x='W*0.58-${px(30)}*t':y='H*0.38':eval=frame:shortest=1[bg2]`);
-            ult = "bg2";
+        if (iBlob >= 0) {
+            // Aurora: tres manchas del color de acento que derivan lento en direcciones distintas.
+            const bw = Math.round(W * 0.8 / 2) * 2;
+            f.push(`[${iBlob}:v]scale=${bw}:${bw},format=rgba,colorchannelmixer=aa=0.62,split=3[b1][b2][b3]`);
+            f.push(`[${ult}][b1]overlay=x='-W*0.25+${px(55)}*t':y='-H*0.55+${px(18)}*t':eval=frame:shortest=1[bg1]`);
+            f.push(`[bg1][b2]overlay=x='W*0.55-${px(45)}*t':y='H*0.30-${px(14)}*t':eval=frame:shortest=1[bg2]`);
+            f.push(`[b3]colorchannelmixer=aa=0.45[b3b];[bg2][b3b]overlay=x='W*0.05+${px(30)}*sin(t*0.9)':y='H*0.55':eval=frame:shortest=1[bg3]`);
+            ult = "bg3";
+        }
+        if (iTrama >= 0) {
+            // Textura: trama de puntos que se desplaza en diagonal, con un fundido en los bordes.
+            f.push(`[${iTrama}:v]format=rgba,colorchannelmixer=aa=0.9[tr]`);
+            f.push(`[${ult}][tr]overlay=x='-mod(t*${px(14)}\\,${paso})-${paso}':y='-mod(t*${px(9)}\\,${paso})-${paso}':eval=frame:shortest=1[bg4]`);
+            ult = "bg4";
         }
         if (logo) {
             // Logo con sombra suave: una copia negra desenfocada, corrida hacia abajo.
@@ -173,6 +225,11 @@ export async function ponerIntro(clip: string, d: DatosIntro, crf = 24): Promise
             f.push(`[${ult}]drawtext=fontfile=${FUENTE(800)}:text='OmniAccess':expansion=none:fontsize=${px(64)}:fontcolor=0x0f172a:x=(w-text_w)/2:y=h*${yLogo}-text_h/2:alpha=${a(0.15, 0.7)}[v1]`);
         }
         ult = "v1";
+        if (iBrillo >= 0) {
+            // Un brillo cruza la placa una vez, después de que entra el logo.
+            f.push(`[${ult}][${iBrillo}:v]overlay=x='-w+(W+w)*min(1\\,max(0\\,(t-1.15)/1.1))':y='(H-h)/2':eval=frame:shortest=1[v1b]`);
+            ult = "v1b";
+        }
         const anchoLinea = Math.round(W * 0.16);
         f.push(`color=c=${hex(acento)}:s=${anchoLinea}x${px(4)}:d=${DUR}:r=30,format=rgba,scale=w='max(2\\,${anchoLinea}*(1-pow(1-min(1\\,max(0\\,(t-0.75)/0.5))\\,3)))':h=${px(4)}:eval=frame[ln]`);
         f.push(`[${ult}][ln]overlay=x='(W-w)/2':y=${Math.round(H * yLinea)}:eval=frame:shortest=1[v2]`);
@@ -184,8 +241,7 @@ export async function ponerIntro(clip: string, d: DatosIntro, crf = 24): Promise
             ult = `d${j}`;
         });
         f.push(`[${ult}]drawtext=fontfile=${FUENTE(400)}:textfile=${path.join(tmp, "meta.txt")}:expansion=none:fontsize=${px(20)}:fontcolor=0x64748b:x=(w-text_w)/2:y=${yMeta}:alpha=${a(1.4, 0.5)}[v3]`);
-        f.push(`[v3]drawtext=fontfile=${FUENTE(600)}:textfile=${path.join(tmp, "rotulo.txt")}:expansion=none:fontsize=${px(15)}:fontcolor=0x475569:x=${px(62)}:y=${px(46)}:alpha=${a(0.3, 0.5)},` +
-            `drawtext=fontfile=${FUENTE_SIMBOLOS}:text='●':expansion=none:fontsize=${px(17)}:fontcolor=0xef4444:x=${px(38)}:y=${px(44)}:alpha='if(lt(mod(t\\,1)\\,0.6)\\,1\\,0.3)'[v4]`);
+        f.push(`[v3]null[v4]`);
         // Barra de progreso abajo
         f.push(`color=c=${hex(acento)}:s=${W}x${px(5)}:d=${DUR}:r=30,format=rgba,scale=w='max(2\\,${W}*t/${DUR})':h=${px(5)}:eval=frame[pb]`);
         f.push(`[v4][pb]overlay=x=0:y=H-h:eval=frame:shortest=1,fps=30,format=yuv420p,settb=AVTB[intro]`);

@@ -23,13 +23,26 @@ function correr(args: string[]): Promise<boolean> {
 
 export async function GET(req: NextRequest) {
     if (!(await getSession())) return new Response("no autorizado", { status: 401 });
-    const base = path.join(os.tmpdir(), "omni-intro", "relleno.mp4");
-    if (!fs.existsSync(base)) {
-        fs.mkdirSync(path.dirname(base), { recursive: true });
-        await correr(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=3", "-vf", "eq=saturation=0.35:brightness=-0.05", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", base]);
-    }
+    // De relleno, un cuadro real de una cámara LPR (go2rtc) con un leve acercamiento, para que la
+    // muestra se vea como un clip de verdad. Si no hay cámara, un fondo neutro.
+    const dir = path.join(os.tmpdir(), "omni-intro");
+    fs.mkdirSync(dir, { recursive: true });
+    const base = path.join(dir, `relleno-${Date.now()}.mp4`);
+    const cuadro = path.join(dir, "cuadro.jpg");
+    try {
+        const streams: any = await fetch("http://127.0.0.1:1984/api/streams", { cache: "no-store" }).then((r) => r.json());
+        const src = Object.keys(streams || {}).find((k) => k.startsWith("lpr_") && !k.endsWith("_hd"));
+        if (src) {
+            const r = await fetch(`http://127.0.0.1:1984/api/frame.jpeg?src=${encodeURIComponent(src)}`, { cache: "no-store" });
+            if (r.ok) fs.writeFileSync(cuadro, Buffer.from(await r.arrayBuffer()));
+        }
+    } catch { }
+    const okBase = fs.existsSync(cuadro)
+        ? await correr(["-hide_banner", "-loglevel", "error", "-y", "-loop", "1", "-t", "3", "-i", cuadro, "-vf", "scale=1280:720,zoompan=z='1+0.0008*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1280x720:fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", base])
+        : await correr(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=0x1e293b:s=1280x720:r=30:d=3", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", base]);
+    if (!okBase) return new Response("no se pudo armar el video de relleno", { status: 500 });
     const salida = path.join(os.tmpdir(), "omni-intro", `prueba-${Date.now()}.mp4`);
-    fs.copyFileSync(base, salida);
+    fs.renameSync(base, salida);
     const color = req.nextUrl.searchParams.get("color");
     const ok = await ponerIntro(salida, {
         descripcion: req.nextUrl.searchParams.get("texto") || "Ingreso de vehículo por la garita principal, revisado por el guardia",

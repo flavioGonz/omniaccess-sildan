@@ -101,17 +101,24 @@ export default function AdminLayout({
     const isAdmin = sessionRole === "ADMIN";
     const [loggingOut, setLoggingOut] = useState(false);
     const [acuseekOk, setAcuseekOk] = useState(false);
-    const [modules, setModules] = useState<Record<ModuleId, boolean>>({
-        MODULE_LPR: true,
-        MODULE_FACE: true,
-        MODULE_QUEUE: false,
-        MODULE_GUARD: false,
-    });
+    // Los módulos arrancan como estaban la última vez (localStorage) y no con FACE prendido: antes,
+    // hasta que llegaba la respuesta, el menú apuntaba a /admin/monitor-face y se colaba el modo facial.
+    const [modules, setModules] = useState<Record<ModuleId, boolean>>({ MODULE_LPR: true, MODULE_FACE: false, MODULE_QUEUE: false, MODULE_GUARD: false } as Record<ModuleId, boolean>);
+    useEffect(() => { try { const g = JSON.parse(localStorage.getItem("omni_modulos") || "null"); if (g && typeof g === "object") setModules((m) => ({ ...m, ...g })); } catch { } }, []);
+    const [modulosListos, setModulosListos] = useState(false);
 
     useEffect(() => {
-        getEnabledModules().then(setModules);
+        getEnabledModules().then((m) => { setModules(m); setModulosListos(true); try { localStorage.setItem("omni_modulos", JSON.stringify(m)); } catch { } });
         hasAcuSeekNvr().then(setAcuseekOk).catch(() => {});
     }, []);
+
+    // Una pantalla de otro modo (facial, filas) no se muestra si ese modo está apagado.
+    useEffect(() => {
+        if (!modulosListos) return;
+        if ((pathname?.startsWith("/admin/monitor-face") && !modules.MODULE_FACE) || (pathname?.startsWith("/admin/monitor-queue") && !modules.MODULE_QUEUE)) {
+            router.replace(pantallaInicio(modules));
+        }
+    }, [modulosListos, pathname, modules]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleLogout = async () => {
         setLoggingOut(true);
