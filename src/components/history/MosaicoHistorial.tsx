@@ -8,6 +8,9 @@ import { fechaCorta, hora } from "@/lib/fechas";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
 import { rasgoDe, type FilaHistorial } from "@/components/history/TablaUnificada";
+/** Lo que el lector escribe cuando no pudo leer (lo mismo que NO_LEIDAS de lib/relectura, que importa prisma y no entra en el navegador). */
+const NO_LEIDAS = new Set(["NO_LEIDA", "UNKNOWN", "S/P"]);
+const esNoLeida = (p: string | null | undefined) => NO_LEIDAS.has(String(p || "").toUpperCase());
 
 /**
  * El historial como capturas: grilla (todas del mismo tamaño) y bento (mosaico denso).
@@ -64,6 +67,13 @@ const ANCHO = { chica: 260, grande: 520, grilla: 400 };
 const conAncho = (url: string, w: number) => `${url}${url.includes("?") ? "&" : "?"}w=${w}`;
 /** Cada cuántas tarjetas va una grande aunque no sea denegada: si no, un día tranquilo es un mosaico plano. */
 const RITMO_BENTO = 11;
+/**
+ * Las denegadas van en grande sólo si son la excepción. En Olivos lo son; en un barrio donde la
+ * mayoría de las lecturas se deniega (padrón incompleto, visitas sin cargar) ponerlas todas en
+ * grande deja una grilla de cuatro columnas que no destaca nada. Con más de esta fracción de
+ * denegadas entre los accesos cargados, lo grande queda para el merodeo y el ritmo.
+ */
+const DENEGADAS_EXCEPCION = 0.5;
 
 const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
     f: FilaHistorial; bento: boolean; grande: boolean; merodea: boolean; alAbrir: (f: FilaHistorial) => void;
@@ -74,7 +84,8 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
     const acceso = f.tipo === "ACCESO";
     const denegado = acceso && f.decision === "DENY";
     const r = rasgoDe(f);
-    const titulo = f.plate || f.persona || "Sin lectura";
+    const leida = !!f.plate && !esNoLeida(f.plate);
+    const titulo = leida ? f.plate! : f.persona || "Sin lectura";
     return (
         <button type="button" onClick={() => alAbrir(f)} title={`${titulo} · ${r.rotulo}`}
             className={cn("group relative overflow-hidden rounded-[10px] bg-black text-left ring-1 transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 [content-visibility:auto]",
@@ -107,7 +118,7 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
             <span className="absolute bottom-1.5 left-2 right-2 min-w-0">
                 <span className={cn("block font-bold tracking-wider text-white truncate tabular-nums", chica ? "text-[12.5px]" : "text-[17px]")}>{titulo}</span>
                 <span className={cn("block text-white/75 truncate tabular-nums", chica ? "text-[9.5px]" : "text-[11px]")}>
-                    {hora(new Date(f.momento))} · {r.rotulo}{!chica && f.plate && f.persona ? ` · ${f.persona}` : ""}
+                    {hora(new Date(f.momento))} · {r.rotulo}{!chica && leida && f.persona ? ` · ${f.persona}` : ""}
                 </span>
                 {!chica && <span className="block text-[10px] text-white/55 truncate">{fechaCorta(new Date(f.momento))} · {f.camara || "—"}</span>}
             </span>
@@ -127,6 +138,8 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
     barra?: React.ReactNode; pie?: React.ReactNode; alto: string;
 }) {
     const bento = vista === "bento";
+    const accesos = filas.filter((f) => f.tipo === "ACCESO");
+    const destacarDenegadas = !!accesos.length && accesos.filter((f) => f.decision === "DENY").length / accesos.length <= DENEGADAS_EXCEPCION;
     const caja = useRef<HTMLDivElement>(null);
     const centinela = useRef<HTMLDivElement>(null);
 
@@ -152,7 +165,7 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
                                     : "gap-3 grid-cols-[repeat(auto-fill,minmax(230px,1fr))]")}>
                                     {filas.map((f, i) => {
                                         const merodea = !!(f.plate && merodeando.has(f.plate));
-                                        const grande = bento && ((f.tipo === "ACCESO" && f.decision === "DENY" && !!f.plate) || merodea || i % RITMO_BENTO === 0);
+                                        const grande = bento && ((destacarDenegadas && f.tipo === "ACCESO" && f.decision === "DENY" && !!f.plate && !esNoLeida(f.plate)) || merodea || i % RITMO_BENTO === 0);
                                         return <Tarjeta key={f.id} f={f} bento={bento} grande={grande} merodea={merodea} alAbrir={alAbrir} />;
                                     })}
                                 </div>
