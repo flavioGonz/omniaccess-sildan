@@ -20,16 +20,17 @@ import { bandasLinea, poligonos, veredicto, type Analisis, type GeomNorm, type P
  * persona y vehículo se distingan de un vistazo, la geometría en blanco con sombra (se lee sobre
  * pasto, asfalto y noche), y lo que toca en el rojo de alarma.
  */
-const COLOR_GRUPO: Record<string, string> = { persona: "#38bdf8", vehiculo: "#a78bfa", animal: "#fbbf24" };
-const COLOR_OTRO = "#e2e8f0";
+/** Exportados: la ficha del visor pinta el punto de cada objeto con el mismo color que su silueta. */
+export const COLOR_GRUPO: Record<string, string> = { persona: "#38bdf8", vehiculo: "#a78bfa", animal: "#fbbf24" };
+export const COLOR_OTRO = "#e2e8f0";
 const COLOR_GEOM = "#f8fafc";
 const COLOR_TOCA = "#f43f5e";
 /** El ícono dice QUÉ es antes de leer: la clase si la conocemos, si no el grupo. */
-const ICONO_CLASE: Record<string, LucideIcon> = {
+export const ICONO_CLASE: Record<string, LucideIcon> = {
     person: User, car: Car, truck: Truck, bus: Bus, motorcycle: Motorbike, bicycle: Bike,
     dog: Dog, cat: Cat, bird: Bird, backpack: Backpack, handbag: Briefcase, suitcase: Luggage,
 };
-const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo: Car, animal: PawPrint, propio: Boxes };
+export const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo: Car, animal: PawPrint, propio: Boxes };
 
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");

@@ -5,9 +5,9 @@ import Image from "next/image";
 import { AnimatePresence, motion } from "framer-motion";
 import {
     X, ChevronLeft, ChevronRight, Camera, ZoomIn, ZoomOut, Maximize2,
-    Scan, Car, Home, Phone, ParkingSquare, ShieldAlert, Star, Search as Lupa,
-    Layers, UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, Loader2,
-    PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, DoorOpen, History as Reloj,
+    Scan, Car, Home, ParkingSquare, ShieldAlert, Star, Search as Lupa,
+    UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, EyeOff,
+    PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
@@ -23,6 +23,10 @@ import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { useSiluetas } from "@/lib/use-siluetas";
 import type { Analisis } from "@/lib/vision-capa";
+import { BotonVisor, Dato, ListaVision, Seccion } from "@/components/visor/FichaVisor";
+import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
+import { PanelComportamiento, type ComportamientoVisor } from "@/components/visor/PanelComportamiento";
+import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -118,6 +122,8 @@ export type DatosVisor = {
         recorte?: string | null; chapa?: string | null; otras?: { plate: string; confianza: number }[];
     } | null;
     empresa?: { nombre: string; logo: string; transparente: boolean } | null;
+    /** Los pasos de la chapa en los últimos días y cuándo se la ve (panel «Comportamiento»). */
+    comportamiento?: ComportamientoVisor | null;
 };
 
 /**
@@ -254,97 +260,6 @@ function momentoDeLaEstadia(fila: CuadroAvistamiento, limiteMin?: number | null)
         : { clave: "quieto" as const, etiqueta: "Estacionado", icono: ParkingSquare };
 }
 
-/**
- * Una etiqueta de la ficha.
- *
- * Cuando no hay valor NO desaparece: queda como etiqueta fantasma, con el borde punteado y
- * el texto apagado. Es al revés de lo que uno haría — un campo vacío parece ruido — pero el
- * hueco dice algo: muestra qué se podría saber de este vehículo y no se sabe. Una ficha que
- * esconde los campos que le faltan se ve completa cuando está vacía, y nadie va a cargar lo
- * que no sabe que falta.
- */
-function Etiqueta({ icono: Icono, valor, falta, sufijo, verificado }: {
-    icono: any; valor?: string | null; falta: string; sufijo?: string | null; verificado?: boolean;
-}) {
-    if (!valor) {
-        return (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-dashed border-white/15 text-white/30">
-                <Icono size={13} />
-                <span className="text-[11px] font-medium">{falta}</span>
-            </span>
-        );
-    }
-    return (
-        <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 backdrop-blur-xl border border-white/15">
-            <Icono size={13} className="text-white/55" />
-            <span className="text-[12px] font-medium text-white/95">{valor}</span>
-            {sufijo && (
-                <span className="text-[11px] tabular-nums" style={{ color: "color-mix(in oklab, var(--visor-tono) 65%, #fff)" }}>
-                    {sufijo}
-                </span>
-            )}
-            {verificado && (
-                <span className="w-3.5 h-3.5 rounded-full flex items-center justify-center"
-                    style={{ background: "color-mix(in oklab, var(--visor-tono) 30%, transparent)" }}>
-                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5"
-                        style={{ color: "color-mix(in oklab, var(--visor-tono) 75%, #fff)" }}>
-                        <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                </span>
-            )}
-        </span>
-    );
-}
-
-/**
- * Una acción del visor. Píldora de vidrio, todas iguales.
- *
- * `destacada` es para la única que conviene que salte — casi siempre registrar la
- * matrícula, porque es la que llena un hueco. Dos botones destacados en la misma fila no
- * destacan ninguno.
- */
-function Pildora({ icono: Ico, children, onClick, href, destacada, encendida, ocupada, title }: {
-    icono: React.ComponentType<{ size?: number; className?: string }>;
-    children: React.ReactNode;
-    onClick?: () => void;
-    href?: string | null;
-    destacada?: boolean;
-    encendida?: boolean;
-    ocupada?: boolean;
-    title?: string;
-}) {
-    const clase = cn(
-        "visor-vidrio flex items-center gap-2 py-2 px-4 rounded-full text-[12px] font-semibold whitespace-nowrap disabled:opacity-60",
-        (destacada || encendida) ? "visor-vidrio-activo text-white" : "text-white/90 hover:text-white",
-    );
-    const dentro = (
-        <>
-            {ocupada ? <Loader2 size={14} className="animate-spin" /> : <Ico size={14} />}
-            {children}
-        </>
-    );
-    if (href) {
-        return <a href={href} download title={title} className={clase}>{dentro}</a>;
-    }
-    return (
-        <button type="button" onClick={onClick} disabled={ocupada} title={title} className={clase}>
-            {dentro}
-        </button>
-    );
-}
-
-
-
-/** Una medida de la lectura. Sin caja: viven sobre la imagen, con sombra de texto. */
-function Medida({ valor, rotulo, tono, ayuda }: { valor: string; rotulo: string; tono?: string; ayuda?: string }) {
-    return (
-        <span className="inline-flex items-baseline gap-1" title={ayuda}>
-            <span className={cn("text-[11px] font-bold tabular-nums", tono || "text-white/85")}>{valor}</span>
-            <span className="text-[10px] text-white/45">{rotulo}</span>
-        </span>
-    );
-}
-
 export function VisorCuadro({
     fila, ficha, onRegistrar, limiteMin,
     historial, cargandoHistorial,
@@ -370,7 +285,7 @@ export function VisorCuadro({
      * lecturas de calle, o las dos cosas. El visor sólo lo dibuja — y mientras no venga, la
      * solapa del historial no aparece, que es más honesto que una lista vacía.
      */
-    historial?: { id?: string; momento: string | Date; camara?: string | null; direccion?: string | null; decision?: string | null }[];
+    historial?: PasoVisor[];
     cargandoHistorial?: boolean;
 
     /* Las acciones. Cada una se dibuja SÓLO si le pasan el manejador: un botón que no hace
@@ -402,6 +317,29 @@ export function VisorCuadro({
     const vision = datos?.vision && datos.vision.objetos?.length ? datos.vision : null;
     const [copiada, setCopiada] = useState(false);
     /**
+     * Sin nada encima. Mirando el vivo (o una foto) a veces lo que estorba es la ficha, la
+     * cápsula, los lavados y los botones: con H (o el ojo tachado) se va todo y queda la imagen
+     * limpia; con H, Esc o el botón chico de la esquina vuelve.
+     */
+    const [limpio, setLimpio] = useState(false);
+    /** Qué consulta está abierta: la tira de pasos anteriores o el panel de comportamiento. */
+    const [panel, setPanel] = useState<null | "pasos" | "comportamiento">(null);
+    /** Un paso anterior mostrado en grande en lugar de la foto del evento (desde la tira o el panel). */
+    const [pasoViendo, setPasoViendo] = useState<PasoVisor | null>(null);
+    /** El visor completo de la cámara (vivo con sus controles, o la grabación de este instante). */
+    const [abrirCamara, setAbrirCamara] = useState<null | "live" | "rec">(null);
+    /**
+     * Si la cámara graba en un NVR. Sólo se pregunta cuando quien abre el visor no trajo su propia
+     * forma de ver la grabación (`onGrabacion`): un botón de grabación sin grabación no se dibuja.
+     */
+    const [hayGrabacion, setHayGrabacion] = useState(false);
+    useEffect(() => {
+        if (onGrabacion || !fila.deviceId) { setHayGrabacion(false); return; }
+        let vivo = true;
+        canalDe(fila.deviceId).then((c) => { if (vivo) setHayGrabacion(c.ch != null); });
+        return () => { vivo = false; };
+    }, [fila.deviceId, onGrabacion]);
+    /**
      * La proporcion de la foto. Arranca en 16:9 — que es lo que entrega cualquier camara
      * de seguridad — y se corrige con la medida real en cuanto la imagen carga. Arrancar
      * en un valor razonable evita el salto de un cuadro sin proporcion a uno con ella.
@@ -428,7 +366,9 @@ export function VisorCuadro({
     }, []);
 
     // Cada foto se abre sin acercar: heredar el zoom de la anterior desorienta.
-    useEffect(() => { reiniciar(); setProporcion(AR_VENTANA); setModo("foto"); }, [fila.snapshotUrl, reiniciar]);
+    useEffect(() => { reiniciar(); setProporcion(AR_VENTANA); setModo("foto"); setPasoViendo(null); }, [fila.snapshotUrl, reiniciar]);
+    // Al pasar a un paso anterior (o volver), la foto es otra: se abre sin acercar y se vuelve a medir.
+    useEffect(() => { reiniciar(); setProporcion(AR_VENTANA); }, [pasoViendo?.foto, reiniciar]);
 
     /**
      * Acerca manteniendo quieto el punto que está bajo el puntero.
@@ -527,7 +467,19 @@ export function VisorCuadro({
 
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
-            if (e.key === "Escape") { if (acercado) { reiniciar(); return; } onCerrar(); }
+            // Con el visor completo de la cámara abierto encima, las teclas son de él.
+            if (abrirCamara) return;
+            if (e.key === "Escape") {
+                // Esc deshace de a una cosa, de la más nueva a la más vieja: no cierra el evento
+                // de golpe estando en un paso anterior o con un panel abierto.
+                if (acercado) { reiniciar(); return; }
+                if (pasoViendo) { setPasoViendo(null); return; }
+                if (panel) { setPanel(null); return; }
+                if (limpio) { setLimpio(false); return; }
+                onCerrar();
+                return;
+            }
+            if (e.key === "h" || e.key === "H") { setLimpio((v) => !v); return; }
             if (e.key === "ArrowLeft" && hayAnterior && !acercado) onAnterior?.();
             if (e.key === "ArrowRight" && haySiguiente && !acercado) onSiguiente?.();
             if (e.key === "+" || e.key === "=") zoomEn(escala * 1.5);
@@ -539,7 +491,7 @@ export function VisorCuadro({
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, pasoViendo, panel, limpio]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -617,6 +569,38 @@ export function VisorCuadro({
     const esAcceso = !!fila.decision;
     const salida = fila.direccion === "EXIT";
     const rostro = fila.rostroUrl || meta.FaceImage || null;
+
+    /**
+     * Los pasos anteriores, de las dos fuentes: los que trajo quien abrió el visor (en el
+     * historial, lo cargado en la tabla, que incluye las cámaras de calle) y los de los últimos
+     * días que trae la ficha del servidor (accesos, con foto). Se juntan sin repetir: el mismo
+     * acceso viene de los dos lados, con id «a_<id>» en la tabla.
+     */
+    const pasos = useMemo<PasoVisor[]>(() => {
+        const comp = datos?.comportamiento?.pasos || [];
+        const ids = new Set(comp.map((p) => p.id));
+        const segundos = new Set(comp.map((p) => Math.floor(+new Date(p.momento) / 1000)));
+        const lista: PasoVisor[] = comp.filter((p) => !p.actual);
+        for (const h of historial || []) {
+            const id = h.id?.replace(/^a_/, "");
+            if (id && ids.has(id)) continue;
+            if (segundos.has(Math.floor(+new Date(h.momento) / 1000))) continue;
+            lista.push(h);
+        }
+        return lista.sort((a, b) => +new Date(b.momento) - +new Date(a.momento));
+    }, [datos?.comportamiento, historial]);
+    const hayPasos = !!historial || !!datos?.comportamiento;
+    const comportamiento = datos?.comportamiento && datos.comportamiento.pasos.length ? datos.comportamiento : null;
+
+    /** Lo que la cámara LPR dijo del vehículo (no el padrón): se muestra aparte, con su origen. */
+    const vehiculoCamara = [dato(meta.Marca), dato(meta.Modelo), dato(meta.Color), dato(meta.Tipo)].filter(Boolean).join(" · ");
+    const sentido = esAcceso
+        ? (salida ? "Salida" : fila.direccion === "ENTRY" ? "Entrada" : "Acceso")
+        : momentoEst.etiqueta;
+    /** Mirando un paso anterior: la foto es otra y lo que se dibuja encima (chapa, siluetas, cápsula) es del evento. */
+    const enPaso = !!pasoViendo?.foto;
+    const fotoUrl = enPaso ? pasoViendo!.foto! : (fila.snapshotUrl || "");
+    const verGrabacion = onGrabacion || (hayGrabacion ? () => setAbrirCamara("rec") : undefined);
 
     /**
      * La cápsula del estado y el tiempo.
@@ -758,7 +742,7 @@ export function VisorCuadro({
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                             ref={(i) => { if (i?.complete && i.naturalWidth) medir(i); }}
-                            src={fila.snapshotUrl || ""} alt={fila.plate}
+                            src={fotoUrl} alt={fila.plate}
                             onLoad={(e) => medir(e.currentTarget)}
                             className={cn("block w-full h-full object-cover select-none",
                                 modo === "vivo" && "invisible")}
@@ -784,20 +768,20 @@ export function VisorCuadro({
 
                         {/* La retícula marca dónde estaba la chapa EN ESA FOTO. Sobre el vivo
                             sería una marca sobre una escena que ya cambió, así que se apaga. */}
-                        {modo === "foto" && verContorno && (
+                        {modo === "foto" && !enPaso && !limpio && verContorno && (
                             <ContornoDeteccion bbox={fila.bbox} plate={fila.plate} escala={escala} />
                         )}
 
                         {/* Lo que vio OmniVision: siluetas y rótulos. La caja es exactamente la
                             foto (misma proporción), así que el ajuste «contain» cae justo. */}
-                        {modo === "foto" && verSiluetas && vision && (
+                        {modo === "foto" && !enPaso && !limpio && verSiluetas && vision && (
                             <CapaAnalisis analisis={vision} atributos className="z-[6]" />
                         )}
 
                         {/* La cápsula va DENTRO del transform para seguir al auto mientras
                             se acerca, pero con la escala invertida: si creciera con el zoom,
                             a 8x taparía media foto. */}
-                        {rotulo && (
+                        {rotulo && !enPaso && !limpio && (
                             <>
                                 <div className="visor-guia absolute z-[19] pointer-events-none"
                                     style={{
@@ -824,36 +808,53 @@ export function VisorCuadro({
                     {/* El lavado ambiental del estado, fundido sobre la imagen. Se apaga al
                         acercar: quien acerca vino a ver píxeles, no un degradado encima. */}
                     <div className={cn("visor-ambiente absolute inset-0 z-[5] pointer-events-none transition-opacity duration-300",
-                        acercado && "opacity-0")} />
-                    <div className={cn("absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/45 transition-opacity duration-300",
-                        acercado && "opacity-0")} />
+                        (acercado || limpio) && "opacity-0")} />
+                    <div className={cn("absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/55 transition-opacity duration-300",
+                        (acercado || limpio) && "opacity-0")} />
+                    {/* Detrás de la ficha: la ficha ahora es texto en renglones, y el texto sobre
+                        una calle de día necesita un fondo que le gane, no una caja. */}
+                    <div className={cn("absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/80 via-black/45 to-transparent transition-opacity duration-300",
+                        (acercado || limpio) && "opacity-0")} />
                     <div className={cn("visor-orbe absolute left-[-6%] top-[24%] w-[460px] h-[460px] rounded-full z-[4] pointer-events-none transition-opacity duration-300",
-                        acercado && "!opacity-0")} />
+                        (acercado || limpio) && "!opacity-0")} />
                 </div>
 
                 {/* Sin recuadro no hay a qué anclarla, pero el estado sigue siendo un
                     dato: va arriba al centro, donde no tapa la ficha ni los controles. */}
-                {!rotulo && (
-                    <div className={cn("absolute top-16 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-200",
-                        acercado && "opacity-0 pointer-events-none")}>
+                {!rotulo && !enPaso && (
+                    <div className={cn("absolute top-24 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-200",
+                        (acercado || limpio) && "opacity-0 pointer-events-none")}>
                         {capsula}
                     </div>
                 )}
 
-                {/* ── ARRIBA · de dónde salió esta lectura ─────────────────────────── */}
-                <div className="absolute top-0 inset-x-0 z-30 flex items-start justify-between p-4 md:p-5 pointer-events-none">
-                    <div className="flex items-center gap-2 pointer-events-auto">
-                        <span className="px-3 py-1.5 rounded-full bg-black/45 backdrop-blur-xl border border-white/15 flex items-center gap-2">
-                            <Radio size={11} style={{ color: "var(--visor-tono)" }} />
-                            <span className="text-[11px] font-semibold tracking-wide text-white/90 max-w-[240px] truncate">
+                {/* ── ARRIBA · el título: de qué cámara y cuándo ──────────────────────
+                    Era un chip chico («LPR Entrada») perdido en la esquina: lo primero que uno
+                    quiere saber de un evento — dónde y cuándo — estaba escrito en 11px. Ahora es
+                    el título de la ventana, y el punto del color del estado lo ata a la cápsula. */}
+                <div className={cn("absolute top-0 inset-x-0 z-30 flex items-start justify-between gap-4 p-4 md:px-7 md:py-5 pointer-events-none transition-opacity duration-200",
+                    limpio && "opacity-0")}>
+                    <div className={cn("flex items-center gap-4 min-w-0", !limpio && "pointer-events-auto")}>
+                        <div className="min-w-0 visor-sombra-texto">
+                            <h1 className="text-[20px] md:text-[22px] font-bold tracking-[-0.015em] text-white leading-tight truncate max-w-[46vw]">
                                 {fila.cameraName || fila.deviceId || "Cámara desconocida"}
-                            </span>
-                        </span>
-                        {vision && modo === "foto" && (
+                            </h1>
+                            <p className="flex items-center gap-2 mt-0.5 text-[12.5px] text-white/70 tabular-nums">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "var(--visor-tono)" }} />
+                                <span className="font-semibold text-white/90">{sentido}</span>
+                                {fila.decision === "DENY" && <span className="visor-mal font-semibold">no abrió</span>}
+                                <span className="text-white/30">·</span>
+                                <span>{fechaCorta(momento)}</span>
+                                <span className="text-white/30">·</span>
+                                <span>{horaSeg(momento)}</span>
+                            </p>
+                        </div>
+                        {vision && modo === "foto" && !enPaso && (
+                            /* Un interruptor: se prende y se apaga, por eso es píldora. */
                             <button type="button" onClick={() => setVerSiluetas(!verSiluetas)} aria-pressed={verSiluetas}
                                 title={verSiluetas ? "Ocultar las siluetas de OmniVision  ( O )" : "Mostrar lo que detectó OmniVision  ( O )"}
-                                className={cn("px-3 py-1.5 rounded-full backdrop-blur-xl border flex items-center gap-1.5 text-[11px] font-semibold transition-colors",
-                                    verSiluetas ? "bg-[var(--accion)] border-transparent text-white" : "bg-black/45 border-white/15 text-white/80 hover:text-white")}>
+                                className={cn("shrink-0 h-8 px-3 rounded-full border flex items-center gap-1.5 text-[11.5px] font-semibold transition-colors",
+                                    verSiluetas ? "bg-[var(--accion)] border-transparent text-white" : "bg-black/45 backdrop-blur-xl border-white/15 text-white/80 hover:text-white")}>
                                 <Sparkles size={12} />
                                 OmniVision · {vision.objetos.length}
                                 <span className={cn("ml-0.5 w-6 h-3.5 rounded-full relative transition-colors", verSiluetas ? "bg-white/35" : "bg-white/15")}>
@@ -862,19 +863,19 @@ export function VisorCuadro({
                             </button>
                         )}
                         {vig && (
-                            <span className="px-3 py-1.5 rounded-full backdrop-blur-xl border flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider"
+                            <span className="shrink-0 h-8 px-3 rounded-[8px] border flex items-center gap-1.5 text-[11.5px] font-bold"
                                 style={{
                                     background: "color-mix(in oklab, var(--visor-tono) 22%, transparent)",
                                     borderColor: "color-mix(in oklab, var(--visor-tono) 50%, transparent)",
                                     color: "color-mix(in oklab, var(--visor-tono) 65%, #fff)",
                                 }}>
-                                {IconoVig && <IconoVig size={12} />}
+                                {IconoVig && <IconoVig size={13} />}
                                 {vig.etiqueta || vig.categoria}
                             </span>
                         )}
                     </div>
 
-                    <div className="flex items-center gap-1.5 pointer-events-auto">
+                    <div className={cn("flex items-center gap-1.5 shrink-0", !limpio && "pointer-events-auto")}>
                         {(hayAnterior || haySiguiente) && (
                             <span className="visor-panel rounded-full p-1 flex items-center gap-0.5">
                                 <button type="button" onClick={onAnterior} disabled={!hayAnterior} title="Anterior  ( ← )"
@@ -894,56 +895,53 @@ export function VisorCuadro({
                     </div>
                 </div>
 
+                {/* Sin nada encima: lo único que queda es la forma de volver. Apagado hasta que se
+                    le pasa el mouse, para no ensuciar lo que se pidió ver limpio. */}
+                {limpio && (
+                    <button type="button" onClick={() => setLimpio(false)} title="Mostrar la ficha y los controles  ( H )"
+                        className="absolute top-4 right-4 z-40 h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/80 text-[11.5px] font-semibold flex items-center gap-1.5 opacity-40 hover:opacity-100 transition-opacity">
+                        <Eye size={14} /> Mostrar controles
+                    </button>
+                )}
+
+                {/* Mirando un paso anterior: se dice cuál, y se ofrece volver. */}
+                {enPaso && pasoViendo && (
+                    <div className={cn("absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85 tabular-nums",
+                        limpio && "hidden")}>
+                        <GalleryHorizontal size={14} className="text-white/55" />
+                        <span>
+                            Paso del <b className="text-white">{fechaCorta(pasoViendo.momento)} · {horaSeg(pasoViendo.momento)}</b>
+                            {pasoViendo.camara ? <span className="text-white/55"> · {pasoViendo.camara}</span> : null}
+                        </span>
+                        <BotonVisor icono={Undo2} onClick={() => setPasoViendo(null)} title="Volver a la foto de este evento  ( Esc )">Volver al evento</BotonVisor>
+                    </div>
+                )}
+
                 {/* ── IZQUIERDA · LA FICHA ─────────────────────────────────────────── */}
-                {/* Todo a la vista y nada en cajones: con OmniVision y los pasos anteriores la
-                    ficha puede pasar del alto de la ventana, así que se desplaza (centrada si entra). */}
+                {/* Todo a la vista y nada en cajones: con OmniVision la ficha puede pasar del alto
+                    de la ventana, así que se desplaza (centrada si entra). */}
                 <div className={cn(
-                    "absolute left-5 md:left-8 top-16 bottom-12 z-20 w-[min(440px,44vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity duration-200",
-                    acercado && "opacity-0 pointer-events-none",
+                    "absolute left-5 md:left-8 top-[88px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity duration-200",
+                    panel === "pasos" ? "bottom-[214px]" : "bottom-12",
+                    (acercado || limpio) && "opacity-0 pointer-events-none",
                 )}>
-                <div className="my-auto flex flex-col gap-3.5 py-2">
+                <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
                     <div className="flex items-center gap-3">
                         <ChapaMercosur plate={fila.plate} conocida={conocida && !datos?.porRelectura} onCopiar={copiar} />
                         {datos?.empresa && <LogoSobreFoto empresa={datos.empresa} className="h-9 max-w-[120px]" />}
-                    </div>
-
-                    {/* Qué tan buena fue la lectura. Va pegado a la chapa y no en un rincón
-                        porque es lo que dice si hay que creerle a la chapa de arriba. */}
-                    <div className="flex items-center gap-3 visor-sombra-texto -mt-1">
-                        <Medida valor={conf != null ? `${conf}%` : "—"} rotulo="confianza" tono={tonoConf}
-                            ayuda="Qué tan seguro estaba el lector de esta lectura." />
-                        <span className="text-white/20">·</span>
-                        <Medida valor={fila.reads != null ? String(fila.reads) : "—"} rotulo="cuadros"
-                            ayuda="En cuántos cuadros seguidos de la ráfaga se leyó lo mismo. Una chapa vista en cinco vale mucho más que una vista en uno." />
-                        <span className="text-white/20">·</span>
-                        <Medida
-                            valor={recuadro ? `${(recuadro.w * 100).toFixed(1)}%` : "—"}
-                            rotulo="del cuadro"
-                            tono={!recuadro ? "text-white/30" : recuadro.w >= 0.05 ? "visor-bien" : recuadro.w >= 0.03 ? "visor-aviso" : "visor-mal"}
-                            ayuda="Ancho de la matrícula respecto del cuadro. Por debajo de 3% el lector empieza a fallar." />
-                        {copiada && (
-                            <span className="text-[10px] font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 70%, #fff)" }}>
-                                copiada
-                            </span>
-                        )}
+                        {copiada && <span className="text-[11px] font-semibold text-white/70">copiada</span>}
                     </div>
 
                     {/*
-                      * El rostro, cuando el acceso fue por cara.
-                      *
-                      * Va al lado de la chapa y no en su lugar: un mismo evento puede tener
-                      * las dos cosas — el auto entró y la cámara de la garita le leyó la
-                      * cara al conductor —, y elegir una de las dos escondería la otra.
-                      *
-                      * El porcentaje es lo que el equipo dijo que se parecía. Se muestra
-                      * con su tono porque una coincidencia del 62% y una del 97% llevan a
-                      * decisiones distintas, y el número solo no lo grita.
+                      * El rostro, cuando el acceso fue por cara. Va al lado de la chapa y no en su
+                      * lugar: un mismo evento puede tener las dos cosas. El porcentaje lleva su tono
+                      * porque una coincidencia del 62% y una del 97% llevan a decisiones distintas.
                       */}
                     {rostro && (
-                        <div className="flex items-center gap-3 visor-sombra-texto">
+                        <div className="flex items-center gap-3">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={rostro} alt="" width={56} height={56}
-                                className="w-14 h-14 rounded-xl object-cover border border-white/25 bg-black shrink-0" />
+                                className="w-14 h-14 rounded-[10px] object-cover border border-white/25 bg-black shrink-0" />
                             <div className="min-w-0">
                                 <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white/90">
                                     <ScanFace size={13} className="text-white/55" />
@@ -962,281 +960,277 @@ export function VisorCuadro({
                         </div>
                     )}
 
-                    {/* La marca. */}
-                    <div className="flex items-center gap-3.5 visor-sombra-texto">
-                        <span className="relative w-11 h-11 rounded-xl bg-gradient-to-b from-white/20 via-white/10 to-white/5 border border-white/25 backdrop-blur-md flex items-center justify-center shrink-0">
+                    {/* La marca: del padrón si está cargada, si no la que reconoció la cámara. */}
+                    <div className="flex items-center gap-3.5">
+                        <span className="relative w-11 h-11 rounded-[10px] bg-white/10 border border-white/20 flex items-center justify-center shrink-0">
                             {logo
                                 ? <Image src={logo} alt={marca || ""} fill sizes="44px" className="object-contain p-2.5" />
                                 : <Car size={20} className="text-white/70" />}
                         </span>
                         <div className="min-w-0">
-                            <h2 className="text-2xl md:text-3xl font-bold tracking-[0.06em] uppercase text-white/95 truncate leading-none">
+                            <h2 className="text-2xl md:text-[28px] font-bold tracking-[0.04em] uppercase text-white truncate leading-none">
                                 {marca || "Sin marca"}
                             </h2>
-                            <p className="text-[12.5px] text-white/70 truncate mt-1.5">
-                                {[modelo, color, tipoVeh].filter(Boolean).join(" · ") || "Modelo y color sin cargar"}
-                                <span className="text-white/25 mx-1.5">•</span>
-                                <span className="font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 70%, #fff)" }}>
-                                    {cargandoFicha ? "Consultando el padrón…" : conocida ? "En el padrón" : "No figura en el padrón"}
-                                </span>
-                                {/* De dónde salió el dato. "Peugeot gris" cargado por el
-                                    administrador y "Peugeot gris" adivinado por una cámara
-                                    no valen lo mismo, y quien mira tiene que poder saberlo. */}
-                                {deLaCamara && (
-                                    <span className="text-white/45 italic ml-1.5">· lo reconoció la cámara</span>
-                                )}
-                            </p>
+                            {([modelo, color, tipoVeh].some(Boolean) || deLaCamara) && (
+                                <p className="text-[12.5px] text-white/70 truncate mt-1.5">
+                                    {[modelo, color, tipoVeh].filter(Boolean).join(" · ")}
+                                    {/* "Peugeot gris" cargado por el administrador y adivinado por una
+                                        cámara no valen lo mismo: se dice de dónde salió. */}
+                                    {deLaCamara && <span className="text-white/45 italic">{[modelo, color, tipoVeh].some(Boolean) ? " · " : ""}según la cámara</span>}
+                                </p>
+                            )}
                         </div>
                     </div>
 
-                    {/* Quién y de dónde. Lo que falta también se muestra, en fantasma. */}
-                    <div className="flex flex-wrap items-center gap-2 visor-sombra-texto">
-                        <Etiqueta icono={Home} valor={dueno?.nombre} falta="Sin residente" verificado={!!dueno?.nombre} />
-                        <Etiqueta icono={Layers}
-                            valor={[dueno?.unidad, dueno?.apartamento].filter(Boolean).join(" · ") || null}
-                            falta="Sin unidad"
-                            sufijo={dueno?.cochera ? `Cochera ${dueno.cochera}` : null} />
-                        <Etiqueta icono={Phone} valor={dueno?.telefono} falta="Sin teléfono" />
-                        {!dueno?.cochera && <Etiqueta icono={ParkingSquare} valor={null} falta="Sin cochera" />}
-                        {ficha?.visita && (
-                            <Etiqueta icono={DoorOpen} falta="Sin visita"
-                                valor={[ficha.visita.tipo, ficha.visita.lote ? `a ${ficha.visita.lote}` : null, ficha.visita.nombre].filter(Boolean).join(" · ") || "Visita"}
-                                sufijo={ficha.visita.sale ? `salió ${hora(new Date(ficha.visita.sale))}` : ficha.visita.vence ? `hasta ${hora(new Date(ficha.visita.vence))}` : null} />
+                    {/* ── El padrón: quién es y a dónde va ── */}
+                    <Seccion titulo="Padrón" icono={Home}
+                        extra={<span className={cn("text-[11px] font-semibold", cargandoFicha ? "text-white/45" : conocida ? "visor-bien" : "text-white/55")}>
+                            {cargandoFicha ? "Consultando…" : conocida ? "Registrada" : "No figura"}
+                        </span>}>
+                        {cargandoFicha && !dueno ? (
+                            <div className="h-4 w-48 rounded bg-white/10 animate-pulse my-1" />
+                        ) : dueno ? (
+                            <dl>
+                                <Dato rotulo="Residente" valor={dueno.nombre} />
+                                <Dato rotulo="Lote" valor={[dueno.unidad, dueno.apartamento].filter(Boolean).join(" · ") || null} />
+                                <Dato rotulo="Teléfono" valor={dueno.telefono} />
+                                <Dato rotulo="Cochera" valor={dueno.cochera} falta="sin asignar" />
+                            </dl>
+                        ) : (
+                            <div className="flex items-center justify-between gap-3 py-0.5">
+                                <span className="text-[12.5px] text-white/60">Esta matrícula no está en el padrón.</span>
+                                {onRegistrar && (
+                                    <BotonVisor icono={UserPlus} destacada onClick={() => onRegistrar(fila.plate)}>Registrar</BotonVisor>
+                                )}
+                            </div>
                         )}
-                    </div>
-                    {datos?.porRelectura && datos.plate && (
-                        <p className="text-[11.5px] text-white/60 visor-sombra-texto -mt-1.5">
-                            La cámara no leyó la chapa: estos datos son de <b className="text-white/90 tracking-wider">{datos.plate}</b>, la que releyó OmniVision. Confirmalo mirando la foto.
-                        </p>
+                        {ficha?.visita && (
+                            <dl>
+                                <Dato rotulo="Visita"
+                                    valor={[ficha.visita.tipo, ficha.visita.lote ? `a ${ficha.visita.lote}` : null, ficha.visita.nombre].filter(Boolean).join(" · ") || "Visita"}
+                                    sufijo={ficha.visita.sale ? `salió ${hora(new Date(ficha.visita.sale))}` : ficha.visita.vence ? `hasta ${hora(new Date(ficha.visita.vence))}` : null} />
+                            </dl>
+                        )}
+                        {datos?.porRelectura && datos.plate && (
+                            <p className="text-[11.5px] text-white/55 mt-1 leading-snug">
+                                La cámara no leyó la chapa: estos datos son de <b className="text-white/90 tracking-wider">{datos.plate}</b>, la que releyó OmniVision. Confirmalo mirando la foto.
+                            </p>
+                        )}
+                    </Seccion>
+
+                    {/* ── Lo que dijo la cámara LPR ── separado de OmniVision: son dos equipos distintos
+                        mirando la misma foto, y cuando no coinciden hay que poder ver quién dijo qué. */}
+                    {(conf != null || fila.reads != null || recuadro || vehiculoCamara) && (
+                        <Seccion titulo="Según la cámara" icono={Camera}>
+                            <dl>
+                                {(conf != null || fila.reads != null) && (
+                                    <Dato rotulo="Lectura" tono={cn("font-bold tabular-nums", tonoConf)}
+                                        valor={conf != null ? `${conf} %` : null} falta="sin dato"
+                                        sufijo={fila.reads != null ? `en ${fila.reads} ${fila.reads === 1 ? "cuadro" : "cuadros"}` : null} />
+                                )}
+                                {recuadro && (
+                                    <Dato rotulo="Chapa"
+                                        tono={cn("font-semibold tabular-nums", recuadro.w >= 0.05 ? "visor-bien" : recuadro.w >= 0.03 ? "visor-aviso" : "visor-mal")}
+                                        valor={`${(recuadro.w * 100).toFixed(1)} % del ancho`}
+                                        sufijo={recuadro.w < 0.03 ? "chica: el lector puede fallar" : null} />
+                                )}
+                                {vehiculoCamara && <Dato rotulo="Vehículo" valor={vehiculoCamara} />}
+                            </dl>
+                        </Seccion>
                     )}
 
-                    {/* El hueco tiene que poder llenarse desde donde se ve. Mandar a buscar
-                        el alta en otra pantalla es la forma más segura de que la matrícula
-                        quede sin cargar. */}
-                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                        {!dueno && onRegistrar && (
-                            <Pildora icono={UserPlus} destacada onClick={() => onRegistrar(fila.plate)}>
-                                Registrar esta matrícula
-                            </Pildora>
+                    {/* ── Lo que vio OmniVision ── */}
+                    {(vision || datos?.relectura) && (
+                        <Seccion titulo="OmniVision" icono={Sparkles}
+                            extra={vision ? <span className="text-[11px] text-white/45 tabular-nums">{vision.objetos.length} {vision.objetos.length === 1 ? "objeto" : "objetos"}</span> : null}>
+                            {vision && <ListaVision objetos={vision.objetos} />}
+                            {datos?.relectura && <Relectura r={datos.relectura} />}
+                        </Seccion>
+                    )}
+
+                    {/* ── Historia y acciones ── */}
+                    <div className="flex flex-wrap items-center gap-2 border-t border-white/12 pt-3">
+                        {hayPasos && (
+                            <BotonVisor icono={GalleryHorizontal} encendida={panel === "pasos"}
+                                onClick={() => setPanel(panel === "pasos" ? null : "pasos")}
+                                title="Las fotos de las veces anteriores que pasó esta matrícula">
+                                Pasos anteriores{pasos.length ? <span className="tabular-nums text-white/55">· {pasos.length}</span> : null}
+                            </BotonVisor>
                         )}
+                        {comportamiento && (
+                            <BotonVisor icono={Activity} encendida={panel === "comportamiento"}
+                                onClick={() => setPanel(panel === "comportamiento" ? null : "comportamiento")}
+                                title="Cuándo entra, cuánto se queda y en qué horarios se la ve">
+                                Comportamiento
+                            </BotonVisor>
+                        )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 -mt-1">
                         {estacionado && !cerrada && fila.deviceId && (
-                            <Pildora icono={Eye} onClick={verificar} ocupada={verificando}
+                            <BotonVisor icono={Eye} onClick={verificar} ocupada={verificando}
                                 title="Toma un cuadro de la cámara ahora y busca esta matrícula en el encuadre">
                                 {verificando ? "Mirando…" : "¿Sigue ahí?"}
-                            </Pildora>
-                        )}
-                        {onGrabacion && (
-                            <Pildora icono={PlayCircle} onClick={onGrabacion}
-                                title="Ver la grabación del NVR en este instante">
-                                Grabación
-                            </Pildora>
+                            </BotonVisor>
                         )}
                         {(onClip || hrefClip) && (
-                            <Pildora icono={Download} onClick={onClip} href={onClip ? undefined : hrefClip}
+                            <BotonVisor icono={Download} onClick={onClip} href={onClip ? undefined : hrefClip}
                                 title={onClip ? "Bajar o mandar por WhatsApp un clip de este instante" : "Bajar el clip de este instante (la duración es la de Ajustes → Video del evento)"}>
                                 Clip
-                            </Pildora>
+                            </BotonVisor>
                         )}
                         {onExportar && (
-                            <Pildora icono={Archive} onClick={onExportar}
-                                title="Un ZIP con la foto, el clip y los datos del evento">
+                            <BotonVisor icono={Archive} onClick={onExportar} title="Un ZIP con la foto, el clip y los datos del evento">
                                 Exportar
-                            </Pildora>
+                            </BotonVisor>
                         )}
                         {onListaNegra && (
-                            <Pildora icono={ShieldBan} onClick={onListaNegra} encendida={enListaNegra} ocupada={ocupadoLista}
+                            <BotonVisor icono={ShieldBan} onClick={onListaNegra} encendida={enListaNegra} ocupada={ocupadoLista}
                                 title={enListaNegra ? "Sacar de la lista negra: vuelve a decidir la credencial y el modo LPR; si tiene credencial vuelve a la lista blanca de las lectoras" : "Lista negra: toda lectura se registra DENEGADA (aunque tenga credencial), va a la lista negra de las lectoras, el monitor la muestra en rojo y avisa"}>
                                 {enListaNegra ? "Quitar de la lista" : "Lista negra"}
-                            </Pildora>
+                            </BotonVisor>
                         )}
                     </div>
 
                     {veredicto && (
-                        <div className={cn("flex items-start gap-2 px-3 py-2 rounded-xl bg-black/55 backdrop-blur-xl border text-[12px] max-w-[380px]",
-                            veredicto.tono === "bien" ? "visor-bien" : veredicto.tono === "mal" ? "visor-mal" : "visor-aviso")}
-                            style={{ borderColor: "rgba(255,255,255,0.15)" }}>
+                        <div className={cn("flex items-start gap-2 px-3 py-2 rounded-[8px] bg-black/55 border border-white/15 text-[12px] max-w-[380px]",
+                            veredicto.tono === "bien" ? "visor-bien" : veredicto.tono === "mal" ? "visor-mal" : "visor-aviso")}>
                             <Eye size={13} className="mt-0.5 shrink-0" />
                             <span className="font-medium">{veredicto.texto}</span>
                         </div>
                     )}
-
-                    {(vision || datos?.relectura) && <SeccionOmniVision vision={vision} relectura={datos?.relectura || null} />}
-
-                    {historial && <PasosAnteriores historial={historial} cargando={cargandoHistorial} />}
                 </div>
                 </div>
 
                 {/* ── DERECHA · LOS CONTROLES, EN VERTICAL ─────────────────────────── */}
-                <div className="absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5">
+                <div className={cn("absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity duration-200",
+                    limpio && "opacity-0 pointer-events-none")}>
                     {fila.deviceId && (
                         <>
-                            <button type="button"
-                                onClick={() => setModo((m) => (m === "vivo" ? "foto" : "vivo"))}
-                                title={modo === "vivo" ? "Volver al cuadro guardado" : "Ver lo que la cámara ve ahora"}
-                                className={cn("visor-vidrio w-9 h-9 rounded-full flex items-center justify-center",
-                                    modo === "vivo" ? "visor-vidrio-activo text-white" : "text-white/85 hover:text-white")}>
+                            <BotonRiel activo={modo === "vivo"}
+                                onClick={() => { setPasoViendo(null); setModo((m) => (m === "vivo" ? "foto" : "vivo")); }}
+                                title={modo === "vivo" ? "Volver al cuadro guardado" : "Ver acá lo que la cámara ve ahora"}>
                                 {modo === "vivo" ? <IconoFoto size={15} /> : <Video size={15} />}
-                            </button>
+                            </BotonRiel>
+                            {/* El visor completo de la cámara: vivo con sus controles, a pantalla entera. */}
+                            <BotonRiel onClick={() => setAbrirCamara("live")} title="Abrir la cámara en vivo, con todos sus controles">
+                                <Cctv size={15} />
+                            </BotonRiel>
+                            {verGrabacion && (
+                                <BotonRiel onClick={verGrabacion} title="Ver la grabación del NVR en este instante">
+                                    <PlayCircle size={15} />
+                                </BotonRiel>
+                            )}
                             <span className="w-4 h-px bg-white/15" />
                         </>
                     )}
-                    {modo === "foto" && recuadro && (
+                    <BotonRiel onClick={() => setLimpio(true)} title="Ocultar la ficha y los controles, ver la imagen limpia  ( H )">
+                        <EyeOff size={15} />
+                    </BotonRiel>
+                    {modo === "foto" && !enPaso && recuadro && (
                         <>
-                            <button type="button" onClick={irALaChapa} title="Acercar a la matrícula  ( P )"
-                                className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white flex items-center justify-center">
-                                <Lupa size={15} />
-                            </button>
-                            <button type="button" onClick={() => setVerContorno((v) => !v)} title="Marcar lo que detectó el lector  ( C )"
-                                className={cn("visor-vidrio w-9 h-9 rounded-full flex items-center justify-center",
-                                    verContorno ? "visor-vidrio-activo text-white" : "text-white/85 hover:text-white")}>
-                                <Scan size={15} />
-                            </button>
-                            <span className="w-4 h-px bg-white/15" />
+                            <BotonRiel onClick={irALaChapa} title="Acercar a la matrícula  ( P )"><Lupa size={15} /></BotonRiel>
+                            <BotonRiel activo={verContorno} onClick={() => setVerContorno((v) => !v)} title="Marcar lo que detectó el lector  ( C )"><Scan size={15} /></BotonRiel>
                         </>
                     )}
-                    <button type="button" onClick={() => zoomEn(escala * 1.6)} disabled={escala >= ESCALA_MAX} title="Acercar  ( + )"
-                        className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white disabled:opacity-25 flex items-center justify-center">
-                        <ZoomIn size={15} />
-                    </button>
+                    <span className="w-4 h-px bg-white/15" />
+                    <BotonRiel onClick={() => zoomEn(escala * 1.6)} disabled={escala >= ESCALA_MAX} title="Acercar  ( + )"><ZoomIn size={15} /></BotonRiel>
                     <span className="text-[10.5px] font-bold tabular-nums text-white/65 select-none">
                         {escala.toFixed(1)}×
                     </span>
-                    <button type="button" onClick={() => zoomEn(escala / 1.6)} disabled={!acercado} title="Alejar  ( − )"
-                        className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white disabled:opacity-25 flex items-center justify-center">
-                        <ZoomOut size={15} />
-                    </button>
-                    <button type="button" onClick={reiniciar} disabled={!acercado} title="Volver al tamaño original  ( 0 )"
-                        className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white disabled:opacity-25 flex items-center justify-center">
-                        <Maximize2 size={14} />
-                    </button>
+                    <BotonRiel onClick={() => zoomEn(escala / 1.6)} disabled={!acercado} title="Alejar  ( − )"><ZoomOut size={15} /></BotonRiel>
+                    <BotonRiel onClick={reiniciar} disabled={!acercado} title="Volver al tamaño original  ( 0 )"><Maximize2 size={14} /></BotonRiel>
                 </div>
 
-                {/* ── ABAJO · cuándo, y con qué se está mirando ────────────────────── */}
-                <div className="absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums">
-                    <span className="flex items-center gap-2.5">
-                        {modo === "vivo" ? (
-                            <>
-                                <Radio size={11} className="animate-pulse" style={{ color: "var(--visor-tono)" }} />
-                                <span className="font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 60%, #fff)" }}>
-                                    En vivo
-                                </span>
-                                <span className="text-white/20">·</span>
-                                <span>el cuadro guardado es de {horaSeg(momento)}</span>
-                            </>
-                        ) : (
-                            <>
-                                <Camera size={11} className="text-white/35" />
-                                {fechaCorta(momento)}
-                                <span className="text-white/20">·</span>
-                                {horaSeg(momento)}
-                            </>
-                        )}
-                    </span>
-                    <span className="flex items-center gap-2.5">
-                        {acercado && <span>arrastrar para mover</span>}
-                        {acercado && <span className="text-white/20">·</span>}
-                        <span>Esc para {acercado ? "alejar" : "cerrar"}</span>
-                    </span>
-                </div>
-            </motion.div>
-        </div>
-    );
-}
-
-
-/** Un rótulo de sección de la ficha, sobre la foto. */
-function TituloSeccion({ icono: Ico, children }: { icono: any; children: React.ReactNode }) {
-    return (
-        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/55 visor-sombra-texto">
-            <Ico size={12} /> {children}
-        </div>
-    );
-}
-
-/**
- * Lo que vio OmniVision en la foto, en palabras: qué hay (con color y carrocería cuando los
- * reconoció con seguridad) y, si la cámara no leyó la chapa, qué leyó OmniVision recortando el
- * vehículo. Va en la ficha y no en un cajón: es lo primero que se quiere saber de una NO_LEIDA.
- */
-function SeccionOmniVision({ vision, relectura }: { vision: Analisis | null; relectura: DatosVisor["relectura"] }) {
-    const objetos = [...(vision?.objetos || [])].sort((a, b) => b.confianza - a.confianza);
-    const leyo = relectura && relectura.plate && (relectura.estado === "LEIDA" || relectura.estado === "DUDOSA");
-    return (
-        <div className="flex flex-col gap-2">
-            <TituloSeccion icono={Sparkles}>Lo que vio OmniVision</TituloSeccion>
-            {objetos.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                    {objetos.slice(0, 8).map((o, i) => {
-                        const attrs = (o.atributos || []).filter((a) => !a.dudoso).map((a) => a.valor);
-                        return (
-                            <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/10 backdrop-blur-xl border border-white/15 text-[11.5px]">
-                                <span className="font-semibold text-white/95 capitalize">{o.nombre}</span>
-                                {attrs.length > 0 && <span className="text-white/65">{attrs.join(" · ")}</span>}
-                                <span className="text-white/45 tabular-nums">{Math.round(o.confianza * 100)}%</span>
-                            </span>
-                        );
-                    })}
-                    {objetos.length > 8 && <span className="text-[11px] text-white/50 self-center">y {objetos.length - 8} más</span>}
-                </div>
-            )}
-            {relectura && (
-                <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-black/45 backdrop-blur-xl border border-white/15">
-                    {relectura.chapa && (
-                        /* eslint-disable-next-line @next/next/no-img-element */
-                        <img src={relectura.chapa} alt="" className="h-9 w-auto max-w-[120px] rounded-md object-contain bg-black border border-white/20" />
-                    )}
-                    <div className="min-w-0 text-[12px] leading-snug">
-                        {leyo ? (
-                            <>
-                                <div className="text-white/90">Releyó la chapa: <b className="tracking-wider">{relectura.plate}</b>
-                                    {relectura.confianza != null && <span className="text-white/55 tabular-nums"> · {Math.round(relectura.confianza * 100)}%</span>}
-                                </div>
-                                <div className={relectura.estado === "DUDOSA" ? "visor-aviso" : "text-white/55"}>
-                                    {relectura.estado === "DUDOSA" ? "Dudosa: confirmala mirando la foto." : "Sugerencia: no cambia el evento ni la barrera."}
-                                </div>
-                            </>
-                        ) : (
-                            <div className="text-white/60">
-                                {relectura.estado === "SIN_CHAPA" ? "Recortó el vehículo pero no encontró la chapa."
-                                    : relectura.estado === "SIN_VEHICULO" ? "No encontró un vehículo para releer."
-                                        : "No pudo releer la chapa."}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
-/**
- * Los pasos anteriores de la chapa, a la vista en la ficha. Estaban detrás de un botón que
- * abría un cajón desde abajo y tapaba la foto: lo que se quiere es leerlos al lado de la captura.
- */
-function PasosAnteriores({ historial, cargando }: { historial: NonNullable<Parameters<typeof VisorCuadro>[0]["historial"]>; cargando?: boolean }) {
-    return (
-        <div className="flex flex-col gap-1.5">
-            <TituloSeccion icono={Reloj}>Pasos anteriores{historial.length ? ` · ${historial.length}` : ""}</TituloSeccion>
-            {cargando ? <div className="text-[12px] text-white/50">Buscando…</div>
-                : !historial.length ? <div className="text-[12px] text-white/50 visor-sombra-texto">Es la primera vez que se ve esta matrícula en lo cargado.</div>
-                    : (
-                        <ul className="rounded-xl bg-black/40 backdrop-blur-xl border border-white/10 divide-y divide-white/10 max-h-[180px] overflow-y-auto [scrollbar-width:thin]">
-                            {historial.slice(0, 40).map((h, i) => (
-                                <li key={h.id || i} className="flex items-center justify-between gap-3 px-3 py-1.5">
-                                    <span className="flex items-center gap-2 min-w-0">
-                                        {h.direccion === "EXIT" ? <LogOut size={12} className="text-white/45 shrink-0" /> : <LogIn size={12} className="text-white/45 shrink-0" />}
-                                        <span className="text-[12px] text-white/85 truncate">{h.camara || "Cámara sin nombre"}</span>
-                                        {h.decision && (
-                                            <span className={cn("text-[9.5px] font-bold uppercase tracking-wider shrink-0", h.decision === "GRANT" ? "visor-bien" : "visor-mal")}>
-                                                {h.decision === "GRANT" ? "abrió" : "no abrió"}
-                                            </span>
-                                        )}
+                {/* ── ABAJO · con qué se está mirando ──────────────────────────────── */}
+                {!panel && (
+                    <div className={cn("absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums transition-opacity",
+                        limpio && "opacity-0")}>
+                        <span className="flex items-center gap-2.5">
+                            {modo === "vivo" ? (
+                                <>
+                                    <Radio size={11} className="animate-pulse" style={{ color: "var(--visor-tono)" }} />
+                                    <span className="font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 60%, #fff)" }}>
+                                        En vivo
                                     </span>
-                                    <span className="text-[11px] text-white/55 tabular-nums shrink-0">{fechaCorta(h.momento)} · {horaSeg(h.momento)}</span>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
+                                    <span className="text-white/20">·</span>
+                                    <span>el cuadro guardado es de {horaSeg(momento)}</span>
+                                </>
+                            ) : (
+                                <span>H para ver la imagen limpia</span>
+                            )}
+                        </span>
+                        <span className="flex items-center gap-2.5">
+                            {acercado && <span>arrastrar para mover</span>}
+                            {acercado && <span className="text-white/20">·</span>}
+                            <span>Esc para {acercado ? "alejar" : enPaso ? "volver al evento" : "cerrar"}</span>
+                        </span>
+                    </div>
+                )}
+
+                {panel === "pasos" && !limpio && (
+                    <TiraPasos pasos={pasos} viendo={pasoViendo?.id || null}
+                        cargando={!!cargandoHistorial || (!!cargandoFicha && !pasos.length)}
+                        onElegir={(p) => { setModo("foto"); setPasoViendo(p); }}
+                        onCerrar={() => setPanel(null)} />
+                )}
+                {panel === "comportamiento" && comportamiento && !limpio && (
+                    <PanelComportamiento plate={datos?.plate || fila.plate} datos={comportamiento} viendo={pasoViendo?.id || null}
+                        onElegir={(p) => { setModo("foto"); setPasoViendo(p.actual ? null : p); }}
+                        onCerrar={() => setPanel(null)} />
+                )}
+            </motion.div>
+
+            {abrirCamara && fila.deviceId && (
+                <VerGrabacion deviceId={fila.deviceId} nombre={fila.cameraName} tab={abrirCamara}
+                    instanteMs={new Date(fila.timestamp).getTime()} onClose={() => setAbrirCamara(null)} />
+            )}
+        </div>
+    );
+}
+
+/** Un botón del riel de la derecha: redondo y de vidrio, como el resto del riel. */
+function BotonRiel({ children, onClick, title, activo, disabled }: {
+    children: React.ReactNode; onClick: () => void; title: string; activo?: boolean; disabled?: boolean;
+}) {
+    return (
+        <button type="button" onClick={onClick} title={title} aria-label={title} disabled={disabled}
+            className={cn("visor-vidrio w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-25",
+                activo ? "visor-vidrio-activo text-white" : "text-white/85 hover:text-white")}>
+            {children}
+        </button>
+    );
+}
+
+/**
+ * La relectura de OmniVision: si la cámara no leyó la chapa, qué leyó OmniVision recortando el
+ * vehículo. Un renglón más de la sección, con el recorte de la chapa para comparar.
+ */
+function Relectura({ r }: { r: NonNullable<DatosVisor["relectura"]> }) {
+    const leyo = r.plate && (r.estado === "LEIDA" || r.estado === "DUDOSA");
+    return (
+        <div className="grid grid-cols-[92px_1fr] items-center gap-3 py-[3px] mt-0.5 text-[12.5px] leading-snug">
+            <span className="text-white/50">Releyó</span>
+            <span className="flex items-center gap-2.5 min-w-0">
+                {r.chapa && (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={r.chapa} alt="" className="h-7 w-auto max-w-[96px] rounded-[4px] object-contain bg-black border border-white/20" />
+                )}
+                {leyo ? (
+                    <span className="min-w-0">
+                        <b className="text-white tracking-wider">{r.plate}</b>
+                        {r.confianza != null && <span className="text-white/50 tabular-nums"> · {Math.round(r.confianza * 100)} %</span>}
+                        <span className={cn("block text-[11px]", r.estado === "DUDOSA" ? "visor-aviso" : "text-white/45")}>
+                            {r.estado === "DUDOSA" ? "Dudosa: confirmala mirando la foto." : "Sugerencia: no cambia el evento ni la barrera."}
+                        </span>
+                    </span>
+                ) : (
+                    <span className="text-white/55">
+                        {r.estado === "SIN_CHAPA" ? "Recortó el vehículo pero no encontró la chapa."
+                            : r.estado === "SIN_VEHICULO" ? "No encontró un vehículo para releer."
+                                : "No pudo releer la chapa."}
+                    </span>
+                )}
+            </span>
         </div>
     );
 }

@@ -6,9 +6,18 @@ import { normalizeWatchCat } from "@/lib/watch-categories";
 import { esNoLeida, relecturasDe } from "@/lib/relectura";
 import { empresasDeLecturas } from "@/lib/empresas-servidor";
 import { leerAjustesVisitas } from "@/lib/visitas/ajustes";
+import { getImagePath } from "@/lib/image-path";
+import { ZONA } from "@/lib/fechas";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * El comportamiento de la chapa: sus pasos por la barrera y cuándo se la ve, en los últimos
+ * COMPORTAMIENTO_DIAS días (los mismos que la ficha de Control LPR). Hasta PASOS_MAX pasos:
+ * más no entran en el panel y un vehículo que pasa 200 veces en un mes ya dijo lo que es.
+ */
+const COMPORTAMIENTO_DIAS = 30;
+const PASOS_MAX = 200;
 /** Una visita cuenta para la lectura si estaba abierta a esa hora, con este margen (la garita la carga antes o después). */
 const MARGEN_VISITA_MS = 30 * 60_000;
 
@@ -87,6 +96,38 @@ export async function GET(req: NextRequest) {
     } : null;
 
     const an = analisis?.estado === "OK" ? (analisis.analisis as any) : null;
+
+    // El comportamiento: los pasos (con foto, para la tira) y la franja día × hora (para el mapa de calor).
+    const desdeComp = new Date(Date.now() - COMPORTAMIENTO_DIAS * 86_400_000);
+    const [pasos, franjaFilas, perfil] = conChapa ? await Promise.all([
+        prisma.accessEvent.findMany({
+            where: { plateDetected: plate, timestamp: { gte: desdeComp } }, orderBy: { timestamp: "desc" }, take: PASOS_MAX,
+            select: { id: true, timestamp: true, direction: true, decision: true, snapshotPath: true, imagePath: true, location: true, device: { select: { name: true } } },
+        }).catch(() => []),
+        prisma.$queryRaw<{ dow: number; h: number; n: number }[]>`
+            SELECT extract(isodow FROM (timestamp AT TIME ZONE 'UTC' AT TIME ZONE ${ZONA}))::int AS dow,
+                   extract(hour FROM (timestamp AT TIME ZONE 'UTC' AT TIME ZONE ${ZONA}))::int AS h, count(*)::int AS n
+              FROM "AccessEvent"
+             WHERE "plateDetected" = ${plate} AND timestamp >= now() - (${String(COMPORTAMIENTO_DIAS)} || ' days')::interval
+             GROUP BY 1, 2`.catch(() => []),
+        prisma.perfilMatricula.findUnique({ where: { plate } }).catch(() => null),
+    ]) : [[], [], null];
+    const franja = Array.from({ length: 7 }, () => Array(24).fill(0) as number[]);
+    for (const f of franjaFilas as any[]) if (f.dow >= 1 && f.dow <= 7 && f.h >= 0 && f.h < 24) franja[f.dow - 1][f.h] = f.n;
+    const comportamiento = conChapa ? {
+        dias: COMPORTAMIENTO_DIAS,
+        pasos: (pasos as any[]).map((x) => ({
+            id: x.id, momento: x.timestamp.toISOString(), direccion: x.direction, decision: x.decision,
+            camara: x.device?.name || x.location || null, foto: getImagePath(x.snapshotPath || x.imagePath) || null,
+            actual: x.id === eventoId,
+        })),
+        franja,
+        perfil: perfil ? {
+            clase: perfil.clase, diasVistos: perfil.diasVistos, entradas: perfil.entradas, salidas: perfil.salidas,
+            primeraVez: perfil.primeraVez.toISOString(), ultimaVez: perfil.ultimaVez.toISOString(),
+            permanenciaMedianaMin: perfil.permanenciaMedianaMin, permanenciaP90Min: perfil.permanenciaP90Min,
+        } : null,
+    } : null;
     return NextResponse.json({
         plate: conChapa ? plate : null,
         porRelectura,
@@ -94,5 +135,6 @@ export async function GET(req: NextRequest) {
         vision: an?.ancho && an?.alto ? { ancho: an.ancho, alto: an.alto, objetos: an.objetos || [] } : null,
         relectura,
         empresa,
+        comportamiento,
     }, { headers: { "Cache-Control": "no-store" } });
 }

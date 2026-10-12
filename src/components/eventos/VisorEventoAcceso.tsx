@@ -253,6 +253,7 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                         camara: h.device?.name || h.location || null,
                         direccion: h.direction,
                         decision: h.decision,
+                        foto: getImagePath(h.snapshotPath || h.imagePath) || null,
                     })) : undefined}
                     cargandoHistorial={cargandoHistorial}
                     onRegistrar={registrar}

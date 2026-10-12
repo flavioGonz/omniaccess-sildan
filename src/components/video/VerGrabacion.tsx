@@ -33,8 +33,10 @@ export function canalDe(deviceId: string): Promise<Canal> {
     return canales.get(deviceId)!;
 }
 
-export function VerGrabacion({ deviceId, nombre, instanteMs, canal, nvrId, onClose }: {
+export function VerGrabacion({ deviceId, nombre, instanteMs, canal, nvrId, onClose, tab = "rec" }: {
     deviceId: string;
+    /** En qué solapa abre: la grabación (lo de siempre) o el vivo de la cámara con todos sus controles. */
+    tab?: "rec" | "live";
     nombre?: string | null;
     /** El instante del evento: la grabación arranca ahí (menos los segundos "antes" de Ajustes). */
     instanteMs: number;
@@ -69,7 +71,7 @@ export function VerGrabacion({ deviceId, nombre, instanteMs, canal, nvrId, onClo
        quita los clics a todo lo que está fuera de él. */
     return createPortal(
         <div className="fixed inset-0 z-[calc(var(--capa-panel)+600)] pointer-events-auto">
-            {cam ? <LiveModal cam={cam} initialTab="rec" initialRecMs={instanteMs} onClose={onClose} /> : (
+            {cam ? <LiveModal cam={cam} initialTab={tab} initialRecMs={instanteMs} onClose={onClose} /> : (
                 <div className="absolute inset-0 bg-black/80 grid place-items-center text-white/80" onClick={onClose}>
                     <span className="flex items-center gap-2 text-[13px] font-semibold"><Loader2 size={16} className="animate-spin" /> Ubicando la grabación…</span>
                 </div>

@@ -414,6 +414,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 camara: o.camara,
                 direccion: o.sentido,
                 decision: o.decision,
+                // La foto, para la tira de pasos del visor: comparar se hace mirando.
+                foto: getImagePath(o.foto),
             }));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visibles]);
