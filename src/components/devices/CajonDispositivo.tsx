@@ -207,7 +207,9 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         try {
             const r: any = await probeDeviceInfo({ ip: f.ip.trim(), username: f.username, password: f.password, authType: f.authType, brand: f.brand });
             setInfo(r);
-            if (r?.ok) setF((p) => ({ ...p, mac: r.macAddress || p.mac, deviceModel: r.model || p.deviceModel, authType: r.authType || p.authType, name: p.name || r.deviceName || "" }));
+            if (r?.ok) setF((p) => ({ ...p, mac: r.macAddress || p.mac, deviceModel: r.model || p.deviceModel, authType: r.authType || p.authType, name: p.name || r.deviceName || "",
+                ...(r.credenciales ? { username: r.credenciales.username, password: r.credenciales.password } : {}) }));
+            if (r?.nota) (r.credenciales ? toast.success : toast.info)({ title: r.credenciales ? "Credenciales tomadas del NVR" : "Datos según el NVR", description: r.nota });
         } catch (e: any) { setInfo({ ok: false, error: e?.message }); }
         finally { setDetectando(false); }
     };
@@ -832,7 +834,7 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
                         {f.mac && <span className={cn(chip, "font-mono font-semibold")}>{f.mac}</span>}
                         {tipo !== "NVR" && <span className={chip}><HardDrive size={11} /> {actual ? `${nvrNombre || "NVR"} · CH ${actual.ch}` : "Sin grabación"}</span>}
                     </div>
-                    {info && <div className={cn(chip, "max-w-full truncate", info.ok ? "!bg-emerald-600/80" : "!bg-red-600/80")}>{info.ok ? <Check size={11} /> : <AlertTriangle size={11} />} {info.ok ? `${info.model || "Responde"}${info.firmwareVersion ? ` · ${info.firmwareVersion}` : ""}` : (info.error || "No respondió")}</div>}
+                    {info && <div title={info.nota || undefined} className={cn(chip, "max-w-full truncate", info.viaNvr ? "!bg-amber-500/85 !text-black" : info.ok ? "!bg-emerald-600/80" : "!bg-red-600/80")}>{info.ok ? <Check size={11} /> : <AlertTriangle size={11} />} {info.ok ? `${info.viaNvr ? "Según el NVR: " : ""}${info.model || "Responde"}${info.firmwareVersion ? ` · ${info.firmwareVersion}` : ""}` : (info.error || "No respondió")}</div>}
                 </div>
                 <button type="button" onClick={onComprobar} disabled={detectando || !puedeDetectar}
                     data-tooltip-id={TT} data-tooltip-content="Comprobar: consulta el equipo ahora (modelo, MAC, firmware) para confirmar que responde con estas credenciales."

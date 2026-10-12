@@ -324,7 +324,7 @@ export default function HistoryPage() {
                             </thead>
                             <tbody>
                                 {displayEvents.map((evt) => (
-                                    <Fila key={evt.id} evt={evt} merodeo={merodeoSet.has(cleanPlate(evt.plateDetected))} nvr={!!tieneNvr(evt)} abrir={abrir} recargar={recargar} />
+                                    <Fila key={evt.id} evt={evt} merodeo={merodeoSet.has(cleanPlate(evt.plateDetected))} nvr={!!tieneNvr(evt)} empresa={logos[cleanPlate(evt.plateDetected)]} abrir={abrir} recargar={recargar} />
                                 ))}
                             </tbody>
                         </table>
@@ -435,7 +435,7 @@ function marcaDe(details: any): string {
 }
 
 /** Fila de la lista. Memorizada: con cientos de filas cargadas, sólo se re-dibuja la que cambia. */
-const Fila = memo(function Fila({ evt, merodeo, nvr, abrir, recargar }: { evt: Ev; merodeo: boolean; nvr: boolean; abrir: (e: Ev, auto?: boolean) => void; recargar: () => void }) {
+const Fila = memo(function Fila({ evt, merodeo, nvr, empresa, abrir, recargar }: { evt: Ev; merodeo: boolean; nvr: boolean; empresa?: any; abrir: (e: Ev, auto?: boolean) => void; recargar: () => void }) {
     const ok = evt.decision === "GRANT";
     const foto = fotoDe(evt);
     const marca = marcaDe(evt.details);
@@ -448,16 +448,17 @@ const Fila = memo(function Fila({ evt, merodeo, nvr, abrir, recargar }: { evt: E
             </td>
             <td className="px-3 py-2">
                 <div className="flex items-center gap-3">
-                    <div className="w-14 h-9 rounded-md bg-muted border border-border/60 overflow-hidden shrink-0 grid place-items-center">
+                    <div className="relative w-14 h-9 rounded-md bg-muted border border-border/60 overflow-hidden shrink-0 grid place-items-center">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         {foto ? <img src={conAncho(foto, 120)} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" /> : <Camera size={14} className="text-muted-foreground" />}
                     </div>
+                    {empresa && <span className="shrink-0 -ml-1" data-tooltip-id={TT} data-tooltip-content={empresa.nombre}><LogoSobreFoto empresa={empresa} className="h-6 max-w-[64px]" /></span>}
                     <div className="min-w-0">
                         <div className="flex items-center gap-2">
                             <p className="text-[13px] font-semibold truncate">{evt.user?.name || (evt.accessType === "PLATE" ? (evt.plateDetected || "S/M") : "Desconocido")}</p>
                             {evt.accessType === "PLATE" && evt.plateDetected && evt.user?.name && <span className="bg-white text-black text-[9px] font-bold px-1.5 py-0.5 rounded-sm font-mono border-b-2 border-blue-600">{evt.plateDetected}</span>}
                         </div>
-                        <p className="text-[10px] text-muted-foreground truncate">{evt.user?.unit?.name || marca || "Visitante"}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">{empresa ? <b className="text-sky-600 dark:text-sky-400">{empresa.nombre}</b> : null}{empresa ? " · " : ""}{evt.user?.unit?.name || marca || "Visitante"}</p>
                         <VehicleMetaChips details={evt.details} size="sm" className="mt-0.5" />
                     </div>
                 </div>

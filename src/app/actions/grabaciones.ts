@@ -48,7 +48,7 @@ export async function grabacionesDe(tipos: string[] = ["LPR_CAMERA", "CAMERA"]):
  * Busca en TODOS los NVR donde graba cada camara (por su IP en los canales) y guarda lo hallado
  * en el mapa de canales. No borra nada: una camara que no aparece conserva lo que tenia.
  */
-export async function detectarGrabaciones(deviceIds?: string[]): Promise<{ ok: boolean; error?: string; halladas: number; sinNvr: string[]; cambios: string[]; nvrs: { nombre: string; ok: boolean; error?: string; canales: number }[] }> {
+export async function detectarGrabaciones(deviceIds?: string[]): Promise<{ ok: boolean; error?: string; halladas: number; sinNvr: string[]; cambios: string[]; calculadas?: number; nvrs: { nombre: string; ok: boolean; error?: string; canales: number }[] }> {
     try {
         await conSesion();
         const cams = await prisma.device.findMany({ where: deviceIds?.length ? { id: { in: deviceIds } } : { deviceType: "LPR_CAMERA" }, select: { id: true, ip: true, name: true } });
@@ -64,7 +64,20 @@ export async function detectarGrabaciones(deviceIds?: string[]): Promise<{ ok: b
             nuevo[c.ip] = { nvr: h.nvrId, ch: h.ch };
         }
         if (cambios.length) await prisma.setting.upsert({ where: { key: "NVR_CHANNEL_MAP" }, update: { value: JSON.stringify(nuevo) }, create: { key: "NVR_CHANNEL_MAP", value: JSON.stringify(nuevo) } });
-        return { ok: true, halladas: Object.keys(halladas).length, sinNvr: cams.filter((c) => !halladas[c.ip]).map((c) => c.name), cambios, nvrs: nvrs.map(({ nombre, ok, error, canales }) => ({ nombre, ok, error, canales })) };
+        // Ya que se sabe dónde graba cada una, se calcula también cuánto guarda: antes quedaba
+        // «Retención sin calcular» hasta tocar la calculadora de cada fila. De a una (el NVR no
+        // aguanta muchas búsquedas a la vez) y con tope de tiempo; las recientes no se repiten.
+        const previas = await leerRetenciones();
+        const tope = Date.now() + 75_000;
+        let calculadas = 0;
+        for (const c of cams) {
+            if (Date.now() > tope) break;
+            if (!c.ip || !(halladas[c.ip] || mapa[c.ip])) continue;
+            const p = previas[c.ip];
+            if (p && !p.error && cambios.every((x) => !x.startsWith(c.name + ":")) && Date.now() - Date.parse(p.calculado) < 6 * 3600_000) continue;
+            try { await calcular(c.ip); calculadas++; } catch { }
+        }
+        return { ok: true, halladas: Object.keys(halladas).length, sinNvr: cams.filter((c) => !halladas[c.ip]).map((c) => c.name), cambios, calculadas, nvrs: nvrs.map(({ nombre, ok, error, canales }) => ({ nombre, ok, error, canales })) };
     } catch (e: any) { return { ok: false, error: e?.message || "No se pudo detectar", halladas: 0, sinNvr: [], cambios: [], nvrs: [] }; }
 }
 

@@ -269,7 +269,7 @@ export default function DevicesPage() {
             else {
                 const caidos = r.nvrs.filter((n) => !n.ok);
                 toast.success(r.cambios.length ? `Grabación detectada en ${r.cambios.length} cámara${r.cambios.length !== 1 ? "s" : ""}` : `Revisados ${r.nvrs.length} NVR: el mapa ya estaba bien`, {
-                    description: [r.cambios.slice(0, 4).join(" · "), r.sinNvr.length ? `Sin NVR: ${r.sinNvr.slice(0, 4).join(", ")}${r.sinNvr.length > 4 ? "…" : ""} (agregá su NVR o no tendrán grabaciones)` : "", caidos.length ? `No respondió: ${caidos.map((n) => n.nombre).join(", ")}` : ""].filter(Boolean).join(" — ") || undefined,
+                    description: [r.cambios.slice(0, 4).join(" · "), r.sinNvr.length ? `Sin NVR: ${r.sinNvr.slice(0, 4).join(", ")}${r.sinNvr.length > 4 ? "…" : ""} (agregá su NVR o no tendrán grabaciones)` : "", caidos.length ? `No respondió: ${caidos.map((n) => n.nombre).join(", ")}` : "", (r as any).calculadas ? `Retención calculada en ${(r as any).calculadas}` : ""].filter(Boolean).join(" — ") || undefined,
                 });
             }
             await cargarGrab();
