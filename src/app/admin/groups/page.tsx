@@ -20,7 +20,8 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Trash2, Plus, Users, Search, Cpu, ShieldCheck, Loader2 } from "lucide-react";
+import { Trash2, Plus, Users, Search, Cpu, ShieldCheck, Loader2, Pencil } from "lucide-react";
+import { CajonGrupoAcceso } from "@/components/groups/CajonGrupoAcceso";
 
 type AccessGroupWithCounts = {
     id: string;
@@ -33,6 +34,7 @@ type AccessGroupWithCounts = {
 export default function GroupsPage() {
     const [groups, setGroups] = useState<AccessGroupWithCounts[]>([]);
     const [open, setOpen] = useState(false);
+    const [editId, setEditId] = useState<string | null>(null);
     const [query, setQuery] = useState("");
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
@@ -91,30 +93,9 @@ export default function GroupsPage() {
                         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar grupo…" className="pl-8 h-9 w-48 bg-muted/40 border-border text-sm" />
                     </div>
-                    <Dialog open={open} onOpenChange={setOpen}>
-                        <DialogTrigger asChild>
-                            <Button className="h-9 bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold gap-1.5">
-                                <Plus size={16} /> Crear grupo
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-sm">
-                            <DialogHeader>
-                                <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-500 mb-2">
-                                    <ShieldCheck size={18} />
-                                </div>
-                                <DialogTitle>Nuevo grupo de acceso</DialogTitle>
-                            </DialogHeader>
-                            <form action={handleSubmit} className="space-y-4 pt-2">
-                                <div className="space-y-1.5">
-                                    <Label htmlFor="name" className="text-xs font-medium text-foreground/80">Nombre del grupo</Label>
-                                    <Input id="name" name="name" placeholder="Ej: Residentes Torre Norte" required className="h-10 bg-muted/40 border-border" />
-                                </div>
-                                <Button type="submit" disabled={submitting} className="w-full h-10 bg-purple-600 hover:bg-purple-500 text-white font-semibold gap-2">
-                                    {submitting ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Crear grupo
-                                </Button>
-                            </form>
-                        </DialogContent>
-                    </Dialog>
+                    <Button onClick={() => { setEditId(null); setOpen(true); }} className="h-9 bg-purple-600 hover:bg-purple-500 text-white text-sm font-semibold gap-1.5">
+                        <Plus size={16} /> Crear grupo
+                    </Button>
                 </div>
             </div>
 
@@ -127,6 +108,8 @@ export default function GroupsPage() {
                     <ShieldCheck size={12} className="text-blue-500" /> {totalUsers} usuarios asignados
                 </span>
             </div>
+
+            <CajonGrupoAcceso open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditId(null); }} grupoId={editId} onListo={load} />
 
             {/* Table */}
             <div className="border border-border rounded-xl overflow-hidden bg-card">
@@ -157,7 +140,7 @@ export default function GroupsPage() {
                             </TableRow>
                         ) : (
                             filtered.map((g) => (
-                                <TableRow key={g.id} className="border-border hover:bg-muted/30 transition-colors">
+                                <TableRow key={g.id} onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; setEditId(g.id); setOpen(true); }} className="border-border hover:bg-muted/30 transition-colors cursor-pointer">
                                     <TableCell className="py-3">
                                         <div className="flex items-center gap-3">
                                             <div className="w-9 h-9 rounded-lg bg-muted border border-border flex items-center justify-center text-purple-500 shrink-0">
@@ -183,6 +166,9 @@ export default function GroupsPage() {
                                         {new Date(g.createdAt).toLocaleDateString("es-UY", { day: "2-digit", month: "short", year: "numeric" })}
                                     </TableCell>
                                     <TableCell className="text-right pr-4">
+                                        <Button variant="ghost" size="icon" onClick={() => { setEditId(g.id); setOpen(true); }} className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500" title="Editar grupo">
+                                            <Pencil size={15} />
+                                        </Button>
                                         <Button
                                             variant="ghost"
                                             size="icon"

@@ -7,6 +7,7 @@ import { Search, Plus, Edit, Trash2, UserPlus, UserMinus, X, CreditCard, Users a
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { deleteTag, assignTag, unassignTag, createTag, purgeTags } from "@/app/actions/tags";
+import { CajonTag } from "@/components/rfid/CajonTag";
 import { cn } from "@/lib/utils";
 import {
     Select,
@@ -139,40 +140,10 @@ export function TagList({ initialTags, users }: TagListProps) {
                         Purgar Datos
                     </Button>
 
-                    <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-                        <DialogTrigger asChild>
-                            <Button className="bg-emerald-600 hover:bg-emerald-700">
-                                <Plus size={16} className="mr-2" />
-                                Nuevo Tag
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle>Crear Nuevo Tag</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 pt-4">
-                                <div>
-                                    <label className="text-sm font-bold text-foreground mb-2 block">
-                                        Número de Tag / UID
-                                    </label>
-                                    <Input
-                                        placeholder="Ej: 1234567890"
-                                        value={newTagValue}
-                                        onChange={(e) => setNewTagValue(e.target.value)}
-                                        className="bg-card border-border"
-                                    />
-                                </div>
-                                <div className="flex gap-2 justify-end">
-                                    <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
-                                        Cancelar
-                                    </Button>
-                                    <Button onClick={handleCreate} className="bg-emerald-600 hover:bg-emerald-700">
-                                        Crear Tag
-                                    </Button>
-                                </div>
-                            </div>
-                        </DialogContent>
-                    </Dialog>
+                    <Button onClick={() => { setSelectedTag(null); setShowCreateDialog(true); }} className="bg-emerald-600 hover:bg-emerald-700">
+                        <Plus size={16} className="mr-2" />
+                        Nuevo Tag
+                    </Button>
                 </div>
             </div>
 
@@ -193,7 +164,8 @@ export function TagList({ initialTags, users }: TagListProps) {
                             {filteredTags.map((tag, index) => (
                                 <tr
                                     key={tag.id}
-                                    className="hover:bg-muted/30 transition-colors group"
+                                    onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; setSelectedTag(tag); setShowAssignDialog(true); }}
+                                    className="hover:bg-muted/30 transition-colors group cursor-pointer"
                                     style={{ animationDelay: `${index * 50}ms` }}
                                 >
                                     {/* Tag Value */}
@@ -326,38 +298,9 @@ export function TagList({ initialTags, users }: TagListProps) {
                 </p>
             </div>
 
-            {/* Assign Dialog */}
-            <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Asignar Tag a Usuario</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 pt-4">
-                        <div>
-                            <label className="text-sm font-bold text-foreground mb-2 block">
-                                Tag: <span className="font-mono text-emerald-400">{selectedTag?.value}</span>
-                            </label>
-                        </div>
-                        <div>
-                            <label className="text-sm font-bold text-foreground mb-2 block">
-                                Seleccionar Usuario
-                            </label>
-                            <Select onValueChange={(userId) => selectedTag && handleAssign(selectedTag.id, userId)}>
-                                <SelectTrigger className="bg-card border-border">
-                                    <SelectValue placeholder="Selecciona un usuario..." />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {users.map(user => (
-                                        <SelectItem key={user.id} value={user.id}>
-                                            {user.name} - {user.email || user.phone}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                </DialogContent>
-            </Dialog>
+            {/* Alta / asignación en cajón */}
+            <CajonTag open={showCreateDialog || showAssignDialog} onOpenChange={(v) => { if (!v) { setShowCreateDialog(false); setShowAssignDialog(false); } }}
+                tag={showAssignDialog ? selectedTag : null} users={users} onListo={() => window.location.reload()} />
 
             <style jsx>{`
                 .custom-scrollbar::-webkit-scrollbar {
