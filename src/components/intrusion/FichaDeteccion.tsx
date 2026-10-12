@@ -1,33 +1,50 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Tooltip as RTooltip } from "react-tooltip";
-import "react-tooltip/dist/react-tooltip.css";
-import { Activity, Check, ChevronLeft, ChevronRight, Clock, ImageOff, PlayCircle, Radar, Server, ShieldAlert, X } from "lucide-react";
-import { AnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+    Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
+    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car,
+} from "lucide-react";
+import { useAnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
+import { CompartirEvento } from "@/components/visor/CompartirEvento";
+import { BotonVisor, Dato, ListaVision, Seccion, rasgosDe } from "@/components/visor/FichaVisor";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { cn } from "@/lib/utils";
+import { fechaCorta, horaSeg, hace } from "@/lib/fechas";
+import { useSiluetas } from "@/lib/use-siluetas";
+import { useTiempoReal } from "@/lib/tiempo-real";
+import { geomDeIntrusion, VEREDICTOS } from "@/lib/vision-capa";
+import type { Verificacion } from "@/lib/verificacion";
 import { getDetectionHistory, type DetHistItem, type IntrusionCam } from "@/app/actions/detections";
 import { META_DETECCION, GeomOverlay, type Geom } from "@/components/intrusion/comun";
 
 /**
- * La ficha de una detección (cruce de línea, intrusión, zona): la captura grande con la
- * línea o la zona encima, los datos del canal, y las flechas para recorrer los eventos de
- * esa cámara.
+ * La ficha de una detección (cruce de línea, intrusión, zona), con la forma del visor de los
+ * eventos de acceso: la foto ocupa la ventana y los datos van encima.
  *
- * Vivía adentro de admin/monitor-intrusion/page.tsx. Salió el 8/10 porque el panel
- * «Detecciones» del monitor LPR mostraba las mismas detecciones y al tocarlas no abría
- * nada: tener la ficha en un solo lugar es lo que hace que una detección se vea igual
- * desde las dos pantallas.
+ * Antes era una foto arriba y, abajo, tarjetas y un mapa satelital: para leer el análisis había
+ * que bajar, y el mapa ocupaba media pantalla para decir algo que el guardia ya sabe (dónde está
+ * su cámara). Lo que decide si una detección es real es la FOTO y lo que se ve en ella, así que
+ * todo lo demás queda a su lado y a la vista:
+ *
+ *   IZQUIERDA  qué vio OmniVision (veredicto, objetos con sus rasgos, el cuadro propio), cuándo y
+ *              de dónde, y lo que pasaba alrededor (el episodio, el ritmo, las falsas de la cámara,
+ *              las matrículas leídas cerca).
+ *   ABAJO      la decisión: falsa o real.
+ *   DERECHA    grabación, cámara en vivo, compartir, imagen limpia.
+ *
+ * Vivía adentro de admin/monitor-intrusion/page.tsx; salió el 8/10 para que una detección se vea
+ * igual desde el monitor de intrusión, el monitor LPR y el panel.
  */
 
-function ago(ts: string) {
-    const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-    if (s < 60) return "hace " + s + "s";
-    const m = Math.floor(s / 60); if (m < 60) return "hace " + m + "m";
-    const h = Math.floor(m / 60); if (h < 24) return "hace " + h + "h";
-    return new Date(ts).toLocaleDateString("es-UY", { day: "2-digit", month: "2-digit" });
-}
+const CLASE: Record<string, string> = { human: "Persona", vehicle: "Vehículo" };
+/** La proporción de la ventana; la misma que `.visor-ventana` en globals.css. */
+const AR_VENTANA = 16 / 9;
+/** Un análisis tarda unos segundos (cola de vision-worker): antes de esto se dice «verificando». */
+const VERIFICANDO_MS = 90_000;
+const TONO_VEREDICTO: Record<string, string> = { mal: "var(--mal)", aviso: "var(--aviso)", quieto: "var(--muted-foreground)", bien: "var(--bien)" };
+const TEXTO_VEREDICTO: Record<string, string> = { mal: "visor-mal", aviso: "visor-aviso", quieto: "text-white/75", bien: "visor-bien" };
 
 export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar }: {
     det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
@@ -40,151 +57,337 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     onMarcar?: (id: string, kind: "real" | "false") => Promise<{ ok: boolean; error?: string } | void>;
 }) {
     const [cur, setCur] = useState<any>(det);
-    const [grabacion, setGrabacion] = useState(false);
+    const [abrir, setAbrir] = useState<null | "rec" | "live">(null);
+    const [compartir, setCompartir] = useState(false);
+    const [limpio, setLimpio] = useState(false);
+    /** Qué foto se mira: la captura de la cámara o el cuadro propio de la doble verificación. */
+    const [foto, setFoto] = useState<"captura" | "propio">("captura");
+    const [proporcion, setProporcion] = useState(AR_VENTANA);
+    const [verSiluetas, setVerSiluetas] = useSiluetas();
     const [sibs, setSibs] = useState<DetHistItem[]>([]);
     useEffect(() => { setCur(det); }, [det]);
     useEffect(() => { if (!det.deviceId) { setSibs([]); return; } getDetectionHistory({ deviceId: det.deviceId, pageSize: 60 }).then((r) => setSibs(r.items)).catch(() => setSibs([])); }, [det.deviceId]);
+    useEffect(() => { setFoto("captura"); setProporcion(AR_VENTANA); }, [cur.id]);
     const idx = sibs.findIndex((x) => x.id === cur.id);
     const go = (d: number) => { if (idx < 0) return; const n = idx + d; if (n >= 0 && n < sibs.length) setCur(sibs[n]); };
-    const m = META_DETECCION[cur.type] || META_DETECCION.OTHER;
-    const [rk] = useState(Date.now());
-    const nvr = cur.nvrName || cam?.nvrName; const ch = cur.ch ?? cam?.ch;
-    const snap = cur.snapshotPath ? cur.snapshotPath : (cur.deviceId ? `/api/snapshot/${cur.deviceId}?t=${rk}_${cur.id}` : null);
-    const fecha = new Date(cur.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const hasGeom = !!(geom && ((geom.line && geom.line.length === 2) || (geom.field && geom.field.length >= 3)));
     const hasPrev = idx >= 0 && idx < sibs.length - 1; // más viejo
     const hasNext = idx > 0;                            // más nuevo
+    const real = !!cur.id && !String(cur.id).startsWith("live-");
+
+    /* Lo que vio omni-vision. No viene con la detección: se pide, y se vuelve a pedir cuando
+       vision-worker avisa que la terminó (una detección recién llegada todavía se está mirando). */
+    const [verif, setVerif] = useState<Verificacion | null>(null);
+    const pedirVerif = useCallback(() => {
+        if (!real) return;
+        fetch(`/api/monitor/intrusion/verificacion?ids=${encodeURIComponent(cur.id)}`, { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : {})).then((j: Record<string, Verificacion>) => setVerif(j?.[cur.id] || null)).catch(() => { });
+    }, [cur.id, real]);
+    useEffect(() => { setVerif(null); pedirVerif(); }, [pedirVerif]);
+    useTiempoReal("detection_verified", (x: any) => { if (x?.id && x.id === cur.id) pedirVerif(); });
+    const { analisis: alrededor, error: errorAlrededor } = useAnalisisDeteccion(real ? cur.id : null);
+
+    const m = META_DETECCION[cur.type] || META_DETECCION.OTHER;
+    const clase = cur.label && CLASE[cur.label] ? CLASE[cur.label] : null;
+    const nvr = cur.nvrName || cam?.nvrName; const ch = cur.ch ?? cam?.ch;
+    const [rk] = useState(Date.now());
+    const captura = cur.snapshotPath ? cur.snapshotPath : (cur.deviceId ? `/api/snapshot/${cur.deviceId}?t=${rk}_${cur.id}` : null);
+    const propio = verif?.analisis?.propio ? verif.analisis.propio : null;
+    const enPropio = foto === "propio" && !!propio;
+    const src = enPropio ? `/api/monitor/intrusion/verificacion/${cur.id}` : captura;
+    const capa = enPropio ? propio : verif?.analisis || null;
+    const g = useMemo(() => geomDeIntrusion(geom as any), [geom]);
+    const ver = verif?.veredicto ? VEREDICTOS[verif.veredicto] : null;
+    const verificando = !verif?.estado && real && Date.now() - new Date(cur.timestamp).getTime() < VERIFICANDO_MS;
+    const momento = new Date(cur.timestamp);
+
+    const alarmaPendiente = !!(hasAlarm && cur.deviceId && onResolveAlarm);
+    const atencionAbierta = !hasAlarm && !!enAtencion && !!cur.deviceId && !!onCerrarAtencion;
+    const corregible = !alarmaPendiente && !atencionAbierta && !!onMarcar && real;
+    /** El tono de la ventana lo pone el estado: rojo lo que hay que decidir o fue real, gris lo archivado. */
+    const tono = alarmaPendiente || atencionAbierta || (cur.acknowledged && cur.ackKind !== "false") ? "var(--mal)"
+        : !cur.acknowledged ? "var(--aviso)" : "var(--muted-foreground)";
+    const estado = alarmaPendiente ? "Intrusión detectada · sin confirmar" : atencionAbierta ? "Intrusión confirmada · sin resolver"
+        : !cur.acknowledged ? "Sin revisar" : cur.ackKind === "false" ? "Marcada falsa alarma" : "Marcada real";
+
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
+            if (abrir || compartir) return;
             const t = e.target as HTMLElement | null;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             if (e.key === "ArrowLeft") { e.preventDefault(); go(1); }
             else if (e.key === "ArrowRight") { e.preventDefault(); go(-1); }
-            else if (e.key === "Escape") { e.preventDefault(); onClose(); }
-            else if (hasAlarm && cur.deviceId && onResolveAlarm) {
+            else if (e.key === "Escape") { e.preventDefault(); if (limpio) setLimpio(false); else if (enPropio) setFoto("captura"); else onClose(); }
+            else if (e.key === "h" || e.key === "H") setLimpio((v) => !v);
+            else if ((e.key === "o" || e.key === "O") && capa) setVerSiluetas(!verSiluetas);
+            else if (alarmaPendiente) {
                 const k = e.key.toLowerCase();
-                if (k === "a" || e.key === "Enter") { e.preventDefault(); onResolveAlarm(cur.deviceId, "real"); }
-                else if (k === "f" || k === "r") { e.preventDefault(); onResolveAlarm(cur.deviceId, "false"); }
-            } else if (enAtencion && cur.deviceId && onCerrarAtencion) {
+                if (k === "a" || e.key === "Enter") { e.preventDefault(); onResolveAlarm!(cur.deviceId, "real"); }
+                else if (k === "f" || k === "r") { e.preventDefault(); onResolveAlarm!(cur.deviceId, "false"); }
+            } else if (atencionAbierta) {
                 const k = e.key.toLowerCase();
-                if (k === "a" || e.key === "Enter") { e.preventDefault(); onCerrarAtencion(cur.deviceId, "resuelta"); }
-                else if (k === "f") { e.preventDefault(); onCerrarAtencion(cur.deviceId, "falsa"); }
+                if (k === "a" || e.key === "Enter") { e.preventDefault(); onCerrarAtencion!(cur.deviceId, "resuelta"); }
+                else if (k === "f") { e.preventDefault(); onCerrarAtencion!(cur.deviceId, "falsa"); }
             }
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, [cur, idx, sibs, hasAlarm, onResolveAlarm, enAtencion, onCerrarAtencion, onClose]);
-    const atencionAbierta = !hasAlarm && !!enAtencion && !!cur.deviceId && !!onCerrarAtencion;
+    }); // se re-engancha en cada render: lee siempre el estado vigente
+
+    const marcar = async (k: "real" | "false") => {
+        const r = await onMarcar!(cur.id, k);
+        if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: k }));
+    };
+
+    const lineasCompartir = [
+        `${fechaCorta(momento)} ${horaSeg(momento)}${nvr ? ` · ${nvr}${ch != null ? ` CH ${ch}` : ""}` : ""}`,
+        ver ? `OmniVision: ${ver.rotulo}${verif?.analisis?.objetos.length ? ` — ${verif.analisis.objetos.slice(0, 4).map((o) => [o.nombre, ...rasgosDe(o)].join(" ")).join("; ")}` : ""}` : "",
+        estado,
+    ].filter(Boolean);
+
     return (
-        <div className="fixed inset-0 z-[2100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-10" onClick={onClose}>
-            {/* flechas AFUERA del modal, para pasar eventos del canal */}
-            {hasPrev && <button onClick={(e) => { e.stopPropagation(); go(1); }} data-tooltip-id="ficha-det-tip" data-tooltip-content="Evento anterior (más viejo)"
-                className="absolute left-2 sm:left-8 top-1/2 -translate-y-1/2 z-[5] w-12 h-12 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10 backdrop-blur-md transition active:scale-90"><ChevronLeft size={24} /></button>}
-            {hasNext && <button onClick={(e) => { e.stopPropagation(); go(-1); }} data-tooltip-id="ficha-det-tip" data-tooltip-content="Evento siguiente (más nuevo)"
-                className="absolute right-2 sm:right-8 top-1/2 -translate-y-1/2 z-[5] w-12 h-12 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 text-white ring-1 ring-white/10 backdrop-blur-md transition active:scale-90"><ChevronRight size={24} /></button>}
-            {/* cerrar AFUERA del modal, arriba a la derecha */}
-            <button onClick={(e) => { e.stopPropagation(); onClose(); }} data-tooltip-id="ficha-det-tip" data-tooltip-content="Cerrar"
-                className="absolute right-3 top-3 sm:right-6 sm:top-6 z-[6] w-11 h-11 grid place-items-center rounded-full bg-white/10 hover:bg-white/25 text-white ring-1 ring-white/15 backdrop-blur-md transition active:scale-90"><X size={22} /></button>
-            {/* La foto arriba y, debajo, la grabación y el análisis: se baja con la rueda o el dedo. */}
-            <div className="relative w-full max-w-6xl max-h-full overflow-y-auto overscroll-contain flex flex-col gap-3 custom-scrollbar" onClick={(e) => e.stopPropagation()}>
-            <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl shrink-0">
-                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[7] flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-black/65 backdrop-blur-md ring-1 ring-white/10 text-[10px] font-bold text-white/70 pointer-events-none">
-                    <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">←</kbd><kbd className="px-1 rounded bg-white/15">→</kbd> eventos</span>
-                    {((hasAlarm && cur.deviceId && onResolveAlarm) || atencionAbierta) && (<><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-red-500/40 text-red-100">A</kbd> aceptar</span><span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-amber-500/40 text-amber-100">F</kbd> falsa</span></>)}
-                    <span className="inline-flex items-center gap-1"><kbd className="px-1 rounded bg-white/15">Esc</kbd> cerrar</span>
+        <div className="fixed inset-0 z-[2100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6" onClick={onClose}>
+            {/* Las flechas AFUERA de la ventana, para pasar los eventos de la cámara. */}
+            {hasPrev && <button onClick={(e) => { e.stopPropagation(); go(1); }} title="Evento anterior (más viejo)  ( ← )" aria-label="Evento anterior"
+                className="absolute left-2 md:left-5 top-1/2 -translate-y-1/2 z-[5] w-11 h-11 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 text-white border border-white/15 backdrop-blur-md"><ChevronLeft size={22} /></button>}
+            {hasNext && <button onClick={(e) => { e.stopPropagation(); go(-1); }} title="Evento siguiente (más nuevo)  ( → )" aria-label="Evento siguiente"
+                className="absolute right-2 md:right-5 top-1/2 -translate-y-1/2 z-[5] w-11 h-11 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 text-white border border-white/15 backdrop-blur-md"><ChevronRight size={22} /></button>}
+
+            <div onClick={(e) => e.stopPropagation()}
+                style={{ ["--visor-tono" as any]: tono, borderRadius: "var(--radio-ventana)" }}
+                className="visor-ventana relative overflow-hidden border border-white/15 shadow-[0_25px_70px_rgba(0,0,0,0.85)] bg-[#05070b] text-white">
+
+                {/* ── La foto, que CUBRE la ventana; lo que se dibuja encima va en su misma caja. ── */}
+                <div className="absolute inset-0 overflow-hidden flex items-center justify-center">
+                    <div className="relative" style={{
+                        height: proporcion >= AR_VENTANA ? "100%" : "auto", width: proporcion >= AR_VENTANA ? "auto" : "100%",
+                        aspectRatio: String(proporcion),
+                    }}>
+                        {src ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img key={src} src={src} alt="" draggable={false}
+                                ref={(i) => { if (i?.complete && i.naturalWidth) setProporcion(i.naturalWidth / i.naturalHeight); }}
+                                onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth) setProporcion(i.naturalWidth / i.naturalHeight); }}
+                                className="block w-full h-full object-cover select-none" />
+                        ) : <div className="absolute inset-0 grid place-items-center text-white/30"><ImageOff size={32} /></div>}
+                        {!limpio && <GeomOverlay geom={geom} alert={alarmaPendiente || atencionAbierta} />}
+                        {!limpio && verSiluetas && capa && <CapaAnalisis analisis={capa} geom={g} className="z-[6]" />}
+                    </div>
                 </div>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                {snap ? <img src={snap} alt="" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><ImageOff size={32} /></div>}
-                <GeomOverlay geom={geom} alert />
-                {hasGeom && (
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/90 ring-1 ring-red-200/40 shadow-[0_0_20px_rgba(239,68,68,0.8)] text-white text-[10px] font-extrabold uppercase tracking-wide animate-pulse"><m.Icon size={11} /> Detección en esta área</span>
+                {(alarmaPendiente || atencionAbierta) && !limpio && <div className="absolute inset-0 pointer-events-none intr-conf-borde z-[7]" />}
+                {/* Los fondos que hacen legible el texto sobre la foto. */}
+                <div className={cn("absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/60 transition-opacity", limpio && "opacity-0")} />
+                <div className={cn("absolute inset-y-0 left-0 w-[58%] z-[5] pointer-events-none bg-gradient-to-r from-black/85 via-black/50 to-transparent transition-opacity", limpio && "opacity-0")} />
+
+                {/* ── ARRIBA · qué fue, dónde y cuándo ── */}
+                <div className={cn("absolute top-0 inset-x-0 z-30 flex items-start justify-between gap-4 p-4 md:px-7 md:py-5 transition-opacity", limpio && "opacity-0 pointer-events-none")}>
+                    <div className="flex items-center gap-4 min-w-0">
+                        <div className="min-w-0 visor-sombra-texto">
+                            <h1 className="flex items-center gap-2.5 text-[20px] md:text-[22px] font-bold tracking-[-0.015em] leading-tight">
+                                <m.Icon size={20} className="shrink-0" style={{ color: "color-mix(in oklab, var(--visor-tono) 65%, #fff)" }} />
+                                <span className="truncate">{m.label}{clase ? ` · ${clase}` : ""}</span>
+                            </h1>
+                            <p className="flex items-center gap-2 mt-0.5 text-[12.5px] text-white/70 tabular-nums">
+                                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "var(--visor-tono)" }} />
+                                <span className="font-semibold text-white/90 truncate max-w-[34vw]">{cur.deviceName || cam?.name || "Cámara"}</span>
+                                <span className="text-white/30">·</span><span>{fechaCorta(momento)}</span>
+                                <span className="text-white/30">·</span><span>{horaSeg(momento)}</span>
+                            </p>
+                        </div>
+                        {capa && (
+                            <button type="button" onClick={() => setVerSiluetas(!verSiluetas)} aria-pressed={verSiluetas}
+                                title={verSiluetas ? "Ocultar las siluetas de OmniVision  ( O )" : "Mostrar lo que detectó OmniVision  ( O )"}
+                                className={cn("shrink-0 h-8 px-3 rounded-full border flex items-center gap-1.5 text-[11.5px] font-semibold transition-colors",
+                                    verSiluetas ? "bg-[var(--accion)] border-transparent text-white" : "bg-black/45 backdrop-blur-xl border-white/15 text-white/80 hover:text-white")}>
+                                <Sparkles size={12} /> OmniVision · {capa.objetos.length}
+                                <span className={cn("ml-0.5 w-6 h-3.5 rounded-full relative", verSiluetas ? "bg-white/35" : "bg-white/15")}>
+                                    <span className={cn("absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all", verSiluetas ? "left-3" : "left-0.5")} />
+                                </span>
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        {idx >= 0 && sibs.length > 1 && <span className="text-[11.5px] font-semibold text-white/60 tabular-nums visor-sombra-texto">{idx + 1} / {sibs.length}</span>}
+                        <button type="button" onClick={onClose} title="Cerrar  ( Esc )" aria-label="Cerrar"
+                            className="visor-vidrio w-9 h-9 rounded-full text-white/85 hover:text-white flex items-center justify-center"><X size={16} /></button>
+                    </div>
+                </div>
+
+                {limpio && (
+                    <button type="button" onClick={() => setLimpio(false)} title="Mostrar la ficha y los controles  ( H )"
+                        className="absolute top-4 right-4 z-40 h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/80 text-[11.5px] font-semibold flex items-center gap-1.5 opacity-40 hover:opacity-100 transition-opacity">
+                        <Eye size={14} /> Mostrar controles
+                    </button>
+                )}
+
+                {enPropio && !limpio && (
+                    <div className="absolute top-[92px] left-1/2 -translate-x-1/2 z-30 visor-panel rounded-[10px] pl-3.5 pr-1.5 py-1.5 flex items-center gap-3 text-[12px] text-white/85">
+                        <ScanEye size={14} className="text-white/55" />
+                        <span>Cuadro propio de OmniVision · <b className="text-white">{verif?.propio?.despuesS ?? "?"} s después</b>{verif?.propio ? ` · ${VEREDICTOS[verif.propio.veredicto].rotulo.toLowerCase()}` : ""}</span>
+                        <BotonVisor icono={Undo2} onClick={() => setFoto("captura")}>Volver a la captura</BotonVisor>
                     </div>
                 )}
-                {/* La ficha de una intrusión confirmada lleva el mismo rojo que el canal: que no haya duda de qué se está decidiendo. */}
-                {(atencionAbierta || (hasAlarm && cur.deviceId && onResolveAlarm)) && <div className="absolute inset-0 pointer-events-none intr-conf-borde" />}
-                <div className="absolute top-0 inset-x-0 p-4 pr-16 flex items-start gap-3 bg-gradient-to-b from-black/75 to-transparent">
-                    <span className={cn("grid h-11 w-11 place-items-center rounded-xl backdrop-blur-md ring-1 ring-white/10 shrink-0", m.cls)}><m.Icon size={21} /></span>
-                    <div className="min-w-0">
-                        <div className="text-lg font-extrabold text-white leading-tight truncate drop-shadow">{m.label}</div>
-                        <div className="text-[12px] text-white/65 truncate">{cur.deviceName || cam?.name || "Cámara"}</div>
-                        {atencionAbierta && (
-                            <span className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-[0.14em] shadow-lg animate-pulse"><ShieldAlert size={11} /> Intrusión confirmada · sin resolver</span>
+
+                {/* ── IZQUIERDA · la ficha ── */}
+                <div className={cn("absolute left-5 md:left-8 top-[88px] bottom-[96px] z-20 w-[min(420px,42vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity",
+                    limpio && "opacity-0 pointer-events-none")}>
+                    <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
+                        {/* El veredicto de OmniVision, en grande: es lo primero que se quiere saber. */}
+                        <div className="flex items-start gap-3">
+                            <span className="mt-1.5 w-2.5 h-2.5 rounded-full shrink-0" style={{ background: ver ? TONO_VEREDICTO[ver.tono] : "rgba(255,255,255,0.3)" }} />
+                            <div className="min-w-0">
+                                <div className={cn("text-[22px] font-bold leading-tight", ver ? TEXTO_VEREDICTO[ver.tono] : "text-white/70")}>
+                                    {ver ? ver.rotulo
+                                        : verificando ? <span className="inline-flex items-center gap-2"><Loader2 size={18} className="animate-spin" /> Verificando…</span>
+                                            : verif?.estado === "SIN_FOTO" ? "Sin foto para verificar"
+                                                : verif?.estado === "ERROR" ? "OmniVision no pudo mirarla" : "Sin verificar"}
+                                </div>
+                                <p className="text-[12.5px] text-white/65 leading-snug mt-0.5">
+                                    {ver ? <>{ver.explica}{verif?.tocan.some(Boolean) ? " En rojo, la parte que toca." : ""}{verif?.fuente === "propio" ? " Lo vio en el cuadro propio." : ""}</>
+                                        : verificando ? "OmniVision está mirando la captura." : "OmniVision no la analizó (anterior al 9/10, sin foto o con error)."}
+                                    {" "}<span className="text-white/45">Es una ayuda: la decide una persona.</span>
+                                </p>
+                                {verif?.aviso === "RETENIDO" && <p className="text-[12px] visor-aviso mt-1">El aviso por WhatsApp/Telegram no salió: sólo se vio {verif.veredicto === "ANIMAL" ? "un animal" : "la escena vacía"}.</p>}
+                            </div>
+                        </div>
+
+                        {verif?.analisis && (
+                            <Seccion titulo="Lo que vio OmniVision" icono={Sparkles}
+                                extra={<span className="text-[11px] text-white/45 tabular-nums">{verif.analisis.objetos.length} {verif.analisis.objetos.length === 1 ? "objeto" : "objetos"}</span>}>
+                                {verif.analisis.objetos.length ? <ListaVision objetos={(enPropio && propio ? propio : verif.analisis).objetos} />
+                                    : <p className="text-[12.5px] text-white/60">Ni personas, ni vehículos, ni animales en la captura.</p>}
+                                {propio && (
+                                    /* La doble verificación: un cuadro del canal unos segundos después. Se mira en grande en lugar de la captura. */
+                                    <button type="button" onClick={() => setFoto(enPropio ? "captura" : "propio")}
+                                        className={cn("mt-2 w-full flex items-center gap-3 p-1.5 rounded-[8px] text-left transition-colors", enPropio ? "bg-white/15" : "bg-white/[0.06] hover:bg-white/12")}>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={enPropio ? captura || "" : `/api/monitor/intrusion/verificacion/${cur.id}`} alt="" className="w-[96px] aspect-video rounded-[6px] object-cover bg-black shrink-0" />
+                                        <span className="min-w-0 text-[12px] leading-snug">
+                                            <span className="font-semibold block">{enPropio ? "Ver la captura de la cámara" : `Cuadro propio · ${verif?.propio?.despuesS ?? "?"} s después`}</span>
+                                            <span className="text-white/55 block">{enPropio ? "La foto que mandó la cámara con el evento." : `OmniVision miró el canal otra vez${verif?.propio ? `: ${VEREDICTOS[verif.propio.veredicto].rotulo.toLowerCase()}` : ""}.`}</span>
+                                        </span>
+                                    </button>
+                                )}
+                            </Seccion>
                         )}
-                        {hasAlarm && cur.deviceId && onResolveAlarm && (
-                            <span className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600 text-white text-[10px] font-extrabold uppercase tracking-[0.14em] shadow-lg animate-pulse"><ShieldAlert size={11} /> Intrusión detectada · sin confirmar</span>
+
+                        <Seccion titulo="La detección" icono={Radar}>
+                            <dl>
+                                <Dato rotulo="Cuándo" valor={`${fechaCorta(momento)} · ${horaSeg(momento)}`} sufijo={hace(cur.timestamp)} />
+                                <Dato rotulo="Grabador" valor={nvr ? `${nvr}${ch != null ? ` · CH ${ch}` : ""}` : null} falta="sin NVR" />
+                                {cur.eventType && <Dato rotulo="Evento" valor={cur.eventType} />}
+                                <Dato rotulo="Estado" valor={estado}
+                                    tono={cn("font-semibold", alarmaPendiente || atencionAbierta || (cur.acknowledged && cur.ackKind !== "false") ? "visor-mal" : !cur.acknowledged ? "visor-aviso" : "text-white/80")} />
+                            </dl>
+                        </Seccion>
+
+                        {real && (
+                            <Seccion titulo="Alrededor" icono={Clock}>
+                                {errorAlrededor ? <p className="text-[12.5px] text-white/55">No se pudo analizar: {errorAlrededor}</p>
+                                    : !alrededor ? <p className="text-[12.5px] text-white/55 flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Mirando alrededor de esta detección…</p>
+                                        : (<>
+                                            <dl>
+                                                <Dato rotulo="Episodio" valor={`${alrededor.rafaga.cantidad} ${alrededor.rafaga.cantidad === 1 ? "detección" : "detecciones"}`}
+                                                    sufijo={alrededor.rafaga.cantidad > 1 ? `${horaSeg(alrededor.rafaga.desde)} a ${horaSeg(alrededor.rafaga.hasta)}` : null} />
+                                                <Dato rotulo="Hoy, esta cámara" valor={String(alrededor.ritmo.hoy)} sufijo={`${alrededor.ritmo.hoyEnLaHora} en esta hora · suele ${alrededor.ritmo.habitualPorHora}`} />
+                                                <Dato rotulo="Falsas, esta cámara" valor={alrededor.historial.revisadas >= 5 ? `${Math.round((alrededor.historial.falsas / alrededor.historial.revisadas) * 100)} %` : null}
+                                                    falta="pocas revisadas aún" sufijo={alrededor.historial.revisadas >= 5 ? `de ${alrededor.historial.revisadas} revisadas` : null} />
+                                            </dl>
+                                            {alrededor.indicios.length > 0 && (
+                                                <ul className="mt-1.5 space-y-1">
+                                                    {alrededor.indicios.map((i, k) => (
+                                                        <li key={k} className="flex items-start gap-2 text-[12.5px] leading-snug text-white/85">
+                                                            <span className="mt-[0.45em] h-1.5 w-1.5 rounded-full shrink-0" style={{ background: i.tono === "neutro" ? "rgba(255,255,255,0.4)" : `var(--${i.tono})` }} />
+                                                            <span>{i.texto}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                            {alrededor.lecturas.length > 0 && (
+                                                <dl className="mt-1.5">
+                                                    {alrededor.lecturas.slice(0, 4).map((l, k) => (
+                                                        <Dato key={k} rotulo={k === 0 ? "Leídas cerca" : ""} valor={<span className="inline-flex items-center gap-1.5"><Car size={12} className="text-white/50" /><span className="tracking-[0.08em]">{l.plate}</span></span>}
+                                                            sufijo={`${l.sentido === "EXIT" ? "sale" : "entra"} ${horaSeg(l.timestamp)}`} />
+                                                    ))}
+                                                </dl>
+                                            )}
+                                        </>)}
+                            </Seccion>
                         )}
                     </div>
-                    {idx >= 0 && sibs.length > 1 && <span className="ml-auto mt-1 text-[11px] font-bold text-white/60 tabular-nums self-start">{idx + 1} / {sibs.length}</span>}
                 </div>
-                <div className="absolute bottom-0 inset-x-0 p-4 pt-14 flex items-end justify-between gap-4 bg-gradient-to-t from-black/90 via-black/35 to-transparent">
-                    {/* Resolver alarma desde la MISMA ficha del sidebar */}
-                    {hasAlarm && cur.deviceId && onResolveAlarm ? (
-                        <div className="flex items-center gap-2">
-                            <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "false"); }}
-                                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> Falsa alarma <kbd className="ml-1 px-1 rounded bg-black/30 text-[10px]">F</kbd></button>
-                            <button onClick={(e) => { e.stopPropagation(); onResolveAlarm(cur.deviceId, "real"); }}
-                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Confirmar real <kbd className="ml-1 px-1 rounded bg-black/25 text-[10px]">A</kbd></button>
-                        </div>
-                    ) : atencionAbierta ? (
-                        /* Confirmada y sin resolver: aceptarla cierra la atención; falsa alarma además corrige el registro. */
-                        <div className="flex flex-col gap-1.5">
+
+                {/* ── ABAJO · la decisión ── */}
+                <div className={cn("absolute bottom-0 inset-x-0 z-30 px-5 md:px-8 pb-5 pt-3 flex items-end justify-between gap-4 transition-opacity", limpio && "opacity-0 pointer-events-none")}>
+                    <div className="flex flex-col gap-1.5">
+                        {alarmaPendiente ? (
                             <div className="flex items-center gap-2">
-                                <button onClick={(e) => { e.stopPropagation(); onCerrarAtencion!(cur.deviceId, "falsa"); }} data-tooltip-id="ficha-det-tip" data-tooltip-content="Se marca como falsa en el historial y el canal vuelve a la normalidad"
-                                    className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> Falsa alarma <kbd className="ml-1 px-1 rounded bg-black/30 text-[10px]">F</kbd></button>
-                                <button onClick={(e) => { e.stopPropagation(); onCerrarAtencion!(cur.deviceId, "resuelta"); }} data-tooltip-id="ficha-det-tip" data-tooltip-content="La intrusión fue real y ya se atendió: el canal vuelve a la normalidad"
-                                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold shadow-xl active:scale-95 transition"><Check size={16} /> Aceptar · resuelta <kbd className="ml-1 px-1 rounded bg-black/25 text-[10px]">A</kbd></button>
+                                <BotonDecision onClick={() => onResolveAlarm!(cur.deviceId, "false")} icono={X} tecla="F">Falsa alarma</BotonDecision>
+                                <BotonDecision onClick={() => onResolveAlarm!(cur.deviceId, "real")} icono={Check} tecla="A" grave>Confirmar real</BotonDecision>
                             </div>
-                            <p className="text-[10.5px] text-white/55 drop-shadow max-w-md">Fue confirmada como real. Si con la foto delante ves que no lo era, marcála como falsa: queda corregido en el historial.</p>
-                        </div>
-                    ) : onMarcar && cur.id && !String(cur.id).startsWith("live-") ? (
-                        /* Ni pendiente ni en atención: un evento ya mirado (o viejo). Se puede corregir uno por uno. */
-                        <div className="flex flex-col gap-1.5">
-                            <span className={cn("w-fit inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-[0.14em]",
-                                !cur.acknowledged ? "bg-amber-500 text-black" : cur.ackKind === "false" ? "bg-white/20 text-white" : "bg-red-600 text-white")}>
-                                {!cur.acknowledged ? "Sin revisar" : cur.ackKind === "false" ? "Marcada falsa alarma" : "Marcada real"}
-                            </span>
-                            <div className="flex items-center gap-2">
-                                {cur.ackKind !== "false" && (
-                                    <button onClick={async (e) => { e.stopPropagation(); const r = await onMarcar(cur.id, "false"); if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: "false" })); }}
-                                        className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-amber-300 text-[13px] font-extrabold ring-1 ring-white/10 active:scale-95 transition"><X size={16} /> {cur.acknowledged ? "Era falsa alarma" : "Falsa alarma"}</button>
-                                )}
-                                {(cur.ackKind === "false" || !cur.acknowledged) && (
-                                    <button onClick={async (e) => { e.stopPropagation(); const r = await onMarcar(cur.id, "real"); if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: "real" })); }}
-                                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-[13px] font-extrabold active:scale-95 transition"><Check size={16} /> {cur.acknowledged ? "Era real" : "Fue real"}</button>
-                                )}
-                            </div>
-                            <p className="text-[10.5px] text-white/55 drop-shadow max-w-md">Corrige sólo este evento en el historial; no cambia el estado de la cámara.</p>
-                        </div>
-                    ) : <span />}
-                    {/* datos apilados a la derecha, sin chips */}
-                    <div className="flex flex-col items-end gap-0.5 text-right drop-shadow-[0_1px_3px_rgba(0,0,0,0.95)]">
-                        <span className="inline-flex items-center gap-1.5 text-[13px] font-extrabold text-white"><Server size={12} className="text-white/55" />{nvr || "—"}{ch != null ? ` · CH ${ch}` : ""}</span>
-                        <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white/85"><Clock size={11} className="text-white/45" />{fecha}</span>
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/60"><Activity size={11} className="text-white/40" />{ago(cur.timestamp)}</span>
-                        {cur.eventType && <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-white/55"><Radar size={11} className="text-white/40" />{cur.eventType}</span>}
-                        <span className="text-[9.5px] font-mono text-white/35 select-all">{cur.id}</span>
+                        ) : atencionAbierta ? (
+                            <>
+                                <div className="flex items-center gap-2">
+                                    <BotonDecision onClick={() => onCerrarAtencion!(cur.deviceId, "falsa")} icono={X} tecla="F">Falsa alarma</BotonDecision>
+                                    <BotonDecision onClick={() => onCerrarAtencion!(cur.deviceId, "resuelta")} icono={Check} tecla="A" grave>Aceptar · resuelta</BotonDecision>
+                                </div>
+                                <p className="text-[11px] text-white/55 visor-sombra-texto max-w-md">Fue confirmada como real. Si con la foto delante ves que no lo era, marcala como falsa: queda corregido en el historial.</p>
+                            </>
+                        ) : corregible ? (
+                            <>
+                                <div className="flex items-center gap-2">
+                                    {cur.ackKind !== "false" && <BotonDecision onClick={() => marcar("false")} icono={X}>{cur.acknowledged ? "Era falsa alarma" : "Falsa alarma"}</BotonDecision>}
+                                    {(cur.ackKind === "false" || !cur.acknowledged) && <BotonDecision onClick={() => marcar("real")} icono={ShieldAlert} grave>{cur.acknowledged ? "Era real" : "Fue real"}</BotonDecision>}
+                                </div>
+                                <p className="text-[11px] text-white/55 visor-sombra-texto">Corrige sólo este evento en el historial; no cambia el estado de la cámara.</p>
+                            </>
+                        ) : <span />}
                     </div>
+                    <span className="text-[11px] text-white/45 tabular-nums visor-sombra-texto text-right">
+                        ← → eventos · H imagen limpia · Esc {enPropio ? "volver a la captura" : "cerrar"}
+                        <span className="block text-[10px] text-white/30 select-all">{cur.id}</span>
+                    </span>
+                </div>
+
+                {/* ── DERECHA · lo que se hace con la cámara ── */}
+                <div className={cn("absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity",
+                    limpio && "opacity-0 pointer-events-none")}>
+                    {cur.deviceId && real && <BotonRiel onClick={() => setAbrir("rec")} title="Ver la grabación de este momento (con las marcas de los eventos)"><PlayCircle size={15} /></BotonRiel>}
+                    {cur.deviceId && <BotonRiel onClick={() => setAbrir("live")} title="Abrir la cámara en vivo"><Cctv size={15} /></BotonRiel>}
+                    {real && cur.snapshotPath && <BotonRiel onClick={() => setCompartir(true)} title="Compartir por WhatsApp o Telegram"><Share2 size={15} /></BotonRiel>}
+                    <span className="w-4 h-px bg-white/15" />
+                    <BotonRiel onClick={() => setLimpio(true)} title="Ver la imagen limpia, sin nada encima  ( H )"><EyeOff size={15} /></BotonRiel>
                 </div>
             </div>
-            {/* Lo de abajo: ver la grabación de ese instante y lo que se sabe alrededor. */}
-            {cur.deviceId && !String(cur.id).startsWith("live-") && (
-                <div className="dark text-foreground shrink-0 space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={() => setGrabacion(true)}
-                            className="inline-flex items-center gap-2 h-11 px-5 rounded-xl bg-[var(--accion)] hover:opacity-90 text-white text-[14px] font-bold active:scale-[0.98] transition">
-                            <PlayCircle size={18} /> Ver la grabación de este momento
-                        </button>
-                        <span className="text-[12px] text-white/55">Abre el visor en Grabación, parado en {new Date(cur.timestamp).toLocaleTimeString("es-UY", { hour12: false })}, con las marcas de los eventos.</span>
-                    </div>
-                    <AnalisisDeteccion id={cur.id} />
-                </div>
-            )}
-            {/* Adentro de la columna (que corta el clic) y no del fondo: el visor va en un portal,
-                pero sus clics suben por el árbol de React y el fondo cierra la ficha. */}
-            {grabacion && cur.deviceId && <VerGrabacion deviceId={cur.deviceId} nombre={cur.deviceName || cam?.name} instanteMs={new Date(cur.timestamp).getTime()} canal={cur.ch ?? cam?.ch ?? null} nvrId={cam?.nvrId ?? null} onClose={() => setGrabacion(false)} />}
+
+            {/* Adentro del árbol de la ficha: el visor va en un portal, pero sus clics suben por React y el fondo cerraría la ficha. */}
+            <div onClick={(e) => e.stopPropagation()}>
+                {abrir && cur.deviceId && <VerGrabacion deviceId={cur.deviceId} nombre={cur.deviceName || cam?.name} tab={abrir}
+                    instanteMs={momento.getTime()} canal={cur.ch ?? cam?.ch ?? null} nvrId={cam?.nvrId ?? null} onClose={() => setAbrir(null)} />}
+                {compartir && <CompartirEvento foto={cur.snapshotPath || null} deviceId={cur.deviceId || null} deviceName={cur.deviceName || cam?.name || null}
+                    instante={cur.timestamp} titulo={`🚨 ${m.label}${clase ? ` · ${clase}` : ""} · ${cur.deviceName || cam?.name || "Cámara"}`} lineas={lineasCompartir}
+                    onCerrar={() => setCompartir(false)} />}
             </div>
-            <RTooltip id="ficha-det-tip" place="top" className="!text-[11px] !rounded-md !px-2 !py-1 z-[2200]" />
         </div>
+    );
+}
+
+/** Una decisión sobre la detección. La grave (real) va en rojo: es la que dispara cosas. */
+function BotonDecision({ children, onClick, icono: Ico, tecla, grave }: { children: React.ReactNode; onClick: () => void; icono: any; tecla?: string; grave?: boolean }) {
+    return (
+        <button type="button" onClick={onClick}
+            className={cn("inline-flex items-center gap-2 h-10 px-4 rounded-[8px] text-[13px] font-bold transition-colors",
+                grave ? "pleno-mal hover:brightness-110" : "bg-white/10 hover:bg-white/20 text-white border border-white/15")}>
+            <Ico size={16} /> {children}
+            {tecla && <kbd className="ml-0.5 px-1.5 rounded bg-black/25 text-[10px] font-semibold">{tecla}</kbd>}
+        </button>
+    );
+}
+
+function BotonRiel({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
+    return (
+        <button type="button" onClick={onClick} title={title} aria-label={title}
+            className="visor-vidrio w-9 h-9 rounded-full flex items-center justify-center text-white/85 hover:text-white">
+            {children}
+        </button>
     );
 }

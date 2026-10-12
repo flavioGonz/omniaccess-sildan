@@ -7,7 +7,7 @@ import {
     X, ChevronLeft, ChevronRight, Camera, ZoomIn, ZoomOut, Maximize2,
     Scan, Car, Home, ParkingSquare, ShieldAlert, Star, Search as Lupa,
     UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, EyeOff,
-    PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2,
+    PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2, Share2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
@@ -27,6 +27,8 @@ import { BotonVisor, Dato, ListaVision, Seccion } from "@/components/visor/Ficha
 import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
 import { PanelComportamiento, type ComportamientoVisor } from "@/components/visor/PanelComportamiento";
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
+import { CompartirEvento } from "@/components/visor/CompartirEvento";
+import { rasgosDe } from "@/components/visor/FichaVisor";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -328,6 +330,8 @@ export function VisorCuadro({
     const [pasoViendo, setPasoViendo] = useState<PasoVisor | null>(null);
     /** El visor completo de la cámara (vivo con sus controles, o la grabación de este instante). */
     const [abrirCamara, setAbrirCamara] = useState<null | "live" | "rec">(null);
+    /** El diálogo para mandar el evento por WhatsApp o Telegram. */
+    const [compartir, setCompartir] = useState(false);
     /**
      * Si la cámara graba en un NVR. Sólo se pregunta cuando quien abre el visor no trajo su propia
      * forma de ver la grabación (`onGrabacion`): un botón de grabación sin grabación no se dibuja.
@@ -468,7 +472,7 @@ export function VisorCuadro({
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
             // Con el visor completo de la cámara abierto encima, las teclas son de él.
-            if (abrirCamara) return;
+            if (abrirCamara || compartir) return;
             if (e.key === "Escape") {
                 // Esc deshace de a una cosa, de la más nueva a la más vieja: no cierra el evento
                 // de golpe estando en un paso anterior o con un panel abierto.
@@ -491,7 +495,7 @@ export function VisorCuadro({
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, pasoViendo, panel, limpio]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -601,6 +605,20 @@ export function VisorCuadro({
     const enPaso = !!pasoViendo?.foto;
     const fotoUrl = enPaso ? pasoViendo!.foto! : (fila.snapshotUrl || "");
     const verGrabacion = onGrabacion || (hayGrabacion ? () => setAbrirCamara("rec") : undefined);
+
+    /** Lo que sale al compartir: lo mismo que dice la ficha, en renglones (sin lo que no se sabe). */
+    const textoCompartir = useMemo(() => {
+        const chapaDe = datos?.porRelectura && datos.plate ? `${datos.plate} (releída por OmniVision)` : fila.plate || "sin leer";
+        const lineas = [
+            `${sentido}${fila.decision === "DENY" ? " · no abrió" : fila.decision === "GRANT" ? " · abrió" : ""} · ${fechaCorta(momento)} ${horaSeg(momento)}`,
+            `Matrícula ${chapaDe}${[marca, color].filter(Boolean).length ? ` · ${[marca, color].filter(Boolean).join(" ")}` : ""}`,
+            dueno?.nombre ? `${dueno.nombre}${[dueno.unidad, dueno.apartamento].filter(Boolean).length ? ` · ${[dueno.unidad, dueno.apartamento].filter(Boolean).join(" ")}` : ""}` : (cargandoFicha ? "" : "No figura en el padrón"),
+            ficha?.visita ? `Visita${ficha.visita.lote ? ` a ${ficha.visita.lote}` : ""}${ficha.visita.nombre ? ` · ${ficha.visita.nombre}` : ""}` : "",
+            vig ? `Lista: ${vig.etiqueta || vig.categoria}` : "",
+            vision ? `OmniVision: ${vision.objetos.slice(0, 4).map((o) => [o.nombre, ...rasgosDe(o)].join(" ")).join("; ")}` : "",
+        ].filter(Boolean);
+        return { titulo: `📷 ${fila.cameraName || "Cámara"}`, lineas };
+    }, [datos, fila, sentido, momento, marca, color, dueno, cargandoFicha, ficha, vig, vision]);
 
     /**
      * La cápsula del estado y el tiempo.
@@ -1071,6 +1089,11 @@ export function VisorCuadro({
                         )}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 -mt-1">
+                        {fila.snapshotUrl && (
+                            <BotonVisor icono={Share2} onClick={() => setCompartir(true)} title="Mandar la foto con los datos del evento por WhatsApp o Telegram">
+                                Compartir
+                            </BotonVisor>
+                        )}
                         {estacionado && !cerrada && fila.deviceId && (
                             <BotonVisor icono={Eye} onClick={verificar} ocupada={verificando}
                                 title="Toma un cuadro de la cámara ahora y busca esta matrícula en el encuadre">
@@ -1185,6 +1208,10 @@ export function VisorCuadro({
                 )}
             </motion.div>
 
+            {compartir && (
+                <CompartirEvento foto={fila.snapshotUrl || null} deviceId={fila.deviceId || null} deviceName={fila.cameraName || null}
+                    instante={fila.timestamp} titulo={textoCompartir.titulo} lineas={textoCompartir.lineas} onCerrar={() => setCompartir(false)} />
+            )}
             {abrirCamara && fila.deviceId && (
                 <VerGrabacion deviceId={fila.deviceId} nombre={fila.cameraName} tab={abrirCamara}
                     instanteMs={new Date(fila.timestamp).getTime()} onClose={() => setAbrirCamara(null)} />

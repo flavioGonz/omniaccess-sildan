@@ -18,11 +18,12 @@ const MapaCruce = dynamic(() => import("@/components/intrusion/MapaCruce"), { ss
 const PUNTO: Record<Indicio["tono"], string> = { mal: "bg-[var(--mal)]", aviso: "bg-[var(--aviso)]", bien: "bg-[var(--bien)]", info: "bg-[var(--info)]", neutro: "bg-muted-foreground" };
 const hora = (ts: string) => new Date(ts).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
-export function AnalisisDeteccion({ id, grande, className }: { id: string; grande?: boolean; className?: string }) {
+/** El análisis de una detección (/api/monitor/intrusion/analisis), para quien lo dibuja a su manera. */
+export function useAnalisisDeteccion(id: string | null | undefined) {
     const [a, setA] = useState<Datos | null>(null);
     const [error, setError] = useState<string | null>(null);
     useEffect(() => {
-        if (!id || id.startsWith("live-")) return;
+        if (!id || id.startsWith("live-")) { setA(null); setError(null); return; }
         let vivo = true;
         setA(null); setError(null);
         fetch(`/api/monitor/intrusion/analisis?id=${encodeURIComponent(id)}`, { cache: "no-store" })
@@ -30,7 +31,11 @@ export function AnalisisDeteccion({ id, grande, className }: { id: string; grand
             .catch((e) => { if (vivo) setError(e?.message || "sin respuesta"); });
         return () => { vivo = false; };
     }, [id]);
+    return { analisis: a, error };
+}
 
+export function AnalisisDeteccion({ id, grande, className }: { id: string; grande?: boolean; className?: string }) {
+    const { analisis: a, error } = useAnalisisDeteccion(id);
     const texto = grande ? "text-[15px]" : "text-[12.5px]";
     if (id.startsWith("live-")) return null;
     return (
