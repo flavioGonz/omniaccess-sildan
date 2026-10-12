@@ -88,8 +88,11 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
     const titulo = leida ? f.plate! : f.persona || "Sin lectura";
     return (
         <button type="button" onClick={() => alAbrir(f)} title={`${titulo} · ${r.rotulo}`}
-            className={cn("group relative overflow-hidden rounded-[10px] bg-black text-left ring-1 transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 [content-visibility:auto]",
-                denegado || merodea ? "ring-2 ring-[var(--mal)]" : "ring-border hover:ring-[var(--accion)]",
+            /* Sin marco: la captura llega al borde. El estado lo dice la etiqueta de arriba
+               (Denegado, merodeo); un anillo alrededor de cada foto la encerraba en un recuadro,
+               y con casi todas denegadas era una grilla de bordes rojos. Al pasar, el anillo
+               azul marca cuál se va a abrir. */
+            className={cn("group relative overflow-hidden rounded-[8px] bg-black text-left transition-[box-shadow] duration-200 hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] outline-none [content-visibility:auto]",
                 bento ? (grande ? "col-span-2 row-span-2" : "") : "aspect-video")}>
             {url ? (
                 <>
@@ -131,7 +134,7 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
     );
 });
 
-export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReintentar, traer, merodeando, alAbrir, barra, pie, alto }: {
+export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReintentar, traer, merodeando, alAbrir, barra, pie }: {
     vista: Exclude<Vista, "lista">;
     filas: FilaHistorial[];
     hay: boolean; cargando: boolean; error: string | null;
@@ -140,19 +143,18 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
     traer: () => void;
     merodeando: Set<string>;
     alAbrir: (f: FilaHistorial) => void;
-    barra?: React.ReactNode; pie?: React.ReactNode; alto: string;
+    barra?: React.ReactNode; pie?: React.ReactNode;
 }) {
     const bento = vista === "bento";
     const accesos = filas.filter((f) => f.tipo === "ACCESO");
     const destacarDenegadas = !!accesos.length && accesos.filter((f) => f.decision === "DENY").length / accesos.length <= DENEGADAS_EXCEPCION;
-    const caja = useRef<HTMLDivElement>(null);
     const centinela = useRef<HTMLDivElement>(null);
 
     // Scroll infinito: al asomar el final se pide la página siguiente, como en la lista.
     useEffect(() => {
         const el = centinela.current;
         if (!el || !hay || cargando || error) return;
-        const io = new IntersectionObserver((e) => { if (e[0]?.isIntersecting) traer(); }, { root: caja.current, rootMargin: "600px 0px" });
+        const io = new IntersectionObserver((e) => { if (e[0]?.isIntersecting) traer(); }, { rootMargin: "800px 0px" });
         io.observe(el);
         return () => io.disconnect();
     }, [hay, cargando, error, traer, filas.length]);
@@ -164,8 +166,10 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
                 : cargando && !filas.length ? <Cargando texto="Trayendo las capturas…" />
                     : !filas.length ? <Vacio icono={Inbox} titulo="Nada en este período" ayuda="Probá ampliar el rango de fechas, o quitar algún filtro de tipo." />
                         : (
-                            <div ref={caja} className="overflow-auto custom-scrollbar pr-1" style={{ maxHeight: alto }}>
-                                <div className={cn("grid p-0.5", bento
+                            /* Sin caja con scroll propio: el mosaico corre con la página hasta abajo. Antes vivía
+                               en un recuadro de alto fijo y debajo quedaba la pantalla en blanco. */
+                            <div>
+                                <div className={cn("grid", bento
                                     ? "gap-2 grid-cols-[repeat(auto-fill,minmax(150px,1fr))] auto-rows-[96px] [grid-auto-flow:dense]"
                                     : "gap-3 grid-cols-[repeat(auto-fill,minmax(230px,1fr))]")}>
                                     {filas.map((f, i) => {

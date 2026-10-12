@@ -628,7 +628,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             {vista !== "lista" ? (
                 <MosaicoHistorial vista={vista} filas={visibles} hay={hay} cargando={cargando} error={error}
                     alReintentar={reintentar} traer={traer} merodeando={merodeando} alAbrir={setViendo}
-                    barra={barra} pie={pie} alto="calc(100vh - 300px)" />
+                    barra={barra} pie={pie} />
             ) : <Tabla<FilaHistorial>
                 filas={visibles}
                 clave={(f) => f.id}
