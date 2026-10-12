@@ -15,9 +15,10 @@ import { sileo as toast } from "sileo";
 import {
     ScanLine, Video, Plus, RefreshCw, Play, Square, Camera as CamIcon,
     Loader2, Terminal, CheckCircle2, XCircle, BookOpen, Cpu, Zap,
-    MemoryStick, Thermometer, AlertTriangle, SlidersHorizontal,
+    MemoryStick, Thermometer, AlertTriangle, SlidersHorizontal, Waypoints, HelpCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Pista } from "@/components/ui/pista";
 import { cn } from "@/lib/utils";
 import { FranjaServicios } from "@/components/vigia/FranjaServicios";
 import { fechaCorta, fechaHora } from "@/lib/fechas";
@@ -186,6 +187,21 @@ function Linea({ datos, momentos, color, max, formato }: {
                 </>
             )}
         </div>
+    );
+}
+
+/** Un ícono de acción con su explicación al pasar: el encabezado y cada cámara usan estos. */
+function IconoAccion({ children, titulo, texto, onClick, ocupado, deshabilitado, activo }: {
+    children: React.ReactNode; titulo: string; texto: string; onClick: () => void; ocupado?: boolean; deshabilitado?: boolean; activo?: boolean;
+}) {
+    return (
+        <Pista titulo={titulo} texto={texto} ancho={240}>
+            <button type="button" onClick={onClick} disabled={deshabilitado} aria-label={titulo} aria-pressed={activo}
+                className={cn("w-8 h-8 grid place-items-center rounded-full transition-colors disabled:opacity-40",
+                    activo ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                {ocupado ? <Loader2 className="animate-spin" size={14} /> : children}
+            </button>
+        </Pista>
     );
 }
 
@@ -365,40 +381,32 @@ export default function TrackingSection() {
     })();
 
     return (
-        <div className="space-y-5 animate-in fade-in duration-500">
-            {/* ── Encabezado con las acciones a mano ── */}
+        <div className="space-y-5">
+            {/* ── Encabezado con las acciones a mano: íconos con su explicación, no cuatro botones con texto ── */}
             <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                    <div className="p-2 bg-teal-500/10 rounded-xl border border-teal-500/20 shrink-0"><ScanLine className="text-teal-500" size={22} /></div>
-                    <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <h2 className="text-xl font-bold text-foreground tracking-tight">Omni-LPR · Seguimiento</h2>
-                            <Pastilla tono={veredicto.tono} texto={veredicto.texto} />
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-0.5">Lector de matrículas en contenedor, leyendo cámaras comunes por RTSP</p>
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-[17px] font-bold">Omni-LPR · Seguimiento</h2>
+                        <Pastilla tono={veredicto.tono} texto={veredicto.texto} />
                     </div>
+                    <p className="text-[12.5px] text-muted-foreground">El lector de matrículas en contenedor, leyendo las cámaras interiores por RTSP.</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" disabled={!!operando} onClick={() => operar("reiniciar-lpr", "Reiniciar lector")}>
-                        {operando === "reiniciar-lpr" ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}<span className="ml-1.5">Lector</span>
-                    </Button>
-                    <Button size="sm" variant="outline" disabled={!!operando} onClick={() => operar("reiniciar-worker", "Reiniciar pasarela")}>
-                        {operando === "reiniciar-worker" ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}<span className="ml-1.5">Pasarela</span>
-                    </Button>
-                    {contVivo ? (
-                        <Button size="sm" variant="ghost" disabled={!!operando} onClick={() => operar("detener-lpr", "Detener lector")}><Square size={14} /></Button>
-                    ) : (
-                        <Button size="sm" variant="ghost" disabled={!!operando} onClick={() => operar("iniciar-lpr", "Iniciar lector")}><Play size={14} /></Button>
-                    )}
-                    <Button size="sm" variant="ghost" onClick={abrirLogs}><Terminal size={14} /><span className="ml-1.5">Logs</span></Button>
+                <div className="flex items-center gap-1 rounded-full border border-border p-0.5">
+                    <IconoAccion titulo="Reiniciar el lector" texto="Reinicia el contenedor omni-lpr. Unos segundos sin lecturas." ocupado={operando === "reiniciar-lpr"} deshabilitado={!!operando} onClick={() => operar("reiniciar-lpr", "Reiniciar lector")}><RefreshCw size={14} /></IconoAccion>
+                    <IconoAccion titulo="Reiniciar la pasarela" texto="Reinicia el tracking-worker, que saca los cuadros de las cámaras y se los pasa al lector." ocupado={operando === "reiniciar-worker"} deshabilitado={!!operando} onClick={() => operar("reiniciar-worker", "Reiniciar pasarela")}><Waypoints size={14} /></IconoAccion>
+                    {contVivo
+                        ? <IconoAccion titulo="Detener el lector" texto="Para el contenedor: ninguna cámara interior lee hasta que se vuelva a iniciar." ocupado={operando === "detener-lpr"} deshabilitado={!!operando} onClick={() => operar("detener-lpr", "Detener lector")}><Square size={13} /></IconoAccion>
+                        : <IconoAccion titulo="Iniciar el lector" texto="Arranca el contenedor omni-lpr." ocupado={operando === "iniciar-lpr"} deshabilitado={!!operando} onClick={() => operar("iniciar-lpr", "Iniciar lector")}><Play size={14} /></IconoAccion>}
+                    <span className="w-px h-4 bg-border mx-0.5" />
+                    <IconoAccion titulo="Registro" texto="Las últimas líneas del lector y de la pasarela." activo={verLogs} onClick={abrirLogs}><Terminal size={14} /></IconoAccion>
                 </div>
             </div>
 
             {/* ── Los cuatro datos que contestan "¿anda?" ── */}
-            <div className="rounded-2xl border border-border bg-card px-5 py-4 grid grid-cols-2 lg:grid-cols-4 gap-5">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
                 <Dato rotulo="Lector"
                     valor={enGpu === true ? "GPU" : enGpu === false ? "CPU" : "—"}
-                    tono={enGpu === false ? "text-amber-500" : undefined}
+                    tono={enGpu === false ? "tono-aviso" : undefined}
                     pie={lprVivo ? `v${estado?.salud?.version} · responde en ${estado?.salud?.latencia} ms` : "la API no responde"} />
                 <Dato rotulo="Pasarela"
                     valor={`${estado?.camaras || 0} cámara${estado?.camaras === 1 ? "" : "s"}`}
@@ -408,7 +416,7 @@ export default function TrackingSection() {
                     pie={r?.confianzaMediana != null ? `confianza mediana ${r.confianzaMediana}%` : "sin lecturas todavía"} />
                 <Dato rotulo="Efectividad"
                     valor={r?.efectividad != null ? `${r.efectividad}%` : "—"}
-                    tono={r?.efectividad != null && r.efectividad < 30 ? "text-amber-500" : undefined}
+                    tono={r?.efectividad != null && r.efectividad < 30 ? "tono-aviso" : undefined}
                     pie={r?.disparos ? `${r.lecturas} de ${r.disparos} disparos` : "sin disparos en el período"} />
             </div>
 
@@ -416,10 +424,12 @@ export default function TrackingSection() {
                 única señal era un punto rojo dentro de un diagrama que hay que ir a buscar. */}
             <FranjaServicios />
 
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] gap-4 items-start">
+            <div className="space-y-4 min-w-0">
             {/* ── Rendimiento con historia ── */}
-            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+            <div className="rounded-[10px] border border-border bg-card p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <span className="text-sm font-semibold text-foreground">Rendimiento</span>
+                    <span className="text-[13px] font-bold">Rendimiento</span>
                     <div className="flex items-center gap-1 bg-muted/40 rounded-md p-1 border border-border/30">
                         {RANGOS.map((x) => (
                             <button key={x.minutos} onClick={() => setMinutos(x.minutos)}
@@ -455,7 +465,7 @@ export default function TrackingSection() {
                         Todavía no hay historia. La pasarela guarda una muestra por minuto; en un rato esto se llena.
                     </p>
                 ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-4">
                         {[
                             {
                                 ic: Zap, t: "GPU", col: "var(--grafico-1)", k: "gpuWatts", fmt: (v: number) => `${v.toFixed(0)} W`,
@@ -485,16 +495,16 @@ export default function TrackingSection() {
 
             {/* ── Lecturas en el tiempo ── */}
             {!!serie?.porTramo?.length && (
-                <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+                <div className="rounded-[10px] border border-border bg-card p-4 space-y-3">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
-                        <span className="text-sm font-semibold text-foreground">Lecturas en el tiempo</span>
+                        <span className="text-[13px] font-bold">Lecturas en el tiempo</span>
                         <span className="text-[11px] text-muted-foreground">
                             {r?.lecturas ?? 0} aceptadas · {r?.descartes ?? 0} descartadas por no coincidir entre cuadros
                         </span>
                     </div>
                     <Barras datos={serie.porTramo} tramoMin={serie.tramoMin} />
                     {r?.efectividad != null && r.efectividad < 30 && r.disparos > 10 && (
-                        <div className="flex items-start gap-2 text-[11px] text-amber-600 dark:text-amber-400 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2">
+                        <div className="flex items-start gap-2 text-[11.5px] rounded-[6px] border chip-aviso px-3 py-2">
                             <AlertTriangle size={13} className="mt-px shrink-0" />
                             <span>
                                 Se dispara mucho y se lee poco. Suele ser la zona de interés demasiado abierta, o una cámara
@@ -506,34 +516,37 @@ export default function TrackingSection() {
             )}
 
             {verLogs && (
-                <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+                <div className="rounded-[10px] border border-border bg-card p-4 space-y-3">
                     <div className="flex items-center justify-between">
-                        <span className="text-sm font-semibold text-foreground">Últimas líneas</span>
+                        <span className="text-[13px] font-bold">Últimas líneas</span>
                         <Button size="sm" variant="ghost" onClick={() => setVerLogs(false)}>Cerrar</Button>
                     </div>
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
                         {[["Contenedor", logs?.lpr], ["Pasarela", logs?.worker]].map(([t, v]) => (
                             <div key={t as string}>
                                 <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">{t}</div>
-                                <pre className="text-[10px] leading-relaxed bg-background/60 border border-border rounded-xl p-3 h-56 overflow-auto whitespace-pre-wrap font-mono text-muted-foreground">{(v as string) || "…"}</pre>
+                                <pre className="text-[10.5px] leading-relaxed bg-muted/40 border border-border rounded-[10px] p-3 h-56 overflow-auto whitespace-pre-wrap tabular-nums text-muted-foreground" style={{ fontFamily: "inherit" }}>{(v as string) || "…"}</pre>
                             </div>
                         ))}
                     </div>
                 </div>
             )}
 
+            </div>
+            <div className="space-y-4 min-w-0">
             {/* ── Cámaras ── */}
-            <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                <div className="px-5 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap">
-                    <div>
-                        <span className="text-sm font-semibold text-foreground">Cámaras interiores</span>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
-                            No abren barrera: solo alimentan el recorrido. Se dan de alta en Dispositivos LPR con el tipo <b className="text-foreground/80">Cámara Interior</b>.
-                        </p>
+            <div className="rounded-[10px] border border-border bg-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[13px] font-bold">Cámaras interiores</span>
+                        <span className="text-[12px] text-muted-foreground tabular-nums">{camaras.length}</span>
+                        <Pista titulo="Cámaras interiores" texto="No abren barrera: sólo alimentan el recorrido. Se dan de alta en Dispositivos con el tipo Cámara Interior." ancho={280}>
+                            <HelpCircle size={12.5} className="text-muted-foreground/60 hover:text-[var(--accion)] cursor-help" />
+                        </Pista>
                     </div>
-                    <div className="flex gap-2">
-                        <a href="/admin/manuales?m=seguimiento"><Button size="sm" variant="ghost"><BookOpen size={14} /><span className="ml-1.5">Manual</span></Button></a>
-                        <a href="/admin/devices"><Button size="sm"><Plus size={15} /><span className="ml-1.5">Agregar</span></Button></a>
+                    <div className="flex items-center gap-1">
+                        <a href="/admin/manuales?m=seguimiento" title="Manual del seguimiento" className="w-8 h-8 grid place-items-center rounded-[6px] text-muted-foreground hover:text-foreground hover:bg-accent"><BookOpen size={14} /></a>
+                        <a href="/admin/devices"><Button size="sm" className="h-8"><Plus size={14} /><span className="ml-1">Agregar</span></Button></a>
                     </div>
                 </div>
 
@@ -546,32 +559,30 @@ export default function TrackingSection() {
                         {camaras.map((c) => {
                             const d = camarasPorId[c.id];
                             return (
-                                <div key={c.id} className="px-5 py-3 flex flex-col lg:flex-row lg:items-center gap-3">
-                                    <div className="lg:w-64 min-w-0">
+                                <div key={c.id} className="px-4 py-3 space-y-2">
+                                    <div className="min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", c.activa ? "bg-emerald-500" : "bg-muted-foreground/40")} />
+                                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", c.activa ? "bg-[var(--bien)]" : "bg-muted-foreground/40")} />
                                             <span className="font-semibold text-sm text-foreground truncate">{c.name}</span>
                                         </div>
                                         <div className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2">
                                             <span>{d?.modo === "camara" ? "avisa la cámara" : "cambio de escena"}</span>
                                             <span>·</span>
-                                            <span className={d?.conZona ? "" : "text-amber-500"}>{d?.conZona ? "con zona" : "sin zona de interés"}</span>
-                                            {!c.enMapa && <><span>·</span><span className="text-amber-500">sin ubicar</span></>}
+                                            <span className={d?.conZona ? "" : "tono-aviso"}>{d?.conZona ? "con zona" : "sin zona de interés"}</span>
+                                            {!c.enMapa && <><span>·</span><span className="tono-aviso">sin ubicar</span></>}
                                         </div>
                                     </div>
 
-                                    <div className="flex-1 grid grid-cols-3 gap-3 text-[11px]">
+                                    <div className="flex items-end gap-3 text-[11px]">
+                                    <div className="flex-1 grid grid-cols-3 gap-3">
                                         <div><div className="text-muted-foreground">Lecturas</div><div className="text-foreground font-semibold tabular-nums">{d?.lecturas ?? 0}</div></div>
                                         <div><div className="text-muted-foreground">Confianza</div><div className="text-foreground font-semibold tabular-nums">{d?.confianzaProm != null ? `${d.confianzaProm}%` : "—"}</div></div>
                                         <div><div className="text-muted-foreground">Última</div><div className="text-foreground font-semibold">{haceCuanto(d?.ultima ?? null)}</div></div>
                                     </div>
-
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        <Button size="sm" variant="outline" disabled={probando || !c.rtsp} onClick={() => probar(c.rtsp, c.id)}>
-                                            {probando && probada === c.id ? <Loader2 className="animate-spin" size={14} /> : <CamIcon size={14} />}
-                                            <span className="ml-1.5">Probar</span>
-                                        </Button>
-                                        <a href="/admin/devices"><Button size="sm" variant="ghost"><SlidersHorizontal size={14} /><span className="ml-1.5">Calibrar</span></Button></a>
+                                    <div className="flex items-center gap-0.5 shrink-0">
+                                        <IconoAccion titulo="Probar" texto="Saca un cuadro de la cámara ahora y lo pasa por el lector." deshabilitado={probando || !c.rtsp} ocupado={probando && probada === c.id} onClick={() => probar(c.rtsp, c.id)}><CamIcon size={14} /></IconoAccion>
+                                        <a href="/admin/devices" title="Calibrar en Dispositivos" className="w-8 h-8 grid place-items-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent"><SlidersHorizontal size={14} /></a>
+                                    </div>
                                     </div>
                                 </div>
                             );
@@ -580,22 +591,22 @@ export default function TrackingSection() {
                 )}
 
                 {prueba && (
-                    <div className="border-t border-border p-4 grid grid-cols-1 md:grid-cols-[280px_1fr] gap-4">
+                    <div className="border-t border-border p-4 grid grid-cols-1 gap-3">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={prueba.imagen} alt="Cuadro de prueba" className="rounded-lg w-full object-cover border border-border" />
                         <div className="space-y-2 text-sm">
                             <div className="text-xs text-muted-foreground">
                                 Cuadro de {Math.round(prueba.bytes / 1024)} KB · captura {prueba.msCaptura} ms · lectura {prueba.msLectura} ms
                             </div>
-                            {prueba.errorLpr && <div className="text-red-500 text-xs">{prueba.errorLpr}</div>}
+                            {prueba.errorLpr && <div className="tono-mal text-xs">{prueba.errorLpr}</div>}
                             {prueba.lecturas?.length ? prueba.lecturas.map((l: any, i: number) => {
                                 const pasa = l.confidence >= prueba.umbral;
                                 return (
                                     <div key={i} className="flex items-center gap-3">
-                                        {pasa ? <CheckCircle2 className="text-emerald-500" size={16} /> : <XCircle className="text-amber-500" size={16} />}
-                                        <span className="font-mono font-bold tracking-widest text-foreground">{l.plate}</span>
+                                        {pasa ? <CheckCircle2 className="tono-bien" size={16} /> : <XCircle className="tono-aviso" size={16} />}
+                                        <span className="font-bold tracking-widest tabular-nums text-foreground">{l.plate}</span>
                                         <span className="text-xs text-muted-foreground">{(l.confidence * 100).toFixed(0)}%</span>
-                                        <span className={cn("text-[11px]", pasa ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400")}>
+                                        <span className={cn("text-[11px]", pasa ? "tono-bien" : "tono-aviso")}>
                                             {pasa ? "se registraría" : `por debajo del ${Math.round(prueba.umbral * 100)}%`}
                                         </span>
                                     </div>
@@ -612,15 +623,15 @@ export default function TrackingSection() {
 
             {/* ── Últimos avistamientos ── */}
             {!!estado?.ultimas?.length && (
-                <div className="rounded-2xl border border-border bg-card overflow-hidden">
-                    <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-                        <span className="text-sm font-semibold text-foreground">Últimos avistamientos</span>
-                        <a href="/admin/history" className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">ver el historial completo</a>
+                <div className="rounded-[10px] border border-border bg-card overflow-hidden">
+                    <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+                        <span className="text-[13px] font-bold">Últimos avistamientos</span>
+                        <a href="/admin/history" className="text-[12px] font-semibold tono-accion hover:underline">Historial</a>
                     </div>
                     <div className="divide-y divide-border">
                         {estado.ultimas.slice(0, 8).map((u: any, i: number) => (
-                            <div key={i} className="px-5 py-2.5 flex items-center gap-4 text-sm">
-                                <span className="font-mono font-bold tracking-widest text-foreground w-28">{u.plate}</span>
+                            <div key={i} className="px-4 py-2 flex items-center gap-3 text-[12.5px]">
+                                <span className="font-bold tracking-widest tabular-nums text-foreground w-24">{u.plate}</span>
                                 <span className="text-muted-foreground flex-1 truncate">{u.cameraName || "—"}</span>
                                 <span className="text-xs text-muted-foreground">{u.confidence != null ? `${Math.round(u.confidence * 100)}%` : ""}</span>
                                 <span className="text-xs text-muted-foreground tabular-nums">{haceCuanto(u.timestamp)}</span>
@@ -629,6 +640,8 @@ export default function TrackingSection() {
                     </div>
                 </div>
             )}
+            </div>
+            </div>
         </div>
     );
 }

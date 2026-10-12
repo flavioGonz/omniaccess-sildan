@@ -3,9 +3,9 @@
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
-import { SERVICIOS, TAREAS, tareaPorClave } from "@/lib/tareas/catalogo";
+import { TAREAS, servicioDe, tareaPorClave } from "@/lib/tareas/catalogo";
 import { CLAVE_PAUSADAS, olvidarPausas, tareasPausadas } from "@/lib/tareas/ejecucion";
-import { colaDeArchivo, leerCrontab, listarDocker, listarPm2, logsDocker, reiniciarDocker, reiniciarPm2 } from "@/lib/tareas/sistema";
+import { colaDeArchivo, estadisticasDocker, inspeccionarDocker, leerCrontab, listarDocker, listarPm2, listarSystemd, logsDocker, logsSystemd, reiniciarDocker, reiniciarPm2 } from "@/lib/tareas/sistema";
 import { getDispatchQueue } from "@/lib/dispatch-queue";
 
 /**
@@ -33,11 +33,16 @@ const TAREA_ESPERA_MS = 55_000;
 /** Lo más que se pide de un log. Más que esto ya no se lee en una pantalla. */
 const LINEAS_MAX = 1000;
 
+export type TipoServicio = "pm2" | "docker" | "sistema";
 export type ServicioFila = {
-    tipo: "pm2" | "docker"; nombre: string; titulo: string; queHace: string | null; siCae: string | null;
+    tipo: TipoServicio; nombre: string; titulo: string; queHace: string | null; siCae: string | null;
     estado: string; vivo: boolean; desde: string | null; detalle: string; reinicios: number | null;
     memoria: number | null; cpu: number | null; origen: string | null; internas: { nombre: string; cada: string }[];
     cortaElPanel: boolean; conLogs: boolean;
+    /** Los del sistema (base, Redis…) se miran, no se reinician desde una página: ver reiniciarServicio. */
+    reiniciable: boolean;
+    /** Lo que dice el chequeo de salud del contenedor, si tiene: healthy / unhealthy / starting. */
+    salud: string | null;
 };
 export type TareaFila = {
     clave: string; nombre: string; queHace: string | null; siFalla: string | null; horario: string; enUnaFrase: string;
@@ -47,36 +52,104 @@ export type TareaFila = {
 };
 export type AccionFila = { id: string; cuando: string; quien: string; accion: string; objetivo: string; ok: boolean; detalle: string | null };
 
+/** El CPU de las unidades de systemd sale de un contador acumulado: el % es la diferencia entre dos lecturas. */
+const cpuPrevio = new Map<string, { ns: number; t: number }>();
+
+/**
+ * Todo lo que corre, de quien lo sabe: PM2, Docker (con arranque, reinicios, salud y consumo) y
+ * systemd (base, Redis, almacenamiento, video, Docker). Lo que no se pudo leer se avisa y no se
+ * inventa: una tabla vacía porque Docker no contestó no es lo mismo que «no hay contenedores».
+ */
+async function leerServicios(avisos: string[]): Promise<ServicioFila[]> {
+    const [pm2, docker, unidades] = await Promise.all([
+        listarPm2().catch((e) => { avisos.push(`PM2: ${e?.message || e}`); return []; }),
+        listarDocker().catch((e) => { avisos.push(`Docker: ${e?.message || e}`); return []; }),
+        listarSystemd().catch((e) => { avisos.push(`Servicios del sistema: ${e?.message || e}`); return []; }),
+    ]);
+    const [insp, stats] = await Promise.all([
+        inspeccionarDocker(docker.map((d) => d.nombre)).catch(() => new Map()),
+        estadisticasDocker().catch(() => new Map()),
+    ]);
+    const ahora = Date.now();
+    return [
+        ...pm2.map((p) => {
+            const c = servicioDe(p.nombre);
+            return {
+                tipo: "pm2" as const, nombre: p.nombre, titulo: c?.nombre || p.nombre, queHace: c?.queHace || null, siCae: c?.siCae || null,
+                estado: p.estado, vivo: p.estado === "online", desde: p.estado === "online" ? p.desde : null, detalle: p.estado === "online" ? "En línea" : p.estado,
+                reinicios: p.reinicios, memoria: p.memoria, cpu: p.cpu, origen: p.script, internas: c?.internas || [],
+                cortaElPanel: !!c?.cortaElPanel, conLogs: !!(p.logOut || p.logErr), reiniciable: true, salud: null,
+            };
+        }),
+        ...docker.map((d) => {
+            const c = servicioDe(d.nombre);
+            const i = insp.get(d.nombre);
+            const st = stats.get(d.nombre);
+            const vivo = d.estado === "running";
+            return {
+                tipo: "docker" as const, nombre: d.nombre, titulo: c?.nombre || d.nombre, queHace: c?.queHace || null, siCae: c?.siCae || null,
+                estado: d.estado, vivo, desde: vivo ? i?.desde || null : null, detalle: d.detalle, reinicios: i?.reinicios ?? null,
+                memoria: vivo ? st?.memoria ?? null : null, cpu: vivo ? st?.cpu ?? null : null,
+                origen: `${d.imagen}${d.puertos ? ` · ${d.puertos}` : ""}`, internas: [],
+                cortaElPanel: false, conLogs: true, reiniciable: true, salud: i?.salud || null,
+            };
+        }),
+        ...unidades.map((u) => {
+            const c = servicioDe(u.nombre);
+            let cpu: number | null = null;
+            if (u.cpuNs != null) {
+                const prev = cpuPrevio.get(u.nombre);
+                if (prev && ahora > prev.t) cpu = Math.max(0, Math.round(((u.cpuNs - prev.ns) / 1e6 / (ahora - prev.t)) * 1000) / 10);
+                cpuPrevio.set(u.nombre, { ns: u.cpuNs, t: ahora });
+            }
+            const vivo = u.estado === "active";
+            return {
+                tipo: "sistema" as const, nombre: u.nombre, titulo: c?.nombre || u.nombre, queHace: c?.queHace || null, siCae: c?.siCae || null,
+                estado: vivo ? "activo" : u.estado, vivo, desde: vivo ? u.desde : null, detalle: `${u.estado} · ${u.subestado}`,
+                reinicios: u.reinicios, memoria: u.memoria, cpu, origen: `systemd · ${u.nombre}.service${u.pid ? ` · PID ${u.pid}` : ""}`, internas: [],
+                cortaElPanel: false, conLogs: true, reiniciable: false, salud: null,
+            };
+        }),
+    ];
+}
+
+/**
+ * Sólo los servicios, para la vista en vivo: la pantalla pregunta cada pocos segundos y no hace
+ * falta releer el cron, las corridas ni la auditoría en cada vuelta.
+ */
+export async function vivoServicios() {
+    await exigirAjustes();
+    const avisos: string[] = [];
+    const servicios = await leerServicios(avisos);
+    return { servicios, avisos, al: new Date().toISOString() };
+}
+
+/** La cola de envíos (BullMQ sobre Redis). */
+export async function estadoCola() {
+    await exigirAjustes();
+    try {
+        const c = await Promise.race([
+            getDispatchQueue().getJobCounts("waiting", "active", "delayed", "failed", "completed"),
+            new Promise<never>((_, no) => setTimeout(() => no(new Error("Redis no contesta")), 4000)),
+        ]);
+        return { ok: true as const, al: new Date().toISOString(), espera: c.waiting || 0, activos: c.active || 0, demorados: c.delayed || 0, fallidos: c.failed || 0, completos: c.completed || 0 };
+    } catch (e: any) { return { ok: false as const, al: new Date().toISOString(), error: e?.message || "No se pudo leer la cola" }; }
+}
+
+/** Lo que se hizo desde Procesos: reinicios, tareas a mano, pausas. */
+export async function auditoriaProcesos(limite = 500) {
+    await exigirAjustes();
+    return (await prisma.accionSistema.findMany({ orderBy: { cuando: "desc" }, take: Math.min(2000, Math.max(20, limite)) })).map((a) => ({ ...a, cuando: a.cuando.toISOString() })) as AccionFila[];
+}
+
 export async function estadoProcesos() {
     await exigirAjustes();
     const avisos: string[] = [];
 
-    const [pm2, docker, cron] = await Promise.all([
-        listarPm2().catch((e) => { avisos.push(`PM2: ${e?.message || e}`); return []; }),
-        listarDocker().catch((e) => { avisos.push(`Docker: ${e?.message || e}`); return []; }),
+    const [servicios, cron] = await Promise.all([
+        leerServicios(avisos),
         leerCrontab().catch((e) => { avisos.push(`Cron: ${e?.message || e}`); return []; }),
     ]);
-
-    const servicios: ServicioFila[] = [
-        ...pm2.map((p) => {
-            const c = SERVICIOS[p.nombre];
-            return {
-                tipo: "pm2" as const, nombre: p.nombre, titulo: c?.nombre || p.nombre, queHace: c?.queHace || null, siCae: c?.siCae || null,
-                estado: p.estado, vivo: p.estado === "online", desde: p.desde, detalle: p.estado === "online" ? "En línea" : p.estado,
-                reinicios: p.reinicios, memoria: p.memoria, cpu: p.cpu, origen: p.script, internas: c?.internas || [],
-                cortaElPanel: !!c?.cortaElPanel, conLogs: !!(p.logOut || p.logErr),
-            };
-        }),
-        ...docker.map((d) => {
-            const c = SERVICIOS[d.nombre];
-            return {
-                tipo: "docker" as const, nombre: d.nombre, titulo: c?.nombre || d.nombre, queHace: c?.queHace || null, siCae: c?.siCae || null,
-                estado: d.estado, vivo: d.estado === "running", desde: null, detalle: d.detalle, reinicios: null,
-                memoria: null, cpu: null, origen: `${d.imagen}${d.puertos ? ` · ${d.puertos}` : ""}`, internas: [],
-                cortaElPanel: false, conLogs: true,
-            };
-        }),
-    ];
 
     // Corridas: la última de cada tarea y el resumen de 24 h, en dos consultas y no una por tarea.
     const pausadas = await tareasPausadas(true);
@@ -102,24 +175,18 @@ export async function estadoProcesos() {
         };
     });
 
-    let cola: { espera: number; activos: number; demorados: number; fallidos: number; completos: number } | null = null;
-    try {
-        const c = await Promise.race([
-            getDispatchQueue().getJobCounts("waiting", "active", "delayed", "failed", "completed"),
-            new Promise<never>((_, no) => setTimeout(() => no(new Error("Redis no contesta")), 4000)),
-        ]);
-        cola = { espera: c.waiting || 0, activos: c.active || 0, demorados: c.delayed || 0, fallidos: c.failed || 0, completos: c.completed || 0 };
-    } catch (e: any) { avisos.push(`Cola de envíos: ${e?.message || e}`); }
-
-    const acciones = (await prisma.accionSistema.findMany({ orderBy: { cuando: "desc" }, take: 100 })).map((a) => ({ ...a, cuando: a.cuando.toISOString() })) as AccionFila[];
-
-    return { servicios, tareas, cola, acciones, avisos, al: new Date().toISOString() };
+    return { servicios, tareas, avisos, al: new Date().toISOString() };
 }
 
-export async function logsDeServicio(tipo: "pm2" | "docker", nombre: string, cual: "salida" | "errores", lineas = 300): Promise<{ ok: true; lineas: string[]; archivo: string | null } | { ok: false; error: string }> {
+export async function logsDeServicio(tipo: TipoServicio, nombre: string, cual: "salida" | "errores", lineas = 300): Promise<{ ok: true; lineas: string[]; archivo: string | null } | { ok: false; error: string }> {
     try {
         await exigirAjustes();
         const n = Math.min(Math.max(20, Math.round(lineas)), LINEAS_MAX);
+        if (tipo === "sistema") {
+            // Sólo unidades de la lista real: el nombre llega del navegador.
+            if (!(await listarSystemd()).some((u) => u.nombre === nombre)) return { ok: false, error: "Ese servicio no existe." };
+            return { ok: true, lineas: await logsSystemd(nombre, n), archivo: `journalctl -u ${nombre}` };
+        }
         if (tipo === "docker") {
             if (!(await listarDocker()).some((d) => d.nombre === nombre)) return { ok: false, error: "Ese contenedor no existe." };
             return { ok: true, lineas: await logsDocker(nombre, n), archivo: null };
@@ -132,10 +199,14 @@ export async function logsDeServicio(tipo: "pm2" | "docker", nombre: string, cua
     } catch (e: any) { return { ok: false, error: e?.message || "No se pudo leer el log" }; }
 }
 
-export async function reiniciarServicio(tipo: "pm2" | "docker", nombre: string): Promise<{ ok: true; mensaje: string } | { ok: false; error: string }> {
+export async function reiniciarServicio(tipo: TipoServicio, nombre: string): Promise<{ ok: true; mensaje: string } | { ok: false; error: string }> {
     let quien = "panel";
     try {
         quien = await exigirAjustes();
+        // La base, Redis, el almacenamiento y Docker no se reinician desde una página: reiniciar la
+        // base corta el propio panel a la mitad de la respuesta, y reiniciar Docker ya tumbó el
+        // lector y WhatsApp una vez (ver skill omniaccess-despliegue). Se hace desde la consola.
+        if (tipo === "sistema") return { ok: false, error: "Los servicios del sistema se reinician desde la consola del servidor, no desde el panel." };
         if (tipo === "docker") {
             if (!(await listarDocker()).some((d) => d.nombre === nombre)) return { ok: false, error: "Ese contenedor no existe." };
             await reiniciarDocker(nombre);

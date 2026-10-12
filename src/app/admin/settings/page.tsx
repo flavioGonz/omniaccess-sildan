@@ -47,6 +47,8 @@ import {
     Video,
     Building2,
     ScanEye,
+    ScrollText,
+    Send,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { SECCIONES_OMNIVISION } from "@/components/vision/NavOmniVision";
@@ -81,6 +83,10 @@ import VisitasSection from "./VisitasSection";
 import EmpresasSection from "./EmpresasSection";
 import { HistorialBot } from "@/components/settings/HistorialBot";
 import ProcesosSection from "./procesos/ProcesosSection";
+import ColasSection from "./procesos/ColasSection";
+import AuditoriaSection from "./procesos/AuditoriaSection";
+import { Vistas, MENU_SUAVE } from "@/components/ui/entrada";
+import { AnimatePresence as PresenciaMenu, motion as movimientoMenu } from "framer-motion";
 import CentroNotificaciones, { TABS_NOTIFICACIONES } from "../notificaciones/CentroNotificaciones";
 import AlmacenamientoSection from "./AlmacenamientoSection";
 import { FUNCIONES, type FuncionId } from "@/lib/funciones";
@@ -186,14 +192,6 @@ const SETTINGS_SECTIONS = [
 ];
 
 const NAV_GROUPS = [
-    { id: "sistema", label: "Sistema", icon: Server, items: [
-        { sec: "system_status", btab: "", label: "Estado del Sistema", icon: Activity },
-        { sec: "procesos", btab: "", label: "Procesos y tareas", icon: Server },
-        { sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
-        { sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
-        { sec: "database", btab: "", label: "Database", icon: Database },
-        { sec: "users", btab: "", label: "Accesos al panel", icon: Users },
-    ]},
     { id: "branding", label: "Branding", icon: Palette, items: [
         { sec: "branding", btab: "identidad", label: "Identidad Corporativa", icon: Palette },
         { sec: "branding", btab: "testimonios", label: "Testimonios Login", icon: MessageSquare },
@@ -223,6 +221,17 @@ const NAV_GROUPS = [
     { id: "omnivision", label: "OmniVision", icon: ScanEye, items: SECCIONES_OMNIVISION.map((x) => (
         { sec: "", btab: "", href: x.href, label: x.menu, icon: x.icono }
     )) },
+    /* Sistema va último: es lo que se mira cuando algo anda mal, no lo primero que se configura. */
+    { id: "sistema", label: "Sistema", icon: Server, items: [
+        { sec: "system_status", btab: "", label: "Estado del Sistema", icon: Activity },
+        { sec: "procesos", btab: "", label: "Procesos y tareas", icon: Server },
+        { sec: "colas", btab: "", label: "Colas y envíos", icon: Send },
+        { sec: "auditoria", btab: "", label: "Auditoría", icon: ScrollText },
+        { sec: "webhooks", btab: "", label: "Webhooks", icon: Activity },
+        { sec: "storage", btab: "", label: "Almacenamiento", icon: Cloud },
+        { sec: "database", btab: "", label: "Database", icon: Database },
+        { sec: "users", btab: "", label: "Accesos al panel", icon: Users },
+    ]},
 ];
 
 const DRIVERS = [
@@ -318,8 +327,9 @@ export default function SettingsPage() {
                                     {g.label}
                                     <ChevronDown size={13} className={cn("transition-transform duration-200", isOpen && "rotate-180")} />
                                 </button>
+                                <PresenciaMenu>
                                 {isOpen && (
-                                    <div className="absolute left-0 top-full mt-1.5 min-w-[240px] rounded-xl border border-border bg-card shadow-xl shadow-black/30 p-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-150">
+                                    <movimientoMenu.div {...MENU_SUAVE} style={{ transformOrigin: "top left" }} className="absolute left-0 top-full mt-1.5 min-w-[240px] rounded-xl border border-border bg-card shadow-xl shadow-black/30 p-1.5 z-50">
                                         {g.items.map((it: any, idx) => {
                                             const IIcon = it.icon;
                                             const itemActive = it.sec === activeSection && (it.btab ? it.btab === brandingTab : true) && (it.ntab ? it.ntab === notifTab : true);
@@ -337,8 +347,9 @@ export default function SettingsPage() {
                                                 </button>
                                             );
                                         })}
-                                    </div>
+                                    </movimientoMenu.div>
                                 )}
+                                </PresenciaMenu>
                             </div>
                         );
                     })}
@@ -347,7 +358,8 @@ export default function SettingsPage() {
 
             {/* Main Content */}
             <div className="w-full space-y-6">
-                <div key={activeSection}>
+                {/* Una sola transición para todas las secciones (components/ui/entrada): cada una traía la suya. */}
+                <Vistas clave={`${activeSection}:${brandingTab}:${notifTab}`}>
                     {/* Mode Face Section */}
                     {activeSection === "audit" && <AuditPage />}
 
@@ -611,7 +623,9 @@ export default function SettingsPage() {
                     {activeSection === "visitas" && <VisitasSection />}
                     {activeSection === "empresas" && <EmpresasSection />}
                     {activeSection === "procesos" && <ProcesosSection />}
-                </div>
+                    {activeSection === "colas" && <ColasSection />}
+                    {activeSection === "auditoria" && <AuditoriaSection />}
+                </Vistas>
             </div>
 
 
@@ -1821,7 +1835,7 @@ function WhatsAppSection() {
     const cmdsActive = commands.filter(c => c.active).length;
 
     return (
-        <div className="space-y-5 animate-in fade-in duration-200">
+        <div className="space-y-5">
             {/* Header */}
             <div className="bg-gradient-to-br from-emerald-600/10 to-teal-600/10 border border-emerald-500/10 rounded-xl p-5 flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-3 min-w-0">

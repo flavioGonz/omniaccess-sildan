@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Box, HelpCircle, CalendarClock, Cpu, FileText, History, Info, Loader2, Pause, Play, RefreshCw, RotateCcw, Terminal, Timer } from "lucide-react";
+import { Activity, AlertTriangle, Box, HelpCircle, CalendarClock, Cpu, FileText, History, Info, Loader2, MemoryStick, Pause, Play, RefreshCw, RotateCcw, Server, Terminal, Timer } from "lucide-react";
+import { Linea, Pulso, tiempoArriba } from "./vivo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pista } from "@/components/ui/pista";
@@ -52,41 +53,62 @@ function Dato({ rotulo, valor, pista }: { rotulo: string; valor: React.ReactNode
 
 // ───────────────────────────── Servicio ─────────────────────────────
 
-export function CajonServicio({ servicio, alCerrar, alCambiar }: { servicio: ServicioFila | null; alCerrar: () => void; alCambiar: () => void }) {
+/** Mientras «Seguir» está prendido, el registro se vuelve a pedir cada esto. */
+const SEGUIR_LOG_MS = 2_000;
+
+/**
+ * El cajón de un servicio. Era de ancho «ancho» (el de una tabla) con cinco recuadros sueltos en
+ * fila y el registro abajo de todo: la mitad de la pantalla para mostrar cinco números. Ahora es
+ * angosto, en el orden en que se lee —cómo está, qué hace, qué pasa si se cae, su registro— y el
+ * registro puede seguirse en vivo como un `tail -f`.
+ */
+export function CajonServicio({ servicio, ahora, cpu, mem, alCerrar, alCambiar }: {
+    servicio: ServicioFila | null; ahora: number; cpu: number[]; mem: number[]; alCerrar: () => void; alCambiar: () => void;
+}) {
     const s = servicio;
     const [cual, setCual] = useState<"salida" | "errores">("salida");
     const [lineas, setLineas] = useState(300);
     const [filtro, setFiltro] = useState("");
+    const [seguir, setSeguir] = useState(true);
     const [log, setLog] = useState<{ lineas: string[]; archivo: string | null } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [cargando, setCargando] = useState(false);
     const caja = useRef<HTMLDivElement>(null);
+    const alFondo = useRef(true);
 
     const traer = async () => {
         if (!s) return;
-        setCargando(true); setError(null);
+        setCargando(true);
         const r = await logsDeServicio(s.tipo, s.nombre, cual, lineas);
         setCargando(false);
         if (!r.ok) { setError(r.error); return; }
+        setError(null);
         setLog({ lineas: r.lineas, archivo: r.archivo });
     };
-    // Al final, que es donde está lo último que pasó. En un efecto y no al recibir: recién
-    // después de dibujar las líneas la caja tiene su alto real.
-    useEffect(() => { if (caja.current) caja.current.scrollTop = caja.current.scrollHeight; }, [log]);
-    useEffect(() => { setLog(null); setFiltro(""); if (s?.conLogs) traer(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [s?.nombre, cual, lineas]);
-    useEffect(() => { setCual("salida"); }, [s?.nombre]);
+    // Al final, que es donde está lo último — salvo que el operador haya subido a leer algo.
+    useEffect(() => { if (caja.current && alFondo.current) caja.current.scrollTop = caja.current.scrollHeight; }, [log]);
+    useEffect(() => { setLog(null); setFiltro(""); alFondo.current = true; if (s?.conLogs) traer(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [s?.nombre, cual, lineas]);
+    useEffect(() => { setCual("salida"); setSeguir(true); }, [s?.nombre]);
+    useEffect(() => {
+        if (!s?.conLogs || !seguir) return;
+        const i = setInterval(() => { if (document.visibilityState === "visible") traer(); }, SEGUIR_LOG_MS);
+        return () => clearInterval(i);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [s?.nombre, cual, lineas, seguir]);
 
     const visibles = useMemo(() => {
         const q = filtro.trim().toLowerCase();
         return (log?.lineas || []).filter((l) => !q || l.toLowerCase().includes(q));
     }, [log, filtro]);
+    const errores = useMemo(() => visibles.filter((l) => tonoDeLinea(l) === "tono-mal").length, [visibles]);
+    const IconoTipo = s?.tipo === "pm2" ? Cpu : s?.tipo === "docker" ? Box : Server;
 
     return (
         <Cajon open={!!s} onOpenChange={(o) => { if (!o) alCerrar(); }}>
             {s && (
-                <CajonContenido ancho="ancho" titulo={s.titulo}
-                    descripcion={`${s.tipo === "pm2" ? "Proceso PM2" : "Contenedor Docker"} · ${s.nombre}`}
-                    pie={
+                <CajonContenido ancho="intermedio" titulo={s.titulo}
+                    descripcion={`${s.tipo === "pm2" ? "Proceso PM2" : s.tipo === "docker" ? "Contenedor Docker" : "Servicio del sistema"} · ${s.nombre}`}
+                    pie={s.reiniciable ? (
                         <ConfirmarEnCajon
                             id={s.nombre}
                             title={`Reiniciar ${s.titulo}`}
@@ -97,7 +119,7 @@ export function CajonServicio({ servicio, alCerrar, alCambiar }: { servicio: Ser
                                 ...(s.cortaElPanel ? ["Es el propio panel: esta página va a dejar de contestar unos segundos y vuelve sola."] : []),
                                 "Queda anotado en la auditoría con tu nombre.",
                             ]}
-                            siFalla="Si no arranca, queda en la tabla con su estado en rojo y el motivo en el registro de errores. Se puede reintentar desde acá."
+                            siFalla="Si no arranca, queda con su estado en rojo y el motivo en el registro de errores. Se puede reintentar desde acá."
                             escribir="REINICIAR"
                             etiquetaAccion="Reiniciar"
                             onDelete={async () => {
@@ -111,72 +133,95 @@ export function CajonServicio({ servicio, alCerrar, alCambiar }: { servicio: Ser
                                 <RotateCcw size={14} /> Reiniciar
                             </Button>
                         </ConfirmarEnCajon>
-                    }>
+                    ) : (
+                        <p className="mr-auto text-[12px] text-muted-foreground flex items-center gap-1.5">
+                            <Terminal size={13} /> Los servicios del sistema se reinician desde la consola del servidor.
+                        </p>
+                    )}>
 
-                    <CajonSeccion titulo="Qué es" icono={Info}>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <p className="text-[12px] font-semibold text-foreground/85 mb-1">Qué hace</p>
-                                <p className="text-[12.5px] leading-relaxed text-foreground/80">{s.queHace || "Proceso sin descripción en el catálogo de OmniAccess."}</p>
-                            </div>
-                            <div>
-                                <p className="text-[12px] font-semibold text-foreground/85 mb-1 flex items-center gap-1.5"><AlertTriangle size={12.5} className="tono-aviso" /> Si se cae</p>
-                                <p className="text-[12.5px] leading-relaxed text-foreground/80">{s.siCae || "—"}</p>
+                    {/* Cómo está, ahora. */}
+                    <div className="px-6 pt-5 pb-4 border-b border-border space-y-3">
+                        <div className="flex items-center gap-3">
+                            <span className="w-10 h-10 rounded-[10px] bg-muted border border-border text-muted-foreground grid place-items-center shrink-0"><IconoTipo size={18} /></span>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                    <Estado tono={s.vivo ? "bien" : "mal"}>{s.vivo ? "En línea" : s.estado}</Estado>
+                                    {s.salud && <Estado tono={s.salud === "healthy" ? "bien" : s.salud === "unhealthy" ? "aviso" : "neutro"}>{s.salud === "healthy" ? "Sano" : s.salud === "starting" ? "Arrancando" : s.salud}</Estado>}
+                                </div>
+                                <p className="mt-1 text-[12px] text-muted-foreground">{s.vivo ? <>Arriba hace <b className="text-foreground tabular-nums font-semibold">{tiempoArriba(s.desde, ahora)}</b></> : s.detalle}</p>
                             </div>
                         </div>
-                        {s.origen && <p className="text-[11.5px] text-muted-foreground break-all">{s.tipo === "pm2" ? "Programa" : "Imagen"}: <span className="text-foreground/80">{s.origen}</span></p>}
-                    </CajonSeccion>
-
-                    <CajonSeccion titulo="Estado" icono={s.tipo === "pm2" ? Cpu : Box}>
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                            <Dato rotulo="Estado" valor={<Estado tono={s.vivo ? "bien" : "mal"}>{s.vivo ? "En línea" : s.estado}</Estado>} />
-                            <Dato rotulo={s.tipo === "pm2" ? "Activo hace" : "Docker dice"} valor={s.tipo === "pm2" ? haceCuanto(s.desde) : s.detalle} />
-                            <Dato rotulo="Reinicios" valor={s.reinicios ?? "—"} pista="Las veces que PM2 lo levantó de nuevo desde que se creó, a mano o porque se cayó. Si sube solo entre una visita y otra, se está cayendo." />
-                            <Dato rotulo="Memoria" valor={megas(s.memoria)} />
-                            <Dato rotulo="CPU" valor={s.cpu == null ? "—" : `${s.cpu}%`} />
+                        <div className="grid grid-cols-3 gap-2">
+                            <Medida icono={Activity} rotulo="CPU" valor={s.cpu == null ? "—" : `${s.cpu}%`} pista="Lo que usa ahora. 100 % es un núcleo entero. La línea son los últimos minutos.">
+                                <Linea datos={cpu} ancho={120} alto={24} piso={5} className="tono-accion" />
+                            </Medida>
+                            <Medida icono={MemoryStick} rotulo="Memoria" valor={megas(s.memoria)} pista="La memoria que tiene tomada ahora. Si sube y no baja nunca, puede estar perdiendo memoria.">
+                                <Linea datos={mem} ancho={120} alto={24} piso={50} className="text-muted-foreground" />
+                            </Medida>
+                            <Medida icono={RotateCcw} rotulo="Reinicios" valor={s.reinicios ?? "—"}
+                                pista={s.tipo === "pm2" ? "Las veces que PM2 lo levantó de nuevo desde que se creó, a mano o porque se cayó. Si sube solo entre una visita y otra, se está cayendo." : s.tipo === "docker" ? "Las veces que Docker lo reinició solo (política unless-stopped)." : "Las veces que systemd lo reinició solo."}>
+                                <span className="block h-6" />
+                            </Medida>
                         </div>
-                    </CajonSeccion>
+                    </div>
 
-                    {s.internas.length > 0 && (
-                        <CajonSeccion titulo="Tareas internas" icono={Timer}
-                            pista="Lo que este proceso hace solo, cada tanto, mientras está en línea. No se pausan por separado: si el proceso se reinicia, vuelven a arrancar con él.">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                                {s.internas.map((t) => (
-                                    <div key={t.nombre} className="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-border text-[12.5px]">
-                                        <span className="text-foreground/85">{t.nombre}</span>
-                                        <span className="text-muted-foreground tabular-nums shrink-0">cada {t.cada}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </CajonSeccion>
-                    )}
+                    {/* Qué es y qué pasa si se cae. */}
+                    <div className="px-6 py-4 border-b border-border space-y-3">
+                        <Renglon icono={Info} titulo="Qué hace">{s.queHace || "Sin descripción en el catálogo de OmniAccess."}</Renglon>
+                        <Renglon icono={AlertTriangle} tono="tono-aviso" titulo="Si se cae">{s.siCae || "—"}</Renglon>
+                        {s.origen && <Renglon icono={s.tipo === "pm2" ? FileText : s.tipo === "docker" ? Box : Server} titulo={s.tipo === "pm2" ? "Programa" : s.tipo === "docker" ? "Imagen" : "Unidad"}><span className="break-all tabular-nums">{s.origen}</span></Renglon>}
+                        {s.internas.length > 0 && (
+                            <Renglon icono={Timer} titulo="Lo que hace solo, cada tanto">
+                                <span className="mt-1 grid grid-cols-1 gap-1">
+                                    {s.internas.map((t) => (
+                                        <span key={t.nombre} className="flex items-center justify-between gap-3">
+                                            <span>{t.nombre}</span>
+                                            <span className="text-muted-foreground tabular-nums shrink-0">cada {t.cada}</span>
+                                        </span>
+                                    ))}
+                                </span>
+                            </Renglon>
+                        )}
+                    </div>
 
-                    <CajonSeccion titulo="Registro" icono={FileText}
-                        ayuda={log?.archivo ? `Las últimas líneas de ${log.archivo}` : s.tipo === "docker" ? "Las últimas líneas que escribió el contenedor." : undefined}>
+                    {/* El registro, en vivo. */}
+                    <div className="px-6 py-4 space-y-2.5">
+                        <div className="flex items-center gap-2">
+                            <FileText size={14} className="text-muted-foreground" />
+                            <span className="text-[13px] font-bold">Registro</span>
+                            {errores > 0 && <Estado tono="mal">{errores} con error</Estado>}
+                            <Pista titulo={seguir ? "Siguiendo" : "Quieto"} texto={seguir ? `Se vuelve a leer cada ${SEGUIR_LOG_MS / 1000} s y baja solo a lo último (si subís a leer, se queda donde estás).` : "Tocá para seguirlo en vivo."}>
+                                <button type="button" onClick={() => setSeguir((v) => !v)} aria-pressed={seguir}
+                                    className="ml-auto h-7 pl-2 pr-2.5 rounded-full border border-border text-[11.5px] font-semibold flex items-center gap-1.5 hover:bg-accent">
+                                    <Pulso activo={seguir && !cargando} tono={seguir ? "bien" : "quieto"} /> {seguir ? "En vivo" : "Quieto"}
+                                </button>
+                            </Pista>
+                        </div>
                         {!s.conLogs ? <p className="text-[12.5px] text-muted-foreground">Este proceso no tiene archivo de registro.</p> : (
                             <>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    {s.tipo === "pm2" && (["salida", "errores"] as const).map((k) => (
-                                        <button key={k} type="button" onClick={() => setCual(k)} aria-pressed={cual === k}
-                                            className={cn("h-8 px-3 rounded-full border text-[12px] font-semibold transition-colors",
-                                                cual === k ? "border-[var(--accion)] tono-accion bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]" : "border-border text-muted-foreground hover:bg-accent")}>
-                                            {k === "salida" ? "Salida" : "Errores"}
-                                        </button>
-                                    ))}
-                                    <span className="w-px h-5 bg-border mx-1" />
-                                    {LINEAS.map((n) => (
-                                        <button key={n} type="button" onClick={() => setLineas(n)} aria-pressed={lineas === n}
-                                            className={cn("h-8 px-2.5 rounded-full border text-[12px] font-semibold tabular-nums transition-colors",
-                                                lineas === n ? "border-[var(--accion)] tono-accion" : "border-border text-muted-foreground hover:bg-accent")}>
-                                            {n}
-                                        </button>
-                                    ))}
-                                    <Input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Filtrar líneas" className="h-8 w-44 ml-auto text-[12px]" />
-                                    <Button variant="ghost" size="sm" onClick={traer} disabled={cargando} className="h-8 px-2.5 gap-1.5 text-[12px] font-semibold">
-                                        <RefreshCw size={13} className={cn(cargando && "animate-spin")} /> Actualizar
-                                    </Button>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    {s.tipo === "pm2" && (
+                                        <span className="flex items-center rounded-full border border-border p-0.5">
+                                            {(["salida", "errores"] as const).map((k) => (
+                                                <button key={k} type="button" onClick={() => setCual(k)} aria-pressed={cual === k}
+                                                    className={cn("h-6 px-2.5 rounded-full text-[11.5px] font-semibold transition-colors", cual === k ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
+                                                    {k === "salida" ? "Salida" : "Errores"}
+                                                </button>
+                                            ))}
+                                        </span>
+                                    )}
+                                    <span className="flex items-center rounded-full border border-border p-0.5">
+                                        {LINEAS.map((n) => (
+                                            <button key={n} type="button" onClick={() => setLineas(n)} aria-pressed={lineas === n}
+                                                className={cn("h-6 px-2 rounded-full text-[11.5px] font-semibold tabular-nums transition-colors", lineas === n ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
+                                                {n}
+                                            </button>
+                                        ))}
+                                    </span>
+                                    <Input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Filtrar" className="h-7 w-32 ml-auto text-[12px]" />
                                 </div>
-                                <div ref={caja} className="rounded-[10px] border border-border bg-muted/40 h-[420px] overflow-auto px-3 py-2">
+                                <div ref={caja} onScroll={(e) => { const el = e.currentTarget; alFondo.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24; }}
+                                    className="rounded-[10px] border border-border bg-muted/40 h-[380px] overflow-auto px-3 py-2">
                                     {error ? (
                                         <p className="text-[12px] tono-mal py-4">{error} <button onClick={traer} className="tono-accion font-semibold ml-1">Reintentar</button></p>
                                     ) : !log ? (
@@ -184,16 +229,41 @@ export function CajonServicio({ servicio, alCerrar, alCambiar }: { servicio: Ser
                                     ) : !visibles.length ? (
                                         <p className="text-[12px] text-muted-foreground py-4">{filtro ? "Ninguna línea coincide." : "El registro está vacío."}</p>
                                     ) : visibles.map((l, i) => (
-                                        <p key={i} className={cn("text-[11.5px] leading-[1.55] tabular-nums whitespace-pre-wrap break-all text-foreground/80", tonoDeLinea(l))}>{l}</p>
+                                        <p key={i} className={cn("text-[11px] leading-[1.55] tabular-nums whitespace-pre-wrap break-all text-foreground/80", tonoDeLinea(l))}>{l}</p>
                                     ))}
                                 </div>
-                                {log && <p className="text-[11px] text-muted-foreground tabular-nums">{visibles.length} de {log.lineas.length} líneas</p>}
+                                {log && <p className="text-[11px] text-muted-foreground tabular-nums truncate">{visibles.length} de {log.lineas.length} líneas{log.archivo ? ` · ${log.archivo}` : ""}</p>}
                             </>
                         )}
-                    </CajonSeccion>
+                    </div>
                 </CajonContenido>
             )}
         </Cajon>
+    );
+}
+
+function Medida({ icono: Ic, rotulo, valor, pista, children }: { icono: React.ComponentType<{ size?: number; className?: string }>; rotulo: string; valor: React.ReactNode; pista: string; children?: React.ReactNode }) {
+    return (
+        <div className="rounded-[10px] border border-border bg-card px-3 py-2.5 min-w-0">
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <Ic size={11.5} /> {rotulo}
+                <Pista titulo={rotulo} texto={pista} ancho={260}><HelpCircle size={11} className="text-muted-foreground/60 hover:text-[var(--accion)] cursor-help" /></Pista>
+            </p>
+            <p className="text-[16px] font-bold tabular-nums leading-tight mt-0.5 truncate">{valor}</p>
+            <div className="mt-1">{children}</div>
+        </div>
+    );
+}
+
+function Renglon({ icono: Ic, titulo, tono, children }: { icono: React.ComponentType<{ size?: number; className?: string }>; titulo: string; tono?: string; children: React.ReactNode }) {
+    return (
+        <div className="grid grid-cols-[18px_1fr] gap-2.5">
+            <Ic size={14} className={cn("mt-0.5", tono || "text-muted-foreground")} />
+            <div className="min-w-0">
+                <p className="text-[11.5px] font-semibold text-muted-foreground">{titulo}</p>
+                <div className="text-[12.5px] leading-relaxed text-foreground/85">{children}</div>
+            </div>
+        </div>
     );
 }
 

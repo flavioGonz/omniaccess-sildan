@@ -1,5 +1,6 @@
 "use client";
 
+import { Entrada } from "@/components/ui/entrada";
 import { useEffect, useState, useRef } from "react";
 import { Palette, Upload, Save, Image as ImageIcon, Loader2, Eye, Smartphone, X, MessageSquareQuote, Copy, ExternalLink, FileText } from "lucide-react";
 import { getAppBranding, saveAppBranding, uploadBrandingFile, savePwaIcon, getReportBranding } from "@/app/actions/settings";
@@ -146,7 +147,7 @@ export default function BrandingSection({ activeTab }: { activeTab?: string } = 
                 })}
             </div>
 
-            <div key={tab} className="animate-in fade-in slide-in-from-bottom-1 duration-300">
+            <Entrada key={tab}>
                 {tab === "identidad" && (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                         <div className="space-y-4">
@@ -376,7 +377,7 @@ export default function BrandingSection({ activeTab }: { activeTab?: string } = 
                     </div>
                 )}
 
-            </div>
+            </Entrada>
         </div>
     );
 }
