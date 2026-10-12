@@ -128,6 +128,9 @@ function desdeEvento(ev: any): FilaHistorial | null {
  * no va el cronómetro con sus tonos de estadía, que pintarían de rojo cualquier lectura de
  * hace tres horas. Lo que sí sirve al que barre la tabla en vivo es saber hace cuánto fue.
  */
+/** Lo que el lector escribe cuando no leyó (lib/relectura importa prisma: no entra en el navegador). */
+const NO_LEIDAS_FILA = new Set(["NO_LEIDA", "UNKNOWN", "S/P"]);
+
 /** La foto de una fila pedida chica: /api/files la achica y la guarda en disco; las otras rutas ignoran `w`. */
 const MINIATURA_W = 160;
 function miniatura(foto: string | null): string | null {
@@ -398,9 +401,12 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
      * llegó el scroll: es el historial *cargado*, no el completo.
      */
     const historialDe = useCallback((f: FilaHistorial) => {
-        if (!f.plate) return undefined;
+        /* Una NO_LEIDA no es una matrícula: «sus pasos anteriores» eran las otras cuarenta
+           NO_LEIDA del día. Si OmniVision la releyó, son los de la chapa releída; si no, no hay. */
+        const chapa = f.plate && !NO_LEIDAS_FILA.has(f.plate.toUpperCase()) ? f.plate : f.vision?.releida?.plate || null;
+        if (!chapa) return undefined;
         return visibles
-            .filter((o) => o.plate === f.plate && o.id !== f.id)
+            .filter((o) => o.plate === chapa && o.id !== f.id)
             .slice(0, 40)
             .map((o) => ({
                 id: o.id,

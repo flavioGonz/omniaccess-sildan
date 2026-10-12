@@ -124,7 +124,7 @@ export type DatosVisor = {
  * Lo que el equipo escribió como marca cuando no la reconoció: «Brand 1723», «Unknown», un
  * código suelto. Dibujado como título parecía una marca de verdad.
  */
-const SIN_DATO = /^(brand\s*)?\d+$|^unknown$|^desconocid[oa]$|^other$|^otro$/i;
+const SIN_DATO = /^(brand\s*)?\d+$|^unknown$|^desconocid[oa]$|^other$|^otro$|^vehicle$|^veh[ií]culo$/i;
 const dato = (v?: string | null) => (v && !SIN_DATO.test(v.trim()) ? v : null);
 
 /**
