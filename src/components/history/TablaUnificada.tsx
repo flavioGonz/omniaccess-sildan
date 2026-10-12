@@ -751,7 +751,7 @@ function FranjaOmniVision({ datos, buscar }: { datos: FranjaOmni; buscar: string
         <div className="mb-3 rounded-[10px] border border-border bg-card px-3.5 py-3">
             <div className="flex items-center gap-2 flex-wrap">
                 <Sparkles size={14} className="tono-accion" />
-                <span className="text-[13px] font-semibold">OmniVision vio {datos.total} parecid{datos.total === 1 ? "o" : "os"} a «{buscar}»</span>
+                <span className="text-[13px] font-semibold">Lo más parecido a «{buscar}» según OmniVision <span className="text-muted-foreground font-normal tabular-nums">· {datos.total}</span></span>
                 <Pista titulo="Búsqueda por cómo se ve" texto="Compara la frase con el recorte de cada cosa que vio OmniVision (SigLIP), como en OmniVision › Buscar. Son posibles, no aciertos: ordenados del más parecido al menos." ancho={300}>
                     <span className="text-[11.5px] text-muted-foreground underline decoration-dotted underline-offset-2 cursor-help">¿cómo?</span>
                 </Pista>

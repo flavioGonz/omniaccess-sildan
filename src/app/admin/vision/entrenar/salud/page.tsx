@@ -81,8 +81,10 @@ export default function SaludEquipo() {
 
     const L = datos?.limites || ahoraVivo?.limites || null;
     const ahoraT = Date.now();
-    const desde = enVivo ? (vivo[0]?.ts ?? ahoraT - VIVO_PUNTOS * VIVO_MS) : datos?.desde ?? ahoraT;
-    const hasta = enVivo ? Math.max(vivo[vivo.length - 1]?.ts ?? ahoraT, desde + 60_000) : datos?.hasta ?? ahoraT;
+    // En vivo la ventana es fija (los últimos VIVO_PUNTOS × VIVO_MS) y termina en la última medida:
+    // la línea entra por la derecha y corre, en vez de estirarse desde la izquierda.
+    const hasta = enVivo ? (vivo[vivo.length - 1]?.ts ?? ahoraT) : datos?.hasta ?? ahoraT;
+    const desde = enVivo ? hasta - VIVO_PUNTOS * VIVO_MS : datos?.desde ?? ahoraT;
     const puntos: (Punto | null)[] = enVivo ? vivo : datos?.puntos || [];
     const reales = puntos.filter((p): p is Punto => !!p);
     const enCursor = cursor != null ? reales.reduce<Punto | null>((a, p) => (!a || Math.abs(p.ts - cursor) < Math.abs(a.ts - cursor) ? p : a), null) : null;
@@ -143,7 +145,7 @@ export default function SaludEquipo() {
 
             {/* ── Las curvas, segmentadas ── */}
             <div className="flex items-center gap-4 flex-wrap text-[12px] text-muted-foreground">
-                <span className="font-semibold text-foreground text-[13px]">{enVivo ? `En vivo · últimos ${Math.max(1, Math.round((hasta - desde) / 60_000))} min` : `Últimas ${RANGOS.find((r) => r.h === horas)?.r}`}</span>
+                <span className="font-semibold text-foreground text-[13px]">{enVivo ? `En vivo · últimos ${Math.round((VIVO_PUNTOS * VIVO_MS) / 60_000)} min` : `Últimas ${RANGOS.find((r) => r.h === horas)?.r}`}</span>
                 {!enVivo && <span>{datos?.resumen.muestras ?? 0} muestras</span>}
                 {!enVivo && (datos?.resumen.segEntrenando ? <span>entrenando {duracion(datos.resumen.segEntrenando)}{datos.resumen.segEnfriando ? `, ${duracion(datos.resumen.segEnfriando)} congelado para enfriar` : ""}</span> : <span>sin entrenamientos en el rango</span>)}
                 <span className="ml-auto flex items-center gap-3">

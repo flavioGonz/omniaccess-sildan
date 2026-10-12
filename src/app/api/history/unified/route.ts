@@ -179,6 +179,12 @@ async function visionDe(ids: string[]): Promise<Map<string, VisionFila>> {
 }
 
 const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+/**
+ * Cuántas de las pistas más parecidas traen sus accesos a la tabla: las mismas 60 que muestra
+ * OmniVision › Buscar. Con 200 (todo lo que pasa el corte) «camioneta blanca» traía camionetas
+ * de noche de cualquier color: el corte separa «posible» de «nada», no «parecido» de «no tanto».
+ */
+const PARECIDOS_MAX = 60;
 /** Cuántas pistas parecidas se muestran en la franja de arriba del historial: una fila de miniaturas. */
 const OBJETOS_EN_FRANJA = 12;
 
@@ -264,7 +270,7 @@ export async function GET(req: NextRequest) {
     const [porBusquedaVision, semantica] = await Promise.all([
         buscar && pedirAccesos ? idsBusquedaVision(buscar, desde, hasta) : Promise.resolve([] as string[]),
         pareceDescripcion
-            ? objetosPorTexto(buscar, { desde, hasta }).then((objetos) => ({ objetos, error: null as string | null })).catch((e) => ({ objetos: [] as ObjetoParecido[], error: String(e?.message || e) }))
+            ? objetosPorTexto(buscar, { desde, hasta, limite: PARECIDOS_MAX }).then((objetos) => ({ objetos, error: null as string | null })).catch((e) => ({ objetos: [] as ObjetoParecido[], error: String(e?.message || e) }))
             : Promise.resolve(null),
     ]);
     const porSemantica = semantica?.objetos.length && pedirAccesos ? await accesosDeObjetos(semantica.objetos).catch(() => [] as string[]) : [];
