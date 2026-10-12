@@ -8,8 +8,12 @@
  * deberían ser la misma.
  */
 
-export const srcVivo = (deviceId: string) =>
-    `/go2rtc/api/stream.mp4?src=lpr_${deviceId}_hd&video=h264`;
+/**
+ * El flujo de una cámara. HD es el principal (el de siempre acá); SD el secundario, liviano: el
+ * mismo par que ofrece el visor de intrusión con su botón HD/SD (streams lpr_<id>_hd y lpr_<id>).
+ */
+export const srcVivo = (deviceId: string, calidad: "hd" | "sd" = "hd") =>
+    `/go2rtc/api/stream.mp4?src=lpr_${deviceId}${calidad === "hd" ? "_hd" : ""}&video=h264`;
 
 /**
  * Arranca el flujo y devuelve la función que lo corta.
@@ -18,8 +22,8 @@ export const srcVivo = (deviceId: string) =>
  * dormido, y sin reintento la primera carga queda en negro para siempre. El tope existe
  * para que una cámara caída no reintente sin fin en segundo plano.
  */
-export function montarVivo(video: HTMLVideoElement, deviceId: string, intentos = 4) {
-    const src = srcVivo(deviceId);
+export function montarVivo(video: HTMLVideoElement, deviceId: string, intentos = 4, calidad: "hd" | "sd" = "hd") {
+    const src = srcVivo(deviceId, calidad);
     let restantes = intentos;
     let temporizador: any = null;
 

@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, Download, Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
+import { Car, Crosshair, Download, Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
+import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { canalDe } from "@/components/video/VerGrabacion";
 import { DescargaClip } from "@/components/video/DescargaClip";
+import { Scrub, type MarcaScrub } from "@/components/Scrub";
 
 /**
  * La grabación del NVR, adentro del visor del evento.
@@ -16,9 +17,8 @@ import { DescargaClip } from "@/components/video/DescargaClip";
  * tramos (la lógica que se probó en LiveModal)— dibujado en el lugar de la foto, con una regla de
  * tiempo centrada en el evento.
  *
- * La regla es una VENTANA alrededor del evento, no el día entero: lo que se quiere al revisar un
- * acceso son los minutos de antes y de después. Tres anchos (±2 min, ±10 min, ±1 h) y el evento
- * marcado siempre; tocar o arrastrar sobre la regla salta a ese instante.
+ * La regla es la misma rueda de tiempo del otro reproductor (components/Scrub), con el evento y
+ * los pasos anteriores de la chapa por esta cámara marcados: tocar una marca va a ese instante.
  */
 
 /** Cuánto video se pide al NVR por tramo (el tope de la ruta); al terminar se sigue solo desde donde quedó. */
@@ -33,8 +33,6 @@ const ESPERA_CUADRO_MS = 9000;
 const REINTENTOS = 2;
 /** Se espera esto al arrastrar antes de pedir el tramo: un pedido por arrastre, no uno por píxel. */
 const ASENTAR_MS = 300;
-/** Los anchos de la regla, en minutos a cada lado del evento. */
-const ANCHOS = [{ min: 2, rotulo: "±2 min" }, { min: 10, rotulo: "±10 min" }, { min: 60, rotulo: "±1 h" }];
 const VELOCIDADES = [1, 2, 4, 8];
 /** El salto de los botones y de ← → . */
 const SALTO_SEG = 10;
@@ -67,7 +65,6 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const [rebufer, setRebufer] = useState(false);
     const [reproduciendo, setReproduciendo] = useState(false);
     const [velocidad, setVelocidad] = useState(1);
-    const [ancho, setAncho] = useState(0);
     const [posMs, setPosMs] = useState<number | null>(null);
     const [descarga, setDescarga] = useState(false);
     const video = useRef<HTMLVideoElement>(null);
@@ -128,25 +125,21 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
         return () => window.removeEventListener("keydown", k);
     }, [alternar, irA, actual, instanteMs, descarga]);
 
-    // La regla: una ventana centrada en el evento (y corrida si el cursor se sale).
-    const mitad = ANCHOS[ancho].min * 60_000;
-    const [centro, setCentro] = useState(instanteMs);
-    useEffect(() => { if (actual < centro - mitad || actual > centro + mitad) setCentro(actual); }, [actual, centro, mitad]);
-    useEffect(() => { setCentro(Math.abs(actual - instanteMs) < mitad ? instanteMs : actual); }, [ancho]); // eslint-disable-line react-hooks/exhaustive-deps
-    const desde = centro - mitad, hasta = centro + mitad;
-    const pct = (ms: number) => ((ms - desde) / (hasta - desde)) * 100;
-    const marcasRegla = useMemo(() => {
-        const paso = ancho === 0 ? 60_000 : ancho === 1 ? 2 * 60_000 : 10 * 60_000; // los rótulos son hh:mm: más fino que un minuto se repiten
-        const out: number[] = [];
-        for (let t = Math.ceil(desde / paso) * paso; t <= hasta; t += paso) out.push(t);
-        return out;
-    }, [desde, hasta, ancho]);
-    const regla = useRef<HTMLDivElement>(null);
-    const [arrastre, setArrastre] = useState<number | null>(null);
-    const msDe = (clientX: number) => {
-        const r = regla.current!.getBoundingClientRect();
-        return desde + Math.min(1, Math.max(0, (clientX - r.left) / r.width)) * (hasta - desde);
-    };
+    // La regla (la rueda de Scrub) trabaja en minutos del día, en la hora de este navegador, como LiveModal.
+    const minutosDe = (ms: number) => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+    const msDeMinutos = (min: number) => { const d = new Date(actual); d.setHours(0, 0, 0, 0); return d.getTime() + Math.round(min * 60) * 1000; };
+    const marcasScrub = useMemo<MarcaScrub[]>(() => [
+        { id: "evento", m: minutosDe(instanteMs), Icon: Crosshair, titulo: `El evento · ${horaSeg(instanteMs)}`, tono: "info" },
+        ...marcas.filter((m) => new Date(m.ms).toDateString() === new Date(instanteMs).toDateString())
+            .map((m, i) => ({ id: `paso-${i}`, m: minutosDe(m.ms), Icon: Car, titulo: m.titulo, tono: "aviso" })),
+    ], [marcas, instanteMs]); // eslint-disable-line react-hooks/exhaustive-deps
+    const ancho = useRef<HTMLDivElement>(null);
+    const [anchoRegla, setAnchoRegla] = useState(680);
+    useEffect(() => {
+        const el = ancho.current; if (!el) return;
+        const ro = new ResizeObserver(() => setAnchoRegla(Math.max(320, Math.min(980, el.clientWidth))));
+        ro.observe(el); return () => ro.disconnect();
+    }, []);
 
     if (canal && (canal.ch == null || !canal.nvr)) {
         return <div className="absolute inset-0 z-[8] grid place-items-center bg-black text-white/60 text-[13px]">Esta cámara no tiene un canal de NVR asignado: no hay grabación que mostrar.</div>;
@@ -179,19 +172,19 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
             )}
 
             {(cargando || !canal) && !sinGrabacion && (
-                <div className="absolute inset-x-0 top-0 bottom-32 grid place-items-center pointer-events-none">
+                <div className="absolute inset-x-0 top-0 bottom-60 grid place-items-center pointer-events-none">
                     <span className="flex items-center gap-2 text-white/85 text-[14px] font-semibold drop-shadow"><Loader2 size={16} className="animate-spin" /> Buscando la grabación en el NVR…</span>
                 </div>
             )}
             {sinGrabacion && (
-                <div className="absolute inset-x-0 top-0 bottom-32 grid place-items-center pointer-events-none text-center">
+                <div className="absolute inset-x-0 top-0 bottom-60 grid place-items-center pointer-events-none text-center">
                     <span><span className="block text-white text-[16px] font-bold">Sin grabación en este horario</span><span className="block text-white/55 text-[12px] mt-1">Probá otro momento en la regla.</span></span>
                 </div>
             )}
             {rebufer && !cargando && <span className="absolute top-20 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-[6px] bg-black/60 text-white/80 text-[11px] font-semibold pointer-events-none">Cargando…</span>}
 
             {/* ── La barra: controles y regla ── */}
-            <div className="absolute inset-x-0 bottom-0 px-5 md:px-7 pb-4 pt-14 bg-gradient-to-t from-black/90 via-black/55 to-transparent">
+            <div className="absolute inset-x-0 bottom-0 px-5 md:px-7 pb-4 pt-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent">
                 <div className="flex items-center gap-2 mb-2.5">
                     <button type="button" onClick={alternar} disabled={!url} title={reproduciendo ? "Pausar  ( espacio )" : "Reproducir  ( espacio )"}
                         className="w-10 h-10 rounded-full bg-white text-black grid place-items-center hover:brightness-95 disabled:opacity-40">
@@ -200,19 +193,12 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
                     <BotonBarra onClick={() => irA(actual - SALTO_SEG * 1000)} title={`Atrás ${SALTO_SEG} s  ( ← )`}><RotateCcw size={15} /><span className="text-[10px] font-bold tabular-nums">{SALTO_SEG}</span></BotonBarra>
                     <BotonBarra onClick={() => irA(actual + SALTO_SEG * 1000)} title={`Adelante ${SALTO_SEG} s  ( → )`}><span className="text-[10px] font-bold tabular-nums">{SALTO_SEG}</span><RotateCw size={15} /></BotonBarra>
                     <div className="ml-2 leading-tight">
-                        <div className="text-[18px] font-bold tabular-nums text-white">{horaSeg(arrastre ?? actual)}</div>
-                        <div className="text-[11px] text-white/55 tabular-nums">{fechaCorta(arrastre ?? actual)} · {diferencia(arrastre ?? actual, instanteMs)}</div>
+                        <div className="text-[18px] font-bold tabular-nums text-white">{horaSeg(actual)}</div>
+                        <div className="text-[11px] text-white/55 tabular-nums">{fechaCorta(actual)} · {diferencia(actual, instanteMs)}</div>
                     </div>
                     <div className="ml-auto flex items-center gap-1.5">
                         <BotonBarra onClick={() => irA(instanteMs)} title="Volver al instante del evento  ( E )"><Crosshair size={15} /> <span className="text-[11.5px] font-semibold">Evento</span></BotonBarra>
                         <span className="w-px h-5 bg-white/15 mx-1" />
-                        {/* Elegir uno: píldoras. */}
-                        <span className="flex items-center rounded-full bg-white/[0.07] border border-white/12 p-0.5">
-                            {ANCHOS.map((a, i) => (
-                                <button key={a.min} type="button" onClick={() => setAncho(i)} aria-pressed={ancho === i}
-                                    className={cn("h-7 px-2.5 rounded-full text-[11px] font-semibold tabular-nums", ancho === i ? "bg-white text-black" : "text-white/70 hover:text-white")}>{a.rotulo}</button>
-                            ))}
-                        </span>
                         <span className="flex items-center rounded-full bg-white/[0.07] border border-white/12 p-0.5">
                             {VELOCIDADES.map((v) => (
                                 <button key={v} type="button" onClick={() => setVelocidad(v)} aria-pressed={velocidad === v}
@@ -224,26 +210,11 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
                     </div>
                 </div>
 
-                {/* La regla. Tocar o arrastrar salta; el evento siempre marcado. */}
-                <div ref={regla} className="relative h-9 cursor-pointer select-none touch-none"
-                    onPointerDown={(e) => { (e.target as HTMLElement).setPointerCapture?.(e.pointerId); setArrastre(msDe(e.clientX)); }}
-                    onPointerMove={(e) => { if (arrastre != null) setArrastre(msDe(e.clientX)); }}
-                    onPointerUp={(e) => { if (arrastre != null) { irA(msDe(e.clientX)); setArrastre(null); } }}
-                    onPointerCancel={() => setArrastre(null)}>
-                    <div className="absolute inset-x-0 top-[14px] h-[6px] rounded-full bg-white/15" />
-                    {/* Lo ya visto del tramo, hasta el cursor. */}
-                    <div className="absolute top-[14px] h-[6px] rounded-full bg-white/35" style={{ left: `${Math.max(0, pct(inicioTramo))}%`, width: `${Math.max(0, Math.min(100, pct(actual)) - Math.max(0, pct(inicioTramo)))}%` }} />
-                    {marcasRegla.map((t) => (
-                        <span key={t} className="absolute top-[24px] -translate-x-1/2 text-[9.5px] text-white/40 tabular-nums" style={{ left: `${pct(t)}%` }}>{horaCorta(t)}</span>
-                    ))}
-                    {marcas.filter((m) => m.ms >= desde && m.ms <= hasta).map((m) => (
-                        <span key={m.ms} title={m.titulo} className="absolute top-[11px] w-[3px] h-3 -translate-x-1/2 rounded-full bg-white/60" style={{ left: `${pct(m.ms)}%` }} />
-                    ))}
-                    {instanteMs >= desde && instanteMs <= hasta && (
-                        <span title={`El evento · ${horaSeg(instanteMs)}`} className="absolute top-[7px] -translate-x-1/2 w-[3px] h-5 rounded-full" style={{ left: `${pct(instanteMs)}%`, background: "var(--visor-tono, var(--accion))" }} />
-                    )}
-                    {/* El cursor. */}
-                    <span className="absolute top-[9px] -translate-x-1/2 w-4 h-4 rounded-full bg-white border-2 border-black/40 pointer-events-none" style={{ left: `${Math.min(100, Math.max(0, pct(arrastre ?? actual)))}%` }} />
+                {/* La regla: la misma rueda del otro reproductor. Arrastrar va a otro minuto; las marcas, a su instante. */}
+                <div ref={ancho} className="-mx-2">
+                    <Scrub step="1" momentum={30} format="24h" width={anchoRegla} value={minutosDe(actual)} start={minutosDe(instanteMs)}
+                        onChange={(min) => irA(msDeMinutos(min))}
+                        marcas={marcasScrub} onMarca={(k) => irA(k.id === "evento" ? instanteMs : msDeMinutos(k.m))} />
                 </div>
             </div>
 
@@ -264,7 +235,6 @@ function BotonBarra({ children, onClick, title }: { children: React.ReactNode; o
     );
 }
 
-const horaCorta = (ms: number) => hora(ms);
 /** «12 s antes del evento», «2 min 5 s después», «en el evento». */
 function diferencia(ms: number, evento: number) {
     const s = Math.round((ms - evento) / 1000);

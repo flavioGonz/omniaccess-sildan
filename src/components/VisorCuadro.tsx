@@ -29,6 +29,7 @@ import { PanelComportamiento, type ComportamientoVisor } from "@/components/viso
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
+import { SeguimientoVivo } from "@/components/visor/SeguimientoVivo";
 import { describirObjeto } from "@/components/visor/FichaVisor";
 import { chapaDe, esSinLectura, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 
@@ -355,6 +356,12 @@ export function VisorCuadro({
     /** Qué se está mirando: el cuadro guardado o lo que la cámara ve ahora. */
     const [modo, setModo] = useState<"foto" | "vivo" | "grabacion">("foto");
     const [vivoListo, setVivoListo] = useState(false);
+    /** HD (flujo principal) o SD (secundario, liviano), como el botón del visor de intrusión. */
+    const [calidad, setCalidad] = useState<"hd" | "sd">("hd");
+    const [avisoCalidad, setAvisoCalidad] = useState(0);
+    useEffect(() => { if (!avisoCalidad) return; const t = setTimeout(() => setAvisoCalidad(0), 1200); return () => clearTimeout(t); }, [avisoCalidad]);
+    /** Siguiendo a otra cámara con el seguimiento visual (null = la del evento). */
+    const [camVivo, setCamVivo] = useState<{ id: string; nombre: string } | null>(null);
     const vivoRef = useRef<HTMLVideoElement | null>(null);
     const marco = useRef<HTMLDivElement | null>(null);
     /** La caja de la imagen: mas chica que la ventana cuando la foto no es 16:9. */
@@ -421,16 +428,19 @@ export function VisorCuadro({
      * El flujo se monta sólo cuando se lo pide: abrir el visor de un evento de hace tres
      * días no tiene por qué levantar un RTSP.
      */
+    const idVivo = camVivo?.id || fila.deviceId;
+    useEffect(() => { if (modo !== "vivo") setCamVivo(null); }, [modo]);
+    useEffect(() => { setCamVivo(null); }, [fila.deviceId]);
     useEffect(() => {
         if (modo !== "vivo") return;
         const v = vivoRef.current;
-        if (!v || !fila.deviceId) return;
+        if (!v || !idVivo) return;
         setVivoListo(false);
         const alAndar = () => setVivoListo(true);
         v.addEventListener("playing", alAndar);
-        const cortar = montarVivo(v, fila.deviceId);
+        const cortar = montarVivo(v, idVivo, 4, calidad);
         return () => { v.removeEventListener("playing", alAndar); cortar(); };
-    }, [modo, fila.deviceId]);
+    }, [modo, idVivo, calidad]);
 
     /**
      * Ir a mirar si el vehículo sigue ahí.
@@ -778,6 +788,13 @@ export function VisorCuadro({
                             <>
                                 <video ref={vivoRef} muted autoPlay playsInline
                                     className="absolute inset-0 w-full h-full object-cover bg-black" />
+                                {/* Los enlaces del seguimiento visual: tocar uno sigue en la cámara vecina. */}
+                                {vivoListo && idVivo && <SeguimientoVivo deviceId={idVivo} onSeguir={(c) => { setCamVivo(c.id === fila.deviceId ? null : c); }} />}
+                                {avisoCalidad > 0 && (
+                                    <div className="absolute inset-0 grid place-items-center pointer-events-none z-[8]">
+                                        <span className="px-5 py-2.5 rounded-2xl bg-black/55 backdrop-blur-md text-white text-lg font-extrabold tracking-[0.25em] ring-1 ring-white/15">{calidad === "hd" ? "HD · ALTA" : "SD · ESTÁNDAR"}</span>
+                                    </div>
+                                )}
                                 {/* Mientras go2rtc levanta el flujo. Un rectángulo negro y
                                     quieto no se distingue de una cámara caída; el esqueleto
                                     dice que algo está viniendo. */}
@@ -940,9 +957,21 @@ export function VisorCuadro({
                             <>
                                 <span className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 text-[11.5px] font-semibold flex items-center gap-1.5">
                                     {modo === "vivo"
-                                        ? <><Radio size={12} className="animate-pulse text-[var(--mal)]" /> En vivo · {fila.cameraName || "Cámara"}</>
+                                        ? <><Radio size={12} className="animate-pulse text-[var(--mal)]" /> En vivo · {camVivo?.nombre || fila.cameraName || "Cámara"}</>
                                         : <><PlayCircle size={12} /> Grabación · {fila.cameraName || "Cámara"}</>}
                                 </span>
+                                {modo === "vivo" && camVivo && (
+                                    <button type="button" onClick={() => setCamVivo(null)} title={`Volver a ${fila.cameraName || "la cámara del evento"}`}
+                                        className="h-8 px-3 rounded-full bg-amber-500/90 hover:bg-amber-500 text-white text-[11px] font-extrabold uppercase tracking-wide flex items-center gap-1">
+                                        <ChevronLeft size={13} /> {fila.cameraName || "Origen"}
+                                    </button>
+                                )}
+                                {modo === "vivo" && (
+                                    <button type="button" onClick={() => { setCalidad((c) => (c === "hd" ? "sd" : "hd")); setAvisoCalidad(Date.now()); }}
+                                        title={calidad === "hd" ? "Cambiar a sub-flujo (ligero)" : "Cambiar a flujo principal (HD)"}
+                                        className={cn("px-2.5 h-8 grid place-items-center rounded-full text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm transition-colors",
+                                            calidad === "hd" ? "bg-sky-500/90 text-white" : "bg-black/40 text-white/80 hover:bg-black/70")}>{calidad === "hd" ? "HD" : "SD"}</button>
+                                )}
                                 <button type="button" onClick={() => { setModo("foto"); setLimpio(false); }} title="Volver a la foto del evento"
                                     className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 hover:text-white text-[11.5px] font-semibold flex items-center gap-1.5">
                                     <IconoFoto size={14} /> Volver a la foto
