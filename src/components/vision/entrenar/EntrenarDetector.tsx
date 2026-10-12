@@ -41,7 +41,13 @@ const REFRESCO_MS = 10_000;
  */
 const F1_BUENO = 0.8;
 const F1_SIRVE = 0.6;
-function veredicto(f1: number) {
+/**
+ * El veredicto mira también la paridad del ONNX: si lo que exportó no da lo mismo que lo que se
+ * midió, el número del examen no vale para omni-vision. Antes decía «Listo para usar» en verde y
+ * dos renglones abajo «no conviene usarlo», con el botón escondido: una pantalla que se contradice.
+ */
+function veredicto(f1: number, paridad?: number | null) {
+    if (paridad != null && paridad < PARIDAD_MIN) return { t: "No conviene usarlo", tono: "aviso" as const, d: `El modelo exportado no da lo mismo que el medido (coinciden ${Math.round(paridad * 100)} % de las detecciones): el examen no vale para las cámaras. Volvé a entrenar.` };
     return f1 >= F1_BUENO ? { t: "Listo para usar", tono: "bien" as const, d: "Encuentra casi todos y casi no marca de más." }
         : f1 >= F1_SIRVE ? { t: "Sirve, con cuidado", tono: "aviso" as const, d: "Anda, pero conviene revisar lo que marca en Detecciones los primeros días." }
             : { t: "Todavía no", tono: "mal" as const, d: "Se equivoca demasiado: hacen falta más fotos dibujadas." };
@@ -275,7 +281,7 @@ export function PanelEntrenar({ clases, falta, e }: { clases: ClaseResumen[]; fa
                         {!clases.some((c) => c.cajas > 0) && <p className="text-[11.5px] text-muted-foreground text-center">Se puede entrenar cuando haya recuadros dibujados.</p>}
                         {ultimo?.resultado?.medicion && !enUso && (
                             <a href="#resultados" className="block rounded-[10px] bg-muted/60 px-3 py-2 text-[12px] hover:bg-accent transition-colors">
-                                Último: acierta <b className="tabular-nums">{pct(ultimo.resultado.medicion.f1)}</b> · {veredicto(ultimo.resultado.medicion.f1 || 0).t}. <span className="text-[var(--accion-texto,var(--accion))] font-semibold">Ver y usar</span>
+                                Último: acierta <b className="tabular-nums">{pct(ultimo.resultado.medicion.f1)}</b> · {veredicto(ultimo.resultado.medicion.f1 || 0, ultimo.resultado.paridad).t}. <span className="text-[var(--accion-texto,var(--accion))] font-semibold">{ultimo.resultado.paridad != null && ultimo.resultado.paridad < PARIDAD_MIN ? "Ver" : "Ver y usar"}</span>
                             </a>
                         )}
                     </>
@@ -452,7 +458,7 @@ export function Terminado({ t, nombre, enUso, ocupado, alUsar, alBorrado }: {
                 )}
             </div>
             {med && (() => {
-                const v = veredicto(med.f1 || 0);
+                const v = veredicto(med.f1 || 0, r?.paridad);
                 return (
                     <>
                         <div className={cn("rounded-[8px] border px-3 py-2 text-[12.5px]", `chip-${v.tono}`)}>
@@ -479,7 +485,6 @@ export function Terminado({ t, nombre, enUso, ocupado, alUsar, alBorrado }: {
                     </>
                 );
             })()}
-            {r && r.paridad != null && r.paridad < PARIDAD_MIN && <p className="text-[12px] tono-aviso">El ONNX no da lo mismo que el modelo entrenado (paridad {pct(r.paridad)}): no conviene usarlo.</p>}
             {r && r.paridad == null && t.estado === "LISTO" && <p className="text-[12px] text-muted-foreground">No se pudo comprobar la paridad del ONNX: el modelo no dio ninguna detección en validación.</p>}
             {r?.conjunto?.valida_sobre_las_mismas && <p className="text-[12px] text-muted-foreground">Con tan pocas fotos se validó sobre las mismas del entrenamiento: la medición es optimista.</p>}
             {t.error && (
