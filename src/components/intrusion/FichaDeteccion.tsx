@@ -8,7 +8,7 @@ import {
 import { useAnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
-import { BotonVisor, Dato, ListaVision, Seccion, rasgosDe } from "@/components/visor/FichaVisor";
+import { BotonVisor, Dato, ListaVision, Seccion, describirObjeto } from "@/components/visor/FichaVisor";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg, hace } from "@/lib/fechas";
@@ -142,7 +142,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     const lineasCompartir = [
         `${fechaCorta(momento)} ${horaSeg(momento)}${nvr ? ` · ${nvr}${ch != null ? ` CH ${ch}` : ""}` : ""}`,
         // Los objetos de la foto que dio el veredicto: si fue el cuadro propio, los de ése.
-        ver ? `OmniVision: ${ver.rotulo}${objetosVeredicto.length ? ` — ${objetosVeredicto.slice(0, 4).map((o) => [o.nombre, ...rasgosDe(o)].join(" ")).join("; ")}` : ""}${verif?.fuente === "propio" ? " (cuadro propio)" : ""}` : "",
+        ver ? `OmniVision: ${ver.rotulo}${objetosVeredicto.length ? ` — ${objetosVeredicto.slice(0, 4).map((o) => describirObjeto(o)).join("; ")}` : ""}${verif?.fuente === "propio" ? " (cuadro propio)" : ""}` : "",
         estado,
     ].filter(Boolean);
 

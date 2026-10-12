@@ -106,6 +106,12 @@ export function rasgosDe(o: ObjetoAnalizado): string[] {
     return out;
 }
 
+/** Un objeto en una línea de texto (para compartir): «persona (ropa naranja, chaleco reflectivo)». */
+export function describirObjeto(o: ObjetoAnalizado): string {
+    const r = rasgosDe(o);
+    return r.length ? `${o.nombre} (${r.join(", ")})` : o.nombre;
+}
+
 /** Orden de los grupos: lo que importa para un acceso primero. */
 const ORDEN_GRUPO = ["vehiculo", "persona", "animal"];
 /** Más renglones que esto empujan la ficha fuera de la ventana; el resto se cuenta. */

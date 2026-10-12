@@ -28,7 +28,7 @@ import { TiraPasos, type PasoVisor } from "@/components/visor/TiraPasos";
 import { PanelComportamiento, type ComportamientoVisor } from "@/components/visor/PanelComportamiento";
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
-import { rasgosDe } from "@/components/visor/FichaVisor";
+import { describirObjeto } from "@/components/visor/FichaVisor";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -615,7 +615,7 @@ export function VisorCuadro({
             dueno?.nombre ? `${dueno.nombre}${[dueno.unidad, dueno.apartamento].filter(Boolean).length ? ` · ${[dueno.unidad, dueno.apartamento].filter(Boolean).join(" ")}` : ""}` : (cargandoFicha ? "" : "No figura en el padrón"),
             ficha?.visita ? `Visita${ficha.visita.lote ? ` a ${ficha.visita.lote}` : ""}${ficha.visita.nombre ? ` · ${ficha.visita.nombre}` : ""}` : "",
             vig ? `Lista: ${vig.etiqueta || vig.categoria}` : "",
-            vision ? `OmniVision: ${vision.objetos.slice(0, 4).map((o) => [o.nombre, ...rasgosDe(o)].join(" ")).join("; ")}` : "",
+            vision ? `OmniVision: ${vision.objetos.slice(0, 4).map((o) => describirObjeto(o)).join("; ")}` : "",
         ].filter(Boolean);
         return { titulo: `📷 ${fila.cameraName || "Cámara"}`, lineas };
     }, [datos, fila, sentido, momento, marca, color, dueno, cargandoFicha, ficha, vig, vision]);
