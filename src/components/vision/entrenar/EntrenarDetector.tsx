@@ -21,7 +21,7 @@ type Entrenamiento = {
     id: string; estado: string; cuando: string; parametros: any; conjunto: any; progreso: any; resultado: any; error: string | null;
     pedidoPor: string | null; cancelar: boolean; createdAt: string; iniciadoAt: string | null; terminadoAt: string | null;
 };
-type Entrenador = { vivo: boolean; imagen?: boolean; ventana?: string; enVentana?: boolean; latido?: string; libreGB?: number | null; minimoGB?: number };
+type Entrenador = { vivo: boolean; imagen?: boolean; ventana?: string; enVentana?: boolean; latido?: string; libreGB?: number | null; minimoGB?: number; /** Por qué un entrenamiento en cola no arranca todavía (el equipo está caliente). */ espera?: string | null };
 
 const ACTIVOS = ["EN_COLA", "PREPARANDO", "ENTRENANDO", "EXPORTANDO"];
 const ESTADO: Record<string, { t: string; tono: "bien" | "aviso" | "mal" | "info" | "quieto" }> = {
@@ -153,7 +153,7 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
                 </ol>
             )}
 
-            {enCurso ? <EnCurso t={enCurso} alCancelar={() => cancelar(enCurso.id)} /> : (
+            {enCurso ? <EnCurso t={enCurso} espera={datos?.entrenador?.espera || null} alCancelar={() => cancelar(enCurso.id)} /> : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                         <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Qué tan fino</div>
@@ -201,8 +201,10 @@ export function EntrenarDetector({ clases, falta }: { clases: ClaseResumen[]; fa
     );
 }
 
-function EnCurso({ t, alCancelar }: { t: Entrenamiento; alCancelar: () => void }) {
+function EnCurso({ t, espera, alCancelar }: { t: Entrenamiento; espera?: string | null; alCancelar: () => void }) {
     const p = t.progreso || {};
+    /** Lo que mide el entrenador del equipo mientras entrena (scripts/salud-equipo.js). */
+    const salud = p.salud;
     const m = p.metricas || {};
     const frac = p.de ? Math.min(1, (p.epoca || 0) / p.de) : 0;
     const e = ESTADO[t.estado];
@@ -210,7 +212,7 @@ function EnCurso({ t, alCancelar }: { t: Entrenamiento; alCancelar: () => void }
         <div className="rounded-[10px] border border-border p-3.5 space-y-2.5">
             <div className="flex items-center gap-2 flex-wrap">
                 <Chip tono={e.tono}>{e.t}</Chip>
-                {t.estado === "EN_COLA" && <span className="text-[12px] text-muted-foreground inline-flex items-center gap-1"><Clock size={13} /> {t.cuando === "ahora" ? "arranca en menos de un minuto" : "espera la ventana de la noche"}</span>}
+                {t.estado === "EN_COLA" && <span className="text-[12px] text-muted-foreground inline-flex items-center gap-1"><Clock size={13} /> {espera ? espera : t.cuando === "ahora" ? "arranca en menos de un minuto" : "espera la ventana de la noche"}</span>}
                 {t.estado !== "EN_COLA" && <span className="text-[12px] text-muted-foreground">omni-vision en pausa mientras dura</span>}
                 {t.cancelar ? <span className="ml-auto text-[12px] text-muted-foreground">cancelando…</span>
                     : <Button size="sm" variant="outline" className="ml-auto" onClick={alCancelar}><Square size={13} /> Cancelar</Button>}
@@ -229,6 +231,15 @@ function EnCurso({ t, alCancelar }: { t: Entrenamiento; alCancelar: () => void }
                         </div>
                     )}
                     <p className="text-[11.5px] text-muted-foreground">Para solo si deja de mejorar {PARAMETROS_DEFECTO.paciencia} épocas seguidas: puede terminar mucho antes del total.</p>
+                    {salud && (
+                        <div className={cn("flex items-center gap-3 flex-wrap text-[12px] tabular-nums", salud.estado === "enfriando" && "tono-info font-semibold")}>
+                            <Cpu size={13} className="text-muted-foreground" />
+                            {salud.estado === "enfriando" ? <span>Congelado para que se enfríe el equipo</span> : <span className="text-muted-foreground">Equipo</span>}
+                            {salud.ahora && <span>GPU <b>{salud.ahora.gpu ?? "—"} °C</b> · CPU <b>{salud.ahora.cpu != null ? Math.round(salud.ahora.cpu) : "—"} °C</b> · <b>{salud.ahora.w != null ? Math.round(salud.ahora.w) : "—"} W</b></span>}
+                            {salud.pausas > 0 && <span className="text-muted-foreground">se congeló {salud.pausas} {salud.pausas === 1 ? "vez" : "veces"}</span>}
+                            <a href="/admin/vision/entrenar/salud" className="text-[var(--accion)] font-semibold">Ver salud del equipo</a>
+                        </div>
+                    )}
                 </>
             )}
         </div>

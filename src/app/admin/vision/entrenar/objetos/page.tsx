@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Boxes, Camera, ImagePlus, Info, Loader2, Pencil, Plus, Trash2, Upload, Video } from "lucide-react";
+import { ArrowLeft, ArrowRight, Boxes, Camera, ImagePlus, Info, Loader2, Pencil, Plus, Trash2, Upload, Video , Thermometer } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -165,6 +165,10 @@ export default function ObjetosPropios() {
                     <h1 className="text-[17px] font-bold leading-tight">Objetos nuevos para el detector</h1>
                     <p className="text-[12.5px] text-muted-foreground leading-snug">El detector conoce 80 cosas (personas, vehículos, animales, mochilas). Acá se le enseña una nueva mostrándole fotos donde está marcada: con suficientes, la encuentra solo en cualquier cámara.</p>
                 </div>
+                <Link href="/admin/vision/entrenar/salud" title="Temperatura, consumo y uso de la GPU y la CPU mientras se entrena"
+                    className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border text-[12.5px] font-semibold hover:bg-accent">
+                    <Thermometer size={15} /> Salud del equipo
+                </Link>
                 <AlCelular />
             </div>
 

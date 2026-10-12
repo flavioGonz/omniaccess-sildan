@@ -23,6 +23,7 @@ const { exec } = require("child_process");
 const { PrismaClient } = require("@prisma/client");
 const { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 
+const salud = require("./salud-equipo");
 const correr = promisify(exec);
 const prisma = new PrismaClient();
 const log = (...a) => console.log(new Date().toISOString(), "[entrenador]", ...a);
@@ -63,6 +64,62 @@ const CANCELAR_ESPERA_MS = 10 * 60_000;
 /** Memoria y CPU del contenedor: el CT tiene 12 GB y 8 núcleos, y la app sigue andando. */
 const MEMORIA = process.env.ENTRENADOR_MEMORIA || "6g";
 const CPUS = process.env.ENTRENADOR_CPUS || "4";
+
+const TELEMETRIA = salud.dirTelemetria(TRABAJO);
+
+/**
+ * El entrenamiento en curso, visto desde la salud del equipo: si está congelado por temperatura,
+ * cuánto, y lo peor que se midió. Lo actualiza `vigilar` cada 5 s.
+ */
+let enCurso = null;
+let ultimaMuestra = null;
+const nuevoEnCurso = (id) => ({ id, congelado: false, congeladoDesde: 0, enfriadoMs: 0, pausas: 0, corte: null, max: { gpu: null, cpu: null, w: null }, sumaW: 0, n: 0, desde: Date.now() });
+const resumenSalud = (e) => e && ({
+    estado: e.corte ? "cortado" : e.congelado ? "enfriando" : "entrenando", corte: e.corte, pausas: e.pausas,
+    enfriadoSeg: Math.round((e.enfriadoMs + (e.congelado ? Date.now() - e.congeladoDesde : 0)) / 1000),
+    max: e.max, wPromedio: e.n ? Math.round(e.sumaW / e.n) : null, minutos: Math.round((Date.now() - e.desde) / 60_000),
+    ahora: ultimaMuestra ? { gpu: ultimaMuestra.gpu?.t ?? null, cpu: ultimaMuestra.cpu?.t ?? null, w: ultimaMuestra.gpu?.w ?? null } : null,
+});
+const mayor = (a, b) => (b == null ? a : a == null ? b : Math.max(a, b));
+
+/** Congelar / descongelar / parar el contenedor. Parar uno congelado exige descongelarlo antes. */
+async function congelar() { await sh(`docker pause ${CONTENEDOR}`, 30_000); }
+async function descongelar() { await sh(`docker unpause ${CONTENEDOR}`, 30_000).catch(() => null); }
+async function parar(t = 30) { await descongelar(); await sh(`docker stop -t ${t} ${CONTENEDOR}`, 120_000).catch(() => null); }
+
+/**
+ * La vigilancia: mide (salud-equipo.js), guarda la muestra y, si se está entrenando, decide.
+ * Corre siempre — cada 5 s entrenando, cada minuto en reposo — para que el reporte muestre
+ * también cómo está el equipo cuando no se entrena (la referencia contra la que comparar).
+ */
+async function vigilar() {
+    try {
+        const m = await salud.medir();
+        const e = enCurso;
+        m.estado = e ? (e.congelado ? "enfriando" : "entrenando") : "reposo";
+        if (e) m.entrenamiento = e.id;
+        ultimaMuestra = m;
+        salud.registrar(TELEMETRIA, m, !!e);
+        if (e && !e.corte) {
+            e.max = { gpu: mayor(e.max.gpu, m.gpu?.t), cpu: mayor(e.max.cpu, m.cpu?.t), w: mayor(e.max.w, m.gpu?.w) };
+            if (m.gpu?.w != null) { e.sumaW += m.gpu.w; e.n++; }
+            const d = salud.decidir(m, e.congelado, e.congeladoDesde);
+            if (d.accion === "enfriar") {
+                await congelar().then(() => { e.congelado = true; e.congeladoDesde = Date.now(); e.pausas++; log(`${e.id}: congelado para enfriar (${d.motivo})`); })
+                    .catch((x) => log(`${e.id}: no se pudo congelar:`, x.message));
+            } else if (d.accion === "reanudar") {
+                await descongelar(); e.enfriadoMs += Date.now() - e.congeladoDesde; e.congelado = false;
+                log(`${e.id}: se reanuda (GPU ${m.gpu?.t} °C, CPU ${m.cpu?.t} °C)`);
+            } else if (d.accion === "cortar") {
+                e.corte = d.motivo;
+                log(`${e.id}: CORTADO para cuidar el equipo: ${d.motivo}`);
+                if (e.congelado) { e.enfriadoMs += Date.now() - e.congeladoDesde; e.congelado = false; }
+                await parar(10);
+            }
+        }
+    } catch (x) { log("vigilar:", x.message); }
+    finally { setTimeout(vigilar, enCurso ? salud.MUESTRA_ENTRENANDO_MS : salud.MUESTRA_REPOSO_MS); }
+}
 
 const ajuste = async (k, d = null) => (await prisma.setting.findUnique({ where: { key: k } }).catch(() => null))?.value ?? d;
 const escribirAjuste = (key, value) => prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } });
@@ -128,15 +185,17 @@ async function seguir(t, carpeta) {
         const p = leer(path.join(carpeta, "progreso.json"));
         const fila = await prisma.entrenamientoDetector.findUnique({ where: { id: t.id } });
         const estado = p?.fase === "exportando" ? "EXPORTANDO" : "ENTRENANDO";
-        await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado, ...(p ? { progreso: p } : {}) } });
+        await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado, progreso: { ...(p || {}), salud: resumenSalud(enCurso) } } });
         if (fila?.cancelar && !pedidoCancelar) {
             pedidoCancelar = Date.now();
+            // Congelado por temperatura, no va a llegar al fin de la época: se para ya.
+            if (enCurso?.congelado) await parar(10);
             fs.writeFileSync(path.join(carpeta, "detener"), "");
             log(`cancelar ${t.id}: se para al terminar la época`);
         }
-        if (pedidoCancelar && Date.now() - pedidoCancelar > CANCELAR_ESPERA_MS) await sh(`docker stop ${CONTENEDOR}`, 120_000).catch(() => null);
+        if (pedidoCancelar && Date.now() - pedidoCancelar > CANCELAR_ESPERA_MS) await parar(30);
         if (!(await corriendo())) break;
-        await new Promise((r) => setTimeout(r, 15_000));
+        await new Promise((r) => setTimeout(r, 10_000));
     }
     const codigo = Number(await sh(`docker inspect ${CONTENEDOR} --format '{{.State.ExitCode}}'`).catch(() => "1"));
     const cola = await sh(`docker logs --tail 60 ${CONTENEDOR} 2>&1`).catch(() => "");
@@ -148,9 +207,15 @@ async function terminar(t, carpeta, { codigo, cola }) {
     const r = leer(path.join(carpeta, "resultado.json"));
     const fila = await prisma.entrenamientoDetector.findUnique({ where: { id: t.id } });
     const hayModelo = fs.existsSync(path.join(carpeta, "modelo.onnx"));
-    const estado = r?.ok && hayModelo ? (fila?.cancelar || r.cancelado ? "CANCELADO" : "LISTO") : fila?.cancelar ? "CANCELADO" : "FALLO";
-    const error = estado === "FALLO" ? (r?.error || `El entrenamiento terminó con código ${codigo}.`) + (cola ? `\n…\n${cola.slice(-3000)}` : "") : null;
-    await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado, resultado: r || undefined, error, terminadoAt: new Date(), progreso: leer(path.join(carpeta, "progreso.json")) || undefined } });
+    const corte = enCurso?.id === t.id ? enCurso.corte : null;
+    const estado = corte ? "FALLO" : r?.ok && hayModelo ? (fila?.cancelar || r.cancelado ? "CANCELADO" : "LISTO") : fila?.cancelar ? "CANCELADO" : "FALLO";
+    const error = corte ? `Cortado para cuidar el equipo: ${corte}. Mirá «Salud del equipo» para ver cómo venía.`
+        : estado === "FALLO" ? (r?.error || `El entrenamiento terminó con código ${codigo}.`) + (cola ? `\n…\n${cola.slice(-3000)}` : "") : null;
+    const s = resumenSalud(enCurso?.id === t.id ? enCurso : null);
+    await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: {
+        estado, resultado: r ? { ...r, salud: s } : s ? { ok: false, salud: s } : undefined, error, terminadoAt: new Date(),
+        progreso: { ...(leer(path.join(carpeta, "progreso.json")) || {}), salud: s },
+    } });
     log(`${t.id}: ${estado}`);
 }
 
@@ -168,11 +233,13 @@ async function correrUno(t) {
         await pausarVision(max);
         await sh(`docker rm -f ${CONTENEDOR}`).catch(() => null);
         await sh(`docker run -d --name ${CONTENEDOR} --gpus all --memory ${MEMORIA} --cpus ${CPUS} --shm-size 2g -v ${carpeta}:/trabajo ${IMAGEN} /trabajo`);
+        enCurso = nuevoEnCurso(t.id);
         await terminar(t, carpeta, await seguir(t, carpeta));
     } catch (e) {
         log(`${t.id}: falló: ${e.message}`);
         await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado: "FALLO", error: e.message, terminadoAt: new Date() } }).catch(() => null);
     } finally {
+        enCurso = null;
         await reanudarVision();
         await guardarYLimpiar(t.id, carpeta).catch((e) => log(`${t.id}: no se pudo archivar:`, e.message));
         await podar().catch((e) => log("retención:", e.message));
@@ -251,9 +318,18 @@ async function vuelta() {
         // de dejar un entrenamiento en cola para siempre sin que nadie sepa por qué.
         const imagen = await sh(`docker image inspect ${IMAGEN} --format '{{.Id}}'`).then(() => true).catch(() => false);
         const libre = libreGB(TRABAJO);
-        await escribirAjuste("ENTRENADOR_ESTADO", JSON.stringify({ latido: new Date().toISOString(), imagen, ventana, enVentana: enVentana(ventana), libreGB: libre == null ? null : Math.round(libre * 10) / 10, minimoGB: ESPACIO_MIN_GB }));
         const t = await prisma.entrenamientoDetector.findFirst({ where: { estado: "EN_COLA" }, orderBy: { createdAt: "asc" } });
-        if (t && (t.cuando === "ahora" || enVentana(ventana))) { log(`toma ${t.id} (${t.cuando})`); await correrUno(t); }
+        // No se arranca con el equipo ya caliente: se espera en la cola, y la pantalla lo dice.
+        const g = ultimaMuestra?.gpu?.t, c = ultimaMuestra?.cpu?.t, tope = salud.LIMITES.arrancarHasta;
+        const caliente = (g != null && g > tope.gpu) || (c != null && c > tope.cpu) ? `esperando que el equipo se enfríe (GPU ${g ?? "?"} °C, CPU ${c ?? "?"} °C; arranca con GPU ≤ ${tope.gpu} y CPU ≤ ${tope.cpu})` : null;
+        await escribirAjuste("ENTRENADOR_ESTADO", JSON.stringify({
+            latido: new Date().toISOString(), imagen, ventana, enVentana: enVentana(ventana), libreGB: libre == null ? null : Math.round(libre * 10) / 10, minimoGB: ESPACIO_MIN_GB,
+            salud: ultimaMuestra, limites: salud.LIMITES, telemetria: TELEMETRIA, espera: t ? caliente : null,
+        }));
+        if (t && (t.cuando === "ahora" || enVentana(ventana))) {
+            if (caliente) { log(`${t.id}: ${caliente}`); return; }
+            log(`toma ${t.id} (${t.cuando})`); await correrUno(t);
+        }
     } catch (e) { log("vuelta:", e.message); }
     finally { ocupado = false; }
 }
@@ -269,7 +345,11 @@ async function recuperar() {
     if (await corriendo()) {
         log(`${t.id}: el contenedor sigue; se retoma el seguimiento`);
         ocupado = true;
-        try { await terminar(t, carpeta, await seguir(t, carpeta)); } finally { await reanudarVision(); await guardarYLimpiar(t.id, carpeta).catch(() => null); ocupado = false; }
+        enCurso = nuevoEnCurso(t.id);
+        // Si quedó congelado por temperatura, la vigilancia lo descongela cuando baje.
+        enCurso.congelado = (await sh(`docker inspect ${CONTENEDOR} --format '{{.State.Paused}}'`).catch(() => "false")) === "true";
+        enCurso.congeladoDesde = Date.now();
+        try { await terminar(t, carpeta, await seguir(t, carpeta)); } finally { enCurso = null; await reanudarVision(); await guardarYLimpiar(t.id, carpeta).catch(() => null); ocupado = false; }
     } else {
         await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado: "FALLO", error: "El entrenador se reinició a la mitad y el contenedor ya no corría.", terminadoAt: new Date() } });
         await sh(`docker rm -f ${CONTENEDOR}`).catch(() => null);
@@ -282,8 +362,10 @@ async function recuperar() {
     fs.mkdirSync(CARPETAS, { recursive: true });
     fs.mkdirSync(TRABAJO, { recursive: true });
     log(`arranca; modelo activo en ${CARPETAS}, trabajo en ${TRABAJO}; ventana por defecto ${VENTANA_DEFECTO} (${ZONA})`);
+    log(`salud del equipo: telemetría en ${TELEMETRIA}; límites ${JSON.stringify(salud.LIMITES)}`);
+    vigilar();
     await recuperar().catch((e) => log("recuperar:", e.message));
-    const poda = async () => { if (ocupado) return; ocupado = true; try { await podar(); } catch (e) { log("retención:", e.message); } finally { ocupado = false; } };
+    const poda = async () => { salud.podarTelemetria(TELEMETRIA); if (ocupado) return; ocupado = true; try { await podar(); } catch (e) { log("retención:", e.message); } finally { ocupado = false; } };
     await poda();
     setInterval(poda, CADA_PODA_MS);
     setInterval(vuelta, CADA_MS);
