@@ -355,6 +355,12 @@ export function VisorCuadro({
     const [proporcion, setProporcion] = useState(AR_VENTANA);
     /** Qué se está mirando: el cuadro guardado o lo que la cámara ve ahora. */
     const [modo, setModo] = useState<"foto" | "vivo" | "grabacion">("foto");
+    /** El cajón del clip de la grabación: se abre desde la barra del reproductor o desde los íconos de arriba. */
+    const [clip, setClip] = useState(false);
+    useEffect(() => { if (modo !== "grabacion") setClip(false); }, [modo]);
+    // El cajón del clip entra por la derecha del reproductor: con la ficha y la barra de arriba a la
+    // vista, se le encimarían. Mientras está abierto, la vista queda limpia.
+    useEffect(() => { if (clip) setLimpio(true); }, [clip]);
     const [vivoListo, setVivoListo] = useState(false);
     /** HD (flujo principal) o SD (secundario, liviano), como el botón del visor de intrusión. */
     const [calidad, setCalidad] = useState<"hd" | "sd">("hd");
@@ -487,7 +493,7 @@ export function VisorCuadro({
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
             // Con el visor completo de la cámara abierto encima, las teclas son de él.
-            if (abrirCamara || compartir) return;
+            if (abrirCamara || compartir || clip) return;
             if (e.key === "Escape") {
                 // Esc deshace de a una cosa, de la más nueva a la más vieja: no cierra el evento
                 // de golpe estando en un paso anterior o con un panel abierto.
@@ -513,7 +519,7 @@ export function VisorCuadro({
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -869,7 +875,7 @@ export function VisorCuadro({
                 {/* La grabación del NVR, en el lugar de la foto y con su propia barra de tiempo. */}
                 {modo === "grabacion" && fila.deviceId && (
                     <GrabacionVisor deviceId={fila.deviceId} camara={fila.cameraName} instanteMs={momento.getTime()}
-                        poster={fila.snapshotUrl} matricula={chapaVisor.plate}
+                        poster={fila.snapshotUrl} matricula={chapaVisor.plate} clip={clip} onClip={setClip}
                         marcas={pasos.filter((p) => p.camara && p.camara === fila.cameraName).map((p) => ({ ms: new Date(p.momento).getTime(), titulo: `Paso anterior · ${fechaCorta(p.momento)} ${horaSeg(p.momento)}` }))} />
                 )}
 
@@ -951,37 +957,38 @@ export function VisorCuadro({
 
                 {/* Sin nada encima: lo único que queda es la forma de volver. Apagado hasta que se
                     le pasa el mouse, para no ensuciar lo que se pidió ver limpio. */}
-                {limpio && (
-                    <div className="absolute top-4 right-4 z-40 flex items-center gap-1.5 opacity-40 hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                {limpio && !clip && (
+                    <div className="absolute top-4 right-4 z-40 flex items-center gap-2 opacity-60 hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        {/* Qué se está mirando: un punto y la cámara. Es lo único con texto, porque el
+                            nombre de la cámara no tiene ícono. */}
                         {modo !== "foto" && (
-                            <>
-                                <span className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 text-[11.5px] font-semibold flex items-center gap-1.5">
-                                    {modo === "vivo"
-                                        ? <><Radio size={12} className="animate-pulse text-[var(--mal)]" /> En vivo · {camVivo?.nombre || fila.cameraName || "Cámara"}</>
-                                        : <><PlayCircle size={12} /> Grabación · {fila.cameraName || "Cámara"}</>}
-                                </span>
-                                {modo === "vivo" && camVivo && (
-                                    <button type="button" onClick={() => setCamVivo(null)} title={`Volver a ${fila.cameraName || "la cámara del evento"}`}
-                                        className="h-8 px-3 rounded-full bg-amber-500/90 hover:bg-amber-500 text-white text-[11px] font-extrabold uppercase tracking-wide flex items-center gap-1">
-                                        <ChevronLeft size={13} /> {fila.cameraName || "Origen"}
-                                    </button>
-                                )}
-                                {modo === "vivo" && (
-                                    <button type="button" onClick={() => { setCalidad((c) => (c === "hd" ? "sd" : "hd")); setAvisoCalidad(Date.now()); }}
-                                        title={calidad === "hd" ? "Cambiar a sub-flujo (ligero)" : "Cambiar a flujo principal (HD)"}
-                                        className={cn("px-2.5 h-8 grid place-items-center rounded-full text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm transition-colors",
-                                            calidad === "hd" ? "bg-sky-500/90 text-white" : "bg-black/40 text-white/80 hover:bg-black/70")}>{calidad === "hd" ? "HD" : "SD"}</button>
-                                )}
-                                <button type="button" onClick={() => { setModo("foto"); setLimpio(false); }} title="Volver a la foto del evento"
-                                    className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 hover:text-white text-[11.5px] font-semibold flex items-center gap-1.5">
-                                    <IconoFoto size={14} /> Volver a la foto
-                                </button>
-                            </>
+                            <span className="h-9 pl-2.5 pr-3 rounded-full bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 text-[12px] font-semibold flex items-center gap-2 max-w-[260px]">
+                                {modo === "vivo"
+                                    ? <Radio size={14} className="animate-pulse text-[var(--mal)] shrink-0" />
+                                    : <PlayCircle size={14} className="text-[var(--accion-en-oscuro)] shrink-0" />}
+                                <span className="truncate">{modo === "vivo" ? (camVivo?.nombre || fila.cameraName || "Cámara") : (fila.cameraName || "Cámara")}</span>
+                            </span>
                         )}
-                        <button type="button" onClick={() => setLimpio(false)} title="Mostrar la ficha y los controles  ( H )"
-                            className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/80 hover:text-white text-[11.5px] font-semibold flex items-center gap-1.5">
-                            <Eye size={14} /> Mostrar controles
-                        </button>
+                        <span className="h-9 rounded-full bg-black/50 backdrop-blur-xl border border-white/15 p-0.5 flex items-center gap-0.5">
+                            {modo === "vivo" && camVivo && (
+                                <IconoLimpio onClick={() => setCamVivo(null)} titulo={`Volver a ${fila.cameraName || "la cámara del evento"}`}><Undo2 size={15} /></IconoLimpio>
+                            )}
+                            {modo === "vivo" && (
+                                <IconoLimpio onClick={() => { setCalidad((c) => (c === "hd" ? "sd" : "hd")); setAvisoCalidad(Date.now()); }} activo={calidad === "hd"}
+                                    titulo={calidad === "hd" ? "Flujo principal (HD) · cambiar a sub-flujo, más liviano" : "Sub-flujo (SD) · cambiar a flujo principal (HD)"}>
+                                    <span className="text-[10px] font-bold tracking-wide">{calidad === "hd" ? "HD" : "SD"}</span>
+                                </IconoLimpio>
+                            )}
+                            {modo === "grabacion" && (
+                                <IconoLimpio onClick={() => setClip(true)} activo={clip} titulo="Exportar un clip: descargarlo o mandarlo por WhatsApp"><Download size={15} /></IconoLimpio>
+                            )}
+                            {modo !== "foto" && (
+                                <IconoLimpio onClick={() => { setModo("foto"); setLimpio(false); }} titulo="Volver a la foto del evento  ( Esc )"><IconoFoto size={15} /></IconoLimpio>
+                            )}
+                            <IconoLimpio onClick={() => setLimpio(false)} titulo="Mostrar la ficha y los controles  ( H )"><Eye size={15} /></IconoLimpio>
+                            <span className="w-px h-4 bg-white/15 mx-0.5" />
+                            <IconoLimpio onClick={onCerrar} titulo="Cerrar el visor"><X size={15} /></IconoLimpio>
+                        </span>
                     </div>
                 )}
 
@@ -1337,5 +1344,20 @@ function Relectura({ r }: { r: NonNullable<DatosVisor["relectura"]> }) {
                 )}
             </span>
         </div>
+    );
+}
+
+/**
+ * Un ícono de la cápsula de arriba a la derecha, en la vista limpia (vivo y grabación). Eran
+ * píldoras con texto —«Volver a la foto», «Mostrar controles»— que tapaban una franja del video;
+ * ahora son íconos con su explicación al pasar el mouse. `activo` marca lo que está prendido.
+ */
+function IconoLimpio({ children, onClick, titulo, activo }: { children: React.ReactNode; onClick: () => void; titulo: string; activo?: boolean }) {
+    return (
+        <button type="button" onClick={onClick} title={titulo} aria-label={titulo} aria-pressed={activo}
+            className={cn("w-8 h-8 rounded-full grid place-items-center transition-colors",
+                activo ? "bg-white text-black" : "text-white/80 hover:text-white hover:bg-white/15")}>
+            {children}
+        </button>
     );
 }

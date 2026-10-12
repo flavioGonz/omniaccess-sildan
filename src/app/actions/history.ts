@@ -636,3 +636,47 @@ export async function visionParaExportar(ids: string[]): Promise<Record<string, 
     for (const r of relecturas) out[r.accessEventId] = { ...(out[r.accessEventId] || { vio: "" }), releida: r.plate ? `${r.plate}${r.estado === "DUDOSA" ? " (dudosa)" : ""}` : null };
     return out;
 }
+
+/** Hasta dónde se buscan los eventos de una cámara alrededor del instante del visor (cada lado). */
+const EVENTOS_CAMARA_HORAS = 12;
+/** Tope por tabla: una lectora de portón puede tener cientos por día; más no se recorren a flechazos. */
+const EVENTOS_CAMARA_MAX = 1500;
+/** Dos registros de la misma cámara a menos de esto son el mismo momento (el acceso y su avistamiento, la detección y su cruce). */
+const EVENTOS_CAMARA_JUNTAR_MS = 1500;
+
+export type EventoCamara = { ms: number; tipo: "acceso" | "lectura" | "deteccion"; titulo: string };
+
+/**
+ * Los eventos que detectó UNA cámara alrededor de un instante: accesos de la lectora, lecturas de
+ * seguimiento y detecciones/cruces de intrusión. Para las flechas de la grabación del visor, que
+ * saltan al evento anterior o siguiente de esa cámara sin buscar a ojo en la regla.
+ *
+ * Las lecturas que ya son un acceso (accessEventId) no se repiten, y los registros casi
+ * simultáneos se juntan: una flecha que salta dos veces al mismo segundo parece rota.
+ */
+export async function eventosDeCamara(deviceId: string, instanteMs: number): Promise<EventoCamara[]> {
+    if (!deviceId || !Number.isFinite(instanteMs)) return [];
+    const desde = new Date(instanteMs - EVENTOS_CAMARA_HORAS * 3_600_000), hasta = new Date(Math.min(Date.now(), instanteMs + EVENTOS_CAMARA_HORAS * 3_600_000));
+    const rango = { gte: desde, lte: hasta };
+    const [accesos, lecturas, detecciones, cruces] = await Promise.all([
+        prisma.accessEvent.findMany({ where: { deviceId, timestamp: rango }, select: { timestamp: true, plateDetected: true, decision: true }, orderBy: { timestamp: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
+        prisma.plateSighting.findMany({ where: { deviceId, timestamp: rango, accessEventId: null }, select: { timestamp: true, plate: true }, orderBy: { timestamp: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
+        prisma.detection.findMany({ where: { deviceId, timestamp: rango }, select: { timestamp: true, type: true, label: true }, orderBy: { timestamp: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
+        prisma.intrusionEvent.findMany({ where: { deviceId, timestamp: rango }, select: { timestamp: true, type: true }, orderBy: { timestamp: "asc" }, take: EVENTOS_CAMARA_MAX }).catch(() => []),
+    ]);
+    const TIPO_DETECCION: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión", REGION_ENTER: "Entrada a zona", REGION_EXIT: "Salida de zona", MOTION: "Movimiento" };
+    const DECISION: Record<string, string> = { GRANT: "autorizado", DENY: "denegado" };
+    const todos: EventoCamara[] = [
+        ...accesos.map((e) => ({ ms: e.timestamp.getTime(), tipo: "acceso" as const, titulo: [e.plateDetected && !esNoLeida(e.plateDetected) ? e.plateDetected : "Acceso", DECISION[String(e.decision)]].filter(Boolean).join(" · ") })),
+        ...lecturas.map((e) => ({ ms: e.timestamp.getTime(), tipo: "lectura" as const, titulo: e.plate || "Lectura" })),
+        ...detecciones.map((e) => ({ ms: e.timestamp.getTime(), tipo: "deteccion" as const, titulo: e.label || TIPO_DETECCION[e.type] || e.type })),
+        ...cruces.map((e) => ({ ms: e.timestamp.getTime(), tipo: "deteccion" as const, titulo: TIPO_DETECCION[e.type] || e.type })),
+    ].sort((x, y) => x.ms - y.ms);
+    const juntos: EventoCamara[] = [];
+    for (const e of todos) {
+        const u = juntos[juntos.length - 1];
+        if (u && e.ms - u.ms < EVENTOS_CAMARA_JUNTAR_MS) continue;
+        juntos.push(e);
+    }
+    return juntos;
+}

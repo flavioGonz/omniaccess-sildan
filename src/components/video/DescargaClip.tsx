@@ -1,25 +1,33 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Download, Send, Settings2, X, Check, Plus, Loader2, AlertTriangle, MessageCircle, Search, Film } from "lucide-react";
+import { motion } from "framer-motion";
+import { Download, Send, X, Check, Plus, Loader2, AlertTriangle, MessageCircle, Search, Film, Clock, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buscarDestinatariosClip, enviarClipPorWhatsApp, type DestinatarioClip, type ResultadoEnvioClip } from "@/app/actions/clips";
 import { ENVIO_MAX_SEG } from "@/lib/clips";
 
 /**
- * El diálogo previo a bajar un clip, y ahora también a mandarlo por WhatsApp.
+ * Exportar un clip de la grabación: bajarlo o mandarlo por WhatsApp.
  *
- * Antes el botón bajaba sin decir nada un clip "de 60 s" (según su tooltip) que en realidad
- * medía lo que dijera Ajustes. Este diálogo dice exactamente qué va a traer —cuántos segundos
- * antes y después de qué instante— y deja cambiarlo para ESTE clip. Con la misma ventana se
- * puede mandar por WhatsApp a los destinatarios de avisos o a un usuario del barrio: el
- * operador ve el estado real (armando, enviando, a quién llegó) y queda en Despachos.
+ * Era un cuadro centrado encima del video —una ventana más que se abría sobre el visor, que ya
+ * es una ventana—, chico y con dos números sueltos. Ahora es un cajón que entra por la derecha
+ * del mismo reproductor: el video sigue a la vista a la izquierda (se ve QUÉ se está
+ * exportando), y el cajón tiene lugar para lo que importa: el tramo dibujado sobre una regla,
+ * atajos de duración, y el destino elegido antes de apretar nada.
  *
- * Vivía adentro del visor de intrusión; salió acá para que la ficha del evento (historial,
- * monitor LPR) use el mismo diálogo en vez de un botón que bajaba sin preguntar.
+ * Lo que no cambió, a propósito:
+ *   - El instante queda FIJO al abrir: el video sigue corriendo detrás y lo que se baja o se
+ *     manda tiene que ser lo que el cajón dice, no lo que el video muestre después.
+ *   - Dice exactamente qué trae (de qué hora a qué hora) y que el cambio vale sólo para este clip.
+ *   - Los destinatarios son sólo gente que el sistema ya conoce; el estado del envío es el real.
  *
- * Es oscuro a propósito: se abre encima del video, como el resto del visor.
+ * Telegram aparece, y aparece apagado: el pedido lo nombra y el operador lo va a buscar acá, pero
+ * el envío de VIDEO por Telegram no existe (por Telegram salen fotos de los avisos). Un botón
+ * que se aprieta y no manda nada sería un control que miente; uno apagado que dice por qué, no.
+ *
+ * Se dibuja adentro del contenedor que lo monta (todos lo montan a pantalla completa o sobre el
+ * reproductor), así que sirve igual en el visor, en el vivo, en la ficha y en la máquina del tiempo.
  */
 
 export type VentanaClip = { antes: number; despues: number; topes: { antesMax: number; despuesMax: number; despuesMin: number } };
@@ -29,10 +37,21 @@ const fechaCorta = (ms: number) => new Date(ms).toLocaleDateString("es-UY", { da
 const acotar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(Number.isFinite(v) ? v : min)));
 /** Lo que tarda en salir un clip: el NVR lo entrega a tiempo real, más la espera del tramo y el envío. */
 const estimadoSeg = (seg: number) => seg + 6;
+/** «20 s», «1 min 30 s». */
+const duracion = (s: number) => { const m = Math.floor(s / 60), r = s % 60; return m ? `${m} min${r ? ` ${r} s` : ""}` : `${r} s`; };
 
+/**
+ * Los atajos de duración (segundos antes / después del instante). Se ofrecen sólo los que caben
+ * en los topes del grabador; el de Ajustes se agrega aparte, marcado como tal.
+ */
+const ATAJOS: { antes: number; despues: number }[] = [
+    { antes: 5, despues: 5 }, { antes: 10, despues: 10 }, { antes: 15, despues: 30 }, { antes: 30, despues: 60 },
+];
+
+type Destino = "bajar" | "whatsapp";
 type Fase = { tipo: "eligiendo" } | { tipo: "armando"; desde: number } | { tipo: "listo"; r: ResultadoEnvioClip };
 
-export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose, deviceId, camara, matricula }: {
+export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose, deviceId, camara, matricula, poster }: {
     instante: number;
     ventana: VentanaClip;
     /** URL de descarga para ESTE instante (el fijado al abrir) y la ventana elegida. */
@@ -42,18 +61,20 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
     deviceId?: string | null;
     camara?: string | null;
     matricula?: string | null;
+    /** La foto del evento, para ver en el cajón de qué es el clip. */
+    poster?: string | null;
 }) {
-    // El instante queda FIJO al abrir: el video sigue corriendo detrás y su posición cambia; lo que
-    // se baja o se manda tiene que ser lo que el diálogo dice, no lo que el video muestre después.
     const [instante] = useState(instanteAlAbrir);
     const [antes, setAntes] = useState(ventana.antes);
     const [despues, setDespues] = useState(ventana.despues);
-    const a = acotar(antes, 0, ventana.topes.antesMax), d = acotar(despues, ventana.topes.despuesMin, ventana.topes.despuesMax);
+    const { antesMax, despuesMax, despuesMin } = ventana.topes;
+    const a = acotar(antes, 0, antesMax), d = acotar(despues, despuesMin, despuesMax);
     const cambiado = a !== ventana.antes || d !== ventana.despues;
 
-    const [enviando, setEnviando] = useState(false); // panel de envío abierto
+    const [destino, setDestino] = useState<Destino>("bajar");
     const [fase, setFase] = useState<Fase>({ tipo: "eligiendo" });
     const ocupado = fase.tipo === "armando";
+    const [telefonos, setTelefonos] = useState<string[]>([]);
 
     useEffect(() => {
         const k = (e: KeyboardEvent) => { if (e.key === "Escape" && !ocupado) { e.stopPropagation(); onClose(); } };
@@ -61,81 +82,197 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
     }, [onClose, ocupado]);
 
     const largoEnvio = Math.min(a + d, ENVIO_MAX_SEG);
-    const recortado = enviando && a + d > ENVIO_MAX_SEG;
+    const recortado = destino === "whatsapp" && a + d > ENVIO_MAX_SEG;
+    const atajos = useMemo(() => ATAJOS.filter((x) => x.antes <= antesMax && x.despues <= despuesMax && x.despues >= despuesMin), [antesMax, despuesMax, despuesMin]);
+
+    const enviar = async () => {
+        if (!deviceId || telefonos.length === 0) return;
+        setFase({ tipo: "armando", desde: Date.now() });
+        // Por WhatsApp va un máximo de ENVIO_MAX_SEG: se recorta parejo de los dos lados para que el instante quede donde estaba.
+        const proporcion = a + d > ENVIO_MAX_SEG ? ENVIO_MAX_SEG / (a + d) : 1;
+        const antesEnvio = Math.floor(a * proporcion);
+        const r = await enviarClipPorWhatsApp({ deviceId, instante, antes: antesEnvio, despues: largoEnvio - antesEnvio, telefonos, matricula })
+            .catch((e) => ({ ok: false as const, error: String(e?.message || e) }));
+        setFase({ tipo: "listo", r });
+    };
 
     return (
-        <div className="absolute inset-0 z-[60] bg-black/70 backdrop-blur-sm grid place-items-center p-4" onClick={(e) => { e.stopPropagation(); if (!ocupado) onClose(); }}>
-            <motion.div layout className="w-full max-w-lg rounded-2xl bg-neutral-900/95 ring-1 ring-white/10 shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-start gap-3 p-5 pb-4">
-                    <span className={cn("w-10 h-10 rounded-xl grid place-items-center ring-1 shrink-0", enviando ? "bg-emerald-500/20 ring-emerald-400/30" : "bg-sky-500/20 ring-sky-400/30")}>
-                        {enviando ? <MessageCircle size={18} className="text-emerald-300" /> : <Download size={18} className="text-sky-300" />}
-                    </span>
-                    <div className="min-w-0">
-                        <div className="text-[15px] font-extrabold text-white leading-tight">{enviando ? "Enviar clip por WhatsApp" : "Descargar clip"}</div>
-                        <div className="text-[12px] text-white/60 mt-0.5">{camara ? <>{camara} · </> : null}alrededor de las <span className="text-white font-bold tabular-nums">{horaSeg(instante)}</span> del {fechaCorta(instante)}</div>
+        <div className="absolute inset-0 z-[60]" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+            <motion.div className="absolute inset-0 bg-black/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => { if (!ocupado) onClose(); }} />
+            <motion.aside role="dialog" aria-label="Exportar clip"
+                initial={{ x: "100%" }} animate={{ x: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
+                className="absolute inset-y-0 right-0 w-full sm:w-[480px] flex flex-col bg-[#0c0e12]/[0.97] backdrop-blur-xl border-l border-white/10 text-white shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.7)]">
+
+                {/* ── Encabezado ── */}
+                <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-white/[0.08]">
+                    <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-white/[0.07] border border-white/10 shrink-0"><Film size={18} className="text-[var(--accion-en-oscuro)]" /></span>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[17px] font-bold leading-tight">Exportar clip</div>
+                        <div className="text-[12.5px] text-white/55 mt-0.5 truncate">{camara ? <>{camara} · </> : null}{fechaCorta(instante)}</div>
                     </div>
-                    <button onClick={onClose} disabled={ocupado} className="ml-auto w-8 h-8 grid place-items-center rounded-full hover:bg-white/10 text-white/60 hover:text-white disabled:opacity-30"><X size={16} /></button>
+                    <button type="button" onClick={onClose} disabled={ocupado} aria-label="Cerrar" title="Cerrar  ( Esc )"
+                        className="w-8 h-8 grid place-items-center rounded-[6px] text-white/60 hover:text-white hover:bg-white/10 disabled:opacity-30"><X size={17} /></button>
                 </div>
 
                 {fase.tipo === "eligiendo" && (
                     <>
-                        <div className="px-5 pb-4 grid grid-cols-2 gap-3">
-                            <label className="block">
-                                <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5">Segundos antes</span>
-                                <input type="number" min={0} max={ventana.topes.antesMax} value={antes} onChange={(e) => setAntes(Number(e.target.value))}
-                                    className="w-full h-10 rounded-xl bg-white/10 ring-1 ring-white/10 focus:ring-sky-400/60 px-3 text-[16px] font-extrabold tabular-nums text-white outline-none" />
-                            </label>
-                            <label className="block">
-                                <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5">Segundos después</span>
-                                <input type="number" min={ventana.topes.despuesMin} max={ventana.topes.despuesMax} value={despues} onChange={(e) => setDespues(Number(e.target.value))}
-                                    className="w-full h-10 rounded-xl bg-white/10 ring-1 ring-white/10 focus:ring-sky-400/60 px-3 text-[16px] font-extrabold tabular-nums text-white outline-none" />
-                            </label>
-                        </div>
-                        <div className="mx-5 mb-4 rounded-xl bg-white/[0.06] ring-1 ring-white/10 px-3.5 py-3 flex items-start gap-2.5">
-                            <Settings2 size={14} className="text-white/45 shrink-0 mt-0.5" />
-                            <p className="text-[11.5px] text-white/65 leading-snug">
-                                El clip irá de <span className="text-white font-bold tabular-nums">{horaSeg(instante - a * 1000)}</span> a <span className="text-white font-bold tabular-nums">{horaSeg(instante + d * 1000)}</span> ({a + d} s).
-                                {" "}Lo configurado en <span className="text-white/85 font-semibold">Ajustes → Video del evento</span> es {ventana.antes} s antes y {ventana.despues} s después
-                                {cambiado ? "; el cambio vale sólo para este clip." : "."}
-                                {recortado && <span className="block mt-1 text-amber-300">Por WhatsApp va un máximo de {ENVIO_MAX_SEG} s: el grabador entrega el video a tiempo real y esperarías más de un minuto.</span>}
-                            </p>
-                        </div>
-                        <AnimatePresence initial={false}>
-                            {enviando && deviceId && (
-                                <motion.div key="envio" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                                    <PanelDestinatarios instante={instante} camara={camara} matricula={matricula} segundos={largoEnvio} onVolver={() => setEnviando(false)}
-                                        onEnviar={async (telefonos) => {
-                                            setFase({ tipo: "armando", desde: Date.now() });
-                                            const proporcion = a + d > ENVIO_MAX_SEG ? ENVIO_MAX_SEG / (a + d) : 1;
-                                            const r = await enviarClipPorWhatsApp({ deviceId, instante, antes: Math.floor(a * proporcion), despues: largoEnvio - Math.floor(a * proporcion), telefonos, matricula }).catch((e) => ({ ok: false as const, error: String(e?.message || e) }));
-                                            setFase({ tipo: "listo", r });
-                                        }} />
-                                </motion.div>
+                        <div className="flex-1 min-h-0 overflow-y-auto">
+                            {/* La foto del instante: de qué es el clip. */}
+                            {poster && (
+                                <div className="relative mx-6 mt-5 aspect-video rounded-[10px] overflow-hidden bg-black border border-white/10">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={poster} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                                    <span className="absolute left-2.5 bottom-2.5 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[6px] bg-black/65 backdrop-blur text-[12px] font-bold tabular-nums"><Clock size={12} /> {horaSeg(instante)}</span>
+                                    {matricula && <span className="absolute right-2.5 bottom-2.5 h-7 px-2.5 rounded-[6px] bg-white text-black text-[12.5px] font-bold tabular-nums grid place-items-center tracking-wide">{matricula}</span>}
+                                </div>
                             )}
-                        </AnimatePresence>
-                        {!enviando && (
-                            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/10 bg-black/30">
-                                {deviceId && (
-                                    <button onClick={() => setEnviando(true)} className="h-9 px-3.5 mr-auto inline-flex items-center gap-2 whitespace-nowrap rounded-xl text-[12.5px] font-bold text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/10 transition">
-                                        <MessageCircle size={15} /> Enviar por WhatsApp
-                                    </button>
+
+                            {/* ── El tramo ── */}
+                            <section className="px-6 pt-5">
+                                <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/45 mb-3">El tramo</div>
+                                <ReglaTramo a={a} d={d} antesMax={antesMax} despuesMax={despuesMax} instante={instante} />
+                                <div className="mt-4 flex flex-wrap gap-1.5">
+                                    {atajos.map((x) => {
+                                        const activo = x.antes === a && x.despues === d;
+                                        return (
+                                            <button key={`${x.antes}-${x.despues}`} type="button" aria-pressed={activo} onClick={() => { setAntes(x.antes); setDespues(x.despues); }}
+                                                className={cn("h-8 px-3 rounded-full text-[12px] font-semibold tabular-nums border transition-colors",
+                                                    activo ? "bg-white text-black border-white" : "border-white/15 text-white/75 hover:text-white hover:bg-white/[0.06]")}>
+                                                {duracion(x.antes + x.despues)}
+                                            </button>
+                                        );
+                                    })}
+                                    {!atajos.some((x) => x.antes === ventana.antes && x.despues === ventana.despues) && (
+                                        <button type="button" aria-pressed={!cambiado} onClick={() => { setAntes(ventana.antes); setDespues(ventana.despues); }}
+                                            className={cn("h-8 px-3 rounded-full text-[12px] font-semibold tabular-nums border transition-colors",
+                                                !cambiado ? "bg-white text-black border-white" : "border-white/15 text-white/75 hover:text-white hover:bg-white/[0.06]")}>
+                                            Ajustes · {duracion(ventana.antes + ventana.despues)}
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="mt-5 space-y-4">
+                                    <Deslizador rotulo="Antes del instante" valor={a} min={0} max={antesMax} onChange={setAntes} />
+                                    <Deslizador rotulo="Después del instante" valor={d} min={despuesMin} max={despuesMax} onChange={setDespues} />
+                                </div>
+                                <p className="mt-4 text-[11.5px] text-white/50 leading-snug">
+                                    Lo configurado en <span className="text-white/75 font-semibold">Ajustes → Video del evento</span> es {ventana.antes} s antes y {ventana.despues} s después
+                                    {cambiado ? "; este cambio vale sólo para este clip." : "."}
+                                </p>
+                            </section>
+
+                            {/* ── Qué hacer con él ── */}
+                            <section className="px-6 pt-6 pb-6">
+                                <div className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/45 mb-3">Qué hacer con él</div>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <OpcionDestino activo={destino === "bajar"} onClick={() => setDestino("bajar")} Icon={Download} titulo="Descargar" detalle="MP4 a esta computadora" />
+                                    <OpcionDestino activo={destino === "whatsapp"} onClick={() => setDestino("whatsapp")} Icon={MessageCircle} titulo="WhatsApp"
+                                        detalle={deviceId ? `Hasta ${ENVIO_MAX_SEG} s` : "Sin cámara asociada"} apagado={!deviceId} />
+                                    <OpcionDestino activo={false} Icon={Send} titulo="Telegram" detalle="Todavía no envía video" apagado
+                                        motivo="Por Telegram salen las fotos de los avisos; el envío de video todavía no existe. Para mandar el clip, usá WhatsApp o descargalo." />
+                                </div>
+
+                                {destino === "whatsapp" && deviceId && (
+                                    <div className="mt-4">
+                                        {recortado && (
+                                            <div className="mb-3 rounded-[10px] px-3 py-2.5 text-[11.5px] leading-snug chip-aviso flex items-start gap-2">
+                                                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                                                <span>Por WhatsApp va un máximo de {ENVIO_MAX_SEG} s (el grabador entrega el video a tiempo real): se mandan {largoEnvio} s alrededor del instante.</span>
+                                            </div>
+                                        )}
+                                        <PanelDestinatarios instante={instante} camara={camara} matricula={matricula} segundos={largoEnvio} onCambio={setTelefonos} />
+                                    </div>
                                 )}
-                                <button onClick={onClose} className="h-9 px-4 rounded-xl text-[12.5px] font-bold text-white/70 hover:text-white hover:bg-white/10 transition">Cancelar</button>
+                            </section>
+                        </div>
+
+                        {/* ── Pie: la acción ── */}
+                        <div className="shrink-0 flex items-center gap-2 px-6 py-4 border-t border-white/[0.08] bg-black/30">
+                            <span className="text-[12px] text-white/50 tabular-nums mr-auto">{horaSeg(instante - a * 1000)} → {horaSeg(instante + d * 1000)}</span>
+                            <button type="button" onClick={onClose} className="h-9 px-4 rounded-[6px] text-[13px] font-semibold text-white/70 hover:text-white hover:bg-white/10">Cancelar</button>
+                            {destino === "bajar" ? (
                                 <a href={href(a, d, instante)} download onClick={onClose}
-                                    className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold shadow-lg active:scale-95 transition"><Download size={15} /> Descargar {a + d} s</a>
-                            </div>
-                        )}
+                                    className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[13px] font-bold">
+                                    <Download size={15} /> Descargar {duracion(a + d)}
+                                </a>
+                            ) : (
+                                <button type="button" disabled={telefonos.length === 0} onClick={enviar}
+                                    className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] disabled:opacity-40 disabled:pointer-events-none text-white text-[13px] font-bold">
+                                    <Send size={14} /> {telefonos.length ? `Enviar a ${telefonos.length}` : "Elegí a quién"}
+                                </button>
+                            )}
+                        </div>
                     </>
                 )}
 
                 {fase.tipo === "armando" && <EnCurso desde={fase.desde} segundos={largoEnvio} />}
                 {fase.tipo === "listo" && <Resultado r={fase.r} onOtro={() => setFase({ tipo: "eligiendo" })} onCerrar={onClose} />}
-            </motion.div>
+            </motion.aside>
         </div>
     );
 }
 
-function PanelDestinatarios({ instante, camara, matricula, segundos, onEnviar, onVolver }: { instante: number; camara?: string | null; matricula?: string | null; segundos: number; onEnviar: (telefonos: string[]) => void; onVolver: () => void }) {
+/**
+ * El tramo dibujado: la regla va de lo máximo que se puede pedir antes a lo máximo después, con
+ * el instante marcado y lo elegido pintado. Se lee de un vistazo cuánto hay a cada lado.
+ */
+function ReglaTramo({ a, d, antesMax, despuesMax, instante }: { a: number; d: number; antesMax: number; despuesMax: number; instante: number }) {
+    // Los dos lados ocupan lo mismo aunque los topes sean distintos: el instante queda al medio,
+    // que es donde el operador lo busca. Cada lado se escala contra su propio tope.
+    const izq = antesMax ? (a / antesMax) * 50 : 0;
+    const der = despuesMax ? (d / despuesMax) * 50 : 0;
+    return (
+        <div>
+            <div className="flex items-end justify-between text-[11px] text-white/45 tabular-nums mb-1.5">
+                <span>−{antesMax} s</span>
+                <span className="text-white text-[22px] font-bold leading-none tracking-[-0.02em]">{duracion(a + d)}</span>
+                <span>+{despuesMax} s</span>
+            </div>
+            <div className="relative h-10 rounded-[6px] bg-white/[0.05] border border-white/10 overflow-hidden">
+                <div className="absolute inset-y-0 bg-[var(--accion-en-oscuro)]/30 border-x-2 border-[var(--accion-en-oscuro)] transition-all"
+                    style={{ left: `${50 - izq}%`, right: `${50 - der}%` }} />
+                <span className="absolute inset-y-0 left-1/2 w-0.5 -ml-px bg-white" />
+            </div>
+            <div className="relative h-4 mt-1 text-[11px] font-semibold tabular-nums text-white/70">
+                <span className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${Math.max(12, 50 - izq)}%` }}>{horaSeg(instante - a * 1000)}</span>
+                <span className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${Math.min(88, 50 + der)}%` }}>{horaSeg(instante + d * 1000)}</span>
+            </div>
+        </div>
+    );
+}
+
+function Deslizador({ rotulo, valor, min, max, onChange }: { rotulo: string; valor: number; min: number; max: number; onChange: (n: number) => void }) {
+    return (
+        <label className="block">
+            <span className="flex items-baseline justify-between mb-1.5">
+                <span className="text-[12.5px] text-white/70">{rotulo}</span>
+                <span className="flex items-center gap-1">
+                    <input type="number" min={min} max={max} value={valor} onChange={(e) => onChange(acotar(Number(e.target.value), min, max))}
+                        className="w-14 h-7 rounded-[6px] bg-white/[0.07] border border-white/10 focus:border-[var(--accion-en-oscuro)] px-2 text-right text-[13px] font-bold tabular-nums text-white outline-none" />
+                    <span className="text-[12px] text-white/50">s</span>
+                </span>
+            </span>
+            <input type="range" min={min} max={max} value={valor} onChange={(e) => onChange(Number(e.target.value))}
+                className="w-full h-1.5 cursor-pointer accent-[var(--accion-en-oscuro)]" />
+        </label>
+    );
+}
+
+function OpcionDestino({ activo, onClick, Icon, titulo, detalle, apagado, motivo }: {
+    activo: boolean; onClick?: () => void; Icon: React.ComponentType<{ size?: number; className?: string }>; titulo: string; detalle: string; apagado?: boolean; motivo?: string;
+}) {
+    return (
+        <button type="button" onClick={apagado ? undefined : onClick} disabled={apagado} aria-pressed={activo} title={motivo || detalle}
+            className={cn("rounded-[10px] border px-3 py-3 text-left transition-colors",
+                activo ? "border-[var(--accion-en-oscuro)] bg-[var(--accion-en-oscuro)]/10" : "border-white/10 hover:bg-white/[0.05]",
+                apagado && "opacity-45 cursor-not-allowed hover:bg-transparent")}>
+            <Icon size={18} className={activo ? "text-[var(--accion-en-oscuro)]" : "text-white/70"} />
+            <span className="block mt-2 text-[13px] font-bold">{titulo}</span>
+            <span className="block text-[11px] text-white/50 leading-tight mt-0.5">{detalle}</span>
+        </button>
+    );
+}
+
+function PanelDestinatarios({ instante, camara, matricula, segundos, onCambio }: { instante: number; camara?: string | null; matricula?: string | null; segundos: number; onCambio: (telefonos: string[]) => void }) {
     const [avisos, setAvisos] = useState<DestinatarioClip[]>([]);
     const [extra, setExtra] = useState<DestinatarioClip[]>([]);
     const [elegidos, setElegidos] = useState<Set<string>>(new Set());
@@ -157,57 +294,49 @@ function PanelDestinatarios({ instante, camara, matricula, segundos, onEnviar, o
     }, [q, extra]);
 
     const todos = useMemo(() => [...avisos, ...extra], [avisos, extra]);
+    const validos = useMemo(() => [...elegidos].filter((tel) => todos.some((x) => x.telefono === tel)), [elegidos, todos]);
+    const cambio = useRef(onCambio); cambio.current = onCambio;
+    useEffect(() => { cambio.current(validos); }, [validos]);
     const alternar = (tel: string) => setElegidos((s) => { const n = new Set(s); n.has(tel) ? n.delete(tel) : n.add(tel); return n; });
     const sumar = (u: DestinatarioClip) => { setExtra((x) => [...x, u]); setElegidos((s) => new Set(s).add(u.telefono)); setQ(""); setHallados([]); };
-    const n = [...elegidos].filter((tel) => todos.some((x) => x.telefono === tel)).length;
     const leyenda = [`🎥 ${camara || "Cámara"}`, `${fechaCorta(instante)} ${horaSeg(instante)}`, matricula ? `Matrícula ${matricula}` : null].filter(Boolean).join(" · ");
 
     return (
-        <div className="px-5 pb-4 space-y-3">
-            <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5">Para</div>
-                <div className="rounded-xl ring-1 ring-white/10 bg-white/[0.04] divide-y divide-white/5 max-h-[168px] overflow-y-auto">
-                    {cargando && <div className="px-3 py-3 text-[12px] text-white/50 inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Cargando destinatarios…</div>}
-                    {!cargando && error && <div className="px-3 py-3 text-[12px] text-red-300">{error}</div>}
-                    {!cargando && !error && todos.length === 0 && <div className="px-3 py-3 text-[12px] text-white/50">No hay destinatarios de WhatsApp en el Centro de Notificaciones. Buscá un usuario abajo.</div>}
-                    {todos.map((x) => (
-                        <button key={x.telefono} onClick={() => alternar(x.telefono)} className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-white/[0.05]">
-                            <span className={cn("w-[18px] h-[18px] rounded-[5px] grid place-items-center ring-1 shrink-0", elegidos.has(x.telefono) ? "bg-emerald-500 ring-emerald-400" : "ring-white/25")}>{elegidos.has(x.telefono) && <Check size={12} className="text-white" />}</span>
-                            <span className="min-w-0 flex-1">
-                                <span className="block text-[13px] font-semibold text-white truncate">{x.nombre}</span>
-                                <span className="block text-[11px] text-white/50 truncate tabular-nums">{x.detalle} · +{x.telefono}</span>
-                            </span>
-                        </button>
-                    ))}
-                </div>
+        <div className="space-y-3">
+            <div className="rounded-[10px] border border-white/10 bg-white/[0.03] divide-y divide-white/[0.06] max-h-[240px] overflow-y-auto">
+                {cargando && <div className="px-3 py-3 text-[12px] text-white/50 inline-flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Cargando destinatarios…</div>}
+                {!cargando && error && <div className="px-3 py-3 text-[12px] text-red-300 flex items-start gap-2"><AlertTriangle size={13} className="shrink-0 mt-0.5" /> {error}</div>}
+                {!cargando && !error && todos.length === 0 && <div className="px-3 py-3 text-[12px] text-white/50">No hay destinatarios de WhatsApp en el Centro de Notificaciones. Buscá un usuario abajo.</div>}
+                {todos.map((x) => (
+                    <button key={x.telefono} type="button" onClick={() => alternar(x.telefono)} className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.04]">
+                        <span className={cn("w-[18px] h-[18px] rounded-[5px] grid place-items-center border shrink-0", elegidos.has(x.telefono) ? "bg-[var(--accion)] border-[var(--accion)]" : "border-white/25")}>{elegidos.has(x.telefono) && <Check size={12} className="text-white" />}</span>
+                        <span className="min-w-0 flex-1">
+                            <span className="block text-[13px] font-semibold truncate">{x.nombre}</span>
+                            <span className="block text-[11px] text-white/50 truncate tabular-nums">{x.detalle} · +{x.telefono}</span>
+                        </span>
+                    </button>
+                ))}
             </div>
             <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
                 <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Sumar un usuario: nombre, lote o teléfono"
-                    className="w-full h-9 rounded-xl bg-white/10 ring-1 ring-white/10 focus:ring-emerald-400/50 pl-9 pr-3 text-[13px] text-white placeholder:text-white/35 outline-none" />
+                    className="w-full h-9 rounded-[6px] bg-white/[0.07] border border-white/10 focus:border-[var(--accion-en-oscuro)] pl-9 pr-3 text-[13px] text-white placeholder:text-white/35 outline-none" />
                 {hallados.length === 0 && q.trim().length >= 2 && buscado === q && (
-                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-xl bg-neutral-800 ring-1 ring-white/10 px-3 py-2.5 text-[12px] text-white/55">Ningún usuario con teléfono coincide con «{q}». El teléfono se carga en la ficha del usuario.</div>
+                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-[10px] bg-neutral-800 border border-white/10 px-3 py-2.5 text-[12px] text-white/55">Ningún usuario con teléfono coincide con «{q}». El teléfono se carga en la ficha del usuario.</div>
                 )}
                 {hallados.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-xl bg-neutral-800 ring-1 ring-white/10 shadow-2xl overflow-hidden">
+                    <div className="absolute z-10 left-0 right-0 mt-1 rounded-[14px] bg-neutral-800 border border-white/10 shadow-2xl overflow-hidden">
                         {hallados.map((u) => (
-                            <button key={u.telefono} onClick={() => sumar(u)} className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-white/[0.06]">
-                                <Plus size={14} className="text-emerald-300 shrink-0" />
-                                <span className="min-w-0"><span className="block text-[13px] font-semibold text-white truncate">{u.nombre}</span><span className="block text-[11px] text-white/50 truncate tabular-nums">{u.detalle} · +{u.telefono}</span></span>
+                            <button key={u.telefono} type="button" onClick={() => sumar(u)} className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-white/[0.06]">
+                                <Plus size={14} className="text-[var(--accion-en-oscuro)] shrink-0" />
+                                <span className="min-w-0"><span className="block text-[13px] font-semibold truncate">{u.nombre}</span><span className="block text-[11px] text-white/50 truncate tabular-nums">{u.detalle} · +{u.telefono}</span></span>
                             </button>
                         ))}
                     </div>
                 )}
             </div>
-            <div className="rounded-xl bg-white/[0.04] ring-1 ring-white/10 px-3 py-2 text-[11.5px] text-white/60 flex items-start gap-2">
-                <Film size={13} className="shrink-0 mt-0.5 text-white/40" /> <span><span className="text-white/80">{leyenda}</span> · {segundos} s</span>
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-1">
-                <button onClick={onVolver} className="h-9 px-4 mr-auto rounded-xl text-[12.5px] font-bold text-white/70 hover:text-white hover:bg-white/10 transition">Volver</button>
-                <button disabled={n === 0} onClick={() => onEnviar([...elegidos].filter((tel) => todos.some((x) => x.telefono === tel)))}
-                    className="h-9 px-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:pointer-events-none text-white text-[12.5px] font-extrabold active:scale-95 transition">
-                    <Send size={14} /> Enviar a {n || "…"}
-                </button>
+            <div className="rounded-[10px] bg-white/[0.03] border border-white/10 px-3 py-2.5 text-[11.5px] text-white/55 flex items-start gap-2">
+                <Info size={13} className="shrink-0 mt-0.5 text-white/40" /> <span>Va con el texto <span className="text-white/80">{leyenda}</span> · {segundos} s. Queda registrado en Despachos.</span>
             </div>
         </div>
     );
@@ -221,14 +350,14 @@ function EnCurso({ desde, segundos }: { desde: number; segundos: number }) {
     const total = estimadoSeg(segundos);
     const p = Math.min(0.95, pasaron / total);
     return (
-        <div className="px-5 pb-6 pt-2">
-            <div className="flex items-center gap-3">
-                <Loader2 size={18} className="animate-spin text-emerald-300 shrink-0" />
-                <div className="text-[14px] font-bold text-white">{pasaron < segundos ? "Armando el clip desde la grabación…" : "Enviando por WhatsApp…"}</div>
-                <div className="ml-auto text-[12px] text-white/50 tabular-nums">{Math.floor(pasaron)} s</div>
+        <div className="flex-1 grid place-items-center px-8">
+            <div className="w-full">
+                <Loader2 size={28} className="animate-spin text-[var(--accion-en-oscuro)] mx-auto" />
+                <div className="mt-4 text-center text-[16px] font-bold">{pasaron < segundos ? "Armando el clip desde la grabación…" : "Enviando por WhatsApp…"}</div>
+                <div className="mt-1 text-center text-[12px] text-white/50 tabular-nums">{Math.floor(pasaron)} s de ~{total} s</div>
+                <div className="mt-5 h-1.5 rounded-full bg-white/10 overflow-hidden"><motion.div className="h-full bg-[var(--accion-en-oscuro)]" animate={{ width: `${p * 100}%` }} transition={{ ease: "linear", duration: 0.25 }} /></div>
+                <p className="mt-4 text-center text-[11.5px] text-white/45">El grabador entrega el video a tiempo real: {segundos} s de clip tardan algo más que eso. No cierres este panel.</p>
             </div>
-            <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden"><motion.div className="h-full bg-emerald-400" animate={{ width: `${p * 100}%` }} transition={{ ease: "linear", duration: 0.25 }} /></div>
-            <p className="mt-2 text-[11px] text-white/45">El grabador entrega el video a tiempo real: {segundos} s de clip tardan algo más que eso. No cierres este cuadro.</p>
         </div>
     );
 }
@@ -237,29 +366,31 @@ function Resultado({ r, onOtro, onCerrar }: { r: ResultadoEnvioClip; onOtro: () 
     const hora = horaSeg(Date.now());
     const todosOk = r.ok && r.enviados.every((e) => e.ok);
     return (
-        <div className="px-5 pb-5 pt-1 space-y-3">
-            <div className={cn("rounded-xl px-4 py-3 flex items-start gap-3 ring-1", todosOk ? "bg-emerald-500/15 ring-emerald-400/30" : "bg-amber-500/10 ring-amber-400/30")}>
-                {todosOk ? <Check size={18} className="text-emerald-300 shrink-0 mt-0.5" /> : <AlertTriangle size={18} className="text-amber-300 shrink-0 mt-0.5" />}
-                <div className="min-w-0">
-                    <div className="text-[14px] font-bold text-white">{!r.ok ? "No se envió" : todosOk ? `Enviado a ${r.enviados.map((e) => e.nombre).join(", ")}` : "Se envió en parte"}</div>
-                    <div className="text-[12px] text-white/60">{!r.ok ? r.error : `${r.segundos} s desde ${r.fuente === "nvr" ? "la grabación del NVR" : "la grabación local"} · ${hora}`}</div>
+        <>
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-3">
+                <div className={cn("rounded-[10px] px-4 py-3.5 flex items-start gap-3", todosOk ? "chip-bien" : "chip-aviso")}>
+                    {todosOk ? <Check size={18} className="shrink-0 mt-0.5" /> : <AlertTriangle size={18} className="shrink-0 mt-0.5" />}
+                    <div className="min-w-0">
+                        <div className="text-[14px] font-bold">{!r.ok ? "No se envió" : todosOk ? `Enviado a ${r.enviados.map((e) => e.nombre).join(", ")}` : "Se envió en parte"}</div>
+                        <div className="text-[12px] opacity-80">{!r.ok ? r.error : `${r.segundos} s desde ${r.fuente === "nvr" ? "la grabación del NVR" : "la grabación local"} · ${hora}`}</div>
+                    </div>
                 </div>
+                {r.ok && !todosOk && (
+                    <div className="rounded-[10px] border border-white/10 divide-y divide-white/[0.06]">
+                        {r.enviados.map((e) => (
+                            <div key={e.telefono} className="px-3 py-2 flex items-center gap-2 text-[12.5px]">
+                                {e.ok ? <Check size={13} className="text-emerald-300" /> : <X size={13} className="text-red-300" />}
+                                <span className="font-semibold">{e.nombre}</span>
+                                {!e.ok && <span className="text-white/50 truncate">· {e.error}</span>}
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
-            {r.ok && !todosOk && (
-                <div className="rounded-xl ring-1 ring-white/10 divide-y divide-white/5">
-                    {r.enviados.map((e) => (
-                        <div key={e.telefono} className="px-3 py-2 flex items-center gap-2 text-[12.5px]">
-                            {e.ok ? <Check size={13} className="text-emerald-300" /> : <X size={13} className="text-red-300" />}
-                            <span className="text-white font-semibold">{e.nombre}</span>
-                            {!e.ok && <span className="text-white/50 truncate">· {e.error}</span>}
-                        </div>
-                    ))}
-                </div>
-            )}
-            <div className="flex items-center justify-end gap-2">
-                <button onClick={onOtro} className="h-9 px-4 rounded-xl text-[12.5px] font-bold text-white/70 hover:text-white hover:bg-white/10 transition">{r.ok ? "Enviar a otro" : "Volver"}</button>
-                <button onClick={onCerrar} className="h-9 px-4 rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold">Listo</button>
+            <div className="shrink-0 flex items-center justify-end gap-2 px-6 py-4 border-t border-white/[0.08] bg-black/30">
+                <button type="button" onClick={onOtro} className="h-9 px-4 rounded-[6px] text-[13px] font-semibold text-white/70 hover:text-white hover:bg-white/10">{r.ok ? "Enviar a otro" : "Volver"}</button>
+                <button type="button" onClick={onCerrar} className="h-9 px-4 rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[13px] font-bold">Listo</button>
             </div>
-        </div>
+        </>
     );
 }

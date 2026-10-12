@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Car, Crosshair, Download, Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Car, ChevronLeft, ChevronRight, Crosshair, Download, Loader2, Pause, Play, RotateCcw, RotateCw, ScanEye } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { canalDe } from "@/components/video/VerGrabacion";
 import { DescargaClip } from "@/components/video/DescargaClip";
 import { Scrub, type MarcaScrub } from "@/components/Scrub";
+import { eventosDeCamara, type EventoCamara } from "@/app/actions/history";
 
 /**
  * La grabación del NVR, adentro del visor del evento.
@@ -36,11 +38,21 @@ const ASENTAR_MS = 300;
 const VELOCIDADES = [1, 2, 4, 8];
 /** El salto de los botones y de ← → . */
 const SALTO_SEG = 10;
+/** Esfumado de los bordes de la regla (%): a lo ancho del visor, el 22 del vivo la hacía ver cortada. */
+const DIFUMINADO_REGLA = 7;
+/**
+ * Al saltar a un evento, el video arranca unos segundos ANTES (la ventana de Ajustes): sin esto,
+ * la flecha «siguiente» volvería a encontrar el mismo evento, que todavía está adelante. El salto
+ * queda anclado mientras el video ande cerca de ese evento.
+ */
+const ANCLA_DESPUES_MS = 30_000;
+/** Dos eventos más cerca que esto, para las flechas, son el mismo. */
+const MISMO_EVENTO_MS = 1500;
 
 type Ventana = { antes: number; despues: number; topes: { antesMax: number; despuesMax: number; despuesMin: number } };
 const VENTANA_INICIAL: Ventana = { antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } };
 
-export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matricula, poster }: {
+export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matricula, poster, clip, onClip }: {
     deviceId: string;
     camara?: string | null;
     /** El instante del evento: la grabación arranca ahí y la regla se centra ahí. */
@@ -49,6 +61,9 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     marcas?: { ms: number; titulo: string }[];
     matricula?: string | null;
     poster?: string | null;
+    /** El cajón del clip, si lo maneja quien monta el reproductor (el visor lo abre desde sus íconos de arriba). */
+    clip?: boolean;
+    onClip?: (abierto: boolean) => void;
 }) {
     const [canal, setCanal] = useState<{ ch: number | null; nvr: string | null } | null>(null);
     useEffect(() => { let vivo = true; canalDe(deviceId).then((c) => { if (vivo) setCanal(c); }); return () => { vivo = false; }; }, [deviceId]);
@@ -66,7 +81,13 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const [reproduciendo, setReproduciendo] = useState(false);
     const [velocidad, setVelocidad] = useState(1);
     const [posMs, setPosMs] = useState<number | null>(null);
-    const [descarga, setDescarga] = useState(false);
+    const [descargaPropia, setDescargaPropia] = useState(false);
+    const descarga = clip ?? descargaPropia;
+    const setDescarga = onClip ?? setDescargaPropia;
+    // Los eventos de ESTA cámara alrededor del instante: para las flechas y para la regla.
+    const [eventos, setEventos] = useState<EventoCamara[]>([]);
+    useEffect(() => { let vivo = true; eventosDeCamara(deviceId, instanteMs).then((e) => { if (vivo) setEventos(e); }).catch(() => { }); return () => { vivo = false; }; }, [deviceId, instanteMs]);
+    const ancla = useRef<number | null>(null);
     const video = useRef<HTMLVideoElement>(null);
     const intentos = useRef(0);
     const arranco = useRef(false);
@@ -81,9 +102,24 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
 
     const irA = useCallback((ms: number) => {
         const v = Math.min(Date.now() - 5000, ms);
+        ancla.current = null;
         pausadoAMano.current = false; setPosMs(null); setDestino(v);
     }, []);
     const actual = posMs ?? destino;
+
+    /** El evento anterior y el siguiente de esta cámara, contados desde lo que se mira (o desde el último salto). */
+    const vecinos = useMemo(() => {
+        const a = ancla.current;
+        const anclado = a != null && actual >= a - (ventana.antes * 1000 + 5000) && actual <= a + ANCLA_DESPUES_MS;
+        const desde = anclado ? a! : actual;
+        let anterior: EventoCamara | null = null, siguiente: EventoCamara | null = null;
+        for (const e of eventos) {
+            if (e.ms < desde - MISMO_EVENTO_MS) anterior = e;
+            else if (e.ms > desde + MISMO_EVENTO_MS) { siguiente = e; break; }
+        }
+        return { anterior, siguiente };
+    }, [eventos, actual, ventana.antes]);
+    const saltarA = useCallback((e: EventoCamara | null) => { if (!e) return; irA(e.ms); ancla.current = e.ms; }, [irA]);
 
     const intentarPlay = useCallback(() => {
         const v = video.current; if (!v || arranco.current || pausadoAMano.current) return;
@@ -117,27 +153,37 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             if (descarga) return;
             if (e.key === " " || e.key === "k") { e.preventDefault(); alternar(); }
+            else if (e.key === "ArrowLeft" && e.shiftKey) { e.preventDefault(); saltarA(vecinos.anterior); }
+            else if (e.key === "ArrowRight" && e.shiftKey) { e.preventDefault(); saltarA(vecinos.siguiente); }
             else if (e.key === "ArrowLeft") { e.preventDefault(); irA(actual - SALTO_SEG * 1000); }
             else if (e.key === "ArrowRight") { e.preventDefault(); irA(actual + SALTO_SEG * 1000); }
             else if (e.key === "e" || e.key === "E") irA(instanteMs);
         };
         window.addEventListener("keydown", k);
         return () => window.removeEventListener("keydown", k);
-    }, [alternar, irA, actual, instanteMs, descarga]);
+    }, [alternar, irA, actual, instanteMs, descarga, saltarA, vecinos]);
 
     // La regla (la rueda de Scrub) trabaja en minutos del día, en la hora de este navegador, como LiveModal.
     const minutosDe = (ms: number) => { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
     const msDeMinutos = (min: number) => { const d = new Date(actual); d.setHours(0, 0, 0, 0); return d.getTime() + Math.round(min * 60) * 1000; };
-    const marcasScrub = useMemo<MarcaScrub[]>(() => [
-        { id: "evento", m: minutosDe(instanteMs), Icon: Crosshair, titulo: `El evento · ${horaSeg(instanteMs)}`, tono: "info" },
-        ...marcas.filter((m) => new Date(m.ms).toDateString() === new Date(instanteMs).toDateString())
-            .map((m, i) => ({ id: `paso-${i}`, m: minutosDe(m.ms), Icon: Car, titulo: m.titulo, tono: "aviso" })),
-    ], [marcas, instanteMs]); // eslint-disable-line react-hooks/exhaustive-deps
+    const marcasScrub = useMemo<MarcaScrub[]>(() => {
+        const dia = new Date(instanteMs).toDateString();
+        const pasos = marcas.filter((m) => new Date(m.ms).toDateString() === dia);
+        // Los eventos de la cámara van en gris: son contexto. El evento (azul) y los pasos de la
+        // misma chapa (ámbar) ya tienen su marca; no se repiten.
+        const yaMarcados = [instanteMs, ...pasos.map((m) => m.ms)];
+        const deCamara = eventos.filter((e) => new Date(e.ms).toDateString() === dia && !yaMarcados.some((ms) => Math.abs(ms - e.ms) < MISMO_EVENTO_MS));
+        return [
+            { id: "evento", m: minutosDe(instanteMs), Icon: Crosshair, titulo: `El evento · ${horaSeg(instanteMs)}`, tono: "info" },
+            ...pasos.map((m, i) => ({ id: `paso-${i}`, m: minutosDe(m.ms), Icon: Car, titulo: m.titulo, tono: "aviso" })),
+            ...deCamara.map((e) => ({ id: `cam-${e.ms}`, m: minutosDe(e.ms), Icon: e.tipo === "deteccion" ? ScanEye : Car, titulo: `${e.titulo} · ${horaSeg(e.ms)}`, tono: "quieto" })),
+        ];
+    }, [marcas, instanteMs, eventos]); // eslint-disable-line react-hooks/exhaustive-deps
     const ancho = useRef<HTMLDivElement>(null);
     const [anchoRegla, setAnchoRegla] = useState(680);
     useEffect(() => {
         const el = ancho.current; if (!el) return;
-        const ro = new ResizeObserver(() => setAnchoRegla(Math.max(320, Math.min(980, el.clientWidth))));
+        const ro = new ResizeObserver(() => setAnchoRegla(Math.max(280, el.clientWidth)));
         ro.observe(el); return () => ro.disconnect();
     }, []);
 
@@ -181,6 +227,17 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
                     <span><span className="block text-white text-[16px] font-bold">Sin grabación en este horario</span><span className="block text-white/55 text-[12px] mt-1">Probá otro momento en la regla.</span></span>
                 </div>
             )}
+            {/* El play grande del centro: está mientras el video está en pausa y se va al reproducir.
+                Tocar el video en cualquier lado hace lo mismo (pausa y sigue). */}
+            <AnimatePresence>
+                {url && !reproduciendo && !cargando && !sinGrabacion && (
+                    <motion.button key="play" type="button" onClick={alternar} title="Reproducir  ( espacio )" aria-label="Reproducir"
+                        initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 1.25 }} transition={{ duration: 0.18 }}
+                        className="absolute left-1/2 top-[42%] -translate-x-1/2 -translate-y-1/2 z-[2] w-[76px] h-[76px] rounded-full grid place-items-center bg-black/45 backdrop-blur-md border border-white/25 text-white hover:bg-black/60 hover:scale-105 transition-[background-color,transform]">
+                        <Play size={32} className="ml-1" fill="currentColor" />
+                    </motion.button>
+                )}
+            </AnimatePresence>
             {rebufer && !cargando && <span className="absolute top-20 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-[6px] bg-black/60 text-white/80 text-[11px] font-semibold pointer-events-none">Cargando…</span>}
 
             {/* ── La barra: controles y regla ── */}
@@ -211,18 +268,38 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
                 </div>
 
                 {/* La regla: la misma rueda del otro reproductor. Arrastrar va a otro minuto; las marcas, a su instante. */}
-                <div ref={ancho} className="-mx-2">
-                    <Scrub step="1" momentum={30} format="24h" width={anchoRegla} value={minutosDe(actual)} start={minutosDe(instanteMs)}
-                        onChange={(min) => irA(msDeMinutos(min))}
-                        marcas={marcasScrub} onMarca={(k) => irA(k.id === "evento" ? instanteMs : msDeMinutos(k.m))} />
+                <div className="flex items-end gap-2">
+                    <FlechaEvento lado="anterior" evento={vecinos.anterior} onClick={() => saltarA(vecinos.anterior)} />
+                    <div ref={ancho} className="flex-1 min-w-0">
+                        <Scrub step="1" momentum={30} format="24h" width={anchoRegla} value={minutosDe(actual)} start={minutosDe(instanteMs)} difuminado={DIFUMINADO_REGLA}
+                            onChange={(min) => irA(msDeMinutos(min))}
+                            marcas={marcasScrub} onMarca={(k) => irA(k.id === "evento" ? instanteMs : msDeMinutos(k.m))} />
+                    </div>
+                    <FlechaEvento lado="siguiente" evento={vecinos.siguiente} onClick={() => saltarA(vecinos.siguiente)} />
                 </div>
             </div>
 
             {descarga && canal?.ch != null && canal.nvr && (
-                <DescargaClip instante={actual} ventana={ventana} onClose={() => setDescarga(false)} deviceId={deviceId} camara={camara} matricula={matricula}
+                <DescargaClip instante={actual} ventana={ventana} onClose={() => setDescarga(false)} deviceId={deviceId} camara={camara} matricula={matricula} poster={poster}
                     href={(antes, despues, instante) => `/api/nvr/playback?ch=${canal.ch}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1&nvr=${canal.nvr}${matricula ? `&matricula=${encodeURIComponent(matricula)}` : ""}`} />
             )}
         </div>
+    );
+}
+
+/**
+ * Las flechas a los costados de la regla: al evento anterior / siguiente que detectó esta cámara
+ * (accesos, lecturas, detecciones). Dicen a qué hora está y qué fue; apagadas si no hay.
+ */
+function FlechaEvento({ lado, evento, onClick }: { lado: "anterior" | "siguiente"; evento: EventoCamara | null; onClick: () => void }) {
+    const titulo = evento
+        ? `${lado === "anterior" ? "Evento anterior" : "Evento siguiente"} de esta cámara · ${horaSeg(evento.ms)} · ${evento.titulo}  ( Shift ${lado === "anterior" ? "←" : "→"} )`
+        : `No hay ${lado === "anterior" ? "eventos antes" : "eventos después"} en esta cámara (12 h)`;
+    return (
+        <button type="button" onClick={onClick} disabled={!evento} title={titulo} aria-label={titulo}
+            className="mb-[22px] shrink-0 w-11 h-11 rounded-full grid place-items-center border border-white/15 bg-white/[0.06] text-white/85 hover:text-white hover:bg-white/15 disabled:opacity-25 disabled:hover:bg-white/[0.06] transition-colors">
+            {lado === "anterior" ? <ChevronLeft size={20} /> : <ChevronRight size={20} />}
+        </button>
     );
 }
 

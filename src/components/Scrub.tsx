@@ -48,8 +48,14 @@ export type MarcaScrub = { id: string; m: number; Icon: React.ComponentType<{ si
 /** Cuántos minutos cubre un ícono de marca a 2 px/min: dos eventos más cerca que esto se juntan en una sola marca con contador. */
 const MINUTOS_POR_MARCA = 9;
 
-export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca }: {
+export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22 }: {
     step?: string; momentum?: number; format?: string; corner?: number; start?: number; width?: number;
+    /**
+     * Qué porcentaje de cada borde de la regla se esfuma. 22 es el del vivo, donde la regla es
+     * angosta y el esfumado la hace leer como una rueda. A lo ancho de un reproductor grande,
+     * 22 por lado deja casi la mitad borrosa y la regla parece cortada: ahí se pide menos.
+     */
+    difuminado?: number;
     value?: number; onChange?: (minutes: number) => void;
     marcas?: MarcaScrub[];
     /** Se tocó una marca: la regla ya está sobre ella; el padre decide qué grabación abrir. */
@@ -173,7 +179,7 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     };
 
     return (
-        <div className="tms" style={{ "--tms-r": `${Math.max(0, corner)}px`, width } as React.CSSProperties}>
+        <div className="tms" style={{ "--tms-r": `${Math.max(0, corner)}px`, "--tms-fade": `${clamp(difuminado, 0, 45)}%`, width } as React.CSSProperties}>
             <div className="tms-read" aria-live="polite" aria-label={`${time} ${mer}`}>
                 <span className="tms-time">
                     {time.split("").map((c, i) => c === ":" ? <span key={`c${i}`} className="tms-colon">:</span> : <Digit key={time.length - i} d={c} />)}
@@ -184,6 +190,10 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 aria-valuetext={`${time} ${mer}`} aria-valuenow={wrap(Math.round(pos))} aria-valuemin={0} aria-valuemax={DAY - 1}
                 onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
                 onKeyDown={(e) => { const d = e.key === "ArrowRight" ? s : e.key === "ArrowLeft" ? -s : 0; if (!d) return; e.preventDefault(); goTo(Math.round(p.current.to / s) * s + d, 0); }}>
+                {/* El esfumado de los bordes va en esta ventana y no en la regla: una máscara recorta todo
+                    lo que sale de la caja, y las marcas cuelgan por ARRIBA de la regla — quedaban
+                    cortadas por la mitad. La ventana sube lo que cuelgan. */}
+                <div className="tms-ventana">
                 <div className="tms-track">
                     {ticks.map((t) => (
                         <span key={t.m} className="tms-tick" data-kind={t.kind}
@@ -219,6 +229,7 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                         );
                     })}
                 </div>
+                </div>
                 <span className="tms-mark" aria-hidden="true" />
             </div>
             <style jsx global>{`
@@ -232,21 +243,24 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 .tms-strip[data-flip="b"] { animation: tms-blur-b 260ms ease-out; }
                 .tms-colon { padding: 0 0.02em; }
                 .tms-mer { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.55); text-shadow: 0 2px 8px rgba(0,0,0,0.9); }
-                .tms-ruler { position: relative; height: 56px; margin-top: 10px; cursor: grab; touch-action: pan-y; outline: none; mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); }
+                .tms-ruler { position: relative; height: 56px; margin-top: 10px; cursor: grab; touch-action: pan-y; outline: none; }
+                .tms-ventana { position: absolute; left: 0; right: 0; top: -18px; bottom: 0; mask-image: linear-gradient(90deg, transparent, #000 var(--tms-fade, 22%), #000 calc(100% - var(--tms-fade, 22%)), transparent); }
                 .tms-ruler:active { cursor: grabbing; }
                 .tms-ruler:focus-visible { box-shadow: inset 0 0 0 2px rgba(56,189,248,0.6); border-radius: 10px; }
-                .tms-track { position: absolute; left: 50%; top: 0; bottom: 0; }
+                .tms-track { position: absolute; left: 50%; top: 18px; bottom: 0; }
                 .tms-tick { position: absolute; left: -1px; top: 6px; width: 2px; height: 10px; border-radius: 1px; background: #fff; transform-origin: 50% 0; }
                 .tms-tick[data-kind="quarter"] { height: 17px; }
                 .tms-tick[data-kind="hour"] { height: 25px; }
                 .tms-hour { position: absolute; left: 0; top: 36px; font-size: 11px; font-weight: 600; white-space: nowrap; color: rgba(255,255,255,0.6); }
                 .tms-mark { position: absolute; left: 50%; top: 2px; width: 3px; height: 32px; margin-left: -1.5px; border-radius: 2px; background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,0.9); }
                 /* Marcas de evento: colgadas del borde superior de la regla, sobre los ticks de su hora. */
-                .tms-marcas { position: absolute; left: 50%; top: -14px; height: 22px; width: 0; }
+                .tms-marcas { position: absolute; left: 50%; top: 4px; height: 22px; width: 0; }
                 .tms-marca { position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,0.85); display: grid; place-items: center; color: #fff; cursor: pointer; padding: 0; transform: translateX(var(--tx, 0px)) translateX(-50%); transition: box-shadow 120ms ease; touch-action: none; }
                 .tms-marca[data-tono="mal"]   { background: #dc2626; box-shadow: 0 0 10px rgba(239,68,68,0.75); }
                 .tms-marca[data-tono="aviso"] { background: #d97706; box-shadow: 0 0 10px rgba(245,158,11,0.7); }
                 .tms-marca[data-tono="info"]  { background: #0284c7; box-shadow: 0 0 10px rgba(56,189,248,0.7); }
+                /* Contexto: otros eventos de la misma cámara. Grises y sin brillo, para no competir con el evento. */
+                .tms-marca[data-tono="quieto"] { background: #3f3f46; border-color: rgba(255,255,255,0.55); box-shadow: none; }
                 .tms-marca:hover { transform: translateX(var(--tx, 0px)) translateX(-50%) scale(1.18); box-shadow: 0 0 16px rgba(255,255,255,0.55); }
                 .tms-marca-n { position: absolute; top: -7px; right: -7px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; background: #fff; color: #991b1b; font-size: 9px; font-weight: 800; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; }
                 @keyframes tms-blur-a { from { filter: blur(2px); } to { filter: blur(0); } }
