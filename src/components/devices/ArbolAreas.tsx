@@ -1,4 +1,5 @@
 "use client";
+import { createPortal } from "react-dom";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -281,7 +282,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
                     <Folder size={15} style={{ color: a.color }} fill={a.color} fillOpacity={0.2} />
                 </button>
             ))}
-            <Tooltip id="tt-areas" place="right" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />
+            <TooltipAreas />
         </aside>
     );
 
@@ -317,7 +318,7 @@ export function ArbolAreas({ estado, setEstado, devices, tiposVisibles, tipoActu
             </div>
             {filtros}
             <div className="px-3 py-2 border-t border-border/60 text-[10.5px] text-muted-foreground flex items-center gap-1.5"><GripVertical size={12} /> Arrastrá equipos y áreas para reorganizar</div>
-            <Tooltip id="tt-areas" place="right" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />
+            <TooltipAreas />
         </aside>
     );
 }
@@ -332,4 +333,16 @@ function NombreEditable({ inicial, onListo }: { inicial: string; onListo: (n: st
             onBlur={() => onListo(v.trim())}
             className="flex-1 min-w-0 h-6 rounded-md border border-[var(--accion)] bg-background px-1.5 text-[12.5px] font-semibold outline-none" />
     );
+}
+
+
+/**
+ * El tooltip del árbol va al <body>: el panel de áreas es sticky y arma su propio contexto de
+ * apilado, así que montado adentro quedaba por detrás de la tabla de la derecha.
+ */
+function TooltipAreas() {
+    const [listo, setListo] = useState(false);
+    useEffect(() => setListo(true), []);
+    if (!listo) return null;
+    return createPortal(<Tooltip id="tt-areas" place="right" positionStrategy="fixed" className="!max-w-[260px] !text-[12px] !rounded-lg !z-[9999]" />, document.body);
 }
