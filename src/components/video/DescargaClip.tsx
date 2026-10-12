@@ -232,10 +232,7 @@ function ReglaTramo({ a, d, antesMax, despuesMax, instante }: { a: number; d: nu
                     style={{ left: `${50 - izq}%`, right: `${50 - der}%` }} />
                 <span className="absolute inset-y-0 left-1/2 w-0.5 -ml-px bg-white" />
             </div>
-            <div className="relative h-4 mt-1 text-[11px] font-semibold tabular-nums text-white/70">
-                <span className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${Math.max(12, 50 - izq)}%` }}>{horaSeg(instante - a * 1000)}</span>
-                <span className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${Math.min(88, 50 + der)}%` }}>{horaSeg(instante + d * 1000)}</span>
-            </div>
+            <div className="mt-1.5 text-center text-[12px] font-semibold tabular-nums text-white/70">{horaSeg(instante - a * 1000)} → {horaSeg(instante + d * 1000)}</div>
         </div>
     );
 }

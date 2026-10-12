@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Car, ChevronLeft, ChevronRight, Crosshair, Download, Loader2, Pause, Play, RotateCcw, RotateCw, ScanEye } from "lucide-react";
+import { Car, ChevronLeft, ChevronRight, Crosshair, Download, Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { canalDe } from "@/components/video/VerGrabacion";
@@ -169,16 +169,13 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const marcasScrub = useMemo<MarcaScrub[]>(() => {
         const dia = new Date(instanteMs).toDateString();
         const pasos = marcas.filter((m) => new Date(m.ms).toDateString() === dia);
-        // Los eventos de la cámara van en gris: son contexto. El evento (azul) y los pasos de la
-        // misma chapa (ámbar) ya tienen su marca; no se repiten.
-        const yaMarcados = [instanteMs, ...pasos.map((m) => m.ms)];
-        const deCamara = eventos.filter((e) => new Date(e.ms).toDateString() === dia && !yaMarcados.some((ms) => Math.abs(ms - e.ms) < MISMO_EVENTO_MS));
+        // Los demás eventos de la cámara NO van como marcas: una lectora de portón tiene cientos
+        // por día y la regla quedaba tapada de íconos (se probó). Para ellos están las flechas.
         return [
             { id: "evento", m: minutosDe(instanteMs), Icon: Crosshair, titulo: `El evento · ${horaSeg(instanteMs)}`, tono: "info" },
             ...pasos.map((m, i) => ({ id: `paso-${i}`, m: minutosDe(m.ms), Icon: Car, titulo: m.titulo, tono: "aviso" })),
-            ...deCamara.map((e) => ({ id: `cam-${e.ms}`, m: minutosDe(e.ms), Icon: e.tipo === "deteccion" ? ScanEye : Car, titulo: `${e.titulo} · ${horaSeg(e.ms)}`, tono: "quieto" })),
         ];
-    }, [marcas, instanteMs, eventos]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [marcas, instanteMs]); // eslint-disable-line react-hooks/exhaustive-deps
     const ancho = useRef<HTMLDivElement>(null);
     const [anchoRegla, setAnchoRegla] = useState(680);
     useEffect(() => {
