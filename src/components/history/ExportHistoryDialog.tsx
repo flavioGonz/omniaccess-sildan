@@ -1,18 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-    DialogDescription,
-    DialogFooter,
-} from "@/components/ui/dialog";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Calendar as CalendarIcon, Download, Loader2, FileSpreadsheet } from "lucide-react";
-import { getAccessEvents, getReporteComplementario } from "@/app/actions/history";
+import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
+import { Bot, Calendar as CalendarIcon, Camera, Car, Check, Download, Filter, KeyRound, Loader2, ScanLine, ShieldAlert, Sparkles, Ticket } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { getAccessEvents, getReporteComplementario, getLecturasInteriores, opcionesExportacion, visionParaExportar } from "@/app/actions/history";
 import { getReportBranding } from "@/app/actions/settings";
 import ExcelJS from "exceljs";
 import { fecha, horaSeg, fechaHora } from "@/lib/fechas";
@@ -56,10 +49,64 @@ interface ExportHistoryDialogProps {
     }
 }
 
+/**
+ * Qué se puede exportar, cada cosa en su pestaña. Antes iba todo siempre (y sin las lecturas de
+ * las cámaras interiores, que no estaban): un Excel de un mes con el bot de WhatsApp adentro
+ * cuando se quería mostrar las entradas de un auto.
+ */
+const CONTENIDOS = [
+    { id: "accesos", rotulo: "Accesos", detalle: "Barreras, lectoras faciales y tarjetas: quién, cuándo, permitido o no.", Ico: KeyRound },
+    { id: "lecturas", rotulo: "Lecturas de cámaras interiores", detalle: "Pasos, estacionados y vistos del seguimiento.", Ico: ScanLine },
+    { id: "intrusiones", rotulo: "Intrusiones", detalle: "Cruces de línea y zonas, y cómo se atendieron.", Ico: ShieldAlert },
+    { id: "bot", rotulo: "Bot de WhatsApp", detalle: "Lo que pidieron los vecinos y qué se les contestó.", Ico: Bot },
+    { id: "invitados", rotulo: "Invitados", detalle: "Invitaciones, invitados y sus ingresos.", Ico: Ticket },
+] as const;
+type Contenido = (typeof CONTENIDOS)[number]["id"];
+
+const PERIODOS = [
+    { id: "hoy", rotulo: "Hoy" }, { id: "ayer", rotulo: "Ayer" }, { id: "7d", rotulo: "7 días" },
+    { id: "30d", rotulo: "30 días" }, { id: "mes", rotulo: "Este mes" }, { id: "otro", rotulo: "Otro" },
+] as const;
+const dia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function rangoDe(p: string): [string, string] {
+    const hoy = new Date();
+    const menos = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
+    if (p === "ayer") return [dia(menos(1)), dia(menos(1))];
+    if (p === "7d") return [dia(menos(6)), dia(hoy)];
+    if (p === "30d") return [dia(menos(29)), dia(hoy)];
+    if (p === "mes") return [dia(new Date(hoy.getFullYear(), hoy.getMonth(), 1)), dia(hoy)];
+    return [dia(hoy), dia(hoy)];
+}
+const TIPO_EQUIPO: Record<string, string> = { LPR_CAMERA: "Lectoras de matrícula", LPR_INTERIOR: "Cámaras interiores", CAMERA: "Cámaras", FACE_TERMINAL: "Lectoras faciales", ACCESS_CONTROL: "Control de acceso", DOOR_INTERCOM: "Porteros" };
+
 export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHistoryDialogProps) {
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [periodo, setPeriodo] = useState<string>("hoy");
+    const [startDate, setStartDate] = useState(dia(new Date()));
+    const [endDate, setEndDate] = useState(dia(new Date()));
     const [isExporting, setIsExporting] = useState(false);
+    const [incluir, setIncluir] = useState<Set<Contenido>>(new Set(["accesos", "lecturas", "intrusiones", "bot", "invitados"]));
+    const [equipos, setEquipos] = useState<{ id: string; nombre: string; tipo: string }[]>([]);
+    /** Vacío = todas las cámaras. */
+    const [camaras, setCamaras] = useState<Set<string>>(new Set());
+    const [decision, setDecision] = useState(filters?.decision || "ALL");
+    const [sentido, setSentido] = useState(filters?.direction || "ALL");
+    const [identificacion, setIdentificacion] = useState(filters?.type || "ALL");
+    const [conBusqueda, setConBusqueda] = useState(!!filters?.search);
+    const [conVision, setConVision] = useState(true);
+    const [avance, setAvance] = useState("");
+    // Al abrir, se parte de lo que se está mirando en la pantalla.
+    useEffect(() => {
+        if (!open) return;
+        setDecision(filters?.decision || "ALL"); setSentido(filters?.direction || "ALL"); setIdentificacion(filters?.type || "ALL"); setConBusqueda(!!filters?.search);
+        opcionesExportacion().then(setEquipos).catch(() => setEquipos([]));
+    }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+    const elegirPeriodo = (p: string) => { setPeriodo(p); if (p !== "otro") { const [a, b] = rangoDe(p); setStartDate(a); setEndDate(b); } };
+    const alternar = <T,>(set: Set<T>, v: T) => { const n = new Set(set); if (n.has(v)) n.delete(v); else n.add(v); return n; };
+    const grupos = useMemo(() => {
+        const m = new Map<string, typeof equipos>();
+        for (const e of equipos) m.set(e.tipo, [...(m.get(e.tipo) || []), e]);
+        return [...m.entries()];
+    }, [equipos]);
 
     const handleExport = async () => {
         setIsExporting(true);
@@ -73,16 +120,32 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
             const repCompany = (rb?.company || "OmniAccess").toUpperCase();
             const fromDate = new Date(startDate + "T00:00:00");
             const toDate = new Date(endDate + "T23:59:59");
+            const ids = camaras.size ? [...camaras] : undefined;
+            const delEquipo = (id?: string | null) => !ids || (!!id && camaras.has(id));
 
-            const [response, extra] = await Promise.all([
-                getAccessEvents({
+            setAvance("Trayendo los registros…");
+            const [response, extraTodo, lecturas] = await Promise.all([
+                incluir.has("accesos") ? getAccessEvents({
                     from: fromDate, to: toDate,
-                    search: filters?.search, decision: filters?.decision, type: filters?.type, direction: filters?.direction,
+                    search: conBusqueda ? filters?.search : undefined, decision, type: identificacion, direction: sentido,
                     take: 100000, skip: 0, omitEnrichment: true,
-                }),
-                getReporteComplementario(fromDate, toDate),
+                }) : Promise.resolve({ events: [] as any[] }),
+                incluir.has("intrusiones") || incluir.has("bot") || incluir.has("invitados")
+                    ? getReporteComplementario(fromDate, toDate) : Promise.resolve({ detecciones: [], charlas: [], invitaciones: [] } as unknown as Awaited<ReturnType<typeof getReporteComplementario>>),
+                incluir.has("lecturas") ? getLecturasInteriores(fromDate, toDate, ids) : Promise.resolve([] as any[]),
             ]);
-            const events = response.events;
+            const events = (response.events as any[]).filter((e) => delEquipo(e.deviceId || e.device?.id));
+            const extra = { ...extraTodo, detecciones: extraTodo.detecciones.filter((d) => delEquipo(d.deviceId)) };
+            // Lo que vio OmniVision en cada acceso, de a tandas (una planilla de un mes son miles).
+            const vision: Record<string, { vio: string; releida: string | null }> = {};
+            if (conVision && events.length) {
+                const TANDA = 2000;
+                for (let i = 0; i < events.length; i += TANDA) {
+                    setAvance(`Sumando lo que vio OmniVision… ${Math.min(events.length, i + TANDA)} de ${events.length}`);
+                    Object.assign(vision, await visionParaExportar(events.slice(i, i + TANDA).map((e) => e.id)).catch(() => ({})));
+                }
+            }
+            setAvance("Armando el Excel…");
 
             const workbook = new ExcelJS.Workbook();
             workbook.creator = repCompany;
@@ -124,14 +187,17 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
             resumen.addRow([`Generado el ${fechaHora(new Date())}`]);
             resumen.addRow([`Periodo: ${startDate} a ${endDate}`]);
             const filterTerms: string[] = [];
-            if (filters?.search) filterTerms.push(`Búsqueda: "${filters.search}"`);
-            if (filters?.type && filters.type !== "ALL") filterTerms.push(`Tipo: ${filters.type}`);
-            if (filters?.decision && filters.decision !== "ALL") filterTerms.push(`Resultado: ${filters.decision}`);
-            if (filters?.direction && filters.direction !== "ALL") filterTerms.push(`Sentido: ${filters.direction}`);
+            if (conBusqueda && filters?.search) filterTerms.push(`Búsqueda: "${filters.search}"`);
+            if (identificacion !== "ALL") filterTerms.push(`Tipo: ${identificacion}`);
+            if (decision !== "ALL") filterTerms.push(`Resultado: ${decision}`);
+            if (sentido !== "ALL") filterTerms.push(`Sentido: ${sentido}`);
             if (filterTerms.length) resumen.addRow([`Filtros activos (sólo en Accesos): ${filterTerms.join(" | ")}`]);
             resumen.addRow([]);
             const cuenta = (f: (e: any) => boolean) => events.filter(f).length;
+            const camarasTxt = ids ? equipos.filter((e) => camaras.has(e.id)).map((e) => e.nombre).join(", ") : "todas";
+            resumen.addRow([`Cámaras: ${camarasTxt}`]);
             const filasResumen: [string, number][] = [
+                ["Lecturas de cámaras interiores", (lecturas as any[]).length],
                 ["Accesos en el periodo", events.length],
                 ["Entradas", cuenta((e) => e.direction === "ENTRY")],
                 ["Salidas", cuenta((e) => e.direction === "EXIT")],
@@ -149,9 +215,27 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
             const tit = resumen.addRow(["Cifras del periodo", ""]); tit.font = { bold: true, size: 12, color: { argb: cPrimary } };
             filasResumen.forEach(([k, v]) => { const r = resumen.addRow([k, v]); r.getCell(2).alignment = { horizontal: "right" }; r.getCell(2).numFmt = "#,##0"; });
             resumen.addRow([]);
-            resumen.addRow(["Pestañas: Accesos · Intrusiones · Bot WhatsApp · Invitados · Buscar. Cada tabla tiene filtros en la cabecera (la flecha de cada columna)."]).font = { italic: true, color: { argb: "FF6B7280" } };
+            resumen.addRow([`Pestañas: ${CONTENIDOS.filter((c) => incluir.has(c.id)).map((c) => c.rotulo).join(" · ")}${incluir.has("accesos") ? " · Buscar" : ""}. Cada tabla tiene filtros en la cabecera (la flecha de cada columna).`]).font = { italic: true, color: { argb: "FF6B7280" } };
+
+            // ── Lecturas de cámaras interiores ───────────────────────────────────────
+            if (incluir.has("lecturas")) {
+                const wl = workbook.addWorksheet("Lecturas interiores");
+                wl.columns = [{ key: "date", width: 12 }, { key: "time", width: 10 }, { key: "plate", width: 12 }, { key: "camara", width: 24 }, { key: "estado", width: 13 }, { key: "desde", width: 16 }, { key: "hasta", width: 16 }, { key: "conf", width: 11 }, { key: "reads", width: 9 }, { key: "foto", width: 44 }, { key: "id", width: 26 }];
+                pintarCabecera(wl, ["Fecha", "Hora", "Matrícula", "Cámara", "Qué", "Desde", "Hasta", "Confianza", "Cuadros", "Foto", "ID"]);
+                const ESTADO_L: Record<string, string> = { PASO: "Pasó", ESTACIONADO: "Estacionado", VISTO: "Visto" };
+                (lecturas as any[]).forEach((l) => {
+                    const ts = new Date(l.timestamp);
+                    const row = wl.addRow({ date: fecha(ts), time: horaSeg(ts), plate: l.plate, camara: l.cameraName || "", estado: ESTADO_L[l.estado] || l.estado,
+                        desde: l.estDesde ? fechaHora(new Date(l.estDesde)) : "", hasta: l.estHasta ? fechaHora(new Date(l.estHasta)) : "",
+                        conf: l.confidence != null ? l.confidence : "", reads: l.reads ?? "", foto: l.snapshotUrl ? `${window.location.origin}${getImagePath(l.snapshotUrl) || ""}` : "", id: l.id });
+                    row.getCell("conf").numFmt = "0%";
+                    if (l.snapshotUrl) { const c = row.getCell("foto"); c.value = { text: "ver foto", hyperlink: String(c.value) }; c.font = { color: { argb: "FF2563EB" }, underline: true }; }
+                });
+                cerrarTabla(wl, 11, ["date", "time", "plate", "estado", "conf", "reads"]);
+            }
 
             // ── Accesos ──────────────────────────────────────────────────────────────
+            if (incluir.has("accesos")) {
             const ws = workbook.addWorksheet("Accesos");
             ws.columns = [
                 { key: "date", width: 12 }, { key: "time", width: 10 }, { key: "plate", width: 12 }, { key: "type", width: 9 },
@@ -159,8 +243,9 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
                 { key: "device", width: 22 }, { key: "metodo", width: 13 }, { key: "confianza", width: 11 },
                 { key: "marca", width: 14 }, { key: "modelo", width: 14 }, { key: "color", width: 10 }, { key: "vtipo", width: 12 },
                 { key: "foto", width: 44 }, { key: "details", width: 40 }, { key: "id", width: 26 },
+                ...(conVision ? [{ key: "vio", width: 36 }, { key: "releida", width: 16 }] : []),
             ];
-            pintarCabecera(ws, ["Fecha", "Hora", "Matrícula", "Tipo", "Sentido", "Resultado", "Sujeto / Residente", "Unidad", "Punto de acceso", "Método", "Confianza", "Marca", "Modelo", "Color", "Tipo vehículo", "Foto", "Detalles", "ID de evento"]);
+            pintarCabecera(ws, ["Fecha", "Hora", "Matrícula", "Tipo", "Sentido", "Resultado", "Sujeto / Residente", "Unidad", "Punto de acceso", "Método", "Confianza", "Marca", "Modelo", "Color", "Tipo vehículo", "Foto", "Detalles", "ID de evento", ...(conVision ? ["OmniVision vio", "Releída por OmniVision"] : [])]);
             events.forEach((e: any) => {
                 const ts = new Date(e.timestamp);
                 const meta = metaDeDetalles(e.details);
@@ -182,14 +267,17 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
                     foto: e.snapshotPath ? `${window.location.origin}${getImagePath(e.snapshotPath) || ""}` : "",
                     details: meta.resto,
                     id: e.id,
+                    ...(conVision ? { vio: vision[e.id]?.vio || "", releida: vision[e.id]?.releida || "" } : {}),
                 });
                 row.getCell("confianza").numFmt = "0%";
                 colorDecision(row.getCell("decision"), e.decision);
                 if (e.snapshotPath) { const c = row.getCell("foto"); c.value = { text: "ver foto", hyperlink: String(c.value) }; c.font = { color: { argb: "FF2563EB" }, underline: true }; }
             });
-            cerrarTabla(ws, 18, ["date", "time", "plate", "type", "direction", "decision", "metodo", "confianza"]);
+            cerrarTabla(ws, conVision ? 20 : 18, ["date", "time", "plate", "type", "direction", "decision", "metodo", "confianza"]);
+            }
 
             // ── Intrusiones ──────────────────────────────────────────────────────────
+            if (incluir.has("intrusiones")) {
             const wi = workbook.addWorksheet("Intrusiones");
             wi.columns = [{ key: "date", width: 12 }, { key: "time", width: 10 }, { key: "tipo", width: 18 }, { key: "clase", width: 12 }, { key: "device", width: 24 }, { key: "estado", width: 14 }, { key: "ack", width: 18 }, { key: "foto", width: 44 }, { key: "details", width: 36 }, { key: "id", width: 26 }];
             pintarCabecera(wi, ["Fecha", "Hora", "Evento", "Qué", "Cámara", "Atendida", "Atendida el", "Foto", "Detalles", "ID"]);
@@ -205,8 +293,10 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
                 if (d.snapshotPath) { const c = row.getCell("foto"); c.value = { text: "ver foto", hyperlink: String(c.value) }; c.font = { color: { argb: "FF2563EB" }, underline: true }; }
             });
             cerrarTabla(wi, 10, ["date", "time", "estado"]);
+            }
 
             // ── Bot WhatsApp ─────────────────────────────────────────────────────────
+            if (incluir.has("bot")) {
             const wb = workbook.addWorksheet("Bot WhatsApp");
             wb.columns = [{ key: "date", width: 12 }, { key: "time", width: 10 }, { key: "quien", width: 26 }, { key: "rol", width: 12 }, { key: "numero", width: 16 }, { key: "pedido", width: 36 }, { key: "estado", width: 11 }, { key: "respuesta", width: 60 }];
             pintarCabecera(wb, ["Fecha", "Hora", "Quién", "Rol", "Número", "Lo que pidió", "Estado", "Respuesta"]);
@@ -217,8 +307,10 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
                 row.getCell("respuesta").alignment = { wrapText: true, vertical: "top" };
             });
             cerrarTabla(wb, 8, ["date", "time", "estado"]);
+            }
 
             // ── Invitados ────────────────────────────────────────────────────────────
+            if (incluir.has("invitados")) {
             // Una fila por invitado (y una por invitación sin invitados cargados), con las
             // entradas registradas al final: es como se lee en el panel y como se busca.
             const wg = workbook.addWorksheet("Invitados");
@@ -235,6 +327,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
                 });
             });
             cerrarTabla(wg, 16, ["creada", "clase", "estado", "via", "ingresos"]);
+            }
 
             // ── Buscar ───────────────────────────────────────────────────────────────
             // Un buscador adentro del Excel: se escribe en B2 y la tabla de abajo muestra
@@ -243,6 +336,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
             // la celda muestra #NAME? y la nota de al lado dice qué usar en su lugar. Va
             // como fórmula de matriz sobre un rango fijo —lo único que ExcelJS sabe
             // escribir—, así que las filas que sobran se dejan en blanco con IFERROR.
+            if (incluir.has("accesos")) {
             const wq = workbook.addWorksheet("Buscar");
             wq.columns = [{ width: 12 }, { width: 10 }, { width: 12 }, { width: 9 }, { width: 10 }, { width: 12 }, { width: 28 }, { width: 16 }, { width: 22 }];
             wq.getCell("A1").value = "Buscar en Accesos"; wq.getCell("A1").font = { bold: true, size: 13 };
@@ -260,6 +354,7 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
             const filtro = `_xlfn._xlws.FILTER(Accesos!$A$2:$I$${n},(${texto("C")})+(${texto("G")})+(${texto("H")})+(${texto("I")}),"Sin resultados")`;
             wq.getCell("A5").value = { formula: `IF($B$2="","",IFERROR(${filtro},""))`, shareType: "array", ref: `A5:I${n + 4}`, result: "" } as any;
             workbook.calcProperties.fullCalcOnLoad = true;
+            }
 
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
@@ -276,85 +371,102 @@ export function ExportHistoryDialog({ open, onOpenChange, filters }: ExportHisto
             toast.error({ title: "No se pudieron exportar los datos", description: (error as any)?.message });
         } finally {
             setIsExporting(false);
+            setAvance("");
         }
     };
 
+    const BOTON_OPCION = "h-8 px-3 rounded-full text-[12.5px] font-semibold border transition-colors";
+    const opcion = (activa: boolean) => cn(BOTON_OPCION, activa ? "bg-foreground text-background border-transparent" : "border-border text-muted-foreground hover:text-foreground");
+    const nada = incluir.size === 0;
+
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[425px] bg-card border-border text-foreground">
-                <DialogHeader>
-                    <div className="mx-auto w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center mb-4 border border-red-500/20">
-                        <FileSpreadsheet className="text-red-500" size={24} />
+        <Cajon open={open} onOpenChange={(o) => { if (!isExporting) onOpenChange(o); }}>
+            <CajonContenido ancho="intermedio" titulo="Exportar el historial"
+                descripcion="Un Excel con una pestaña por cosa que elijas, cada una con filtros en la cabecera, y un resumen del período."
+                pie={
+                    <div className="flex items-center gap-3 w-full">
+                        <span className="text-[12px] text-muted-foreground flex-1 min-w-0 truncate">{isExporting ? avance : nada ? "Elegí al menos una cosa para exportar." : `${incluir.size} ${incluir.size === 1 ? "pestaña" : "pestañas"} · ${camaras.size ? `${camaras.size} ${camaras.size === 1 ? "cámara" : "cámaras"}` : "todas las cámaras"}`}</span>
+                        <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isExporting}>Cancelar</Button>
+                        <Button onClick={handleExport} disabled={isExporting || nada} className="accion">
+                            {isExporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Descargar Excel
+                        </Button>
                     </div>
-                    <DialogTitle className="text-xl font-bold text-center uppercase tracking-tight">Exportar Reporte</DialogTitle>
-                    <DialogDescription className="text-muted-foreground text-center text-xs font-medium">
-                        Selecciona el rango de fechas para generar el reporte de accesos en formato Excel.
-                    </DialogDescription>
-                </DialogHeader>
+                }>
+                <CajonSeccion titulo="Período" icono={CalendarIcon}>
+                    <div className="flex flex-wrap gap-1.5">
+                        {PERIODOS.map((p) => <button key={p.id} type="button" onClick={() => elegirPeriodo(p.id)} aria-pressed={periodo === p.id} className={opcion(periodo === p.id)}>{p.rotulo}</button>)}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 mt-2">
+                        {([["Desde", startDate, setStartDate], ["Hasta", endDate, setEndDate]] as const).map(([r, v, set]) => (
+                            <label key={r} className="block">
+                                <span className="text-[11.5px] text-muted-foreground">{r}</span>
+                                <input type="date" value={v} max={dia(new Date())} onChange={(e) => { set(e.target.value); setPeriodo("otro"); }}
+                                    className="mt-1 w-full h-9 rounded-[6px] border border-border bg-background px-2.5 text-[13px] tabular-nums outline-none focus:border-[var(--accion)]" />
+                            </label>
+                        ))}
+                    </div>
+                </CajonSeccion>
 
-                <div className="grid gap-6 py-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest pl-1">Desde</Label>
-                            <div className="relative">
-                                <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                <input
-                                    type="date"
-                                    value={startDate}
-                                    onChange={(e) => setStartDate(e.target.value)}
-                                    className="w-full bg-background border border-border rounded-lg h-10 pl-9 text-xs font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-red-500/20 uppercase appearance-none"
-                                />
+                <CajonSeccion titulo="Qué incluir" icono={Filter} ayuda="Cada cosa va en su pestaña. Se pueden exportar todas juntas.">
+                    <div className="rounded-[10px] border border-border divide-y divide-border">
+                        {CONTENIDOS.map((c) => {
+                            const on = incluir.has(c.id);
+                            return (
+                                <button key={c.id} type="button" onClick={() => setIncluir(alternar(incluir, c.id))} aria-pressed={on}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/50">
+                                    <span className={cn("grid h-5 w-5 place-items-center rounded-[5px] border shrink-0", on ? "bg-[var(--accion)] border-transparent text-white" : "border-border")}>{on && <Check size={13} strokeWidth={3} />}</span>
+                                    <c.Ico size={16} className="text-muted-foreground shrink-0" />
+                                    <span className="min-w-0"><span className="block text-[13px] font-semibold">{c.rotulo}</span><span className="block text-[11.5px] text-muted-foreground">{c.detalle}</span></span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div className="flex gap-2 mt-2">
+                        <button type="button" onClick={() => setIncluir(new Set(CONTENIDOS.map((c) => c.id)))} className="text-[12px] font-semibold tono-accion">Todo</button>
+                        <span className="text-muted-foreground text-[12px]">·</span>
+                        <button type="button" onClick={() => setIncluir(new Set(["accesos"]))} className="text-[12px] font-semibold tono-accion">Sólo accesos</button>
+                    </div>
+                </CajonSeccion>
+
+                <CajonSeccion titulo="Cámaras" icono={Camera} ayuda="Para accesos, lecturas interiores e intrusiones. Sin elegir ninguna, van todas.">
+                    <div className="flex flex-wrap gap-1.5">
+                        <button type="button" onClick={() => setCamaras(new Set())} aria-pressed={!camaras.size} className={opcion(!camaras.size)}>Todas</button>
+                    </div>
+                    {grupos.map(([tipo, lista]) => (
+                        <div key={tipo} className="mt-2.5">
+                            <div className="text-[11px] text-muted-foreground mb-1">{TIPO_EQUIPO[tipo] || tipo}</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {lista.map((e) => <button key={e.id} type="button" onClick={() => setCamaras(alternar(camaras, e.id))} aria-pressed={camaras.has(e.id)} className={opcion(camaras.has(e.id))}>{e.nombre}</button>)}
                             </div>
                         </div>
-                        <div className="space-y-2">
-                            <Label className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest pl-1">Hasta</Label>
-                            <div className="relative">
-                                <CalendarIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                                <input
-                                    type="date"
-                                    value={endDate}
-                                    onChange={(e) => setEndDate(e.target.value)}
-                                    className="w-full bg-background border border-border rounded-lg h-10 pl-9 text-xs font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-red-500/20 uppercase appearance-none"
-                                />
+                    ))}
+                </CajonSeccion>
+
+                {incluir.has("accesos") && (
+                    <CajonSeccion titulo="Accesos" icono={Car} ayuda="Arranca con los filtros que tenés puestos en la pantalla.">
+                        {([
+                            ["Resultado", decision, setDecision, [["ALL", "Todos"], ["GRANT", "Permitidos"], ["DENY", "Denegados"]]],
+                            ["Sentido", sentido, setSentido, [["ALL", "Ambos"], ["ENTRY", "Entradas"], ["EXIT", "Salidas"]]],
+                            ["Con qué", identificacion, setIdentificacion, [["ALL", "Todo"], ["PLATE", "Matrícula"], ["FACE", "Rostro"], ["TAG", "Tarjeta"]]],
+                        ] as const).map(([r, v, set, ops]) => (
+                            <div key={r} className="flex items-center gap-3 flex-wrap mb-2">
+                                <span className="w-20 text-[12px] text-muted-foreground">{r}</span>
+                                <div className="flex flex-wrap gap-1.5">{ops.map(([k, t]) => <button key={k} type="button" onClick={() => (set as any)(k)} aria-pressed={v === k} className={opcion(v === k)}>{t}</button>)}</div>
                             </div>
-                        </div>
-                    </div>
-
-                    <div className="p-3 bg-foreground/10 rounded-lg border border-border">
-                        <p className="text-[10px] text-muted-foreground leading-relaxed italic text-center">
-                            El archivo incluirá todos los eventos registrados dentro del periodo seleccionado, incluyendo detalles de vehículos y residentes.
-                        </p>
-                    </div>
-                </div>
-
-                <DialogFooter className="sm:justify-center">
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => onOpenChange(false)}
-                        className="text-xs font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground"
-                    >
-                        Cancelar
-                    </Button>
-                    <Button
-                        onClick={handleExport}
-                        disabled={isExporting}
-                        className="bg-red-600 hover:bg-red-500 text-foreground text-xs font-bold uppercase tracking-widest h-10 px-8 shadow-lg shadow-red-900/20"
-                    >
-                        {isExporting ? (
-                            <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Generando...
-                            </>
-                        ) : (
-                            <>
-                                <Download className="mr-2 h-4 w-4" />
-                                Descargar (.xlsx)
-                            </>
+                        ))}
+                        {filters?.search && (
+                            <label className="flex items-center gap-2 text-[12.5px] mt-1 cursor-pointer">
+                                <input type="checkbox" checked={conBusqueda} onChange={(e) => setConBusqueda(e.target.checked)} className="accent-[var(--accion)] w-4 h-4" />
+                                Sólo lo que coincide con la búsqueda «{filters.search}»
+                            </label>
                         )}
-                    </Button>
-                </DialogFooter>
-            </DialogContent>
-        </Dialog>
+                        <label className="flex items-center gap-2 text-[12.5px] mt-1.5 cursor-pointer">
+                            <input type="checkbox" checked={conVision} onChange={(e) => setConVision(e.target.checked)} className="accent-[var(--accion)] w-4 h-4" />
+                            <Sparkles size={13} className="tono-accion" /> Sumar lo que vio OmniVision y las chapas que releyó
+                        </label>
+                    </CajonSeccion>
+                )}
+            </CajonContenido>
+        </Cajon>
     );
 }

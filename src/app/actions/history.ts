@@ -584,3 +584,55 @@ export async function getReporteComplementario(from: Date, to: Date) {
         })),
     };
 }
+
+/* ── Exportación del historial (components/history/ExportHistoryDialog) ───────────────── */
+
+/** Los equipos que dejan registros, para elegir de cuáles exportar. NVR y contadores de filas no. */
+export async function opcionesExportacion(): Promise<{ id: string; nombre: string; tipo: string }[]> {
+    const devs = await prisma.device.findMany({
+        where: { deviceType: { in: ["LPR_CAMERA", "LPR_INTERIOR", "CAMERA", "FACE_TERMINAL", "ACCESS_CONTROL", "DOOR_INTERCOM"] as any } },
+        select: { id: true, name: true, deviceType: true }, orderBy: { name: "asc" },
+    });
+    return devs.map((d) => ({ id: d.id, nombre: d.name, tipo: String(d.deviceType) }));
+}
+
+/** Tope de filas por pestaña: más no lo abre Excel con comodidad. */
+const LECTURAS_EXPORTAR_MAX = 100_000;
+
+/** Las lecturas de las cámaras interiores (seguimiento): pasos, estacionados y vistos. */
+export async function getLecturasInteriores(from: Date, to: Date, deviceIds?: string[]) {
+    const filas = await prisma.plateSighting.findMany({
+        where: { source: "TRACK", timestamp: { gte: from, lte: to }, ...(deviceIds?.length ? { deviceId: { in: deviceIds } } : {}) },
+        orderBy: { timestamp: "desc" }, take: LECTURAS_EXPORTAR_MAX,
+        select: { id: true, plate: true, deviceId: true, cameraName: true, timestamp: true, estado: true, estDesde: true, estHasta: true, confidence: true, reads: true, snapshotUrl: true },
+    });
+    return filas;
+}
+
+/** Cuántos ids por pedido de OmniVision (el cliente los manda de a tandas). */
+const VISION_EXPORTAR_TANDA = 2000;
+
+/**
+ * Lo que vio OmniVision en esos accesos, en texto para la planilla: «persona ×2 · moto blanca»
+ * y la chapa que releyó en las NO_LEIDA.
+ */
+export async function visionParaExportar(ids: string[]): Promise<Record<string, { vio: string; releida: string | null }>> {
+    const lista = (ids || []).slice(0, VISION_EXPORTAR_TANDA);
+    if (!lista.length) return {};
+    const [analisis, relecturas] = await Promise.all([
+        prisma.analisisFoto.findMany({ where: { accessEventId: { in: lista }, estado: "OK" }, select: { accessEventId: true, analisis: true } }),
+        prisma.relectura.findMany({ where: { accessEventId: { in: lista }, estado: { in: ["LEIDA", "DUDOSA"] } }, select: { accessEventId: true, plate: true, estado: true } }),
+    ]);
+    const out: Record<string, { vio: string; releida: string | null }> = {};
+    for (const a of analisis) {
+        const cuenta = new Map<string, number>();
+        for (const o of (((a.analisis as any)?.objetos || []) as any[])) {
+            const rasgos = ((o?.atributos || []) as any[]).filter((t) => !t?.dudoso && t?.valor && t.valor !== "no").map((t) => (t.valor === "sí" ? String(t.nombre || "").toLowerCase() : t.valor));
+            const k = [o?.nombre || o?.clase, ...rasgos].filter(Boolean).join(" ");
+            if (k) cuenta.set(k, (cuenta.get(k) || 0) + 1);
+        }
+        out[a.accessEventId] = { vio: [...cuenta].map(([k, n]) => (n > 1 ? `${k} ×${n}` : k)).join(" · "), releida: null };
+    }
+    for (const r of relecturas) out[r.accessEventId] = { ...(out[r.accessEventId] || { vio: "" }), releida: r.plate ? `${r.plate}${r.estado === "DUDOSA" ? " (dudosa)" : ""}` : null };
+    return out;
+}
