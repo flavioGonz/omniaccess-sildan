@@ -26,14 +26,22 @@ export async function logosDeMatriculas(): Promise<Record<string, LogoDeMatricul
     if (!catalogo.length) return {};
     const [visitas, proveedores] = await Promise.all([
         prisma.visita.findMany({ where: { sale: null, plate: { not: null }, empresa: { not: null } }, select: { plate: true, empresa: true } }),
-        prisma.user.findMany({ where: { role: "PROVIDER" as any, empresa: { not: null } }, select: { empresa: true, vehicles: { select: { plate: true } } } }),
+        // Cualquier persona con empresa (proveedor, móvil propio, personal): sus vehículos, sus
+        // credenciales de matrícula y, si no tiene ninguna cargada, la matrícula escrita en el
+        // nombre («Delivery SOJ924», «Sildan SPA221»).
+        prisma.user.findMany({ where: { empresa: { not: null } }, select: { name: true, empresa: true, vehicles: { select: { plate: true } }, credentials: { where: { type: "PLATE" as any }, select: { value: true } } } }),
     ]);
     const out: Record<string, LogoDeMatricula> = {};
     const poner = (plate: string | null, empresa: string | null) => {
         const e = empresaDe(empresa, catalogo);
         if (plate && e?.logo) out[plate.toUpperCase()] = { nombre: e.nombre, logo: e.logo, transparente: e.transparente };
     };
-    proveedores.forEach((p) => p.vehicles.forEach((v) => poner(v.plate, p.empresa)));
+    const chapa = (v: string | null | undefined) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    proveedores.forEach((p: any) => {
+        const chapas = new Set<string>([...(p.vehicles || []).map((v: any) => chapa(v.plate)), ...(p.credentials || []).map((c: any) => chapa(c.value))].filter(Boolean));
+        if (!chapas.size) (String(p.name || "").toUpperCase().match(/\b[A-Z]{3}\s?-?\d{3,4}\b/g) || []).forEach((m) => chapas.add(chapa(m)));
+        chapas.forEach((c) => poner(c, p.empresa));
+    });
     // La visita va después: si hoy entró como otra cosa, manda lo de hoy.
     visitas.forEach((v) => poner(v.plate, v.empresa));
     return out;

@@ -162,7 +162,7 @@ function ThumbImg({ src, className }: { src?: string; className?: string }) {
     return <img src={src} alt="" className={className} loading="eager" decoding="async" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />;
 }
 
-function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent?: string; ev?: any; onRegister?: (p?: string) => void }) {
+function CamTile({ dev, accent = "emerald", ev, onRegister, logos }: { dev: any; accent?: string; ev?: any; onRegister?: (p?: string) => void; logos?: LogosMatricula }) {
     const camRouter = useRouter();
     const [lit, setLit] = useState(false);
     const last = useRef<string | undefined>(undefined);
@@ -185,6 +185,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
     const plate = ev?.plateDetected as string | undefined;
     const ok = ev?.decision === "GRANT";
     const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
+    const empresaTile = plate && logos ? logos[String(plate).toUpperCase()] : null;
     const inner = (
         <div className={cn("relative rounded-lg overflow-hidden border vid-surface aspect-video transition-all duration-300", lit ? ring : "border-neutral-800")}>
             <SmartThumb src={(() => { const b = img || snap; return rk > 0 ? `${b}${b.includes("?") ? "&" : "?"}rk=${rk}` : b; })()} w={384} className="absolute inset-0 w-full h-full" />
@@ -192,6 +193,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
                 <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span><span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span></span>
                 <span className="text-[9px] font-bold text-white/90 truncate max-w-[130px]">{dev.name}</span>
             </div>
+            {empresaTile && <div className="absolute left-1.5 bottom-1.5 z-30 pointer-events-none"><LogoSobreFoto empresa={empresaTile} className="h-5 max-w-[70px]" /></div>}
             {plate && (
                 <div className="absolute inset-x-1.5 bottom-1.5 z-20 pointer-events-none flex justify-center">
                     <div className={cn("px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-white backdrop-blur-sm border shadow-lg", anomalous ? "bg-yellow-500/40 border-yellow-300/50 text-yellow-100" : ok ? "bg-emerald-600/80 border-emerald-300/40" : "bg-red-600/80 border-red-300/40")}>
@@ -203,7 +205,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent
     );
     return ev ? (
         <div className="relative group/cam">
-            <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
+            <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)} empresa={empresaTile}>
                 <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
             </EventDetailsDialog>
             {anomalous && ev.id && (
@@ -406,9 +408,18 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
             )}>
                 {tipo && <span className={cn("absolute left-0 top-0 bottom-0 w-1", tipo.dot)} />}
                 <div className="flex items-center gap-3">
+                    {empresa ? (
+                        // Empresa con logo (delivery, taxi, móvil propio): su logo manda; la marca del auto queda chica en la esquina.
+                        <div className="relative w-16 h-14 rounded-lg border border-border shrink-0 bg-white flex items-center justify-center overflow-hidden p-1.5" data-tooltip-id="tt-monitor" data-tooltip-content={empresa.nombre}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={empresa.logo} alt={empresa.nombre} className="object-contain w-full h-full" />
+                            {logoUrl && <span className="absolute right-0.5 bottom-0.5 h-4 w-4 rounded bg-card/90 ring-1 ring-border p-0.5 grid place-items-center"><Image src={logoUrl} alt={meta.Marca || "marca"} width={12} height={12} className="object-contain w-full h-full" /></span>}
+                        </div>
+                    ) : (
                     <div className="w-16 h-14 rounded-lg border border-border shrink-0 bg-card/60 flex items-center justify-center overflow-hidden p-1.5" title={meta.Marca || "Marca desconocida"}>
                         {logoUrl ? <Image src={logoUrl} alt={meta.Marca || "marca"} width={48} height={48} className="object-contain w-full h-full" /> : <Car size={22} className="text-muted-foreground" />}
                     </div>
+                    )}
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                             {isAnomalous ? (
@@ -421,8 +432,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             )}
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
                             {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            {empresa && <img src={empresa.logo} alt={empresa.nombre} title={empresa.nombre} className="h-4 w-auto max-w-16 object-contain" />}
+                            {empresa && <span className="inline-flex items-center text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-600 dark:text-sky-400 truncate max-w-24">{empresa.nombre}</span>}
                             {!watchStyle && tipo && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", tipo.badge)}>{tipo.label}{tipo.key === "residente" && event.user?.unit?.name ? ` · ${event.user.unit.name}` : ""}</span>}
                         </div>
                         <div className="flex items-center gap-2 mt-1">
@@ -1198,7 +1208,7 @@ export default function MonitorLPR() {
                                 <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de entrada</div>
                             ) : (
                                 <div className={cn("grid gap-2", entryCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-                                    {entryCams.map((d: any) => <CamTile key={d.id} dev={d} accent="emerald" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} />)}
+                                    {entryCams.map((d: any) => <CamTile key={d.id} dev={d} accent="emerald" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} logos={logos} />)}
                                 </div>
                             )}
                         </div>
@@ -1245,7 +1255,7 @@ export default function MonitorLPR() {
                                 <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de salida</div>
                             ) : (
                                 <div className={cn("grid gap-2", exitCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-                                    {exitCams.map((d: any) => <CamTile key={d.id} dev={d} accent="orange" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} />)}
+                                    {exitCams.map((d: any) => <CamTile key={d.id} dev={d} accent="orange" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} logos={logos} />)}
                                 </div>
                             )}
                         </div>
