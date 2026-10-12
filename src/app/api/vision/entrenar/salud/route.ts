@@ -3,6 +3,7 @@ import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { puedeMirar } from "@/lib/zona-entrenable-servidor";
+import { medirAhora } from "@/lib/salud-ahora";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,13 @@ type Punto = { ts: number; gt: number | null; ct: number | null; w: number | nul
 
 export async function GET(req: NextRequest) {
     const e = await puedeMirar(); if (e) return e;
+    // ?vivo=1: una medida de este momento (para la vista en vivo), no la telemetría guardada.
+    if (req.nextUrl.searchParams.get("vivo") === "1") {
+        let est: any = null;
+        try { est = JSON.parse((await prisma.setting.findUnique({ where: { key: "ENTRENADOR_ESTADO" } }))?.value || "null"); } catch { }
+        const m = await medirAhora();
+        return NextResponse.json({ ...m, estado: est?.salud?.estado || "reposo", limites: est?.limites || null }, { headers: { "Cache-Control": "no-store" } });
+    }
     const pedidas = Number(req.nextUrl.searchParams.get("horas"));
     const horas = RANGOS_HORAS.includes(pedidas) ? pedidas : 24;
     const hasta = Date.now(), desde = hasta - horas * 3_600_000;

@@ -82,6 +82,8 @@ export default function ReglasVision() {
     const [esNueva, setEsNueva] = useState(false);
     const [guardando, setGuardando] = useState(false);
     const [ampliado, setAmpliado] = useState<Evento | null>(null);
+    const [eligiendo, setEligiendo] = useState(false);
+    const [filtroEvento, setFiltroEvento] = useState<string | null>(null);
 
     const cargar = useCallback(async () => {
         try {
@@ -131,55 +133,117 @@ export default function ReglasVision() {
     const est = datos.estado;
     const sinSenal = !est || Date.now() - new Date(est.t).getTime() > 60_000;
 
+    const activas = datos.reglas.filter((r) => r.activa && datos.analiticas[r.tipo]).length;
+    const camarasConReglas = [...new Set(datos.reglas.map((r) => r.deviceId))];
+    const avisos7 = datos.eventos.filter((e) => e.avisoId).length;
+    const tiposEnEventos = [...new Set(datos.eventos.map((e) => e.tipo))];
+    const eventosVisibles = filtroEvento ? datos.eventos.filter((e) => e.tipo === filtroEvento) : datos.eventos;
+    const crear = (tipo: TipoRegla) => { setEligiendo(false); setEsNueva(true); setEditando(reglaNueva(tipo, datos.camaras[0]?.id || "")); };
+
     return (
-        <div className="p-6 lg:p-8 space-y-6 max-w-[1500px] mx-auto">
-            <div className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-center gap-3 flex-wrap">
-                <span className="grid h-10 w-10 place-items-center rounded-full bg-muted shrink-0"><Spline size={20} /></span>
+        <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
+            {/* ── Encabezado ── */}
+            <div className="flex items-start gap-3 flex-wrap">
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <h1 className="text-[17px] font-bold leading-tight">Reglas de visión</h1>
                         {sinSenal ? <Chip tono="mal" icono={Activity}>vision-worker no da señal</Chip> : <Chip tono="bien" icono={Activity}>Aplicándose</Chip>}
-                        {(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((t) => !datos.analiticas[t]).map((t) => <Chip key={t} tono="quieto">{TIPOS_REGLA[t].nombre}: apagada en Analíticas</Chip>)}
                         {est?.reglas?.ultimoError && <Chip tono="aviso">Último error: {est.reglas.ultimoError}</Chip>}
                     </div>
-                    <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
-                        Una línea o una zona sobre el cuadro de una cámara, y qué hacer cuando algo la cruza o se queda. Se mira cada cámara con regla cada ~2 s y se sigue a cada objeto: lo que se mide es su pie, donde toca el piso.
+                    <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5 max-w-3xl">
+                        Una línea o una zona sobre el cuadro de una cámara, y qué hacer cuando algo la cruza o se queda. Se mira cada ~2 s y se sigue a cada objeto por su pie, donde toca el piso.
                     </p>
                 </div>
-                <Button onClick={() => { setEsNueva(true); setEditando(reglaNueva("conteo", datos.camaras[0]?.id || "")); }}><Plus size={14} /> Nueva regla</Button>
+                <Button onClick={() => setEligiendo((v) => !v)} aria-expanded={eligiendo}><Plus size={14} /> Nueva regla</Button>
             </div>
 
-            <div className="rounded-[10px] border border-border bg-card px-4 py-2.5 flex items-center gap-2 text-[12px] text-muted-foreground">
-                <Type size={14} />
-                <span><b className="text-foreground">Empresa por rotulado</b> no lleva regla: {datos.rotulado ? "está prendida y" : "está apagada en Analíticas; prendida,"} lee el texto de cada vehículo del registro de detecciones y lo cruza con el catálogo de empresas. Se ve en Detecciones.</span>
-            </div>
-
-            {/* Las reglas */}
-            {datos.reglas.length === 0 ? (
-                <div className="rounded-[10px] border border-border bg-card p-10 text-center text-[13px] text-muted-foreground">
-                    Todavía no hay reglas. «Nueva regla» para dibujar la primera: una línea para contar o vigilar el sentido, o una zona para el tiempo de permanencia o la aglomeración.
-                </div>
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                    {datos.reglas.map((r) => (
-                        <TarjetaRegla key={r.id} r={r} camara={nombreCamara.get(r.deviceId) || "Cámara borrada"} s={datos.resumen[r.id]} apagadaLab={!datos.analiticas[r.tipo]}
-                            alAbrir={() => { setEsNueva(false); setEditando(r); }}
-                            alActivar={(v) => guardarLista(datos.reglas.map((x) => (x.id === r.id ? { ...x, activa: v } : x)), v ? "Regla prendida" : "Regla apagada")} />
-                    ))}
-                </div>
+            {/* ── Elegir qué vigilar: los tipos, con lo que hace cada uno ── */}
+            {(eligiendo || datos.reglas.length === 0) && (
+                <section className="rounded-[10px] border border-border bg-card p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                        <h2 className="text-[13px] font-bold">{datos.reglas.length === 0 ? "Elegí qué querés vigilar" : "¿Qué tipo de regla?"}</h2>
+                        <span className="text-[12px] text-muted-foreground">Después se elige la cámara y se dibuja la línea o la zona.</span>
+                        {eligiendo && datos.reglas.length > 0 && <button type="button" onClick={() => setEligiendo(false)} className="ml-auto text-[12px] text-muted-foreground hover:text-foreground">Cerrar</button>}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+                        {(Object.keys(TIPOS_REGLA) as TipoRegla[]).map((t) => {
+                            const Ic = ICONO[t];
+                            const apagada = !datos.analiticas[t];
+                            return (
+                                <button key={t} type="button" onClick={() => crear(t)}
+                                    className="group text-left rounded-[10px] border border-border p-3 hover:border-[var(--accion)] hover:bg-accent/30 transition-colors flex gap-3">
+                                    <Esquema tipo={t} />
+                                    <span className="min-w-0">
+                                        <span className="flex items-center gap-1.5 text-[13px] font-semibold"><Ic size={14} className="text-muted-foreground group-hover:text-[var(--accion)]" /> {TIPOS_REGLA[t].nombre}</span>
+                                        <span className="block text-[11.5px] text-muted-foreground leading-snug mt-0.5 line-clamp-3">{TIPOS_REGLA[t].queHace}</span>
+                                        {apagada && <span className="block text-[11px] tono-aviso mt-1">Apagada en Analíticas: se puede dibujar, pero no corre.</span>}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </section>
             )}
 
-            {/* Lo que pasó */}
-            <section>
-                <div className="flex items-baseline justify-between mb-2">
-                    <h2 className="text-[13px] font-bold">Eventos · últimos 7 días</h2>
-                    <span className="text-[11.5px] text-muted-foreground">Los cruces del conteo no se listan: se suman en cada regla.</span>
+            {/* ── Los números ── */}
+            {datos.reglas.length > 0 && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+                    <Numero rotulo="Reglas corriendo" valor={<>{activas}<span className="text-muted-foreground font-semibold">/{datos.reglas.length}</span></>} pista="Prendidas y con su analítica encendida en Analíticas." />
+                    <Numero rotulo="Cámaras con reglas" valor={camarasConReglas.length} pista="Cada cámara con al menos una regla se mira cada ~2 s." />
+                    <Numero rotulo="Eventos · 7 días" valor={datos.eventos.length} pista="Sentido contrario, permanencias, aglomeraciones, cruces, intrusiones, merodeos y retirados. Los cruces del conteo no se listan: se suman en cada regla." />
+                    <Numero rotulo="Avisos a la guardia · 7 días" valor={avisos7} pista="Los eventos de reglas que avisan llegan a la consola, Control LPR y Visitas." />
                 </div>
-                {datos.eventos.length === 0 ? (
-                    <div className="rounded-[10px] border border-border bg-card p-8 text-center text-[13px] text-muted-foreground">Sin eventos todavía.</div>
+            )}
+            <p className="text-[12px] text-muted-foreground flex items-center gap-1.5">
+                <Type size={13} /> <b className="text-foreground font-semibold">Empresa por rotulado</b> no lleva regla: {datos.rotulado ? "está prendida y lee" : "está apagada en Analíticas; prendida, lee"} el texto de cada vehículo y lo cruza con el catálogo de empresas (se ve en Detecciones).
+                {(Object.keys(TIPOS_REGLA) as TipoRegla[]).some((t) => !datos.analiticas[t]) && <span className="ml-1">Apagadas en Analíticas: {(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((t) => !datos.analiticas[t]).map((t) => TIPOS_REGLA[t].nombre).join(", ")}.</span>}
+            </p>
+
+            {/* ── Las reglas, por cámara, sobre su cuadro ── */}
+            {camarasConReglas.map((cam) => {
+                const deCam = datos.reglas.filter((r) => r.deviceId === cam);
+                return (
+                    <section key={cam} className="space-y-2">
+                        <div className="flex items-center gap-2">
+                            <Camera size={14} className="text-muted-foreground" />
+                            <h2 className="text-[13px] font-bold">{nombreCamara.get(cam) || "Cámara borrada"}</h2>
+                            <span className="text-[12px] text-muted-foreground tabular-nums">{deCam.length} regla{deCam.length === 1 ? "" : "s"}</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+                            {deCam.map((r) => (
+                                <TarjetaRegla key={r.id} r={r} camara={nombreCamara.get(r.deviceId) || "Cámara borrada"} s={datos.resumen[r.id]} apagadaLab={!datos.analiticas[r.tipo]}
+                                    alAbrir={() => { setEsNueva(false); setEditando(r); }}
+                                    alActivar={(v) => guardarLista(datos.reglas.map((x) => (x.id === r.id ? { ...x, activa: v } : x)), v ? "Regla prendida" : "Regla apagada")} />
+                            ))}
+                        </div>
+                    </section>
+                );
+            })}
+
+            {/* ── Lo que pasó ── */}
+            {datos.reglas.length > 0 && (
+            <section className="space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-[13px] font-bold">Eventos · últimos 7 días</h2>
+                    {tiposEnEventos.length > 1 && (
+                        <span className="flex items-center gap-1 flex-wrap">
+                            <button type="button" onClick={() => setFiltroEvento(null)} aria-pressed={!filtroEvento}
+                                className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", !filtroEvento ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground")}>Todos</button>
+                            {tiposEnEventos.map((t) => (
+                                <button key={t} type="button" onClick={() => setFiltroEvento(t)} aria-pressed={filtroEvento === t}
+                                    className={cn("h-7 px-2.5 rounded-full border text-[11.5px] font-semibold", filtroEvento === t ? "border-foreground bg-foreground text-background" : "border-border text-muted-foreground hover:text-foreground")}>
+                                    {(TIPOS_EVENTO[t] || { nombre: t }).nombre} <span className="tabular-nums opacity-70">{datos.eventos.filter((e) => e.tipo === t).length}</span>
+                                </button>
+                            ))}
+                        </span>
+                    )}
+                    <span className="ml-auto text-[11.5px] text-muted-foreground">Los cruces del conteo se suman en cada regla.</span>
+                </div>
+                {eventosVisibles.length === 0 ? (
+                    <div className="rounded-[10px] border border-dashed border-border p-8 text-center text-[13px] text-muted-foreground">Sin eventos todavía. Cuando una regla vea algo, queda acá con su foto.</div>
                 ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">
-                        {datos.eventos.map((e) => {
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-2">
+                        {eventosVisibles.map((e) => {
                             const t = TIPOS_EVENTO[e.tipo] || { nombre: e.tipo, tono: "quieto" as const };
                             return (
                                 <button key={e.id} type="button" onClick={() => setAmpliado(e)} className="text-left rounded-[10px] border border-border bg-card overflow-hidden hover:border-[var(--accion)] transition-colors">
@@ -187,11 +251,12 @@ export default function ReglasVision() {
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {e.foto ? <img src={`${e.foto}?w=320`} alt="" loading="lazy" className="w-full h-full object-cover" /> : <Camera size={18} className="absolute inset-0 m-auto text-white/30" />}
                                         {e.caja && <span className="absolute border-2 border-[var(--accion-en-oscuro)] rounded-sm" style={{ left: `${e.caja[0] * 100}%`, top: `${e.caja[1] * 100}%`, width: `${(e.caja[2] - e.caja[0]) * 100}%`, height: `${(e.caja[3] - e.caja[1]) * 100}%` }} />}
+                                        <span className="absolute left-1.5 top-1.5"><Chip tono={t.tono}>{t.nombre}</Chip></span>
+                                        {e.avisoId && <span className="absolute right-1.5 top-1.5 w-6 h-6 grid place-items-center rounded-full bg-black/60 text-white" title="Avisó a la guardia"><BellRing size={12} /></span>}
                                     </div>
-                                    <div className="p-2.5 space-y-1">
-                                        <div className="flex items-center gap-1.5"><Chip tono={t.tono}>{t.nombre}</Chip>{e.avisoId && <BellRing size={12} className="text-muted-foreground" />}</div>
+                                    <div className="px-2.5 py-2">
                                         <div className="text-[12px] font-semibold truncate">{e.regla}</div>
-                                        <div className="text-[11px] text-muted-foreground truncate">
+                                        <div className="text-[11px] text-muted-foreground truncate tabular-nums">
                                             {e.tipo === "PERMANENCIA" ? `${NOMBRE_CLASE_REGLA[e.clase || ""] || e.clase} · ${duracionCorta(e.valor)}` : e.tipo === "AGLOMERACION" ? `${e.valor} personas` : NOMBRE_CLASE_REGLA[e.clase || ""] || e.clase} · {dia(e.ts)} {hora(e.ts)}
                                         </div>
                                     </div>
@@ -201,6 +266,7 @@ export default function ReglasVision() {
                     </div>
                 )}
             </section>
+            )}
 
             {editando && (
                 <CajonRegla regla={editando} nueva={esNueva} camaras={datos.camaras} guardando={guardando}
@@ -249,7 +315,22 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: Reg
     const Ic = ICONO[r.tipo];
     const max = Math.max(1, ...(s?.porHora || [0]));
     return (
-        <div className={cn("rounded-[10px] border border-border bg-card p-3.5 flex flex-col gap-2.5", (!r.activa || apagadaLab) && "opacity-60")}>
+        <div className={cn("rounded-[10px] border border-border bg-card overflow-hidden flex flex-col", (!r.activa || apagadaLab) && "opacity-60")}>
+            {/* El cuadro de la cámara con lo dibujado encima: se reconoce la regla sin leerla. */}
+            <button type="button" onClick={alAbrir} className="relative aspect-[16/7] bg-black overflow-hidden" aria-label={`Editar ${r.nombre}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/api/snapshot/${r.deviceId}?w=480`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+                <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
+                    {r.zona && r.zona.length >= 3 && <polygon points={r.zona.map(([x, y]) => `${x},${y}`).join(" ")} fill="var(--accion-en-oscuro)" fillOpacity={0.22} stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
+                    {r.linea && <line x1={r.linea.a[0]} y1={r.linea.a[1]} x2={r.linea.b[0]} y2={r.linea.b[1]} stroke="var(--accion-en-oscuro)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" />}
+                </svg>
+                {r.linea && <>
+                    <span className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] font-bold grid place-items-center" style={{ left: `${r.linea.a[0] * 100}%`, top: `${r.linea.a[1] * 100}%` }}>A</span>
+                    <span className="absolute -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-black/70 text-white text-[10px] font-bold grid place-items-center" style={{ left: `${r.linea.b[0] * 100}%`, top: `${r.linea.b[1] * 100}%` }}>B</span>
+                </>}
+                {!r.linea && !(r.zona && r.zona.length >= 3) && <span className="absolute left-2 bottom-2 px-2 py-0.5 rounded-[5px] bg-black/65 text-white text-[11px]">Todo el cuadro</span>}
+            </button>
+            <div className="p-3.5 flex flex-col gap-2.5">
             <div className="flex items-start gap-2.5">
                 <span className="grid h-9 w-9 place-items-center rounded-full bg-muted shrink-0"><Ic size={16} /></span>
                 <button type="button" onClick={alAbrir} className="min-w-0 flex-1 text-left">
@@ -287,9 +368,45 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: Reg
             )}
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                 {r.avisar ? <span className="inline-flex items-center gap-1"><BellRing size={11} /> avisa a la guardia</span> : <span className="inline-flex items-center gap-1"><BellOff size={11} /> sólo registra</span>}
-                <span>· {r.clases.map((c) => NOMBRE_CLASE_REGLA[c] || nombrePropio(c) || c).join(", ")}</span>
+                <span className="truncate">· {r.clases.map((c) => NOMBRE_CLASE_REGLA[c] || nombrePropio(c) || c).join(", ")}</span>
+            </div>
             </div>
         </div>
+    );
+}
+
+/** Un número del resumen, con su explicación al pasar el mouse. */
+function Numero({ rotulo, valor, pista }: { rotulo: string; valor: React.ReactNode; pista: string }) {
+    return (
+        <div className="rounded-[10px] border border-border bg-card px-3.5 py-3">
+            <Pista titulo={rotulo} texto={pista} ancho={280}><span className="text-[11.5px] text-muted-foreground cursor-help">{rotulo}</span></Pista>
+            <div className="text-[22px] font-bold tabular-nums leading-tight tracking-[-0.02em] mt-0.5">{valor}</div>
+        </div>
+    );
+}
+
+/**
+ * El dibujo de cada tipo, para elegirlo sin leer: una línea con su sentido o una zona, y los
+ * puntitos de lo que se mira. En `currentColor`, así sigue al tema solo.
+ */
+function Esquema({ tipo }: { tipo: TipoRegla }) {
+    const linea = TIPOS_REGLA[tipo].geometria === "linea";
+    return (
+        <svg viewBox="0 0 64 48" className="w-16 h-12 shrink-0 rounded-[6px] bg-muted text-muted-foreground group-hover:text-[var(--accion)] transition-colors" aria-hidden="true">
+            {linea ? (
+                <>
+                    <line x1="8" y1="38" x2="56" y2="12" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                    {tipo === "sentido" ? <path d="M20 14 l10 0 m-4 -4 l4 4 l-4 4" fill="none" stroke="currentColor" strokeWidth="2" /> : <path d="M26 34 l8 -10 m-6 0 l6 0 l0 6" fill="none" stroke="currentColor" strokeWidth="2" />}
+                </>
+            ) : (
+                <polygon points="12,14 50,10 54,38 10,40" fill="currentColor" fillOpacity="0.18" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+            )}
+            {tipo === "aglomeracion" ? [[22, 24], [30, 28], [38, 22], [28, 32], [36, 32]].map(([x, y], i) => <circle key={i} cx={x} cy={y} r="2.4" fill="currentColor" />)
+                : tipo === "merodeo" ? <path d="M20 30 q8 -14 16 -2 t12 -6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="2 3" />
+                : tipo === "retirado" ? <rect x="26" y="20" width="12" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeDasharray="2 2" />
+                : tipo === "permanencia" ? <><circle cx="32" cy="25" r="7" fill="none" stroke="currentColor" strokeWidth="1.8" /><path d="M32 21 v4 l3 2" fill="none" stroke="currentColor" strokeWidth="1.6" /></>
+                : <circle cx={linea ? 40 : 32} cy={linea ? 30 : 25} r="3" fill="currentColor" />}
+        </svg>
     );
 }
 
