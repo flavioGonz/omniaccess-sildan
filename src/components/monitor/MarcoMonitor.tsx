@@ -139,7 +139,14 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
     return (
         <Ctx.Provider value={valor}>
             <div className={cn("dark h-[100dvh] overflow-hidden bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-[background-color] duration-700", quieto && !tactil && "cursor-none")}
-                style={fondo ? { backgroundColor: fondo } : undefined}>
+                style={fondo ? ({
+                    // Con una lectura en pantalla, TODA la interfaz toma su color: el fondo y también cada
+                    // panel (card, muted, borde), que pasan a ser velos claros sobre ese color en vez de negro.
+                    backgroundColor: fondo, "--background": fondo,
+                    "--card": "rgba(255,255,255,0.07)", "--muted": "rgba(255,255,255,0.11)", "--accent": "rgba(255,255,255,0.14)",
+                    "--secondary": "rgba(255,255,255,0.11)", "--border": "rgba(255,255,255,0.20)", "--input": "rgba(255,255,255,0.20)",
+                    "--popover": `color-mix(in oklab, ${fondo} 85%, #000)`, "--muted-foreground": "rgba(255,255,255,0.72)",
+                } as React.CSSProperties) : undefined}>
                 {/* Encabezado: barrio, vista, vitalidad y reloj. En "sin datos" se pinta ENTERO de ámbar. */}
                 <header className={cn("shrink-0 flex items-center gap-4 lg:gap-6 px-4 lg:px-8 h-[64px] border-b transition-colors",
                     sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : fondo ? "bg-black/20 border-white/15" : "bg-card/60 border-border")}>

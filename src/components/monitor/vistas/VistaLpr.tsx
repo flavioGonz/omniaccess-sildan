@@ -334,7 +334,7 @@ export function VistaLpr() {
     const tinte = tinteDe(protagonista, !!(protagonista?.plate && datos?.logos?.[protagonista.plate]));
     // Toda la pantalla, encabezado incluido, toma el color de quien pasó.
     useEffect(() => {
-        setFondo(tinte === "desconocido" ? null : `color-mix(in oklab, ${TINTE[tinte].fondo.replace(/,[\d.]+\)$/, ",1)")} ${tinte === "negra" ? 58 : 44}%, #050505)`);
+        setFondo(tinte === "desconocido" ? null : `color-mix(in oklab, ${TINTE[tinte].fondo.replace(/,[\d.]+\)$/, ",1)")} ${tinte === "negra" ? 72 : 62}%, #050505)`);
     }, [tinte, setFondo]);
     useEffect(() => () => setFondo(null), [setFondo]);
     const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
@@ -365,7 +365,7 @@ export function VistaLpr() {
                     <AnimatePresence>
                         {fijada && (
                             <motion.div key="fijada" initial={{ opacity: 0, y: -16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -16 }} transition={SUAVE}
-                                className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-stretch gap-1.5 rounded-2xl bg-black/75 backdrop-blur-md px-2 pt-2 pb-2.5 text-white min-w-[min(92%,520px)]">
+                                className="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex flex-col items-stretch gap-1.5 rounded-2xl bg-black/30 backdrop-blur-md px-2 pt-2 pb-2.5 text-white min-w-[min(92%,520px)]">
                                 <div className="flex items-center gap-3 pl-3">
                                     <History size={20} className="text-white/70 shrink-0" />
                                     <div className="min-w-0 flex-1 text-[15px] leading-tight">
@@ -384,7 +384,7 @@ export function VistaLpr() {
                         {nuevaMientrasFijada && (
                             <motion.button key={nuevaMientrasFijada.id} type="button" onClick={volverAlVivo}
                                 initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={SUAVE}
-                                className={cn("absolute top-[104px] left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-3 h-14 pl-3 pr-5 rounded-full text-white font-semibold text-[16px] bg-black/80 backdrop-blur-md border border-white/15", tocable)}>
+                                className={cn("absolute top-[104px] left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-3 h-14 pl-3 pr-5 rounded-full text-white font-semibold text-[16px] bg-black/35 backdrop-blur-md border border-white/15", tocable)}>
                                 <span className={cn("grid h-9 w-9 place-items-center rounded-full", estadoDe(nuevaMientrasFijada, modo).c)}>{(() => { const I = estadoDe(nuevaMientrasFijada, modo).Ic; return <I size={18} />; })()}</span>
                                 Nueva lectura · <span className="tabular-nums tracking-[0.1em] font-bold">{nuevaMientrasFijada.plate || "S/L"}</span>
                                 <ChevronRight size={18} className="text-white/60" />
@@ -404,7 +404,7 @@ export function VistaLpr() {
 
             {/* Derecha: lo que entiende el sistema de la lectura en pantalla y las detecciones. */}
             <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
-                <InteligenciaLectura l={protagonista} alAbrirFicha={() => protagonista && setFichaId(protagonista.id)} />
+                <InteligenciaLectura l={protagonista} empresa={protagonista?.plate ? datos?.logos?.[protagonista.plate] : null} alAbrirFicha={() => protagonista && setFichaId(protagonista.id)} />
 
                 <div className="flex-1 min-h-[260px] rounded-2xl bg-card/90 border border-border p-3 flex flex-col gap-2 overflow-hidden">
                     <div className="flex items-center gap-2">
@@ -448,11 +448,11 @@ export function VistaLpr() {
                                         <span className="relative w-[104px] h-[62px] shrink-0 rounded-lg overflow-hidden bg-neutral-900">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             {f && <img src={conAncho(f, 240) || undefined} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
-                                            {emp && <span className="absolute left-1 bottom-1"><LogoSobreFoto empresa={emp} className="h-4 max-w-[60px]" /></span>}
                                         </span>
                                         <span className="min-w-0 flex-1">
                                             <span className="flex items-center gap-2">
                                                 {esNoLeida(l.plate) && l.relectura?.plate ? <Relectura r={l.relectura} /> : <span className="text-[18px] font-bold tabular-nums tracking-[0.1em] text-white">{l.plate || "S/L"}</span>}
+                                                {emp && <span className="ml-auto shrink-0"><LogoSobreFoto empresa={emp} className="h-7 max-w-[96px]" /></span>}
                                             </span>
                                             <span className="block text-[12px] text-white/70 truncate">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}{l.camara ? ` · ${l.camara}` : ""}</span>
                                             <span className="block mt-0.5 truncate">{l.clase ? <EtiquetaClase l={l} comp={comportamiento} /> : <span className="text-[11px] text-white/60">{l.persona || (l.decision === "GRANT" ? "Autorizado" : "Sin registro")}</span>}</span>
@@ -873,7 +873,7 @@ function BloquePerfil({ perfil, franja, dias }: { perfil: NonNullable<Ficha["per
  * las lecturas reales) y los pasos de hoy. Sale de la misma consulta que la ficha.
  */
 const cacheInteligencia = new Map<string, Ficha>();
-function InteligenciaLectura({ l, alAbrirFicha }: { l: Lectura | null; alAbrirFicha: () => void }) {
+function InteligenciaLectura({ l, empresa, alAbrirFicha }: { l: Lectura | null; empresa?: Logo | null; alAbrirFicha: () => void }) {
     const [ficha, setFicha] = useState<Ficha | null>(null);
     const [cargando, setCargando] = useState(false);
     const id = l?.id || null;
@@ -900,6 +900,7 @@ function InteligenciaLectura({ l, alAbrirFicha }: { l: Lectura | null; alAbrirFi
             <div className="flex items-center gap-2">
                 <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><Sparkles size={14} /> Inteligencia</span>
                 {l?.plate && !sinChapa && <span className="text-[15px] font-bold tabular-nums tracking-[0.1em]">{l.plate}</span>}
+                {empresa && <LogoSobreFoto empresa={empresa} className="h-7 max-w-[110px]" />}
                 {cargando && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
                 {l && <button type="button" onClick={alAbrirFicha} className={cn("ml-auto h-8 px-3 rounded-full border border-border text-[12px] font-semibold inline-flex items-center gap-1", tocable)}>Ficha <ChevronRight size={14} /></button>}
             </div>
