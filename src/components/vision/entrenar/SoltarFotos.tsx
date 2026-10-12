@@ -237,11 +237,12 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
                         className="overflow-hidden">
                         <div className="rounded-[14px] border border-border bg-card p-3 space-y-2.5">
                             <div className="flex items-center gap-3 text-[12.5px]">
-                                <span className="font-bold tabular-nums">{ocupado ? `Subiendo ${hechas + 1} de ${lista.length}` : `${hechas} de ${lista.length} subidas`}</span>
+                                <span className="font-bold tabular-nums">{ocupado ? `${lista.some((x) => x.link && (x.estado === "subiendo" || x.estado === "espera")) ? "Trayendo" : "Subiendo"} ${hechas + lista.filter((x) => x.estado === "mal").length + 1} de ${lista.length}` : lista.some((x) => x.estado === "mal") ? `${lista.filter((x) => x.estado === "mal").length} no se ${lista.filter((x) => x.estado === "mal").length === 1 ? "pudo" : "pudieron"} agregar · pasá el mouse para ver por qué` : `${hechas} de ${lista.length} agregadas`}</span>
                                 <span className="relative flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                                     <motion.span className="absolute inset-y-0 left-0 rounded-full bg-[var(--accion)]" initial={false} animate={{ width: `${pct}%` }} transition={{ duration: 0.3, ease: CURVA_SUAVE }} />
                                 </span>
                                 <span className="tabular-nums text-muted-foreground w-[92px] text-right">{pct} %{total ? ` · ${(total / 1e6).toFixed(1)} MB` : ""}</span>
+                                {!ocupado && <button type="button" onClick={() => setLista([])} aria-label="Cerrar" title="Cerrar" className="h-7 w-7 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><X size={14} /></button>}
                             </div>
                             <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-10 gap-2">
                                 <AnimatePresence initial={false}>
