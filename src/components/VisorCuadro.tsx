@@ -7,7 +7,7 @@ import {
     X, ChevronLeft, ChevronRight, Camera, ZoomIn, ZoomOut, Maximize2,
     Scan, Car, Home, ParkingSquare, ShieldAlert, Star, Search as Lupa,
     UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, EyeOff,
-    PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2, Share2,
+    PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, Activity, GalleryHorizontal, Cctv, Undo2, Share2, ScanSearch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
@@ -30,6 +30,7 @@ import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
 import { SeguimientoVivo } from "@/components/visor/SeguimientoVivo";
+import { BuscarParecidos } from "@/components/visor/BuscarParecidos";
 import { describirObjeto } from "@/components/visor/FichaVisor";
 import { chapaDe, esSinLectura, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 
@@ -357,6 +358,10 @@ export function VisorCuadro({
     const [modo, setModo] = useState<"foto" | "vivo" | "grabacion">("foto");
     /** El cajón del clip de la grabación: se abre desde la barra del reproductor o desde los íconos de arriba. */
     const [clip, setClip] = useState(false);
+    /** Buscar lo que se ve en la foto en todas las cámaras (recorte → OmniVision / NVR). */
+    const [parecidos, setParecidos] = useState(false);
+    /** La grabación de OTRA cámara, abierta desde un resultado de «Buscar parecidos». */
+    const [grabacionDe, setGrabacionDe] = useState<{ deviceId: string; ms: number; camara: string } | null>(null);
     useEffect(() => { if (modo !== "grabacion") setClip(false); }, [modo]);
     // El cajón del clip entra por la derecha del reproductor: con la ficha y la barra de arriba a la
     // vista, se le encimarían. Mientras está abierto, la vista queda limpia.
@@ -493,7 +498,7 @@ export function VisorCuadro({
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
             // Con el visor completo de la cámara abierto encima, las teclas son de él.
-            if (abrirCamara || compartir || clip) return;
+            if (abrirCamara || compartir || clip || parecidos || grabacionDe) return;
             if (e.key === "Escape") {
                 // Esc deshace de a una cosa, de la más nueva a la más vieja: no cierra el evento
                 // de golpe estando en un paso anterior o con un panel abierto.
@@ -519,7 +524,7 @@ export function VisorCuadro({
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas, abrirCamara, compartir, pasoViendo, panel, limpio, modo, clip, parecidos, grabacionDe]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -1166,6 +1171,11 @@ export function VisorCuadro({
                                 Compartir
                             </BotonVisor>
                         )}
+                        {fila.snapshotUrl && (
+                            <BotonVisor icono={ScanSearch} onClick={() => setParecidos(true)} title="Recortar algo de la foto y buscarlo en todas las cámaras con OmniVision (y en el NVR, si es VPro)">
+                                Buscar parecidos
+                            </BotonVisor>
+                        )}
                         {estacionado && !cerrada && fila.deviceId && (
                             <BotonVisor icono={Eye} onClick={verificar} ocupada={verificando}
                                 title="Toma un cuadro de la cámara ahora y busca esta matrícula en el encuadre">
@@ -1229,6 +1239,11 @@ export function VisorCuadro({
                             <span className="w-4 h-px bg-white/15" />
                         </>
                     )}
+                    {modo === "foto" && fila.snapshotUrl && (
+                        <BotonRiel onClick={() => setParecidos(true)} title="Buscar parecidos: recortar algo de la foto y buscarlo en todas las cámaras">
+                            <ScanSearch size={15} />
+                        </BotonRiel>
+                    )}
                     <BotonRiel onClick={() => setLimpio(true)} title="Ocultar la ficha y los controles, ver la imagen limpia  ( H )">
                         <EyeOff size={15} />
                     </BotonRiel>
@@ -1291,6 +1306,13 @@ export function VisorCuadro({
             {compartir && (
                 <CompartirEvento foto={fila.snapshotUrl || null} deviceId={fila.deviceId || null} deviceName={fila.cameraName || null}
                     instante={fila.timestamp} titulo={textoCompartir.titulo} lineas={textoCompartir.lineas} onCerrar={() => setCompartir(false)} />
+            )}
+            {parecidos && fila.snapshotUrl && (
+                <BuscarParecidos foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()} onCerrar={() => setParecidos(false)}
+                    onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
+            )}
+            {grabacionDe && (
+                <VerGrabacion deviceId={grabacionDe.deviceId} nombre={grabacionDe.camara} instanteMs={grabacionDe.ms} onClose={() => setGrabacionDe(null)} />
             )}
             {abrirCamara && fila.deviceId && (
                 <VerGrabacion deviceId={fila.deviceId} nombre={fila.cameraName} tab={abrirCamara}

@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { clasesDe, RELECTURA_CON_CHAPA, VISION_IDS_MAX, type EmpresaFila, type VisionFila } from "@/lib/historial-vision";
 import { empresasDeLecturas } from "@/lib/empresas-servidor";
 import { esNoLeida } from "@/lib/relectura";
+import { accesosDeObjetos, objetosPorTexto, type ObjetoParecido } from "@/lib/busqueda-vision";
 
 export const dynamic = "force-dynamic";
 
@@ -178,6 +179,8 @@ async function visionDe(ids: string[]): Promise<Map<string, VisionFila>> {
 }
 
 const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+/** Cuántas pistas parecidas se muestran en la franja de arriba del historial: una fila de miniaturas. */
+const OBJETOS_EN_FRANJA = 12;
 
 /**
  * Hasta cuánto atrás se busca la entrada de una salida, y hasta cuánto se da por "sigue
@@ -250,7 +253,21 @@ export async function GET(req: NextRequest) {
 
     const pedirAccesos = quiere("ACCESO");
     const porVision = vision.length && pedirAccesos ? await idsVision(vision, desde, hasta) : null;
-    const porBusquedaVision = buscar && pedirAccesos ? await idsBusquedaVision(buscar, desde, hasta) : [];
+    /*
+     * Además de las palabras exactas, la búsqueda por cómo se ve, la misma de OmniVision › Buscar:
+     * la frase contra la huella de cada pista que vio OmniVision, y de ahí a los accesos de esa
+     * cámara en ese rato. Sólo con algo que parezca una descripción: una matrícula («SCW8055») no
+     * se describe, y mandarla a SigLIP sólo trae ruido. Si omni-vision no contesta, se busca igual
+     * con lo demás y se dice.
+     */
+    const pareceDescripcion = buscar.length >= 3 && /[a-záéíóúñ]{3,}/i.test(buscar) && !/^[A-Z]{2,4}\s?-?\d{3,5}$/i.test(buscar);
+    const [porBusquedaVision, semantica] = await Promise.all([
+        buscar && pedirAccesos ? idsBusquedaVision(buscar, desde, hasta) : Promise.resolve([] as string[]),
+        pareceDescripcion
+            ? objetosPorTexto(buscar, { desde, hasta }).then((objetos) => ({ objetos, error: null as string | null })).catch((e) => ({ objetos: [] as ObjetoParecido[], error: String(e?.message || e) }))
+            : Promise.resolve(null),
+    ]);
+    const porSemantica = semantica?.objetos.length && pedirAccesos ? await accesosDeObjetos(semantica.objetos).catch(() => [] as string[]) : [];
 
     /**
      * Qué estados de seguimiento entran.
@@ -282,6 +299,8 @@ export async function GET(req: NextRequest) {
                                 { user: { name: { contains: buscar, mode: "insensitive" } } },
                                 // Lo que vio OmniVision en la foto, y la chapa que releyó (ver idsBusquedaVision).
                                 ...(porBusquedaVision.length ? [{ id: { in: porBusquedaVision } }] : []),
+                                // Lo que se parece a la frase según OmniVision (ver busqueda-vision).
+                                ...(porSemantica.length ? [{ id: { in: porSemantica } }] : []),
                             ],
                         }
                         : {}),
@@ -428,5 +447,17 @@ export async function GET(req: NextRequest) {
         enPagina: pagina.length,
         /** El filtro OmniVision llegó al tope: se miraron sólo las VISION_IDS_MAX lecturas más nuevas. */
         visionTruncado: !!porVision?.truncado,
+        /**
+         * Lo que OmniVision vio parecido a la frase, sea o no un acceso: las mejores pistas, para
+         * mostrarlas arriba de la tabla. Sólo en la primera página.
+         */
+        omnivision: semantica && skip === 0 ? {
+            error: semantica.error,
+            total: semantica.objetos.length,
+            accesos: porSemantica.length,
+            objetos: semantica.objetos.slice(0, OBJETOS_EN_FRANJA).map((o) => ({
+                id: o.id, camara: o.camara, clase: o.clase, grupo: o.grupo, momento: o.primeraVez.toISOString(), recorte: o.recorte, prob: Math.round(o.prob * 1000) / 1000,
+            })),
+        } : null,
     });
 }

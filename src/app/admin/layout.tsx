@@ -105,13 +105,19 @@ export default function AdminLayout({
     const [acuseekOk, setAcuseekOk] = useState(false);
     const [modules, setModules] = useState<Record<ModuleId, boolean>>({
         MODULE_LPR: true,
-        MODULE_FACE: true,
+        MODULE_FACE: false,
         MODULE_QUEUE: false,
         MODULE_GUARD: false,
     });
+    /**
+     * Hasta saber qué modo corre y qué ve este rol, el menú no se dibuja: se dibujaba con un modo
+     * supuesto (Matrículas Y Rostro) y sin permisos, así que al recargar aparecían los rótulos
+     * «Gestión · LPR · FACE» solos, sin nada abajo, y FACE en una instalación de Matrículas.
+     */
+    const [modulosListos, setModulosListos] = useState(false);
 
     useEffect(() => {
-        getEnabledModules().then(setModules);
+        getEnabledModules().then(setModules).catch(() => { }).finally(() => setModulosListos(true));
         hasAcuSeekNvr().then(setAcuseekOk).catch(() => {});
     }, []);
 
@@ -177,6 +183,7 @@ export default function AdminLayout({
                 </div>
 
                 <nav className="flex-1 p-3 space-y-1 overflow-y-auto custom-scrollbar">
+                    {!(modulosListos && roleLoaded) ? <EsqueletoMenu collapsed={collapsed} /> : (<>
                     {modules.MODULE_QUEUE ? (
                         ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-queue" active={pathname === "/admin/monitor-queue"} collapsed={collapsed} />)
                     ) : modules.MODULE_FACE ? (
@@ -271,6 +278,7 @@ export default function AdminLayout({
                     <div className="my-2 border-t border-border" />
                     {ve("ajustes") && (<SidebarItem icon={<BookOpen size={18} />} label="Manuales" href="/admin/manuales" active={pathname === "/admin/manuales"} collapsed={collapsed} />)}
                             {ve("ajustes") && (<SidebarItem icon={<Settings size={18} />} label="Configuración" href="/admin/settings" active={pathname === "/admin/settings"} collapsed={collapsed} />)}
+                                    </>)}
                 </nav>
 
                 <div className="p-3 border-t border-border space-y-2">
@@ -358,5 +366,19 @@ export default function AdminLayout({
             `}</style>
         </div>
         </VivoProvider>
+    );
+}
+
+/** El lugar del menú mientras se sabe el modo y los permisos: renglones grises, sin rótulos sueltos. */
+function EsqueletoMenu({ collapsed }: { collapsed: boolean }) {
+    return (
+        <div aria-hidden="true" className="space-y-1 pt-1">
+            {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className={cn("flex items-center gap-3 px-3 py-2.5", collapsed && "justify-center px-0")}>
+                    <span className="w-[18px] h-[18px] rounded-[5px] bg-muted animate-pulse shrink-0" />
+                    {!collapsed && <span className="h-3 rounded bg-muted animate-pulse" style={{ width: `${55 + ((i * 37) % 35)}%` }} />}
+                </div>
+            ))}
+        </div>
     );
 }

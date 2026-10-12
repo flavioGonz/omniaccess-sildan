@@ -67,6 +67,12 @@ export default function BuscarVision() {
     const [buscando, setBuscando] = useState(false);
     const [abierta, setAbierta] = useState<Resultado | null>(null);
 
+    // ?q=… viene del historial («Ver todo en Buscar»): se busca al entrar, con la misma frase.
+    useEffect(() => {
+        const q = new URLSearchParams(window.location.search).get("q")?.trim();
+        if (q) { setTexto(q); setPedido({ q }); }
+    }, []);
+
     useEffect(() => {
         fetch("/api/vision/estado", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => setCamaras(j?.camaras || [])).catch(() => { });
     }, []);

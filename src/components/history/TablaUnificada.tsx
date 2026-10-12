@@ -218,6 +218,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
 
     const visionClave = vision.join(",");
     const [visionTruncado, setVisionTruncado] = useState(false);
+    const [omni, setOmni] = useState<FranjaOmni | null>(null);
     useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave]);
 
     useEffect(() => {
@@ -246,6 +247,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 setFilas((prev) => (pagina === 0 ? (j.filas || []) : [...prev, ...(j.filas || [])]));
                 setHay(!!j.hay);
                 setVisionTruncado(!!j.visionTruncado);
+                if (pagina === 0) setOmni(j.omnivision || null);
                 onCargado?.();
             })
             .catch((e) => {
@@ -648,6 +650,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
 
     return (
         <>
+            {omni && buscar && <FranjaOmniVision datos={omni} buscar={buscar} />}
             {vista !== "lista" ? (
                 <MosaicoHistorial vista={vista} filas={visibles} hay={hay} cargando={cargando} error={error}
                     alReintentar={reintentar} traer={traer} merodeando={merodeando} alAbrir={setViendo}
@@ -719,5 +722,57 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 />
             )}
         </>
+    );
+}
+
+type FranjaOmni = {
+    error: string | null; total: number; accesos: number;
+    objetos: { id: string; camara: string; clase: string; grupo: string; momento: string; recorte: string | null; prob: number }[];
+};
+
+/**
+ * Lo que OmniVision vio parecido a la búsqueda, arriba de la tabla.
+ *
+ * La tabla ya trae los accesos que coinciden (misma cámara, mismo rato); esto muestra además lo
+ * que OmniVision vio aunque no haya sido un acceso —una persona en la vereda, una camioneta que
+ * no entró—, que es lo que encuentra OmniVision › Buscar. Así una búsqueda en el historial no
+ * se pierde lo que la otra pantalla sí ve.
+ */
+function FranjaOmniVision({ datos, buscar }: { datos: FranjaOmni; buscar: string }) {
+    if (datos.error) {
+        return (
+            <div className="mb-3 rounded-[10px] border chip-aviso px-3.5 py-2.5 text-[12px] flex items-center gap-2">
+                <Sparkles size={13} /> OmniVision no contestó, así que la búsqueda por cómo se ve no está en esta lista ({datos.error}).
+            </div>
+        );
+    }
+    if (!datos.total) return null;
+    return (
+        <div className="mb-3 rounded-[10px] border border-border bg-card px-3.5 py-3">
+            <div className="flex items-center gap-2 flex-wrap">
+                <Sparkles size={14} className="tono-accion" />
+                <span className="text-[13px] font-semibold">OmniVision vio {datos.total} parecid{datos.total === 1 ? "o" : "os"} a «{buscar}»</span>
+                <Pista titulo="Búsqueda por cómo se ve" texto="Compara la frase con el recorte de cada cosa que vio OmniVision (SigLIP), como en OmniVision › Buscar. Son posibles, no aciertos: ordenados del más parecido al menos." ancho={300}>
+                    <span className="text-[11.5px] text-muted-foreground underline decoration-dotted underline-offset-2 cursor-help">¿cómo?</span>
+                </Pista>
+                {datos.accesos > 0 && <span className="text-[11.5px] text-muted-foreground">· {datos.accesos} acceso{datos.accesos === 1 ? "" : "s"} de esos momentos están en la tabla</span>}
+                <a href={`/admin/vision/buscar?q=${encodeURIComponent(buscar)}`} className="ml-auto text-[12px] font-semibold tono-accion hover:underline">Ver todo en Buscar</a>
+            </div>
+            <div className="mt-2.5 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:thin]">
+                {datos.objetos.map((o) => (
+                    <a key={o.id} href={`/admin/vision/buscar?q=${encodeURIComponent(buscar)}`} title={`${o.clase} · ${o.camara} · ${fechaCorta(o.momento)} ${horaSeg(o.momento)}`}
+                        className="shrink-0 w-[112px] rounded-[6px] border border-border overflow-hidden hover:border-[var(--accion)] transition-colors">
+                        <div className="h-[84px] bg-muted">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            {o.recorte && <img src={`/api/vision/imagen/${o.recorte}?w=224`} alt="" loading="lazy" className="w-full h-full object-cover" />}
+                        </div>
+                        <div className="px-1.5 py-1 text-[10.5px] leading-tight">
+                            <div className="font-semibold truncate">{o.camara}</div>
+                            <div className="text-muted-foreground tabular-nums">{fechaCorta(o.momento)} {hora(o.momento)}</div>
+                        </div>
+                    </a>
+                ))}
+            </div>
+        </div>
     );
 }
