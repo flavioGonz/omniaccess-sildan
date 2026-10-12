@@ -8,6 +8,9 @@ import { fechaCorta, hora } from "@/lib/fechas";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
 import { rasgoDe, textoVision, type FilaHistorial } from "@/components/history/TablaUnificada";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
+import { useSiluetas } from "@/lib/use-siluetas";
 /** Lo que el lector escribe cuando no pudo leer (lo mismo que NO_LEIDAS de lib/relectura, que importa prisma y no entra en el navegador). */
 const NO_LEIDAS = new Set(["NO_LEIDA", "UNKNOWN", "S/P"]);
 const esNoLeida = (p: string | null | undefined) => NO_LEIDAS.has(String(p || "").toUpperCase());
@@ -75,8 +78,8 @@ const RITMO_BENTO = 11;
  */
 const DENEGADAS_EXCEPCION = 0.5;
 
-const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
-    f: FilaHistorial; bento: boolean; grande: boolean; merodea: boolean; alAbrir: (f: FilaHistorial) => void;
+const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alAbrir }: {
+    f: FilaHistorial; bento: boolean; grande: boolean; merodea: boolean; siluetas: boolean; alAbrir: (f: FilaHistorial) => void;
 }) {
     const [cargada, setCargada] = useState(false);
     const url = getImagePath(f.foto);
@@ -95,13 +98,16 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
             className={cn("group relative overflow-hidden rounded-[8px] bg-black text-left transition-[box-shadow] duration-200 hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] outline-none [content-visibility:auto]",
                 bento ? (grande ? "col-span-2 row-span-2" : "") : "aspect-video")}>
             {url ? (
-                <>
+                /* La foto y sus siluetas en la misma caja: crecen juntas al pasar, si no se despegan. */
+                <span className="absolute inset-0 transition-transform duration-300 group-hover:scale-[1.03]">
                     {!cargada && <span className="absolute inset-0 animate-pulse bg-white/5" />}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={conAncho(url, bento ? (grande ? ANCHO.grande : ANCHO.chica) : ANCHO.grilla)} alt="" loading="lazy" decoding="async"
                         onLoad={() => setCargada(true)} onError={() => setCargada(true)}
-                        className={cn("absolute inset-0 w-full h-full object-cover transition-[opacity,transform] duration-300 group-hover:scale-[1.03]", cargada ? "opacity-100" : "opacity-0")} />
-                </>
+                        className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-300", cargada ? "opacity-100" : "opacity-0")} />
+                    {/* Lo que vio OmniVision, con el mismo recorte que la foto (cover). Sin rótulos: en una miniatura tapan. */}
+                    {siluetas && cargada && f.vision?.analisis && <CapaAnalisis analisis={f.vision.analisis} ajuste="cover" etiquetas={false} />}
+                </span>
             ) : <span className="absolute inset-0 grid place-items-center text-white/40"><Camera size={20} /></span>}
             <span className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
 
@@ -115,7 +121,10 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
                         <r.Ico size={10} />{chica ? "" : r.rotulo}
                     </span>
                 )}
-                {merodea && <span className="grid h-5 w-5 place-items-center rounded-md pleno-mal" title="Merodeo"><ShieldAlert size={11} /></span>}
+                <span className="flex items-center gap-1">
+                    {f.empresa && <LogoSobreFoto empresa={f.empresa} className={chica ? "h-4 max-w-[54px]" : "h-6 max-w-[84px]"} />}
+                    {merodea && <span className="grid h-5 w-5 place-items-center rounded-md pleno-mal" title="Merodeo"><ShieldAlert size={11} /></span>}
+                </span>
             </span>
 
             <span className="absolute bottom-1.5 left-2 right-2 min-w-0">
@@ -146,6 +155,7 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
     barra?: React.ReactNode; pie?: React.ReactNode;
 }) {
     const bento = vista === "bento";
+    const [siluetas] = useSiluetas();
     const accesos = filas.filter((f) => f.tipo === "ACCESO");
     const destacarDenegadas = !!accesos.length && accesos.filter((f) => f.decision === "DENY").length / accesos.length <= DENEGADAS_EXCEPCION;
     const centinela = useRef<HTMLDivElement>(null);
@@ -175,7 +185,7 @@ export function MosaicoHistorial({ vista, filas, hay, cargando, error, alReinten
                                     {filas.map((f, i) => {
                                         const merodea = !!(f.plate && merodeando.has(f.plate));
                                         const grande = bento && ((destacarDenegadas && f.tipo === "ACCESO" && f.decision === "DENY" && !!f.plate && !esNoLeida(f.plate)) || merodea || i % RITMO_BENTO === 0);
-                                        return <Tarjeta key={f.id} f={f} bento={bento} grande={grande} merodea={merodea} alAbrir={alAbrir} />;
+                                        return <Tarjeta key={f.id} f={f} bento={bento} grande={grande} merodea={merodea} siluetas={siluetas} alAbrir={alAbrir} />;
                                     })}
                                 </div>
                                 <div ref={centinela} className="h-12 grid place-items-center text-[12px] text-muted-foreground">

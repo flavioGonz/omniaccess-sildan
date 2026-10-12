@@ -7,7 +7,7 @@ import {
     X, ChevronLeft, ChevronRight, Camera, ZoomIn, ZoomOut, Maximize2,
     Scan, Car, Home, Phone, ParkingSquare, ShieldAlert, Star, Search as Lupa,
     Layers, UserPlus, Radio, LogIn, LogOut, Image as IconoFoto, Video, Eye, Loader2,
-    PlayCircle, Download, Archive, ShieldBan, PanelBottom, ScanFace,
+    PlayCircle, Download, Archive, ShieldBan, ScanFace, Sparkles, DoorOpen, History as Reloj,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActividadEnVivo } from "@/components/tracking/ActividadEnVivo";
@@ -18,7 +18,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { montarVivo } from "@/lib/vivo";
 import { leerRecuadro } from "@/lib/deteccion";
 import { getCarLogo } from "@/lib/car-logos";
-import { fechaCorta, horaSeg } from "@/lib/fechas";
+import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
+import { useSiluetas } from "@/lib/use-siluetas";
+import type { Analisis } from "@/lib/vision-capa";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -94,7 +98,34 @@ export type FichaMatricula = {
         unidad?: string | null; apartamento?: string | null; cochera?: string | null; rol?: string | null;
     } | null;
     vigilancia?: { etiqueta?: string | null; categoria?: string | null; color?: string | null } | null;
+    /** La visita que estaba abierta a esa hora: a qué lote iba y hasta cuándo. */
+    visita?: { tipo?: string | null; lote?: string | null; nombre?: string | null; empresa?: string | null; entra?: string; vence?: string; sale?: string | null } | null;
 };
+
+/**
+ * Lo que el visor sabe ADEMÁS de la lectura, cuando quien lo abre lo consulta (el historial,
+ * por /api/history/ficha): lo que vio OmniVision en la foto, la relectura de una NO_LEIDA y la
+ * empresa. Todo opcional: las pantallas que no lo pasan ven el visor como siempre.
+ */
+export type DatosVisor = {
+    /** La chapa con la que se armó la ficha (la releída, si `porRelectura`). */
+    plate?: string | null;
+    porRelectura?: boolean;
+    ficha?: FichaMatricula | null;
+    vision?: Analisis | null;
+    relectura?: {
+        estado: string; plate: string | null; confianza: number | null; vehiculo?: string | null;
+        recorte?: string | null; chapa?: string | null; otras?: { plate: string; confianza: number }[];
+    } | null;
+    empresa?: { nombre: string; logo: string; transparente: boolean } | null;
+};
+
+/**
+ * Lo que el equipo escribió como marca cuando no la reconoció: «Brand 1723», «Unknown», un
+ * código suelto. Dibujado como título parecía una marca de verdad.
+ */
+const SIN_DATO = /^(brand\s*)?\d+$|^unknown$|^desconocid[oa]$|^other$|^otro$/i;
+const dato = (v?: string | null) => (v && !SIN_DATO.test(v.trim()) ? v : null);
 
 /**
  * Visor del cuadro de un avistamiento.
@@ -319,9 +350,14 @@ export function VisorCuadro({
     historial, cargandoHistorial,
     onGrabacion, hrefClip, onClip, onExportar, onListaNegra, enListaNegra, ocupadoLista,
     hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar,
+    datos, cargandoFicha,
 }: {
     fila: CuadroAvistamiento;
     ficha?: FichaMatricula | null;
+    /** OmniVision, relectura y empresa (ver DatosVisor). */
+    datos?: DatosVisor | null;
+    /** La ficha se está consultando: no decir «no figura en el padrón» antes de saberlo. */
+    cargandoFicha?: boolean;
     /** Dar de alta esta matrícula. Sin esto, los campos vacíos solo informan. */
     onRegistrar?: (plate: string) => void;
     /** Contra qué minutos se mide el anillo de la estadía. Sin esto el anillo barre el minuto. */
@@ -359,25 +395,11 @@ export function VisorCuadro({
     const [pos, setPos] = useState({ x: 0, y: 0 });
     const [verContorno, setVerContorno] = useState(true);
     /**
-     * El cajón de los pasos anteriores.
-     *
-     * El modal viejo de acceso tenía tres solapas arriba: perfil, historial y datos. Las
-     * tres se fueron, cada una por su motivo.
-     *
-     * El **perfil** ya es la ficha de la izquierda: ponerlo también en una solapa era
-     * mostrarlo dos veces.
-     *
-     * Los **datos de la lectura** llegué a hacerlos y los saqué. Eran una lista de
-     * dieciséis renglones que tapaba media ventana para decir, sobre todo, lo que ya está
-     * escrito debajo de la chapa: «90% confianza · 2 cuadros · 3,3% del cuadro». Un panel
-     * grande que repite tres números chicos no agrega nada; ocupa. Lo único que no estaba
-     * arriba —el recuadro en crudo, el identificador del equipo— es material de depuración,
-     * y para eso está la base.
-     *
-     * Queda el **historial**, que es lo único que el visor no puede mostrar de otra forma, y
-     * baja desde abajo en vez de partir la ventana con solapas en el borde superior.
+     * Las siluetas de OmniVision encima de la foto. La misma preferencia que las miniaturas del
+     * historial (lib/use-siluetas): apagarlas acá las apaga también atrás.
      */
-    const [cajon, setCajon] = useState<"" | "historial">("");
+    const [verSiluetas, setVerSiluetas] = useSiluetas();
+    const vision = datos?.vision && datos.vision.objetos?.length ? datos.vision : null;
     const [copiada, setCopiada] = useState(false);
     /**
      * La proporcion de la foto. Arranca en 16:9 — que es lo que entrega cualquier camara
@@ -512,11 +534,12 @@ export function VisorCuadro({
             if (e.key === "-" || e.key === "_") zoomEn(escala / 1.5);
             if (e.key === "0") reiniciar();
             if (e.key === "c" || e.key === "C") setVerContorno((v) => !v);
+            if ((e.key === "o" || e.key === "O") && vision) setVerSiluetas(!verSiluetas);
             if ((e.key === "p" || e.key === "P") && recuadro) irALaChapa();
         };
         window.addEventListener("keydown", tecla);
         return () => window.removeEventListener("keydown", tecla);
-    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro]);
+    }, [hayAnterior, haySiguiente, onAnterior, onSiguiente, onCerrar, acercado, escala, zoomEn, reiniciar, irALaChapa, recuadro, vision, verSiluetas, setVerSiluetas]);
 
     // La rueda se escucha a mano y no con onWheel: React lo registra como pasivo y no
     // deja frenar el desplazamiento de la página detrás del visor.
@@ -580,11 +603,11 @@ export function VisorCuadro({
      * el administrador y "Peugeot gris" adivinado por una cámara no valen lo mismo.
      */
     const meta = useMemo(() => leerDetalles(fila.detalles), [fila.detalles]);
-    const marca = ficha?.marca || meta.Marca || null;
-    const modelo = ficha?.modelo || meta.Modelo || null;
-    const color = ficha?.color || meta.Color || null;
-    const tipoVeh = ficha?.tipo || meta.Tipo || null;
-    const deLaCamara = !ficha?.marca && !!meta.Marca;
+    const marca = ficha?.marca || dato(meta.Marca);
+    const modelo = ficha?.modelo || dato(meta.Modelo);
+    const color = ficha?.color || dato(meta.Color);
+    const tipoVeh = ficha?.tipo || dato(meta.Tipo);
+    const deLaCamara = !ficha?.marca && !!dato(meta.Marca);
 
     const logo = getCarLogo(marca);
     const tono = tonoDelEstado(fila, ficha);
@@ -628,7 +651,7 @@ export function VisorCuadro({
                 etiqueta={esAcceso ? (salida ? "Salió" : "Entró") : momentoEst.etiqueta}
                 sub={vig?.etiqueta
                     || (fila.decision === "DENY" ? "No abrió" : fila.decision === "GRANT" ? "Abrió" : "")
-                    || (conocida ? "En el padrón" : "Sin registrar")}
+                    || (cargandoFicha ? "" : conocida ? "En el padrón" : "Sin registrar")}
             />
         </motion.div>
     );
@@ -765,6 +788,12 @@ export function VisorCuadro({
                             <ContornoDeteccion bbox={fila.bbox} plate={fila.plate} escala={escala} />
                         )}
 
+                        {/* Lo que vio OmniVision: siluetas y rótulos. La caja es exactamente la
+                            foto (misma proporción), así que el ajuste «contain» cae justo. */}
+                        {modo === "foto" && verSiluetas && vision && (
+                            <CapaAnalisis analisis={vision} atributos className="z-[6]" />
+                        )}
+
                         {/* La cápsula va DENTRO del transform para seguir al auto mientras
                             se acerca, pero con la escala invertida: si creciera con el zoom,
                             a 8x taparía media foto. */}
@@ -820,6 +849,18 @@ export function VisorCuadro({
                                 {fila.cameraName || fila.deviceId || "Cámara desconocida"}
                             </span>
                         </span>
+                        {vision && modo === "foto" && (
+                            <button type="button" onClick={() => setVerSiluetas(!verSiluetas)} aria-pressed={verSiluetas}
+                                title={verSiluetas ? "Ocultar las siluetas de OmniVision  ( O )" : "Mostrar lo que detectó OmniVision  ( O )"}
+                                className={cn("px-3 py-1.5 rounded-full backdrop-blur-xl border flex items-center gap-1.5 text-[11px] font-semibold transition-colors",
+                                    verSiluetas ? "bg-[var(--accion)] border-transparent text-white" : "bg-black/45 border-white/15 text-white/80 hover:text-white")}>
+                                <Sparkles size={12} />
+                                OmniVision · {vision.objetos.length}
+                                <span className={cn("ml-0.5 w-6 h-3.5 rounded-full relative transition-colors", verSiluetas ? "bg-white/35" : "bg-white/15")}>
+                                    <span className={cn("absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all", verSiluetas ? "left-3" : "left-0.5")} />
+                                </span>
+                            </button>
+                        )}
                         {vig && (
                             <span className="px-3 py-1.5 rounded-full backdrop-blur-xl border flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider"
                                 style={{
@@ -854,11 +895,17 @@ export function VisorCuadro({
                 </div>
 
                 {/* ── IZQUIERDA · LA FICHA ─────────────────────────────────────────── */}
+                {/* Todo a la vista y nada en cajones: con OmniVision y los pasos anteriores la
+                    ficha puede pasar del alto de la ventana, así que se desplaza (centrada si entra). */}
                 <div className={cn(
-                    "absolute left-5 md:left-8 top-1/2 -translate-y-1/2 z-20 max-w-[min(420px,42vw)] flex flex-col gap-3.5 transition-opacity duration-200",
+                    "absolute left-5 md:left-8 top-16 bottom-12 z-20 w-[min(440px,44vw)] overflow-y-auto overscroll-contain [scrollbar-width:none] flex flex-col transition-opacity duration-200",
                     acercado && "opacity-0 pointer-events-none",
                 )}>
-                    <ChapaMercosur plate={fila.plate} conocida={conocida} onCopiar={copiar} />
+                <div className="my-auto flex flex-col gap-3.5 py-2">
+                    <div className="flex items-center gap-3">
+                        <ChapaMercosur plate={fila.plate} conocida={conocida && !datos?.porRelectura} onCopiar={copiar} />
+                        {datos?.empresa && <LogoSobreFoto empresa={datos.empresa} className="h-9 max-w-[120px]" />}
+                    </div>
 
                     {/* Qué tan buena fue la lectura. Va pegado a la chapa y no en un rincón
                         porque es lo que dice si hay que creerle a la chapa de arriba. */}
@@ -930,7 +977,7 @@ export function VisorCuadro({
                                 {[modelo, color, tipoVeh].filter(Boolean).join(" · ") || "Modelo y color sin cargar"}
                                 <span className="text-white/25 mx-1.5">•</span>
                                 <span className="font-semibold" style={{ color: "color-mix(in oklab, var(--visor-tono) 70%, #fff)" }}>
-                                    {conocida ? "En el padrón" : "No figura en el padrón"}
+                                    {cargandoFicha ? "Consultando el padrón…" : conocida ? "En el padrón" : "No figura en el padrón"}
                                 </span>
                                 {/* De dónde salió el dato. "Peugeot gris" cargado por el
                                     administrador y "Peugeot gris" adivinado por una cámara
@@ -951,7 +998,17 @@ export function VisorCuadro({
                             sufijo={dueno?.cochera ? `Cochera ${dueno.cochera}` : null} />
                         <Etiqueta icono={Phone} valor={dueno?.telefono} falta="Sin teléfono" />
                         {!dueno?.cochera && <Etiqueta icono={ParkingSquare} valor={null} falta="Sin cochera" />}
+                        {ficha?.visita && (
+                            <Etiqueta icono={DoorOpen} falta="Sin visita"
+                                valor={[ficha.visita.tipo, ficha.visita.lote ? `a ${ficha.visita.lote}` : null, ficha.visita.nombre].filter(Boolean).join(" · ") || "Visita"}
+                                sufijo={ficha.visita.sale ? `salió ${hora(new Date(ficha.visita.sale))}` : ficha.visita.vence ? `hasta ${hora(new Date(ficha.visita.vence))}` : null} />
+                        )}
                     </div>
+                    {datos?.porRelectura && datos.plate && (
+                        <p className="text-[11.5px] text-white/60 visor-sombra-texto -mt-1.5">
+                            La cámara no leyó la chapa: estos datos son de <b className="text-white/90 tracking-wider">{datos.plate}</b>, la que releyó OmniVision. Confirmalo mirando la foto.
+                        </p>
+                    )}
 
                     {/* El hueco tiene que poder llenarse desde donde se ve. Mandar a buscar
                         el alta en otra pantalla es la forma más segura de que la matrícula
@@ -992,12 +1049,6 @@ export function VisorCuadro({
                                 {enListaNegra ? "Quitar de la lista" : "Lista negra"}
                             </Pildora>
                         )}
-                        {historial && (
-                            <Pildora icono={PanelBottom} onClick={() => setCajon((c) => c ? "" : "historial")}
-                                encendida={!!cajon} title="Las veces anteriores que se vio esta matrícula">
-                                {cajon ? "Cerrar" : `Pasos anteriores${historial.length ? ` (${historial.length})` : ""}`}
-                            </Pildora>
-                        )}
                     </div>
 
                     {veredicto && (
@@ -1008,6 +1059,11 @@ export function VisorCuadro({
                             <span className="font-medium">{veredicto.texto}</span>
                         </div>
                     )}
+
+                    {(vision || datos?.relectura) && <SeccionOmniVision vision={vision} relectura={datos?.relectura || null} />}
+
+                    {historial && <PasosAnteriores historial={historial} cargando={cargandoHistorial} />}
+                </div>
                 </div>
 
                 {/* ── DERECHA · LOS CONTROLES, EN VERTICAL ─────────────────────────── */}
@@ -1055,64 +1111,6 @@ export function VisorCuadro({
                     </button>
                 </div>
 
-                {/* ── EL CAJÓN · los pasos anteriores y los datos crudos ───────────── */}
-                <AnimatePresence>
-                    {cajon && (
-                        <motion.div
-                            initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
-                            transition={{ type: "spring", stiffness: 380, damping: 36 }}
-                            className="absolute inset-x-0 bottom-0 z-40 visor-panel rounded-t-2xl max-h-[58%] flex flex-col">
-
-                            <div className="shrink-0 flex items-center gap-1 px-3 pt-2.5 pb-2">
-                                <span className="px-2 text-[12px] font-semibold text-white/80">
-                                    Pasos anteriores{historial?.length ? ` · ${historial.length}` : ""}
-                                </span>
-                                <button type="button" onClick={() => setCajon("")} title="Cerrar"
-                                    className="ml-auto w-8 h-8 rounded-lg text-white/60 hover:text-white hover:bg-white/10 flex items-center justify-center transition-colors">
-                                    <X size={15} />
-                                </button>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto px-3 pb-3">
-                                {cajon === "historial" && (
-                                    cargandoHistorial ? (
-                                        <div className="py-8 text-center text-[12px] text-white/50">Buscando pasos anteriores…</div>
-                                    ) : !historial?.length ? (
-                                        <div className="py-8 text-center text-[12px] text-white/50">
-                                            Es la primera vez que se ve esta matrícula.
-                                        </div>
-                                    ) : (
-                                        <ul className="divide-y divide-white/10">
-                                            {historial.slice(0, 40).map((h, i) => (
-                                                <li key={h.id || i} className="flex items-center justify-between gap-4 py-2">
-                                                    <span className="flex items-center gap-2 min-w-0">
-                                                        {h.direccion === "EXIT"
-                                                            ? <LogOut size={13} className="text-white/45 shrink-0" />
-                                                            : <LogIn size={13} className="text-white/45 shrink-0" />}
-                                                        <span className="text-[12.5px] text-white/85 truncate">
-                                                            {h.camara || "Cámara sin nombre"}
-                                                        </span>
-                                                        {h.decision && (
-                                                            <span className={cn("text-[10px] font-bold uppercase tracking-wider",
-                                                                h.decision === "GRANT" ? "visor-bien" : "visor-mal")}>
-                                                                {h.decision === "GRANT" ? "abrió" : "no abrió"}
-                                                            </span>
-                                                        )}
-                                                    </span>
-                                                    <span className="text-[11.5px] text-white/55 tabular-nums shrink-0">
-                                                        {fechaCorta(h.momento)} · {horaSeg(h.momento)}
-                                                    </span>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    )
-                                )}
-
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-
                 {/* ── ABAJO · cuándo, y con qué se está mirando ────────────────────── */}
                 <div className="absolute bottom-0 inset-x-0 z-30 flex items-center justify-between px-5 md:px-7 py-3.5 pointer-events-none text-[11px] text-white/50 tabular-nums">
                     <span className="flex items-center gap-2.5">
@@ -1141,6 +1139,104 @@ export function VisorCuadro({
                     </span>
                 </div>
             </motion.div>
+        </div>
+    );
+}
+
+
+/** Un rótulo de sección de la ficha, sobre la foto. */
+function TituloSeccion({ icono: Ico, children }: { icono: any; children: React.ReactNode }) {
+    return (
+        <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/55 visor-sombra-texto">
+            <Ico size={12} /> {children}
+        </div>
+    );
+}
+
+/**
+ * Lo que vio OmniVision en la foto, en palabras: qué hay (con color y carrocería cuando los
+ * reconoció con seguridad) y, si la cámara no leyó la chapa, qué leyó OmniVision recortando el
+ * vehículo. Va en la ficha y no en un cajón: es lo primero que se quiere saber de una NO_LEIDA.
+ */
+function SeccionOmniVision({ vision, relectura }: { vision: Analisis | null; relectura: DatosVisor["relectura"] }) {
+    const objetos = [...(vision?.objetos || [])].sort((a, b) => b.confianza - a.confianza);
+    const leyo = relectura && relectura.plate && (relectura.estado === "LEIDA" || relectura.estado === "DUDOSA");
+    return (
+        <div className="flex flex-col gap-2">
+            <TituloSeccion icono={Sparkles}>Lo que vio OmniVision</TituloSeccion>
+            {objetos.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                    {objetos.slice(0, 8).map((o, i) => {
+                        const attrs = (o.atributos || []).filter((a) => !a.dudoso).map((a) => a.valor);
+                        return (
+                            <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-white/10 backdrop-blur-xl border border-white/15 text-[11.5px]">
+                                <span className="font-semibold text-white/95 capitalize">{o.nombre}</span>
+                                {attrs.length > 0 && <span className="text-white/65">{attrs.join(" · ")}</span>}
+                                <span className="text-white/45 tabular-nums">{Math.round(o.confianza * 100)}%</span>
+                            </span>
+                        );
+                    })}
+                    {objetos.length > 8 && <span className="text-[11px] text-white/50 self-center">y {objetos.length - 8} más</span>}
+                </div>
+            )}
+            {relectura && (
+                <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-black/45 backdrop-blur-xl border border-white/15">
+                    {relectura.chapa && (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={relectura.chapa} alt="" className="h-9 w-auto max-w-[120px] rounded-md object-contain bg-black border border-white/20" />
+                    )}
+                    <div className="min-w-0 text-[12px] leading-snug">
+                        {leyo ? (
+                            <>
+                                <div className="text-white/90">Releyó la chapa: <b className="tracking-wider">{relectura.plate}</b>
+                                    {relectura.confianza != null && <span className="text-white/55 tabular-nums"> · {Math.round(relectura.confianza * 100)}%</span>}
+                                </div>
+                                <div className={relectura.estado === "DUDOSA" ? "visor-aviso" : "text-white/55"}>
+                                    {relectura.estado === "DUDOSA" ? "Dudosa: confirmala mirando la foto." : "Sugerencia: no cambia el evento ni la barrera."}
+                                </div>
+                            </>
+                        ) : (
+                            <div className="text-white/60">
+                                {relectura.estado === "SIN_CHAPA" ? "Recortó el vehículo pero no encontró la chapa."
+                                    : relectura.estado === "SIN_VEHICULO" ? "No encontró un vehículo para releer."
+                                        : "No pudo releer la chapa."}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Los pasos anteriores de la chapa, a la vista en la ficha. Estaban detrás de un botón que
+ * abría un cajón desde abajo y tapaba la foto: lo que se quiere es leerlos al lado de la captura.
+ */
+function PasosAnteriores({ historial, cargando }: { historial: NonNullable<Parameters<typeof VisorCuadro>[0]["historial"]>; cargando?: boolean }) {
+    return (
+        <div className="flex flex-col gap-1.5">
+            <TituloSeccion icono={Reloj}>Pasos anteriores{historial.length ? ` · ${historial.length}` : ""}</TituloSeccion>
+            {cargando ? <div className="text-[12px] text-white/50">Buscando…</div>
+                : !historial.length ? <div className="text-[12px] text-white/50 visor-sombra-texto">Es la primera vez que se ve esta matrícula en lo cargado.</div>
+                    : (
+                        <ul className="rounded-xl bg-black/40 backdrop-blur-xl border border-white/10 divide-y divide-white/10 max-h-[180px] overflow-y-auto [scrollbar-width:thin]">
+                            {historial.slice(0, 40).map((h, i) => (
+                                <li key={h.id || i} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                                    <span className="flex items-center gap-2 min-w-0">
+                                        {h.direccion === "EXIT" ? <LogOut size={12} className="text-white/45 shrink-0" /> : <LogIn size={12} className="text-white/45 shrink-0" />}
+                                        <span className="text-[12px] text-white/85 truncate">{h.camara || "Cámara sin nombre"}</span>
+                                        {h.decision && (
+                                            <span className={cn("text-[9.5px] font-bold uppercase tracking-wider shrink-0", h.decision === "GRANT" ? "visor-bien" : "visor-mal")}>
+                                                {h.decision === "GRANT" ? "abrió" : "no abrió"}
+                                            </span>
+                                        )}
+                                    </span>
+                                    <span className="text-[11px] text-white/55 tabular-nums shrink-0">{fechaCorta(h.momento)} · {horaSeg(h.momento)}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
         </div>
     );
 }

@@ -19,7 +19,8 @@ import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 import { Cronometro, useTranscurrido, leerDuracion } from "@/components/tracking/Cronometro";
 import { Timer } from "lucide-react";
 import { MosaicoHistorial, type Vista } from "@/components/history/MosaicoHistorial";
-import type { VisionFila } from "@/lib/historial-vision";
+import type { EmpresaFila, VisionFila } from "@/lib/historial-vision";
+import type { DatosVisor } from "@/components/VisorCuadro";
 import { getImagePath } from "@/lib/image-path";
 import { Sparkles } from "lucide-react";
 
@@ -48,6 +49,8 @@ export type FilaHistorial = {
     raw: any | null;
     /** Lo que vio OmniVision en la foto, si la lectura ya se analizó (sólo accesos). */
     vision?: VisionFila | null;
+    /** La empresa (delivery, taxi…) de esa matrícula a esa hora, con su logo. */
+    empresa?: EmpresaFila | null;
 };
 
 const POR_PAGINA = 60;
@@ -361,31 +364,29 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     }, [filas, merodeo, color, tipoVeh, camaras]);
 
     /**
-     * La ficha del vehículo, armada con lo que la fila ya trae.
+     * La ficha del visor: padrón, OmniVision y empresa, pedidos al abrir (/api/history/ficha).
      *
-     * El historial no consulta el padrón — no lo necesita para su tabla —, pero de un
-     * evento de acceso sí sabe a quién se le abrió y qué reconoció el equipo. Con eso
-     * alcanza para que el visor muestre la ficha en vez de cuatro etiquetas fantasma.
+     * Se armaba acá con lo que traía la fila, y mentía: la marca que creyó leer la CÁMARA
+     * («Brand 1723») pasaba por dato del padrón y el visor decía «En el padrón» sobre una
+     * NO_LEIDA; del dueño sólo estaba el nombre, así que lote, teléfono y cochera salían
+     * vacíos aunque estuvieran cargados. Ahora se consulta el padrón de verdad, y si la cámara
+     * no leyó pero OmniVision releyó la chapa, la ficha es la de la chapa releída.
      */
-    const fichaDeLaFila = useCallback((f: FilaHistorial) => {
-        const m = parseVehicleMeta(f.detalles || "");
-        const u = f.raw?.user;
-        if (!f.persona && !u && !m?.hasAny) return null;
-        return {
-            marca: m?.brand || null,
-            modelo: m?.model || null,
-            color: m?.color || null,
-            tipo: m?.typeLabel || m?.type || null,
-            dueno: (f.persona || u) ? {
-                id: u?.id,
-                nombre: f.persona || u?.name || null,
-                telefono: u?.phone || null,
-                unidad: u?.unit?.name || null,
-                apartamento: u?.apartment || null,
-                cochera: u?.parkingSlot?.code || null,
-            } : null,
-        };
-    }, []);
+    const [datosVisor, setDatosVisor] = useState<{ id: string; datos: DatosVisor | null; cargando: boolean } | null>(null);
+    useEffect(() => {
+        if (!viendo) { setDatosVisor(null); return; }
+        let vivo = true;
+        const id = viendo.id;
+        setDatosVisor({ id, datos: null, cargando: true });
+        const q = new URLSearchParams({ momento: viendo.momento });
+        if (viendo.plate) q.set("plate", viendo.plate);
+        if (viendo.tipo === "ACCESO" && viendo.raw?.id) q.set("evento", viendo.raw.id);
+        fetch(`/api/history/ficha?${q}`, { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (vivo) setDatosVisor({ id, datos: j, cargando: false }); })
+            .catch(() => { if (vivo) setDatosVisor({ id, datos: null, cargando: false }); });
+        return () => { vivo = false; };
+    }, [viendo]);
 
     /**
      * Los pasos anteriores de esa chapa — sacados de la tabla que ya está cargada.
@@ -474,6 +475,11 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             celda: (f) => (
                 <div className="flex items-center gap-2">
                     {f.plate ? <Matricula p={f.plate} /> : <span className="text-[13px] text-muted-foreground">{f.persona || "—"}</span>}
+                    {f.empresa && (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={f.empresa.logo} alt={f.empresa.nombre} title={f.empresa.nombre}
+                            className={cn("h-5 w-auto max-w-[64px] object-contain shrink-0", !f.empresa.transparente && "rounded bg-white px-1")} />
+                    )}
                     {f.plate && f.persona && <span className="text-[11px] text-muted-foreground truncate max-w-[150px]">{f.persona}</span>}
                     {f.plate && (
                         <ChevronRight className={cn("w-3.5 h-3.5 text-muted-foreground/45 shrink-0 transition-transform", abierta === f.id && "rotate-90")} />
@@ -683,7 +689,14 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                         permanenciaMs: viendo.permanencia != null ? viendo.permanencia * 1000 : null,
                         rostroUrl: viendo.raw?.user?.cara || null,
                     }}
-                    ficha={fichaDeLaFila(viendo)}
+                    ficha={datosVisor?.datos?.ficha ?? null}
+                    datos={{
+                        ...(datosVisor?.datos || {}),
+                        // Mientras llega, lo que ya trae la fila: las siluetas no esperan a la ficha.
+                        vision: datosVisor?.datos?.vision ?? viendo.vision?.analisis ?? null,
+                        empresa: datosVisor?.datos?.empresa ?? viendo.empresa ?? null,
+                    }}
+                    cargandoFicha={!!datosVisor?.cargando}
                     historial={historialDe(viendo)}
                     onCerrar={() => setViendo(null)}
                 />

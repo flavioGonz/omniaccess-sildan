@@ -12,6 +12,9 @@ import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { TablaUnificada } from "@/components/history/TablaUnificada";
 import { BarraFiltros, SIN_FILTROS, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/BarraFiltros";
 import { SelectorVista, useVista } from "@/components/history/MosaicoHistorial";
+import { useSiluetas } from "@/lib/use-siluetas";
+import { Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useSearchParams } from "next/navigation";
 import { horaSeg } from "@/lib/fechas";
 
@@ -37,6 +40,7 @@ export default function HistoryPage() {
     const [f, setF] = useState<FiltrosHistorial>(SIN_FILTROS);
     const cambiar = useCallback<CambiarFiltros>((clave, valor) => setF((p) => ({ ...p, [clave]: valor })), []);
     const [vista, setVista] = useVista();
+    const [siluetas, setSiluetas] = useSiluetas();
 
     const [activeMode, setActiveMode] = useState<"LPR" | "FACE" | "QUEUE" | null>(null);
     /** Hasta saber qué módulos hay no se ofrece el filtro de identificación: aparecía y se iba en el primer segundo. */
@@ -150,6 +154,16 @@ export default function HistoryPage() {
                 </div>
 
                 <div className="flex items-center justify-start lg:justify-end gap-1.5">
+                    {/* Las siluetas de OmniVision sobre las capturas: sólo en grilla y bento (en la lista la foto es de 80 px). */}
+                    {vista !== "lista" && (
+                        <Pista titulo="Siluetas de OmniVision" texto="Dibuja sobre cada captura lo que detectó OmniVision (personas, vehículos, animales). Es la misma opción que el interruptor del visor del evento.">
+                            <button type="button" onClick={() => setSiluetas(!siluetas)} aria-pressed={siluetas} aria-label="Siluetas de OmniVision"
+                                className={cn("h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",
+                                    siluetas ? "accion border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                                <Sparkles size={14} /> Siluetas
+                            </button>
+                        </Pista>
+                    )}
                     <SelectorVista vista={vista} alCambiar={setVista} />
                     <span className="w-px h-6 bg-border mx-1" />
                     <Pista titulo="Exportar" texto="Descarga los registros filtrados en planilla, para compartir o archivar.">

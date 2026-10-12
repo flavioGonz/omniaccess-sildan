@@ -1,3 +1,5 @@
+import type { Analisis } from "@/lib/vision-capa";
+
 /**
  * El filtro OmniVision del historial: qué vio la inteligencia en la foto de cada lectura.
  *
@@ -56,5 +58,17 @@ export function clasesDe(ids: string[]): { clases: string[]; grupos: string[]; r
     };
 }
 
-/** Lo que vio OmniVision en una lectura, como lo manda la API con cada fila de acceso. */
-export type VisionFila = { vio: { clase: string; nombre: string; n: number }[]; releida?: { plate: string | null; estado: string } | null };
+/**
+ * Lo que vio OmniVision en una lectura, como lo manda la API con cada fila de acceso: el resumen
+ * (qué clases y cuántas), la relectura si hubo, y el análisis entero (siluetas, cajas, atributos)
+ * para dibujarlo sobre la captura. Pesa ~1,5 KB por lectura (medido el 12/10): sesenta filas son
+ * ~90 KB, y a cambio las miniaturas muestran las siluetas sin pedir nada más.
+ */
+export type VisionFila = {
+    vio: { clase: string; nombre: string; n: number }[];
+    releida?: { plate: string | null; estado: string } | null;
+    analisis?: Analisis | null;
+};
+
+/** La empresa (delivery, taxi…) de la matrícula de una fila, con su logo. */
+export type EmpresaFila = { nombre: string; logo: string; transparente: boolean };

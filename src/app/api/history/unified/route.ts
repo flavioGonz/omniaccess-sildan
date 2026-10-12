@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 import { limitesDelDia } from "@/lib/fechas";
 import { Prisma } from "@prisma/client";
-import { clasesDe, RELECTURA_CON_CHAPA, VISION_IDS_MAX, type VisionFila } from "@/lib/historial-vision";
+import { clasesDe, RELECTURA_CON_CHAPA, VISION_IDS_MAX, type EmpresaFila, type VisionFila } from "@/lib/historial-vision";
+import { empresasDeLecturas } from "@/lib/empresas-servidor";
+import { esNoLeida } from "@/lib/relectura";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +59,8 @@ type Fila = {
     raw: any | null;
     /** Lo que vio OmniVision en la foto (sólo accesos ya analizados). */
     vision?: VisionFila | null;
+    /** La empresa (delivery, taxi…) de esa matrícula a esa hora, con su logo. */
+    empresa?: EmpresaFila | null;
 };
 
 /**
@@ -108,7 +112,12 @@ async function visionDe(ids: string[]): Promise<Map<string, VisionFila>> {
             const c = cuenta.get(k) || { clase: k, nombre: String(o?.nombre || k), n: 0 };
             c.n++; cuenta.set(k, c);
         }
-        m.set(a.accessEventId, { vio: [...cuenta.values()].sort((x, y) => y.n - x.n), releida: null });
+        const an = a.analisis as any;
+        m.set(a.accessEventId, {
+            vio: [...cuenta.values()].sort((x, y) => y.n - x.n), releida: null,
+            // Entero, para dibujar las siluetas sobre la captura (si trae medidas: sin ellas no hay dónde ponerlas).
+            analisis: an?.ancho && an?.alto ? { ancho: an.ancho, alto: an.alto, objetos: an.objetos || [] } : null,
+        });
     }
     for (const r of relecturas) m.set(r.accessEventId, { ...(m.get(r.accessEventId) || { vio: [] }), releida: { plate: r.plate, estado: r.estado } });
     return m;
@@ -296,6 +305,10 @@ export async function GET(req: NextRequest) {
 
     const vistas = await visionDe(pagina.filter((f) => f.tipo === "ACCESO" && f.raw?.id).map((f) => f.raw.id)).catch(() => new Map<string, VisionFila>());
     for (const f of pagina) if (f.tipo === "ACCESO" && f.raw?.id) f.vision = vistas.get(f.raw.id) || null;
+    // El logo de la empresa: de la visita abierta a esa hora, o del proveedor dueño del vehículo.
+    const conChapa = pagina.filter((f) => f.plate && !esNoLeida(f.plate));
+    const empresas = await empresasDeLecturas(conChapa.map((f) => ({ clave: f.id, plate: f.plate as string, momento: new Date(f.momento) }))).catch(() => new Map());
+    for (const f of conChapa) f.empresa = empresas.get(f.id) || null;
 
     /**
      * Permanencia de las salidas: cuánto estuvo adentro ese mismo vehículo.
