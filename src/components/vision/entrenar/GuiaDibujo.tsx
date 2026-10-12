@@ -2,6 +2,7 @@
 
 import { Check, ChevronDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CAJAS_MINIMO } from "@/lib/detector-propio";
 
 /**
  * «Cómo dibujar bien», con dibujos. Un recuadro mal hecho enseña mal y no hay medición que lo
@@ -16,7 +17,7 @@ import { cn } from "@/lib/utils";
 type Rect = [number, number, number, number]; // x, y, ancho, alto en el viewBox 160×100
 
 /** El objeto de ejemplo: un contenedor de basura con tapa y ruedas. */
-function Contenedor({ x, y, e = 1, tono = "var(--muted-foreground)" }: { x: number; y: number; e?: number; tono?: string }) {
+export function Contenedor({ x, y, e = 1, tono = "var(--muted-foreground)" }: { x: number; y: number; e?: number; tono?: string }) {
     const w = 46 * e, h = 34 * e;
     return (
         <g>
@@ -27,7 +28,7 @@ function Contenedor({ x, y, e = 1, tono = "var(--muted-foreground)" }: { x: numb
         </g>
     );
 }
-function Cono({ x, y, tono = "var(--muted-foreground)" }: { x: number; y: number; tono?: string }) {
+export function Cono({ x, y, tono = "var(--muted-foreground)" }: { x: number; y: number; tono?: string }) {
     return (
         <g>
             <path d={`M${x} ${y} L${x + 7} ${y + 26} L${x - 7} ${y + 26} Z`} fill={tono} />
@@ -38,7 +39,7 @@ function Cono({ x, y, tono = "var(--muted-foreground)" }: { x: number; y: number
 function Recuadro({ r, ok }: { r: Rect; ok: boolean }) {
     return <rect x={r[0]} y={r[1]} width={r[2]} height={r[3]} rx={1.5} fill="none" stroke={ok ? "var(--bien)" : "var(--mal)"} strokeWidth={2} strokeDasharray={ok ? undefined : "4 3"} />;
 }
-function Escena({ children, noche }: { children: React.ReactNode; noche?: boolean }) {
+export function Escena({ children, noche }: { children: React.ReactNode; noche?: boolean }) {
     return (
         <svg viewBox="0 0 160 100" className="w-full h-auto block" role="img">
             <rect width={160} height={100} fill={noche ? "#0b0f19" : "var(--muted)"} />
@@ -127,5 +128,52 @@ export function GuiaDibujo({ abierta, alCambiar }: { abierta: boolean; alCambiar
                 </div>
             )}
         </section>
+    );
+}
+
+/**
+ * «Un modelo, varias clases»: lo que no se entendía al empezar. ¿Esto es un objeto? ¿Un conjunto
+ * por objeto? No: es UN detector propio que aprende todas las clases juntas. Cada clase es un
+ * tipo de cosa; una misma foto puede tener recuadros de varias clases; y al entrenar sale un
+ * solo modelo que las encuentra a todas. Con dibujo, porque dicho en abstracto no se entiende.
+ */
+const C_A = "var(--accion-en-oscuro, #60a5fa)";
+const C_B = "#f59e0b";
+function CajaRotulada({ r, color, texto }: { r: Rect; color: string; texto: string }) {
+    return (
+        <g>
+            <rect x={r[0]} y={r[1]} width={r[2]} height={r[3]} rx={1.5} fill="none" stroke={color} strokeWidth={2} />
+            <rect x={r[0]} y={r[1] - 9} width={texto.length * 4.6 + 6} height={9} rx={1.5} fill={color} />
+            <text x={r[0] + 3} y={r[1] - 2.3} fontSize={7} fontWeight={700} fill="#0b0f19">{texto}</text>
+        </g>
+    );
+}
+
+export function UnModeloVariasClases() {
+    return (
+        <div className="rounded-[10px] border border-border bg-card p-4 grid grid-cols-1 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)_minmax(0,1fr)] gap-4 items-start">
+            <figure className="rounded-[10px] border border-border overflow-hidden">
+                <Escena>
+                    <Contenedor x={18} y={42} />
+                    <Cono x={92} y={53} /><Cono x={128} y={53} />
+                    <CajaRotulada r={[14, 40, 54, 44]} color={C_A} texto="Basurero" />
+                    <CajaRotulada r={[82, 51, 20, 31]} color={C_B} texto="Cono" />
+                    <rect x={118} y={51} width={20} height={31} rx={1.5} fill="none" stroke={C_B} strokeWidth={2} />
+                </Escena>
+                <figcaption className="px-2.5 py-2 text-[11.5px] text-muted-foreground leading-snug">Una foto, tres recuadros de dos clases. Se dibujan todos los que se vean.</figcaption>
+            </figure>
+            <div className="space-y-2 text-[12.5px] leading-snug">
+                <div className="text-[13px] font-bold">Un modelo, varias clases</div>
+                <p className="text-muted-foreground">Esto no es un conjunto por objeto: es <b className="text-foreground">un solo detector propio</b> que aprende todas las clases juntas. Cada <b className="text-foreground">clase</b> es un tipo de cosa (Basurero, Cono, Carretilla).</p>
+                <p className="text-muted-foreground">Las fotos son comunes: en cada una se dibuja un recuadro por objeto, eligiendo su clase. Al entrenar sale <b className="text-foreground">un modelo</b> que las encuentra a todas, y en las cámaras aparecen como objetos más, al lado de personas y autos.</p>
+                <p className="text-muted-foreground">Cada clase necesita sus propios recuadros (mínimo {CAJAS_MINIMO}). Si agregás una clase después, se vuelve a entrenar y el modelo nuevo trae todas.</p>
+            </div>
+            <div className="space-y-1.5 text-[12px] text-muted-foreground leading-snug">
+                <div className="text-[13px] font-bold text-foreground">Qué no es una clase</div>
+                <p><b className="text-foreground">Algo que ya conoce:</b> personas, autos, motos, bicicletas, perros, mochilas.</p>
+                <p><b className="text-foreground">El estado de un lugar:</b> «contenedor lleno», «portón abierto». Eso es una <b className="text-foreground">escena</b>: se enseña en las zonas entrenables, con ejemplos de cada estado.</p>
+                <p><b className="text-foreground">Una situación:</b> una pelea, alguien saltando el cerco. Se arma con reglas sobre lo que el detector ya ve.</p>
+            </div>
+        </div>
     );
 }

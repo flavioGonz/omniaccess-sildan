@@ -1,5 +1,6 @@
 "use client";
 
+import { AlCelular } from "@/components/vision/entrenar/AlCelular";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -90,10 +91,11 @@ export default function EntrenarVision() {
         <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
             <div className="flex items-center gap-3">
                 <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><GraduationCap size={18} strokeWidth={2.3} /></span>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                     <h1 className="text-[17px] font-bold leading-tight">Entrenar</h1>
                     <p className="text-[12.5px] text-muted-foreground leading-snug">Enseñarle a OmniVision algo nuevo. Hay dos formas, según qué querés que aprenda.</p>
                 </div>
+                <AlCelular />
             </div>
 
             {/* Las dos formas, lado a lado: elegir mal es lo que más tiempo hace perder (zonas para

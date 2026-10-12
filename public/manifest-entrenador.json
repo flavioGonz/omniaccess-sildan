@@ -1,0 +1,16 @@
+{
+  "name": "Entrenador - OmniAccess",
+  "short_name": "Entrenador",
+  "description": "Enseñarle a OmniVision objetos nuevos y escenas, desde el celular",
+  "start_url": "/pwa/entrenador",
+  "scope": "/pwa/entrenador",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1220",
+  "theme_color": "#0b1220",
+  "icons": [
+    { "src": "/iconos/entrenador-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/iconos/entrenador-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/iconos/entrenador-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

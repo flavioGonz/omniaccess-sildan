@@ -164,6 +164,11 @@ export async function login(formData: FormData) {
         path: '/'
     })
 
+    // Si se vino de una pantalla que pidió entrar (?volver=), se vuelve ahí. Sólo rutas propias:
+    // una dirección absoluta o «//otro.sitio» sería una redirección abierta para un enlace trucho.
+    const volver = String(formData.get('volver') || '')
+    if (/^\/(?!\/)[\w\-\/.?=&%]*$/.test(volver) && !volver.startsWith('/login')) redirect(volver)
+
     // Entrar directo al monitor del modo activo: es la pantalla de trabajo real,
     // y la misma que abre "Monitor en Vivo" en el menú.
     const modos = await prisma.setting.findMany({ where: { key: { in: ['MODULE_QUEUE', 'MODULE_FACE', 'MODULE_LPR'] } } })

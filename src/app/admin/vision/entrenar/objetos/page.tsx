@@ -13,7 +13,8 @@ import { ErrorEstado, Cargando } from "@/components/ui/estados";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { Anotador } from "@/components/vision/entrenar/Anotador";
 import { EntrenarDetector } from "@/components/vision/entrenar/EntrenarDetector";
-import { GuiaDibujo } from "@/components/vision/entrenar/GuiaDibujo";
+import { GuiaDibujo, UnModeloVariasClases } from "@/components/vision/entrenar/GuiaDibujo";
+import { AlCelular } from "@/components/vision/entrenar/AlCelular";
 import { CaminoDetector, type PasoCamino } from "@/components/vision/entrenar/CaminoDetector";
 import { CAJAS_META, CAJAS_MINIMO, LARGO_NOMBRE, NEGATIVAS_FRACCION, type Caja, type ClaseResumen, type FotoFila } from "@/lib/detector-propio";
 
@@ -164,83 +165,80 @@ export default function ObjetosPropios() {
                     <h1 className="text-[17px] font-bold leading-tight">Objetos nuevos para el detector</h1>
                     <p className="text-[12.5px] text-muted-foreground leading-snug">El detector conoce 80 cosas (personas, vehículos, animales, mochilas). Acá se le enseña una nueva mostrándole fotos donde está marcada: con suficientes, la encuentra solo en cualquier cámara.</p>
                 </div>
+                <AlCelular />
             </div>
+
+            {/* Cómo dibujar, arriba de todo: es lo que más decide si el modelo sale bien, y abajo
+                de las clases quedaba fuera de la vista justo cuando se empieza. */}
+            {guia != null && <GuiaDibujo abierta={guia} alCambiar={setGuia} />}
 
             <CaminoDetector pasos={pasos} />
 
             {/* ── 1. Qué enseñar ── */}
             <section id="clases" className="scroll-mt-4 space-y-2">
-                <Titulo n={1} titulo="Qué querés enseñarle" texto="Una clase es una cosa que se ve siempre parecida y que el detector todavía no conoce." />
-                <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-3 items-start">
-                    <div className="rounded-[10px] border border-border bg-card divide-y divide-border">
-                        {estado.clases.length === 0 && (
-                            <div className="px-4 py-5 space-y-2">
-                                <p className="text-[13px]">Todavía no hay clases. Algunas ideas para un barrio (tocá una para usarla):</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {EJEMPLOS_CLASE.map((e) => <button key={e} type="button" onClick={() => setNueva({ ...nueva, nombre: e })} className="h-8 px-3 rounded-full border border-border text-[12px] font-semibold hover:bg-accent">{e}</button>)}
-                                </div>
-                            </div>
-                        )}
-                        {estado.clases.map((c, k) => (
-                            <div key={c.id} className="flex items-center gap-3 px-4 py-3">
-                                <span className="grid h-8 w-8 place-items-center rounded-full bg-foreground text-background text-[12px] font-bold tabular-nums shrink-0" title={`Tecla ${k + 1} al dibujar`}>{k + 1}</span>
-                                <div className="min-w-0 flex-1">
-                                    {editando?.id === c.id ? (
-                                        <div className="flex gap-2 flex-wrap">
-                                            <Input value={editando.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} className="h-8 w-56" />
-                                            <Input value={editando.descripcion || ""} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} placeholder="Qué entra en el recuadro" className="h-8 flex-1 min-w-[180px]" />
-                                            <Button size="sm" onClick={() => guardarClase(editando)}>Guardar</Button>
-                                            <Button size="sm" variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
+                <Titulo n={1} titulo="Qué querés enseñarle" texto="Las clases: los tipos de objeto que el detector todavía no conoce. Pueden ser varias." />
+                <UnModeloVariasClases />
+                {/* Las clases a todo el ancho, con el alta como último renglón: al lado iba una
+                    columna con el formulario y la explicación, más alta que la lista, y debajo de
+                    las clases quedaba un hueco blanco. */}
+                <div className="rounded-[10px] border border-border bg-card divide-y divide-border">
+                    {estado.clases.map((c, k) => (
+                        <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+                            <span className="grid h-8 w-8 place-items-center rounded-full bg-foreground text-background text-[12px] font-bold tabular-nums shrink-0" title={`Tecla ${k + 1} al dibujar`}>{k + 1}</span>
+                            <div className="min-w-0 flex-1">
+                                {editando?.id === c.id ? (
+                                    <div className="flex gap-2 flex-wrap">
+                                        <Input value={editando.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} className="h-8 w-56" />
+                                        <Input value={editando.descripcion || ""} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} placeholder="Qué entra en el recuadro" className="h-8 flex-1 min-w-[180px]" />
+                                        <Button size="sm" onClick={() => guardarClase(editando)}>Guardar</Button>
+                                        <Button size="sm" variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1">
+                                        <div className="min-w-0">
+                                            <div className="text-[14px] font-bold truncate">{c.nombre}</div>
+                                            {c.descripcion && <div className="text-[11.5px] text-muted-foreground truncate">{c.descripcion}</div>}
                                         </div>
-                                    ) : (
-                                        <>
-                                            <div className="flex items-baseline gap-2 flex-wrap">
-                                                <span className="text-[14px] font-bold">{c.nombre}</span>
-                                                {c.descripcion && <span className="text-[11.5px] text-muted-foreground truncate">{c.descripcion}</span>}
-                                                <span className={cn("ml-auto text-[12px] font-semibold", c.cajas < CAJAS_MINIMO ? "text-muted-foreground" : "tono-bien")}>{ESTADO_CLASE(c.cajas)}</span>
-                                            </div>
-                                            <Medidor n={c.cajas} fotos={c.fotos} />
-                                        </>
-                                    )}
-                                </div>
-                                {editando?.id !== c.id && (
-                                    <>
-                                        <button type="button" onClick={() => setEditando(c)} aria-label="Cambiar el nombre" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Pencil size={14} /></button>
-                                        <button type="button" onClick={() => setABorrar(c)} aria-label="Borrar la clase" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:tono-mal"><Trash2 size={14} /></button>
-                                    </>
+                                        <Medidor n={c.cajas} fotos={c.fotos} />
+                                        <span className={cn("text-[12px] font-semibold whitespace-nowrap", c.cajas < CAJAS_MINIMO ? "text-muted-foreground" : "tono-bien")}>{ESTADO_CLASE(c.cajas)}</span>
+                                    </div>
                                 )}
                             </div>
-                        ))}
-                        {estado.fotos.revisadas > 0 && (
-                            <div className="px-4 py-2.5 text-[12px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
-                                <span>Fotos del lugar sin el objeto: <b className="text-foreground tabular-nums">{estado.fotos.negativas}</b> (conviene {negMeta} o más, 1 de cada 7).</span>
-                                <Pista ancho={300} texto="Le enseñan qué NO marcar. Sin ellas aprende cosas como «todo lo verde es un contenedor». Se hacen abriendo una foto donde no está el objeto y tocando «No hay ninguno» (N)."><Info size={13} className="cursor-help" /></Pista>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="space-y-3">
-                        <form onSubmit={(e) => { e.preventDefault(); crearClase(); }} className="rounded-[10px] border border-border bg-card p-4 space-y-2.5">
-                            <div className="text-[13px] font-bold">Nueva clase</div>
-                            <Input value={nueva.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })} placeholder="Ej. Contenedor de basura" className="h-9" />
-                            <Input value={nueva.descripcion} onChange={(e) => setNueva({ ...nueva, descripcion: e.target.value })} placeholder="Qué entra en el recuadro (opcional): «con la tapa»" className="h-9" />
-                            <Button type="submit" className="w-full" disabled={!nueva.nombre.trim()}><Plus size={14} /> Crear</Button>
-                        </form>
-                        <div className="rounded-[10px] border border-border bg-card p-4 space-y-1.5 text-[12px] text-muted-foreground leading-snug">
-                            <div className="text-[13px] font-bold text-foreground">Qué no es una clase</div>
-                            <p><b className="text-foreground">Algo que ya conoce:</b> personas, autos, motos, bicicletas, perros, mochilas. Ya los detecta.</p>
-                            <p><b className="text-foreground">El estado de un lugar:</b> «contenedor lleno», «portón abierto». Para eso están las <Link href="/admin/vision/entrenar" className="tono-accion font-semibold">zonas entrenables</Link>.</p>
-                            <p><b className="text-foreground">Una situación:</b> una pelea, alguien saltando el cerco. Se arman con <Link href="/admin/vision/reglas" className="tono-accion font-semibold">reglas</Link> sobre lo que el detector ya ve.</p>
+                            {editando?.id !== c.id && (
+                                <>
+                                    <button type="button" onClick={() => setEditando(c)} aria-label="Cambiar el nombre" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Pencil size={14} /></button>
+                                    <button type="button" onClick={() => setABorrar(c)} aria-label="Borrar la clase" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:tono-mal"><Trash2 size={14} /></button>
+                                </>
+                            )}
                         </div>
-                    </div>
+                    ))}
+                    <form onSubmit={(e) => { e.preventDefault(); crearClase(); }} className="px-4 py-3 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="grid h-8 w-8 place-items-center rounded-full border border-dashed border-border text-muted-foreground shrink-0"><Plus size={14} /></span>
+                            <Input value={nueva.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })}
+                                placeholder={estado.clases.length ? "Otra clase: «Cono vehicular»" : "La primera clase: «Contenedor de basura»"} className="h-9 w-64" />
+                            <Input value={nueva.descripcion} onChange={(e) => setNueva({ ...nueva, descripcion: e.target.value })} placeholder="Qué entra en el recuadro (opcional): «con la tapa»" className="h-9 flex-1 min-w-[200px]" />
+                            <Button type="submit" disabled={!nueva.nombre.trim()}><Plus size={14} /> Agregar clase</Button>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap pl-10">
+                            <span className="text-[11.5px] text-muted-foreground">Ideas:</span>
+                            {EJEMPLOS_CLASE.filter((e) => !estado.clases.some((c) => c.nombre.toLowerCase() === e.toLowerCase())).map((e) => (
+                                <button key={e} type="button" onClick={() => setNueva({ ...nueva, nombre: e })} className="h-7 px-2.5 rounded-full border border-border text-[11.5px] font-semibold hover:bg-accent">{e}</button>
+                            ))}
+                        </div>
+                    </form>
+                    {estado.fotos.revisadas > 0 && (
+                        <div className="px-4 py-2.5 text-[12px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                            <span>Fotos del lugar sin ningún objeto: <b className="text-foreground tabular-nums">{estado.fotos.negativas}</b> (conviene {negMeta} o más, 1 de cada 7). Sirven para todas las clases.</span>
+                            <Pista ancho={300} texto="Le enseñan qué NO marcar. Sin ellas aprende cosas como «todo lo verde es un contenedor». Se hacen abriendo una foto donde no está ninguno y tocando «No hay ninguno» (N)."><Info size={13} className="cursor-help" /></Pista>
+                        </div>
+                    )}
                 </div>
             </section>
 
             {/* ── 2 y 3. Juntar fotos y dibujar ── */}
             <section id="fotos" className="scroll-mt-4 space-y-3">
                 <Titulo n={2} titulo="Juntar fotos y dibujar" texto="Fotos donde aparece el objeto (y algunas donde no), y un recuadro sobre cada uno." />
-                {guia != null && <GuiaDibujo abierta={guia} alCambiar={setGuia} />}
-
                 <div className="rounded-[10px] border border-border bg-card p-3 space-y-2">
                     <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[13px] font-bold mr-1">Agregar fotos</span>
@@ -343,7 +341,7 @@ function Titulo({ n, titulo, texto }: { n: number; titulo: string; texto: string
 function Medidor({ n, fotos }: { n: number; fotos: number }) {
     const p = Math.min(1, n / CAJAS_META), m = CAJAS_MINIMO / CAJAS_META;
     return (
-        <div className="mt-2 max-w-[560px]">
+        <div className="min-w-0">
             <div className="relative h-2 rounded-full bg-muted overflow-hidden">
                 <span className={cn("absolute inset-y-0 left-0 rounded-full transition-all", n >= CAJAS_MINIMO ? "bg-[var(--bien)]" : "bg-[var(--accion)]")} style={{ width: `${Math.max(p * 100, n ? 1.5 : 0)}%` }} />
                 <span className="absolute inset-y-0 w-0.5 bg-foreground/60" style={{ left: `${m * 100}%` }} />

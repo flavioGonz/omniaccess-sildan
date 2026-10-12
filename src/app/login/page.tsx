@@ -15,6 +15,8 @@ import Image from 'next/image';
 export default function LoginPage() {
     const router = useRouter();
     const [mode, setMode] = useState<'login' | 'reset'>('login');
+    const [volver, setVolver] = useState('');
+    useEffect(() => { setVolver(new URLSearchParams(window.location.search).get('volver') || ''); }, []);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
@@ -108,6 +110,9 @@ export default function LoginPage() {
                                     </div>
 
                                     <form onSubmit={handleLogin} className="space-y-6">
+                                        {/* A dónde volver después de entrar (?volver=): las pantallas que mandan acá sin sesión — el
+                                            Entrenador del celular, los monitores — vuelven a donde estaban y no al monitor de inicio. */}
+                                        <input type="hidden" name="volver" value={volver} />
                                         <div className="space-y-2">
                                             <label className="text-sm font-medium text-foreground/80">Usuario</label>
                                             <div className="relative group">
