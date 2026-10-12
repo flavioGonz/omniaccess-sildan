@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import type { User, Unit, AccessGroup, Credential } from "@prisma/client";
 import {
     Building2, Camera, Car, Check, CreditCard, DoorOpen, Home,
     KeyRound, Loader2, MapPin, Users, ParkingSquare, Phone, Save, ScanFace, Server,
-    Shield, ShieldAlert, Upload, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info, Star, ChevronDown, ExternalLink,
+    Shield, ShieldAlert, Upload, FolderTree, Nfc, User as UserIcon, HelpCircle, History, X, Truck, Timer, Info, Star, ChevronDown, ExternalLink,
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { getAjustesVisitas } from "@/app/actions/visitas";
@@ -126,8 +127,14 @@ export interface CajonUsuarioProps {
 const limpiarChapa = (v: string) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
 export function CajonUsuario({
-    user: userProp, initialData, rolInicial, units, groups, devices, parkingSlots = [], onSuccess, open, onOpenChange,
+    user: userProp, initialData, rolInicial, units: unitsProp, groups, devices, parkingSlots = [], onSuccess, open, onOpenChange,
 }: CajonUsuarioProps) {
+    /* Las unidades que llegan + las que se crean desde el plano (lote nuevo) sin cerrar el cajón. */
+    const [unitsNuevas, setUnitsNuevas] = useState<Unit[]>([]);
+    const units = useMemo(() => [...unitsProp, ...unitsNuevas.filter((n) => !unitsProp.some((u) => u.id === n.id))], [unitsProp, unitsNuevas]);
+    /* Áreas de Dispositivos: para mandar a todos los equipos de un área de un toque. */
+    const [areas, setAreas] = useState<EstadoAreas | null>(null);
+    useEffect(() => { if (open && !areas) leerAreas().then(setAreas).catch(() => setAreas({ areas: [], equipos: {} })); }, [open, areas]);
     /*
      * Un proveedor que ya estaba cargado: al escribir su nombre en un alta se ofrece, y elegirlo
      * convierte este cajón en SU ficha. Lo que se trajo de afuera (la matrícula que se está
@@ -568,6 +575,115 @@ export function CajonUsuario({
                         </div>
                     </CajonSeccion>
 
+                    {/* ── Con qué entra ── */}
+                    <CajonSeccion titulo="Con qué entra" icono={KeyRound} plegable abiertaAlInicio resumen={resumenCredenciales}
+                        ayuda="Cada credencial abre por un camino distinto. Se pueden cargar todas o ninguna.">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                            <CajonCampo etiqueta="Matrículas" className="sm:col-span-2"
+                                pista="Se escriben sin espacios ni guiones, como las lee la cámara. Una persona puede tener varias. Sacar una de acá le saca ese vehículo a la persona. Y cargarlas no alcanza para que abra la barrera: hay que mandarlas además a los equipos, ahí abajo.">
+                                <div className="rounded-[10px] border border-border bg-card/40 p-2 flex flex-wrap gap-1.5 items-center">
+                                    {chapas.map((ch) => (
+                                        <span key={ch}
+                                            className="inline-flex items-center gap-1 pl-2 pr-1 py-1 rounded-[7px] border border-[var(--accion)]/35 bg-[color-mix(in_oklab,var(--accion)_9%,transparent)]">
+                                            <Car size={12} className="text-[var(--accion)] shrink-0" />
+                                            <span className="text-[12.5px] font-bold tracking-[0.1em] tabular-nums text-foreground">{ch}</span>
+                                            <button type="button" aria-label={`Sacar ${ch}`}
+                                                onClick={() => setChapas((l) => l.filter((x) => x !== ch))}
+                                                className="w-4 h-4 rounded-full flex items-center justify-center text-muted-foreground hover:text-[var(--mal-texto)] transition-colors">
+                                                <X size={11} />
+                                            </button>
+                                        </span>
+                                    ))}
+                                    <input
+                                        value={chapaNueva}
+                                        placeholder={chapas.length ? "Otra más…" : "ABC1234"}
+                                        onChange={(e) => setChapaNueva(limpiarChapa(e.target.value))}
+                                        /* Enter, coma o espacio la agregan. El que viene de cargar
+                                           una lista escribe separando con comas sin pensarlo, y
+                                           obligarlo a apretar un botón entre una y otra es pelear
+                                           contra lo que sus dedos ya saben hacer. */
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                                                e.preventDefault();
+                                                const v = limpiarChapa(chapaNueva);
+                                                if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
+                                                setChapaNueva("");
+                                            } else if (e.key === "Backspace" && !chapaNueva && chapas.length) {
+                                                setChapas((l) => l.slice(0, -1));
+                                            }
+                                        }}
+                                        /* Al salir del campo también: escribir una matrícula y
+                                           apretar Guardar sin darle Enter era perderla en silencio. */
+                                        onBlur={() => {
+                                            const v = limpiarChapa(chapaNueva);
+                                            if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
+                                            setChapaNueva("");
+                                        }}
+                                        className="flex-1 min-w-[108px] bg-transparent outline-none px-1.5 py-1 text-[12.5px] font-bold tracking-[0.1em] tabular-nums uppercase placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground" />
+                                </div>
+                            </CajonCampo>
+                            <CajonCampo etiqueta="Qué vehículo es"
+                                pista="No cambia si abre o no: sirve para reconocerlo en el historial cuando la foto no se ve bien. Se le pone a los vehículos que se den de alta acá; los que ya estaban conservan el suyo, que se cambia en la pantalla de Vehículos. Hasta hoy este desplegable no se leía en ninguna parte y todo vehículo nacía Sedán.">
+                                <Select name="vehicleType" defaultValue={user?.vehicles?.[0]?.type || "SEDAN"}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        {CLASES_VEHICULO.map((v) => <SelectItem key={v.valor} value={v.valor}>{v.rotulo}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                            </CajonCampo>
+                            <CajonCampo etiqueta="Tarjetas o llaveros"
+                                pista="El número grabado en la tarjeta o el llavero RFID. Una persona puede tener varios: el del auto, el de la bicicleta, el de la casa."
+                                pistaTitulo="Tarjetas y llaveros RFID">
+                                <Input name="accessTags"
+                                    defaultValue={user?.accessTags?.join(", ")
+                                        || user?.credentials?.find((c) => c.type === "TAG")?.value || ""}
+                                    placeholder="Varios, separados por coma" className="tabular-nums" />
+                            </CajonCampo>
+                            <CajonCampo etiqueta={pinOculto ? "Resetear código PIN" : "Código PIN"}
+                                ayuda={pinOculto ? "Tiene un PIN que sólo ve su dueño. Escribí uno nuevo para resetearlo; vacío lo deja como está." : undefined}
+                                pista={pinOculto
+                                    ? "Es una cuenta del panel: cada uno ve su propio PIN y a los demás sólo se lo puede cambiar."
+                                    : "Queda oculto al escribirlo, pero se guarda tal cual: cualquiera con acceso al panel puede verlo, salvo el de las cuentas del panel, que sólo ve su dueño. No abre el panel: para eso está la contraseña."}>
+                                <PasswordInput name={pinOculto && !pin ? undefined : "pin"} value={pin} onChange={(e) => setPin(e.target.value)}
+                                    placeholder={pinOculto ? "•••• (oculto)" : "Para el teclado de la entrada"} className="tabular-nums" />
+                            </CajonCampo>
+                            {/* Grupos al lado del PIN: es lo que completa la fila, y así la sección entra sin scroll. */}
+                            <div>
+                            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
+                                Grupos de acceso
+                                <Pista titulo="Grupos de acceso" ancho={280}
+                                    texto="El grupo dice POR DÓNDE puede pasar: qué equipos le corresponden. Los equipos de cada grupo se eligen en Grupos de acceso.">
+                                    <HelpCircle size={12.5} className="text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
+                                </Pista>
+                            </span>
+                            <div className="flex flex-wrap gap-1.5">
+                                {groups.map((g) => {
+                                    const puesto = gruposElegidos.includes(g.id);
+                                    return (
+                                        /* Píldora porque es una elección que se prende y se apaga,
+                                           no un botón que dispara algo. */
+                                        <button key={g.id} type="button"
+                                            onClick={() => alternar(gruposElegidos, setGruposElegidos, g.id)}
+                                            className={cn(
+                                                "px-2.5 py-1 rounded-full border text-[12px] font-semibold transition-colors flex items-center gap-1.5",
+                                                puesto ? "border-[var(--accion)] text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]"
+                                                    : "border-border text-muted-foreground hover:bg-accent",
+                                            )}>
+                                            {puesto && <Check size={11} />}{g.name}
+                                        </button>
+                                    );
+                                })}
+                                {!groups.length && <span className="text-[12px] text-muted-foreground">Todavía no hay grupos creados.</span>}
+                            </div>
+                            {gruposElegidos.map((id) => <input key={id} type="hidden" name="groupId" value={id} />)}
+                            {/* Dice "este formulario trae grupos": sin ninguno elegido, eso es "sacalo de todos". */}
+                            <input type="hidden" name="gruposEnviados" value="1" />
+                        </div>
+                        </div>
+
+
+                    </CajonSeccion>
+
                     {/* ── Dónde vive ── */}
                     {/* ── Como proveedor ──
                         Lo que se habló para los deliverys y proveedores: en un barrio abierto el
@@ -691,6 +807,8 @@ export function CajonUsuario({
                             unidadId={unidadId === "none" ? null : unidadId}
                             alCargar={setLotes}
                             nombreDeUnidad={(id) => units.find((u) => u.id === id)?.name}
+                            unidades={units}
+                            alCrearUnidad={(u) => setUnitsNuevas((l) => [...l, u])}
                             alElegir={(lo) => setUnidadId(lo?.unitId || "none")}
                             pie={{
                                 sinElegir: "Tocá en el plano la casa donde vive",
@@ -755,115 +873,6 @@ export function CajonUsuario({
 
                     </CajonSeccion>
 
-                    {/* ── Con qué entra ── */}
-                    <CajonSeccion titulo="Con qué entra" icono={KeyRound} plegable resumen={resumenCredenciales}
-                        ayuda="Cada credencial abre por un camino distinto. Se pueden cargar todas o ninguna.">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                            <CajonCampo etiqueta="Matrículas" className="sm:col-span-2"
-                                pista="Se escriben sin espacios ni guiones, como las lee la cámara. Una persona puede tener varias. Sacar una de acá le saca ese vehículo a la persona. Y cargarlas no alcanza para que abra la barrera: hay que mandarlas además a los equipos, ahí abajo.">
-                                <div className="rounded-[10px] border border-border bg-card/40 p-2 flex flex-wrap gap-1.5 items-center">
-                                    {chapas.map((ch) => (
-                                        <span key={ch}
-                                            className="inline-flex items-center gap-1 pl-2 pr-1 py-1 rounded-[7px] border border-[var(--accion)]/35 bg-[color-mix(in_oklab,var(--accion)_9%,transparent)]">
-                                            <Car size={12} className="text-[var(--accion)] shrink-0" />
-                                            <span className="text-[12.5px] font-bold tracking-[0.1em] tabular-nums text-foreground">{ch}</span>
-                                            <button type="button" aria-label={`Sacar ${ch}`}
-                                                onClick={() => setChapas((l) => l.filter((x) => x !== ch))}
-                                                className="w-4 h-4 rounded-full flex items-center justify-center text-muted-foreground hover:text-[var(--mal-texto)] transition-colors">
-                                                <X size={11} />
-                                            </button>
-                                        </span>
-                                    ))}
-                                    <input
-                                        value={chapaNueva}
-                                        placeholder={chapas.length ? "Otra más…" : "ABC1234"}
-                                        onChange={(e) => setChapaNueva(limpiarChapa(e.target.value))}
-                                        /* Enter, coma o espacio la agregan. El que viene de cargar
-                                           una lista escribe separando con comas sin pensarlo, y
-                                           obligarlo a apretar un botón entre una y otra es pelear
-                                           contra lo que sus dedos ya saben hacer. */
-                                        onKeyDown={(e) => {
-                                            if (e.key === "Enter" || e.key === "," || e.key === " ") {
-                                                e.preventDefault();
-                                                const v = limpiarChapa(chapaNueva);
-                                                if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
-                                                setChapaNueva("");
-                                            } else if (e.key === "Backspace" && !chapaNueva && chapas.length) {
-                                                setChapas((l) => l.slice(0, -1));
-                                            }
-                                        }}
-                                        /* Al salir del campo también: escribir una matrícula y
-                                           apretar Guardar sin darle Enter era perderla en silencio. */
-                                        onBlur={() => {
-                                            const v = limpiarChapa(chapaNueva);
-                                            if (v && !chapas.includes(v)) setChapas((l) => [...l, v]);
-                                            setChapaNueva("");
-                                        }}
-                                        className="flex-1 min-w-[108px] bg-transparent outline-none px-1.5 py-1 text-[12.5px] font-bold tracking-[0.1em] tabular-nums uppercase placeholder:font-normal placeholder:tracking-normal placeholder:text-muted-foreground" />
-                                </div>
-                            </CajonCampo>
-                            <CajonCampo etiqueta="Qué vehículo es"
-                                pista="No cambia si abre o no: sirve para reconocerlo en el historial cuando la foto no se ve bien. Se le pone a los vehículos que se den de alta acá; los que ya estaban conservan el suyo, que se cambia en la pantalla de Vehículos. Hasta hoy este desplegable no se leía en ninguna parte y todo vehículo nacía Sedán.">
-                                <Select name="vehicleType" defaultValue={user?.vehicles?.[0]?.type || "SEDAN"}>
-                                    <SelectTrigger><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        {CLASES_VEHICULO.map((v) => <SelectItem key={v.valor} value={v.valor}>{v.rotulo}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </CajonCampo>
-                            <CajonCampo etiqueta="Tarjetas o llaveros"
-                                pista="El número grabado en la tarjeta o el llavero RFID. Una persona puede tener varios: el del auto, el de la bicicleta, el de la casa."
-                                pistaTitulo="Tarjetas y llaveros RFID">
-                                <Input name="accessTags"
-                                    defaultValue={user?.accessTags?.join(", ")
-                                        || user?.credentials?.find((c) => c.type === "TAG")?.value || ""}
-                                    placeholder="Varios, separados por coma" className="tabular-nums" />
-                            </CajonCampo>
-                            <CajonCampo etiqueta={pinOculto ? "Resetear código PIN" : "Código PIN"}
-                                ayuda={pinOculto ? "Tiene un PIN que sólo ve su dueño. Escribí uno nuevo para resetearlo; vacío lo deja como está." : undefined}
-                                pista={pinOculto
-                                    ? "Es una cuenta del panel: cada uno ve su propio PIN y a los demás sólo se lo puede cambiar."
-                                    : "Queda oculto al escribirlo, pero se guarda tal cual: cualquiera con acceso al panel puede verlo, salvo el de las cuentas del panel, que sólo ve su dueño. No abre el panel: para eso está la contraseña."}>
-                                <PasswordInput name={pinOculto && !pin ? undefined : "pin"} value={pin} onChange={(e) => setPin(e.target.value)}
-                                    placeholder={pinOculto ? "•••• (oculto)" : "Para el teclado de la entrada"} className="tabular-nums" />
-                            </CajonCampo>
-                            {/* Grupos al lado del PIN: es lo que completa la fila, y así la sección entra sin scroll. */}
-                            <div>
-                            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
-                                Grupos de acceso
-                                <Pista titulo="Grupos de acceso" ancho={280}
-                                    texto="El grupo dice POR DÓNDE puede pasar: qué equipos le corresponden. Los equipos de cada grupo se eligen en Grupos de acceso.">
-                                    <HelpCircle size={12.5} className="text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
-                                </Pista>
-                            </span>
-                            <div className="flex flex-wrap gap-1.5">
-                                {groups.map((g) => {
-                                    const puesto = gruposElegidos.includes(g.id);
-                                    return (
-                                        /* Píldora porque es una elección que se prende y se apaga,
-                                           no un botón que dispara algo. */
-                                        <button key={g.id} type="button"
-                                            onClick={() => alternar(gruposElegidos, setGruposElegidos, g.id)}
-                                            className={cn(
-                                                "px-2.5 py-1 rounded-full border text-[12px] font-semibold transition-colors flex items-center gap-1.5",
-                                                puesto ? "border-[var(--accion)] text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]"
-                                                    : "border-border text-muted-foreground hover:bg-accent",
-                                            )}>
-                                            {puesto && <Check size={11} />}{g.name}
-                                        </button>
-                                    );
-                                })}
-                                {!groups.length && <span className="text-[12px] text-muted-foreground">Todavía no hay grupos creados.</span>}
-                            </div>
-                            {gruposElegidos.map((id) => <input key={id} type="hidden" name="groupId" value={id} />)}
-                            {/* Dice "este formulario trae grupos": sin ninguno elegido, eso es "sacalo de todos". */}
-                            <input type="hidden" name="gruposEnviados" value="1" />
-                        </div>
-                        </div>
-
-
-                    </CajonSeccion>
-
                     {/* ── Lista negra: sólo en una persona ya guardada (necesita id y matrículas en la base) ── */}
                     {user?.id && (
                         <CajonSeccion titulo="Lista negra" icono={ShieldAlert}
@@ -877,6 +886,10 @@ export function CajonUsuario({
                         ayuda="Los grupos dan el permiso; esto copia la credencial a la memoria del equipo. Son cosas distintas: sin la copia, el equipo tiene el permiso pero no sabe a quién reconocer.">
 
                         <EquiposDeLosGrupos groups={groups} elegidos={gruposElegidos} />
+
+                        <AreasDeEquipos areas={areas} devices={devices} lprElegidos={lprElegidos} facialesElegidos={facialesElegidos}
+                            puedeLpr={autorizado && chapas.length > 0} puedeCara={autorizado && !!foto}
+                            alCambiar={(lpr, caras) => { setLprElegidos(lpr); setFacialesElegidos(caras); }} />
 
                         <div>
                             <RotuloEquipos icono={Camera}>Cámaras LPR</RotuloEquipos>
@@ -963,6 +976,74 @@ function EquiposDeLosGrupos({ groups, elegidos }: { groups: AccessGroup[]; elegi
             ) : (
                 <p className="text-[12px] text-muted-foreground">Los grupos elegidos no tienen equipos asociados.</p>
             )}
+        </div>
+    );
+}
+
+
+/**
+ * Las áreas de Dispositivos como atajo: un toque marca (o desmarca) todos los equipos del área
+ * y de sus sub-áreas a los que se le puede mandar algo a esta persona. Un área queda apagada si
+ * no tiene lectoras (LPR, rostro, RFID), o si las que tiene no sirven todavía (LPR sin matrícula
+ * cargada, rostro sin foto).
+ */
+function AreasDeEquipos({ areas, devices, lprElegidos, facialesElegidos, puedeLpr, puedeCara, alCambiar }: {
+    areas: EstadoAreas | null; devices: any[]; lprElegidos: string[]; facialesElegidos: string[];
+    puedeLpr: boolean; puedeCara: boolean; alCambiar: (lpr: string[], caras: string[]) => void;
+}) {
+    if (!areas) return <p className="text-[12px] text-muted-foreground inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Leyendo áreas…</p>;
+    if (!areas.areas.length) return null;
+    const hijos = (id: string): string[] => [id, ...areas.areas.filter((a) => a.padre === id).flatMap((a) => hijos(a.id))];
+    const equiposDe = (id: string) => { const ids = new Set(hijos(id)); return devices.filter((d) => ids.has(areas.equipos[d.id])); };
+    const raiz = areas.areas.filter((a) => !a.padre).sort((a, b) => a.orden - b.orden);
+    const orden: { a: typeof raiz[number]; nivel: number }[] = [];
+    const recorrer = (lista: typeof raiz, nivel: number) => lista.forEach((a) => { orden.push({ a, nivel }); recorrer(areas.areas.filter((x) => x.padre === a.id).sort((x, y) => x.orden - y.orden), nivel + 1); });
+    recorrer(raiz, 0);
+    return (
+        <div>
+            <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/85 mb-1.5">
+                <FolderTree size={13} /> Por área
+                <Pista titulo="Mandar por área" ancho={290} texto="Un toque marca todas las cámaras LPR y terminales de rostro del área (y de sus sub-áreas). Las áreas sin lectoras, o con lectoras que todavía no sirven (LPR sin matrícula, rostro sin foto), quedan apagadas.">
+                    <HelpCircle size={12.5} className="text-muted-foreground/50 hover:text-[var(--accion)] transition-colors cursor-help" />
+                </Pista>
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+                {orden.map(({ a, nivel }) => {
+                    const eq = equiposDe(a.id);
+                    const lpr = eq.filter((d) => d.deviceType === "LPR_CAMERA").map((d) => d.id);
+                    const cara = eq.filter((d) => d.deviceType === "FACE_TERMINAL").map((d) => d.id);
+                    const rfid = eq.filter((d) => d.deviceType === "ACCESS_CONTROL").length;
+                    const usables = [...(puedeLpr ? lpr : []), ...(puedeCara ? cara : [])];
+                    const sinLectoras = !lpr.length && !cara.length && !rfid;
+                    const apagada = !usables.length;
+                    const todo = usables.length > 0 && usables.every((id) => lprElegidos.includes(id) || facialesElegidos.includes(id));
+                    const motivo = sinLectoras ? "Sin lectoras LPR, rostro ni RFID en esta área"
+                        : !usables.length ? (lpr.length && !puedeLpr ? "Cargá una matrícula para mandar a las LPR" : cara.length && !puedeCara ? "Subí una foto para mandar a los terminales de rostro" : "Sus lectoras no reciben credenciales desde acá (RFID)")
+                        : `${lpr.length ? `${lpr.length} LPR` : ""}${lpr.length && cara.length ? " · " : ""}${cara.length ? `${cara.length} rostro` : ""}${rfid ? ` · ${rfid} RFID` : ""}`;
+                    return (
+                        <button key={a.id} type="button" disabled={apagada} title={motivo}
+                            onClick={() => {
+                                const l = new Set(lprElegidos), c = new Set(facialesElegidos);
+                                if (todo) { lpr.forEach((x) => l.delete(x)); cara.forEach((x) => c.delete(x)); }
+                                else { if (puedeLpr) lpr.forEach((x) => l.add(x)); if (puedeCara) cara.forEach((x) => c.add(x)); }
+                                alCambiar([...l], [...c]);
+                            }}
+                            className={cn("px-2.5 py-1 rounded-full border text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5",
+                                apagada ? "border-border text-muted-foreground/45 opacity-60 cursor-not-allowed"
+                                    : todo ? "border-[var(--accion)] text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)]"
+                                        : "border-border text-muted-foreground hover:bg-accent")}
+                            style={{ marginLeft: nivel ? nivel * 6 : undefined }}>
+                            <span className="h-2 w-2 rounded-full" style={{ background: a.color }} />
+                            {todo && <Check size={11} />}{a.nombre}
+                            <span className="inline-flex items-center gap-0.5 text-[10.5px] font-medium opacity-75">
+                                {lpr.length > 0 && <><Camera size={10} />{lpr.length}</>}
+                                {cara.length > 0 && <><ScanFace size={10} className="ml-0.5" />{cara.length}</>}
+                                {rfid > 0 && <><Nfc size={10} className="ml-0.5" />{rfid}</>}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
         </div>
     );
 }
