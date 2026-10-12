@@ -116,7 +116,7 @@ export default function SaludEquipo() {
                             dominio={[30, 100]}
                             rayas={L ? [
                                 { v: L.gpu.enfriar, rotulo: `GPU congela ${L.gpu.enfriar}`, color: COLOR.gpu }, { v: L.gpu.cortar, rotulo: `GPU corta ${L.gpu.cortar}`, color: COLOR.gpu, fuerte: true },
-                                { v: L.cpu.enfriar, rotulo: `CPU congela ${L.cpu.enfriar}`, color: COLOR.cpu }, { v: L.cpu.cortar, rotulo: `CPU corta ${L.cpu.cortar}`, color: COLOR.cpu, fuerte: true },
+                                { v: L.cpu.enfriar, rotulo: `CPU congela ${L.cpu.enfriar}`, color: COLOR.cpu, izq: true }, { v: L.cpu.cortar, rotulo: `CPU corta ${L.cpu.cortar}`, color: COLOR.cpu, fuerte: true, izq: true },
                             ] : []} />
                         <Grafico titulo="Consumo de la GPU" unidad="W" desde={datos.desde} hasta={datos.hasta} puntos={puntos} cursor={cursor} setCursor={setCursor}
                             series={[{ nombre: "Consumo", color: COLOR.w, valor: (p) => p.w }]} dominio={[0, Math.max(80, wTope || 0)]}
@@ -219,7 +219,7 @@ const ALTO = 120;
 function Grafico({ titulo, unidad, desde, hasta, puntos, series, dominio, rayas, cursor, setCursor, ejeX }: {
     titulo: string; unidad: string; desde: number; hasta: number; puntos: (Punto | null)[];
     series: { nombre: string; color: string; valor: (p: Punto) => number | null }[];
-    dominio: [number, number]; rayas: { v: number; rotulo: string; color: string; fuerte?: boolean }[];
+    dominio: [number, number]; rayas: { v: number; rotulo: string; color: string; fuerte?: boolean; izq?: boolean }[];
     cursor: number | null; setCursor: (t: number | null) => void; ejeX?: boolean;
 }) {
     const caja = useRef<HTMLDivElement>(null);
@@ -258,7 +258,7 @@ function Grafico({ titulo, unidad, desde, hasta, puntos, series, dominio, rayas,
     }, [desde, hasta]);
 
     return (
-        <div className="grid grid-cols-[150px_1fr] gap-3">
+        <div className="grid grid-cols-[150px_1fr] gap-3 py-2">
             <div className="pt-1">
                 <div className="text-[12.5px] font-semibold">{titulo}</div>
                 {series.length > 1 && <div className="mt-1 space-y-0.5 text-[11.5px] text-muted-foreground">{series.map((s) => <Leyenda key={s.nombre} color={s.color}>{s.nombre}</Leyenda>)}</div>}
@@ -287,7 +287,8 @@ function Grafico({ titulo, unidad, desde, hasta, puntos, series, dominio, rayas,
                     {/* Los números del eje y los rótulos de las rayas, en HTML: en el SVG estirado se deformarían. */}
                     {ticks.map((t) => <span key={t} className="absolute -left-1 -translate-x-full -translate-y-1/2 text-[10px] text-muted-foreground tabular-nums" style={{ top: `${(y(t) / ALTO) * 100}%` }}>{t}</span>)}
                     {rayas.filter((r) => r.v >= y0 && r.v <= y1).map((r) => (
-                        <span key={r.rotulo} className="absolute right-1 -translate-y-full text-[9.5px] tabular-nums" style={{ top: `${(y(r.v) / ALTO) * 100}%`, color: r.color }}>{r.rotulo}</span>
+                        /* Las de la CPU a la izquierda y las de la GPU a la derecha: juntas, arriba, se pisaban. */
+                        <span key={r.rotulo} className={cn("absolute -translate-y-full text-[9.5px] tabular-nums", r.izq ? "left-1" : "right-1")} style={{ top: `${(y(r.v) / ALTO) * 100}%`, color: r.color }}>{r.rotulo}</span>
                     ))}
                     {enCursor && series.map((s) => { const v = s.valor(enCursor); return v == null ? null : (
                         <span key={s.nombre} className="absolute w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card pointer-events-none"
