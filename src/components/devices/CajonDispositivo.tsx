@@ -795,8 +795,10 @@ function CabeceraVideo({ device, tipo, meta, f, actual, nvrNombre, detectando, p
     const [falla, setFalla] = useState(false);
     const esVideo = tipo !== "NVR";
     const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
+    // Queda fijo arriba al hacer scroll en la ficha (sticky dentro del área que scrollea del cajón).
     return (
-        <div className={cn("relative w-full overflow-hidden bg-black", esVideo ? "aspect-video" : "h-28 bg-gradient-to-br from-sky-950 via-neutral-900 to-black")}>
+        <div className="sticky top-0 z-20 px-4 pt-4 pb-3 bg-background/95 backdrop-blur-sm">
+        <div className={cn("relative w-full overflow-hidden rounded-2xl bg-black shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)] ring-1 ring-black/10", esVideo ? "aspect-video" : "h-28 bg-gradient-to-br from-sky-950 via-neutral-900 to-black")}>
             {esVideo && (<>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`/api/snapshot/${device.id}?w=960`} alt="" className={cn("absolute inset-0 w-full h-full object-cover transition-all duration-500", listo ? "opacity-0" : "opacity-100 blur-[2px] scale-105")} onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
@@ -830,6 +832,7 @@ function CabeceraVideo({ device, tipo, meta, f, actual, nvrNombre, detectando, p
                     {detectando ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Comprobar
                 </button>
             </div>
+        </div>
         </div>
     );
 }
