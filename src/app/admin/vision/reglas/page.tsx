@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
+    PersonStanding, Car, Truck, Bus, Motorbike, Bike, Dog, Backpack, ShoppingBag, Luggage, Armchair, Sofa, Sprout, Boxes, Gauge,
     type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
@@ -56,6 +57,14 @@ const EJEMPLO_AVISO: Record<TipoRegla, (n: string) => string> = {
     permanencia: (n) => `«Persona hace 5 min en ${n}»`, aglomeracion: (n) => `«6 personas juntas en ${n}»`,
     cruce: (n) => `«Persona cruzó ${n}»`, intrusion: (n) => `«Persona en ${n}»`,
     merodeo: (n) => `«Persona dando vueltas hace 2 min en ${n}»`, retirado: (n) => `«Se llevaron una bicicleta de ${n}»`,
+};
+/**
+ * El ícono de cada clase en «Qué cuenta»: se reconoce la clase antes de leerla. Las del detector
+ * propio (entrenadas en Objetos nuevos) llevan el de cajas, con su marca.
+ */
+const ICONO_CLASE: Record<string, LucideIcon> = {
+    person: PersonStanding, car: Car, truck: Truck, bus: Bus, motorcycle: Motorbike, bicycle: Bike, dog: Dog,
+    backpack: Backpack, handbag: ShoppingBag, suitcase: Luggage, chair: Armchair, bench: Sofa, "potted plant": Sprout,
 };
 /** El horario que se propone al armar de noche: lo más común en un barrio. */
 const HORARIO_NOCHE = { desde: "22:00", hasta: "06:00" };
@@ -463,6 +472,38 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                     </div>
                 </CajonSeccion>
 
+                <CajonSeccion titulo="Qué cuenta" icono={Boxes}
+                    ayuda={r.clases.length ? `${r.clases.length} ${r.clases.length === 1 ? "clase prendida" : "clases prendidas"}: sólo eso dispara la regla.` : "Prendé al menos una: sin clases la regla no mira nada."}>
+                    {/* Una tarjeta con su interruptor por clase. Antes eran píldoras sin ícono, abajo
+                        del dibujo: lo que la regla cuenta se elegía al final y se leía mal. Las
+                        clases del detector propio se ofrecen en todas: un contenedor puede faltar
+                        (retirado), quedarse en una zona o cruzar una línea. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {[...(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA), ...listaPropias()].map((c) => {
+                            const on = r.clases.includes(c.clase);
+                            const propia = !ICONO_CLASE[c.clase];
+                            const Ic = ICONO_CLASE[c.clase] || Boxes;
+                            const alternar = () => cambiar({ clases: on ? r.clases.filter((x) => x !== c.clase) : [...r.clases, c.clase] });
+                            return (
+                                <div key={c.clase} role="button" tabIndex={0} onClick={alternar} onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); alternar(); } }}
+                                    className={cn("flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 cursor-pointer select-none transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion-foco,var(--accion))]",
+                                        on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_7%,transparent)]" : "border-border hover:bg-accent/50")}>
+                                    <span className={cn("grid h-9 w-9 place-items-center rounded-[9px] shrink-0 transition-colors", on ? "bg-[var(--accion)] text-[var(--accion-sobre,#fff)]" : "bg-muted text-muted-foreground")}>
+                                        <Ic size={18} strokeWidth={2} />
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                        <span className={cn("block text-[12.5px] font-semibold truncate", !on && "text-muted-foreground")}>{c.nombre}</span>
+                                        <span className="block text-[10.5px] text-muted-foreground">{propia ? "Entrenado acá · " : ""}{on ? "La cuenta" : "No la mira"}</span>
+                                    </span>
+                                    {/* El interruptor sólo muestra: el clic lo maneja la tarjeta entera. */}
+                                    <span onClick={(e) => e.stopPropagation()}><Switch checked={on} onCheckedChange={alternar} aria-label={`${on ? "Dejar de contar" : "Contar"} ${c.nombre}`} /></span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </CajonSeccion>
+
+
                 <CajonSeccion titulo={t.geometria === "linea" ? "La línea" : "La zona"}
                     ayuda={t.geometria === "linea" ? "Dibujala sobre el piso, de lado a lado de por donde se pasa." : r.tipo === "aglomeracion" || r.tipo === "merodeo" ? "Opcional: sin zona se mira todo el cuadro." : r.tipo === "retirado" ? "Donde están las cosas a cuidar (el bicicletero, la entrada de una casa). Lo quieto adentro se aprende solo en un minuto." : "Sobre el piso: se mide dónde está el pie de cada objeto."}>
                     {r.deviceId ? (
@@ -496,20 +537,8 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                     )}
                 </CajonSeccion>
 
-                <CajonSeccion titulo="Qué cuenta">
-                    <div className="flex flex-wrap gap-1.5">
-                        {/* Las clases del detector propio (Entrenar › Objetos nuevos) se ofrecen en todas: un contenedor
-                            puede faltar (retirado), quedarse en una zona o cruzar una línea. */}
-                        {[...(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA), ...listaPropias()].map((c) => {
-                            const on = r.clases.includes(c.clase);
-                            return (
-                                <button key={c.clase} type="button" aria-pressed={on} onClick={() => cambiar({ clases: on ? r.clases.filter((x) => x !== c.clase) : [...r.clases, c.clase] })}
-                                    className={cn("h-8 px-3 rounded-full border text-[12px] font-semibold", on ? "bg-[var(--accion)] text-[var(--accion-texto)] border-transparent" : "border-border text-muted-foreground hover:text-foreground")}>
-                                    {c.nombre}
-                                </button>
-                            );
-                        })}
-                    </div>
+                {(r.tipo === "merodeo" || r.tipo === "retirado" || r.tipo === "intrusion" || r.tipo === "permanencia" || r.tipo === "aglomeracion") && (
+                    <CajonSeccion titulo="Cuándo dispara" icono={Gauge}>
                     {(r.tipo === "merodeo" || r.tipo === "retirado") && (
                         <CajonCampo etiqueta={r.tipo === "merodeo" ? "Avisar después de (segundos)" : "Avisar si falta más de (segundos)"}
                             ayuda={r.tipo === "merodeo" ? "En la zona y caminando: alguien parado esperando no es merodeo. Desde 20 s." : "Sin verse ni estar tapado por una persona. Desde 5 s."}>
@@ -536,7 +565,8 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                             </CajonCampo>
                         </div>
                     )}
-                </CajonSeccion>
+                    </CajonSeccion>
+                )}
 
                 {CON_HORARIO.includes(r.tipo) && (
                     <CajonSeccion titulo="Cuándo está armada" icono={Clock}

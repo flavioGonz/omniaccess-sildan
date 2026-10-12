@@ -176,7 +176,7 @@ export function PanelEntrenar({ clases, falta, e }: { clases: ClaseResumen[]; fa
             {/* El cerebro y el número. */}
             <div className="px-4 flex flex-col items-center text-center">
                 <Cerebro progreso={frac} estado={est} tamano={230} />
-                <div className="-mt-1 text-[30px] font-bold tabular-nums leading-none tracking-[-0.02em]">
+                <div className={cn("mt-1 font-bold tabular-nums leading-none tracking-[-0.02em]", t ? "text-[30px]" : "text-[19px]")}>
                     {t ? `${Math.round(frac * 100)} %` : enUso ? "En uso" : "Listo para aprender"}
                 </div>
                 <div className="mt-1.5 text-[12px] text-muted-foreground tabular-nums min-h-[18px]">
