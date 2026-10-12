@@ -62,7 +62,7 @@ import { getWatchMap } from "@/app/actions/watchlist";
 import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
-import { UserFormDialog } from "@/components/UserFormDialog";
+import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
 interface FullAccessEvent extends AccessEvent {
@@ -162,7 +162,7 @@ function ThumbImg({ src, className }: { src?: string; className?: string }) {
     return <img src={src} alt="" className={className} loading="eager" decoding="async" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />;
 }
 
-function CamTile({ dev, accent = "emerald", ev }: { dev: any; accent?: string; ev?: any }) {
+function CamTile({ dev, accent = "emerald", ev, onRegister }: { dev: any; accent?: string; ev?: any; onRegister?: (p?: string) => void }) {
     const camRouter = useRouter();
     const [lit, setLit] = useState(false);
     const last = useRef<string | undefined>(undefined);
@@ -1198,7 +1198,7 @@ export default function MonitorLPR() {
                                 <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de entrada</div>
                             ) : (
                                 <div className={cn("grid gap-2", entryCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-                                    {entryCams.map((d: any) => <CamTile key={d.id} dev={d} accent="emerald" ev={lastByCam[d.id] || lastCapByDev[d.id]} />)}
+                                    {entryCams.map((d: any) => <CamTile key={d.id} dev={d} accent="emerald" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} />)}
                                 </div>
                             )}
                         </div>
@@ -1245,7 +1245,7 @@ export default function MonitorLPR() {
                                 <div className="flex items-center justify-center h-24 text-[11px] text-foreground/40 border border-dashed border-border rounded-lg">Sin cámaras de salida</div>
                             ) : (
                                 <div className={cn("grid gap-2", exitCams.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
-                                    {exitCams.map((d: any) => <CamTile key={d.id} dev={d} accent="orange" ev={lastByCam[d.id] || lastCapByDev[d.id]} />)}
+                                    {exitCams.map((d: any) => <CamTile key={d.id} dev={d} accent="orange" ev={lastByCam[d.id] || lastCapByDev[d.id]} onRegister={openRegister} />)}
                                 </div>
                             )}
                         </div>
@@ -1267,7 +1267,7 @@ export default function MonitorLPR() {
             </div>
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
                 <CriticalAlerts items={criticals} onDismiss={dismissCritical} onClear={() => setCriticals([])} onRegister={openRegister} />
-                <UserFormDialog open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
+                <CajonUsuario open={registerOpen} onOpenChange={(o) => { setRegisterOpen(o); if (!o) setRegisterInit(undefined); }} initialData={registerInit} units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} onSuccess={() => { setRegisterOpen(false); setRegisterInit(undefined); loadInitialData(); }} />
         </TooltipProvider>
     );
 }

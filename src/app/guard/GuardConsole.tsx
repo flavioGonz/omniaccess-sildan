@@ -71,7 +71,7 @@ import { getParkingSlots, getParkingOccupancy } from "@/app/actions/plazas";
 import { getQuickCreateData, getGuardsList, verifyGuardCredential, isGuardRevoked } from "@/app/actions/users";
 import { native } from "@/lib/guard-native";
 import { resolveFaceEventAction } from "@/app/actions/face-resolve";
-import { UserFormDialog } from "@/components/UserFormDialog";
+import { CajonUsuario } from "@/components/users/CajonUsuario";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
 import { PinchZoom } from "@/components/PinchZoom";
@@ -3952,7 +3952,7 @@ export default function GuardConsole({ initialEntries, logo, headerColor, initia
 
                 {
                     quickCreateData && (
-                        <UserFormDialog
+                        <CajonUsuario
                             open={showQuickCreate}
                             onOpenChange={setShowQuickCreate}
                             units={quickCreateData.units}

@@ -1,4 +1,5 @@
 "use client";
+import { Tooltip } from "react-tooltip";
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Vehicle, User } from "@prisma/client";
@@ -142,7 +143,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                             onClick={() => setSearchTerm("")}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         >
-                            <X size={16} />
+                            <X size={15} />
                         </button>
                     )}
                 </div>
@@ -155,28 +156,28 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                 </div>
             </div>
 
-            {/* Table Container with Gradient Fade */}
-            <div className="relative bg-card/50 backdrop-blur-sm rounded-lg border border-border/50 overflow-hidden shadow-xl">
+            <Tooltip id="tt-veh" place="top" className="!text-[12px] !rounded-lg !z-[9999]" />
+            <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
                 <div className="overflow-x-auto">
                     <table className="w-full">
-                        <thead className="sticky top-0 bg-card z-10">
-                            <tr className="border-b border-border">
-                                <th className="text-left px-5 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Matrícula</th>
-                                <th className="text-left px-5 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Vehículo</th>
-                                <th className="text-left px-5 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Propietario</th>
-                                <th className="text-left px-5 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Color</th>
-                                <th className="text-left px-5 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Última detección</th>
-                                <th className="text-left px-5 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Estado</th>
-                                <th className="text-right px-5 py-3 text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Acciones</th>
+                        <thead className="sticky top-0 z-10 bg-card">
+                            <tr className="border-b border-border/60 bg-card/60">
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Matrícula</th>
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Vehículo</th>
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Propietario</th>
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Color</th>
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Última detección</th>
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Estado</th>
+                                <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Acciones</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-border/50">
+                        <tbody>
                             {vehicles.map((vehicle) => (
                                 <tr
                                     key={vehicle.id}
-                                    className="hover:bg-muted/30 transition-colors group"
+                                    className="border-b border-border/50 last:border-0 hover:bg-foreground/[0.04] transition-colors group"
                                 >
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         <div className="flex items-center gap-3">
                                             <div className="w-14 h-10 rounded-md overflow-hidden bg-muted flex items-center justify-center border border-border group-hover:border-blue-500/30 transition-colors shrink-0">
                                                 {(vehicle as any).lastPhoto ? (
@@ -191,7 +192,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         <div className="flex items-center gap-3">
                                             {getCarLogo(vehicle.brand) ? (
                                                 <div className="relative w-8 h-8 rounded-lg bg-muted border border-border flex items-center justify-center p-1.5 shrink-0">
@@ -208,7 +209,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         <div className="flex items-center gap-2">
                                             <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
                                                 {vehicle.user.name.charAt(0)}
@@ -219,7 +220,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         {vehicle.color ? (
                                             <div className="flex items-center gap-2">
                                                 <div className="w-6 h-6 rounded-full border-2 border-border" style={{ backgroundColor: vehicle.color }} />
@@ -229,7 +230,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                             <span className="text-xs text-muted-foreground">-</span>
                                         )}
                                     </td>
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         {(vehicle as any).lastSeen ? (
                                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                                                 <Clock size={13} className="text-blue-400/70 shrink-0" />
@@ -239,37 +240,39 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                                             <span className="text-xs text-muted-foreground/50">Sin detecciones</span>
                                         )}
                                     </td>
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         <Badge variant="default" className="text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border-emerald-500/20">ACTIVO</Badge>
                                     </td>
-                                    <td className="p-4">
-                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <td className="px-3 py-2">
+                                        <div className="flex items-center justify-end gap-0.5">
                                             <Button
                                                 size="icon"
                                                 variant="ghost"
-                                                className="h-8 w-8 rounded-lg hover:bg-blue-500/10 hover:text-blue-400"
+                                                className="h-7 w-7 rounded-md text-muted-foreground hover:bg-blue-500/10 hover:text-blue-400"
                                                 onClick={() => { setSelectedVehicle(vehicle); setShowHistory(true); }}
+                                                data-tooltip-id="tt-veh" data-tooltip-content="Historial de accesos"
                                             >
-                                                <History size={16} />
+                                                <History size={15} />
                                             </Button>
                                             <VehicleDialog
                                                 users={users}
                                                 vehicle={vehicle}
                                                 onSuccess={() => setTriggerFetch(prev => prev + 1)}
                                                 trigger={
-                                                    <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg hover:bg-blue-500/10 hover:text-blue-400">
-                                                        <Edit size={16} />
+                                                    <Button size="icon" variant="ghost" data-tooltip-id="tt-veh" data-tooltip-content="Editar vehículo" className="h-7 w-7 rounded-md text-muted-foreground hover:bg-blue-500/10 hover:text-blue-400">
+                                                        <Edit size={15} />
                                                     </Button>
                                                 }
                                             />
-                                            <MinInteriorButton plate={vehicle.plate} className="!h-8 !w-8 justify-center rounded-lg hover:bg-indigo-500/10" />
+                                            <MinInteriorButton plate={vehicle.plate} className="!h-7 !w-7 justify-center rounded-lg hover:bg-indigo-500/10" />
                                             <Button
                                                 size="icon"
                                                 variant="ghost"
                                                 onClick={() => handleDelete(vehicle.id)}
-                                                className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-400"
+                                                data-tooltip-id="tt-veh" data-tooltip-content="Eliminar vehículo"
+                                                className="h-7 w-7 rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
                                             >
-                                                <Trash2 size={16} />
+                                                <Trash2 size={15} />
                                             </Button>
                                         </div>
                                     </td>
@@ -281,7 +284,7 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                     <div ref={lastElementRef} className="h-20 flex items-center justify-center">
                         {loading && (
                             <div className="flex items-center gap-2 text-muted-foreground text-xs font-bold uppercase tracking-widest mt-4">
-                                <Loader2 className="animate-spin" size={16} />
+                                <Loader2 className="animate-spin" size={15} />
                                 Cargando más...
                             </div>
                         )}
@@ -300,10 +303,6 @@ export function VehicleList({ initialVehicles, initialTotal, users }: VehicleLis
                         </div>
                     )}
                 </div>
-
-                {hasMore && (
-                    <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-neutral-950 via-neutral-950/80 to-transparent pointer-events-none z-20 backdrop-blur-[2px]" />
-                )}
             </div>
 
             <div className="flex items-center justify-between text-[10px] font-bold text-muted-foreground uppercase tracking-widest">

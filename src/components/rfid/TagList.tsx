@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Tooltip } from "react-tooltip";
 import { Credential, User, Unit } from "@prisma/client";
 import { Input } from "@/components/ui/input";
 import { Search, Plus, Edit, Trash2, UserPlus, UserMinus, X, CreditCard, Users as UsersIcon } from "lucide-react";
@@ -114,7 +115,7 @@ export function TagList({ initialTags, users }: TagListProps) {
                             onClick={() => setSearchTerm("")}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                         >
-                            <X size={16} />
+                            <X size={15} />
                         </button>
                     )}
                 </div>
@@ -148,31 +149,30 @@ export function TagList({ initialTags, users }: TagListProps) {
             </div>
 
             {/* Table */}
-            <div className="relative bg-card rounded-xl border border-border overflow-hidden">
-                <div className="max-h-[calc(100vh-280px)] overflow-y-auto custom-scrollbar">
+            <div className="border border-border/60 rounded-lg overflow-hidden bg-background/50">
+                <div className="max-h-[calc(100vh-280px)] overflow-y-auto">
                     <table className="w-full">
-                        <thead className="sticky top-0 bg-card z-10">
-                            <tr className="border-b border-border">
-                                <th className="text-left p-4 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Tag / UID</th>
-                                <th className="text-left p-4 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Usuario Asignado</th>
-                                <th className="text-left p-4 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Unidad</th>
-                                <th className="text-left p-4 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Estado</th>
-                                <th className="text-right p-4 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Acciones</th>
+                        <thead className="sticky top-0 z-10 bg-card">
+                            <tr className="border-b border-border/60 bg-card/60">
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Tag / UID</th>
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Usuario Asignado</th>
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Unidad</th>
+                                <th className="text-left px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Estado</th>
+                                <th className="text-right px-3 py-2.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Acciones</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-neutral-800/50">
+                        <tbody>
                             {filteredTags.map((tag, index) => (
                                 <tr
                                     key={tag.id}
                                     onClick={(e) => { if ((e.target as HTMLElement).closest("button")) return; setSelectedTag(tag); setShowAssignDialog(true); }}
-                                    className="hover:bg-muted/30 transition-colors group cursor-pointer"
-                                    style={{ animationDelay: `${index * 50}ms` }}
-                                >
+                                    className="border-b border-border/50 last:border-0 hover:bg-foreground/[0.04] transition-colors group cursor-pointer"
+                                                                    >
                                     {/* Tag Value */}
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center border border-border group-hover:border-emerald-500/30 transition-colors">
-                                                <CreditCard size={20} className="text-muted-foreground group-hover:text-emerald-400 transition-colors" />
+                                            <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center border border-border group-hover:border-emerald-500/30 transition-colors">
+                                                <CreditCard size={16} className="text-muted-foreground group-hover:text-emerald-400 transition-colors" />
                                             </div>
                                             <div>
                                                 <p className="text-sm font-bold text-foreground font-mono tracking-wider">
@@ -186,7 +186,7 @@ export function TagList({ initialTags, users }: TagListProps) {
                                     </td>
 
                                     {/* User */}
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         {tag.user && tag.userId ? (
                                             <div className="flex items-center gap-2">
                                                 <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
@@ -207,7 +207,7 @@ export function TagList({ initialTags, users }: TagListProps) {
                                     </td>
 
                                     {/* Unit */}
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         {tag.user?.unit ? (
                                             <span className="text-sm text-muted-foreground">
                                                 {tag.user.unit.name}
@@ -218,7 +218,7 @@ export function TagList({ initialTags, users }: TagListProps) {
                                     </td>
 
                                     {/* Status */}
-                                    <td className="p-4">
+                                    <td className="px-3 py-2">
                                         {tag.userId && tag.userId !== "" ? (
                                             <Badge variant="default" className="text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
                                                 ASIGNADO
@@ -231,17 +231,17 @@ export function TagList({ initialTags, users }: TagListProps) {
                                     </td>
 
                                     {/* Actions */}
-                                    <td className="p-4">
-                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <td className="px-3 py-2">
+                                        <div className="flex items-center justify-end gap-0.5">
                                             {tag.userId && tag.userId !== "" ? (
                                                 <Button
                                                     size="icon"
                                                     variant="ghost"
                                                     onClick={() => handleUnassign(tag.id)}
-                                                    className="h-8 w-8 rounded-lg hover:bg-orange-500/10 hover:text-orange-400"
-                                                    title="Desasignar"
+                                                    className="h-7 w-7 rounded-md text-muted-foreground hover:bg-orange-500/10 hover:text-orange-400"
+                                                    data-tooltip-id="tt-tags" data-tooltip-content="Liberar el tag (queda disponible)"
                                                 >
-                                                    <UserMinus size={16} />
+                                                    <UserMinus size={15} />
                                                 </Button>
                                             ) : (
                                                 <Button
@@ -251,19 +251,20 @@ export function TagList({ initialTags, users }: TagListProps) {
                                                         setSelectedTag(tag);
                                                         setShowAssignDialog(true);
                                                     }}
-                                                    className="h-8 w-8 rounded-lg hover:bg-emerald-500/10 hover:text-emerald-400"
-                                                    title="Asignar"
+                                                    className="h-7 w-7 rounded-md text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-400"
+                                                    data-tooltip-id="tt-tags" data-tooltip-content="Asignar a una persona"
                                                 >
-                                                    <UserPlus size={16} />
+                                                    <UserPlus size={15} />
                                                 </Button>
                                             )}
                                             <Button
                                                 size="icon"
                                                 variant="ghost"
                                                 onClick={() => handleDelete(tag.id)}
-                                                className="h-8 w-8 rounded-lg hover:bg-red-500/10 hover:text-red-400"
+                                                data-tooltip-id="tt-tags" data-tooltip-content="Eliminar tag"
+                                                className="h-7 w-7 rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
                                             >
-                                                <Trash2 size={16} />
+                                                <Trash2 size={15} />
                                             </Button>
                                         </div>
                                     </td>
@@ -285,9 +286,6 @@ export function TagList({ initialTags, users }: TagListProps) {
                         </div>
                     )}
                 </div>
-
-                {/* Bottom Gradient */}
-                <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-neutral-900 to-transparent pointer-events-none" />
             </div>
 
             {/* Results Counter */}
@@ -298,25 +296,11 @@ export function TagList({ initialTags, users }: TagListProps) {
                 </p>
             </div>
 
+            <Tooltip id="tt-tags" place="top" className="!text-[12px] !rounded-lg !z-[9999]" />
+
             {/* Alta / asignación en cajón */}
             <CajonTag open={showCreateDialog || showAssignDialog} onOpenChange={(v) => { if (!v) { setShowCreateDialog(false); setShowAssignDialog(false); } }}
                 tag={showAssignDialog ? selectedTag : null} users={users} onListo={() => window.location.reload()} />
-
-            <style jsx>{`
-                .custom-scrollbar::-webkit-scrollbar {
-                    width: 8px;
-                }
-                .custom-scrollbar::-webkit-scrollbar-track {
-                    background: transparent;
-                }
-                .custom-scrollbar::-webkit-scrollbar-thumb {
-                    background: #333;
-                    border-radius: 10px;
-                }
-                .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-                    background: #444;
-                }
-            `}</style>
         </div>
     );
 }
