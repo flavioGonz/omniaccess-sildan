@@ -47,6 +47,8 @@ type Marco = {
     conectado: boolean;
     /** El nombre de la vista para el encabezado; lo pone cada vista. */
     setTitulo: (t: string) => void;
+    /** El color de toda la pantalla (encabezado incluido); lo pone la vista LPR con cada lectura. null = el normal. */
+    setFondo: (c: string | null) => void;
     silencio: boolean;
     audioBloqueado: boolean;
     /** Quien mira entró al panel con el permiso del monitor de intrusión: puede confirmar y resolver desde acá. */
@@ -57,6 +59,7 @@ export const useMarco = () => { const c = useContext(Ctx); if (!c) throw new Err
 
 export function MarcoMonitor({ children, puedeDecidir = false }: { children: React.ReactNode; puedeDecidir?: boolean }) {
     const [titulo, setTitulo] = useState("");
+    const [fondo, setFondo] = useState<string | null>(null);
     const [ultimoDato, setUltimoDato] = useState<number>(() => Date.now());
     const [desconectadoDesde, setDesconectadoDesde] = useState<number | null>(null);
     const [ahora, setAhora] = useState(() => Date.now());
@@ -111,7 +114,7 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
 
     const valor = useMemo<Marco>(() => ({
         barrio: marco?.barrio || "OmniAccess", ajustes: marco?.ajustes || null, pantalla: marco?.pantalla || null,
-        latir, tactil, conectado, setTitulo, silencio, audioBloqueado: bloqueado, puedeDecidir,
+        latir, tactil, conectado, setTitulo, setFondo, silencio, audioBloqueado: bloqueado, puedeDecidir,
     }), [marco, latir, tactil, conectado, silencio, bloqueado, puedeDecidir]);
 
     const hora = new Date(ahora).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: ZONA });
@@ -135,10 +138,11 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
 
     return (
         <Ctx.Provider value={valor}>
-            <div className={cn("dark h-[100dvh] overflow-hidden bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent]", quieto && !tactil && "cursor-none")}>
+            <div className={cn("dark h-[100dvh] overflow-hidden bg-background text-foreground flex flex-col select-none overscroll-none touch-manipulation [-webkit-tap-highlight-color:transparent] transition-[background-color] duration-700", quieto && !tactil && "cursor-none")}
+                style={fondo ? { backgroundColor: fondo } : undefined}>
                 {/* Encabezado: barrio, vista, vitalidad y reloj. En "sin datos" se pinta ENTERO de ámbar. */}
                 <header className={cn("shrink-0 flex items-center gap-4 lg:gap-6 px-4 lg:px-8 h-[64px] border-b transition-colors",
-                    sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : "bg-card/60 border-border")}>
+                    sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : fondo ? "bg-black/20 border-white/15" : "bg-card/60 border-border")}>
                     <div className="min-w-0 flex items-baseline gap-3">
                         <span className="text-[22px] font-bold truncate">{valor.barrio}</span>
                         {titulo && <span className={cn("text-[18px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}

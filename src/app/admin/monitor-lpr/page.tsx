@@ -101,30 +101,6 @@ function tipoDeteccion(event: any, watch?: any): TipoMeta | null {
     }
 }
 
-/**
- * El color de cada detección, el mismo de la pared (Monitores): rojo no autorizado (lista negra
- * más fuerte), verde autorizado, amarillo proveedor, violeta visita. Tiñe la fila, el borde de
- * la captura grande y el marco de todo el monitor con la última lectura.
- */
-type ColorDet = { key: "negra" | "denegado" | "proveedor" | "visita" | "autorizado"; fila: string; barra: string; rgb: string };
-const COLOR_DET: Record<ColorDet["key"], ColorDet> = {
-    negra: { key: "negra", fila: "bg-red-500/[0.14] hover:bg-red-500/[0.2]", barra: "bg-red-500", rgb: "239,68,68" },
-    denegado: { key: "denegado", fila: "bg-red-500/[0.07] hover:bg-red-500/[0.13]", barra: "bg-red-500", rgb: "239,68,68" },
-    proveedor: { key: "proveedor", fila: "bg-amber-400/[0.10] hover:bg-amber-400/[0.17]", barra: "bg-amber-400", rgb: "245,158,11" },
-    visita: { key: "visita", fila: "bg-violet-500/[0.09] hover:bg-violet-500/[0.16]", barra: "bg-violet-500", rgb: "139,92,246" },
-    autorizado: { key: "autorizado", fila: "bg-emerald-500/[0.07] hover:bg-emerald-500/[0.13]", barra: "bg-emerald-500", rgb: "16,185,129" },
-};
-function colorDeteccion(event: any, watch?: any, conEmpresa?: boolean): ColorDet | null {
-    if (!event) return null;
-    const cat = String(watch?.category || "").toLowerCase();
-    const role = String(event?.user?.role || "").toUpperCase();
-    if (["negra", "blacklisted", "search", "busqueda"].includes(cat) || role === "BLACKLISTED") return COLOR_DET.negra;
-    if (event.decision !== "GRANT") return COLOR_DET.denegado;
-    if (role === "PROVIDER" || conEmpresa) return COLOR_DET.proveedor;
-    if (role === "VISITOR" || role === "TEMPORARY_VISITOR" || /invitad|visita/i.test(String(event.details || ""))) return COLOR_DET.visita;
-    return COLOR_DET.autorizado;
-}
-
 function playShutter() { /* sonido de captura desactivado para evitar warnings de autoplay del navegador */ }
 
 function TimeAgo({ timestamp }: { timestamp: string | Date }) {
@@ -313,11 +289,10 @@ function CenterShot({ ev, onRegister, logos }: { ev: any; onRegister?: (plate?: 
     const dir = ev.direction;
     const tipo = tipoDeteccion(ev, (ev as any).watch);
     const empresa = plate && logos ? logos[String(plate).toUpperCase()] : null;
-    const color = colorDeteccion(ev, (ev as any).watch, !!empresa);
+    const ring = dir === "EXIT" ? "border-orange-400 shadow-[0_0_24px_rgba(251,146,60,0.7)]" : "border-emerald-400 shadow-[0_0_24px_rgba(52,211,153,0.7)]";
     return (
         <div className="p-4">
-            <div className={cn("relative w-full aspect-video rounded-xl overflow-hidden vid-surface border-2 transition-all duration-300")}
-                style={color ? { borderColor: `rgb(${color.rgb})`, boxShadow: `0 0 ${flash ? 34 : 18}px rgba(${color.rgb},${flash ? 0.75 : 0.45})` } : undefined}>
+            <div className={cn("relative w-full aspect-video rounded-xl overflow-hidden vid-surface border transition-all duration-300", flash ? ring : "border-border")}>
                 <SmartThumb src={img} w={960} className="absolute inset-0 w-full h-full" />
                 {flash && <div className="iris-shot" />}
                 <div className="absolute top-3 left-3 z-10 flex flex-col items-start gap-1.5">
@@ -419,7 +394,6 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const watchMeta = watch ? watchCatMeta(watch.category) : null;
     const watchStyle = watchMeta ? { ring: watchMeta.ring, badge: watchMeta.badge, label: watchMeta.label.toUpperCase() } : null;
     const tipo = tipoDeteccion(event, watch);
-    const colorFila = colorDeteccion(event, watch, !!empresa);
     const [showPark, setShowPark] = useState(false);
     const [nvrCh, setNvrCh] = useState<number | null>(null);
     const [showVid, setShowVid] = useState(false);
@@ -429,10 +403,10 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
         <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)} empresa={empresa}>
             <div className={cn(
                 "relative p-3 cursor-pointer transition-all group border-b border-border last:border-0",
-                colorFila ? colorFila.fila : "hover:bg-accent",
-                watchStyle?.ring
+                isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent",
+                watchStyle?.ring || tipo?.ring
             )}>
-                {colorFila && <span className={cn("absolute left-0 top-0 bottom-0 w-1", colorFila.barra)} />}
+                {tipo && <span className={cn("absolute left-0 top-0 bottom-0 w-1", tipo.dot)} />}
                 <div className="flex items-center gap-3">
                     {empresa ? (
                         // Empresa con logo (delivery, taxi, móvil propio): su logo manda; la marca del auto queda chica en la esquina.
@@ -1083,7 +1057,6 @@ export default function MonitorLPR() {
         });
     }, [events, activeFilter, filterColor, filterVehType]);
 
-    const colorUltima = useMemo(() => { const e = filteredEvents[0]; if (!e) return null; const p = e.plateDetected ? String(e.plateDetected).toUpperCase() : ""; return colorDeteccion(e, (e as any).watch || (p ? (watchMap as any)?.[p] : null), !!(p && (logos as any)?.[p])); }, [filteredEvents, watchMap, logos]);
     const entryEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'ENTRY'), [filteredEvents]);
     const exitEvents = useMemo(() => filteredEvents.filter(e => e.direction === 'EXIT'), [filteredEvents]);
     const lprDevs = useMemo(() => devices, [devices]);
@@ -1121,11 +1094,7 @@ export default function MonitorLPR() {
 
     return (
         <TooltipProvider>
-            <div className="relative h-full flex flex-col bg-background text-foreground transition-[background-color] duration-700"
-                style={colorUltima ? { backgroundColor: `color-mix(in oklab, rgb(${colorUltima.rgb}) ${colorUltima.key === "negra" ? 34 : 24}%, var(--background))` } : undefined}>
-                {/* Todo el monitor toma el color de la última detección (marco interior, sin tapar las fotos). */}
-                {colorUltima && <div aria-hidden className="pointer-events-none absolute inset-0 z-[5] transition-[box-shadow,background-color] duration-700"
-                    style={{ boxShadow: `inset 0 0 0 3px rgba(${colorUltima.rgb},0.85), inset 0 0 120px rgba(${colorUltima.rgb},0.30)` }} />}
+            <div className="h-full flex flex-col bg-background text-foreground">
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-3">

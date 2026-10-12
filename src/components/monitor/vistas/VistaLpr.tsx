@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     LogIn, LogOut, ShieldCheck, ShieldX, ShieldAlert, Search, Repeat, Camera, Clock, Users, X, Radio,
     PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2, CircleDashed, AlertTriangle, Timer, Activity,
-    ScanEye, SlidersHorizontal, Siren, Building2,
+    ScanEye, SlidersHorizontal, Siren, Building2, Sparkles,
 } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
@@ -28,7 +28,7 @@ import { conAncho } from "@/lib/ancho-foto";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
 import { SUAVE, RESORTE, tocable, usarInactividad, CuentaAtras } from "@/components/monitor/tactil";
 import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
-import { PanelSemaforos, Semaforo, type EstadoSemaforo } from "@/components/monitor/Semaforos";
+import { Semaforo, type EstadoSemaforo } from "@/components/monitor/Semaforos";
 
 /**
  * La vista Control LPR: la última lectura grande y clara, si se abrió y por qué, la tira de
@@ -239,7 +239,7 @@ function Contador({ rotulo, valor, Icono, tono, activo, alTocar }: { rotulo: str
 }
 
 export function VistaLpr() {
-    const { latir, setTitulo, ajustes, silencio, tactil } = useMarco();
+    const { latir, setTitulo, setFondo, ajustes, silencio, tactil } = useMarco();
     useEffect(() => { setTitulo("Control LPR"); }, [setTitulo]);
     usarReloj();
     /* Qué cámaras mira ESTA pantalla: una garita puede querer ver sólo sus lectoras. Se guarda en el
@@ -332,6 +332,11 @@ export function VistaLpr() {
     const c = datos?.contadores;
     const protagonista = fijada || ultima;
     const tinte = tinteDe(protagonista, !!(protagonista?.plate && datos?.logos?.[protagonista.plate]));
+    // Toda la pantalla, encabezado incluido, toma el color de quien pasó.
+    useEffect(() => {
+        setFondo(tinte === "desconocido" ? null : `color-mix(in oklab, ${TINTE[tinte].fondo.replace(/,[\d.]+\)$/, ",1)")} ${tinte === "negra" ? 58 : 44}%, #050505)`);
+    }, [tinte, setFondo]);
+    useEffect(() => () => setFondo(null), [setFondo]);
     const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
     const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro, modo)), [tira, filtro, modo]);
     const rotulos = rotulosContadores(modo);
@@ -339,8 +344,8 @@ export function VistaLpr() {
     const alternarFiltro = (f: Filtro) => setFiltro((x) => (x === f ? "todas" : f));
 
     return (
-        <div className="absolute inset-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4 transition-colors duration-700"
-            style={{ backgroundColor: tinte === "desconocido" ? undefined : `color-mix(in oklab, ${TINTE[tinte].fondo.replace(/,[\d.]+\)$/, ",1)")} ${tinte === "negra" ? 58 : 44}%, #050505)`, backgroundImage: tinte === "desconocido" ? undefined : `radial-gradient(120% 90% at 30% 10%, rgba(255,255,255,0.10), transparent 70%)`, transition: "background-color 600ms ease" }}>
+        <div className="absolute inset-0 flex flex-col overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[1fr_440px] gap-3 lg:gap-4 p-3 lg:p-4 transition-colors duration-700"
+            style={{ backgroundImage: tinte === "desconocido" ? undefined : `radial-gradient(120% 90% at 30% 10%, rgba(255,255,255,0.10), transparent 70%)` }}>
             <div className="min-w-0 min-h-[420px] lg:min-h-0 flex-1 flex flex-col gap-3 lg:gap-4">
                 {/* Protagonista */}
                 <div className={cn("relative flex-1 min-h-[220px] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
@@ -388,21 +393,28 @@ export function VistaLpr() {
                     </AnimatePresence>
                 </div>
 
-                {/* Filtro y tira: se desliza con el dedo, cada lectura se toca. */}
-                <div className="shrink-0 flex flex-col gap-2">
-                    <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        {FILTROS.map((f) => (
-                            <button key={f.v} type="button" onClick={() => setFiltro(f.v)} aria-pressed={filtro === f.v}
-                                className={cn("h-11 px-5 rounded-full border text-[15px] font-semibold whitespace-nowrap", tocable,
-                                    filtro === f.v ? "bg-foreground text-background border-transparent" : "bg-card text-muted-foreground border-border")}>
-                                {f.l}
-                            </button>
-                        ))}
+                {/* Contadores del día (filtran las detecciones de la derecha). */}
+                <div className="shrink-0 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <Contador rotulo={rotulos.adentro} valor={c?.adentro ?? 0} Icono={Users} tono="info" />
+                    <Contador rotulo={rotulos.entradas} valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" activo={filtro === "entradas"} alTocar={() => alternarFiltro("entradas")} />
+                    <Contador rotulo={rotulos.salidas} valor={c?.salidas ?? 0} Icono={LogOut} activo={filtro === "salidas"} alTocar={() => alternarFiltro("salidas")} />
+                    <Contador rotulo={rotulos.rechazos} valor={(modo === "ABIERTO" ? c?.noRegistrados : c?.denegados) ?? 0} Icono={modo === "ABIERTO" ? CircleDashed : ShieldX} tono={modo === "ABIERTO" ? undefined : "mal"} activo={filtro === "denegadas"} alTocar={() => alternarFiltro("denegadas")} />
+                </div>
+            </div>
+
+            {/* Derecha: lo que entiende el sistema de la lectura en pantalla y las detecciones. */}
+            <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
+                <InteligenciaLectura l={protagonista} alAbrirFicha={() => protagonista && setFichaId(protagonista.id)} />
+
+                <div className="flex-1 min-h-[260px] rounded-2xl bg-card/90 border border-border p-3 flex flex-col gap-2 overflow-hidden">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><Radio size={14} /> Detecciones</span>
+                        <span className="ml-auto text-[12px] text-muted-foreground tabular-nums">{visibles.length} de {tira.length}</span>
                         <div className="relative">
-                            <button type="button" onClick={() => setVerSel((v) => !v)} aria-expanded={verSel}
-                                className={cn("h-11 px-4 rounded-full border text-[15px] font-semibold whitespace-nowrap inline-flex items-center gap-2", tocable,
+                            <button type="button" onClick={() => setVerSel((v) => !v)} aria-expanded={verSel} title="Qué cámaras mira esta pantalla"
+                                className={cn("h-9 px-3 rounded-full border text-[13px] font-semibold whitespace-nowrap inline-flex items-center gap-1.5", tocable,
                                     camSel ? "bg-[var(--accion)] text-white border-transparent" : "bg-card text-muted-foreground border-border")}>
-                                <SlidersHorizontal size={16} /> {camSel ? `${camSel.length} cámara${camSel.length !== 1 ? "s" : ""}` : "Todas las cámaras"}
+                                <SlidersHorizontal size={14} /> {camSel ? `${camSel.length}` : "Todas"}
                             </button>
                             <AnimatePresence>
                                 {verSel && (
@@ -411,52 +423,51 @@ export function VistaLpr() {
                                 )}
                             </AnimatePresence>
                         </div>
-                        <span className="ml-auto pl-3 text-[13px] text-muted-foreground whitespace-nowrap tabular-nums">{visibles.length} de las últimas {tira.length}</span>
                     </div>
-                    <div className="h-[124px] flex gap-3 overflow-x-auto overscroll-x-contain snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        {visibles.length === 0 && <div className="grid place-items-center w-full rounded-xl border border-dashed border-border text-[15px] text-muted-foreground">{tira.length ? "Ninguna con este filtro" : "Sin lecturas anteriores"}</div>}
+                    <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        {FILTROS.map((f) => (
+                            <button key={f.v} type="button" onClick={() => setFiltro(f.v)} aria-pressed={filtro === f.v}
+                                className={cn("h-9 px-3.5 rounded-full border text-[13px] font-semibold whitespace-nowrap", tocable,
+                                    filtro === f.v ? "bg-foreground text-background border-transparent" : "bg-card text-muted-foreground border-border")}>
+                                {f.l}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-1.5 [scrollbar-width:thin]">
+                        {visibles.length === 0 && <div className="grid place-items-center h-24 rounded-xl border border-dashed border-border text-[14px] text-muted-foreground">{tira.length ? "Ninguna con este filtro" : "Sin lecturas anteriores"}</div>}
                         <AnimatePresence initial={false}>
                             {visibles.map((l) => {
-                                const f = getImagePath(l.foto); const est = estadoDe(l, modo); const ok = est.ok; const sel = fijada?.id === l.id;
+                                const f = getImagePath(l.foto); const est = estadoDe(l, modo); const sel = fijada?.id === l.id;
+                                const emp = l.plate ? datos?.logos?.[l.plate] : null; const t = tinteDe(l, !!emp);
                                 return (
                                     <motion.button key={l.id} type="button" layout="position" onClick={() => setFijada(l)}
-                                        initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.94 }} transition={SUAVE}
-                                        className={cn("relative w-[200px] shrink-0 snap-start rounded-xl overflow-hidden bg-neutral-900 text-left", tocable,
-                                            sel ? "ring-[3px] ring-[var(--accion-en-oscuro)]" : ok ? "ring-1 ring-[color-mix(in_oklab,var(--bien)_50%,transparent)]" : est.error ? "ring-1 ring-[color-mix(in_oklab,var(--mal)_60%,transparent)]" : "ring-1 ring-white/15")}>
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        {f && <img src={f} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
-                                        {f && l.analisis && <CapaAnalisis analisis={l.analisis} ajuste="cover" etiquetas={false} />}
-                                        <span className="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent" />
-                                        {l.plate && datos?.logos?.[l.plate] && <span className="absolute top-2 left-2"><LogoSobreFoto empresa={datos.logos[l.plate]} className="h-6 max-w-[90px]" /></span>}
-                                        {l.clase && !(l.plate && datos?.logos?.[l.plate]) && <span className="absolute top-2 left-2 max-w-[184px]"><EtiquetaClase l={l} comp={comportamiento} /></span>}
-                                        <span className="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
-                                            <span className="min-w-0">
-                                                {esNoLeida(l.plate) && l.relectura?.plate ? <Relectura r={l.relectura} /> : <span className="block text-[18px] font-bold text-white tabular-nums tracking-[0.1em]">{l.plate || "S/L"}</span>}
-                                                <span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</span>
-                                            </span>
-                                            <est.Ic size={18} className={ok ? "text-[var(--bien)]" : est.error ? "text-[var(--mal)]" : "text-white/50"} />
+                                        initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96 }} transition={SUAVE}
+                                        className={cn("relative shrink-0 flex items-center gap-3 rounded-xl p-1.5 pr-3 text-left border overflow-hidden", tocable,
+                                            sel ? "border-[var(--accion-en-oscuro)] ring-2 ring-[var(--accion-en-oscuro)]" : "border-white/10")}
+                                        style={{ backgroundColor: t === "desconocido" ? undefined : TINTE[t].fondo }}>
+                                        <span className="relative w-[104px] h-[62px] shrink-0 rounded-lg overflow-hidden bg-neutral-900">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            {f && <img src={conAncho(f, 240) || undefined} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
+                                            {emp && <span className="absolute left-1 bottom-1"><LogoSobreFoto empresa={emp} className="h-4 max-w-[60px]" /></span>}
                                         </span>
+                                        <span className="min-w-0 flex-1">
+                                            <span className="flex items-center gap-2">
+                                                {esNoLeida(l.plate) && l.relectura?.plate ? <Relectura r={l.relectura} /> : <span className="text-[18px] font-bold tabular-nums tracking-[0.1em] text-white">{l.plate || "S/L"}</span>}
+                                            </span>
+                                            <span className="block text-[12px] text-white/70 truncate">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}{l.camara ? ` · ${l.camara}` : ""}</span>
+                                            <span className="block mt-0.5 truncate">{l.clase ? <EtiquetaClase l={l} comp={comportamiento} /> : <span className="text-[11px] text-white/60">{l.persona || (l.decision === "GRANT" ? "Autorizado" : "Sin registro")}</span>}</span>
+                                        </span>
+                                        <est.Ic size={18} className={cn("shrink-0", est.ok ? "text-[var(--bien)]" : est.error ? "text-[var(--mal)]" : "text-white/50")} />
                                     </motion.button>
                                 );
                             })}
                         </AnimatePresence>
                     </div>
                 </div>
-            </div>
 
-            {/* Contadores (filtran la tira) y fila de atención (abre la ficha). */}
-            <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
-                <PanelSemaforos camaras={camSel ? semaforos.filter((c) => camSel.includes(c.deviceId)) : semaforos} seg={semaforoSeg} alTocar={(id) => setFichaId(id)} />
-                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
-                    <Contador rotulo={rotulos.adentro} valor={c?.adentro ?? 0} Icono={Users} tono="info" />
-                    <Contador rotulo={rotulos.entradas} valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" activo={filtro === "entradas"} alTocar={() => alternarFiltro("entradas")} />
-                    <Contador rotulo={rotulos.salidas} valor={c?.salidas ?? 0} Icono={LogOut} activo={filtro === "salidas"} alTocar={() => alternarFiltro("salidas")} />
-                    <Contador rotulo={rotulos.rechazos} valor={(modo === "ABIERTO" ? c?.noRegistrados : c?.denegados) ?? 0} Icono={modo === "ABIERTO" ? CircleDashed : ShieldX} tono={modo === "ABIERTO" ? undefined : "mal"} activo={filtro === "denegadas"} alTocar={() => alternarFiltro("denegadas")} />
-                </div>
-                <div className="text-[12px] text-muted-foreground px-1 inline-flex items-center gap-1.5"><Clock size={12} /> contadores del día del barrio · actualizados {c ? hace(c.actualizado) : "—"}</div>
-                {/* En el barrio ahora: visitas con su cuenta atrás y, en abierto, las no registradas (estimado). */}
-                <EnElBarrio datos={datos?.enBarrio} modo={modo} alAbrir={(id) => id && setFichaId(id)} />
-                <div className="flex-1 min-h-[120px] max-h-[26vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
+                {((datos?.enBarrio?.visitas?.length || 0) + (datos?.enBarrio?.noRegistradas?.length || 0)) > 0 && <EnElBarrio datos={datos?.enBarrio} modo={modo} alAbrir={(id) => id && setFichaId(id)} />}
+                {(datos?.atencion?.length || 0) > 0 && (
+                <div className="shrink-0 max-h-[24vh] rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
                     <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><ShieldAlert size={14} /> Atención · últimas 24 h</div>
                     {datos && datos.atencion.length === 0 && <div className="text-[18px] text-muted-foreground">Sin novedades</div>}
                     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
@@ -478,6 +489,7 @@ export function VistaLpr() {
                         })}
                     </div>
                 </div>
+                )}
             </aside>
 
             <AnimatePresence>
@@ -852,6 +864,99 @@ function BloquePerfil({ perfil, franja, dias }: { perfil: NonNullable<Ficha["per
                 </div>
             )}
         </Bloque>
+    );
+}
+
+/**
+ * Inteligencia sobre la lectura que está en pantalla: quién es, cuántos días vino, cuánto se
+ * queda, su rutina, la grilla día × hora de los últimos días (estilo contribuciones de git, con
+ * las lecturas reales) y los pasos de hoy. Sale de la misma consulta que la ficha.
+ */
+const cacheInteligencia = new Map<string, Ficha>();
+function InteligenciaLectura({ l, alAbrirFicha }: { l: Lectura | null; alAbrirFicha: () => void }) {
+    const [ficha, setFicha] = useState<Ficha | null>(null);
+    const [cargando, setCargando] = useState(false);
+    const id = l?.id || null;
+    const sinChapa = !l || esNoLeida(l.plate);
+    useEffect(() => {
+        if (!id || sinChapa) { setFicha(null); return; }
+        const enCache = cacheInteligencia.get(id);
+        if (enCache) { setFicha(enCache); return; }
+        let vivo = true; setCargando(true);
+        // Un respiro: si entran varias lecturas seguidas, se pide sólo la última.
+        const t = setTimeout(() => {
+            fetch(`/api/monitor/lpr/lectura/${encodeURIComponent(id)}`, { cache: "no-store" })
+                .then((r) => (r.ok ? r.json() : null)).then((j) => { if (!vivo || !j) return; cacheInteligencia.set(id, j); if (cacheInteligencia.size > 60) cacheInteligencia.delete(cacheInteligencia.keys().next().value as string); setFicha(j); })
+                .catch(() => { }).finally(() => vivo && setCargando(false));
+        }, 350);
+        return () => { vivo = false; clearTimeout(t); };
+    }, [id, sinChapa]);
+
+    const p = ficha?.perfil; const franja = ficha?.franja; const dias = ficha?.franjaDias || 30;
+    const max = Math.max(1, ...(franja || []).flat());
+    const total = (franja || []).flat().reduce((a, b) => a + b, 0);
+    return (
+        <section className="shrink-0 rounded-2xl bg-card/90 border border-border p-3 flex flex-col gap-2.5">
+            <div className="flex items-center gap-2">
+                <span className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><Sparkles size={14} /> Inteligencia</span>
+                {l?.plate && !sinChapa && <span className="text-[15px] font-bold tabular-nums tracking-[0.1em]">{l.plate}</span>}
+                {cargando && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
+                {l && <button type="button" onClick={alAbrirFicha} className={cn("ml-auto h-8 px-3 rounded-full border border-border text-[12px] font-semibold inline-flex items-center gap-1", tocable)}>Ficha <ChevronRight size={14} /></button>}
+            </div>
+            {!l ? <div className="text-[14px] text-muted-foreground">Esperando la primera lectura.</div>
+                : sinChapa ? <div className="text-[14px] text-muted-foreground">Sin matrícula leída: no hay historia para analizar.</div>
+                : !ficha ? <div className="h-[150px] rounded-xl bg-muted/40 animate-pulse" />
+                : (<>
+                    <div className="grid grid-cols-3 gap-2">
+                        <Dato rotulo="Días vistos" valor={p ? `${p.diasVistos}/${dias}` : "—"} />
+                        <Dato rotulo="Se queda" valor={p?.permanenciaMedianaMin != null ? duracion(p.permanenciaMedianaMin) : "—"} />
+                        <Dato rotulo="Hoy" valor={`${ficha.hoy.length} ${ficha.hoy.length === 1 ? "paso" : "pasos"}`} />
+                    </div>
+                    <div className="text-[13px] leading-snug">
+                        {p ? <><span className="font-semibold">{NOMBRE_CLASE[p.clase as Clase] || p.clase}</span>{" · "}{p.rutina ? <>rutina <b>{describirRutina(p.rutina)}</b></> : <span className="text-muted-foreground">sin rutina detectada</span>}</>
+                            : <span className="text-muted-foreground">Primera vez que se la ve en {dias} días.</span>}
+                        {ficha.adentroDesde && <span className="text-muted-foreground">{" · "}adentro desde {horaCorta(ficha.adentroDesde)}</span>}
+                        {ficha.vigilancia && <span className="ml-1 px-1.5 py-0.5 rounded pleno-mal text-[11px] font-bold uppercase">{ficha.vigilancia.categoria}</span>}
+                    </div>
+                    {franja && (
+                        <div>
+                            <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground"><span>Actividad · últimos {dias} días</span><span className="tabular-nums">{total} lecturas</span></div>
+                            <div className="grid grid-cols-[14px_repeat(24,minmax(0,1fr))] gap-[2px]">
+                                {franja.map((fila, d) => (
+                                    <div key={d} className="contents">
+                                        <span className="text-[9px] text-muted-foreground leading-[12px]">{DIAS_CORTOS[d]}</span>
+                                        {fila.map((n, h) => (
+                                            <span key={h} title={`${DIAS_CORTOS[d]} ${String(h).padStart(2, "0")}h · ${n} lectura${n === 1 ? "" : "s"}`}
+                                                className="h-[12px] rounded-[2px]" style={{ background: n ? `color-mix(in oklab, #22c55e ${Math.round(30 + 70 * (n / max))}%, transparent)` : "color-mix(in oklab, var(--muted) 80%, transparent)" }} />
+                                        ))}
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="mt-0.5 grid grid-cols-[14px_repeat(24,minmax(0,1fr))] text-[9px] text-muted-foreground tabular-nums">
+                                <span />{Array.from({ length: 24 }, (_, h) => <span key={h} className="text-center">{h % 6 === 0 ? h : ""}</span>)}
+                            </div>
+                        </div>
+                    )}
+                    {ficha.hoy.length > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                            {ficha.hoy.slice(0, 12).map((x) => (
+                                <span key={x.id} className={cn("inline-flex items-center gap-1 h-6 px-1.5 rounded-md text-[11px] tabular-nums border", x.id === l.id ? "border-[var(--accion-en-oscuro)]" : "border-border",
+                                    x.decision === "GRANT" ? "bg-emerald-500/10" : "bg-red-500/10")}>
+                                    {x.sentido === "EXIT" ? <LogOut size={11} /> : <LogIn size={11} />}{horaCorta(x.ts)}
+                                </span>
+                            ))}
+                        </div>
+                    )}
+                </>)}
+        </section>
+    );
+}
+function Dato({ rotulo, valor }: { rotulo: string; valor: string }) {
+    return (
+        <div className="rounded-xl bg-muted/50 px-2.5 py-1.5 min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground truncate">{rotulo}</div>
+            <div className="text-[15px] font-bold tabular-nums truncate">{valor}</div>
+        </div>
     );
 }
 
