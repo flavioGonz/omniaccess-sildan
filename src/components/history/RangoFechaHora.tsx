@@ -87,7 +87,7 @@ export function RangoFechaHora({ valor, alCambiar }: { valor: Rango; alCambiar: 
                         className="-mr-1 grid h-5 w-5 place-items-center rounded-md hover:bg-foreground/10"><X size={12} /></span>}
                 </button>
             </PopoverTrigger>
-            <PopoverContent align="center" sideOffset={8} className="w-[640px] max-w-[96vw] p-0 overflow-hidden rounded-2xl">
+            <PopoverContent align="center" sideOffset={8} className="z-[9999] w-[640px] max-w-[96vw] p-0 overflow-hidden rounded-2xl">
                 <div className="flex">
                     {/* Atajos */}
                     <div className="w-[170px] shrink-0 border-r border-border bg-muted/30 p-2 flex flex-col gap-0.5">
