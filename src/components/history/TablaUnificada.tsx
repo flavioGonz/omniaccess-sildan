@@ -18,6 +18,7 @@ import { parseVehicleMeta } from "@/lib/vehicle-details";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 import { Cronometro, useTranscurrido, leerDuracion } from "@/components/tracking/Cronometro";
 import { Timer } from "lucide-react";
+import { MosaicoHistorial, type Vista } from "@/components/history/MosaicoHistorial";
 
 export type FilaHistorial = {
     id: string;
@@ -125,7 +126,7 @@ function HaceCuanto({ desde }: { desde: string }) {
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, barra, onMerodeo, onResumen, onCargado }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, barra, vista = "lista", onMerodeo, onResumen, onCargado }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /** Los filtros de acceso: con qué se identificó, si abrió, en qué sentido. Viajan al servidor. */
     identificacion?: string; resultado?: string; sentido?: string;
@@ -141,6 +142,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     camaras?: string[];
     /** Los controles de esta tabla, dentro de su mismo marco. */
     barra?: React.ReactNode;
+    /** Lista (la tabla), o las mismas filas como capturas: grilla o bento. */
+    vista?: Vista;
     onMerodeo?: (chapas: Set<string>) => void;
     /**
      * Lo que se puede decir de lo que está cargado: cuántos permitidos, cuántos denegados,
@@ -261,16 +264,16 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
      * no se puede afirmar más que eso, y decirlo con la mitad de los datos sería peor que
      * no decirlo.
      */
-    useEffect(() => {
-        if (!onMerodeo) return;
+    const merodeando = useMemo(() => {
         const porChapa = new Map<string, number>();
         for (const f of filas) {
             if (!f.plate) continue;
             if (f.tipo === "ACCESO" && f.decision !== "DENY") continue;
             porChapa.set(f.plate, (porChapa.get(f.plate) || 0) + 1);
         }
-        onMerodeo(new Set([...porChapa.entries()].filter(([, n]) => n >= 4).map(([p]) => p)));
-    }, [filas, onMerodeo]);
+        return new Set([...porChapa.entries()].filter(([, n]) => n >= 4).map(([p]) => p));
+    }, [filas]);
+    useEffect(() => { onMerodeo?.(merodeando); }, [merodeando, onMerodeo]);
 
     /**
      * El resumen de lo cargado, para los contadores y para los selectores de color y tipo.
@@ -562,9 +565,25 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         },
     ], [abierta, merodeo]);
 
+    const reintentar = useCallback(() => { setError(null); setRecargar((n) => n + 1); }, []);
+    const traer = useCallback(() => setPagina((p) => p + 1), []);
+    const pie = (
+        <span className="flex items-center gap-1.5">
+            {conectado
+                ? <><Wifi size={11} className="text-emerald-500" /> En vivo</>
+                : <><WifiOff size={11} className="text-muted-foreground/60" /> Sin conexión en vivo</>}
+            <span className="opacity-50">·</span>
+            <span className="tabular-nums">{visibles.length} registros</span>
+        </span>
+    );
+
     return (
         <>
-            <Tabla<FilaHistorial>
+            {vista !== "lista" ? (
+                <MosaicoHistorial vista={vista} filas={visibles} hay={hay} cargando={cargando} error={error}
+                    alReintentar={reintentar} traer={traer} merodeando={merodeando} alAbrir={setViendo}
+                    barra={barra} pie={pie} alto="calc(100vh - 300px)" />
+            ) : <Tabla<FilaHistorial>
                 filas={visibles}
                 clave={(f) => f.id}
                 columnas={columnas}
@@ -573,7 +592,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 nombreArchivo="historial"
                 cargando={cargando}
                 error={error}
-                alReintentar={() => { setError(null); setRecargar((n) => n + 1); }}
+                alReintentar={reintentar}
                 vacio={{ icono: Inbox, titulo: "Nada en este período", ayuda: "Probá ampliar el rango de fechas, o quitar algún filtro de tipo." }}
                 alClickFila={alternar}
                 filaActiva={(f) => abierta === f.id}
@@ -589,18 +608,10 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                         })}
                     />
                 ) : null}
-                masFilas={{ hay, cargando, traer: () => setPagina((p) => p + 1), modo: "scroll" }}
+                masFilas={{ hay, cargando, traer, modo: "scroll" }}
                 alto="calc(100vh - 300px)"
-                pie={
-                    <span className="flex items-center gap-1.5">
-                        {conectado
-                            ? <><Wifi size={11} className="text-emerald-500" /> En vivo</>
-                            : <><WifiOff size={11} className="text-muted-foreground/60" /> Sin conexión en vivo</>}
-                        <span className="opacity-50">·</span>
-                        <span className="tabular-nums">{visibles.length} registros</span>
-                    </span>
-                }
-            />
+                pie={pie}
+            />}
 
             {viendo && (
                 <VisorCuadro

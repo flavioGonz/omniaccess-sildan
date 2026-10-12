@@ -11,6 +11,7 @@ import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { TablaUnificada } from "@/components/history/TablaUnificada";
 import { CajonFiltros, BotonFiltros, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/CajonFiltros";
+import { SelectorVista, useVista } from "@/components/history/MosaicoHistorial";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { horaSeg, fechaCorta } from "@/lib/fechas";
@@ -57,6 +58,7 @@ export default function HistoryPage() {
     const [f, setF] = useState<FiltrosHistorial>(SIN_FILTROS);
     const cambiar = useCallback<CambiarFiltros>((clave, valor) => setF((p) => ({ ...p, [clave]: valor })), []);
     const [cajonAbierto, setCajonAbierto] = useState(false);
+    const [vista, setVista] = useVista();
 
     const [activeMode, setActiveMode] = useState<"LPR" | "FACE" | "QUEUE" | null>(null);
     const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
@@ -210,6 +212,7 @@ export default function HistoryPage() {
                         <div className="flex items-center flex-wrap gap-2 min-h-[34px]">
                             <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Matrícula, nombre o cámara" startOpen width={280} alto={34} />
                             <BotonFiltros puestos={filtrosPuestos.length} onClick={() => setCajonAbierto(true)} />
+                            <span className="ml-auto"><SelectorVista vista={vista} alCambiar={setVista} /></span>
                         </div>
 
                         <AnimatePresence initial={false}>
@@ -242,6 +245,7 @@ export default function HistoryPage() {
                 resultado={soloSeguimiento ? "ALL" : f.resultado}
                 sentido={soloSeguimiento ? "ALL" : f.sentido}
                 version={version}
+                vista={vista}
                 merodeo={f.merodeo && !soloSeguimiento ? chapasMerodeo : undefined}
                 color={soloSeguimiento ? "ALL" : f.color}
                 tipoVeh={soloSeguimiento ? "ALL" : f.tipoVeh}
