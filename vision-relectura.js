@@ -138,13 +138,15 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
 
     async function pendientes() {
         // Primero las que nunca se miraron; después las que fallaron por un corte (ver REINTENTO_MS).
+        // «createdAt» es la hora UTC sin zona: se compara contra now() en UTC, no contra un Date de
+        // JS (la sesión está en hora de Montevideo y lo correría tres horas).
         return prisma.$queryRaw`
             SELECT e.id, e."snapshotPath" AS foto, e.timestamp, r.id AS rid,
                    COALESCE((r.candidatos->>'intentos')::int, 1) AS intentos
             FROM "AccessEvent" e LEFT JOIN "Relectura" r ON r."accessEventId" = e.id
             WHERE e."accessType" = 'PLATE' AND e."plateDetected" = ANY(${NO_LEIDAS})
               AND e.timestamp > ${new Date(Date.now() - VENTANA_MS)}
-              AND (r.id IS NULL OR (r.estado = 'ERROR' AND r."createdAt" < ${new Date(Date.now() - REINTENTO_MS)}
+              AND (r.id IS NULL OR (r.estado = 'ERROR' AND r."createdAt" < (now() AT TIME ZONE 'UTC') - make_interval(secs => ${REINTENTO_MS / 1000})
                                     AND COALESCE((r.candidatos->>'intentos')::int, 1) < ${INTENTOS_MAX}))
             ORDER BY (r.id IS NULL) DESC, e.timestamp DESC LIMIT 5`;
     }
