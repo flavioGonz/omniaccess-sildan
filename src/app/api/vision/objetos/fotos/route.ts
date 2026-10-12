@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
 import { puedeMirar, puedeCambiar } from "@/lib/zona-entrenable-servidor";
 import { BUCKET, filaFoto, guardarFoto } from "@/lib/detector-propio-servidor";
+import { imagenDeLink, LinkInvalido } from "@/lib/ingesta-link";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,8 @@ const LIMITE_MAX = 400;
  *                      entrenar se quiere la resolución entera, no el substream del registro.
  *   ?objeto=<id>       el cuadro de una detección del registro (lo que vio vision-worker).
  *   cuerpo image/*     una foto subida (de otra cámara, del celular, de internet).
+ *   cuerpo JSON {url}  un link a una imagen (o a una página que la tenga): la trae el servidor,
+ *                      sin bajarla y volver a subirla. Ver lib/ingesta-link.ts (qué no se deja).
  */
 export async function GET(req: NextRequest) {
     const e = await puedeMirar(); if (e) return e;
@@ -64,6 +67,16 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ foto: await filaFoto(await guardarFoto(b, "REGISTRO", o.deviceId)) });
         }
         const tipo = req.headers.get("content-type") || "";
+        if (tipo.includes("application/json")) {
+            const { url } = await req.json().catch(() => ({}));
+            try {
+                const { bytes } = await imagenDeLink(url);
+                return NextResponse.json({ foto: await filaFoto(await guardarFoto(bytes, "SUBIDA", null)) });
+            } catch (e: any) {
+                if (e instanceof LinkInvalido) return NextResponse.json({ error: e.message }, { status: 422 });
+                throw e;
+            }
+        }
         if (!tipo.startsWith("image/")) return NextResponse.json({ error: "Mandá una foto, una cámara o una detección" }, { status: 400 });
         const b = Buffer.from(await req.arrayBuffer());
         if (!b.length) return NextResponse.json({ error: "No llegó la foto" }, { status: 400 });
