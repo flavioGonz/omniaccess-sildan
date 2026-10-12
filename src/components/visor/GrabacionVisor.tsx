@@ -136,7 +136,7 @@ export function GrabacionVisor({ deviceId, camara, instanteMs, marcas = [], matr
     const desde = centro - mitad, hasta = centro + mitad;
     const pct = (ms: number) => ((ms - desde) / (hasta - desde)) * 100;
     const marcasRegla = useMemo(() => {
-        const paso = ancho === 0 ? 30_000 : ancho === 1 ? 2 * 60_000 : 10 * 60_000;
+        const paso = ancho === 0 ? 60_000 : ancho === 1 ? 2 * 60_000 : 10 * 60_000; // los rótulos son hh:mm: más fino que un minuto se repiten
         const out: number[] = [];
         for (let t = Math.ceil(desde / paso) * paso; t <= hasta; t += paso) out.push(t);
         return out;
