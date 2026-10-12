@@ -14,6 +14,11 @@
  * pide una persona desde la pantalla, que le dice qué se pausa.
  *
  * Cada paso deja rastro en la fila: estado, progreso (época y métricas), resultado o error.
+ *
+ * Pausar (lo pide la pantalla con parametros.pausar): para al terminar la época, NO exporta,
+ * libera la GPU y levanta omni-vision; la carpeta queda con salida/last.ckpt y la fila en PAUSADO.
+ * Retomar la vuelve a la cola con parametros.reanudar y sigue desde esa época, sin rearmar el
+ * conjunto. Es distinto del congelado por temperatura (docker pause), que retiene la GPU.
  */
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });  // pm2 lo corre con cwd en la raíz, pero así no depende de eso
 const fs = require("fs");
@@ -52,6 +57,10 @@ const CADA_PODA_MS = 60 * 60_000;
  */
 const ESPACIO_MIN_GB = 8;
 const TERMINADOS = ["LISTO", "CANCELADO", "FALLO"];
+/** Pausado por una persona: la carpeta (con last.ckpt) NO se borra, porque desde ahí se retoma. */
+const PAUSADO = "PAUSADO";
+/** El script se monta desde el repo: un cambio de entrenar.py no obliga a reconstruir la imagen (torch, varios GB). */
+const SCRIPT = path.join(__dirname, "..", "services", "omni-entrenador", "entrenar.py");
 const IMAGEN = "omni-entrenador:gpu";
 const CONTENEDOR = "omni-entrenando";
 const ZONA = process.env.NEXT_PUBLIC_TZ || "America/Montevideo";
@@ -73,14 +82,29 @@ const TELEMETRIA = salud.dirTelemetria(TRABAJO);
  */
 let enCurso = null;
 let ultimaMuestra = null;
-const nuevoEnCurso = (id) => ({ id, congelado: false, congeladoDesde: 0, enfriadoMs: 0, pausas: 0, corte: null, max: { gpu: null, cpu: null, w: null }, sumaW: 0, n: 0, desde: Date.now() });
-const resumenSalud = (e) => e && ({
-    estado: e.corte ? "cortado" : e.congelado ? "enfriando" : "entrenando", corte: e.corte, pausas: e.pausas,
-    enfriadoSeg: Math.round((e.enfriadoMs + (e.congelado ? Date.now() - e.congeladoDesde : 0)) / 1000),
-    max: e.max, wPromedio: e.n ? Math.round(e.sumaW / e.n) : null, minutos: Math.round((Date.now() - e.desde) / 60_000),
-    ahora: ultimaMuestra ? { gpu: ultimaMuestra.gpu?.t ?? null, cpu: ultimaMuestra.cpu?.t ?? null, w: ultimaMuestra.gpu?.w ?? null } : null,
-});
+/**
+ * `base` es el consumo de los tramos anteriores (si se pausó y retomó): el resumen suma todo, así
+ * la pantalla dice lo que costó el entrenamiento entero, no sólo el último tramo.
+ */
+const nuevoEnCurso = (id, base = null) => ({ id, congelado: false, congeladoDesde: 0, enfriadoMs: 0, pausas: 0, corte: null, max: { gpu: null, cpu: null, w: null, mem: null }, sumaW: 0, n: 0, wh: 0, ultimaMs: 0, desde: Date.now(), base });
 const mayor = (a, b) => (b == null ? a : a == null ? b : Math.max(a, b));
+const resumenSalud = (e) => {
+    if (!e) return null;
+    const b = e.base || {};
+    const enfriadoSeg = Math.round((e.enfriadoMs + (e.congelado ? Date.now() - e.congeladoDesde : 0)) / 1000);
+    const segundos = Math.round((Date.now() - e.desde) / 1000);
+    return {
+        estado: e.corte ? "cortado" : e.congelado ? "enfriando" : "entrenando", corte: e.corte,
+        pausas: (b.pausas || 0) + e.pausas, enfriadoSeg: (b.enfriadoSeg || 0) + enfriadoSeg,
+        max: { gpu: mayor(b.max?.gpu ?? null, e.max.gpu), cpu: mayor(b.max?.cpu ?? null, e.max.cpu), w: mayor(b.max?.w ?? null, e.max.w), mem: mayor(b.max?.mem ?? null, e.max.mem) },
+        wPromedio: e.n ? Math.round(e.sumaW / e.n) : b.wPromedio ?? null,
+        // Energía de la GPU (integrada muestra a muestra) y tiempo de reloj, sumando los tramos.
+        wh: Math.round(((b.wh || 0) + e.wh) * 10) / 10,
+        segundos: (b.segundos || 0) + segundos, minutos: Math.round(((b.segundos || 0) + segundos) / 60),
+        tramos: (b.tramos || 0) + 1,
+        ahora: ultimaMuestra ? { gpu: ultimaMuestra.gpu?.t ?? null, cpu: ultimaMuestra.cpu?.t ?? null, w: ultimaMuestra.gpu?.w ?? null, uso: ultimaMuestra.gpu?.uso ?? null, mem: ultimaMuestra.gpu?.mem ?? null, memTotal: ultimaMuestra.gpu?.memTotal ?? null } : null,
+    };
+};
 
 /** Congelar / descongelar / parar el contenedor. Parar uno congelado exige descongelarlo antes. */
 async function congelar() { await sh(`docker pause ${CONTENEDOR}`, 30_000); }
@@ -101,8 +125,15 @@ async function vigilar() {
         ultimaMuestra = m;
         salud.registrar(TELEMETRIA, m, !!e);
         if (e && !e.corte) {
-            e.max = { gpu: mayor(e.max.gpu, m.gpu?.t), cpu: mayor(e.max.cpu, m.cpu?.t), w: mayor(e.max.w, m.gpu?.w) };
-            if (m.gpu?.w != null) { e.sumaW += m.gpu.w; e.n++; }
+            e.max = { gpu: mayor(e.max.gpu, m.gpu?.t), cpu: mayor(e.max.cpu, m.cpu?.t), w: mayor(e.max.w, m.gpu?.w), mem: mayor(e.max.mem, m.gpu?.mem) };
+            const ahoraMs = Date.now();
+            if (m.gpu?.w != null) {
+                e.sumaW += m.gpu.w; e.n++;
+                // Vatios × el tiempo desde la muestra anterior (tope 30 s: si la vigilancia se trabó,
+                // no se inventa consumo para el hueco).
+                if (e.ultimaMs) e.wh += m.gpu.w * Math.min(30, (ahoraMs - e.ultimaMs) / 1000) / 3600;
+            }
+            e.ultimaMs = ahoraMs;
             const d = salud.decidir(m, e.congelado, e.congeladoDesde);
             if (d.accion === "enfriar") {
                 await congelar().then(() => { e.congelado = true; e.congeladoDesde = Date.now(); e.pausas++; log(`${e.id}: congelado para enfriar (${d.motivo})`); })
@@ -180,7 +211,7 @@ async function preparar(t, carpeta) {
 
 /** Sigue un contenedor que ya corre hasta que termina. Devuelve el código de salida. */
 async function seguir(t, carpeta) {
-    let pedidoCancelar = null;
+    let pedidoCancelar = null, pedidoPausa = null;
     for (;;) {
         const p = leer(path.join(carpeta, "progreso.json"));
         const fila = await prisma.entrenamientoDetector.findUnique({ where: { id: t.id } });
@@ -193,7 +224,16 @@ async function seguir(t, carpeta) {
             fs.writeFileSync(path.join(carpeta, "detener"), "");
             log(`cancelar ${t.id}: se para al terminar la época`);
         }
-        if (pedidoCancelar && Date.now() - pedidoCancelar > CANCELAR_ESPERA_MS) await parar(30);
+        if (fila?.parametros?.pausar && !pedidoPausa && !pedidoCancelar) {
+            pedidoPausa = Date.now();
+            if (enCurso?.congelado) { await descongelar(); enCurso.enfriadoMs += Date.now() - enCurso.congeladoDesde; enCurso.congelado = false; }
+            fs.writeFileSync(path.join(carpeta, "pausar"), "");
+            fs.writeFileSync(path.join(carpeta, "detener"), "");
+            log(`pausar ${t.id}: se para al terminar la época y queda last.ckpt`);
+        }
+        // Si la época no termina a tiempo se para igual: last.ckpt de la época anterior sigue ahí.
+        const pedido = pedidoCancelar || pedidoPausa;
+        if (pedido && Date.now() - pedido > CANCELAR_ESPERA_MS) await parar(30);
         if (!(await corriendo())) break;
         await new Promise((r) => setTimeout(r, 10_000));
     }
@@ -208,10 +248,24 @@ async function terminar(t, carpeta, { codigo, cola }) {
     const fila = await prisma.entrenamientoDetector.findUnique({ where: { id: t.id } });
     const hayModelo = fs.existsSync(path.join(carpeta, "modelo.onnx"));
     const corte = enCurso?.id === t.id ? enCurso.corte : null;
+    const s0 = resumenSalud(enCurso?.id === t.id ? enCurso : null);
+    // Pausado: o lo dijo entrenar.py, o se lo paró a la fuerza tras pedir pausa y quedó last.ckpt.
+    const ckpt = fs.existsSync(path.join(carpeta, "salida", "last.ckpt"));
+    if (!corte && !fila?.cancelar && fila?.parametros?.pausar && ckpt && (r?.pausado || !hayModelo)) {
+        const p = leer(path.join(carpeta, "progreso.json")) || {};
+        await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: {
+            estado: PAUSADO, error: null,
+            parametros: { ...fila.parametros, pausar: false, reanudar: false, segundos_previos: r?.segundos ?? p.segundos ?? 0, epoca_previa: p.epoca || 0 },
+            progreso: { ...p, fase: "pausado", salud: s0 ? { ...s0, estado: "pausado" } : null },
+        } });
+        fs.rmSync(path.join(carpeta, "pausar"), { force: true }); fs.rmSync(path.join(carpeta, "detener"), { force: true });
+        log(`${t.id}: PAUSADO en la época ${p.epoca || "?"}`);
+        return;
+    }
     const estado = corte ? "FALLO" : r?.ok && hayModelo ? (fila?.cancelar || r.cancelado ? "CANCELADO" : "LISTO") : fila?.cancelar ? "CANCELADO" : "FALLO";
     const error = corte ? `Cortado para cuidar el equipo: ${corte}. Mirá «Salud del equipo» para ver cómo venía.`
         : estado === "FALLO" ? (r?.error || `El entrenamiento terminó con código ${codigo}.`) + (cola ? `\n…\n${cola.slice(-3000)}` : "") : null;
-    const s = resumenSalud(enCurso?.id === t.id ? enCurso : null);
+    const s = s0;
     await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: {
         estado, resultado: r ? { ...r, salud: s } : s ? { ok: false, salud: s } : undefined, error, terminadoAt: new Date(),
         progreso: { ...(leer(path.join(carpeta, "progreso.json")) || {}), salud: s },
@@ -226,14 +280,25 @@ async function correrUno(t) {
         await sh(`docker image inspect ${IMAGEN} --format '{{.Id}}'`).catch(() => { throw new Error(`Falta la imagen ${IMAGEN}: hay que construirla una vez (services/omni-entrenador/Dockerfile).`); });
         const libre = libreGB(TRABAJO);
         if (libre != null && libre < ESPACIO_MIN_GB) throw new Error(`Falta espacio en ${TRABAJO}: quedan ${libre.toFixed(1)} GB y hacen falta ${ESPACIO_MIN_GB} para entrenar sin llenar el disco.`);
-        await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado: "PREPARANDO", iniciadoAt: new Date(), carpeta } });
-        const conjunto = await preparar(t, carpeta);
-        await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { conjunto } });
-        log(`${t.id}: ${conjunto.fotos} fotos; se pausa omni-vision`);
+        // Retomar: misma carpeta, mismo conjunto (las fotos pudieron cambiar desde la pausa, pero
+        // mezclar conjuntos a mitad de camino haría que la medición no corresponda a nada).
+        const retoma = !!t.parametros?.reanudar && fs.existsSync(path.join(carpeta, "salida", "last.ckpt"));
+        if (t.parametros?.reanudar && !retoma) throw new Error("No quedó el punto de guardado (last.ckpt) de la pausa: hay que entrenar de nuevo.");
+        await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { estado: "PREPARANDO", iniciadoAt: t.iniciadoAt || new Date(), carpeta } });
+        if (retoma) {
+            fs.writeFileSync(path.join(carpeta, "parametros.json"), JSON.stringify(t.parametros));
+            for (const f of ["pausar", "detener", "resultado.json"]) fs.rmSync(path.join(carpeta, f), { force: true });
+            log(`${t.id}: se retoma desde la época ${t.parametros.epoca_previa || "?"}; se pausa omni-vision`);
+        } else {
+            const conjunto = await preparar(t, carpeta);
+            await prisma.entrenamientoDetector.update({ where: { id: t.id }, data: { conjunto } });
+            log(`${t.id}: ${conjunto.fotos} fotos; se pausa omni-vision`);
+        }
         await pausarVision(max);
         await sh(`docker rm -f ${CONTENEDOR}`).catch(() => null);
-        await sh(`docker run -d --name ${CONTENEDOR} --gpus all --memory ${MEMORIA} --cpus ${CPUS} --shm-size 2g -v ${carpeta}:/trabajo ${IMAGEN} /trabajo`);
-        enCurso = nuevoEnCurso(t.id);
+        const montaScript = fs.existsSync(SCRIPT) ? `-v ${SCRIPT}:/app/entrenar.py:ro` : "";
+        await sh(`docker run -d --name ${CONTENEDOR} --gpus all --memory ${MEMORIA} --cpus ${CPUS} --shm-size 2g -v ${carpeta}:/trabajo ${montaScript} ${IMAGEN} /trabajo`);
+        enCurso = nuevoEnCurso(t.id, retoma ? t.progreso?.salud || null : null);
         await terminar(t, carpeta, await seguir(t, carpeta));
     } catch (e) {
         log(`${t.id}: falló: ${e.message}`);
@@ -261,9 +326,11 @@ const borrarCarpeta = (c) => fs.rmSync(c, { recursive: true, force: true });
  */
 async function guardarYLimpiar(id, carpeta) {
     if (!fs.existsSync(carpeta)) return;
-    for (const d of ["crudo", "coco", "salida"]) borrarCarpeta(path.join(carpeta, d));
     const t = await prisma.entrenamientoDetector.findUnique({ where: { id } });
-    if (t && !TERMINADOS.includes(t.estado)) return;  // corriendo o en cola: no es de la poda
+    // Corriendo, en cola o PAUSADO: no es de la poda. Antes se borraban crudo/coco/salida primero
+    // y recién después se miraba el estado: con la pausa eso tiraba el last.ckpt de donde se retoma.
+    if (t && !TERMINADOS.includes(t.estado)) return;
+    for (const d of ["crudo", "coco", "salida"]) borrarCarpeta(path.join(carpeta, d));
     const onnx = path.join(carpeta, "modelo.onnx");
     const r = t?.resultado;
     if (t && r?.ok && !r.archivo && fs.existsSync(onnx) && (t.estado === "LISTO" || t.estado === "CANCELADO")) {

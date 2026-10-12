@@ -2,17 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Boxes, Camera, ImagePlus, Info, Loader2, Pencil, Plus, Trash2, Upload, Video , Thermometer } from "lucide-react";
+import { ArrowLeft, ArrowRight, Boxes, ChevronDown, ImagePlus, Info, Pencil, Plus, Trash2, Thermometer } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Filtros } from "@/components/ui/filtros";
 import { Pista } from "@/components/ui/pista";
-import { ErrorEstado, Cargando } from "@/components/ui/estados";
+import { ErrorEstado, Cargando, Chip } from "@/components/ui/estados";
+import { CURVA_SUAVE } from "@/components/ui/entrada";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { Anotador } from "@/components/vision/entrenar/Anotador";
-import { EntrenarDetector } from "@/components/vision/entrenar/EntrenarDetector";
+import { CerebroFlotante, PanelEntrenar, ResultadosEntrenamiento, useEntrenamientos } from "@/components/vision/entrenar/EntrenarDetector";
+import { SoltarFotos } from "@/components/vision/entrenar/SoltarFotos";
+import { CamarasOSubidas } from "@/components/vision/entrenar/CamarasOSubidas";
 import { GuiaDibujo, UnModeloVariasClases } from "@/components/vision/entrenar/GuiaDibujo";
 import { AlCelular } from "@/components/vision/entrenar/AlCelular";
 import { CaminoDetector, type PasoCamino } from "@/components/vision/entrenar/CaminoDetector";
@@ -23,9 +27,7 @@ import { CAJAS_META, CAJAS_MINIMO, LARGO_NOMBRE, NEGATIVAS_FRACCION, type Caja, 
  * que no trae de fábrica, y el entrenamiento (EntrenarDetector). Usar el modelo entrenado en las
  * cámaras es el paso siguiente, y la pantalla lo dice.
  */
-type Estado = { clases: ClaseResumen[]; fotos: { total: number; revisadas: number; sinRevisar: number; negativas: number }; falta: string[] };
-/** Lo que el camino necesita saber del entrenamiento: si hay uno corriendo, el último terminado y si hay uno en uso. */
-type Avance = { enCurso: any | null; ultimo: any | null; activo: any | null };
+type Estado = { clases: ClaseResumen[]; fotos: { total: number; revisadas: number; sinRevisar: number; negativas: number; porOrigen?: Record<string, number> }; falta: string[] };
 
 /**
  * Para arrancar: objetos que el detector de fábrica NO conoce y que en un barrio interesan.
@@ -33,8 +35,8 @@ type Avance = { enCurso: any | null; ultimo: any | null; activo: any | null };
  * los conoce: no hace falta enseñárselos.)
  */
 const EJEMPLOS_CLASE = ["Contenedor de basura", "Cono vehicular", "Carretilla", "Volqueta", "Pallet", "Escalera"];
-/** Una clase está «bien» con esto; antes de CAJAS_MINIMO no se puede entrenar. */
-const ESTADO_CLASE = (n: number) => n < CAJAS_MINIMO ? `Faltan ${CAJAS_MINIMO - n} para poder entrenar` : n < CAJAS_META ? "Ya se puede entrenar · con más, mejora" : "Muy bien";
+/** Una clase está «bien» con esto; antes de CAJAS_MINIMO no se puede entrenar. El tono es el estado. */
+const ESTADO_CLASE = (n: number) => n < CAJAS_MINIMO ? { t: `Faltan ${CAJAS_MINIMO - n}`, tono: "quieto" as const } : n < CAJAS_META ? { t: "Ya se puede entrenar", tono: "info" as const } : { t: "Muy bien", tono: "bien" as const };
 
 export default function ObjetosPropios() {
     const [estado, setEstado] = useState<Estado | null>(null);
@@ -42,16 +44,14 @@ export default function ObjetosPropios() {
     const [vista, setVista] = useState("sin");
     const [fotos, setFotos] = useState<FotoFila[] | null>(null);
     const [camaras, setCamaras] = useState<{ id: string; name: string }[]>([]);
-    const [camara, setCamara] = useState("");
-    const [sacando, setSacando] = useState(false);
-    const [subiendo, setSubiendo] = useState<{ hechas: number; total: number } | null>(null);
     const [anotando, setAnotando] = useState<number | null>(null);
     const [nueva, setNueva] = useState({ nombre: "", descripcion: "" });
     const [editando, setEditando] = useState<ClaseResumen | null>(null);
     const [aBorrar, setABorrar] = useState<ClaseResumen | null>(null);
-    const archivos = useRef<HTMLInputElement>(null);
-    const [avance, setAvance] = useState<Avance | null>(null);
-    const [guia, setGuia] = useState<boolean | null>(null);
+    // «Cómo dibujar bien» arranca plegado: es consulta, no lo primero que hay que leer.
+    const [guia, setGuia] = useState(false);
+    const [explica, setExplica] = useState<boolean | null>(null);
+    const ent = useEntrenamientos();
 
     const cargar = useCallback(async () => {
         try {
@@ -63,15 +63,8 @@ export default function ObjetosPropios() {
             if (!e.ok) throw new Error(je?.error || `El servidor respondió ${e.status}`);
             if (!f.ok) throw new Error(jf?.error || `El servidor respondió ${f.status}`);
             setEstado(je); setFotos(jf.fotos); setError(null);
-            // La guía de dibujo arranca abierta mientras ninguna clase llegó al mínimo.
-            setGuia((g) => (g == null ? !je.clases.some((c: ClaseResumen) => c.cajas >= CAJAS_MINIMO) : g));
-            Promise.all([
-                fetch("/api/vision/objetos/entrenamientos", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
-                fetch("/api/vision/objetos/activo", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
-            ]).then(([t, a]) => {
-                const lista: any[] = t?.entrenamientos || [];
-                setAvance({ enCurso: lista.find((x) => ["EN_COLA", "PREPARANDO", "ENTRENANDO", "EXPORTANDO"].includes(x.estado)) || null, ultimo: lista.find((x) => x.estado === "LISTO") || null, activo: a?.activo || null });
-            }).catch(() => { });
+            // «Un modelo, varias clases» abierto sólo mientras no hay ninguna clase.
+            setExplica((x) => (x == null ? je.clases.length === 0 : x));
         } catch (x: any) { setError(x?.message || "No se pudo leer"); }
     }, [vista]);
     useEffect(() => { setFotos(null); cargar(); }, [cargar]);
@@ -84,28 +77,6 @@ export default function ObjetosPropios() {
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
         return j;
-    }
-    async function sacarFoto() {
-        if (!camara) return;
-        setSacando(true);
-        try { await pedir(`/api/vision/objetos/fotos?camara=${encodeURIComponent(camara)}`, { method: "POST" }); toast.success({ title: "Foto agregada", description: "Está en «Sin dibujar»." }); setVista("sin"); await cargar(); }
-        catch (e: any) { toast.error({ title: "No se sacó la foto", description: e?.message }); }
-        finally { setSacando(false); }
-    }
-    async function subir(lista: FileList | File[] | null) {
-        const fs = [...(lista || [])].filter((f) => f.type.startsWith("image/"));
-        if (!fs.length) return;
-        setSubiendo({ hechas: 0, total: fs.length });
-        let mal = 0;
-        // De a una: son fotos grandes y el servidor las recomprime; en paralelo se pisan con el resto de la app.
-        for (const [k, f] of fs.entries()) {
-            try { await pedir("/api/vision/objetos/fotos", { method: "POST", body: f, headers: { "content-type": f.type } }); } catch { mal++; }
-            setSubiendo({ hechas: k + 1, total: fs.length });
-        }
-        setSubiendo(null);
-        if (mal) toast.error({ title: `${mal} de ${fs.length} no se pudieron subir`, description: "Probá con JPG o PNG." });
-        else toast.success({ title: `${fs.length} foto${fs.length === 1 ? "" : "s"} agregada${fs.length === 1 ? "" : "s"}` });
-        setVista("sin"); await cargar();
     }
     async function crearClase() {
         try { await pedir("/api/vision/objetos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(nueva) }); setNueva({ nombre: "", descripcion: "" }); await cargar(); }
@@ -139,7 +110,7 @@ export default function ObjetosPropios() {
         ...estado.clases.map((c) => ({ valor: `clase:${c.id}`, rotulo: c.nombre, cuenta: c.fotos })),
     ];
 
-    const conCajas = estado.clases.filter((c) => c.cajas > 0);
+    const ultimo = ent.datos?.entrenamientos.find((x) => x.estado === "LISTO") || null;
     const masFlojita = [...estado.clases].sort((a, b) => a.cajas - b.cajas)[0];
     const pasos: PasoCamino[] = [
         { titulo: "Qué enseñar", ancla: "clases", hecho: estado.clases.length > 0,
@@ -148,16 +119,14 @@ export default function ObjetosPropios() {
             detalle: `${estado.fotos.total} ${estado.fotos.total === 1 ? "foto" : "fotos"}${estado.fotos.sinRevisar ? ` · ${estado.fotos.sinRevisar} sin dibujar` : ""}` },
         { titulo: "Dibujar", ancla: "fotos", hecho: estado.clases.length > 0 && estado.falta.length === 0,
             detalle: !masFlojita ? "Un recuadro sobre cada objeto" : estado.falta.length ? `«${masFlojita.nombre}»: ${masFlojita.cajas} de ${CAJAS_MINIMO} recuadros` : "Alcanza para entrenar" },
-        { titulo: "Entrenar", ancla: "entrenar", hecho: !!avance?.ultimo,
-            detalle: avance?.enCurso ? "Entrenando ahora…" : avance?.ultimo?.resultado?.medicion ? `Último: acierta ${Math.round((avance.ultimo.resultado.medicion.f1 || 0) * 100)} %` : "De noche, solo; unos minutos" },
-        { titulo: "Usar en las cámaras", ancla: "entrenar", hecho: !!avance?.activo,
-            detalle: avance?.activo ? "En uso" : "Cuando el resultado sea bueno" },
+        { titulo: "Entrenar", ancla: "entrenar", hecho: !!ultimo,
+            detalle: ent.enCurso ? "Entrenando ahora…" : ent.pausado ? "En pausa" : ultimo?.resultado?.medicion ? `Último: acierta ${Math.round((ultimo.resultado.medicion.f1 || 0) * 100)} %` : "De noche, solo; unos minutos" },
+        { titulo: "Usar en las cámaras", ancla: "entrenar", hecho: !!ent.activo?.activo,
+            detalle: ent.activo?.activo ? "En uso" : "Cuando el resultado sea bueno" },
     ];
 
     return (
-        <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto"
-            onDragOver={(e) => { if (e.dataTransfer.types.includes("Files")) e.preventDefault(); }}
-            onDrop={(e) => { e.preventDefault(); subir(e.dataTransfer.files); }}>
+        <div className="p-6 lg:p-8 max-w-[1640px] mx-auto space-y-5">
             <div className="flex items-center gap-3 flex-wrap">
                 <Link href="/admin/vision/entrenar" aria-label="Volver" className="h-9 w-9 grid place-items-center rounded-[10px] border border-border hover:bg-accent"><ArrowLeft size={16} /></Link>
                 <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><Boxes size={18} strokeWidth={2.3} /></span>
@@ -172,145 +141,140 @@ export default function ObjetosPropios() {
                 <AlCelular />
             </div>
 
-            {/* Cómo dibujar, arriba de todo: es lo que más decide si el modelo sale bien, y abajo
-                de las clases quedaba fuera de la vista justo cuando se empieza. */}
-            {guia != null && <GuiaDibujo abierta={guia} alCambiar={setGuia} />}
-
-            <CaminoDetector pasos={pasos} />
-
-            {/* ── 1. Qué enseñar ── */}
-            <section id="clases" className="scroll-mt-4 space-y-2">
-                <Titulo n={1} titulo="Qué querés enseñarle" texto="Las clases: los tipos de objeto que el detector todavía no conoce. Pueden ser varias." />
-                <UnModeloVariasClases />
-                {/* Las clases a todo el ancho, con el alta como último renglón: al lado iba una
-                    columna con el formulario y la explicación, más alta que la lista, y debajo de
-                    las clases quedaba un hueco blanco. */}
-                <div className="rounded-[10px] border border-border bg-card divide-y divide-border">
-                    {estado.clases.map((c, k) => (
-                        <div key={c.id} className="flex items-center gap-3 px-4 py-3">
-                            <span className="grid h-8 w-8 place-items-center rounded-full bg-foreground text-background text-[12px] font-bold tabular-nums shrink-0" title={`Tecla ${k + 1} al dibujar`}>{k + 1}</span>
-                            <div className="min-w-0 flex-1">
-                                {editando?.id === c.id ? (
-                                    <div className="flex gap-2 flex-wrap">
-                                        <Input value={editando.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} className="h-8 w-56" />
-                                        <Input value={editando.descripcion || ""} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} placeholder="Qué entra en el recuadro" className="h-8 flex-1 min-w-[180px]" />
-                                        <Button size="sm" onClick={() => guardarClase(editando)}>Guardar</Button>
-                                        <Button size="sm" variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
+            {/* Dos columnas: lo que se arma (clases, fotos, dibujo) y, fijo a la derecha, el
+                entrenamiento — que acompaña el scroll porque es lo que se mira mientras se dibuja. */}
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
+                <div className="space-y-5 min-w-0">
+                    {/* ── 1. Qué enseñar: lo primero que se ve al entrar ── */}
+                    <section id="clases" className="scroll-mt-4 space-y-2">
+                        <Titulo n={1} titulo="Qué querés enseñarle" texto="Las clases: los tipos de objeto que el detector todavía no conoce. Pueden ser varias." />
+                        <div className="rounded-[10px] border border-border bg-card divide-y divide-border">
+                            {estado.clases.map((c, k) => (
+                                <div key={c.id} className="flex items-center gap-3 px-4 py-3.5">
+                                    <span className="grid h-9 w-9 place-items-center rounded-full bg-foreground text-background text-[13px] font-bold tabular-nums shrink-0" title={`Tecla ${k + 1} al dibujar`}>{k + 1}</span>
+                                    <div className="min-w-0 flex-1">
+                                        {editando?.id === c.id ? (
+                                            <div className="flex gap-2 flex-wrap">
+                                                <Input value={editando.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setEditando({ ...editando, nombre: e.target.value })} className="h-8 w-56" />
+                                                <Input value={editando.descripcion || ""} onChange={(e) => setEditando({ ...editando, descripcion: e.target.value })} placeholder="Qué entra en el recuadro" className="h-8 flex-1 min-w-[180px]" />
+                                                <Button size="sm" onClick={() => guardarClase(editando)}>Guardar</Button>
+                                                <Button size="sm" variant="ghost" onClick={() => setEditando(null)}>Cancelar</Button>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)] items-center gap-x-5 gap-y-2">
+                                                <div className="min-w-0">
+                                                    <div className="text-[14.5px] font-bold truncate">{c.nombre}</div>
+                                                    {c.descripcion && <div className="text-[11.5px] text-muted-foreground truncate">{c.descripcion}</div>}
+                                                </div>
+                                                <Medidor n={c.cajas} fotos={c.fotos} />
+                                            </div>
+                                        )}
                                     </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1">
-                                        <div className="min-w-0">
-                                            <div className="text-[14px] font-bold truncate">{c.nombre}</div>
-                                            {c.descripcion && <div className="text-[11.5px] text-muted-foreground truncate">{c.descripcion}</div>}
+                                    {editando?.id !== c.id && (
+                                        <div className="flex items-center shrink-0">
+                                            <button type="button" onClick={() => setEditando(c)} aria-label="Cambiar el nombre" title="Cambiar el nombre" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Pencil size={14} /></button>
+                                            <button type="button" onClick={() => setABorrar(c)} aria-label="Borrar la clase" title="Borrar la clase" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-[var(--mal-suave)] hover:text-[var(--mal-texto)]"><Trash2 size={14} /></button>
                                         </div>
-                                        <Medidor n={c.cajas} fotos={c.fotos} />
-                                        <span className={cn("text-[12px] font-semibold whitespace-nowrap", c.cajas < CAJAS_MINIMO ? "text-muted-foreground" : "tono-bien")}>{ESTADO_CLASE(c.cajas)}</span>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
+                            ))}
+                            <form onSubmit={(e) => { e.preventDefault(); crearClase(); }} className="px-4 py-3 space-y-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="grid h-9 w-9 place-items-center rounded-full border border-dashed border-border text-muted-foreground shrink-0"><Plus size={14} /></span>
+                                    <Input value={nueva.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })}
+                                        placeholder={estado.clases.length ? "Otra clase: «Cono vehicular»" : "La primera clase: «Contenedor de basura»"} className="h-9 w-64" />
+                                    <Input value={nueva.descripcion} onChange={(e) => setNueva({ ...nueva, descripcion: e.target.value })} placeholder="Qué entra en el recuadro (opcional): «con la tapa»" className="h-9 flex-1 min-w-[200px]" />
+                                    <Button type="submit" disabled={!nueva.nombre.trim()}><Plus size={14} /> Agregar clase</Button>
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap pl-11">
+                                    <span className="text-[11.5px] text-muted-foreground">Ideas:</span>
+                                    {EJEMPLOS_CLASE.filter((e) => !estado.clases.some((c) => c.nombre.toLowerCase() === e.toLowerCase())).map((e) => (
+                                        <button key={e} type="button" onClick={() => setNueva({ ...nueva, nombre: e })} className="h-7 px-2.5 rounded-full border border-border text-[11.5px] font-semibold hover:bg-accent">{e}</button>
+                                    ))}
+                                </div>
+                            </form>
+                            {estado.fotos.revisadas > 0 && (
+                                <div className="px-4 py-2.5 text-[12px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                                    <span>Fotos del lugar sin ningún objeto: <b className="text-foreground tabular-nums">{estado.fotos.negativas}</b> (conviene {negMeta} o más, 1 de cada 7). Sirven para todas las clases.</span>
+                                    <Pista ancho={300} texto="Le enseñan qué NO marcar. Sin ellas aprende cosas como «todo lo verde es un contenedor». Se hacen abriendo una foto donde no está ninguno y tocando «No hay ninguno» (N)."><Info size={13} className="cursor-help" /></Pista>
+                                </div>
+                            )}
+                            {/* Qué es (y qué no es) una clase: plegado salvo al empezar. */}
+                            <div>
+                                <button type="button" onClick={() => setExplica((x) => !x)} aria-expanded={!!explica}
+                                    className="w-full flex items-center gap-2 px-4 py-2.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground">
+                                    <Info size={13} /> Un modelo, varias clases · qué no es una clase
+                                    <ChevronDown size={14} className={cn("ml-auto transition-transform", explica && "rotate-180")} />
+                                </button>
+                                <AnimatePresence initial={false}>
+                                    {explica && (
+                                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.26, ease: CURVA_SUAVE }} className="overflow-hidden">
+                                            <div className="px-4 pb-4"><UnModeloVariasClases /></div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
                             </div>
-                            {editando?.id !== c.id && (
-                                <>
-                                    <button type="button" onClick={() => setEditando(c)} aria-label="Cambiar el nombre" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"><Pencil size={14} /></button>
-                                    <button type="button" onClick={() => setABorrar(c)} aria-label="Borrar la clase" className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:bg-accent hover:tono-mal"><Trash2 size={14} /></button>
-                                </>
+                        </div>
+                    </section>
+
+                    <CaminoDetector pasos={pasos} />
+
+                    {/* Cómo dibujar, debajo del camino y plegado: se abre cuando se va a dibujar. */}
+                    <GuiaDibujo abierta={guia} alCambiar={setGuia} />
+
+                    {/* ── 2. Juntar fotos y dibujar ── */}
+                    <section id="fotos" className="scroll-mt-4 space-y-3">
+                        <Titulo n={2} titulo="Juntar fotos y dibujar" texto="Fotos donde aparece el objeto (y algunas donde no), y un recuadro sobre cada uno." />
+                        <SoltarFotos camaras={camaras} alAgregar={() => { setVista("sin"); cargar(); }} />
+                        <CamarasOSubidas porOrigen={estado.fotos.porOrigen} />
+
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <Filtros solido grupos={[{ clave: "v", titulo: "Fotos", valor: vista, alElegir: setVista, opciones: vistas }]} />
+                            {fotos && fotos.length > 0 && estado.clases.length > 0 && (
+                                <Button className="ml-auto" onClick={() => setAnotando(0)}><Pencil size={14} /> {vista === "sin" ? `Dibujar ${fotos.length === 1 ? "la foto" : `las ${fotos.length} fotos`}` : "Revisar estas"} <ArrowRight size={14} /></Button>
                             )}
                         </div>
-                    ))}
-                    <form onSubmit={(e) => { e.preventDefault(); crearClase(); }} className="px-4 py-3 space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <span className="grid h-8 w-8 place-items-center rounded-full border border-dashed border-border text-muted-foreground shrink-0"><Plus size={14} /></span>
-                            <Input value={nueva.nombre} maxLength={LARGO_NOMBRE} onChange={(e) => setNueva({ ...nueva, nombre: e.target.value })}
-                                placeholder={estado.clases.length ? "Otra clase: «Cono vehicular»" : "La primera clase: «Contenedor de basura»"} className="h-9 w-64" />
-                            <Input value={nueva.descripcion} onChange={(e) => setNueva({ ...nueva, descripcion: e.target.value })} placeholder="Qué entra en el recuadro (opcional): «con la tapa»" className="h-9 flex-1 min-w-[200px]" />
-                            <Button type="submit" disabled={!nueva.nombre.trim()}><Plus size={14} /> Agregar clase</Button>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-wrap pl-10">
-                            <span className="text-[11.5px] text-muted-foreground">Ideas:</span>
-                            {EJEMPLOS_CLASE.filter((e) => !estado.clases.some((c) => c.nombre.toLowerCase() === e.toLowerCase())).map((e) => (
-                                <button key={e} type="button" onClick={() => setNueva({ ...nueva, nombre: e })} className="h-7 px-2.5 rounded-full border border-border text-[11.5px] font-semibold hover:bg-accent">{e}</button>
-                            ))}
-                        </div>
-                    </form>
-                    {estado.fotos.revisadas > 0 && (
-                        <div className="px-4 py-2.5 text-[12px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
-                            <span>Fotos del lugar sin ningún objeto: <b className="text-foreground tabular-nums">{estado.fotos.negativas}</b> (conviene {negMeta} o más, 1 de cada 7). Sirven para todas las clases.</span>
-                            <Pista ancho={300} texto="Le enseñan qué NO marcar. Sin ellas aprende cosas como «todo lo verde es un contenedor». Se hacen abriendo una foto donde no está ninguno y tocando «No hay ninguno» (N)."><Info size={13} className="cursor-help" /></Pista>
-                        </div>
-                    )}
-                </div>
-            </section>
+                        {vista === "sin" && fotos && fotos.length > 0 && (
+                            <p className="text-[12px] text-muted-foreground">Al dibujar: arrastrá sobre cada objeto, <kbd className="px-1 rounded bg-muted">Enter</kbd> guarda y pasa a la siguiente, <kbd className="px-1 rounded bg-muted">N</kbd> si en esa foto no está, <kbd className="px-1 rounded bg-muted">1</kbd>-<kbd className="px-1 rounded bg-muted">9</kbd> cambia la clase.</p>
+                        )}
 
-            {/* ── 2 y 3. Juntar fotos y dibujar ── */}
-            <section id="fotos" className="scroll-mt-4 space-y-3">
-                <Titulo n={2} titulo="Juntar fotos y dibujar" texto="Fotos donde aparece el objeto (y algunas donde no), y un recuadro sobre cada uno." />
-                <div className="rounded-[10px] border border-border bg-card p-3 space-y-2">
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[13px] font-bold mr-1">Agregar fotos</span>
-                        <label className={cn("relative inline-flex items-center h-9 rounded-lg pl-2.5 pr-2 gap-1.5 text-[12.5px] font-semibold", camara ? "bg-muted" : "bg-muted/60 text-muted-foreground")}>
-                            <Video size={14} />
-                            <select value={camara} onChange={(e) => setCamara(e.target.value)} aria-label="Cámara" className="appearance-none bg-transparent outline-none pr-4 max-w-[220px] [&>option]:text-foreground [&>option]:bg-background">
-                                <option value="">Elegí una cámara</option>
-                                {camaras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
-                            <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
-                        </label>
-                        <Button onClick={sacarFoto} disabled={!camara || sacando}>{sacando ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} Sacar foto ahora</Button>
-                        <span className="w-px h-6 bg-border mx-1" />
-                        <Button variant="outline" onClick={() => archivos.current?.click()} disabled={!!subiendo}>
-                            {subiendo ? <><Loader2 size={14} className="animate-spin" /> {subiendo.hechas}/{subiendo.total}</> : <><Upload size={14} /> Subir fotos</>}
-                        </Button>
-                        <input ref={archivos} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { subir(e.target.files); e.target.value = ""; }} />
-                    </div>
-                    <p className="text-[12px] text-muted-foreground leading-snug">
-                        «Sacar foto ahora» toma el cuadro de este momento en máxima resolución: volvé a sacar a la mañana, a la tarde y de noche. También sirven fotos de otras cámaras, del celular o de internet (se pueden arrastrar acá).
-                    </p>
+                        {error && <ErrorEstado mensaje={error} alReintentar={cargar} />}
+                        {!fotos ? <Cargando texto="Trayendo las fotos…" /> : fotos.length === 0 ? (
+                            <div className="rounded-[10px] border border-dashed border-border p-10 text-center text-[13px] text-muted-foreground">
+                                <ImagePlus className="mx-auto mb-2 opacity-50" />
+                                {vista === "sin" ? (estado.fotos.total ? "Todas las fotos están dibujadas. Sumá más, de otros momentos y cámaras." : "Todavía no hay fotos. Soltá algunas arriba, o elegí una cámara donde se vea el objeto y tocá «Sacar foto ahora».") : "No hay fotos en esta vista."}
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-2">
+                                {fotos.map((f, k) => (
+                                    <button key={f.id} type="button" onClick={() => estado.clases.length ? setAnotando(k) : toast.error({ title: "Primero creá una clase" })}
+                                        className="group rounded-[10px] border border-border bg-card overflow-hidden text-left hover:border-[var(--accion)] transition-colors">
+                                        <div className="relative bg-black" style={{ aspectRatio: `${f.ancho} / ${f.alto}` }}>
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img src={`${f.url}?w=320`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+                                            {f.cajas.map((c, j) => (
+                                                <span key={j} className="absolute border-2 border-[var(--accion-en-oscuro,#60a5fa)] rounded-[2px]" style={{ left: `${c.caja[0] * 100}%`, top: `${c.caja[1] * 100}%`, width: `${(c.caja[2] - c.caja[0]) * 100}%`, height: `${(c.caja[3] - c.caja[1]) * 100}%` }} />
+                                            ))}
+                                            {!f.revisada && <span className="absolute inset-0 grid place-items-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity text-white text-[12px] font-semibold"><span className="inline-flex items-center gap-1"><Pencil size={13} /> Dibujar</span></span>}
+                                        </div>
+                                        <div className="px-2.5 py-1.5 text-[11.5px] text-muted-foreground flex items-center gap-1.5">
+                                            <span className="truncate">{f.camara || (f.origen === "SUBIDA" ? "Subida" : "Registro")}</span>
+                                            <span className={cn("ml-auto tabular-nums", !f.revisada && "font-semibold text-foreground")}>{f.revisada ? (f.cajas.length ? `${f.cajas.length} ${f.cajas.length === 1 ? "recuadro" : "recuadros"}` : "sin el objeto") : "sin dibujar"}</span>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </section>
+
+                    <ResultadosEntrenamiento clases={estado.clases} e={ent} />
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                    <Filtros solido grupos={[{ clave: "v", titulo: "Fotos", valor: vista, alElegir: setVista, opciones: vistas }]} />
-                    {fotos && fotos.length > 0 && estado.clases.length > 0 && (
-                        <Button className="ml-auto" onClick={() => setAnotando(0)}><Pencil size={14} /> {vista === "sin" ? `Dibujar ${fotos.length === 1 ? "la foto" : `las ${fotos.length} fotos`}` : "Revisar estas"} <ArrowRight size={14} /></Button>
-                    )}
-                </div>
-                {vista === "sin" && fotos && fotos.length > 0 && (
-                    <p className="text-[12px] text-muted-foreground">Al dibujar: arrastrá sobre cada objeto, <kbd className="px-1 rounded bg-muted">Enter</kbd> guarda y pasa a la siguiente, <kbd className="px-1 rounded bg-muted">N</kbd> si en esa foto no está, <kbd className="px-1 rounded bg-muted">1</kbd>-<kbd className="px-1 rounded bg-muted">9</kbd> cambia la clase.</p>
-                )}
-
-                {error && <ErrorEstado mensaje={error} alReintentar={cargar} />}
-                {!fotos ? <Cargando texto="Trayendo las fotos…" /> : fotos.length === 0 ? (
-                    <div className="rounded-[10px] border border-dashed border-border p-10 text-center text-[13px] text-muted-foreground">
-                        <ImagePlus className="mx-auto mb-2 opacity-50" />
-                        {vista === "sin" ? (estado.fotos.total ? "Todas las fotos están dibujadas. Sumá más, de otros momentos y cámaras." : "Todavía no hay fotos. Elegí una cámara donde se vea el objeto y tocá «Sacar foto ahora», o subí algunas.") : "No hay fotos en esta vista."}
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2">
-                        {fotos.map((f, k) => (
-                            <button key={f.id} type="button" onClick={() => estado.clases.length ? setAnotando(k) : toast.error({ title: "Primero creá una clase" })}
-                                className="group rounded-[10px] border border-border bg-card overflow-hidden text-left hover:border-[var(--accion)] transition-colors">
-                                <div className="relative bg-black" style={{ aspectRatio: `${f.ancho} / ${f.alto}` }}>
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={`${f.url}?w=320`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-                                    {f.cajas.map((c, j) => (
-                                        <span key={j} className="absolute border-2 border-[var(--accion-en-oscuro,#60a5fa)] rounded-[2px]" style={{ left: `${c.caja[0] * 100}%`, top: `${c.caja[1] * 100}%`, width: `${(c.caja[2] - c.caja[0]) * 100}%`, height: `${(c.caja[3] - c.caja[1]) * 100}%` }} />
-                                    ))}
-                                    {!f.revisada && <span className="absolute inset-0 grid place-items-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity text-white text-[12px] font-semibold"><span className="inline-flex items-center gap-1"><Pencil size={13} /> Dibujar</span></span>}
-                                </div>
-                                <div className="px-2.5 py-1.5 text-[11.5px] text-muted-foreground flex items-center gap-1.5">
-                                    <span className="truncate">{f.camara || (f.origen === "SUBIDA" ? "Subida" : "Registro")}</span>
-                                    <span className={cn("ml-auto tabular-nums", !f.revisada && "font-semibold text-foreground")}>{f.revisada ? (f.cajas.length ? `${f.cajas.length} ${f.cajas.length === 1 ? "recuadro" : "recuadros"}` : "sin el objeto") : "sin dibujar"}</span>
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </section>
-
-            {/* ── 3 y 4. Entrenar y usar ── */}
-            <section id="entrenar" className="scroll-mt-4 space-y-2">
-                <Titulo n={3} titulo="Entrenar y usar en las cámaras" texto="El servidor aprende de los recuadros, se mide con fotos que no vio y, si da bien, lo prendés en las cámaras." />
-                <EntrenarDetector clases={estado.clases} falta={estado.falta} />
-                {conCajas.length === 0 && <p className="text-[12px] text-muted-foreground">Se puede entrenar cuando haya recuadros dibujados.</p>}
-            </section>
+                <aside className="lg:sticky lg:top-4 space-y-3">
+                    <PanelEntrenar clases={estado.clases} falta={estado.falta} e={ent} />
+                </aside>
+            </div>
+            <CerebroFlotante e={ent} />
 
             {anotando != null && fotos && (
                 <Anotador fotos={fotos} inicio={anotando} clases={estado.clases} alGuardar={guardarFoto} alBorrar={borrarFoto}
@@ -339,19 +303,29 @@ function Titulo({ n, titulo, texto }: { n: number; titulo: string; texto: string
 
 /**
  * Cuántos recuadros lleva una clase, contra las dos marcas que importan: el mínimo para poder
- * entrenar y la meta con la que suele andar bien. Con los números escritos debajo de cada marca,
- * no sólo una raya: «100» sin decir qué es no se entendía.
+ * entrenar y la meta con la que suele andar bien. El número grande es lo que se busca de un
+ * vistazo; el estado va como chip con su tono (apagado hasta el mínimo, info al alcanzarlo, bien
+ * en la meta), y las marcas con su número debajo: «100» sin decir qué es no se entendía.
  */
 function Medidor({ n, fotos }: { n: number; fotos: number }) {
     const p = Math.min(1, n / CAJAS_META), m = CAJAS_MINIMO / CAJAS_META;
+    const e = ESTADO_CLASE(n);
+    const tono = n >= CAJAS_META ? "var(--bien)" : n >= CAJAS_MINIMO ? "var(--info)" : "var(--quieto)";
     return (
         <div className="min-w-0">
-            <div className="relative h-2 rounded-full bg-muted overflow-hidden">
-                <span className={cn("absolute inset-y-0 left-0 rounded-full transition-all", n >= CAJAS_MINIMO ? "bg-[var(--bien)]" : "bg-[var(--accion)]")} style={{ width: `${Math.max(p * 100, n ? 1.5 : 0)}%` }} />
-                <span className="absolute inset-y-0 w-0.5 bg-foreground/60" style={{ left: `${m * 100}%` }} />
+            <div className="flex items-baseline gap-2">
+                <span className="text-[17px] font-bold tabular-nums leading-none">{n}</span>
+                <span className="text-[11.5px] text-muted-foreground tabular-nums">{n === 1 ? "recuadro" : "recuadros"} en {fotos} {fotos === 1 ? "foto" : "fotos"}</span>
+                <Chip tono={e.tono} className="ml-auto">{e.t}</Chip>
             </div>
-            <div className="relative h-4 text-[10.5px] text-muted-foreground tabular-nums">
-                <span className="absolute left-0">{n} {n === 1 ? "recuadro" : "recuadros"} · {fotos} {fotos === 1 ? "foto" : "fotos"}</span>
+            <div className="relative mt-2 h-2.5 rounded-full bg-muted">
+                <motion.span className="absolute inset-y-0 left-0 rounded-full" style={{ background: tono }}
+                    initial={false} animate={{ width: `${Math.max(p * 100, n ? 1.5 : 0)}%` }} transition={{ duration: 0.6, ease: CURVA_SUAVE }} />
+                {/* Las dos marcas, como muescas que cruzan la barra. */}
+                <span className="absolute -top-0.5 -bottom-0.5 w-[3px] rounded-full bg-card" style={{ left: `calc(${m * 100}% - 1.5px)` }} />
+                <span className="absolute -top-0.5 -bottom-0.5 w-[2px] rounded-full bg-foreground/45" style={{ left: `calc(${m * 100}% - 1px)` }} />
+            </div>
+            <div className="relative h-4 mt-1 text-[10.5px] text-muted-foreground tabular-nums">
                 <span className="absolute -translate-x-1/2 hidden sm:inline" style={{ left: `${m * 100}%` }}>mínimo {CAJAS_MINIMO}</span>
                 <span className="absolute right-0">meta {CAJAS_META}</span>
             </div>

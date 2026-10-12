@@ -36,6 +36,9 @@ export async function POST(req: NextRequest) {
     const epocas = Math.min(EPOCAS_MAX, Math.max(1, Number(b?.epocas) || PARAMETROS_DEFECTO.epocas));
     const enCurso = await prisma.entrenamientoDetector.findFirst({ where: { estado: { in: ["EN_COLA", "PREPARANDO", "ENTRENANDO", "EXPORTANDO"] } } });
     if (enCurso) return NextResponse.json({ error: "Ya hay un entrenamiento en cola o corriendo." }, { status: 409 });
+    // Uno en pausa ocupa su carpeta con el punto de guardado (~GB): se retoma o se descarta antes.
+    if (await prisma.entrenamientoDetector.findFirst({ where: { estado: "PAUSADO" }, select: { id: true } }))
+        return NextResponse.json({ error: "Hay un entrenamiento en pausa: retomalo o descartalo antes de empezar otro." }, { status: 409 });
     const [clases, revisadas, negativas] = await Promise.all([
         resumenClases(),
         prisma.fotoEntrenamiento.count({ where: { revisada: true } }),

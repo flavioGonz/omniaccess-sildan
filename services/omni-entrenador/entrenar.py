@@ -14,6 +14,8 @@ Salida, en la misma carpeta:
                     paridad con rfdetr
     modelo.onnx     el detector afinado, listo para omni-vision
     detener         si aparece (lo crea «Cancelar»), el entrenamiento para al terminar la época
+    pausar          si aparece junto con «detener» (lo crea «Pausar»), para al terminar la época y NO
+                    exporta: deja salida/last.ckpt para retomar después desde esa misma época
 
 Por qué RF-DETR y no YOLO: es el detector que ya usa omni-vision (Apache-2.0); YOLO de
 Ultralytics es AGPL. El ONNX que sale se lee con el mismo pre y posproceso que el de fábrica.
@@ -161,7 +163,12 @@ def main() -> None:
     from pytorch_lightning import Callback
 
     epocas = int(p["epocas"])
-    max_seg = float(p.get("max_minutos", 180)) * 60
+    # Retomado tras una pausa: lo ya entrenado cuenta para el tope de tiempo y para lo que se
+    # muestra, si no un entrenamiento pausado tres veces podía pasarse tres veces del máximo.
+    previos = float(p.get("segundos_previos", 0))
+    max_seg = float(p.get("max_minutos", 180)) * 60 - previos
+    ultimo = SALIDA / "last.ckpt"
+    retomar = bool(p.get("reanudar")) and ultimo.exists()
 
     class Avance(Callback):
         """Cada época: escribe el avance, y para si se pidió cancelar o se pasó del tiempo."""
@@ -171,7 +178,7 @@ def main() -> None:
             ULTIMAS.clear(); ULTIMAS.update(m)
             transcurrido = time.time() - t0
             escribir("progreso.json", {"fase": "entrenando", "epoca": trainer.current_epoch + 1, "de": epocas,
-                                       "metricas": m, "segundos": round(transcurrido), "t": time.time()})
+                                       "metricas": m, "segundos": round(previos + transcurrido), "retomado": retomar, "t": time.time()})
             if (TRABAJO / "detener").exists() or transcurrido > max_seg:
                 trainer.should_stop = True
 
@@ -187,12 +194,23 @@ def main() -> None:
 
     Clase = getattr(rfdetr, p.get("modelo", "RFDETRNano"))
     modelo = Clase()
-    escribir("progreso.json", {"fase": "entrenando", "epoca": 0, "de": epocas, "t": time.time()})
-    modelo.train(dataset_dir=str(DATOS), output_dir=str(SALIDA), epochs=epocas, batch_size=int(p.get("lote", 4)),
+    escribir("progreso.json", {"fase": "entrenando", "epoca": int(p.get("epoca_previa", 0)), "de": epocas, "segundos": round(previos), "retomado": retomar, "t": time.time()})
+    # `resume` es de rfdetr: carga last.ckpt (pesos, optimizador, época y early stopping) y sigue
+    # desde la época siguiente. last.ckpt lo escribe cada época porque checkpoint_interval != 1.
+    extra = {"resume": str(ultimo)} if retomar else {}
+    modelo.train(**extra, dataset_dir=str(DATOS), output_dir=str(SALIDA), epochs=epocas, batch_size=int(p.get("lote", 4)),
                  grad_accum_steps=int(p.get("acumular", 4)), lr=float(p.get("lr", 1e-4)), num_workers=int(p.get("hilos", 2)),
                  device="cuda" if torch.cuda.is_available() else "cpu", tensorboard=False, progress_bar=None,
                  early_stopping=True, early_stopping_patience=int(p.get("paciencia", 15)), checkpoint_interval=max(1, epocas))
     cancelado = (TRABAJO / "detener").exists()
+    if cancelado and (TRABAJO / "pausar").exists():
+        # Pausa: nada de exportar ni medir (son minutos de GPU que se repetirían al terminar). Queda
+        # last.ckpt; el entrenador libera la GPU y levanta omni-vision.
+        if not ultimo.exists():
+            raise RuntimeError("Se pidió pausar pero no quedó last.ckpt: no habría desde dónde retomar.")
+        escribir("resultado.json", {"ok": False, "pausado": True, "segundos": round(previos + time.time() - t0)})
+        escribir("progreso.json", {**json.loads((TRABAJO / "progreso.json").read_text()), "fase": "pausado", "t": time.time()})
+        return
 
     escribir("progreso.json", {"fase": "exportando", "t": time.time()})
     mejor = next((SALIDA / n for n in ("checkpoint_best_total.pth", "checkpoint_best_ema.pth", "checkpoint_best_regular.pth") if (SALIDA / n).exists()), None)
@@ -242,7 +260,7 @@ def main() -> None:
     # Las de rfdetr en la última validación (mAP de COCO, precisión, recall), para quien quiera el detalle.
     resultados = {k: round(v, 4) for k, v in ULTIMAS.items() if k.startswith("val/")}
     escribir("resultado.json", {
-        "ok": True, "cancelado": cancelado, "segundos": round(time.time() - t0), "conjunto": conjunto,
+        "ok": True, "cancelado": cancelado, "segundos": round(previos + time.time() - t0), "conjunto": conjunto,
         "modelo": p.get("modelo", "RFDETRNano"), "resolucion": int(m_onnx.resolucion), "preproceso": "lineal",
         "clases": [{"indice": i + mejor_desp, "id": c["id"], "nombre": c["nombre"]} for i, c in enumerate(clases)],
         "columnas": col, "paridad": round(mejor_coin, 3) if mejor_coin >= 0 else None, "medicion": medir(por_onnx, clases), "coco": resultados,

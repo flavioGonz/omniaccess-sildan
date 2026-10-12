@@ -9,13 +9,17 @@ export const dynamic = "force-dynamic";
 /** GET: las clases propias con sus recuadros, cuántas fotos hay y qué falta para entrenar. POST: una clase nueva. */
 export async function GET() {
     const e = await puedeMirar(); if (e) return e;
-    const [clases, total, revisadas, negativas] = await Promise.all([
+    const [clases, total, revisadas, negativas, origenes] = await Promise.all([
         resumenClases(),
         prisma.fotoEntrenamiento.count(),
         prisma.fotoEntrenamiento.count({ where: { revisada: true } }),
         prisma.fotoEntrenamiento.count({ where: { revisada: true, cajas: { equals: [] } } }),
+        prisma.fotoEntrenamiento.groupBy({ by: ["origen"], _count: { _all: true } }),
     ]);
-    return NextResponse.json({ clases, fotos: { total, revisadas, sinRevisar: total - revisadas, negativas }, falta: falta(clases, revisadas, negativas) }, { headers: { "Cache-Control": "no-store" } });
+    // De dónde salen las fotos: la pantalla explica por qué conviene que la mayoría sea de las
+    // cámaras donde va a correr, y para eso tiene que poder mostrar la mezcla real.
+    const porOrigen = Object.fromEntries(origenes.map((o) => [o.origen, o._count._all]));
+    return NextResponse.json({ clases, fotos: { total, revisadas, sinRevisar: total - revisadas, negativas, porOrigen }, falta: falta(clases, revisadas, negativas) }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: NextRequest) {

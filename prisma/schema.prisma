@@ -1405,7 +1405,7 @@ model FotoEntrenamiento {
 /// o ya si se pidió «ahora»), para omni-vision mientras usa la GPU y lo vuelve a levantar.
 model EntrenamientoDetector {
   id          String    @id @default(cuid())
-  /// EN_COLA | PREPARANDO | ENTRENANDO | EXPORTANDO | LISTO | FALLO | CANCELADO
+  /// EN_COLA | PREPARANDO | ENTRENANDO | EXPORTANDO | PAUSADO | LISTO | FALLO | CANCELADO
   estado      String    @default("EN_COLA")
   /// "noche" (dentro de la ventana de ENTRENADOR_VENTANA) | "ahora"
   cuando      String    @default("noche")
