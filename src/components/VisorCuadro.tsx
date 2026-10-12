@@ -828,8 +828,9 @@ export function VisorCuadro({
 
                     {/* El lavado ambiental del estado, fundido sobre la imagen. Se apaga al
                         acercar: quien acerca vino a ver píxeles, no un degradado encima. */}
+                    {/* El tinte del estado no va sobre el vivo: es del evento, y sobre un video lo ensucia. */}
                     <div className={cn("visor-ambiente absolute inset-0 z-[5] pointer-events-none transition-opacity duration-300",
-                        (acercado || limpio) && "opacity-0")} />
+                        (acercado || limpio || modo === "vivo") && "opacity-0")} />
                     <div className={cn("absolute inset-0 z-[5] pointer-events-none bg-gradient-to-t from-black/80 via-transparent to-black/55 transition-opacity duration-300",
                         (acercado || limpio) && "opacity-0")} />
                     {/* Detrás de la ficha: la ficha ahora es texto en renglones, y el texto sobre
@@ -921,10 +922,23 @@ export function VisorCuadro({
                 {/* Sin nada encima: lo único que queda es la forma de volver. Apagado hasta que se
                     le pasa el mouse, para no ensuciar lo que se pidió ver limpio. */}
                 {limpio && (
-                    <button type="button" onClick={() => setLimpio(false)} title="Mostrar la ficha y los controles  ( H )"
-                        className="absolute top-4 right-4 z-40 h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/80 text-[11.5px] font-semibold flex items-center gap-1.5 opacity-40 hover:opacity-100 transition-opacity">
-                        <Eye size={14} /> Mostrar controles
-                    </button>
+                    <div className="absolute top-4 right-4 z-40 flex items-center gap-1.5 opacity-40 hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        {modo === "vivo" && (
+                            <>
+                                <span className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 text-[11.5px] font-semibold flex items-center gap-1.5">
+                                    <Radio size={12} className="animate-pulse text-[var(--mal)]" /> En vivo · {fila.cameraName || "Cámara"}
+                                </span>
+                                <button type="button" onClick={() => { setModo("foto"); setLimpio(false); }} title="Volver a la foto del evento"
+                                    className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/85 hover:text-white text-[11.5px] font-semibold flex items-center gap-1.5">
+                                    <IconoFoto size={14} /> Volver a la foto
+                                </button>
+                            </>
+                        )}
+                        <button type="button" onClick={() => setLimpio(false)} title="Mostrar la ficha y los controles  ( H )"
+                            className="h-8 px-3 rounded-[8px] bg-black/50 backdrop-blur-xl border border-white/15 text-white/80 hover:text-white text-[11.5px] font-semibold flex items-center gap-1.5">
+                            <Eye size={14} /> Mostrar controles
+                        </button>
+                    </div>
                 )}
 
                 {/* Mirando un paso anterior: se dice cuál, y se ofrece volver. */}
@@ -1142,7 +1156,12 @@ export function VisorCuadro({
                     {fila.deviceId && (
                         <>
                             <BotonRiel activo={modo === "vivo"}
-                                onClick={() => { setPasoViendo(null); setModo((m) => (m === "vivo" ? "foto" : "vivo")); }}
+                                onClick={() => {
+                                    /* El vivo se mira limpio: la ficha, la cápsula y los lavados tapaban el video
+                                       (pedido el 12/10). Al volver a la foto, vuelve todo. */
+                                    const n = modo === "vivo" ? "foto" : "vivo";
+                                    setPasoViendo(null); setModo(n); setLimpio(n === "vivo");
+                                }}
                                 title={modo === "vivo" ? "Volver al cuadro guardado" : "Ver acá lo que la cámara ve ahora"}>
                                 {modo === "vivo" ? <IconoFoto size={15} /> : <Video size={15} />}
                             </BotonRiel>
