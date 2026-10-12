@@ -21,6 +21,16 @@ export async function getEnabledModules(): Promise<Record<ModuleId, boolean>> {
         result[mod.id] = setting ? setting.value === 'true' : mod.defaultEnabled;
     }
 
+    // Los modos se excluyen: si lo guardado (o lo de fábrica) deja más de uno prendido, vale el
+    // primero en el orden de MODULE_DEFINITIONS y los demás se leen apagados. Mostrar dos «en
+    // uso» sería un estado que la aplicación no sabe correr: cada pantalla elegiría distinto.
+    // No se escribe nada acá; el modo se cambia por setExclusiveMode, con su clave.
+    let hayModo = false;
+    for (const mod of MODULE_DEFINITIONS) {
+        if (!mod.exclusive || !result[mod.id]) continue;
+        if (hayModo) result[mod.id] = false; else hayModo = true;
+    }
+
     return result as Record<ModuleId, boolean>;
 }
 
@@ -42,16 +52,9 @@ export async function toggleModule(moduleId: ModuleId, enabled: boolean): Promis
 
 // ─── Check if a specific module is enabled ──────────
 export async function isModuleEnabled(moduleId: ModuleId): Promise<boolean> {
-    const setting = await prisma.setting.findUnique({
-        where: { key: moduleId },
-    });
-
-    if (!setting) {
-        const def = MODULE_DEFINITIONS.find(m => m.id === moduleId);
-        return def?.defaultEnabled ?? false;
-    }
-
-    return setting.value === 'true';
+    // Por el mismo camino que la pantalla, para que «¿está prendido?» y lo que se ve en Modos
+    // no puedan contestar distinto (con dos modos guardados, sólo vale el primero).
+    return (await getEnabledModules())[moduleId] ?? false;
 }
 
 // ─── Set exclusive mode (enable one module, disable the rest) ───────────────

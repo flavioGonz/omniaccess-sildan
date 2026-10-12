@@ -69,14 +69,17 @@ export async function estadoDelSistema(): Promise<any> {
             endpoint: s3Endpoint,
             region: "us-east-1",
             credentials: {
-                accessKeyId: accessKey?.value || "root",
-                secretAccessKey: secretKey?.value || "flavio20",
+                // Sin Setting se usa el .env (como lib-s3 y el resto). Antes caía a un usuario y una
+                // clave escritos acá: en una instalación nueva el chequeo probaba con esa clave ajena
+                // y el MinIO salía caído aunque estuviera bien configurado en el .env.
+                accessKeyId: accessKey?.value || process.env.S3_ACCESS_KEY || "",
+                secretAccessKey: secretKey?.value || process.env.S3_SECRET_KEY || "",
             },
             forcePathStyle: true,
         });
 
-        const bucketName = bucketLpr?.value || "lpr";
-        const faceBucket = bucketFace?.value || "face";
+        const bucketName = bucketLpr?.value || process.env.S3_BUCKET || "lpr";
+        const faceBucket = bucketFace?.value || process.env.S3_BUCKET_FACE || "face";
 
         const [resLpr, resFace] = await Promise.all([
             client.send(new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 })).catch(() => null),

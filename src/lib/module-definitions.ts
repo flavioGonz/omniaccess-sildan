@@ -72,7 +72,10 @@ export const MODULE_DEFINITIONS: ModuleInfo[] = [
     description: 'Reconocimiento facial en los accesos peatonales, con el mismo padrón de usuarios y permisos que el resto del sistema.',
     icon: 'ScanFace',
     bucket: { key: 'S3_BUCKET_FACE', tipo: 'face' },
-    defaultEnabled: true,
+    // Apagado de fábrica: los modos se excluyen y Matrículas ya viene prendido. Con los dos
+    // en `true`, una instalación nueva (sin ningún Setting guardado) arrancaba con DOS modos
+    // «en uso» a la vez — visto en el laboratorio el 12/10.
+    defaultEnabled: false,
     exclusive: true,
   },
   {

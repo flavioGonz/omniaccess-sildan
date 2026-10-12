@@ -314,7 +314,7 @@ export default function ModosSection({ onActivar }: {
                         Modo de la instalación
                     </h2>
                     <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
-                        San Nicolás corre en <b className="font-semibold text-foreground">uno</b> de estos tres.
+                        La instalación corre en <b className="font-semibold text-foreground">uno</b> de estos tres.
                         Cambiarlo apaga el anterior, pide la clave de operación y recarga la aplicación con la
                         interfaz del modo nuevo.
                     </p>

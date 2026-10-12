@@ -18,7 +18,11 @@ cd "$(dirname "$0")"
 docker rm -f omni-vision 2>/dev/null || true
 # El detector propio activo (lo escribe la app al activar un entrenamiento). Vacía = no hay.
 mkdir -p "${VISION_PROPIO_DIR:-/opt/OmniAccess/entrenamientos/activo}"
-docker run -d --name omni-vision --gpus all --restart unless-stopped \
+# Sin GPU (driver sin cargar) se levanta igual en CPU y se avisa: con `--gpus all` y sin driver,
+# Docker se niega a crear el contenedor y el detector quedaba directamente sin correr.
+GPU="--gpus all"
+nvidia-smi -L >/dev/null 2>&1 || { GPU=""; echo "omni-vision: SIN GPU (nvidia-smi no contesta) — corriendo en CPU"; }
+docker run -d --name omni-vision $GPU --restart unless-stopped \
   -p 127.0.0.1:8010:8010 \
   -v "${VISION_PROPIO_DIR:-/opt/OmniAccess/entrenamientos/activo}":/propio:ro \
   -e VISION_MODELO="${VISION_MODELO:-rfdetr-small}" \
