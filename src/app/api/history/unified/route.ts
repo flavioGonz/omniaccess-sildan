@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyApiAuth, unauthorizedResponse } from "@/lib/api-auth";
 import { limitesDelDia } from "@/lib/fechas";
+import { Prisma } from "@prisma/client";
+import { clasesDe, RELECTURA_CON_CHAPA, VISION_IDS_MAX, type VisionFila } from "@/lib/historial-vision";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +55,64 @@ type Fila = {
     adentro?: boolean;
     /** El evento completo, para la ficha. Solo en los accesos. */
     raw: any | null;
+    /** Lo que vio OmniVision en la foto (sólo accesos ya analizados). */
+    vision?: VisionFila | null;
 };
+
+/**
+ * Las columnas de fecha son `timestamp` sin zona y guardan UTC, pero la sesión de Postgres está
+ * en America/Montevideo: un Date pasado a $queryRaw se compara como hora local y queda corrido
+ * 3 h (ver vision-analisis.js). Se pasa como texto UTC sin zona, que es lo que la columna guarda.
+ */
+const sinZona = (d: Date) => d.toISOString().replace("T", " ").replace("Z", "");
+
+/**
+ * Los accesos cuya foto cumple el filtro OmniVision, de los más nuevos, hasta VISION_IDS_MAX.
+ * Varias opciones se suman (persona O moto): es lo que se espera de tildar dos casillas.
+ */
+async function idsVision(ids: string[], desde: Date | null, hasta: Date | null): Promise<{ ids: string[]; truncado: boolean }> {
+    const { clases, grupos, releida } = clasesDe(ids);
+    const partes: Prisma.Sql[] = [];
+    const rango = Prisma.sql`${desde ? Prisma.sql`AND e.timestamp >= ${sinZona(desde)}::timestamp` : Prisma.empty} ${hasta ? Prisma.sql`AND e.timestamp <= ${sinZona(hasta)}::timestamp` : Prisma.empty}`;
+    if (clases.length || grupos.length) {
+        partes.push(Prisma.sql`
+            SELECT e.id, e.timestamp FROM "AnalisisFoto" a JOIN "AccessEvent" e ON e.id = a."accessEventId"
+            WHERE a.estado = 'OK' ${rango} AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements(COALESCE(a.analisis->'objetos', '[]'::jsonb)) o
+                WHERE o->>'clase' = ANY(${clases}::text[]) OR o->>'grupo' = ANY(${grupos}::text[]))`);
+    }
+    if (releida) {
+        partes.push(Prisma.sql`
+            SELECT e.id, e.timestamp FROM "Relectura" r JOIN "AccessEvent" e ON e.id = r."accessEventId"
+            WHERE r.estado = ANY(${RELECTURA_CON_CHAPA}::text[]) ${rango}`);
+    }
+    if (!partes.length) return { ids: [], truncado: false };
+    const filas = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM (${Prisma.join(partes, " UNION ")}) x ORDER BY timestamp DESC LIMIT ${VISION_IDS_MAX + 1}`;
+    return { ids: filas.slice(0, VISION_IDS_MAX).map((f) => f.id), truncado: filas.length > VISION_IDS_MAX };
+}
+
+/** Qué vio OmniVision en cada acceso de la lista: clases (con cuántas) y la relectura, si hubo. */
+async function visionDe(ids: string[]): Promise<Map<string, VisionFila>> {
+    const m = new Map<string, VisionFila>();
+    if (!ids.length) return m;
+    const [analisis, relecturas] = await Promise.all([
+        prisma.analisisFoto.findMany({ where: { accessEventId: { in: ids }, estado: "OK" }, select: { accessEventId: true, analisis: true } }),
+        prisma.relectura.findMany({ where: { accessEventId: { in: ids }, estado: { in: RELECTURA_CON_CHAPA } }, select: { accessEventId: true, plate: true, estado: true } }),
+    ]);
+    for (const a of analisis) {
+        const cuenta = new Map<string, { clase: string; nombre: string; n: number }>();
+        for (const o of ((a.analisis as any)?.objetos || []) as any[]) {
+            const k = String(o?.clase || "");
+            if (!k) continue;
+            const c = cuenta.get(k) || { clase: k, nombre: String(o?.nombre || k), n: 0 };
+            c.n++; cuenta.set(k, c);
+        }
+        m.set(a.accessEventId, { vio: [...cuenta.values()].sort((x, y) => y.n - x.n), releida: null });
+    }
+    for (const r of relecturas) m.set(r.accessEventId, { ...(m.get(r.accessEventId) || { vio: [] }), releida: { plate: r.plate, estado: r.estado } });
+    return m;
+}
 
 const norm = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
@@ -98,6 +157,8 @@ export async function GET(req: NextRequest) {
 
     // Qué tipos se quieren ver. Sin filtro, todos.
     const tipos = (sp.get("tipos") || "").split(",").map((t) => t.trim()).filter(Boolean);
+    /** Filtro OmniVision (ids de lib/historial-vision). Sólo aplica a accesos: el seguimiento no tiene análisis. */
+    const vision = (sp.get("vision") || "").split(",").map((t) => t.trim()).filter(Boolean);
     const quiere = (t: string) => tipos.length === 0 || tipos.includes(t);
 
     const rango: any = {};
@@ -125,6 +186,7 @@ export async function GET(req: NextRequest) {
     const cuantas = skip + take + 1;
 
     const pedirAccesos = quiere("ACCESO");
+    const porVision = vision.length && pedirAccesos ? await idsVision(vision, desde, hasta) : null;
 
     /**
      * Qué estados de seguimiento entran.
@@ -134,13 +196,15 @@ export async function GET(req: NextRequest) {
      * arma y se consulta con un `in`, que es lo que la pregunta era desde el principio.
      */
     const estadosPedidos = ["PASO", "ESTACIONADO", "VISTO"].filter(quiere);
-    const pedirTrack = estadosPedidos.length > 0;
+    // Con el filtro OmniVision sólo quedan accesos: las lecturas del seguimiento no se analizan.
+    const pedirTrack = estadosPedidos.length > 0 && !vision.length;
 
     const [accesos, avistamientos] = await Promise.all([
         pedirAccesos
             ? prisma.accessEvent.findMany({
                 where: {
                     ...porFecha,
+                    ...(porVision ? { id: { in: porVision.ids } } : {}),
                     // Son enums de Prisma; un valor inventado en la URL no rompe la consulta, se ignora.
                     ...(["PLATE", "FACE", "TAG"].includes(identificacion) ? { accessType: identificacion as any } : {}),
                     ...(["GRANT", "DENY"].includes(decision) ? { decision: decision as any } : {}),
@@ -230,6 +294,9 @@ export async function GET(req: NextRequest) {
     filas.sort((a, b) => b.momento.localeCompare(a.momento));
     const pagina = filas.slice(skip, skip + take);
 
+    const vistas = await visionDe(pagina.filter((f) => f.tipo === "ACCESO" && f.raw?.id).map((f) => f.raw.id)).catch(() => new Map<string, VisionFila>());
+    for (const f of pagina) if (f.tipo === "ACCESO" && f.raw?.id) f.vision = vistas.get(f.raw.id) || null;
+
     /**
      * Permanencia de las salidas: cuánto estuvo adentro ese mismo vehículo.
      *
@@ -289,5 +356,7 @@ export async function GET(req: NextRequest) {
         filas: pagina,
         hay: filas.length > skip + take,
         enPagina: pagina.length,
+        /** El filtro OmniVision llegó al tope: se miraron sólo las VISION_IDS_MAX lecturas más nuevas. */
+        visionTruncado: !!porVision?.truncado,
     });
 }

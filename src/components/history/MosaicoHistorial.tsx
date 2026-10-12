@@ -7,7 +7,7 @@ import { getImagePath } from "@/lib/image-path";
 import { fechaCorta, hora } from "@/lib/fechas";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
-import { rasgoDe, type FilaHistorial } from "@/components/history/TablaUnificada";
+import { rasgoDe, textoVision, type FilaHistorial } from "@/components/history/TablaUnificada";
 /** Lo que el lector escribe cuando no pudo leer (lo mismo que NO_LEIDAS de lib/relectura, que importa prisma y no entra en el navegador). */
 const NO_LEIDAS = new Set(["NO_LEIDA", "UNKNOWN", "S/P"]);
 const esNoLeida = (p: string | null | undefined) => NO_LEIDAS.has(String(p || "").toUpperCase());
@@ -121,6 +121,11 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, alAbrir }: {
                     {hora(new Date(f.momento))} · {r.rotulo}{!chica && leida && f.persona ? ` · ${f.persona}` : ""}
                 </span>
                 {!chica && <span className="block text-[10px] text-white/55 truncate">{fechaCorta(new Date(f.momento))} · {f.camara || "—"}</span>}
+                {!chica && f.vision && (f.vision.vio.length > 0 || f.vision.releida) && (
+                    <span className="block text-[10px] truncate tono-accion-oscuro" title="Lo que vio OmniVision en la foto">
+                        {textoVision(f.vision)}{f.vision.releida ? `${f.vision.vio.length ? " · " : ""}releída ${f.vision.releida.plate}` : ""}
+                    </span>
+                )}
             </span>
         </button>
     );

@@ -19,6 +19,8 @@ import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 import { Cronometro, useTranscurrido, leerDuracion } from "@/components/tracking/Cronometro";
 import { Timer } from "lucide-react";
 import { MosaicoHistorial, type Vista } from "@/components/history/MosaicoHistorial";
+import type { VisionFila } from "@/lib/historial-vision";
+import { Sparkles } from "lucide-react";
 
 export type FilaHistorial = {
     id: string;
@@ -43,6 +45,8 @@ export type FilaHistorial = {
     salida?: string | null;
     adentro?: boolean;
     raw: any | null;
+    /** Lo que vio OmniVision en la foto, si la lectura ya se analizó (sólo accesos). */
+    vision?: VisionFila | null;
 };
 
 const POR_PAGINA = 60;
@@ -120,13 +124,28 @@ function desdeEvento(ev: any): FilaHistorial | null {
  * no va el cronómetro con sus tonos de estadía, que pintarían de rojo cualquier lectura de
  * hace tres horas. Lo que sí sirve al que barre la tabla en vivo es saber hace cuánto fue.
  */
+/** Lo que vio OmniVision, en una línea: «persona ×2 · auto», y la relectura si la hubo. */
+export function textoVision(v?: VisionFila | null): string {
+    if (!v) return "";
+    return v.vio.map((x) => (x.n > 1 ? `${x.nombre} ×${x.n}` : x.nombre)).join(" · ");
+}
+function VisionCelda({ v }: { v?: VisionFila | null }) {
+    if (!v || (!v.vio.length && !v.releida)) return <Nada />;
+    return (
+        <div className="leading-tight min-w-0">
+            {v.vio.length > 0 && <div className="text-[11.5px] text-foreground truncate">{textoVision(v)}</div>}
+            {v.releida && <div className="text-[10.5px] tono-info font-semibold truncate">releída: {v.releida.plate}{v.releida.estado === "DUDOSA" ? " (dudosa)" : ""}</div>}
+        </div>
+    );
+}
+
 function HaceCuanto({ desde }: { desde: string }) {
     const ms = useTranscurrido(desde);
     if (ms == null) return <Nada />;
     return <span className="text-[11.5px] text-muted-foreground tabular-nums">hace {leerDuracion(ms)}</span>;
 }
 
-export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, barra, vista = "lista", onMerodeo, onResumen, onCargado }: {
+export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "ALL", resultado = "ALL", sentido = "ALL", version = 0, merodeo, color, tipoVeh, camaras, vision = [], barra, vista = "lista", onMerodeo, onResumen, onCargado }: {
     buscar: string; desde: string; hasta: string; tipos: string[];
     /** Los filtros de acceso: con qué se identificó, si abrió, en qué sentido. Viajan al servidor. */
     identificacion?: string; resultado?: string; sentido?: string;
@@ -144,6 +163,8 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     barra?: React.ReactNode;
     /** Lista (la tabla), o las mismas filas como capturas: grilla o bento. */
     vista?: Vista;
+    /** Filtro OmniVision (ids de lib/historial-vision): viaja al servidor, que cruza con AnalisisFoto. */
+    vision?: string[];
     onMerodeo?: (chapas: Set<string>) => void;
     /**
      * Lo que se puede decir de lo que está cargado: cuántos permitidos, cuántos denegados,
@@ -180,7 +201,9 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
     const [recargar, setRecargar] = useState(0);
     const { marcar, es: esNueva } = useDestello();
 
-    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version]);
+    const visionClave = vision.join(",");
+    const [visionTruncado, setVisionTruncado] = useState(false);
+    useEffect(() => { setPagina(0); }, [buscar, desde, hasta, tipos.join(","), identificacion, resultado, sentido, version, visionClave]);
 
     useEffect(() => {
         let vivo = true;
@@ -193,6 +216,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (identificacion !== "ALL") q.set("type", identificacion);
         if (resultado !== "ALL") q.set("decision", resultado);
         if (sentido !== "ALL") q.set("direction", sentido);
+        if (visionClave) q.set("vision", visionClave);
         const esta = q.toString();
         clave.current = esta;
 
@@ -206,6 +230,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 setError(null);
                 setFilas((prev) => (pagina === 0 ? (j.filas || []) : [...prev, ...(j.filas || [])]));
                 setHay(!!j.hay);
+                setVisionTruncado(!!j.visionTruncado);
                 onCargado?.();
             })
             .catch((e) => {
@@ -219,7 +244,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             .finally(() => { if (vivo) setCargando(false); });
         return () => { vivo = false; };
     // `version` entra por el reset de página; si ya estaba en 0 hace falta igual volver a pedir.
-    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version]);
+    }, [buscar, desde, hasta, tipos, identificacion, resultado, sentido, pagina, recargar, version, visionClave]);
 
     /**
      * En vivo.
@@ -239,6 +264,9 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         if (identificacion !== "ALL" && ev?.accessType !== identificacion) return;
         if (resultado !== "ALL" && ev?.decision !== resultado) return;
         if (sentido !== "ALL" && ev?.direction !== sentido) return;
+        // Con el filtro OmniVision no: un acceso recién llegado todavía no se analizó, y meterlo
+        // sería mostrar algo que no se sabe si cumple el filtro.
+        if (visionClave) return;
         // Un evento es de ahora: sólo entra si el rango llega hasta hoy.
         if (hasta && new Date(hasta) < new Date(new Date().toDateString())) return;
         const f = desdeEvento(ev);
@@ -250,7 +278,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
         }
         setFilas((prev) => (prev.some((x) => x.id === f.id) ? prev : [f, ...prev]));
         marcar(f.id);
-    }, [pagina, tipos, identificacion, resultado, sentido, hasta, buscar, marcar]));
+    }, [pagina, tipos, identificacion, resultado, sentido, hasta, buscar, marcar, visionClave]));
 
     const alternar = useCallback((f: FilaHistorial) => {
         if (!f.plate) return;
@@ -529,6 +557,13 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             },
         },
         {
+            clave: "omnivision", titulo: "OmniVision", icono: Sparkles, ancho: 170, auxiliar: true,
+            tituloAyuda: "Lo que vio OmniVision",
+            ayuda: "Qué encontró la inteligencia en la foto de la lectura: personas, vehículos, animales. Y si una NO_LEIDA la volvió a leer, la matrícula sugerida. Las lecturas se analizan unos segundos después de llegar; las de antes del 9/10 no tienen análisis.",
+            valor: (f) => (f.vision?.vio || []).map((v) => v.nombre).join(", "),
+            celda: (f) => <VisionCelda v={f.vision} />,
+        },
+        {
             clave: "senales", titulo: "Señales", icono: ShieldAlert, ancho: 110,
             tituloAyuda: "Señales",
             // La permanencia se mudó a la columna Tiempo, que es donde se la busca; acá queda lo que es una alerta.
@@ -574,6 +609,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                 : <><WifiOff size={11} className="text-muted-foreground/60" /> Sin conexión en vivo</>}
             <span className="opacity-50">·</span>
             <span className="tabular-nums">{visibles.length} registros</span>
+            {visionTruncado && <span className="tono-aviso">· el filtro OmniVision miró las 5.000 lecturas más nuevas que lo cumplen</span>}
         </span>
     );
 

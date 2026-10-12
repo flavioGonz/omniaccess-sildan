@@ -1,54 +1,33 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { PulsoActividad } from "@/components/history/PulsoActividad";
 import { getAccessEvents } from "@/app/actions/history";
 import { getEnabledModules } from "@/app/actions/modules";
-import { History, Download, RefreshCw, Upload, FileJson, X } from "lucide-react";
+import { History, Download, RefreshCw, Upload, FileJson } from "lucide-react";
 import { Pista } from "@/components/ui/pista";
 import { Seek } from "@/components/ui/search";
 import { ExportHistoryDialog } from "@/components/history/ExportHistoryDialog";
 import { ImportHistoryDialog } from "@/components/history/ImportHistoryDialog";
 import { TablaUnificada } from "@/components/history/TablaUnificada";
-import { CajonFiltros, BotonFiltros, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/CajonFiltros";
+import { BarraFiltros, SIN_FILTROS, type FiltrosHistorial, type CambiarFiltros } from "@/components/history/BarraFiltros";
 import { SelectorVista, useVista } from "@/components/history/MosaicoHistorial";
 import { useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
-import { horaSeg, fechaCorta } from "@/lib/fechas";
-
-/** Lo que está filtrando ahora, y cómo sacarlo de encima. */
-function ChipFiltro({ children, onQuitar }: { children: React.ReactNode; onQuitar: () => void }) {
-    return (
-        <motion.span
-            initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.15 }}
-            className="chip-info inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full border text-[11px] font-semibold">
-            {children}
-            <button onClick={onQuitar} className="w-4 h-4 rounded-full hover:bg-[var(--info-suave)] flex items-center justify-center opacity-70 hover:opacity-100">
-                <X size={10} />
-            </button>
-        </motion.span>
-    );
-}
-
-/** Sin nada puesto: todo el registro. */
-const SIN_FILTROS: FiltrosHistorial = {
-    desde: "", hasta: "", tipos: [], identificacion: "ALL", resultado: "ALL", sentido: "ALL",
-    camaras: [], color: "ALL", tipoVeh: "ALL", merodeo: false,
-};
-
-const NOMBRE_CLASE: Record<string, string> = { ACCESO: "accesos", PASO: "avistamientos", ESTACIONADO: "estacionados", VISTO: "vistos" };
-const NOMBRE_IDENT: Record<string, string> = { PLATE: "matrícula", FACE: "rostro", TAG: "RFID" };
+import { horaSeg } from "@/lib/fechas";
 
 /**
  * El historial: accesos y seguimiento en un solo registro.
  *
- * Esta página cargaba, por debajo, una segunda consulta entera — `getAccessEvents` con su
- * propio paginado, su propio socket y su propio contador — que dejó de alimentar la tabla
- * cuando se unificó el historial. Quedó un año así: el botón de refrescar recargaba esa
- * lista fantasma (la tabla no se enteraba), tres grupos de filtros cambiaban un estado que
- * la tabla no leía, y el reloj de "última actualización" marcaba la hora de la consulta
- * que nadie veía. Todo eso se fue; lo que queda alimenta lo que se ve.
+ * Arriba, dos renglones con un trabajo cada uno, como quedó en Olivos (main 1013697):
+ *
+ *   1. **Qué es y con qué se opera**: el título con el pulso y el vivo a la izquierda, el
+ *      buscador al centro (se llega con «/» desde cualquier lado, y Esc lo vacía), y a la
+ *      derecha cómo se mira (lista, grilla, bento) y las acciones (exportar, importar).
+ *   2. **Qué se está mirando**: los filtros a la vista (BarraFiltros), cada uno diciendo lo que
+ *      tiene puesto. Reemplaza al botón «Filtros» con su cajón y los chips de debajo.
+ *
+ * Esta página cargaba, por debajo, una segunda consulta entera que dejó de alimentar la tabla
+ * cuando se unificó el historial; eso se fue hace rato y lo que queda alimenta lo que se ve.
  */
 export default function HistoryPage() {
     const [searchTerm, setSearchTerm] = useState("");
@@ -57,7 +36,6 @@ export default function HistoryPage() {
 
     const [f, setF] = useState<FiltrosHistorial>(SIN_FILTROS);
     const cambiar = useCallback<CambiarFiltros>((clave, valor) => setF((p) => ({ ...p, [clave]: valor })), []);
-    const [cajonAbierto, setCajonAbierto] = useState(false);
     const [vista, setVista] = useVista();
 
     const [activeMode, setActiveMode] = useState<"LPR" | "FACE" | "QUEUE" | null>(null);
@@ -77,6 +55,23 @@ export default function HistoryPage() {
         });
     }, [cambiar]);
 
+    /**
+     * «/» lleva al buscador desde cualquier lado (si no se está escribiendo en otro campo), y Esc
+     * adentro lo vacía. El buscador no expone su campo, así que se lo busca dentro de su caja.
+     */
+    const cajaBuscar = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const alTeclear = (e: KeyboardEvent) => {
+            const el = e.target as HTMLElement | null;
+            const escribiendo = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+            const campo = cajaBuscar.current?.querySelector("input");
+            if (e.key === "/" && !escribiendo && campo) { e.preventDefault(); campo.focus(); }
+            if (e.key === "Escape" && campo && el === campo) { setSearchTerm(""); campo.blur(); }
+        };
+        window.addEventListener("keydown", alTeclear);
+        return () => window.removeEventListener("keydown", alTeclear);
+    }, []);
+
     const exportJson = async () => {
         try {
             const resp: any = await getAccessEvents({ take: 100000, skip: 0, search: searchTerm, decision: f.resultado, type: f.identificacion, direction: f.sentido, from: f.desde ? new Date(f.desde) : undefined, to: f.hasta ? new Date(f.hasta) : undefined });
@@ -87,9 +82,8 @@ export default function HistoryPage() {
     };
 
     /**
-     * Lo que se puede decir de lo que está cargado: cuántos permitidos, cuántos denegados,
-     * y qué colores, tipos de vehículo y cámaras aparecen. Sale de la tabla: un filtro
-     * tiene que ofrecer lo que hay en pantalla, no lo que había en otra consulta.
+     * Lo que se puede decir de lo que está cargado: qué colores, tipos de vehículo y cámaras
+     * aparecen. Sale de la tabla: un filtro tiene que ofrecer lo que hay en pantalla.
      */
     const [resumen, setResumen] = useState<{ grant: number; deny: number; colores: string[]; tipos: string[]; camaras: string[] }>(
         { grant: 0, deny: 0, colores: [], tipos: [], camaras: [] },
@@ -102,28 +96,20 @@ export default function HistoryPage() {
      */
     const soloSeguimiento = f.tipos.length > 0 && !f.tipos.includes("ACCESO");
 
-    /** Los filtros activos, en palabras, cada uno con su forma de sacarlo. */
-    const filtrosPuestos = useMemo(() => {
-        const l: { id: string; texto: string; quitar: () => void }[] = [];
-        const diaDe = (s: string) => fechaCorta(new Date(`${s}T12:00:00`));
-        if (f.desde && f.hasta && f.desde === f.hasta) l.push({ id: "d", texto: `el ${diaDe(f.desde)}`, quitar: () => { cambiar("desde", ""); cambiar("hasta", ""); } });
-        else {
-            if (f.desde) l.push({ id: "d1", texto: `desde ${diaDe(f.desde)}`, quitar: () => cambiar("desde", "") });
-            if (f.hasta) l.push({ id: "d2", texto: `hasta ${diaDe(f.hasta)}`, quitar: () => cambiar("hasta", "") });
-        }
-        for (const t of f.tipos) l.push({ id: "cl_" + t, texto: NOMBRE_CLASE[t] || t, quitar: () => cambiar("tipos", f.tipos.filter((x) => x !== t)) });
-        if (!soloSeguimiento) {
-            // Con un solo módulo la identificación viene fija y no es algo que el operador haya puesto.
-            if (f.identificacion !== "ALL" && activeMode === null && NOMBRE_IDENT[f.identificacion]) l.push({ id: "t", texto: NOMBRE_IDENT[f.identificacion], quitar: () => cambiar("identificacion", "ALL") });
-            if (f.resultado !== "ALL") l.push({ id: "dec", texto: f.resultado === "GRANT" ? "permitidos" : "denegados", quitar: () => cambiar("resultado", "ALL") });
-            if (f.sentido !== "ALL") l.push({ id: "dir", texto: f.sentido === "ENTRY" ? "entradas" : "salidas", quitar: () => cambiar("sentido", "ALL") });
-            if (f.color !== "ALL") l.push({ id: "col", texto: `color ${f.color}`, quitar: () => cambiar("color", "ALL") });
-            if (f.tipoVeh !== "ALL") l.push({ id: "veh", texto: f.tipoVeh, quitar: () => cambiar("tipoVeh", "ALL") });
-            if (f.merodeo) l.push({ id: "mer", texto: "merodeo", quitar: () => cambiar("merodeo", false) });
-        }
-        for (const c of f.camaras) l.push({ id: "cam_" + c, texto: c, quitar: () => cambiar("camaras", f.camaras.filter((x) => x !== c)) });
-        return l;
-    }, [f, soloSeguimiento, activeMode, cambiar]);
+    /** Cuántos filtros hay puestos (para «Limpiar»). La identificación fija por módulo no cuenta: no la puso nadie. */
+    const puestos = useMemo(() => {
+        let n = searchTerm.trim() ? 1 : 0;
+        if (f.desde || f.hasta) n++;
+        if (f.tipos.length) n++;
+        if (f.identificacion !== "ALL" && activeMode === null) n++;
+        if (f.resultado !== "ALL") n++;
+        if (f.sentido !== "ALL") n++;
+        if (f.camaras.length) n++;
+        if (f.color !== "ALL" || f.tipoVeh !== "ALL") n++;
+        if (f.merodeo) n++;
+        if (f.vision.length) n++;
+        return n;
+    }, [f, searchTerm, activeMode]);
 
     const limpiarFiltros = useCallback(() => {
         setSearchTerm("");
@@ -133,109 +119,55 @@ export default function HistoryPage() {
     const recargar = useCallback(() => setVersion((v) => v + 1), []);
     const alCargar = useCallback(() => setLastUpdate(new Date()), []);
 
+    const iconoAccion = "flex items-center justify-center w-9 h-9 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors";
+
     return (
-        <div className="p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
-            {/*
-                Encabezado: una sola barra. Qué es esta pantalla a la izquierda, con qué se
-                la opera a la derecha, en un riel único. Las fechas ya no están acá: son un
-                filtro más y viven en el cajón con los otros, con sus atajos.
-            */}
-            <div className="rounded-xl border border-border/50 bg-card/60 px-4 py-3">
-                <div className="flex items-center justify-between gap-4 flex-wrap">
-
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div className="p-2 rounded-lg bg-blue-500/10 border border-blue-500/30 shrink-0">
-                            <History className="w-[18px] h-[18px] text-blue-400" />
-                        </div>
-                        <div className="min-w-0">
-                            <h1 className="text-[17px] font-bold text-foreground leading-tight whitespace-nowrap">Historial</h1>
-                            <p className="text-[11.5px] text-muted-foreground leading-tight whitespace-nowrap">
-                                Accesos y seguimiento en un solo registro
-                            </p>
-                        </div>
-
-                        <span className="hidden xl:block w-px h-8 bg-border/60 mx-1" />
-                        <div className="hidden xl:block"><PulsoActividad dias={60} /></div>
-                    </div>
-
-                    {/* El riel de controles: un solo objeto, no cinco */}
-                    <div className="flex items-center rounded-lg border border-border/50 bg-muted/40 overflow-hidden shrink-0">
-
-                        {/* Exportar conserva su rótulo: es la acción que la gente viene a
-                            buscar. Las otras dos son de mantenimiento y van con ícono. */}
-                        <Pista titulo="Exportar" texto="Descarga los registros filtrados en planilla, para compartir o archivar.">
-                            <button onClick={() => setIsExportDialogOpen(true)}
-                                className="flex items-center gap-1.5 h-9 px-3 text-[12px] font-bold text-blue-300 hover:text-white hover:bg-blue-600/80 transition-colors">
-                                <Download className="w-3.5 h-3.5" /> Exportar
-                            </button>
-                        </Pista>
-
-                        <Pista titulo="Exportar en JSON" texto="El mismo registro en un archivo reimportable en otra instalación de OmniAccess.">
-                            <button onClick={exportJson}
-                                className="flex items-center justify-center w-9 h-9 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                                <FileJson className="w-4 h-4" />
-                            </button>
-                        </Pista>
-
-                        <Pista titulo="Importar" texto="Trae registros exportados desde otra instalación.">
-                            <button onClick={() => setIsImportOpen(true)}
-                                className="flex items-center justify-center w-9 h-9 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                                <Upload className="w-4 h-4" />
-                            </button>
-                        </Pista>
-
-                        <span className="w-px h-9 bg-border/50" />
-
-                        <Pista titulo="Última actualización"
-                            texto="El registro se refresca solo con cada evento nuevo. El botón vuelve a consultar ahora, por si estás esperando algo puntual.">
-                            <button onClick={recargar}
-                                className="flex items-center gap-1.5 h-9 px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                                <span className="text-[11px] tabular-nums" suppressHydrationWarning>
-                                    {lastUpdate ? horaSeg(lastUpdate) : "--:--:--"}
-                                </span>
-                                <RefreshCw className="w-3 h-3 ml-0.5" />
+        <div className="p-6 lg:p-8 space-y-4 max-w-[1600px] mx-auto">
+            {/* Renglón 1: qué es · buscador al centro · cómo se mira y acciones */}
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,440px)_minmax(0,1fr)] items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                    <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><History size={18} strokeWidth={2.3} /></span>
+                    <div className="min-w-0">
+                        <h1 className="text-[17px] font-bold leading-tight whitespace-nowrap">Historial</h1>
+                        <Pista titulo="Última actualización" texto="El registro se refresca solo con cada evento nuevo. Tocá para volver a consultar ahora.">
+                            <button type="button" onClick={recargar} className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[var(--bien)] animate-pulse shrink-0" />
+                                en vivo · <span className="tabular-nums" suppressHydrationWarning>{lastUpdate ? horaSeg(lastUpdate) : "--:--:--"}</span>
+                                <RefreshCw size={11} />
                             </button>
                         </Pista>
                     </div>
+                    <span className="hidden 2xl:block w-px h-8 bg-border mx-1" />
+                    <div className="hidden 2xl:block"><PulsoActividad dias={60} /></div>
+                </div>
+
+                <div ref={cajaBuscar} className="flex justify-center min-w-0">
+                    <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Buscar matrícula, persona o cámara…  ( / )" startOpen width={420} alto={38} />
+                </div>
+
+                <div className="flex items-center justify-start lg:justify-end gap-1.5">
+                    <SelectorVista vista={vista} alCambiar={setVista} />
+                    <span className="w-px h-6 bg-border mx-1" />
+                    <Pista titulo="Exportar" texto="Descarga los registros filtrados en planilla, para compartir o archivar.">
+                        <button type="button" onClick={() => setIsExportDialogOpen(true)}
+                            /* Exportar conserva su rótulo: es la acción que la gente viene a buscar; las otras dos son de mantenimiento. */
+                            className="flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12px] font-semibold tono-accion hover:bg-accent transition-colors"><Download size={15} /> Exportar</button>
+                    </Pista>
+                    <Pista titulo="Exportar en JSON" texto="El mismo registro en un archivo reimportable en otra instalación de OmniAccess.">
+                        <button type="button" onClick={exportJson} className={iconoAccion} aria-label="Exportar en JSON"><FileJson size={16} /></button>
+                    </Pista>
+                    <Pista titulo="Importar" texto="Trae registros exportados desde otra instalación.">
+                        <button type="button" onClick={() => setIsImportOpen(true)} className={iconoAccion} aria-label="Importar"><Upload size={16} /></button>
+                    </Pista>
                 </div>
             </div>
 
-            {/*
-                LOS CONTROLES DE LA TABLA: el buscador, UN botón de filtros que dice cuántos
-                hay puestos, y debajo — sólo cuando hay algo — la línea que dice qué se está
-                filtrando, que es la que contesta "¿por qué no aparece lo que busco?".
-            */}
+            {/* Renglón 2 (barra de la tabla): los filtros a la vista */}
             <TablaUnificada
                 barra={
-                    <div>
-                        <div className="flex items-center flex-wrap gap-2 min-h-[34px]">
-                            <Seek value={searchTerm} onChange={setSearchTerm} placeholder="Matrícula, nombre o cámara" startOpen width={280} alto={34} />
-                            <BotonFiltros puestos={filtrosPuestos.length} onClick={() => setCajonAbierto(true)} />
-                            <span className="ml-auto"><SelectorVista vista={vista} alCambiar={setVista} /></span>
-                        </div>
-
-                        <AnimatePresence initial={false}>
-                            {(filtrosPuestos.length > 0 || searchTerm.trim()) && (
-                                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.18 }} className="overflow-hidden">
-                                    <div className="flex items-center gap-1.5 flex-wrap pt-2">
-                                        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 mr-0.5">Filtrando</span>
-                                        <AnimatePresence initial={false}>
-                                            {searchTerm.trim() && <ChipFiltro key="q" onQuitar={() => setSearchTerm("")}>«{searchTerm.trim()}»</ChipFiltro>}
-                                            {filtrosPuestos.map((x) => (
-                                                <ChipFiltro key={x.id} onQuitar={x.quitar}>{x.texto}</ChipFiltro>
-                                            ))}
-                                        </AnimatePresence>
-                                        <button onClick={limpiarFiltros}
-                                            className="ml-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground underline underline-offset-2 decoration-dotted">
-                                            limpiar todo
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
+                    <BarraFiltros f={f} cambiar={cambiar} limpiar={limpiarFiltros} puestos={puestos}
+                        camarasDisponibles={resumen.camaras} colores={resumen.colores} tiposVeh={resumen.tipos}
+                        soloSeguimiento={soloSeguimiento} modo={activeMode} merodeando={chapasMerodeo.size} />
                 }
                 buscar={searchTerm}
                 desde={f.desde}
@@ -246,6 +178,7 @@ export default function HistoryPage() {
                 sentido={soloSeguimiento ? "ALL" : f.sentido}
                 version={version}
                 vista={vista}
+                vision={soloSeguimiento ? [] : f.vision}
                 merodeo={f.merodeo && !soloSeguimiento ? chapasMerodeo : undefined}
                 color={soloSeguimiento ? "ALL" : f.color}
                 tipoVeh={soloSeguimiento ? "ALL" : f.tipoVeh}
@@ -253,13 +186,6 @@ export default function HistoryPage() {
                 onMerodeo={setChapasMerodeo}
                 onResumen={setResumen}
                 onCargado={alCargar}
-            />
-
-            <CajonFiltros
-                abierto={cajonAbierto} onOpenChange={setCajonAbierto}
-                f={f} cambiar={cambiar} limpiar={limpiarFiltros}
-                camarasDisponibles={resumen.camaras} colores={resumen.colores} tiposVeh={resumen.tipos}
-                soloSeguimiento={soloSeguimiento} modo={activeMode} merodeando={chapasMerodeo.size}
             />
 
             <ExportHistoryDialog
