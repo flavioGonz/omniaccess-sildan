@@ -6,7 +6,7 @@ import { clipDeInstante, PERMISOS_VIDEO, type Para } from "@/lib/clip-instante";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // El corte puede esperar a que el tramo se grabe y el NVR entrega a tiempo real.
-export const maxDuration = 120;
+export const maxDuration = 200;
 
 /**
  * POST /api/clip/instante { deviceId, instante, antes?, despues?, para?, matricula? }
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
     const instante = typeof b?.instante === "number" ? b.instante : Date.parse(String(b?.instante || ""));
     if (!deviceId || !Number.isFinite(instante)) return NextResponse.json({ ok: false, motivo: "Falta la cámara o el instante" }, { status: 400 });
     const para: Para = b?.para === "envio" ? "envio" : "alerta";
-    const r = await clipDeInstante({ deviceId, instante, antes: b?.antes, despues: b?.despues, para, matricula: b?.matricula || null });
+    const r = await clipDeInstante({ deviceId, instante, antes: b?.antes, despues: b?.despues, para, matricula: b?.matricula || null, descripcion: typeof b?.descripcion === "string" ? b.descripcion.slice(0, 140) : null, intro: b?.intro !== false });
     // Sin clip no es un error del pedido: es un resultado con su motivo (la alerta va con foto).
     if (!r.ok) return NextResponse.json(r);
     const { archivo: _archivo, ...publico } = r;

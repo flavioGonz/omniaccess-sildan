@@ -30,10 +30,14 @@ export default function MarcaAgua() {
     const [pos, setPos] = useState<PosicionMarca>(POSICION_MARCA_DEFECTO);
     const [cargando, setCargando] = useState(true);
     const [guardando, setGuardando] = useState(false);
+    /* La intro animada de los clips exportados (lib/intro-clip). La clave va escrita acá: el
+       módulo del servidor no se importa desde una pantalla del navegador. */
+    const [intro, setIntro] = useState(true);
+    const [vuelta, setVuelta] = useState(0);
 
     useEffect(() => {
-        Promise.all([getSetting(AJUSTE_MARCA_AGUA), getSetting(AJUSTE_MARCA_POSICION)])
-            .then(([a, p]: any[]) => { setOn(a?.value !== "false"); if (esPosicionMarca(p?.value)) setPos(p.value); })
+        Promise.all([getSetting(AJUSTE_MARCA_AGUA), getSetting(AJUSTE_MARCA_POSICION), getSetting("CLIP_INTRO")])
+            .then(([a, p, i]: any[]) => { setOn(a?.value !== "false"); if (esPosicionMarca(p?.value)) setPos(p.value); setIntro(i?.value !== "false"); })
             .catch(() => { }).finally(() => setCargando(false));
     }, []);
 
@@ -41,6 +45,12 @@ export default function MarcaAgua() {
         setOn(v); setGuardando(true);
         try { await updateSetting(AJUSTE_MARCA_AGUA, v ? "true" : "false"); toast.success({ title: v ? "Logo activado" : "Logo desactivado" }); }
         catch (e: any) { setOn(!v); toast.error({ title: "No se pudo guardar", description: e?.message }); }
+        finally { setGuardando(false); }
+    };
+    const cambiarIntro = async (v: boolean) => {
+        setIntro(v); setGuardando(true);
+        try { await updateSetting("CLIP_INTRO", v ? "true" : "false"); toast.success({ title: v ? "Intro animada activada" : "Intro animada desactivada" }); }
+        catch (e: any) { setIntro(!v); toast.error({ title: "No se pudo guardar", description: e?.message }); }
         finally { setGuardando(false); }
     };
     const ubicar = async (p: PosicionMarca) => {
@@ -87,6 +97,29 @@ export default function MarcaAgua() {
                         ))}
                     </div>
                 </div>
+            </div>
+            {/* Intro animada */}
+            <div className="pt-5 border-t border-border space-y-3">
+                <div className="flex items-start gap-4">
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[15px] font-bold text-foreground">Intro animada antes del video</div>
+                        <p className="text-[12px] text-muted-foreground mt-0.5">Los clips que se descargan o se mandan por WhatsApp empiezan con una placa de 4 s: el logo en el centro, la descripción que escribe el operador y cámara, fecha, hora y matrícula. Después funde al video.</p>
+                    </div>
+                    {cargando ? <Loader2 size={16} className="animate-spin text-muted-foreground" /> : <Switch checked={intro} onCheckedChange={cambiarIntro} disabled={guardando} aria-label="Intro animada" />}
+                </div>
+                <button type="button" onClick={() => setVuelta((v) => v + 1)} data-tooltip-id="tt-marca" data-tooltip-content="Vista previa: tocá para repetir la animación."
+                    className={cn("relative w-full aspect-video rounded-[8px] overflow-hidden border border-border text-left transition-opacity", !intro && "opacity-50")}
+                    style={{ background: "radial-gradient(120% 90% at 50% 42%, #13233d 0%, #0b1220 55%, #050814 100%)" }}>
+                    <style>{`@keyframes iLogo{0%{opacity:0;transform:translate(-50%,-50%) scale(.9)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}@keyframes iLinea{0%{width:0}100%{width:18%}}@keyframes iTxt{0%{opacity:0;transform:translate(-50%,8px)}100%{opacity:1;transform:translate(-50%,0)}}@keyframes iRec{0%,60%{opacity:1}61%,100%{opacity:.3}}`}</style>
+                    <div key={vuelta} className="absolute inset-0">
+                        <span className="absolute left-[3%] top-[6%] flex items-center gap-1.5 text-[8px] font-semibold tracking-wider text-white/75"><span className="h-1.5 w-1.5 rounded-full bg-red-500" style={{ animation: "iRec 1s infinite" }} /> REGISTRO DE VIDEO</span>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={`/${ARCHIVO_MARCA_AGUA}`} alt="" className="absolute left-1/2 top-[33%] w-[30%]" style={{ animation: "iLogo .75s .15s both cubic-bezier(.2,.8,.2,1)" }} />
+                        <span className="absolute left-1/2 top-[50%] h-[2px] -translate-x-1/2 bg-sky-400" style={{ animation: "iLinea .45s .75s both ease-out" }} />
+                        <span className="absolute left-1/2 top-[56%] text-[13px] font-semibold text-white whitespace-nowrap" style={{ animation: "iTxt .5s 1s both ease-out" }}>Descripción del clip</span>
+                        <span className="absolute left-1/2 top-[68%] text-[8.5px] text-slate-400 whitespace-nowrap tracking-wide" style={{ animation: "iTxt .5s 1.4s both ease-out" }}>CÁMARA P1 · 12/10/2026 09:41:09 · ABC1234</span>
+                    </div>
+                </button>
             </div>
             <Tooltip id="tt-marca" place="top" className="!max-w-[280px] !text-[12px] !rounded-lg !z-[9999]" />
         </div>

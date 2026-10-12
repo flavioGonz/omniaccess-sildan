@@ -20,7 +20,7 @@ import { fecha, hora } from "@/lib/fechas";
  */
 
 /** Cuánto espera el operador, como mucho: armar el clip (tiempo real del NVR) + mandarlo. */
-const TOPE_ENVIO_MS = 90_000;
+const TOPE_ENVIO_MS = 150_000;
 
 export type DestinatarioClip = { telefono: string; nombre: string; detalle: string; origen: "aviso" | "usuario"; habilitado: boolean };
 
@@ -72,7 +72,7 @@ export type ResultadoEnvioClip =
     | { ok: true; enviados: { telefono: string; nombre: string; ok: boolean; error?: string }[]; segundos: number; fuente: string }
     | { ok: false; error: string };
 
-export async function enviarClipPorWhatsApp(p: { deviceId: string; instante: number; antes: number; despues: number; telefonos: string[]; matricula?: string | null }): Promise<ResultadoEnvioClip> {
+export async function enviarClipPorWhatsApp(p: { deviceId: string; instante: number; antes: number; despues: number; telefonos: string[]; matricula?: string | null; descripcion?: string | null; intro?: boolean }): Promise<ResultadoEnvioClip> {
     let s: any;
     try { s = await exigirVideo(); } catch (e: any) { return { ok: false, error: e.message }; }
     const pedidos = [...new Set((p.telefonos || []).map(telefonoWhatsApp).filter(Boolean))];
@@ -94,17 +94,18 @@ export async function enviarClipPorWhatsApp(p: { deviceId: string; instante: num
     const job = await prisma.dispatchJob.create({
         data: {
             type: "CLIP", channel: "whatsapp", status: "PROCESSING", deviceId: p.deviceId, maxAttempts: 1, attempts: 1, startedAt: new Date(),
-            payload: { deviceName: dev?.name || null, instante: new Date(p.instante).toISOString(), antes: p.antes, despues: p.despues, matricula: p.matricula || null, destinatarios, enviadoPor },
+            payload: { descripcion: p.descripcion || null, deviceName: dev?.name || null, instante: new Date(p.instante).toISOString(), antes: p.antes, despues: p.despues, matricula: p.matricula || null, destinatarios, enviadoPor },
         },
     });
     const cerrar = (status: "SENT" | "FAILED", lastError: string | null, extra: any = {}) =>
         prisma.dispatchJob.update({ where: { id: job.id }, data: { status, lastError, sentAt: status === "SENT" ? new Date() : null, payload: { ...(job.payload as any), ...extra } } }).catch(() => null);
 
     const trabajo = (async (): Promise<ResultadoEnvioClip> => {
-        const clip = await clipDeInstante({ deviceId: p.deviceId, instante: p.instante, antes: p.antes, despues: p.despues, para: "envio", matricula: p.matricula });
+        const descripcion = String(p.descripcion || "").trim().slice(0, 140) || null;
+        const clip = await clipDeInstante({ deviceId: p.deviceId, instante: p.instante, antes: p.antes, despues: p.despues, para: "envio", matricula: p.matricula, descripcion, intro: p.intro });
         if (!clip.ok) { await cerrar("FAILED", "sin video: " + clip.motivo); return { ok: false, error: "No se pudo armar el clip: " + clip.motivo }; }
         const d = new Date(p.instante);
-        const leyenda = [`Cámara: ${dev?.name || "sin nombre"}`, `${fecha(d)} ${hora(d)}`, p.matricula ? `Matrícula ${p.matricula}` : null, `${clip.ventana.antes + clip.ventana.despues} s · enviado por ${enviadoPor}`].filter(Boolean).join("\n");
+        const leyenda = [descripcion ? `*${descripcion}*` : null, `Cámara: ${dev?.name || "sin nombre"}`, `${fecha(d)} ${hora(d)}`, p.matricula ? `Matrícula ${p.matricula}` : null, `${clip.ventana.antes + clip.ventana.despues} s · enviado por ${enviadoPor}`].filter(Boolean).join("\n");
         const base64 = async () => { try { return fs.readFileSync(path.join(DIR_CLIPS, clip.nombre)).toString("base64"); } catch { return null; } };
         const enviados = [];
         for (const dst of destinatarios) {
@@ -117,7 +118,7 @@ export async function enviarClipPorWhatsApp(p: { deviceId: string; instante: num
             { enviados, fuente: clip.fuente, ventana: clip.ventana });
         return { ok: true, enviados, segundos: clip.ventana.antes + clip.ventana.despues, fuente: clip.fuente };
     })();
-    const tope = new Promise<ResultadoEnvioClip>((r) => setTimeout(() => r({ ok: false, error: "Se pasó el tiempo de espera (90 s). Mirá Despachos: puede haber salido igual." }), TOPE_ENVIO_MS));
+    const tope = new Promise<ResultadoEnvioClip>((r) => setTimeout(() => r({ ok: false, error: "Se pasó el tiempo de espera (150 s). Mirá Despachos: puede haber salido igual." }), TOPE_ENVIO_MS));
     const r = await Promise.race([trabajo, tope]);
     if (!r.ok && r.error.startsWith("Se pasó")) await cerrar("FAILED", "tope de 90 s");
     return r;

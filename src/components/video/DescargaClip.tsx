@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Download, Send, Settings2, X, Check, Plus, Loader2, AlertTriangle, MessageCircle, Search, Film } from "lucide-react";
+import { Download, Send, Settings2, X, Check, Plus, Loader2, AlertTriangle, MessageCircle, Search, Film, Sparkles, PenLine } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buscarDestinatariosClip, enviarClipPorWhatsApp, type DestinatarioClip, type ResultadoEnvioClip } from "@/app/actions/clips";
 import { ENVIO_MAX_SEG } from "@/lib/clips";
@@ -30,7 +30,7 @@ const acotar = (v: number, min: number, max: number) => Math.min(max, Math.max(m
 /** Lo que tarda en salir un clip: el NVR lo entrega a tiempo real, más la espera del tramo y el envío. */
 const estimadoSeg = (seg: number) => seg + 6;
 
-type Fase = { tipo: "eligiendo" } | { tipo: "armando"; desde: number } | { tipo: "listo"; r: ResultadoEnvioClip };
+type Fase = { tipo: "eligiendo" } | { tipo: "armando"; desde: number; descarga?: boolean } | { tipo: "listo"; r: ResultadoEnvioClip };
 
 export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose, deviceId, camara, matricula }: {
     instante: number;
@@ -60,7 +60,24 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
         window.addEventListener("keydown", k, true); return () => window.removeEventListener("keydown", k, true);
     }, [onClose, ocupado]);
 
+    /* La descripción va en la intro animada del clip (y en el mensaje de WhatsApp). */
+    const [descripcion, setDescripcion] = useState("");
+    const [conIntro, setConIntro] = useState(true);
     const largoEnvio = Math.min(a + d, ENVIO_MAX_SEG);
+    /* Descargar con intro y logo: se arma en el servidor (como el de WhatsApp) y después se baja.
+       Sin cámara, sin intro o más largo que el tope: la descarga directa de siempre. */
+    const descargar = async () => {
+        if (!deviceId || !conIntro || a + d > ENVIO_MAX_SEG) { window.location.href = href(a, d, instante); onClose(); return; }
+        setFase({ tipo: "armando", desde: Date.now(), descarga: true });
+        const r: any = await fetch("/api/clip/instante", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deviceId, instante, antes: a, despues: d, para: "envio", matricula, descripcion: descripcion.trim() || null, intro: true }) })
+            .then((x) => x.json()).catch((e) => ({ ok: false, motivo: String(e?.message || e) }));
+        if (r?.ok && r.url) {
+            const el = document.createElement("a"); el.href = `${r.url}?dl=1`; el.download = r.nombre || "clip.mp4";
+            document.body.appendChild(el); el.click(); el.remove();
+            onClose();
+        } else setFase({ tipo: "listo", r: { ok: false, error: "No se pudo armar el clip: " + (r?.motivo || "sin respuesta") } });
+    };
     const recortado = enviando && a + d > ENVIO_MAX_SEG;
 
     return (
@@ -100,6 +117,28 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                 {recortado && <span className="block mt-1 text-amber-300">Por WhatsApp va un máximo de {ENVIO_MAX_SEG} s: el grabador entrega el video a tiempo real y esperarías más de un minuto.</span>}
                             </p>
                         </div>
+                        {deviceId && (
+                            <div className="mx-5 mb-4 rounded-xl bg-white/[0.06] ring-1 ring-white/10 p-3.5 space-y-2.5">
+                                <div className="flex items-center gap-2">
+                                    <Sparkles size={14} className="text-amber-300 shrink-0" />
+                                    <span className="text-[12.5px] font-bold text-white">Intro animada</span>
+                                    <span className="text-[11px] text-white/50 truncate">logo, descripción y datos antes del video</span>
+                                    <button type="button" role="switch" aria-checked={conIntro} onClick={() => setConIntro((v) => !v)}
+                                        className={cn("ml-auto relative h-5 w-9 rounded-full transition-colors shrink-0", conIntro ? "bg-amber-400" : "bg-white/20")}>
+                                        <span className={cn("absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all", conIntro ? "left-[18px]" : "left-0.5")} />
+                                    </button>
+                                </div>
+                                {conIntro && (
+                                    <label className="block">
+                                        <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/50 mb-1.5"><PenLine size={11} /> Descripción del clip <span className="ml-auto normal-case tracking-normal font-medium tabular-nums">{descripcion.length}/140</span></span>
+                                        <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value.slice(0, 140))} rows={2}
+                                            placeholder="Qué se ve. Ej.: Ingreso no autorizado por el portón norte, 2 personas a pie"
+                                            className="w-full rounded-xl bg-black/30 ring-1 ring-white/10 focus:ring-amber-300/60 px-3 py-2 text-[13px] text-white placeholder:text-white/30 outline-none resize-none" />
+                                    </label>
+                                )}
+                                {conIntro && a + d > ENVIO_MAX_SEG && !enviando && <p className="text-[11px] text-amber-300">La intro se arma en clips de hasta {ENVIO_MAX_SEG} s; con {a + d} s se baja directo, sin intro.</p>}
+                            </div>
+                        )}
                         <AnimatePresence initial={false}>
                             {enviando && deviceId && (
                                 <motion.div key="envio" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
@@ -107,7 +146,7 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                         onEnviar={async (telefonos) => {
                                             setFase({ tipo: "armando", desde: Date.now() });
                                             const proporcion = a + d > ENVIO_MAX_SEG ? ENVIO_MAX_SEG / (a + d) : 1;
-                                            const r = await enviarClipPorWhatsApp({ deviceId, instante, antes: Math.floor(a * proporcion), despues: largoEnvio - Math.floor(a * proporcion), telefonos, matricula }).catch((e) => ({ ok: false as const, error: String(e?.message || e) }));
+                                            const r = await enviarClipPorWhatsApp({ deviceId, instante, antes: Math.floor(a * proporcion), despues: largoEnvio - Math.floor(a * proporcion), telefonos, matricula, descripcion: descripcion.trim() || null, intro: conIntro }).catch((e) => ({ ok: false as const, error: String(e?.message || e) }));
                                             setFase({ tipo: "listo", r });
                                         }} />
                                 </motion.div>
@@ -121,14 +160,14 @@ export function DescargaClip({ instante: instanteAlAbrir, ventana, href, onClose
                                     </button>
                                 )}
                                 <button onClick={onClose} className="h-9 px-4 rounded-xl text-[12.5px] font-bold text-white/70 hover:text-white hover:bg-white/10 transition">Cancelar</button>
-                                <a href={href(a, d, instante)} download onClick={onClose}
-                                    className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold shadow-lg active:scale-95 transition"><Download size={15} /> Descargar {a + d} s</a>
+                                <button onClick={descargar}
+                                    className="h-9 px-4 inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-sky-500 hover:bg-sky-400 text-white text-[12.5px] font-extrabold shadow-lg active:scale-95 transition"><Download size={15} /> Descargar {a + d} s</button>
                             </div>
                         )}
                     </>
                 )}
 
-                {fase.tipo === "armando" && <EnCurso desde={fase.desde} segundos={largoEnvio} />}
+                {fase.tipo === "armando" && <EnCurso desde={fase.desde} segundos={fase.descarga ? a + d : largoEnvio} descarga={fase.descarga} intro={conIntro} />}
                 {fase.tipo === "listo" && <Resultado r={fase.r} onOtro={() => setFase({ tipo: "eligiendo" })} onCerrar={onClose} />}
             </motion.div>
         </div>
@@ -214,17 +253,17 @@ function PanelDestinatarios({ instante, camara, matricula, segundos, onEnviar, o
 }
 
 /** Mientras se arma y se manda. La barra se basa en el tiempo esperado (el NVR va a tiempo real); el texto no inventa avances. */
-function EnCurso({ desde, segundos }: { desde: number; segundos: number }) {
+function EnCurso({ desde, segundos, descarga, intro }: { desde: number; segundos: number; descarga?: boolean; intro?: boolean }) {
     const [ahora, setAhora] = useState(Date.now());
     useEffect(() => { const i = setInterval(() => setAhora(Date.now()), 250); return () => clearInterval(i); }, []);
     const pasaron = (ahora - desde) / 1000;
-    const total = estimadoSeg(segundos);
+    const total = estimadoSeg(segundos) + (intro ? 8 : 0);
     const p = Math.min(0.95, pasaron / total);
     return (
         <div className="px-5 pb-6 pt-2">
             <div className="flex items-center gap-3">
                 <Loader2 size={18} className="animate-spin text-emerald-300 shrink-0" />
-                <div className="text-[14px] font-bold text-white">{pasaron < segundos ? "Armando el clip desde la grabación…" : "Enviando por WhatsApp…"}</div>
+                <div className="text-[14px] font-bold text-white">{pasaron < segundos ? "Armando el clip desde la grabación…" : intro && pasaron < segundos + 8 ? "Componiendo la intro animada…" : descarga ? "Preparando la descarga…" : "Enviando por WhatsApp…"}</div>
                 <div className="ml-auto text-[12px] text-white/50 tabular-nums">{Math.floor(pasaron)} s</div>
             </div>
             <div className="mt-3 h-1.5 rounded-full bg-white/10 overflow-hidden"><motion.div className="h-full bg-emerald-400" animate={{ width: `${p * 100}%` }} transition={{ ease: "linear", duration: 0.25 }} /></div>

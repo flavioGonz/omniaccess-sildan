@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // public/clips, donde el worker de despachos de Olivos sigue dejando los clips de alerta.
 const CARPETAS = [DIR_CLIPS, "/opt/OmniAccess/public/clips"];
 
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ file: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ file: string }> }) {
     const { file } = await params;
     const safe = path.basename(file || "");
     if (!/^[A-Za-z0-9._-]+\.mp4$/.test(safe)) return new Response("bad name", { status: 400 });
@@ -21,6 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ fil
                 "Content-Type": "video/mp4",
                 "Content-Length": String(buf.length),
                 "Cache-Control": "no-store",
+                ...(req.nextUrl.searchParams.get("dl") === "1" ? { "Content-Disposition": `attachment; filename="${safe}"` } : {}),
             } });
         } catch { /* siguiente carpeta */ }
     }

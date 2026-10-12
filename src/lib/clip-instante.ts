@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { getChannelMap, resolveNvrById, type NvrConn } from "@/lib/nvr-resolve";
 import { configClips, nombreDeClip, type ConfigClip } from "@/lib/clips";
 import { cortarDesdeNvr } from "@/lib/clip-nvr";
+import { ponerIntro, introActiva } from "@/lib/intro-clip";
+import { CRF_POR_CALIDAD } from "@/lib/clips";
 import { ventanaPlayback } from "@/lib/ventana-playback";
 import {
     AJUSTE_ALERTA_ANTES, AJUSTE_ALERTA_DESPUES, ALERTA_ANTES_POR_DEFECTO, ALERTA_DESPUES_POR_DEFECTO,
@@ -43,6 +45,12 @@ export const DIR_ANILLO = process.env.ANILLO_DIR || path.join(os.tmpdir(), "omni
 export async function marcaAgua(): Promise<string | null> {
     const v = (await prisma.setting.findUnique({ where: { key: AJUSTE_MARCA_AGUA } }).catch(() => null))?.value;
     if (v === "false") return null;
+    const fp = path.join(/* turbopackIgnore: true */ process.cwd(), "public", ARCHIVO_MARCA_AGUA);
+    return fs.existsSync(fp) ? fp : null;
+}
+
+/** El archivo del logo (para la intro), esté o no prendida la marca de agua sobre el video. */
+export function marcaAguaArchivo(): string | null {
     const fp = path.join(/* turbopackIgnore: true */ process.cwd(), "public", ARCHIVO_MARCA_AGUA);
     return fs.existsSync(fp) ? fp : null;
 }
@@ -178,7 +186,7 @@ export function purgarClips(ahora = Date.now()): number {
  * Produce el clip. Espera, con tope, a que exista el tramo posterior; nunca entrega un clip
  * más corto como si fuera completo: si el corte falla o sale vacío, no hay clip y se dice por qué.
  */
-export async function clipDeInstante(p: { deviceId: string; instante: number; antes?: number; despues?: number; para: Para; matricula?: string | null }): Promise<ResultadoClip> {
+export async function clipDeInstante(p: { deviceId: string; instante: number; antes?: number; despues?: number; para: Para; matricula?: string | null; descripcion?: string | null; intro?: boolean }): Promise<ResultadoClip> {
     const ventana = await ventanaEfectiva(p.para, { antes: p.antes, despues: p.despues });
     const fuente = await fuenteDeVideo(p.deviceId);
     if (!fuente.tipo) return { ok: false, motivo: fuente.motivo, ventana, fuente: null };
@@ -220,6 +228,12 @@ export async function clipDeInstante(p: { deviceId: string; instante: number; an
     if (!ok || bytes < 1500) {
         try { fs.unlinkSync(destino); } catch { }
         return { ok: false, motivo: motivo || "el clip salió vacío", ventana, fuente: fuente.tipo };
+    }
+    // Lo que se exporta a mano (descarga o WhatsApp) va con la intro animada: logo, descripción
+    // y datos del registro (lib/intro-clip). Si falla, el clip sale igual, sin intro.
+    if (p.para === "envio" && p.intro !== false && (await introActiva())) {
+        const puesta = await ponerIntro(destino, { descripcion: p.descripcion, camara: dev?.name || null, instante: p.instante, matricula: p.matricula || null, logo: await marcaAguaArchivo() }, CRF_POR_CALIDAD[cfg.calidad]);
+        if (puesta) { try { bytes = fs.statSync(destino).size; } catch { } }
     }
     return { ok: true, archivo: destino, nombre, url: `/api/clip/${nombre}`, fuente: fuente.tipo, ventana, bytes };
 }
