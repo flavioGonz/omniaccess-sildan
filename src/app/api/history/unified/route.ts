@@ -102,7 +102,8 @@ async function visionDe(ids: string[]): Promise<Map<string, VisionFila>> {
     if (!ids.length) return m;
     const [analisis, relecturas] = await Promise.all([
         prisma.analisisFoto.findMany({ where: { accessEventId: { in: ids }, estado: "OK" }, select: { accessEventId: true, analisis: true } }),
-        prisma.relectura.findMany({ where: { accessEventId: { in: ids }, estado: { in: RELECTURA_CON_CHAPA } }, select: { accessEventId: true, plate: true, estado: true } }),
+        // Todas, también las que no leyeron: la fila dice «OmniVision no la leyó» en vez de nada.
+        prisma.relectura.findMany({ where: { accessEventId: { in: ids } }, select: { accessEventId: true, plate: true, estado: true, confianza: true } }),
     ]);
     for (const a of analisis) {
         const cuenta = new Map<string, { clase: string; nombre: string; n: number }>();
@@ -119,7 +120,10 @@ async function visionDe(ids: string[]): Promise<Map<string, VisionFila>> {
             analisis: an?.ancho && an?.alto ? { ancho: an.ancho, alto: an.alto, objetos: an.objetos || [] } : null,
         });
     }
-    for (const r of relecturas) m.set(r.accessEventId, { ...(m.get(r.accessEventId) || { vio: [] }), releida: { plate: r.plate, estado: r.estado } });
+    for (const r of relecturas) {
+        const conChapa = RELECTURA_CON_CHAPA.includes(r.estado) && !!r.plate;
+        m.set(r.accessEventId, { ...(m.get(r.accessEventId) || { vio: [] }), releida: { plate: conChapa ? r.plate : null, estado: r.estado, confianza: r.confianza } });
+    }
     return m;
 }
 

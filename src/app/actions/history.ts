@@ -41,6 +41,20 @@ async function adjuntarRelectura<T extends { id: string; plateDetected?: string 
     } catch { return events; } // sin relectura el monitor anda igual
 }
 
+/** Cuántas relecturas se piden de una vez: lo que puede quedar esperando en una pantalla. */
+const RELECTURAS_POR_PEDIDO = 40;
+
+/**
+ * Las relecturas de unos eventos ya mostrados (NO_LEIDA que llegaron por el socket antes de que
+ * vision-worker las releyera, cosa de 1-5 s). Sólo las que existen: el resto sigue pendiente.
+ */
+export async function relecturasDeEventos(ids: string[]): Promise<Record<string, RelecturaEvento>> {
+    const lista = [...new Set((ids || []).filter((x) => typeof x === "string" && x))].slice(0, RELECTURAS_POR_PEDIDO);
+    if (!lista.length) return {};
+    try { return Object.fromEntries(await relecturasDe(lista, (clave) => `/api/vision/imagen/${clave}`)); }
+    catch { return {}; }
+}
+
 export async function getAccessEvents(options?: {
     take?: number,
     skip?: number,
@@ -444,7 +458,8 @@ export async function getLastEventPerDevice() {
             ORDER BY "deviceId", timestamp DESC
         `);
         const map: Record<string, any> = {};
-        for (const r of rows) map[r.deviceId] = r;
+        // La última de cada lectora, con su relectura si fue NO_LEIDA: el mosaico muestra la chapa que leyó OmniVision.
+        for (const r of await adjuntarRelectura(rows)) map[r.deviceId] = r;
         // Las interiores que miran un acceso (trackAcceso) no generan AccessEvent: las lee
         // el contenedor y lo suyo es un PlateSighting. Sin esto, su mosaico en el monitor
         // LPR mostraba el vivo pero nunca una lectura, como si la cámara no leyera. Se

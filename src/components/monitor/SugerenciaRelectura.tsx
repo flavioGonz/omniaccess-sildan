@@ -40,8 +40,28 @@ function Explicacion({ r }: { r: RelecturaEvento }) {
     );
 }
 
-export function SugerenciaRelectura({ r, sobreFoto, className }: { r?: RelecturaEvento | null; sobreFoto?: boolean; className?: string }) {
+export function SugerenciaRelectura({ r, sobreFoto, soloContexto, className }: {
+    r?: RelecturaEvento | null; sobreFoto?: boolean;
+    /**
+     * Sólo de quién es la chapa sugerida y si está en una lista. La chapa misma ya la dibuja quien
+     * llama, en el lugar de la chapa y con la marca de OmniVision (components/vision/ChapaReleida).
+     */
+    soloContexto?: boolean;
+    className?: string;
+}) {
     if (!r) return null;
+    if (soloContexto) {
+        if (!r.plate) return null;
+        const cat = String(r.vigilancia?.category || "").toUpperCase();
+        if (!r.vigilancia && !r.quien) return null;
+        return (
+            <span className={cn("inline-flex items-center gap-1.5 flex-wrap", sobreFoto ? "text-[12px]" : "text-[10.5px]", className)}>
+                {cat === "BLACKLISTED" && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-red-500/20 text-red-300 border border-red-500/50"><Ban size={9} /> Lista negra</span>}
+                {cat === "SEARCH" && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-200 border border-amber-500/50"><Search size={9} /> En búsqueda</span>}
+                {!r.vigilancia && r.quien && <span className={sobreFoto ? "text-white/90" : "text-foreground/80"}>{r.quien.name} · {ROL[r.quien.role] || r.quien.role}{r.quien.unidad ? ` · ${r.quien.unidad}` : ""}</span>}
+            </span>
+        );
+    }
     if (!r.plate) {
         // Sobre la foto grande no se dice nada: «no se pudo» no le cambia nada al guardia ahí.
         if (sobreFoto) return null;

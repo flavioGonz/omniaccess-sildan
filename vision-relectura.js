@@ -57,6 +57,14 @@ const FOTO_ESPERA_MS = 90_000;
 /** Pausa entre eventos con cola pendiente, y entre vueltas sin nada que hacer. */
 const PAUSA_MS = 1500;
 const OCIOSO_MS = 4000;
+/**
+ * Una relectura que falló por un corte (omni-vision u omni-lpr reiniciando, la app en pleno
+ * despliegue: «fetch failed») se reintenta después de esto, hasta INTENTOS_MAX veces. Antes
+ * quedaba ERROR para siempre, y esa NO_LEIDA se quedaba sin la doble verificación que tienen
+ * todas las demás (medido el 12/10: 5 en dos días, todas «fetch failed» durante un despliegue).
+ */
+const REINTENTO_MS = 5 * 60_000;
+const INTENTOS_MAX = 3;
 /** Lado de los recortes que se guardan para mostrar. */
 const LADO_VEHICULO = 480;
 const ANCHO_CHAPA = 320;
@@ -129,15 +137,21 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
     const contadores = { hechas: 0, leidas: 0, dudosas: 0, sinChapa: 0, sinVehiculo: 0, sinFoto: 0, errores: 0, ultimoError: null, msUltima: null };
 
     async function pendientes() {
+        // Primero las que nunca se miraron; después las que fallaron por un corte (ver REINTENTO_MS).
         return prisma.$queryRaw`
-            SELECT e.id, e."snapshotPath" AS foto, e.timestamp
+            SELECT e.id, e."snapshotPath" AS foto, e.timestamp, r.id AS rid,
+                   COALESCE((r.candidatos->>'intentos')::int, 1) AS intentos
             FROM "AccessEvent" e LEFT JOIN "Relectura" r ON r."accessEventId" = e.id
-            WHERE r.id IS NULL AND e."accessType" = 'PLATE' AND e."plateDetected" = ANY(${NO_LEIDAS})
+            WHERE e."accessType" = 'PLATE' AND e."plateDetected" = ANY(${NO_LEIDAS})
               AND e.timestamp > ${new Date(Date.now() - VENTANA_MS)}
-            ORDER BY e.timestamp DESC LIMIT 5`;
+              AND (r.id IS NULL OR (r.estado = 'ERROR' AND r."createdAt" < ${new Date(Date.now() - REINTENTO_MS)}
+                                    AND COALESCE((r.candidatos->>'intentos')::int, 1) < ${INTENTOS_MAX}))
+            ORDER BY (r.id IS NULL) DESC, e.timestamp DESC LIMIT 5`;
     }
 
-    async function guardar(id, datos) {
+    async function guardar(id, datos, rid) {
+        // Un reintento pisa su fila de ERROR (y le corre la fecha: de ahí se cuenta el próximo).
+        if (rid) { await prisma.relectura.update({ where: { id: rid }, data: { error: null, ...datos, createdAt: new Date() } }); return; }
         await prisma.relectura.create({ data: { accessEventId: id, ...datos } }).catch((e) => {
             if (!String(e.message).includes("Unique")) throw e; // otra vuelta ya la hizo
         });
@@ -166,7 +180,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
         if (!f) return false; // no se pudo preguntar: se reintenta en otra vuelta
         if (f.falta) {
             if (Date.now() - new Date(ev.timestamp).getTime() < FOTO_ESPERA_MS) return false; // todavía puede llegar
-            await guardar(ev.id, { estado: "SIN_FOTO" }); contadores.sinFoto++;
+            await guardar(ev.id, { estado: "SIN_FOTO" }, ev.rid); contadores.sinFoto++;
             return true;
         }
         const jpeg = f.jpeg;
@@ -225,7 +239,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
             estado, plate: mejor?.plate || null, confianza: mejor ? Math.round(mejor.confianza * 1000) / 1000 : null,
             candidatos: { otras: unicas, acuerdo: mejor?.acuerdo ?? null, fina: mejor?.fina || null },
             vehiculo, vehiculos: vehiculos.length, recorte, recorteChapa, ms: Date.now() - t0,
-        });
+        }, ev.rid);
         contadores.hechas++; contadores.msUltima = Date.now() - t0;
         if (estado === "LEIDA") contadores.leidas++; else if (estado === "DUDOSA") contadores.dudosas++;
         else if (estado === "SIN_CHAPA") contadores.sinChapa++; else contadores.sinVehiculo++;
@@ -246,8 +260,8 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
                         try { if (await relectura(ev)) { hizo = true; break; } }
                         catch (e) {
                             contadores.errores++; contadores.ultimoError = e.message;
-                            // Un error de un evento no se reintenta para siempre: queda registrado.
-                            await guardar(ev.id, { estado: "ERROR", error: String(e.message).slice(0, 300) }).catch(() => null);
+                            // Se reintenta hasta INTENTOS_MAX veces (cada REINTENTO_MS); después queda registrado.
+                            await guardar(ev.id, { estado: "ERROR", error: String(e.message).slice(0, 300), candidatos: { intentos: Number(ev.intentos || 0) + (ev.rid ? 1 : 0) || 1 } }, ev.rid).catch(() => null);
                             if (Date.now() - ultimoLog > 60_000) { log("relectura:", e.message); ultimoLog = Date.now(); }
                             hizo = true; break;
                         }

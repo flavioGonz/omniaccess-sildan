@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Camera, CheckCircle2, Inbox, List, LayoutGrid, LayoutDashboard, Loader2, ShieldAlert, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import { getImagePath } from "@/lib/image-path";
 import { fechaCorta, hora } from "@/lib/fechas";
 import { Cargando, ErrorEstado, Vacio } from "@/components/ui/estados";
@@ -88,7 +89,9 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
     const denegado = acceso && f.decision === "DENY";
     const r = rasgoDe(f);
     const leida = !!f.plate && !esNoLeida(f.plate);
-    const titulo = leida ? f.plate! : f.persona || "Sin lectura";
+    /* Una NO_LEIDA lleva la chapa que leyó OmniVision (doble verificación), con su marca. */
+    const ch = chapaDe(f.plate, f.vision?.releida);
+    const titulo = ch.plate ? textoChapa(ch) : f.persona || "Sin lectura";
     return (
         <button type="button" onClick={() => alAbrir(f)} title={`${titulo} · ${r.rotulo}`}
             /* Sin marco: la captura llega al borde. El estado lo dice la etiqueta de arriba
@@ -128,14 +131,17 @@ const Tarjeta = memo(function Tarjeta({ f, bento, grande, merodea, siluetas, alA
             </span>
 
             <span className="absolute bottom-1.5 left-2 right-2 min-w-0">
-                <span className={cn("block font-bold tracking-wider text-white truncate tabular-nums", chica ? "text-[12.5px]" : "text-[17px]")}>{titulo}</span>
+                <span className="flex items-center gap-1.5 min-w-0">
+                    <span className={cn("font-bold tracking-wider text-white truncate tabular-nums", chica ? "text-[12.5px]" : "text-[17px]")}>{titulo}</span>
+                    {!leida && f.vision?.releida && <MarcaOmniVision r={f.vision.releida} oscuro tamano={chica ? "xs" : "sm"} soloIcono={chica} />}
+                </span>
                 <span className={cn("block text-white/75 truncate tabular-nums", chica ? "text-[9.5px]" : "text-[11px]")}>
                     {hora(new Date(f.momento))} · {r.rotulo}{!chica && leida && f.persona ? ` · ${f.persona}` : ""}
                 </span>
                 {!chica && <span className="block text-[10px] text-white/55 truncate">{fechaCorta(new Date(f.momento))} · {f.camara || "—"}</span>}
-                {!chica && f.vision && (f.vision.vio.length > 0 || f.vision.releida) && (
+                {!chica && f.vision && f.vision.vio.length > 0 && (
                     <span className="block text-[10px] truncate tono-accion-oscuro" title="Lo que vio OmniVision en la foto">
-                        {textoVision(f.vision)}{f.vision.releida ? `${f.vision.vio.length ? " · " : ""}releída ${f.vision.releida.plate}` : ""}
+                        {textoVision(f.vision)}
                     </span>
                 )}
             </span>

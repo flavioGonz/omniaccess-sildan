@@ -66,7 +66,8 @@ export function clasesDe(ids: string[]): { clases: string[]; grupos: string[]; r
  */
 export type VisionFila = {
     vio: { clase: string; nombre: string; n: number }[];
-    releida?: { plate: string | null; estado: string } | null;
+    /** La relectura de una NO_LEIDA, cualquiera sea su resultado: `plate` sólo si leyó (LEIDA o DUDOSA). */
+    releida?: { plate: string | null; estado: string; confianza?: number | null } | null;
     analisis?: Analisis | null;
 };
 

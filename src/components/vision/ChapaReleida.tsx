@@ -1,0 +1,88 @@
+"use client";
+
+import { Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+/**
+ * La chapa de una NO_LEIDA, contada por OmniVision.
+ *
+ * Cuando la lectora de la barrera no lee la chapa, OmniVision hace la doble verificación: recorta
+ * el vehículo de la foto del evento y la vuelve a leer (vision-relectura.js, en TODAS las
+ * NO_LEIDA). Antes cada pantalla lo decía a su manera — un cartel amarillo «SIN LECTURA» y, abajo,
+ * «omni-vision leyó ¿ABC1234?» en otro renglón —, y en el historial la matrícula ni aparecía:
+ * la fila decía «Sin lectura» y la chapa sugerida quedaba escondida en la columna OmniVision.
+ *
+ * Ahora, en todas las pantallas, la chapa va donde va la chapa, y una marca chica — el destello
+ * de OmniVision, en el azul de acción — dice de dónde salió. Sutil a propósito: el dato es la
+ * chapa; la marca es su procedencia. Una lectura dudosa lleva signos de pregunta: OmniVision
+ * misma avisó que no está segura, y el guardia la confirma mirando la foto.
+ *
+ * Archivo sin base ni red: lo usan el panel, la pared y el historial.
+ */
+
+/** Lo que las lectoras escriben cuando no leyeron (el mismo conjunto que lib/relectura, que no entra en el navegador). */
+const NO_LEIDAS = new Set(["", "NO_LEIDA", "UNKNOWN", "S/P", "NOLEIDA", "SP"]);
+export const esSinLectura = (p?: string | null) => NO_LEIDAS.has(String(p || "").trim().toUpperCase());
+
+/** Lo mínimo de una relectura para decir la chapa (RelecturaEvento y VisionFila.releida lo cumplen). */
+export type ReleidaMin = { plate: string | null; estado: string; confianza?: number | null } | null | undefined;
+
+/**
+ * La chapa a mostrar: la de la cámara si la leyó; si no, la de OmniVision. `omni` dice que la leyó
+ * OmniVision; `intento` que OmniVision la miró y tampoco pudo (la NO_LEIDA sigue sin chapa).
+ */
+export function chapaDe(plate: string | null | undefined, r: ReleidaMin) {
+    if (!esSinLectura(plate)) return { plate: plate as string, omni: false, dudosa: false, intento: false };
+    if (r?.plate && (r.estado === "LEIDA" || r.estado === "DUDOSA")) return { plate: r.plate, omni: true, dudosa: r.estado === "DUDOSA", intento: true };
+    return { plate: null, omni: false, dudosa: false, intento: !!r };
+}
+
+/** El texto de la chapa: con signos de pregunta si OmniVision dijo que es dudosa. */
+export const textoChapa = (c: ReturnType<typeof chapaDe>, sinLectura = "Sin lectura") =>
+    c.plate ? (c.dudosa ? `¿${c.plate}?` : c.plate) : sinLectura;
+
+const POR_QUE: Record<string, string> = {
+    SIN_CHAPA: "vio el vehículo pero la chapa no se lee",
+    SIN_VEHICULO: "no encontró un vehículo en la foto",
+    SIN_FOTO: "el evento llegó sin foto",
+    ERROR: "no pudo releerla",
+};
+
+/** La explicación de la marca, para el `title`: quién leyó, con cuánta confianza, y que es una sugerencia. */
+export function explicacion(r: ReleidaMin): string {
+    if (!r) return "";
+    if (r.plate && (r.estado === "LEIDA" || r.estado === "DUDOSA")) {
+        return `La cámara no leyó la chapa. OmniVision la verificó recortando el vehículo y leyó ${r.plate}`
+            + `${r.confianza != null ? ` (${Math.round(r.confianza * 100)} %)` : ""}${r.estado === "DUDOSA" ? ", dudosa" : ""}.`
+            + " Es una sugerencia: no cambia el evento ni la barrera; se confirma mirando la foto.";
+    }
+    return `La cámara no leyó la chapa y OmniVision tampoco: ${POR_QUE[r.estado] || "sin resultado"}.`;
+}
+
+/**
+ * La marca: el destello de OmniVision, y su nombre si hay lugar. Va pegada a la chapa.
+ *
+ * `oscuro`: sobre foto o video (el azul normal desaparece sobre una escena de noche).
+ * `tamano`: xs en listas densas, sm en tarjetas, md en el visor, lg en la pared.
+ */
+export function MarcaOmniVision({ r, oscuro, tamano = "sm", soloIcono, className }: {
+    r: ReleidaMin;
+    oscuro?: boolean;
+    tamano?: "xs" | "sm" | "md" | "lg";
+    soloIcono?: boolean;
+    className?: string;
+}) {
+    if (!r) return null;
+    const leyo = !!(r.plate && (r.estado === "LEIDA" || r.estado === "DUDOSA"));
+    const ico = { xs: 10, sm: 11, md: 13, lg: 18 }[tamano];
+    const texto = { xs: "text-[10px]", sm: "text-[10.5px]", md: "text-[11.5px]", lg: "text-[15px]" }[tamano];
+    return (
+        <span title={explicacion(r)}
+            className={cn("inline-flex items-center gap-1 font-semibold whitespace-nowrap align-middle", texto,
+                leyo ? (oscuro ? "text-[var(--accion-en-oscuro)]" : "text-[var(--accion)]") : (oscuro ? "text-white/45" : "text-muted-foreground"),
+                className)}>
+            <Sparkles size={ico} className="shrink-0" />
+            {!soloIcono && (leyo ? `OmniVision${r.estado === "DUDOSA" ? " · dudosa" : ""}` : "OmniVision no la leyó")}
+        </span>
+    );
+}

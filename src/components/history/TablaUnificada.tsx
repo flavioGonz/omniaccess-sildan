@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { cn } from "@/lib/utils";
+import { chapaDe, esSinLectura, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import { Pista } from "@/components/ui/pista";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Momento, Matricula, Miniatura, Nada } from "@/components/ui/celdas";
@@ -144,11 +145,11 @@ export function textoVision(v?: VisionFila | null): string {
     return v.vio.map((x) => (x.n > 1 ? `${x.nombre} ×${x.n}` : x.nombre)).join(" · ");
 }
 function VisionCelda({ v }: { v?: VisionFila | null }) {
-    if (!v || (!v.vio.length && !v.releida)) return <Nada />;
+    if (!v || (!v.vio.length && !v.releida?.plate)) return <Nada />;
     return (
         <div className="leading-tight min-w-0">
             {v.vio.length > 0 && <div className="text-[11.5px] text-foreground truncate">{textoVision(v)}</div>}
-            {v.releida && <div className="text-[10.5px] tono-info font-semibold truncate">releída: {v.releida.plate}{v.releida.estado === "DUDOSA" ? " (dudosa)" : ""}</div>}
+            {v.releida?.plate && <div className="text-[10.5px] tono-info font-semibold truncate">releída: {v.releida.plate}{v.releida.estado === "DUDOSA" ? " (dudosa)" : ""}</div>}
         </div>
     );
 }
@@ -482,7 +483,15 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
             valor: (f) => f.plate || f.persona,
             celda: (f) => (
                 <div className="flex items-center gap-2">
-                    {f.plate ? <Matricula p={f.plate} /> : <span className="text-[13px] text-muted-foreground">{f.persona || "—"}</span>}
+                    {(() => {
+                        /* Una NO_LEIDA: la chapa que leyó OmniVision (doble verificación) con su marca, o
+                           «Sin lectura» si tampoco pudo. Antes salía «NO_LEIDA» dibujado como si fuera una chapa. */
+                        const ch = chapaDe(f.plate, f.vision?.releida);
+                        if (f.plate && !esSinLectura(f.plate)) return <Matricula p={f.plate} />;
+                        if (ch.plate) return <><Matricula p={textoChapa(ch)} className="border-dashed" /><MarcaOmniVision r={f.vision?.releida} tamano="xs" /></>;
+                        if (f.plate) return <><span className="text-[13px] text-muted-foreground">Sin lectura</span>{f.vision?.releida && <MarcaOmniVision r={f.vision.releida} tamano="xs" soloIcono />}</>;
+                        return <span className="text-[13px] text-muted-foreground">{f.persona || "—"}</span>;
+                    })()}
                     {f.empresa && (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img src={f.empresa.logo} alt={f.empresa.nombre} title={f.empresa.nombre}

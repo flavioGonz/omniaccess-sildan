@@ -29,6 +29,7 @@ import { PanelComportamiento, type ComportamientoVisor } from "@/components/viso
 import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import { CompartirEvento } from "@/components/visor/CompartirEvento";
 import { describirObjeto } from "@/components/visor/FichaVisor";
+import { chapaDe, esSinLectura, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -465,9 +466,11 @@ export function VisorCuadro({
         }
     }, [fila.plate]);
 
+    /** La chapa que se muestra: la de la cámara o, en una NO_LEIDA, la que leyó OmniVision. */
+    const chapaVisor = chapaDe(fila.plate, datos?.relectura);
     const copiar = useCallback(() => {
-        try { navigator.clipboard?.writeText(fila.plate); setCopiada(true); setTimeout(() => setCopiada(false), 1600); } catch { }
-    }, [fila.plate]);
+        try { navigator.clipboard?.writeText(chapaVisor.plate || fila.plate); setCopiada(true); setTimeout(() => setCopiada(false), 1600); } catch { }
+    }, [fila.plate, chapaVisor.plate]);
 
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
@@ -608,17 +611,17 @@ export function VisorCuadro({
 
     /** Lo que sale al compartir: lo mismo que dice la ficha, en renglones (sin lo que no se sabe). */
     const textoCompartir = useMemo(() => {
-        const chapaDe = datos?.porRelectura && datos.plate ? `${datos.plate} (releída por OmniVision)` : fila.plate || "sin leer";
+        const chapaTexto = chapaVisor.omni ? `${textoChapa(chapaVisor)} (la cámara no la leyó; la leyó OmniVision)` : chapaVisor.plate || "sin leer";
         const lineas = [
             `${sentido}${fila.decision === "DENY" ? " · no abrió" : fila.decision === "GRANT" ? " · abrió" : ""} · ${fechaCorta(momento)} ${horaSeg(momento)}`,
-            `Matrícula ${chapaDe}${[marca, color].filter(Boolean).length ? ` · ${[marca, color].filter(Boolean).join(" ")}` : ""}`,
+            `Matrícula ${chapaTexto}${[marca, color].filter(Boolean).length ? ` · ${[marca, color].filter(Boolean).join(" ")}` : ""}`,
             dueno?.nombre ? `${dueno.nombre}${[dueno.unidad, dueno.apartamento].filter(Boolean).length ? ` · ${[dueno.unidad, dueno.apartamento].filter(Boolean).join(" ")}` : ""}` : (cargandoFicha ? "" : "No figura en el padrón"),
             ficha?.visita ? `Visita${ficha.visita.lote ? ` a ${ficha.visita.lote}` : ""}${ficha.visita.nombre ? ` · ${ficha.visita.nombre}` : ""}` : "",
             vig ? `Lista: ${vig.etiqueta || vig.categoria}` : "",
             vision ? `OmniVision: ${vision.objetos.slice(0, 4).map((o) => describirObjeto(o)).join("; ")}` : "",
         ].filter(Boolean);
         return { titulo: `📷 ${fila.cameraName || "Cámara"}`, lineas };
-    }, [datos, fila, sentido, momento, marca, color, dueno, cargandoFicha, ficha, vig, vision]);
+    }, [datos, fila, sentido, momento, marca, color, dueno, cargandoFicha, ficha, vig, vision, chapaVisor]);
 
     /**
      * La cápsula del estado y el tiempo.
@@ -947,9 +950,13 @@ export function VisorCuadro({
                 )}>
                 <div className="my-auto flex flex-col gap-3 py-2 visor-sombra-texto">
                     <div className="flex items-center gap-3">
-                        <ChapaMercosur plate={fila.plate} conocida={conocida && !datos?.porRelectura} onCopiar={copiar} />
+                        {/* Una NO_LEIDA lleva la chapa que leyó OmniVision, con su marca en la banda. */}
+                        <ChapaMercosur plate={chapaVisor.plate ? textoChapa(chapaVisor) : esSinLectura(fila.plate) ? "SIN LEER" : fila.plate}
+                            omnivision={chapaVisor.omni ? datos?.relectura : undefined}
+                            conocida={chapaVisor.plate ? conocida && !datos?.porRelectura : undefined} onCopiar={chapaVisor.plate ? copiar : undefined} />
                         {datos?.empresa && <LogoSobreFoto empresa={datos.empresa} className="h-9 max-w-[120px]" />}
                         {copiada && <span className="text-[11px] font-semibold text-white/70">copiada</span>}
+                        {!chapaVisor.plate && chapaVisor.intento && datos?.relectura && <MarcaOmniVision r={datos.relectura} oscuro tamano="md" />}
                     </div>
 
                     {/*

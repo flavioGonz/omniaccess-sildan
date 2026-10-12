@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, X } from "lucide-react";
+import { Check, Sparkles, X } from "lucide-react";
+import { explicacion, type ReleidaMin } from "@/components/vision/ChapaReleida";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,8 +35,13 @@ export function agruparChapa(plate: string) {
     return m ? `${m[1]} ${m[2]}` : plate;
 }
 
-export function ChapaMercosur({ plate, conocida, onCopiar, tamano = "normal", className }: {
+export function ChapaMercosur({ plate, conocida, onCopiar, tamano = "normal", omnivision, className }: {
     plate: string;
+    /**
+     * La chapa la leyó OmniVision (la cámara dio NO_LEIDA). En la banda, donde va el país, va la
+     * marca de OmniVision: sobre la chapa misma y sin agregar nada alrededor.
+     */
+    omnivision?: ReleidaMin;
     /** Si la chapa está en el padrón. Decide el tilde o la cruz, nada más. */
     conocida?: boolean;
     onCopiar?: () => void;
@@ -62,10 +68,17 @@ export function ChapaMercosur({ plate, conocida, onCopiar, tamano = "normal", cl
                         Mercosur
                     </span>
                 </div>
-                <span className={cn("font-bold uppercase text-white",
-                    grande ? "text-[9px] tracking-[0.18em]" : "text-[7px] tracking-[0.12em]")}>
-                    {PAIS}
-                </span>
+                {omnivision ? (
+                    <span title={explicacion(omnivision)} className={cn("inline-flex items-center gap-1 font-bold text-[#bfdbfe]",
+                        grande ? "text-[9.5px] tracking-[0.06em]" : "text-[7.5px] tracking-[0.04em]")}>
+                        <Sparkles className={grande ? "w-3 h-3" : "w-2 h-2"} /> OmniVision{omnivision.estado === "DUDOSA" ? " · dudosa" : ""}
+                    </span>
+                ) : (
+                    <span className={cn("font-bold uppercase text-white",
+                        grande ? "text-[9px] tracking-[0.18em]" : "text-[7px] tracking-[0.12em]")}>
+                        {PAIS}
+                    </span>
+                )}
             </div>
 
             <div className={cn("chapa-cuerpo flex items-center justify-between gap-3",

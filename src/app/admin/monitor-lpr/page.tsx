@@ -3,7 +3,9 @@
 import { useEffect, useState, useMemo, useRef, memo, useCallback, createContext, useContext } from "react";
 import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
-import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice } from "@/app/actions/history";
+import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice, relecturasDeEventos } from "@/app/actions/history";
+import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
+import type { RelecturaEvento } from "@/lib/relectura";
 import { getDevices, getAvailableStreams } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
 import { PlateManualButton } from "@/components/PlateManualButton";
@@ -109,6 +111,20 @@ type TipoMeta = { key: string; label: string; badge: string; ring: string; dot: 
 const CLAVE_VIEJA: Record<ClaseMonitor, string> = { residentes: "residente", personal: "personal", proveedores: "proveedor", visitas: "visitante", vip: "blanca", alerta: "negra", busqueda: "busqueda" };
 /** Los interruptores de las pestañas (Usuarios → «Cómo se comporta»). Se leen al cargar el monitor. */
 const ComportamientoCtx = createContext<Comportamiento>(normalizarComportamiento(COMPORTAMIENTO_DEFECTO));
+/**
+ * Las relecturas de OmniVision que llegaron DESPUÉS que el evento. Una NO_LEIDA entra por el
+ * socket sin relectura (vision-worker la relee 1-5 s después); el monitor la va a buscar y la
+ * deja acá, y cada tarjeta la toma con `relecturaDe`.
+ */
+const RelecturasCtx = createContext<Record<string, RelecturaEvento>>({});
+function useRelectura(ev: any): RelecturaEvento | null {
+    const m = useContext(RelecturasCtx);
+    return ev?.relectura || (ev?.id ? m[ev.id] : null) || null;
+}
+/** Cuánto se sigue esperando la relectura de una NO_LEIDA nueva, y cada cuánto se pregunta. */
+const RELECTURA_ESPERA_MAX_MS = 120_000;
+const RELECTURA_SONDEO_MS = 3_000;
+const esSinLeer = (p?: string | null) => !p || ["NO_LEIDA", "UNKNOWN", "S/P"].includes(String(p).toUpperCase());
 function tipoDeteccion(event: any, watch?: any, comp?: Comportamiento): TipoMeta | null {
     const clase = claseDeLectura(event?.user, watch?.category);
     if (!clase) return event?.user
@@ -209,6 +225,8 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
     const plate = ev?.plateDetected as string | undefined;
     const ok = ev?.decision === "GRANT";
     const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
+    const relCam = useRelectura(ev);
+    const chCam = chapaDe(plate, relCam);
     const inner = (
         <div className={cn("relative rounded-lg overflow-hidden border vid-surface transition-all duration-300", className || "aspect-video", lit ? ring : "border-border")}>
             <SmartThumb src={(() => { const b = img || snap; return rk > 0 ? `${b}${b.includes("?") ? "&" : "?"}rk=${rk}` : b; })()} w={384} className="absolute inset-0 w-full h-full" />
@@ -219,8 +237,10 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
             </div>
             {plate && (
                 <div className="absolute inset-x-1.5 bottom-1.5 z-20 pointer-events-none flex justify-center">
-                    <div className={cn("px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-white backdrop-blur-sm border shadow-lg", anomalous ? "bg-yellow-500/40 border-yellow-300/50 text-yellow-100" : ok ? "bg-emerald-600/80 border-emerald-300/40" : "bg-red-600/80 border-red-300/40")}>
-                        {anomalous ? "S/L" : plate}
+                    <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-white backdrop-blur-sm border shadow-lg",
+                        chCam.omni ? "bg-black/65 border-dashed border-[var(--accion-en-oscuro)]" : anomalous ? "bg-yellow-500/40 border-yellow-300/50 text-yellow-100" : ok ? "bg-emerald-600/80 border-emerald-300/40" : "bg-red-600/80 border-red-300/40")}>
+                        {/* Una NO_LEIDA: la chapa que leyó OmniVision, con su destello. */}
+                        {chCam.omni ? <>{textoChapa(chCam)}<MarcaOmniVision r={relCam} oscuro tamano="xs" soloIcono /></> : anomalous ? "S/L" : plate}
                     </div>
                 </div>
             )}
@@ -230,7 +250,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
     // interior) no tiene ficha que abrir: el diálogo pediría un AccessEvent que no existe.
     return ev && !ev.sinEvento ? (
         <div className="relative group/cam">
-            <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
+            <EventDetailsDialog event={relCam && !ev.relectura ? { ...ev, relectura: relCam } : ev} timeStatus={null} onRegister={(p) => onRegister?.(p)}>
                 <button type="button" className="block w-full text-left cursor-pointer">{inner}</button>
             </EventDetailsDialog>
             {anomalous && ev.id && (
@@ -319,6 +339,8 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
     const plate = ev.plateDetected as string | undefined;
     const ok = ev.decision === "GRANT";
     const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
+    const relHero = useRelectura(ev);
+    const chHero = chapaDe(plate, relHero);
     const marca = (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
     const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
     const sentido = ev.direction;
@@ -355,10 +377,22 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                 <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-3 pt-14 flex flex-col items-center">
                     {anomalous ? (
                         <div className="flex flex-col items-center gap-2">
-                            <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 rounded-lg border border-yellow-500/50"><AlertTriangle size={18} className="text-yellow-300" /><span className="text-lg font-bold text-yellow-300">SIN LECTURA</span></div>
-                            {/* La relectura del vehículo (vision-worker): una sugerencia, con signo de pregunta. */}
-                            <SugerenciaRelectura r={ev.relectura} sobreFoto />
-                            {ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} sugerida={ev.relectura?.plate ? ev.relectura : null} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
+                            {/* La cámara no leyó: la chapa la leyó OmniVision (doble verificación) y va donde
+                                va la chapa, con el borde punteado y su marca. Si tampoco pudo, se dice. */}
+                            {chHero.omni ? (
+                                <div className="flex flex-col items-center gap-1">
+                                    <div className="inline-block px-4 py-1.5 bg-black/55 rounded-lg border border-dashed border-[var(--accion-en-oscuro)] backdrop-blur-sm"><span className="font-mono text-[clamp(18px,1.9vw,30px)] font-bold tracking-[0.2em] text-white drop-shadow">{textoChapa(chHero)}</span></div>
+                                    <MarcaOmniVision r={relHero} oscuro tamano="md" />
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center gap-1">
+                                    <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-yellow-500/20 rounded-lg border border-yellow-500/50"><AlertTriangle size={18} className="text-yellow-300" /><span className="text-lg font-bold text-yellow-300">SIN LECTURA</span></div>
+                                    {relHero && <MarcaOmniVision r={relHero} oscuro tamano="sm" />}
+                                </div>
+                            )}
+                            {/* De quién es la chapa sugerida y si está en una lista: es lo que cambia lo que hace el guardia. */}
+                            <SugerenciaRelectura r={relHero} sobreFoto soloContexto />
+                            {ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} sugerida={relHero?.plate ? { plate: relHero.plate, confianza: relHero.confianza } : null} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
                         </div>
                     ) : (
                         <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-[clamp(18px,1.9vw,30px)] font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
@@ -433,6 +467,8 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const logoUrl = getCarLogo(meta.Marca);
     const fullImageUrl = getImagePath(event.snapshotPath || event.imagePath) || "";
     const isAnomalous = event.plateDetected === "NO_LEIDA" || event.plateDetected === "unknown" || event.plateDetected === "S/P" || !event.plateDetected;
+    const relCard = useRelectura(event);
+    const chCard = chapaDe(event.plateDetected, relCard);
     const hasPlaza = !!(event.plateDetected && platesWithParking && platesWithParking.has(String(event.plateDetected).toUpperCase()));
     const _wp = event.plateDetected ? String(event.plateDetected).toUpperCase() : "";
     const watch = (event as any).watch || (watchMap && _wp ? watchMap[_wp] : null);
@@ -446,7 +482,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     useEffect(() => { let alive = true; const dev = (event as any).device; if (dev?.id) fetchNvrChannel(dev.id).then((ch) => { if (alive) setNvrCh(ch); }); return () => { alive = false; }; }, [(event as any).device?.id]);
     return (
       <>
-        <EventDetailsDialog event={event} timeStatus={null} onRegister={(p) => onRegister(p)} empresa={empresa}>
+        <EventDetailsDialog event={relCard && !event.relectura ? { ...event, relectura: relCard } : event} timeStatus={null} onRegister={(p) => onRegister(p)} empresa={empresa}>
             <div className={cn(
                 "relative p-3 cursor-pointer transition-all group border-b border-border last:border-0",
                 isAnomalous ? "bg-yellow-500/5 hover:bg-yellow-500/10" : "hover:bg-accent",
@@ -459,10 +495,16 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                            {isAnomalous ? (
-                                <div className="flex items-center gap-1 text-yellow-400">
+                            {chCard.omni ? (
+                                <span className="inline-flex items-center gap-1.5">
+                                    <span className="font-mono text-sm font-bold text-foreground tracking-wider">{textoChapa(chCard)}</span>
+                                    <MarcaOmniVision r={relCard} tamano="xs" />
+                                </span>
+                            ) : isAnomalous ? (
+                                <div className="flex items-center gap-1.5 text-yellow-400">
                                     <AlertTriangle size={12} />
                                     <span className="text-xs font-bold">SIN LECTURA</span>
+                                    {relCard && <MarcaOmniVision r={relCard} tamano="xs" soloIcono />}
                                 </div>
                             ) : (
                                 <span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span>
@@ -474,7 +516,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                             {empresa && <img src={empresa.logo} alt={empresa.nombre} title={empresa.nombre} className="h-4 w-auto max-w-16 object-contain" />}
                         </div>
                         {watch?.motivo && <p className={cn("text-[11px] font-semibold mt-1 truncate", watchMeta?.text)} title={watch.motivo}>{watch.motivo}</p>}
-                        {isAnomalous && event.relectura && <div className="mt-1"><SugerenciaRelectura r={event.relectura} /></div>}
+                        {isAnomalous && relCard?.plate && <div className="mt-1"><SugerenciaRelectura r={relCard} soloContexto /></div>}
                         <div className="flex items-center gap-2 mt-1">
                             {meta.Marca && <span className="text-[10px] text-muted-foreground font-semibold">{meta.Marca}{(meta.Modelo || meta.Tipo) ? ` · ${meta.Modelo || meta.Tipo}` : ""}</span>}
                             {event.user?.name && (<span className="text-[10px] text-blue-400 truncate">{event.user.name}</span>)}
@@ -509,6 +551,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
  *  Quedan FIJAS hasta que el guardia cierra cada una (o todas). */
 function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void }) {
     const comp = useContext(ComportamientoCtx);
+    const relMap = useContext(RelecturasCtx);
     if (!items.length) return null;
     return (
         <div className="fixed bottom-4 right-4 z-[400] w-[340px] max-w-[92vw] flex flex-col gap-2 pointer-events-none">
@@ -534,14 +577,16 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
                             isBlack ? "border-red-500/60 ring-2 ring-red-500/40" : anomalous ? "border-yellow-500/50" : "border-border"
                         )}>
                             <button onClick={() => onDismiss(ev.id)} title="Cerrar" className="absolute top-1.5 right-1.5 z-10 h-6 w-6 rounded-md bg-black/50 hover:bg-black/70 text-white/80 hover:text-white flex items-center justify-center backdrop-blur"><X size={13} /></button>
-                            <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
+                            <EventDetailsDialog event={!ev.relectura && relMap[ev.id] ? { ...ev, relectura: relMap[ev.id] } : ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
                                 <div className="flex gap-2.5 p-2.5 cursor-pointer">
                                     <div className="w-24 h-16 rounded-lg overflow-hidden shrink-0 border border-border">
                                         <SmartThumb src={img} w={240} className="w-full h-full" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                            {anomalous ? (
+                                            {anomalous && chapaDe(ev.plateDetected, ev.relectura || relMap[ev.id]).omni ? (
+                                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold tracking-wider text-foreground">{textoChapa(chapaDe(ev.plateDetected, ev.relectura || relMap[ev.id]))}</span><MarcaOmniVision r={ev.relectura || relMap[ev.id]} tamano="xs" /></span>
+                                            ) : anomalous ? (
                                                 <span className="inline-flex items-center gap-1 text-xs font-bold text-yellow-300"><AlertTriangle size={12} /> SIN LECTURA</span>
                                             ) : (
                                                 <span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plateDetected}</span>
@@ -1090,6 +1135,27 @@ export default function MonitorLPR() {
     const lprDevs = useMemo(() => devices, [devices]);
     const entryCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'ENTRY'), [lprDevs]);
     const exitCams = useMemo(() => (lprDevs as any[]).filter((x: any) => x.direction === 'EXIT'), [lprDevs]);
+    /*
+     * La doble verificación de OmniVision llega después que la NO_LEIDA: se pregunta cada pocos
+     * segundos por las que todavía no la tienen (y son recientes), hasta que aparece.
+     */
+    const [relecturas, setRelecturas] = useState<Record<string, RelecturaEvento>>({});
+    const esperando = useMemo(() => {
+        const ahora = Date.now();
+        const todos = [...events, ...Object.values(lastCapByDev)] as any[];
+        return [...new Set(todos.filter((e) => e?.id && !e.sinEvento && esSinLeer(e.plateDetected) && !e.relectura && !relecturas[e.id]
+            && ahora - new Date(e.timestamp).getTime() < RELECTURA_ESPERA_MAX_MS).map((e) => e.id as string))];
+    }, [events, lastCapByDev, relecturas]);
+    useEffect(() => {
+        if (!esperando.length) return;
+        const desde = Date.now();
+        const iv = setInterval(() => {
+            if (Date.now() - desde > RELECTURA_ESPERA_MAX_MS) { clearInterval(iv); return; }
+            relecturasDeEventos(esperando).then((m) => { if (Object.keys(m).length) setRelecturas((r) => ({ ...r, ...m })); }).catch(() => {});
+        }, RELECTURA_SONDEO_MS);
+        return () => clearInterval(iv);
+    }, [esperando.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const lastByCam = useMemo(() => {
         const m: Record<string, any> = {};
         for (const e of events) { const id = (e as any).device?.id; if (id && !m[id]) m[id] = e; }
@@ -1099,6 +1165,7 @@ export default function MonitorLPR() {
 
     return (
         <ComportamientoCtx.Provider value={comportamiento}>
+        <RelecturasCtx.Provider value={relecturas}>
         <TooltipProvider>
             <div className="h-full flex flex-col bg-background text-foreground">
                 {/* Header */}
@@ -1235,6 +1302,7 @@ export default function MonitorLPR() {
                     alTerminar={() => { loadInitialData(); refreshWatch(); }}
                     units={units} groups={groups} devices={devices} parkingSlots={parkingSlots} />
         </TooltipProvider>
+        </RelecturasCtx.Provider>
         </ComportamientoCtx.Provider>
     );
 }

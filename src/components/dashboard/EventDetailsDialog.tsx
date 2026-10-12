@@ -10,6 +10,7 @@ import {
     Archive, UserPlus, ShieldBan, ShieldOff, Crop, Car, LogIn, LogOut, Activity, MapPin, Hash, Loader2, Check, CalendarDays, BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import { useRouter } from "next/navigation";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { getCarLogo } from "@/lib/car-logos";
@@ -414,19 +415,25 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                         const vc = getVehicleColor(meta.Color);
                                         return (
                                             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-stretch gap-1.5">
-                                                <div className={cn("px-3.5 py-1.5 rounded-md shadow-lg border flex flex-col justify-center", vc.light ? "text-black border-black/10" : "text-white border-white/20")} style={{ backgroundColor: plateText === "No Leida" ? "#dc2626" : vc.bg }}>
-                                                    <p className="text-[7px] font-bold uppercase tracking-widest opacity-60">Matrícula</p>
-                                                    <h3 className="text-xl font-bold font-mono tracking-wider leading-tight">{plateText}</h3>
-                                                </div>
-                                                {/* La segunda lectura: la lectora no leyó, omni-vision recortó el vehículo y la
-                                                    volvió a leer. Sugerencia: se confirma con «Cargar matrícula» en el monitor. */}
-                                                {!hasPlate && (event as any).relectura?.plate && (
-                                                    <div className="px-3.5 py-1.5 rounded-md shadow-lg border border-white/20 bg-black/75 text-white flex flex-col justify-center"
-                                                        title="La lectora no leyó la chapa; omni-vision recortó el vehículo y la volvió a leer. Es una sugerencia.">
-                                                        <p className="text-[7px] font-bold uppercase tracking-widest text-[var(--accion-en-oscuro)]">omni-vision leyó</p>
-                                                        <h3 className="text-xl font-bold tabular-nums tracking-wider leading-tight">¿{(event as any).relectura.plate}? <span className="text-[11px] font-semibold opacity-70">{(event as any).relectura.confianza != null ? `${Math.round((event as any).relectura.confianza * 100)} %` : ""}</span></h3>
-                                                    </div>
-                                                )}
+                                                {(() => {
+                                                    /* Una NO_LEIDA: la chapa que leyó OmniVision (doble verificación) va en el
+                                                       lugar de la chapa, con borde punteado y su marca en vez de «Matrícula». */
+                                                    const rel = (event as any).relectura || null;
+                                                    const ch = chapaDe(event.plateDetected, rel);
+                                                    if (!hasPlate && ch.omni) return (
+                                                        <div className="px-3.5 py-1.5 rounded-md shadow-lg border border-dashed border-[var(--accion-en-oscuro)] bg-black/75 text-white flex flex-col justify-center">
+                                                            <MarcaOmniVision r={rel} oscuro tamano="xs" className="!text-[9px]" />
+                                                            <h3 className="text-xl font-bold font-mono tracking-wider leading-tight">{textoChapa(ch)}</h3>
+                                                        </div>
+                                                    );
+                                                    return (
+                                                        <div className={cn("px-3.5 py-1.5 rounded-md shadow-lg border flex flex-col justify-center", vc.light ? "text-black border-black/10" : "text-white border-white/20")} style={{ backgroundColor: plateText === "No Leida" ? "#dc2626" : vc.bg }}>
+                                                            <p className="text-[7px] font-bold uppercase tracking-widest opacity-60">Matrícula</p>
+                                                            <h3 className="text-xl font-bold font-mono tracking-wider leading-tight">{plateText}</h3>
+                                                            {!hasPlate && rel && <MarcaOmniVision r={rel} oscuro tamano="xs" className="!text-white/70" />}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         );
                                     })()}

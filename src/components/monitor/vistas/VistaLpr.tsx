@@ -17,6 +17,7 @@ import { watchCatMeta } from "@/lib/watch-categories";
 import { presentarLectura, rotulosContadores, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
+import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
 import {
     claseDeLectura, ESTILO_MONITOR, ESTILO_APAGADO, NIVELES, COMPORTAMIENTO_DEFECTO, normalizarComportamiento,
     type ClaseMonitor, type ClaveComportamiento, type Comportamiento, type NivelListaNegra,
@@ -131,15 +132,11 @@ function Relectura({ r, grande }: { r?: RelecturaEvento | null; grande?: boolean
     if (!r?.plate) return null;
     const cat = String(r.vigilancia?.category || "").toUpperCase();
     const negra = cat === "BLACKLISTED", busqueda = cat === "SEARCH";
+    /* La chapa ya va en el lugar de la chapa, con la marca de OmniVision (ChapaReleida): acá queda
+       lo que cambia lo que hace el guardia — si está en una lista o de quién es. */
+    if (!negra && !busqueda && !r.quien) return null;
     return (
         <span className={cn("inline-flex items-center gap-2 flex-wrap", grande ? "text-[17px]" : "text-[11px]")}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            {grande && r.chapa && <img src={r.chapa} alt="" draggable={false} className="h-12 rounded-md border border-white/40 bg-black" />}
-            <span className={cn("uppercase font-black tracking-wider text-[var(--accion-en-oscuro)]", grande ? "text-[14px]" : "text-[9px]")}>omni-vision leyó</span>
-            <span className={cn("inline-flex items-center gap-1.5 rounded-md bg-black/60 text-white border border-white/30 font-bold tabular-nums tracking-[0.12em]", grande ? "px-3 py-1 text-[24px]" : "px-1.5 py-0.5")}>
-                ¿{r.plate}?
-            </span>
-            <span className="text-white/75 tabular-nums">{r.confianza != null ? `${Math.round(r.confianza * 100)} %` : ""}{r.estado === "DUDOSA" ? " · dudosa" : ""}</span>
             {negra && <span className="px-2 py-0.5 rounded-md pleno-mal font-black uppercase tracking-wider text-[0.8em]">Lista negra</span>}
             {busqueda && <span className="px-2 py-0.5 rounded-md pleno-aviso font-black uppercase tracking-wider text-[0.8em]">En búsqueda</span>}
             {!r.vigilancia && r.quien && <span className="text-white/90 truncate">{r.quien.name}{r.quien.unidad ? ` · ${r.quien.unidad}` : ""}</span>}
@@ -342,7 +339,16 @@ export function VistaLpr() {
                                         {l.clase && !(l.plate && datos?.logos?.[l.plate]) && <span className="absolute top-2 left-2 max-w-[184px]"><EtiquetaClase l={l} comp={comportamiento} /></span>}
                                         <span className="absolute bottom-2 left-3 right-3 flex items-end justify-between gap-2">
                                             <span className="min-w-0">
-                                                {esNoLeida(l.plate) && l.relectura?.plate ? <Relectura r={l.relectura} /> : <span className="block text-[18px] font-bold text-white tabular-nums tracking-[0.1em]">{l.plate || "S/L"}</span>}
+                                                {(() => {
+                                                    /* Una NO_LEIDA: la chapa que leyó OmniVision, con su destello. */
+                                                    const ch = chapaDe(l.plate, l.relectura);
+                                                    return (
+                                                        <span className="flex items-center gap-1.5 min-w-0">
+                                                            <span className="text-[18px] font-bold text-white tabular-nums tracking-[0.1em] truncate">{ch.plate ? textoChapa(ch) : esNoLeida(l.plate) ? "S/L" : l.plate}</span>
+                                                            {esNoLeida(l.plate) && l.relectura && <MarcaOmniVision r={l.relectura} oscuro tamano="sm" soloIcono={!ch.omni} />}
+                                                        </span>
+                                                    );
+                                                })()}
                                                 <span className="block text-[12px] text-white/65 tabular-nums">{horaCorta(l.ts)} · {l.sentido === "EXIT" ? "salida" : "entrada"}</span>
                                             </span>
                                             <est.Ic size={18} className={ok ? "text-[var(--bien)]" : est.error ? "text-[var(--mal)]" : "text-white/50"} />
@@ -458,7 +464,20 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
             <div className="absolute bottom-0 inset-x-0 p-4 lg:p-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 pointer-events-none">
                 <div className="min-w-0">
                     <div className="flex items-center gap-4">
-                        <div className="inline-block px-5 py-2 rounded-xl bg-white text-black text-[clamp(36px,5.5vw,72px)] font-bold tabular-nums tracking-[0.14em] leading-none shadow-[0_8px_30px_rgba(0,0,0,.6)]">{l.plate || "S/L"}</div>
+                        {(() => {
+                            /* La cámara no leyó: va la chapa que leyó OmniVision (doble verificación), con borde
+                               punteado y su marca; si tampoco pudo, «S/L» y la marca lo dice. */
+                            const ch = chapaDe(l.plate, l.relectura);
+                            return (
+                                <div className="flex flex-col items-start gap-1.5">
+                                    <div className={cn("inline-block px-5 py-2 rounded-xl bg-white text-black text-[clamp(36px,5.5vw,72px)] font-bold tabular-nums tracking-[0.14em] leading-none shadow-[0_8px_30px_rgba(0,0,0,.6)]",
+                                        ch.omni && "outline-dashed outline-[3px] outline-offset-[3px] outline-[var(--accion-en-oscuro)]")}>
+                                        {ch.plate ? textoChapa(ch) : esNoLeida(l.plate) ? "S/L" : l.plate}
+                                    </div>
+                                    {esNoLeida(l.plate) && l.relectura && <MarcaOmniVision r={l.relectura} oscuro tamano="lg" />}
+                                </div>
+                            );
+                        })()}
                         {/* La empresa al lado de la chapa: de lejos, en la pared, se lee antes el logo que el nombre. */}
                         <LogoSobreFoto empresa={empresa} className="h-[clamp(36px,4.5vw,64px)] max-w-[22vw]" />
                     </div>

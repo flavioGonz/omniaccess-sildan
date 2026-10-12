@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { sileo as toast } from "sileo";
-import { VisorCuadro, leerDetalles } from "@/components/VisorCuadro";
+import { VisorCuadro, leerDetalles, type DatosVisor } from "@/components/VisorCuadro";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { getImagePath } from "@/lib/image-path";
@@ -72,6 +72,21 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
     const meta = useMemo(() => leerDetalles(event?.details), [event?.details]);
     const msEvento = useMemo(() => new Date(event?.timestamp).getTime(), [event?.timestamp]);
     const dispositivo = event?.device;
+
+    /**
+     * Una NO_LEIDA: lo que dijo OmniVision (la doble verificación). /api/history/ficha trae la
+     * relectura del vehículo — y con ella la chapa que se muestra, con su marca —, lo que vio en
+     * la foto y, si releyó la chapa, la ficha de esa chapa.
+     */
+    const [datosOmni, setDatosOmni] = useState<DatosVisor | null>(null);
+    useEffect(() => {
+        if (!abierto || conChapa || !event?.id) { setDatosOmni(null); return; }
+        let vivo = true;
+        const q = new URLSearchParams({ evento: event.id, momento: new Date(event.timestamp).toISOString() });
+        fetch(`/api/history/ficha?${q}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (vivo) setDatosOmni(j); }).catch(() => { });
+        return () => { vivo = false; };
+    }, [abierto, conChapa, event?.id, event?.timestamp]);
 
     /** El canal del NVR, que decide si hay grabación y clip. */
     useEffect(() => {
@@ -246,7 +261,8 @@ export function VisorEventoAcceso({ event, children, autoRecording, onRegister }
                         })(),
                         detalles: event?.details || null,
                     }}
-                    ficha={ficha}
+                    ficha={ficha || datosOmni?.ficha || null}
+                    datos={datosOmni}
                     historial={conChapa ? (historial || []).map((h: any) => ({
                         id: h.id,
                         momento: h.timestamp,
