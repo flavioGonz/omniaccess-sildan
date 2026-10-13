@@ -122,7 +122,7 @@ export default function ObjetosPropios() {
     const pasos: PasoCamino[] = [
         { titulo: "Qué enseñar", ancla: "clases", hecho: estado.clases.length > 0,
             detalle: estado.clases.length ? estado.clases.map((c) => c.nombre).join(", ") : "Creá una clase: «Contenedor», «Cono»…" },
-        { titulo: "Juntar fotos", ancla: "fotos", hecho: estado.falta.length === 0 || estado.fotos.total >= CAJAS_MINIMO,
+        { titulo: "Juntar fotos", ancla: "agregar", hecho: estado.falta.length === 0 || estado.fotos.total >= CAJAS_MINIMO,
             detalle: `${estado.fotos.total} ${estado.fotos.total === 1 ? "foto" : "fotos"}${estado.fotos.sinRevisar ? ` · ${estado.fotos.sinRevisar} sin dibujar` : ""}` },
         { titulo: "Dibujar", ancla: "fotos", hecho: estado.clases.length > 0 && estado.falta.length === 0,
             detalle: !masFlojita ? "Un recuadro sobre cada objeto" : estado.falta.length ? `«${masFlojita.nombre}»: ${masFlojita.cajas} de ${CAJAS_MINIMO} recuadros` : "Alcanza para entrenar" },
@@ -224,14 +224,10 @@ export default function ObjetosPropios() {
                         </div>
                     </section>
 
-                    <CaminoDetector pasos={pasos} />
-
-                    {/* Cómo dibujar, debajo del camino y plegado: se abre cuando se va a dibujar. */}
-                    <GuiaDibujo abierta={guia} alCambiar={setGuia} />
-
-                    {/* ── 2. Juntar fotos y dibujar ── */}
-                    <section id="fotos" className="scroll-mt-4 space-y-3">
-                        <Titulo n={2} titulo="Juntar fotos y dibujar" texto="Fotos donde aparece el objeto (y algunas donde no), y un recuadro sobre cada uno." />
+                    {/* ── 2. Agregar fotos: arriba, enseguida de las clases (pedido de Nico): es lo que
+                        más se hace en esta pantalla y quedaba debajo del camino y de la guía. ── */}
+                    <section id="agregar" className="scroll-mt-4 space-y-2">
+                        <Titulo n={2} titulo="Agregar fotos" texto="Por link, soltándolas o de una cámara. Fotos donde aparece el objeto, y algunas donde no." />
                         <SoltarFotos camaras={camaras} alAgregar={(nuevas, abrir) => {
                             setVista("sin"); cargar();
                             if (!abrir || !nuevas.length || anotando != null) return;
@@ -239,6 +235,16 @@ export default function ObjetosPropios() {
                             setRecien(nuevas); setAnotando(0);
                         }} />
                         <CamarasOSubidas porOrigen={estado.fotos.porOrigen} />
+                    </section>
+
+                    <CaminoDetector pasos={pasos} />
+
+                    {/* Cómo dibujar, debajo del camino y plegado: se abre cuando se va a dibujar. */}
+                    <GuiaDibujo abierta={guia} alCambiar={setGuia} />
+
+                    {/* ── 2. Juntar fotos y dibujar ── */}
+                    <section id="fotos" className="scroll-mt-4 space-y-3">
+                        <Titulo n={3} titulo="Dibujar" texto="Un recuadro sobre cada objeto, en cada foto. Las que no lo tienen se marcan «No hay ninguno»." />
 
                         <div className="flex items-center gap-2 flex-wrap">
                             <Filtros solido grupos={[{ clave: "v", titulo: "Fotos", valor: vista, alElegir: setVista, opciones: vistas }]} />

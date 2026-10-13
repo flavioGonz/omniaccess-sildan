@@ -189,12 +189,25 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
 
     return (
         <div className="space-y-2">
+            {/* Por link, PRIMERO y grande: es lo más rápido para sumar fotos de internet, y como
+                renglón finito debajo de la zona de soltar no se veía (lo pidió Nico el 13/10). */}
+            <form onSubmit={(e) => { e.preventDefault(); const ls = linksDe(texto); if (ls.length) { setTexto(""); traer(ls); } else toast.error({ title: "Eso no es un link", description: "Tiene que empezar con http:// o https://." }); }}
+                className="flex items-center gap-2.5 rounded-[14px] border-2 border-[color-mix(in_oklab,var(--accion)_45%,var(--border))] bg-card pl-2 pr-2 py-2 focus-within:border-[var(--accion)] transition-colors">
+                <span className="grid h-10 w-10 place-items-center rounded-[10px] bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] text-[var(--accion-texto,var(--accion))] shrink-0"><Link2 size={19} /></span>
+                <Input value={texto} onChange={(e) => setTexto(e.target.value)}
+                    onPaste={(e) => { const ls = linksDe(e.clipboardData.getData("text/plain")); if (ls.length) { e.preventDefault(); setTexto(""); traer(ls); } }}
+                    placeholder="Pegá acá el link de una imagen: se trae y se abre para dibujar"
+                    aria-label="Link de una imagen"
+                    className="h-10 flex-1 min-w-0 border-0 bg-transparent shadow-none focus-visible:ring-0 px-1 text-[14px] placeholder:text-muted-foreground/80" />
+                <Button type="submit" disabled={!texto.trim()} className="h-10 px-4"><ImagePlus size={15} /> Traer</Button>
+            </form>
+
             <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-2">
                 {/* La zona de soltar. Es un botón: con teclado también abre el selector. */}
                 <motion.button type="button" onClick={() => archivos.current?.click()}
                     onDragEnter={() => setEncima(true)} onDragLeave={() => setEncima(false)}
                     animate={{ scale: encima ? 1.01 : 1 }} transition={{ duration: 0.2, ease: CURVA_SUAVE }}
-                    className={cn("group relative overflow-hidden rounded-[14px] border-2 border-dashed px-6 py-7 text-left transition-colors",
+                    className={cn("group relative overflow-hidden rounded-[14px] border-2 border-dashed px-6 py-5 text-left transition-colors",
                         encima ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_7%,transparent)]" : "border-border bg-card hover:border-[color-mix(in_oklab,var(--accion)_55%,var(--border))] hover:bg-accent/40")}>
                     <div className="flex items-center gap-4">
                         <motion.span animate={encima ? { y: -4, rotate: -6 } : { y: 0, rotate: 0 }} transition={{ type: "spring", stiffness: 300, damping: 18 }}
@@ -227,17 +240,7 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
                 </div>
             </div>
 
-            {/* Por link: lo pega la persona y lo trae el servidor. */}
-            <form onSubmit={(e) => { e.preventDefault(); const ls = linksDe(texto); if (ls.length) { setTexto(""); traer(ls); } else toast.error({ title: "Eso no es un link", description: "Tiene que empezar con http:// o https://." }); }}
-                className="flex items-center gap-2 rounded-[14px] border border-border bg-card pl-3 pr-1.5 py-1.5">
-                <Link2 size={16} className="text-muted-foreground shrink-0" />
-                <Input value={texto} onChange={(e) => setTexto(e.target.value)}
-                    onPaste={(e) => { const ls = linksDe(e.clipboardData.getData("text/plain")); if (ls.length) { e.preventDefault(); setTexto(""); traer(ls); } }}
-                    placeholder="Pegá el link de una imagen (o de la página que la tiene): se trae y se abre para dibujar."
-                    className="h-9 flex-1 min-w-0 border-0 bg-transparent shadow-none focus-visible:ring-0 px-1" />
-                <Button type="submit" variant="outline" disabled={!texto.trim()}><ImagePlus size={14} /> Traer</Button>
-            </form>
-            <p className="text-[11px] text-muted-foreground -mt-1 px-1">También: arrastrá una imagen desde otra pestaña, o copiala y apretá <kbd className="px-1 rounded bg-muted">Ctrl</kbd>+<kbd className="px-1 rounded bg-muted">V</kbd> en esta página.</p>
+            <p className="text-[11px] text-muted-foreground px-1">También: arrastrá una imagen desde otra pestaña, o copiala y apretá <kbd className="px-1 rounded bg-muted">Ctrl</kbd>+<kbd className="px-1 rounded bg-muted">V</kbd> en esta página. Una sola foto se abre para dibujar; una tanda queda en «Sin dibujar».</p>
 
             {/* La tanda que sube: total arriba, cada foto con su avance. */}
             <AnimatePresence initial={false}>
