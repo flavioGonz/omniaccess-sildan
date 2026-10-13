@@ -66,12 +66,7 @@ interface DeviceFormDialogProps {
     device?: any;
     groups: any[];
     onSuccess: () => void;
-    children?: React.ReactNode;
-    /** Abierto desde afuera (el menú «Agregar» de Dispositivos). */
-    abierto?: boolean;
-    alCambiarAbierto?: (v: boolean) => void;
-    /** Tipo con el que arranca un alta (NVR, CAMERA…). */
-    tipoInicial?: string;
+    children: React.ReactNode;
 }
 
 const BRANDS = [
@@ -158,17 +153,15 @@ const CAMERA_GUIDES: Record<string, { title: string; steps: string[]; webhookUrl
     },
 };
 
-export function DeviceFormDialog({ device, groups, onSuccess, children, abierto, alCambiarAbierto, tipoInicial }: DeviceFormDialogProps) {
-    const [openInt, setOpenInt] = useState(false);
-    const open = abierto ?? openInt;
-    const setOpen = (v: boolean) => { if (abierto === undefined) setOpenInt(v); alCambiarAbierto?.(v); };
+export function DeviceFormDialog({ device, groups, onSuccess, children }: DeviceFormDialogProps) {
+    const [open, setOpen] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [step, setStep] = useState(1);
     const [modelComboOpen, setModelComboOpen] = useState(false);
     const [showGuide, setShowGuide] = useState(false);
     const [formData, setFormData] = useState({
         name: device?.name || "",
-        deviceType: device?.deviceType || tipoInicial || "LPR_CAMERA",
+        deviceType: device?.deviceType || "LPR_CAMERA",
         brand: device?.brand || "HIKVISION",
         deviceModel: device?.deviceModel || "",
         ip: device?.ip || "",
@@ -187,7 +180,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
 
     const buildDefaults = () => ({
         name: device?.name || "",
-        deviceType: device?.deviceType || tipoInicial || "LPR_CAMERA",
+        deviceType: device?.deviceType || "LPR_CAMERA",
         brand: device?.brand || "HIKVISION",
         deviceModel: device?.deviceModel || "",
         ip: device?.ip || "",
@@ -245,7 +238,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
                 const info: Record<string, { channel: number; name: string | null }> = {};
                 setNvrMap((prev) => { const m = { ...prev }; for (const ch of r.channels) { if (ch.ip) { m[ch.ip] = ch.channel; info[ch.ip] = { channel: ch.channel, name: ch.name }; } } return m; });
                 setNvrInfo(info);
-                setNvrMsg(`Detectados ${r.channels.length} canales`);
+                setNvrMsg(`Detectados ${r.channels.length} canales por ISAPI`);
             } else setNvrMsg(r?.error || "No se detectaron canales");
         } catch (e: any) { setNvrMsg(e?.message || "Error"); }
         finally { setNvrBusy(false); }
@@ -262,7 +255,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
             const fd = new FormData();
             fd.set("name", ch.name || `Cámara ${ch.ip}`);
             fd.set("ip", ch.ip);
-            fd.set("brand", (ch.brand as string) || "HIKVISION");
+            fd.set("brand", "HIKVISION");
             fd.set("deviceType", "LPR_CAMERA");
             fd.set("direction", /salida|egres/i.test(ch.name || "") ? "EXIT" : "ENTRY");
             fd.set("location", "");
@@ -355,18 +348,15 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
     const nextStep = () => setStep(prev => Math.min(prev + 1, 3));
     const prevStep = () => setStep(prev => Math.max(prev - 1, 1));
 
-    // Abierto desde afuera: formulario limpio con el tipo pedido.
-    useEffect(() => { if (abierto) { resetForm(); setStep(1); } }, [abierto]);   // eslint-disable-line react-hooks/exhaustive-deps
-
     return (
         <Dialog open={open} onOpenChange={(val) => {
             setOpen(val);
             if (val) resetForm();   // formulario limpio (o valores del device) cada vez que se abre
             else setStep(1);
         }}>
-            {children && <DialogTrigger asChild>
+            <DialogTrigger asChild>
                 {children}
-            </DialogTrigger>}
+            </DialogTrigger>
             <DialogContent className="max-w-6xl w-[95vw] max-h-[92vh] p-0 bg-background border-border/60 overflow-hidden sm:rounded-md gap-0 shadow-lg shadow-black/60">
                 <DialogHeader className="sr-only">
                     <DialogTitle>{isEdit ? "Editar Dispositivo" : "Nuevo Dispositivo"}</DialogTitle>
@@ -419,7 +409,6 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
                                                     </SelectTrigger>
                                                     <SelectContent className="bg-popover border-border text-foreground rounded-md">
                                                         <SelectItem value="LPR_CAMERA" className="py-3 font-bold">Cámara LPR</SelectItem>
-                                                        <SelectItem value="CAMERA" className="py-3 font-bold">Cámara de intrusión</SelectItem>
                                                         <SelectItem value="NVR" className="py-3 font-bold">NVR / Grabador</SelectItem>
                                                         <SelectItem value="FACE_TERMINAL" className="py-3 font-bold">Acceso Facial</SelectItem>
                                                         <SelectItem value="QUEUE_COUNTER" className="py-3 font-bold">Contador de Filas</SelectItem>
@@ -645,7 +634,7 @@ export function DeviceFormDialog({ device, groups, onSuccess, children, abierto,
                                         )}
 
                                         <div className="grid grid-cols-2 gap-8">
-                                            {formData.deviceType !== "NVR" && formData.deviceType !== "CAMERA" && (
+                                            {formData.deviceType !== "NVR" && (
                                             <div className="space-y-3">
                                                 <Label className="text-muted-foreground text-[10px] font-bold uppercase tracking-widest flex items-center gap-2">
                                                     <ArrowRightLeft size={10} /> Sentido del Flujo

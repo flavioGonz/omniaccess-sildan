@@ -1,848 +1,1252 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Tooltip } from "react-tooltip";
+import Image from "next/image";
 import {
-    Camera, Radar, HardDrive, Network, MapPin, Rocket, ScanSearch, Loader2, Check, X, AlertTriangle, Info,
-    LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
-    ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users,
+    ArrowLeft, ArrowRight, BadgeCheck, BookOpen, Check, ChevronDown, ChevronsUpDown,
+    AlertTriangle, Cpu, ExternalLink, GitCommitHorizontal, Loader2, MapPin, Network, Plus,
+    Radio, Save, Scan, Tag, Video, Wifi,
+    ParkingSquare,
 } from "lucide-react";
-import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
+import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BarraDePasos, PasoAnimado } from "@/components/devices/Pasos";
-import { createDevice, updateDevice, probeDeviceInfo, getDevices } from "@/app/actions/devices";
-import { provisionLprDevice } from "@/app/actions/provision";
-import { getNvrList, getNvrChannels, getNvrChannelInfo, importarCanalesClasificados, type RolImport } from "@/app/actions/nvr";
-import { dondeGraba, asignarGrabacion, calcularRetencion } from "@/app/actions/grabaciones";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Cajon, CajonDisparador, CajonContenido, CajonSeccion, CajonCampo } from "@/components/ui/cajon";
+import { PasoAnimado } from "@/components/devices/Pasos";
+import { CompatibilidadMarca, ElegirMarca, MarcaFija } from "@/components/devices/Compatibilidad";
+import { Verificacion } from "@/components/devices/Verificacion";
+import { Franja } from "@/components/tracking/Franja";
+import { Descubridor } from "@/components/devices/Descubridor";
+import { tiposSegunModulos, tipoDeEquipo } from "@/components/devices/tipos";
+import { getEnabledModules } from "@/app/actions/modules";
+import type { ModuleId } from "@/lib/module-definitions";
+import { createDevice, updateDevice, getDevices } from "@/app/actions/devices";
+import { getNvrChannels, getNvrChannelMapFull, saveNvrChannelMapForNvr, mapearPorIp } from "@/app/actions/nvr";
+import { ImportarCanales, type CanalImportable } from "@/components/devices/ImportarCanales";
+import { FuncionesCamara, type FuncionesAlta } from "@/components/devices/FuncionesCamara";
+import { DRIVER_MODELS, type DeviceBrand as DriverDeviceBrand } from "@/lib/driver-models";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 
 /**
- * Alta y edición de equipos en un único cajón, como en San Nicolás.
+ * Alta y edición de un equipo.
  *
- * Alta: lo primero es QUÉ se agrega (cámara LPR, cámara de intrusión o NVR), porque eso decide
- * los pasos que siguen. Cada tipo tiene su recorrido y termina en una puesta a punto que corre a
- * la vista (hora, servidor de alarmas, video, grabación, retención, importación de canales).
+ * Venía de un diálogo de 6xl partido en dos: a la izquierda el formulario por fases y a la
+ * derecha un número de 200px flotando sobre una foto de fondo. Ese 36% de la ventana no
+ * decía nada que el formulario no dijera mejor.
  *
- * Edición (reemplaza al viejo modal «Sincronizar Nodo»): una sola hoja con todo a la vista —
- * estado del equipo, identidad, conexión, sentido y grabación— y un único «Guardar cambios».
+ * Tres cambios de fondo, y ninguno es estético.
+ *
+ * **Lo primero que se pregunta es QUÉ se va a agregar.** Antes el tipo era un desplegable
+ * en el medio del primer paso, al lado de la marca, como si fuera un dato más. Pero el
+ * tipo decide todo lo que viene después —cuántos pasos hay, qué campos tienen sentido, si
+ * se pregunta el sentido de paso, si hay canal de video—, así que preguntarlo tarde
+ * significa haber preguntado antes cosas que quizá no correspondían.
+ *
+ * **La IP y las credenciales van juntas.** Estaban en dos pasos distintos, y el botón
+ * "Detectar por ISAPI" —que necesita las tres cosas— vivía en el segundo. Había que
+ * cargar la IP, avanzar, cargar usuario y clave, detectar, y volver para ver la MAC que
+ * la detección acababa de completar. Ahora la detección está donde están sus datos.
+ *
+ * **El vocabulario.** "Fase 01", "Sincronizar Nodo", "Usuario Manager", "API Password",
+ * "Hardware ID", "Sentido del Flujo", "Finalizar y Vincular". Quien instala una cámara
+ * busca "usuario" y "contraseña"; ese lenguaje no hacía al sistema más serio, hacía al
+ * instalador más lento.
  */
 
-type Tipo = "LPR_CAMERA" | "CAMERA" | "NVR";
-type Marca = "HIKVISION" | "DAHUA";
-type Estado = "espera" | "corriendo" | "ok" | "error" | "salteado";
-type Tarea = { clave: string; titulo: string; ayuda: string; icono: any; estado: Estado; detalle?: string };
-type Ubic = { nvrId: string | null; nvrNombre: string | null; ch: number; canalNombre?: string | null };
-type Canal = { channel: number; ip: string | null; name: string; model?: string | null; marca: string; protocolo?: string | null; sensorDe?: number | null; existente: { id: string; name: string; tipo: string } | null };
+/**
+ * Qué equipos pueden ser el canal de un grabador.
+ *
+ * Decía únicamente LPR_CAMERA, y por eso el mapeo de canales aparecía vacío en un barrio
+ * donde las dos cámaras son interiores de seguimiento: el grabador listaba sus ocho
+ * canales y el desplegable de "qué cámara es este canal" no tenía una sola opción. Lo que
+ * el grabador graba es una cámara, sin importar para qué la usa OmniAccess — y las de
+ * analítica son justamente las que más vale poder mirar grabadas.
+ */
+const esCamara = (d: { deviceType?: string }) =>
+    d.deviceType === "LPR_CAMERA" || d.deviceType === "LPR_INTERIOR" || d.deviceType === "CAMERA"
+    || d.deviceType === "QUEUE_COUNTER" || d.deviceType === "DOOR_INTERCOM";
 
-const TT = "tt-cajon-disp";
-const tip = (texto: string) => ({ "data-tooltip-id": TT, "data-tooltip-content": texto });
-const ES_LPR = /\b(lpr|anpr)\b|matr[ií]cula|patente|entrada|salida|acceso|barrera/i;
-
-const TIPOS: { valor: Tipo; rotulo: string; que: string; icono: any; color: string; ejemplo: string }[] = [
-    { valor: "LPR_CAMERA", rotulo: "Cámara LPR", icono: Car, color: "text-amber-500 bg-amber-500/10 border-amber-500/30",
-        que: "Lee matrículas en una garita, decide si se abre y prende el semáforo con su relé.",
-        ejemplo: "Ej.: «P1 - Entrada (207)», una Hikvision iDS-TCM403 apuntando al carril de entrada." },
-    { valor: "CAMERA", rotulo: "Cámara de intrusión", icono: Radar, color: "text-red-500 bg-red-500/10 border-red-500/30",
-        que: "Vigila el perímetro con cruce de línea o zona. Sus alarmas van al monitor de intrusión.",
-        ejemplo: "Ej.: «Perímetro Norte 12», una domo/bullet AcuSense grabada en un NVR. Lo normal es importarla desde su NVR." },
-    { valor: "NVR", rotulo: "NVR / Grabador", icono: HardDrive, color: "text-sky-500 bg-sky-500/10 border-sky-500/30",
-        que: "Guarda el video. Al agregarlo se leen sus canales y se importan las cámaras, clasificadas.",
-        ejemplo: "Ej.: «NVR Sildan» en 172.16.2.59, Hikvision DS-9664NI de 64 canales." },
-];
-
-const PASOS_POR_TIPO: Record<Tipo, { clave: string; rotulo: string }[]> = {
-    LPR_CAMERA: [{ clave: "equipo", rotulo: "Equipo" }, { clave: "conexion", rotulo: "Conexión" }, { clave: "lugar", rotulo: "Ubicación" }, { clave: "grabacion", rotulo: "Grabación" }, { clave: "puesta", rotulo: "Puesta a punto" }],
-    CAMERA: [{ clave: "equipo", rotulo: "Equipo" }, { clave: "conexion", rotulo: "Conexión" }, { clave: "grabacion", rotulo: "Grabación" }, { clave: "puesta", rotulo: "Puesta a punto" }],
-    NVR: [{ clave: "equipo", rotulo: "Equipo" }, { clave: "conexion", rotulo: "Conexión" }, { clave: "canales", rotulo: "Canales" }, { clave: "puesta", rotulo: "Puesta a punto" }],
+/** Cómo se prepara cada marca del lado del equipo, antes de que OmniAccess pueda usarlo. */
+const GUIAS: Record<string, { titulo: string; pasos: string[]; webhook: string; auth: string; doc?: string }> = {
+    HIKVISION: {
+        titulo: "Cómo preparar una Hikvision",
+        pasos: [
+            "Entrar a la cámara por su IP desde el navegador",
+            "Configuration → Network → Advanced Settings → HTTP Listening",
+            "Agregar un listener con la IP del servidor OmniAccess y el puerto del webhook",
+            "Event → Smart Event: activar la detección que haga falta (LPR o rostro)",
+            "Configurar la notificación HTTP apuntando al listener recién creado",
+            "Verificar en Events que los eventos se disparan",
+        ],
+        webhook: "/api/webhooks/hikvision",
+        auth: "Digest, con el usuario y la clave del equipo",
+        doc: "https://www.hikvision.com/en/support/download/sdk/",
+    },
+    AKUVOX: {
+        titulo: "Cómo preparar un Akuvox",
+        pasos: [
+            "Entrar al portero por su IP desde el navegador",
+            "Intercom → Relay → HTTP Notification",
+            "Cargar la URL del webhook de OmniAccess",
+            "En Access Control, cargar las tarjetas RFID o el reconocimiento facial",
+            "Activar el envío de eventos por HTTP POST",
+            "Probar con una notificación de prueba",
+        ],
+        webhook: "/api/webhooks/akuvox",
+        auth: "Basic o API key, según el modelo",
+    },
+    DAHUA: {
+        titulo: "Cómo preparar una Dahua",
+        pasos: [
+            "Entrar a la cámara por su IP desde el navegador",
+            "Configuración → Red → Plataformas de acceso",
+            "Habilitar HTTP y cargar la URL del webhook",
+            "Evento → Detección inteligente: activar LPR o detección facial",
+            "Configurar que mande la foto junto con el evento",
+            "Verificar que los eventos llegan a OmniAccess",
+        ],
+        webhook: "/api/webhooks/dahua",
+        auth: "Digest, con el usuario admin del equipo",
+    },
+    INTELBRAS: {
+        titulo: "Cómo preparar una Intelbras",
+        pasos: [
+            "Entrar a la cámara por su IP desde el navegador",
+            "Configuração → Rede → HTTP",
+            "Cargar la URL del webhook de OmniAccess",
+            "Evento → Detecção inteligente: activar LPR o detección facial",
+            "Configurar que mande la foto junto con el evento",
+            "Verificar que los eventos llegan a OmniAccess",
+        ],
+        webhook: "/api/webhooks/dahua",
+        auth: "Habla el protocolo Dahua. Digest, con las credenciales del equipo",
+    },
+    BOSCH: {
+        titulo: "Cómo preparar una Bosch de conteo",
+        pasos: [
+            "Entrar al panel de la cámara por HTTPS y loguearse como service",
+            "General → ONVIF: habilitarlo y crear un usuario ONVIF con rol Operator",
+            "Alarm → VCA: configurar el perfil y dibujar la zona de aforo y las líneas de entrada y salida",
+            "Activar el contador de ocupación y los de cruce de línea",
+            "Cargar acá la IP y el usuario ONVIF: el servidor lee los metadatos solo, sin webhook",
+            "Verificar que el RTSP de la cámara se ve desde el servidor",
+            "Confirmar en Filas que llegan el aforo y los cruces",
+        ],
+        webhook: "ONVIF Profile M — lee los metadatos, no necesita webhook",
+        auth: "El usuario ONVIF, que no es el admin del panel web",
+    },
 };
 
+/**
+ * Cómo se entera la pasarela de que pasó un vehículo.
+ *
+ * Esta pregunta no estaba, y es la que parte en dos el costo de todo el seguimiento.
+ *
+ * Una cámara moderna ya sabe cuándo algo cruzó una línea: lo detecta ella, con su propio
+ * procesador, y lo avisa. Si se aprovecha eso, la pasarela le pide cuadros en el instante
+ * del cruce y el resto del tiempo no le pide nada — la GPU queda en reposo. Si no se
+ * aprovecha, ffmpeg tiene que mirar la imagen cambiar y adivinar; funciona con cualquier
+ * cámara, pero cada ráfaga sale de una sospecha en vez de un hecho, y se gasta GPU en
+ * una rama que se movió con el viento.
+ *
+ * Los dos modos andan. La diferencia no es "mejor" y "peor": es qué sabe hacer la cámara
+ * que hay puesta, y eso hay que preguntarlo, no suponerlo.
+ */
+const MODOS_DE_AVISO = [
+    {
+        valor: "linea",
+        rotulo: "Avisa cuando algo cruza una línea",
+        que: "La cámara tiene una línea de paso dibujada y avisa en el momento del cruce. Es lo más preciso y lo que menos GPU gasta.",
+        nota: "La línea se dibuja después, en el calibrador, sobre un cuadro real de esta cámara.",
+        icono: GitCommitHorizontal,
+    },
+    {
+        valor: "zona",
+        rotulo: "Avisa cuando algo entra en una zona",
+        que: "Igual que la anterior pero con una región en vez de una línea. Sirve cuando el paso no se puede reducir a una raya.",
+        nota: "La zona se dibuja después, en el calibrador.",
+        icono: Scan,
+    },
+    {
+        valor: "escena",
+        rotulo: "Sólo manda video; no avisa nada",
+        que: "La cámara no tiene analítica, o no está configurada. La pasarela mira el flujo RTSP y dispara cuando la imagen cambia.",
+        nota: "Anda con cualquier cámara. Gasta más GPU, porque cada ráfaga sale de una sospecha y no de un hecho.",
+        icono: Video,
+    },
+] as const;
+
+/** Los tipos que son cámaras: los que tienen «qué hace OmniAccess con esta cámara». */
+const ES_CAMARA = new Set(["LPR_CAMERA", "LPR_INTERIOR", "CAMERA"]);
+
+/** Cómo se llama cada hoja. Reemplaza a la barra de pasos: dice dónde se está, sin
+ *  agregar una interfaz aparte que después hay que mirar. */
 const TITULOS: Record<string, string> = {
-    tipo: "¿Qué vas a agregar?", equipo: "¿Qué equipo es?", conexion: "¿Cómo se llega al equipo?", lugar: "¿Dónde está y por dónde pasan?",
-    grabacion: "¿Dónde se graba?", canales: "Las cámaras del grabador", puesta: "Puesta a punto",
+    que: "¿Qué vas a agregar?",
+    marca: "¿De qué fabricante es?",
+    cual: "¿Cuál es exactamente?",
+    conexion: "¿Cómo se llega al equipo?",
+    lugar: "¿Dónde está y quién pasa?",
+    aviso: "¿Cómo avisa que pasó un auto?",
+    video: "El canal de video",
+    canales: "Los canales del grabador",
+    funciones: "¿Qué hace OmniAccess con esta cámara?",
+    listo: "Comprobar que anda",
 };
 
-/* ── Piezas de formulario con ícono y tooltip ─────────────────────────────────── */
-
-function Etiqueta({ texto, ayuda }: { texto: string; ayuda?: string }) {
-    return (
-        <span className="flex items-center gap-1.5 text-[12px] font-semibold text-foreground/85 mb-1.5">
-            {texto}
-            {ayuda && <span {...tip(ayuda)} className="inline-grid place-items-center text-muted-foreground/60 hover:text-[var(--accion)] cursor-help"><Info size={12.5} /></span>}
-        </span>
-    );
-}
-
-function Campo({ etiqueta, ayuda, icono: I, value, onChange, placeholder, tipo = "text", mono, autoFocus, className }: {
-    etiqueta: string; ayuda?: string; icono: any; value: string; onChange: (v: string) => void; placeholder?: string;
-    tipo?: string; mono?: boolean; autoFocus?: boolean; className?: string;
-}) {
-    const [ver, setVer] = useState(false);
-    const esClave = tipo === "password";
-    return (
-        <label className={cn("block", className)}>
-            <Etiqueta texto={etiqueta} ayuda={ayuda} />
-            <span className="relative block">
-                <I size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                <input type={esClave && !ver ? "password" : esClave ? "text" : tipo} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} autoFocus={autoFocus}
-                    className={cn("h-10 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-[13px] outline-none transition-shadow placeholder:text-muted-foreground/60",
-                        "focus:border-[var(--accion)] focus:ring-2 focus:ring-[color-mix(in_oklab,var(--accion)_25%,transparent)]", mono && "font-mono", esClave && "pr-16")} />
-                {esClave && <button type="button" onClick={() => setVer(!ver)} className="absolute right-2 top-1/2 -translate-y-1/2 h-7 px-2 rounded-md text-[11px] font-semibold text-muted-foreground hover:bg-accent">{ver ? "Ocultar" : "Ver"}</button>}
-            </span>
-        </label>
-    );
-}
-
-function Opcion({ activa, onClick, icono: I, titulo, detalle, color, ayuda }: { activa: boolean; onClick: () => void; icono: any; titulo: string; detalle?: string; color: string; ayuda?: string }) {
-    return (
-        <button type="button" onClick={onClick} {...(ayuda ? tip(ayuda) : {})}
-            className={cn("rounded-xl border p-3.5 text-left flex items-center gap-3 transition-all", activa ? "border-[var(--accion)] ring-2 ring-[color-mix(in_oklab,var(--accion)_25%,transparent)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border hover:bg-accent/60")}>
-            <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-lg", color)}><I size={19} /></span>
-            <span className="min-w-0"><span className="block font-bold text-[13.5px]">{titulo}</span>{detalle && <span className="block text-[11.5px] text-muted-foreground leading-snug">{detalle}</span>}</span>
-            {activa && <Check size={16} className="ml-auto text-[var(--accion)] shrink-0" />}
-        </button>
-    );
-}
-
-function Bloque({ titulo, icono: I, ayuda, children, accion }: { titulo: string; icono: any; ayuda?: string; children: React.ReactNode; accion?: React.ReactNode }) {
-    return (
-        <section className="px-6 py-6 border-b border-border last:border-0">
-            <div className="flex items-center gap-2 mb-4">
-                <span className="grid h-7 w-7 place-items-center rounded-md bg-muted/70 text-muted-foreground"><I size={14} /></span>
-                <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">{titulo}</h3>
-                {ayuda && <span {...tip(ayuda)} className="text-muted-foreground/60 hover:text-[var(--accion)] cursor-help"><Info size={12.5} /></span>}
-                {accion && <div className="ml-auto">{accion}</div>}
-            </div>
-            <div className="space-y-4">{children}</div>
-        </section>
-    );
-}
-
-function IconoEstado({ e }: { e: Estado }) {
-    if (e === "corriendo") return <Loader2 size={16} className="animate-spin text-[var(--accion)]" />;
-    if (e === "ok") return <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-500 text-white"><Check size={12} /></span>;
-    if (e === "error") return <span className="grid h-5 w-5 place-items-center rounded-full bg-red-500 text-white"><X size={12} /></span>;
-    if (e === "salteado") return <span className="grid h-5 w-5 place-items-center rounded-full bg-muted text-muted-foreground"><ChevronRight size={12} /></span>;
-    return <span className="h-5 w-5 rounded-full border-2 border-dashed border-border" />;
-}
-
-const ipOk = (ip: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip.trim());
-
-/* ── El cajón ─────────────────────────────────────────────────────────────────── */
-
-export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alImportar }: {
-    /** Con equipo: ficha de edición. Sin equipo: alta por pasos. */
-    device?: any | null;
+export function CajonDispositivo({ device, groups = [], onSuccess, children, open, onOpenChange }: {
+    device?: any;
+    /**
+     * Los grupos de acceso, para el selector del alta.
+     *
+     * Opcional porque editando no se usa: `updateDevice` no toca los grupos, así que la
+     * ficha muestra los que tiene y dónde se cambian de verdad. Una pantalla que sólo abre
+     * fichas —el plano, por ejemplo— no tiene por qué traerse la lista entera para
+     * satisfacer una prop que no se dibuja.
+     */
     groups?: any[];
     onSuccess: () => void;
-    open: boolean;
-    onOpenChange: (v: boolean) => void;
-    /** Abrir el calibrador de intrusión de una cámara recién creada (o de la ficha). */
-    alCalibrar?: (d: { id: string; name: string; ip: string; brand: string; deviceType: string }) => void;
-    /** Abrir la importación de cámaras de un NVR desde su ficha. */
-    alImportar?: (d: any) => void;
+    /** El disparador. Sin él el cajón se abre desde afuera, con `open`. */
+    children?: React.ReactNode;
+    /**
+     * Abierto desde afuera.
+     *
+     * Existe por un problema concreto: al editar, el cajón colgaba de un menú contextual,
+     * y ese menú NO se podía cerrar sin llevarse el cajón puesto — el cajón vivía adentro
+     * de su contenido, así que cerrar el menú lo desmontaba. La solución de entonces fue
+     * no cerrarlo, y el resultado era el menú flotando ENCIMA del cajón, tapando media
+     * pantalla. Con el estado afuera, el menú cierra como cualquier menú y el cajón vive
+     * al nivel de la página, que es donde tiene que vivir algo que ocupa media pantalla.
+     */
+    open?: boolean;
+    onOpenChange?: (v: boolean) => void;
 }) {
     const esEdicion = !!device;
+    const [abiertoPropio, setAbiertoPropio] = useState(false);
+    const abierto = open ?? abiertoPropio;
+    const setAbierto = (v: boolean) => {
+        if (open === undefined) setAbiertoPropio(v);
+        onOpenChange?.(v);
+    };
+    const [guardando, setGuardando] = useState(false);
     const [paso, setPaso] = useState(0);
     const [hacia, setHacia] = useState(1);
+    const [verGuia, setVerGuia] = useState(false);
+    const [abreModelos, setAbreModelos] = useState(false);
+    /* Qué módulos tiene prendidos este barrio. Decide qué clases de equipo se ofrecen. */
+    const [modulos, setModulos] = useState<Partial<Record<ModuleId, boolean>> | null>(null);
 
-    const blanco = useCallback(() => ({
-        deviceType: (device?.deviceType || "") as Tipo | "",
-        brand: (device?.brand === "DAHUA" ? "DAHUA" : "HIKVISION") as Marca,
-        name: device?.name || "", ip: device?.ip || "", port: device?.port ? String(device.port) : "",
-        username: device?.username || "admin", password: device?.password || "", authType: device?.authType || "DIGEST",
-        mac: device?.mac || "", deviceModel: device?.deviceModel || "", location: device?.location || "",
-        direction: device?.direction || "ENTRY", groupId: "none",
+    const enBlanco = useCallback(() => ({
+        name: device?.name || "",
+        deviceType: device?.deviceType || "",
+        brand: device?.brand || "HIKVISION",
+        deviceModel: device?.deviceModel || "",
+        ip: device?.ip || "",
+        mac: device?.mac || "",
+        location: device?.location || "",
+        direction: device?.direction || "ENTRY",
+        username: device?.username || "admin",
+        password: device?.password || "",
+        authType: device?.authType || "BASIC",
+        rtspUrl: device?.rtspUrl || "",
+        trackScene: device?.trackScene != null ? String(device.trackScene) : "",
+        trackEnabled: device?.trackEnabled === false ? "false" : "true",
+        /* Cómo avisa la cámara que pasó un vehículo. Vacío al dar de alta a propósito: es
+           una pregunta, no un valor por defecto. Poner "escena" de arranque haría que la
+           mitad de las cámaras del barrio terminen mirando la imagen cambiar cuando la
+           cámara sabe perfectamente cuándo cruzó un auto. */
+        trackTrigger: device?.trackTrigger || "",
+        /* "INTERNA" | "ENTRY" | "EXIT": una sola pregunta, ver camposSeguimiento en actions/devices. */
+        trackAcceso: device?.trackAcceso ? (device?.direction || "ENTRY") : "INTERNA",
+        /**
+         * El grupo de acceso.
+         *
+         * Esto es lo que FALTABA. `createDevice` lee `groupId` del formulario desde
+         * siempre, y el diálogo recibía la lista de grupos como prop y no la usaba en
+         * ninguna parte: ni un selector, ni un campo oculto. Todo equipo dado de alta
+         * quedaba sin ningún grupo, y el grupo es lo que decide quién puede pasar por ahí.
+         * Había que ir a Grupos de Acceso y agregarlo a mano, sin que nada lo dijera.
+         */
+        groupId: device?.accessGroups?.[0]?.id || "none",
     }), [device]);
-    const [f, setF] = useState(blanco());
-    const set = (k: keyof ReturnType<typeof blanco>, v: string) => setF((p) => ({ ...p, [k]: v }));
 
-    const [detectando, setDetectando] = useState(false);
-    const [info, setInfo] = useState<any>(null);
-    // Grabación
-    const [buscando, setBuscando] = useState(false);
-    const [donde, setDonde] = useState<{ ubicacion: Ubic | null; nvrs: { nombre: string; ok: boolean; error?: string; canales: number }[]; hayNvr: boolean; error?: string } | null>(null);
-    const [manual, setManual] = useState<{ nvrId: string; ch: string }>({ nvrId: "", ch: "" });
-    const [nvrs, setNvrs] = useState<{ id: string; name: string; ip: string }[]>([]);
-    const [sinGrabar, setSinGrabar] = useState(false);
-    const [actual, setActual] = useState<{ ch: number; nvr: string | null } | null>(null);
-    const [retencion, setRetencion] = useState<string | null>(null);
-    const [calculando, setCalculando] = useState(false);
-    // Canales del NVR
-    const [leyendo, setLeyendo] = useState(false);
-    const [canales, setCanales] = useState<Canal[] | null>(null);
-    const [errorCanales, setErrorCanales] = useState("");
-    const [eleccion, setEleccion] = useState<Record<number, { rol: RolImport; direction: "ENTRY" | "EXIT" }>>({});
-    // Puesta a punto
-    const [cargarMatriculas, setCargarMatriculas] = useState(true);
-    const [tareas, setTareas] = useState<Tarea[]>([]);
-    const [corriendo, setCorriendo] = useState(false);
-    const [terminado, setTerminado] = useState(false);
-    const [creadoId, setCreadoId] = useState<string | null>(null);
-    const [guardando, setGuardando] = useState(false);
+    const [f, setF] = useState(enBlanco());
+    /* Al dar de alta: si configurar la cámara para que avise y si OmniVision la mira. Se aplica
+       al crear (todavía no hay equipo al que preguntarle). */
+    const [funciones, setFunciones] = useState<FuncionesAlta>({ avisos: true, vision: true });
+
+    // ── Prueba del RTSP
+    const [probando, setProbando] = useState(false);
+    const [prueba, setPrueba] = useState<any>(null);
+
+    // ── Canales del grabador
+    const [nvrCamaras, setNvrCamaras] = useState<any[]>([]);
+    const [nvrMapa, setNvrMapa] = useState<Record<string, number>>({});
+    const [nvrCanales, setNvrCanales] = useState<any[]>([]);
+    const [nvrOcupado, setNvrOcupado] = useState(false);
+    const [nvrAviso, setNvrAviso] = useState("");
+
+    /**
+     * El equipo recién creado.
+     *
+     * El alta no termina al guardar. Guardar es escribir una fila; que el equipo exista de
+     * verdad, esté bien cableado y tenga las credenciales que alguien escribió es otra
+     * cosa, y es la que importa. Con el id acá la última hoja puede ir a buscarlo y
+     * mostrar lo que contestó.
+     */
+    const [creado, setCreado] = useState<string | null>(null);
+    /* Si tocaron algo DESPUÉS de guardar, el botón vuelve a ser "guardar cambios": si no,
+       se editaría sobre un equipo ya creado y el cambio se perdería al cerrar. */
+    const [tocadoDespues, setTocadoDespues] = useState(false);
+
+    const tipo = tipoDeEquipo(f.deviceType);
+
+    /**
+     * Qué pasos hay, según el tipo.
+     *
+     * El primero —elegir qué es— sólo existe al dar de alta: editando ya se sabe qué es, y
+     * cambiarle el tipo a un equipo que ya está en producción no es una edición, es otra
+     * cosa. Los últimos dos son de un tipo cada uno y no aparecen para el resto.
+     */
+    const pasos = useMemo(() => {
+        /*
+         * Editar no es dar de alta.
+         *
+         * El asistente existe porque al dar de alta no se sabe nada todavía, y preguntar
+         * cinco cosas de a una es más fácil que veinte juntas. Pero un equipo que ya está
+         * puesto en una calle no se vuelve a instalar: se lo consulta. Y consultarlo pasando
+         * hojas es peor que inútil — para ver la IP hay que pasar dos veces, y nunca se ve
+         * al mismo tiempo la IP y el video, que es justo lo que se compara cuando algo no
+         * anda.
+         *
+         * Así que editando hay UNA hoja con todo a la vista, y arriba de todo el equipo
+         * contestando en vivo, que es lo primero que uno quiere saber al abrirlo.
+         */
+        if (esEdicion) return [{ clave: "ficha", rotulo: "Ficha" }];
+        const l: { clave: string; rotulo: string }[] = [];
+        l.push({ clave: "que", rotulo: "Qué es" });
+        l.push({ clave: "marca", rotulo: "Fabricante" });
+        l.push({ clave: "cual", rotulo: "Cuál es" });
+        l.push({ clave: "conexion", rotulo: "Cómo se llega" });
+        l.push({ clave: "lugar", rotulo: "Dónde está" });
+        /* Qué hojas hacen falta lo dice el catálogo de tipos, no una lista de valores
+           escrita acá: agregar una clase de equipo no tiene que obligar a acordarse de
+           tocar también este archivo. */
+        const t = tipoDeEquipo(f.deviceType);
+        if (t?.aviso) l.push({ clave: "aviso", rotulo: "Cómo avisa" });
+        if (t?.video) l.push({ clave: "video", rotulo: "Canal de video" });
+        if (t?.canales) l.push({ clave: "canales", rotulo: "Canales" });
+        if (ES_CAMARA.has(f.deviceType)) l.push({ clave: "funciones", rotulo: "Qué hace" });
+        /* La hoja de comprobación es sólo del alta. Editando, el equipo ya existe y su
+           estado se ve en la ficha, que es otra pantalla y está siempre a la vista. */
+        if (!esEdicion) l.push({ clave: "listo", rotulo: "Verificar" });
+        return l;
+    }, [esEdicion, f.deviceType]);
+
+    const clave = pasos[Math.min(paso, pasos.length - 1)]?.clave || "cual";
+
+    /**
+     * Si un bloque va en pantalla.
+     *
+     * Al dar de alta va el de la hoja en la que se está. En la ficha van todos los que le
+     * correspondan a ese tipo de equipo, uno abajo del otro. Los bloques son los MISMOS en
+     * los dos casos, a propósito: si la ficha tuviera sus propios campos, cada cosa que se
+     * agregara al alta habría que acordarse de agregarla también ahí — y el día que uno
+     * se olvida, hay un campo que se puede cargar y no se puede corregir.
+     */
+    const muestra = (k: string) => {
+        if (!esEdicion) return clave === k;
+        if (k === "que" || k === "listo") return false;   // el tipo no se cambia; el estado va arriba
+        if (k === "aviso") return !!tipo?.aviso;
+        if (k === "video") return !!tipo?.video;
+        if (k === "canales") return !!tipo?.canales;
+        if (k === "funciones") return ES_CAMARA.has(f.deviceType);
+        return true;
+    };
+    const ultimo = paso >= pasos.length - 1;
+
+    /* Si el tipo cambia y quedan menos pasos que antes, el índice puede apuntar afuera. */
+    useEffect(() => { if (paso > pasos.length - 1) setPaso(pasos.length - 1); }, [pasos.length, paso]);
 
     useEffect(() => {
-        if (!open) return;
-        setF(blanco()); setPaso(0); setHacia(1); setInfo(null); setDonde(null); setManual({ nvrId: "", ch: "" });
-        setSinGrabar(false); setActual(null); setRetencion(null); setCanales(null); setErrorCanales(""); setEleccion({});
-        setTareas([]); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false);
-        getNvrList().then(setNvrs).catch(() => setNvrs([]));
-        if (device?.id && device.deviceType !== "NVR") getNvrChannelInfo(device.id).then(setActual).catch(() => setActual(null));
-    }, [open, blanco, device]);
+        if (!abierto || modulos) return;
+        getEnabledModules().then(setModulos).catch(() => { });
+    }, [abierto, modulos]);
 
-    const tipo = f.deviceType as Tipo | "";
-    const meta = TIPOS.find((t) => t.valor === tipo);
-    const pasos = useMemo(() => esEdicion ? [{ clave: "ficha", rotulo: "Ficha" }] : [{ clave: "tipo", rotulo: "Tipo" }, ...(tipo ? PASOS_POR_TIPO[tipo] : [])], [esEdicion, tipo]);
-    const clave = pasos[Math.min(paso, pasos.length - 1)]?.clave || "tipo";
-    const ultimo = paso >= pasos.length - 1;
+    const tiposOfrecidos = useMemo(() => tiposSegunModulos(modulos), [modulos]);
+
+    useEffect(() => {
+        if (!abierto) return;
+        setF(enBlanco());
+        setPaso(0); setHacia(1);
+        setPrueba(null);
+        setNvrCanales([]); setNvrAviso("");
+        setCreado(null); setTocadoDespues(false);
+        setGuardando(false);
+    }, [abierto, enBlanco]);
+
+    /* Los datos del grabador se piden recién cuando hace falta: son dos consultas que para
+       una cámara común no tienen ningún sentido. */
+    useEffect(() => {
+        if (!abierto || f.deviceType !== "NVR") return;
+        (async () => {
+            try {
+                /* Sólo el mapa de ESTE grabador. Antes se traía el de todos como {ip: canal}, sin
+                   decir de qué grabador: el canal 2 del NVR 2 aparecía «asignado» en el NVR 6, y
+                   «Guardar el mapeo» escribía todo de vuelta sin grabador. */
+                const [devs, mapa] = await Promise.all([getDevices(), getNvrChannelMapFull()]);
+                setNvrCamaras((devs || []).filter(esCamara));
+                const propio: Record<string, number> = {};
+                for (const [ip, v] of Object.entries(mapa || {})) if (device?.id && (v as any).nvr === device.id) propio[ip] = (v as any).ch;
+                setNvrMapa(propio);
+            } catch { /* la pantalla sigue siendo utilizable sin esto */ }
+        })();
+    }, [abierto, f.deviceType]);
+
+    const set = (k: string, v: string) => {
+        if (creado) setTocadoDespues(true);
+        setF((p) => ({ ...p, [k]: v }));
+    };
     const ir = (i: number) => { setHacia(i > paso ? 1 : -1); setPaso(i); };
-    const ipValida = ipOk(f.ip);
 
-    /* ── Acciones ── */
-    const detectar = async () => {
-        if (!ipValida) return;
-        setDetectando(true); setInfo(null);
+    const escanearCanales = async () => {
+        setNvrOcupado(true); setNvrAviso("");
         try {
-            const r: any = await probeDeviceInfo({ ip: f.ip.trim(), username: f.username, password: f.password, authType: f.authType, brand: f.brand });
-            setInfo(r);
-            if (r?.ok) setF((p) => ({ ...p, mac: r.macAddress || p.mac, deviceModel: r.model || p.deviceModel, authType: r.authType || p.authType, name: p.name || r.deviceName || "",
-                ...(r.credenciales ? { username: r.credenciales.username, password: r.credenciales.password } : {}) }));
-            if (r?.nota) (r.credenciales ? toast.success : toast.info)({ title: r.credenciales ? "Credenciales tomadas del NVR" : "Datos según el NVR", description: r.nota });
-        } catch (e: any) { setInfo({ ok: false, error: e?.message }); }
-        finally { setDetectando(false); }
+            const r: any = await getNvrChannels({ ip: f.ip, username: f.username, password: f.password, authType: f.authType });
+            if (r?.ok && r.channels?.length) {
+                setNvrCanales(r.channels);
+                /* Se propone el mapeo por IP sólo para las cámaras NUESTRAS (una IP del grabador que
+                   no es de ningún equipo no tiene nada que mapear); se guarda recién con el botón. */
+                setNvrMapa((prev) => {
+                    const m = { ...prev };
+                    for (const ch of r.channels) if (ch.ip && nvrCamaras.some((c: any) => c.ip === ch.ip)) m[ch.ip] = m[ch.ip] ?? ch.channel;
+                    return m;
+                });
+                setNvrAviso(`${r.channels.length} canales leídos del grabador`);
+            } else setNvrAviso(r?.error || "El grabador no devolvió ningún canal");
+        } catch (e: any) { setNvrAviso(e?.message || "No se pudo leer el grabador"); }
+        finally { setNvrOcupado(false); }
     };
 
-    const buscarGrabacion = useCallback(async () => {
-        if (!ipOk(f.ip)) return;
-        setBuscando(true); setDonde(null);
-        try { setDonde(await dondeGraba(f.ip.trim()) as any); }
-        catch (e: any) { setDonde({ ubicacion: null, nvrs: [], hayNvr: true, error: e?.message || "No se pudo consultar los NVR" }); }
-        finally { setBuscando(false); }
-    }, [f.ip]);
-    useEffect(() => { if (open && !esEdicion && clave === "grabacion" && !donde && !buscando) buscarGrabacion(); }, [open, esEdicion, clave, donde, buscando, buscarGrabacion]);
-
-    const leerCanales = useCallback(async () => {
-        if (!ipOk(f.ip)) return;
-        setLeyendo(true); setErrorCanales(""); setCanales(null);
+    const guardarMapa = async () => {
+        setNvrOcupado(true);
         try {
-            const [r, devs]: any = await Promise.all([getNvrChannels({ ip: f.ip.trim(), username: f.username, password: f.password, authType: f.authType }), getDevices()]);
-            if (!r?.ok) { setErrorCanales(r?.error || "El NVR no devolvió canales"); return; }
-            const porIp = new Map((devs || []).map((d: any) => [d.ip, d]));
-            const lista: Canal[] = (r.channels || []).map((c: any) => {
-                const e: any = c.ip ? porIp.get(c.ip) : null;
-                return { channel: Number(c.channel), ip: c.ip || null, name: (c.name && String(c.name).trim()) || `Canal ${c.channel}`, model: c.model || null, marca: c.brand || f.brand, protocolo: c.protocolo || null, sensorDe: c.sensorDe ?? null, existente: e ? { id: e.id, name: e.name, tipo: String(e.deviceType) } : null };
+            // Sólo los canales de este grabador, y sin tocar los de los otros.
+            const r: any = await saveNvrChannelMapForNvr(f.ip, nvrMapa);
+            setNvrAviso(r?.ok ? "Mapeo guardado" : "No se pudo guardar el mapeo");
+        } catch { setNvrAviso("No se pudo guardar el mapeo"); }
+        finally { setNvrOcupado(false); }
+    };
+
+    /* Importar canales del grabador como cámaras: abre el diálogo que pregunta qué es cada una
+       (ver ImportarCanales). Antes se creaban todas como cámara común, sin preguntar. */
+    const [importando, setImportando] = useState<CanalImportable[] | null>(null);
+    const importarCanales = (canales: number[]) => {
+        if (!device?.id) { setNvrAviso("Guardá primero el grabador y volvé a abrirlo para importar sus canales."); return; }
+        const elegidos = nvrCanales.filter((c: any) => canales.includes(c.channel));
+        if (elegidos.length) setImportando(elegidos);
+    };
+    const despuesDeImportar = async () => {
+        const devs: any = await getDevices();
+        setNvrCamaras((devs || []).filter(esCamara));
+        const mapa = await getNvrChannelMapFull();
+        const propio: Record<string, number> = {};
+        for (const [ip, v] of Object.entries(mapa || {})) if (device?.id && (v as any).nvr === device.id) propio[ip] = (v as any).ch;
+        setNvrMapa(propio);
+        onSuccess();
+    };
+    const completarPorIp = async () => {
+        if (!device?.id) return;
+        setNvrOcupado(true);
+        try {
+            const r = await mapearPorIp(device.id);
+            if (!r.ok) { setNvrAviso("No se pudo: " + (r.error || "")); return; }
+            setNvrMapa((prev) => { const m = { ...prev }; for (const x of r.mapeados) m[x.ip] = x.channel; return m; });
+            setNvrAviso(r.mapeados.length ? `${r.mapeados.length} canal${r.mapeados.length === 1 ? "" : "es"} mapeado${r.mapeados.length === 1 ? "" : "s"} por IP` : "Ningún canal tiene la IP de una cámara nuestra");
+        } finally { setNvrOcupado(false); }
+    };
+    const crearCamaraDeCanal = (ch: any) => importarCanales([ch.channel]);
+    /* Los canales que todavía no tienen una cámara nuestra con esa IP: es lo que se importa en bloque. */
+    const canalesSinCamara = nvrCanales.filter((ch: any) => ch.ip && !nvrCamaras.some((c: any) => c.ip === ch.ip));
+
+    const probarRtsp = async () => {
+        if (!f.rtspUrl.trim()) return;
+        setProbando(true); setPrueba(null);
+        try {
+            const r = await fetch("/api/tracking/probe", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ rtsp: f.rtspUrl.trim() }),
             });
-            setCanales(lista);
-            setEleccion(Object.fromEntries(lista.map((c) => [c.channel, { rol: (c.existente || !c.ip || c.sensorDe ? "omitir" : ES_LPR.test(`${c.name} ${c.model || ""}`) ? "lpr" : "intrusion") as RolImport, direction: (/salida|exit/i.test(c.name) ? "EXIT" : "ENTRY") as "ENTRY" | "EXIT" }])));
-        } catch (e: any) { setErrorCanales(e?.message || "No se pudo leer el NVR"); }
-        finally { setLeyendo(false); }
-    }, [f.ip, f.username, f.password, f.authType, f.brand]);
-    useEffect(() => { if (open && clave === "canales" && !canales && !leyendo && !errorCanales) leerCanales(); }, [open, clave, canales, leyendo, errorCanales, leerCanales]);
-
-    const grabacionElegida: Ubic | null = donde?.ubicacion || (manual.nvrId && Number(manual.ch) > 0 ? { nvrId: manual.nvrId, nvrNombre: nvrs.find((n) => n.id === manual.nvrId)?.name || null, ch: Number(manual.ch) } : null);
-
-    const bloqueo = useMemo(() => {
-        if (clave === "tipo" && !tipo) return "Elegí qué equipo vas a agregar.";
-        if (clave === "equipo" && !f.name.trim()) return "Poné un nombre: es como va a figurar en el monitor y el historial.";
-        if (clave === "conexion" && !ipValida) return "Falta una IP válida (ej. 172.16.2.210).";
-        if (clave === "grabacion" && !grabacionElegida && !sinGrabar) return "Elegí dónde graba o confirmá que va sin grabaciones.";
-        return null;
-    }, [clave, tipo, f.name, ipValida, grabacionElegida, sinGrabar]);
-
-    const actualizar = (k: string, cambios: Partial<Tarea>) => setTareas((ts) => ts.map((t) => (t.clave === k ? { ...t, ...cambios } : t)));
-    const ponerHora = async (id: string) => {
-        actualizar("hora", { estado: "corriendo" });
-        const h = await fetch("/api/devices/sync-time", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId: id, mode: "now" }) }).then((x) => x.json()).catch(() => null);
-        actualizar("hora", { estado: h?.ok ? "ok" : "error", detalle: h?.ok ? "hora del servidor (Montevideo)" : h?.results?.[0]?.error || h?.error || "sin respuesta" });
+            const j = await r.json();
+            if (!r.ok) throw new Error(j?.error || "No se pudo probar");
+            setPrueba(j);
+        } catch (e: any) {
+            setPrueba({ error: e?.message || "No se pudo probar la cámara" });
+        } finally { setProbando(false); }
     };
-    const vincularGrabacion = async (id: string) => {
-        if (grabacionElegida?.nvrId) {
-            actualizar("grabacion", { estado: "corriendo" });
-            await asignarGrabacion(f.ip.trim(), grabacionElegida.nvrId, grabacionElegida.ch);
-            actualizar("grabacion", { estado: "ok", detalle: `${grabacionElegida.nvrNombre || "NVR"} · canal ${grabacionElegida.ch}` });
-            actualizar("retencion", { estado: "corriendo" });
-            const rt = await calcularRetencion(id);
-            actualizar("retencion", rt.ok && rt.retencion && !rt.retencion.error
-                ? { estado: "ok", detalle: `${rt.retencion.dias} días (desde ${rt.retencion.desde.slice(0, 10)})${rt.retencion.grabando === false ? " · NO está grabando ahora" : ""}` }
-                : { estado: "error", detalle: rt.error || rt.retencion?.error || "no se pudo calcular" });
-        } else {
-            actualizar("grabacion", { estado: "salteado", detalle: "sin NVR: no habrá clips ni playback" });
-            actualizar("retencion", { estado: "salteado" });
+
+    /** Lo elegido en «Qué hace» al dar de alta, aplicado al equipo recién creado. Cada paso que
+     *  falla se dice: un alta que «salió bien» con la cámara sin avisar es la que después no anda. */
+    const aplicarFunciones = async (id: string) => {
+        // La hora: una cámara nueva suele venir en el huso de fábrica y sus eventos quedarían corridos.
+        if (f.brand === "HIKVISION" && f.deviceType !== "LPR_CAMERA") {
+            try { await fetch("/api/devices/sync-time", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId: id }) }); }
+            catch { toast.error({ title: "No se pudo poner la hora en la cámara", description: "Se hace desde Dispositivos › Sincronizar hora." }); }
         }
+        // La LPR Hikvision ya se pone a punto sola al crearla (incluye el servidor HTTP).
+        if (funciones.avisos && f.brand === "HIKVISION" && f.deviceType !== "LPR_CAMERA") {
+            try {
+                const a = await fetch(`/api/devices/alarm-host?deviceId=${id}`, { method: "POST" }).then((x) => x.json());
+                if (!a?.ok) toast.error({ title: "La cámara quedó sin avisarnos", description: (a?.error || "No aceptó la configuración") + ". Se reintenta desde su ficha, en «Qué hace OmniAccess»." });
+            } catch (e: any) { toast.error({ title: "La cámara quedó sin avisarnos", description: e?.message }); }
+        }
+        try {
+            const v = await fetch(`/api/vision/camaras/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ analiza: funciones.vision }) });
+            if (!v.ok) toast.error({ title: "No se guardó si OmniVision la mira", description: (await v.json().catch(() => ({})))?.error });
+        } catch (e: any) { toast.error({ title: "No se guardó si OmniVision la mira", description: e?.message }); }
     };
 
-    const puestaAPunto = async () => {
-        if (!tipo) return;
-        const hik = f.brand === "HIKVISION";
-        const T = (clave: string, titulo: string, ayuda: string, icono: any): Tarea => ({ clave, titulo, ayuda, icono, estado: "espera" });
-        const lista: Tarea[] = tipo === "LPR_CAMERA" ? [
-            T("crear", "Dar de alta la cámara", "Se guarda con su IP, credenciales, sentido y grupo de acceso.", Camera),
-            T("hora", "Poner la hora", "Hora del servidor (Montevideo). Con la hora corrida el clip de la lectura no coincide.", Clock),
-            T("eventos", "Servidor de alarmas → OmniAccess", "Se configura el envío de cada lectura a OmniAccess (HTTP host). Sin esto la cámara lee pero nadie se entera.", BellRing),
-            T("anpr", "Modo ANPR", "Se activa la lectura de matrículas.", ScanLine),
-            T("h264", "Video H.264", "Para que el vivo se vea en el navegador sin transcodificar.", Film),
-            T("vivo", "Video en vivo", "Se registra el stream en go2rtc para el monitor.", Video),
-            T("matriculas", "Cargar matrículas", "Las habilitadas van a la lista de la cámara: son las que prenden el semáforo verde con el relé.", ListChecks),
-            T("grabacion", "Vincular la grabación", "En qué NVR y canal se graba, para clips y playback.", HardDrive),
-            T("retencion", "Calcular retención", "La grabación más vieja de ese canal: de ese día a hoy es lo que guarda.", Server),
-        ] : tipo === "CAMERA" ? [
-            T("crear", "Dar de alta la cámara", "Se guarda como cámara de intrusión con su IP y credenciales.", Camera),
-            T("hora", "Poner la hora", "Hora del servidor. Las alarmas quedan con la hora correcta y el clip coincide.", Clock),
-            T("eventos", "Servidor de alarmas → OmniAccess", "La cámara manda los cruces de línea y entradas a zona a OmniAccess. Sin esto no llegan al monitor de intrusión.", BellRing),
-            T("vivo", "Video en vivo", "Se registra el stream en go2rtc para el monitor de intrusión.", Video),
-            T("grabacion", "Vincular la grabación", "En qué NVR y canal se graba, para clips y playback de las alarmas.", HardDrive),
-            T("retencion", "Calcular retención", "Cuántos días guarda el NVR de esta cámara.", Server),
-        ] : [
-            T("crear", "Dar de alta el NVR", "Se guarda con su IP, puerto RTSP y credenciales.", HardDrive),
-            T("hora", "Poner la hora", "Hora del servidor: el playback busca por hora, si está corrida no encuentra nada.", Clock),
-            T("importar", "Importar cámaras clasificadas", "Se crean las cámaras elegidas (LPR o intrusión) y se vinculan las que ya existían a su canal de grabación.", Download),
-        ];
-        setTareas(lista); setCorriendo(true);
-        let id: string | null = null;
+    const guardar = async () => {
+        if (!f.deviceType) { toast.error({ title: "Falta decir qué equipo es" }); return; }
+        if (!f.name.trim()) { toast.error({ title: "Falta el nombre", description: "Es como va a figurar en las listas y en el historial." }); return; }
+        setGuardando(true);
+        const datos = new FormData();
+        Object.entries(f).forEach(([k, v]) => datos.append(k, v as string));
         try {
-            actualizar("crear", { estado: "corriendo" });
-            const fd = new FormData();
-            Object.entries({ ...f, puestaManual: "1", direction: tipo === "LPR_CAMERA" ? f.direction : "ENTRY" }).forEach(([k, v]) => fd.append(k, String(v)));
-            const r: any = await createDevice(fd);
-            id = r?.id || null;
-            if (!id) throw new Error("No se pudo crear el equipo");
-            setCreadoId(id);
-            actualizar("crear", { estado: "ok", detalle: `${f.name} · ${f.ip}` });
-            onSuccess();
-
-            if (tipo === "LPR_CAMERA") {
-                if (hik) {
-                    ["hora", "eventos", "anpr", "h264", "vivo", "matriculas"].forEach((k) => actualizar(k, { estado: k === "matriculas" && !cargarMatriculas ? "salteado" : "corriendo" }));
-                    const p: any = await provisionLprDevice(id, cargarMatriculas);
-                    const por = (n: string) => (p?.steps || []).find((s: any) => s.name === n);
-                    const marca = (k: string, n: string) => { const s = por(n); actualizar(k, s ? { estado: s.ok ? "ok" : "error", detalle: String(s.detail || "") } : { estado: "salteado", detalle: "no corrió" }); };
-                    marca("hora", "Hora"); marca("eventos", "Envío de eventos (HTTP host)"); marca("anpr", "Modo ANPR"); marca("h264", "Códec H.264"); marca("vivo", "Video en vivo (go2rtc)");
-                    if (cargarMatriculas) marca("matriculas", "Matrículas"); else actualizar("matriculas", { estado: "salteado", detalle: "se cargan después con «Poner a punto»" });
-                } else {
-                    await ponerHora(id);
-                    actualizar("eventos", { estado: "corriendo" });
-                    const a = await fetch(`/api/devices/alarm-host?deviceId=${id}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
-                    actualizar("eventos", { estado: a?.ok ? "ok" : "error", detalle: a?.info || a?.error || (a?.ok ? "configurado" : "sin respuesta") });
-                    ["anpr", "h264", "vivo", "matriculas"].forEach((k) => actualizar(k, { estado: "salteado", detalle: "se configura desde la web de la Dahua" }));
-                }
-                await vincularGrabacion(id);
-            } else if (tipo === "CAMERA") {
-                await ponerHora(id);
-                actualizar("eventos", { estado: "corriendo" });
-                const a = await fetch(`/api/devices/alarm-host?deviceId=${id}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
-                actualizar("eventos", { estado: a?.ok ? "ok" : "error", detalle: a?.info || a?.error || (a?.ok ? "configurado" : "sin respuesta — se reintenta desde el calibrador") });
-                actualizar("vivo", { estado: "ok", detalle: "registrado al crear" });
-                await vincularGrabacion(id);
+            if (esEdicion || creado) {
+                await updateDevice((device?.id || creado) as string, datos);
+                setTocadoDespues(false);
+                toast.success({ title: "Equipo guardado" });
+                onSuccess();
+                /* Editando se cierra, como siempre. Recién creado no: la hoja de
+                   comprobación sigue ahí y ahora muestra lo que quedó. */
+                if (esEdicion) setAbierto(false);
             } else {
-                await ponerHora(id);
-                const pedidos = (canales || []).filter((c) => c.existente || (eleccion[c.channel]?.rol && eleccion[c.channel].rol !== "omitir"))
-                    .map((c) => ({ channel: c.channel, rol: (c.existente ? "intrusion" : eleccion[c.channel].rol) as RolImport, direction: eleccion[c.channel]?.direction, groupId: f.groupId }));
-                if (!pedidos.length) actualizar("importar", { estado: "salteado", detalle: "no se eligió ninguna cámara (se puede hacer después desde el menú del NVR)" });
+                const r: any = await createDevice(datos);
+                toast.success({ title: "Equipo dado de alta" });
+                if (r?.id && ES_CAMARA.has(f.deviceType)) await aplicarFunciones(r.id);
+                onSuccess();
+                if (r?.id) setCreado(r.id);
                 else {
-                    actualizar("importar", { estado: "corriendo", detalle: `${pedidos.length} canales…` });
-                    const ri = await importarCanalesClasificados(id, pedidos);
-                    actualizar("importar", ri.ok ? { estado: "ok", detalle: `${ri.creadas} nuevas · ${ri.mapeadas} ya existían y quedaron vinculadas` } : { estado: "error", detalle: ri.error });
+                    /* Sin id no hay nada que verificar y dejar la hoja vacía sería peor que
+                       cerrar: parecería que la comprobación falló cuando ni siquiera corrió. */
+                    setAbierto(false);
                 }
             }
-            setTerminado(true);
-            onSuccess();
         } catch (e: any) {
-            setTareas((ts) => ts.map((t) => (t.estado === "corriendo" || (t.clave === "crear" && !id) ? { ...t, estado: "error", detalle: e?.message || "error" } : t)));
-            toast.error({ title: "No se pudo completar el alta", description: e?.message });
-        } finally { setCorriendo(false); }
+            /* Antes esto era un console.error y nada más: el equipo no se guardaba, el
+               diálogo quedaba abierto igual y no había una sola señal de por qué. */
+            toast.error({ title: "No se pudo guardar", description: e?.message });
+        } finally { setGuardando(false); }
     };
 
-    /* ── Edición ── */
-    const guardarCambios = async () => {
-        if (!device?.id) return;
-        if (!f.name.trim()) { toast.error({ title: "Falta el nombre" }); return; }
-        if (!ipValida) { toast.error({ title: "La IP no es válida", description: "Ejemplo: 172.16.2.210" }); return; }
-        setGuardando(true);
-        try {
-            const fd = new FormData();
-            Object.entries(f).forEach(([k, v]) => fd.append(k, String(v)));
-            await updateDevice(device.id, fd);
-            if (grabacionElegida?.nvrId && (!actual || actual.ch !== grabacionElegida.ch || actual.nvr !== grabacionElegida.nvrId)) await asignarGrabacion(f.ip.trim(), grabacionElegida.nvrId, grabacionElegida.ch);
-            toast.success({ title: "Cambios guardados", description: f.name });
-            onSuccess(); onOpenChange(false);
-        } catch (e: any) { toast.error({ title: "No se pudo guardar", description: e?.message }); }
-        finally { setGuardando(false); }
-    };
-    const calcRet = async () => {
-        if (!device?.id) return;
-        setCalculando(true);
-        try {
-            const rt = await calcularRetencion(device.id);
-            setRetencion(rt.ok && rt.retencion && !rt.retencion.error ? `${rt.retencion.dias} días guardados (desde ${rt.retencion.desde.slice(0, 10)})${rt.retencion.grabando === false ? " · NO está grabando ahora" : ""}` : `No se pudo calcular: ${rt.error || rt.retencion?.error || "sin respuesta"}`);
-        } finally { setCalculando(false); }
-    };
+    /**
+     * Lo que quedó a medias.
+     *
+     * No son errores —el equipo se puede dar de alta igual— pero cada uno es una forma
+     * conocida de que después no funcione y nadie sepa por qué. Decirlos acá, con el
+     * equipo delante, cuesta un renglón; descubrirlos después cuesta una visita.
+     */
+    const faltantes = useMemo(() => {
+        const l: { titulo: string; detalle: string }[] = [];
+        if (!esEdicion && tipo?.sentido && f.groupId === "none") l.push({
+            titulo: "No tiene grupo de acceso",
+            detalle: "Queda cargado, pero hoy no deja pasar a nadie. Se arregla en Grupos de Acceso.",
+        });
+        if (tipo?.video && !f.rtspUrl.trim()) l.push({
+            titulo: "No tiene canal de video",
+            detalle: "Sin RTSP la pasarela no le puede pedir un solo cuadro, así que no va a leer ninguna matrícula.",
+        });
+        /* Esto avisaba SIEMPRE que el modo fuera línea o zona, tuviera el dibujo o no. Y la
+           cámara tenía la línea puesta — se veía dibujada sobre el video, ahí arriba, al
+           mismo tiempo que el aviso decía que faltaba. Un pendiente que no se puede
+           resolver porque ya está resuelto enseña a ignorar la lista entera. */
+        const dibujo = f.trackTrigger === "linea" ? device?.trackLine : device?.trackRoi;
+        if (tipo?.aviso && (f.trackTrigger === "linea" || f.trackTrigger === "zona") && !dibujo) l.push({
+            titulo: f.trackTrigger === "linea" ? "Falta dibujarle la línea de paso" : "Falta dibujarle la zona",
+            detalle: "Se hace en el calibrador, sobre un cuadro real de esta cámara. Hasta entonces la cámara no tiene qué avisar y la pasarela cae al disparo por escena.",
+        });
+        if (tipo?.canales && !nvrCanales.length) l.push({
+            titulo: "No se leyeron los canales del grabador",
+            detalle: "Sin el mapeo canal↔cámara no se puede ir de un evento a su grabación.",
+        });
+        /* Lo que importa es la MAC GUARDADA, no la que el equipo acaba de decir. Editando,
+           la ficha mostraba la MAC leída en el recuadro verde y tres centímetros más abajo
+           avisaba "No tiene MAC": las dos cosas ciertas —una es lo que el equipo dice, la
+           otra lo que hay en la base— y juntas incomprensibles. Ahora el aviso distingue
+           las dos situaciones y dice qué hacer con cada una. */
+        const guardada = (esEdicion ? device?.mac : f.mac) || "";
+        if (!String(guardada).trim()) l.push({
+            titulo: "No tiene la MAC guardada",
+            detalle: f.mac.trim()
+                ? "La detección ya la leyó del equipo. Guardá los cambios para dejarla guardada."
+                : "Sirve para reconocerlo si alguien le cambia la IP. La completa la detección sola.",
+        });
+        return l;
+    }, [esEdicion, device, tipo, f.groupId, f.rtspUrl, f.trackTrigger, f.mac, nvrCanales.length]);
 
-    const fallas = tareas.filter((t) => t.estado === "error");
-    const nvrActual = actual ? nvrs.find((n) => n.id === actual.nvr) : null;
-    const resumenCanales = useMemo(() => {
-        const v = (canales || []).filter((c) => !c.existente && c.ip && !c.sensorDe);
-        return { lpr: v.filter((c) => eleccion[c.channel]?.rol === "lpr").length, intr: v.filter((c) => eleccion[c.channel]?.rol === "intrusion").length, ya: (canales || []).filter((c) => c.existente).length };
-    }, [canales, eleccion]);
-
-    /* ── Bloques reutilizados por alta y ficha ── */
-    const bloqueMarca = (
-        <div className="grid grid-cols-2 gap-3">
-            {(["HIKVISION", "DAHUA"] as Marca[]).map((m) => (
-                <Opcion key={m} activa={f.brand === m} onClick={() => !esEdicion && set("brand", m)} icono={Cpu} color={m === "HIKVISION" ? "bg-red-500/10 text-red-500" : "bg-sky-500/10 text-sky-500"}
-                    titulo={m === "HIKVISION" ? "Hikvision" : "Dahua"}
-                    detalle={m === "HIKVISION" ? "Configuración automática por ISAPI" : "Hora y alarmas automáticas; el resto desde su web"}
-                    ayuda={esEdicion ? "El fabricante no se cambia en un equipo ya dado de alta." : m === "HIKVISION" ? "Por ISAPI se configura sola: hora, envío de eventos, ANPR, H.264 y matrículas." : "Por CGI se configura la hora y el servidor de alarmas; ANPR y video se ajustan desde la web del equipo."} />
-            ))}
-        </div>
-    );
-
-    const bloqueConexion = (
-        <>
-            <div className="grid grid-cols-2 gap-4">
-                <Campo etiqueta="Dirección IP" icono={Network} value={f.ip} onChange={(v) => { set("ip", v); setInfo(null); setDonde(null); setCanales(null); setErrorCanales(""); }} placeholder="172.16.2.210" mono
-                    ayuda="La IP fija del equipo en la red del barrio. Ejemplos: 172.16.2.210 (cámara LPR), 172.16.2.59 (NVR). Con esta IP también se busca en qué NVR graba." />
-                {tipo === "NVR" ? (
-                    <Campo etiqueta="Puerto RTSP" icono={Plug} value={f.port} onChange={(v) => set("port", v.replace(/\D/g, ""))} placeholder="554" mono
-                        ayuda="Puerto RTSP del NVR para reproducir grabaciones y clips. Por defecto 554; si está publicado con NAT puede ser otro, ej. 10554." />
-                ) : (
-                    <label className="block">
-                        <Etiqueta texto="Autenticación" ayuda="Hikvision usa Digest (recomendado). Dahua acepta Digest o Basic. Si la detección falla con Digest se prueba Basic sola." />
-                        <Select value={f.authType} onValueChange={(v) => set("authType", v)}>
-                            <SelectTrigger className="h-10"><ShieldCheck size={15} className="text-muted-foreground mr-1" /><SelectValue /></SelectTrigger>
-                            <SelectContent><SelectItem value="DIGEST">Digest</SelectItem><SelectItem value="BASIC">Basic</SelectItem></SelectContent>
-                        </Select>
-                    </label>
-                )}
-                <Campo etiqueta="Usuario" icono={User} value={f.username} onChange={(v) => set("username", v)} placeholder="admin"
-                    ayuda="Un usuario con permisos de administrador del equipo. Ej.: admin. Se usa para configurarlo y para el video." />
-                <Campo etiqueta="Contraseña" icono={KeyRound} tipo="password" value={f.password} onChange={(v) => set("password", v)} placeholder="••••••••"
-                    ayuda="La clave de ese usuario. Queda guardada en el servidor y no se muestra en las listas." />
-                {tipo === "NVR" && (
-                    <label className="block">
-                        <Etiqueta texto="Autenticación" ayuda="Hikvision: Digest. Dahua: Digest o Basic." />
-                        <Select value={f.authType} onValueChange={(v) => set("authType", v)}>
-                            <SelectTrigger className="h-10"><ShieldCheck size={15} className="text-muted-foreground mr-1" /><SelectValue /></SelectTrigger>
-                            <SelectContent><SelectItem value="DIGEST">Digest</SelectItem><SelectItem value="BASIC">Basic</SelectItem></SelectContent>
-                        </Select>
-                    </label>
-                )}
-                <Campo etiqueta="MAC" icono={Fingerprint} value={f.mac} onChange={(v) => set("mac", v)} placeholder="Se completa al detectar" mono
-                    ayuda="Identifica al equipo aunque le cambien la IP. Ej.: 24:0f:9b:aa:12:34. La completa «Detectar equipo»." />
-            </div>
-            <div className="rounded-xl border border-border bg-card/40 p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                    <Button type="button" variant="outline" onClick={detectar} disabled={!ipValida || detectando} className="gap-1.5 shrink-0">
-                        {detectando ? <Loader2 size={15} className="animate-spin" /> : <ScanSearch size={15} />} Detectar equipo
-                    </Button>
-                    <span className="text-[12px] text-muted-foreground">Lee modelo, MAC y firmware: si responde, la IP y la clave son correctas y el servidor lo alcanza.</span>
-                </div>
-                <AnimatePresence>
-                    {info && (
-                        <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                            className={cn("rounded-lg p-3 text-[12.5px] flex items-start gap-2.5", info.ok ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-red-500/10 text-red-600 dark:text-red-300")}>
-                            {info.ok ? <Check size={16} className="mt-0.5 shrink-0" /> : <AlertTriangle size={16} className="mt-0.5 shrink-0" />}
-                            {info.ok
-                                ? <div className="grid grid-cols-2 gap-x-6 gap-y-0.5 flex-1"><span>Modelo: <b>{info.model || "—"}</b></span><span>MAC: <b className="font-mono">{info.macAddress || "—"}</b></span><span>Firmware: <b>{info.firmwareVersion || "—"}</b></span><span>Auth: <b>{info.authType || f.authType}</b></span></div>
-                                : <span>No respondió: {info.error || "revisá IP, usuario y contraseña"}</span>}
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
-        </>
-    );
-
-    const bloqueSentido = (
-        <div className="grid grid-cols-2 gap-3">
-            <Opcion activa={f.direction === "ENTRY"} onClick={() => set("direction", "ENTRY")} icono={LogIn} titulo="Entrada" detalle="Lee a los que entran al barrio" color="bg-emerald-500/15 text-emerald-500"
-                ayuda="Aparece en la columna de entradas del monitor y suma a «adentro ahora». Ej.: carril de ingreso de la garita P1." />
-            <Opcion activa={f.direction === "EXIT"} onClick={() => set("direction", "EXIT")} icono={LogOut} titulo="Salida" detalle="Lee a los que salen; cierra visitas" color="bg-orange-500/15 text-orange-500"
-                ayuda="Aparece en la columna de salidas y cierra las visitas abiertas de esa matrícula. Ej.: carril de egreso de la garita P1." />
-        </div>
-    );
-
-    const bloqueBusquedaGrabacion = (
-        <div className="space-y-4">
-            <div className="flex items-center gap-3">
-                <span className="grid h-10 w-10 place-items-center rounded-xl bg-indigo-500/10 text-indigo-500"><ScanSearch size={19} /></span>
-                <div className="flex-1 text-[12px] text-muted-foreground">Se busca la IP <b className="font-mono text-foreground">{f.ip || "—"}</b> en los canales de todos los NVR dados de alta.</div>
-                <Button variant="outline" size="sm" onClick={buscarGrabacion} disabled={buscando || !ipValida} className="gap-1.5">{buscando ? <Loader2 size={14} className="animate-spin" /> : <ScanSearch size={14} />} {donde ? "Buscar de nuevo" : "Buscar"}</Button>
-            </div>
-            {buscando && <div className="rounded-xl border border-dashed border-border p-6 grid place-items-center text-muted-foreground text-[13px] gap-2"><Loader2 size={22} className="animate-spin" /> Consultando los NVR…</div>}
-            {donde && !buscando && (
-                <>
-                    {donde.nvrs.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                            {donde.nvrs.map((n) => (
-                                <span key={n.nombre} {...tip(n.ok ? `${n.canales} canales leídos` : `No respondió: ${n.error || "sin respuesta"}`)}
-                                    className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[12px]", n.ok ? "border-border text-muted-foreground" : "border-red-500/30 text-red-500")}>
-                                    <HardDrive size={12} /> {n.nombre} {n.ok ? <Check size={12} className="text-emerald-500" /> : <X size={12} />}
-                                </span>
-                            ))}
-                        </div>
-                    )}
-                    {donde.error ? (
-                        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-[13px] text-red-600 dark:text-red-300 flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0" /> No se pudo consultar los NVR: {donde.error}. Probá «Buscar de nuevo» o elegilo a mano abajo.</div>
-                    ) : donde.ubicacion ? (
-                        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 flex items-center gap-3">
-                            <span className="grid h-10 w-10 place-items-center rounded-full bg-emerald-500 text-white"><Check size={18} /></span>
-                            <div>
-                                <div className="font-bold">Graba en {donde.ubicacion.nvrNombre} · canal {donde.ubicacion.ch}</div>
-                                <div className="text-[12px] text-muted-foreground">{donde.ubicacion.canalNombre ? `El NVR la tiene como «${donde.ubicacion.canalNombre}». ` : ""}Clips y playback salen de ahí.</div>
-                            </div>
-                        </motion.div>
-                    ) : !donde.hayNvr ? (
-                        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 space-y-1">
-                            <div className="font-bold text-red-600 dark:text-red-300 inline-flex items-center gap-2"><AlertTriangle size={16} /> No hay ningún NVR dado de alta</div>
-                            <p className="text-[13px] text-muted-foreground">Sin NVR esta cámara <b>no va a tener grabaciones</b>. Sugerido: agregá primero el NVR (Agregar → NVR) y volvé a buscar.</p>
-                        </div>
-                    ) : (
-                        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-1">
-                            <div className="font-bold text-amber-700 dark:text-amber-300 inline-flex items-center gap-2"><AlertTriangle size={16} /> Ningún NVR tiene esta IP en sus canales</div>
-                            <p className="text-[12.5px] text-muted-foreground">Puede grabarla un NVR que todavía no está dado de alta (sugerido: agregarlo), o tenerla con otra IP. Si sabés dónde graba, elegilo a mano.</p>
-                        </div>
-                    )}
-                </>
-            )}
-            {(!donde?.ubicacion || esEdicion) && (
-                <div className="grid grid-cols-[1fr_120px] gap-3">
-                    <label className="block">
-                        <Etiqueta texto="NVR (a mano)" ayuda="Si la búsqueda no la encuentra pero sabés dónde graba. Ej.: NVR Sildan." />
-                        <Select value={manual.nvrId} onValueChange={(v) => setManual((m) => ({ ...m, nvrId: v }))}>
-                            <SelectTrigger className="h-10"><HardDrive size={15} className="text-muted-foreground mr-1" /><SelectValue placeholder="Elegí el NVR" /></SelectTrigger>
-                            <SelectContent>{nvrs.map((n) => <SelectItem key={n.id} value={n.id}>{n.name} · {n.ip}</SelectItem>)}</SelectContent>
-                        </Select>
-                    </label>
-                    <Campo etiqueta="Canal" icono={Hash} value={manual.ch} onChange={(v) => setManual((m) => ({ ...m, ch: v.replace(/\D/g, "") }))} placeholder="12" mono
-                        ayuda="Número de canal en el NVR (como figura en su lista de cámaras). Ej.: 12 para D12." />
-                </div>
-            )}
-        </div>
-    );
-
-    /* ── Pie ── */
-    const pie = esEdicion ? (
-        <div className="flex items-center gap-2 w-full">
-            <span className="flex-1 text-[12px] text-muted-foreground truncate">{meta?.rotulo} · {device?.ip}</span>
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={guardando}>Cancelar</Button>
-            <Button onClick={guardarCambios} disabled={guardando} className="gap-1.5">{guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar cambios</Button>
-        </div>
-    ) : (
-        <div className="flex items-center gap-2 w-full">
-            {paso > 0 && !corriendo && !terminado && <Button variant="outline" onClick={() => ir(paso - 1)} className="gap-1"><ChevronLeft size={15} /> Atrás</Button>}
-            <span className="flex-1 text-[12px] text-muted-foreground truncate">{bloqueo || ""}</span>
-            {!ultimo && clave !== "tipo" && <Button onClick={() => ir(paso + 1)} disabled={!!bloqueo} className="gap-1">Siguiente <ChevronRight size={15} /></Button>}
-            {ultimo && clave !== "tipo" && !terminado && <Button onClick={puestaAPunto} disabled={corriendo || tareas.length > 0} className="gap-1.5 bg-[var(--accion)] text-white">{corriendo ? <Loader2 size={15} className="animate-spin" /> : <Rocket size={15} />} Crear y poner a punto</Button>}
-            {terminado && tipo === "CAMERA" && creadoId && alCalibrar && (
-                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrar({ id: creadoId, name: f.name, ip: f.ip, brand: f.brand, deviceType: "CAMERA" }); }} className="gap-1.5 text-red-500 border-red-500/30"><Crosshair size={15} /> Calibrar ahora</Button>
-            )}
-            {terminado && <Button onClick={() => onOpenChange(false)} className="gap-1.5"><Check size={15} /> Listo</Button>}
-        </div>
-    );
+    const guia = GUIAS[f.brand];
 
     return (
-        <Cajon open={open} onOpenChange={(v) => { if (!corriendo) onOpenChange(v); }}>
-            <CajonContenido ancho={esEdicion ? "intermedio" : "medio"} tituloOculto={esEdicion}
-                titulo={esEdicion ? (device?.name || "Equipo") : TITULOS[clave] || "Nuevo equipo"}
-                descripcion={esEdicion ? `${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}` : clave === "tipo" ? "Lo primero, porque de esto dependen los pasos que siguen." : `${meta?.rotulo} · alta guiada`}
-                encabezado={esEdicion ? undefined : clave === "tipo"
-                    ? <div className="h-0.5 bg-border/60"><div className="h-full w-[6%] bg-[var(--accion)]" /></div>
-                    : <BarraDePasos pasos={pasos.slice(1)} actual={paso - 1} alIr={(i) => !corriendo && !terminado && i + 1 < paso && ir(i + 1)} />}
-                pie={pie}>
+        <Cajon open={abierto} onOpenChange={setAbierto}>
+            {children && <CajonDisparador asChild>{children}</CajonDisparador>}
 
-                {esEdicion ? (
-                    /* ───────── FICHA (edición) ───────── */
-                    <div>
-                        <CabeceraVideo device={device} titulo={f.name || device?.name || "Equipo"} subtitulo={`${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}`} tipo={tipo} meta={meta} f={f} actual={actual} nvrNombre={nvrActual?.name || null}
-                            detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} />
-                        <Bloque titulo="Identidad" icono={Tag} ayuda="Cómo se llama el equipo y dónde está. Es lo que se ve en el monitor, el historial y los avisos.">
-                            <Campo etiqueta="Nombre" icono={Type} value={f.name} onChange={(v) => set("name", v)}
-                                placeholder={tipo === "NVR" ? "NVR Sildan" : tipo === "CAMERA" ? "Perímetro Norte 12" : "P1 - Entrada (207)"}
-                                ayuda={tipo === "LPR_CAMERA" ? "Conviene incluir la garita y el sentido. Ej.: «P1 - Entrada (207)». Si incluye P1, P2… el monitor agrupa el semáforo en esa garita." : "El nombre del lugar dice más que el modelo. Ej.: «Perímetro Norte 12»."} />
-                            <div className="grid grid-cols-2 gap-4">
-                                <Campo etiqueta="Modelo" icono={Cpu} value={f.deviceModel} onChange={(v) => set("deviceModel", v)} placeholder="iDS-TCM403-GIR"
-                                    ayuda="Lo completa «Comprobar». Ej.: iDS-TCM403-GIR, DS-2CD2T47G2, DS-9664NI-I8." />
-                                {tipo !== "NVR" && <Campo etiqueta="Ubicación / garita" icono={MapPin} value={f.location} onChange={(v) => set("location", v)} placeholder="Garita P1"
-                                    ayuda="Texto libre. Ej.: «Garita P1», «Lote 120 fondo». En LPR, «P1»/«P2» agrupan el semáforo en el monitor." />}
-                            </div>
-                            {tipo === "LPR_CAMERA" && <div><Etiqueta texto="Sentido" ayuda="Decide la columna del monitor, si suma a «adentro ahora» y si cierra visitas. Ej.: el carril de ingreso de P1 es Entrada." />{bloqueSentido}</div>}
-                            <div><Etiqueta texto="Fabricante" ayuda="No se cambia en un equipo dado de alta." />{bloqueMarca}</div>
-                        </Bloque>
-                        <Bloque titulo="Conexión" icono={Network} ayuda="Cómo llega el servidor al equipo. Si cambiás IP o clave, «Comprobar» confirma que sigue respondiendo.">{bloqueConexion}</Bloque>
-                        {tipo !== "NVR" && (
-                            <Bloque titulo="Grabación" icono={HardDrive} ayuda="En qué NVR y canal se graba: de ahí salen los clips y el playback."
-                                accion={<Button variant="outline" size="sm" onClick={calcRet} disabled={calculando || !actual} className="gap-1.5" {...tip("Busca en el NVR la grabación más vieja de este canal y calcula cuántos días guarda.")}>{calculando ? <Loader2 size={14} className="animate-spin" /> : <Server size={14} />} Calcular retención</Button>}>
-                                <div className={cn("rounded-xl border p-3.5 flex items-center gap-3 text-[13px]", actual ? "border-emerald-500/25 bg-emerald-500/5" : "border-amber-500/30 bg-amber-500/5")}>
-                                    {actual ? <Link2 size={16} className="text-emerald-500" /> : <AlertTriangle size={16} className="text-amber-500" />}
-                                    <span className="flex-1">{actual ? <>Vinculada a <b>{nvrActual?.name || "NVR"}</b> · canal <b>{actual.ch}</b></> : "Sin grabación vinculada: no hay clips ni playback."}</span>
-                                </div>
-                                {retencion && <div className="text-[12.5px] text-muted-foreground inline-flex items-center gap-1.5"><Clock size={13} /> {retencion}</div>}
-                                {bloqueBusquedaGrabacion}
-                            </Bloque>
-                        )}
-                        {tipo === "CAMERA" && alCalibrar && (
-                            <Bloque titulo="Analítica de intrusión" icono={Crosshair} ayuda="Línea de cruce, zona, sentido, sensibilidad, objetivo y aviso a OmniAccess, sobre el video en vivo.">
-                                <Button variant="outline" onClick={() => { onOpenChange(false); alCalibrar(device); }} className="gap-1.5 text-red-500 border-red-500/30"><Crosshair size={15} /> Abrir el calibrador</Button>
-                            </Bloque>
-                        )}
-                        {tipo === "NVR" && alImportar && (
-                            <Bloque titulo="Cámaras del NVR" icono={Download} ayuda="Lee los canales y deja elegir qué es cada cámara (LPR o intrusión) antes de crearla. Las que ya existen sólo se vinculan a su grabación.">
-                                <Button variant="outline" onClick={() => { onOpenChange(false); alImportar(device); }} className="gap-1.5"><Download size={15} /> Importar y clasificar cámaras</Button>
-                            </Bloque>
-                        )}
+            <CajonContenido
+                ancho="angosto"
+                /* El título dice en qué paso se está. Al sacar la barra, el encabezado es
+                   lo único que ubica: si dijera siempre "Nuevo equipo", pasar de hoja no
+                   se distinguiría de que la pantalla se quedó. */
+                titulo={esEdicion ? (f.name || "Equipo") : (TITULOS[clave] || "Nuevo equipo")}
+                descripcion={
+                    clave === "que" ? "Lo primero, porque de esto depende todo lo demás."
+                        : [tipo?.rotulo, esEdicion ? f.name : null].filter(Boolean).join(" · ")
+                        || "Cargá los datos y seguí."
+                }
+                /* Sin barra de pasos con números ni nombres: esto se lee como una hoja que
+                   pasa, y lo único que hace falta es saber cuánto queda. Una línea que
+                   avanza lo dice sin agregar una interfaz que después hay que mirar. */
+                encabezado={esEdicion ? undefined : (
+                    <div className="h-0.5 bg-border/60 overflow-hidden">
+                        <motion.div className="h-full bg-[var(--accion)]"
+                            initial={false}
+                            animate={{ width: `${((paso + 1) / pasos.length) * 100}%` }}
+                            transition={{ duration: 0.28, ease: [0.32, 0.72, 0, 1] }} />
                     </div>
-                ) : (
-                    /* ───────── ALTA POR PASOS ───────── */
-                    <PasoAnimado clave={clave} hacia={hacia}>
-                        {clave === "tipo" && (
-                            <div className="px-6 py-6 grid gap-3">
-                                {TIPOS.map((t) => (
-                                    <button key={t.valor} type="button" onClick={() => { set("deviceType", t.valor); setHacia(1); setPaso(1); setCanales(null); setDonde(null); }}
-                                        className={cn("group text-left rounded-2xl border p-4 flex gap-4 transition-all hover:-translate-y-px hover:shadow-md",
-                                            tipo === t.valor ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border bg-card/40 hover:bg-accent/50")}>
-                                        <span className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-xl border", t.color)}><t.icono size={22} /></span>
-                                        <span className="min-w-0 flex-1">
-                                            <span className="flex items-center gap-2 text-[14.5px] font-bold text-foreground">{t.rotulo}<span {...tip(t.ejemplo)} className="text-muted-foreground/60 hover:text-[var(--accion)]"><Info size={13} /></span></span>
-                                            <span className="block text-[12.5px] text-muted-foreground leading-snug mt-0.5">{t.que}</span>
-                                            <span className="mt-2 flex flex-wrap gap-1.5">
-                                                {PASOS_POR_TIPO[t.valor].map((p, i) => <span key={p.clave} className="px-2 py-0.5 rounded-full bg-muted/70 text-[10.5px] font-semibold text-muted-foreground">{i + 1}. {p.rotulo}</span>)}
-                                            </span>
-                                        </span>
-                                        <ChevronRight size={18} className="self-center text-muted-foreground group-hover:text-foreground transition-colors" />
-                                    </button>
-                                ))}
+                )}
+                pie={
+                    <>
+                        {paso > 0 && (
+                            <Button type="button" variant="ghost" onClick={() => ir(paso - 1)}>
+                                <ArrowLeft size={15} /> {creado ? "Corregir algo" : "Atrás"}
+                            </Button>
+                        )}
+                        <div className="flex-1" />
+                        {!ultimo ? (
+                            <Button type="button" onClick={() => ir(paso + 1)}
+                                /* Sin tipo elegido no hay nada que preguntar después: todo lo
+                                   que viene depende de qué clase de equipo es. */
+                                disabled={(clave === "que" && !f.deviceType)
+                                    || (clave === "aviso" && !f.trackTrigger)}>
+                                Siguiente <ArrowRight size={15} />
+                            </Button>
+                        ) : creado && !tocadoDespues ? (
+                            /* Ya está creado y nadie tocó nada desde entonces: lo único que
+                               queda es cerrar. Ofrecer "guardar" acá invitaría a guardar dos
+                               veces lo mismo y a dudar de si la primera funcionó. */
+                            <Button type="button" onClick={() => setAbierto(false)}>
+                                <Check size={15} /> Listo
+                            </Button>
+                        ) : (
+                            <Button type="button" onClick={guardar} disabled={guardando}>
+                                {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                                {guardando ? "Guardando…"
+                                    : esEdicion || creado ? "Guardar cambios"
+                                        : "Dar de alta y comprobar"}
+                            </Button>
+                        )}
+                    </>
+                }>
+
+                <PasoAnimado clave={clave} hacia={hacia}>
+                    {muestra("cual") && (
+                        <CajonSeccion titulo="Cuál es" icono={Cpu}>
+                            <CajonCampo etiqueta="Cómo se lo va a llamar"
+                                pista="Es el nombre que sale en el historial, en el mapa y en los avisos. Conviene el del lugar donde está puesto — 'Portón principal' dice más que el modelo.">
+                                <Input value={f.name} placeholder="Portón principal, Calle 21…" autoFocus
+                                    onChange={(e) => set("name", e.target.value)} />
+                            </CajonCampo>
+                            <div className="grid grid-cols-1 gap-4">
+                                <CajonCampo etiqueta="Modelo"
+                                    pista="Decide qué controlador usa OmniAccess para hablarle. Si no está en la lista, se puede dejar vacío y probar igual: la detección de abajo suele completarlo.">
+                                    <Popover open={abreModelos} onOpenChange={setAbreModelos}>
+                                        <PopoverTrigger asChild>
+                                            <Button type="button" variant="outline" className="w-full justify-between font-normal">
+                                                <span className="truncate">
+                                                    {f.deviceModel
+                                                        ? (DRIVER_MODELS[f.brand as DriverDeviceBrand]?.find((m) => m.value === f.deviceModel)?.label || f.deviceModel)
+                                                        : "Elegir modelo…"}
+                                                </span>
+                                                <ChevronsUpDown size={14} className="opacity-50 shrink-0" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[360px] p-0" align="start">
+                                            <Command>
+                                                <CommandInput placeholder="Buscar modelo…" />
+                                                <CommandEmpty>No hay modelos cargados para esta marca.</CommandEmpty>
+                                                <CommandGroup className="max-h-60 overflow-y-auto">
+                                                    {DRIVER_MODELS[f.brand as DriverDeviceBrand]?.map((m) => (
+                                                        <CommandItem key={m.value} value={m.value}
+                                                            onSelect={(v) => { set("deviceModel", v); setAbreModelos(false); }}>
+                                                            <span className="flex flex-col">
+                                                                <span className="text-[12.5px] font-semibold text-foreground">{m.label}</span>
+                                                                <span className="text-[11px] text-muted-foreground">{m.category}</span>
+                                                            </span>
+                                                            {f.deviceModel === m.value && <Check size={14} className="ml-auto text-[var(--accion)]" />}
+                                                        </CommandItem>
+                                                    ))}
+                                                </CommandGroup>
+                                            </Command>
+                                        </PopoverContent>
+                                    </Popover>
+                                </CajonCampo>
                             </div>
-                        )}
+                        </CajonSeccion>
+                    )}
 
-                        {clave === "equipo" && (
-                            <>
-                                <Bloque titulo="Fabricante" icono={Cpu} ayuda="Decide con qué protocolo se lo configura (ISAPI para Hikvision, CGI para Dahua).">{bloqueMarca}</Bloque>
-                                <Bloque titulo="Identidad" icono={Tag}>
-                                    <Campo etiqueta="Nombre" icono={Type} value={f.name} onChange={(v) => set("name", v)} autoFocus
-                                        placeholder={tipo === "NVR" ? "NVR Sildan" : tipo === "CAMERA" ? "Perímetro Norte 12" : "P1 - Entrada (207)"}
-                                        ayuda={tipo === "LPR_CAMERA" ? "Como va a aparecer en el monitor, el historial y los semáforos. Ej.: «P1 - Entrada (207)» o «P2 - Salida (221)»." : tipo === "NVR" ? "Ej.: «NVR Sildan», «NVR Perímetro Sur». Es el nombre que se ve en la columna Grabaciones." : "Ej.: «Perímetro Norte 12», «Portón de servicio». Es como aparece en el monitor de intrusión."} />
-                                    {tipo !== "NVR" && (
-                                        <Campo etiqueta="Ubicación" icono={MapPin} value={f.location} onChange={(v) => set("location", v)} placeholder={tipo === "LPR_CAMERA" ? "Garita P1" : "Cerco norte, lote 120"}
-                                            ayuda={tipo === "LPR_CAMERA" ? "Texto libre. Si incluye «P1», «P2»… el monitor agrupa el semáforo en esa garita." : "Dónde está, para encontrarla rápido en el monitor. Ej.: «Cerco norte, lote 120»."} />
+                    {esEdicion && (
+                        /* Lo primero de la ficha no es un campo: es el equipo contestando.
+                           Todo lo demás de esta pantalla es lo que alguien escribió alguna
+                           vez; esto es lo único que dice cómo está ahora. */
+                        <CajonSeccion titulo="Cómo está ahora" icono={Radio}>
+                            <Verificacion
+                                deviceId={device.id}
+                                datos={f}
+                                tipo={tipo}
+                                faltantes={faltantes}
+                                linea={device.trackLine}
+                                zona={device.trackRoi}
+                                alLeer={(e) => setF((p) => ({
+                                    /* Sólo lo vacío: si alguien escribió algo a mano, el equipo
+                                       no tiene por qué pisárselo. */
+                                    ...p,
+                                    mac: p.mac || e.mac || "",
+                                    deviceModel: p.deviceModel || e.modelo || "",
+                                }))} />
+                        </CajonSeccion>
+                    )}
+                    {muestra("que") && (
+                        /* Sin título ni ayuda: el encabezado del cajón ya dice "¿Qué vas a
+                           agregar?" y por qué es lo primero. Repetirlo debajo con otras
+                           palabras hace leer dos veces lo mismo antes de llegar a las
+                           opciones, que es lo único que hay para hacer en esta hoja. */
+                        <CajonSeccion titulo="">
+                            <div className="grid grid-cols-1 gap-2">
+                                {tiposOfrecidos.map((t) => {
+                                    const puesto = f.deviceType === t.valor;
+                                    return (
+                                        <button key={t.valor} type="button"
+                                            onClick={() => { set("deviceType", t.valor); setHacia(1); setPaso(paso + 1); }}
+                                            className={cn(
+                                                "text-left p-3.5 rounded-[10px] border transition-colors flex gap-3",
+                                                puesto ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]"
+                                                    : "border-border bg-card/40 hover:bg-accent",
+                                            )}>
+                                            <span className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                                                puesto ? "text-[var(--accion)]" : "text-muted-foreground bg-muted")}>
+                                                <t.icono size={18} />
+                                            </span>
+                                            <span className="min-w-0">
+                                                <span className="block text-[13.5px] font-semibold text-foreground">{t.rotulo}</span>
+                                                <span className="block text-[11.5px] text-muted-foreground leading-snug mt-0.5">{t.que}</span>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </CajonSeccion>
+                    )}
+
+                    {muestra("marca") && (
+                        <CajonSeccion
+                            titulo={esEdicion ? "De qué fabricante es" : "¿De qué fabricante es?"}
+                            icono={Tag}
+                            ayuda={esEdicion
+                                ? "Cada marca habla por su propio driver. Acá se ve qué sabe hacer OmniAccess con la de este equipo."
+                                : "No todas las marcas están al mismo nivel. Cada una habla por su propio driver, y algunos todavía no están escritos: acá se dice cuál es cuál antes de cargar nada."}>
+                            {esEdicion
+                                ? <MarcaFija marca={f.brand} />
+                                : <ElegirMarca valor={f.brand} alElegir={(v) => set("brand", v)} />}
+                            <CompatibilidadMarca marca={f.brand} tipo={f.deviceType}
+                                rotuloTipo={tipo?.rotulo || "equipo"} />
+                        </CajonSeccion>
+                    )}
+
+                    {muestra("cual") && guia && (
+                            <CajonSeccion titulo="Del lado del equipo" icono={BookOpen}
+                                ayuda="Esto no se hace acá: se hace entrando al equipo por su IP. Si no está configurado así, OmniAccess lo va a ver pero no va a recibir sus eventos.">
+                                <button type="button" onClick={() => setVerGuia(!verGuia)}
+                                    className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-[10px] border border-border bg-card/40 hover:bg-accent transition-colors">
+                                    <span className="text-[12.5px] font-semibold text-foreground">{guia.titulo}</span>
+                                    <ChevronDown size={15} className={cn("text-muted-foreground transition-transform duration-200", verGuia && "rotate-180")} />
+                                </button>
+                                <AnimatePresence initial={false}>
+                                    {verGuia && (
+                                        <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{ height: "auto", opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+                                            className="overflow-hidden">
+                                            <ol className="space-y-2 pt-3.5">
+                                                {guia.pasos.map((s, i) => (
+                                                    <li key={i} className="flex gap-2.5">
+                                                        <span className="w-[19px] h-[19px] rounded-full bg-muted text-muted-foreground text-[10px] font-bold flex items-center justify-center shrink-0 mt-px">{i + 1}</span>
+                                                        <span className="text-[12px] text-muted-foreground leading-relaxed">{s}</span>
+                                                    </li>
+                                                ))}
+                                            </ol>
+                                            <div className="mt-3.5 pt-3 border-t border-border space-y-1.5">
+                                                <p className="text-[12px] text-muted-foreground">
+                                                    A dónde manda los eventos: <code className="text-foreground tabular-nums">{guia.webhook}</code>
+                                                </p>
+                                                <p className="text-[12px] text-muted-foreground">Cómo se autentica: {guia.auth}</p>
+                                                {guia.doc && (
+                                                    <a href={guia.doc} target="_blank" rel="noopener noreferrer"
+                                                        className="inline-flex items-center gap-1.5 text-[12px] text-[var(--accion)] hover:underline">
+                                                        <ExternalLink size={12} /> Documentación del fabricante
+                                                    </a>
+                                                )}
+                                            </div>
+                                        </motion.div>
                                     )}
-                                </Bloque>
-                            </>
-                        )}
+                                </AnimatePresence>
+                            </CajonSeccion>
+                    )}
 
-                        {clave === "conexion" && <Bloque titulo="Acceso al equipo" icono={Network} ayuda="IP y credenciales juntas: la detección necesita las tres cosas.">{bloqueConexion}</Bloque>}
-
-                        {clave === "lugar" && (
-                            <>
-                                <Bloque titulo="Sentido" icono={MapPin} ayuda="Decide la columna del monitor, si suma a «adentro ahora» y si cierra visitas.">{bloqueSentido}</Bloque>
-                                <Bloque titulo="Grupo de acceso" icono={Users} ayuda="Quiénes pasan por esta cámara. Ej.: «Residentes + Proveedores». Sin grupo queda cargada pero no habilita a nadie.">
-                                    <Select value={f.groupId} onValueChange={(v) => set("groupId", v)}>
-                                        <SelectTrigger className="h-10"><Users size={15} className="text-muted-foreground mr-1" /><SelectValue /></SelectTrigger>
+                    {muestra("conexion") && (
+                        <CajonSeccion titulo="Cómo se llega al equipo" icono={Wifi}
+                            ayuda="La IP y las credenciales van juntas porque la detección las necesita a las tres. Antes estaban en pasos separados y había que ir y volver para ver lo que la detección completaba.">
+                            <div className="grid grid-cols-1 gap-4">
+                                <CajonCampo etiqueta="Dirección IP"
+                                    pista="La del equipo en la red del barrio. Tiene que ser alcanzable desde el servidor: si está en otra red o detrás de un router, hay que mapearle el puerto.">
+                                    <Input value={f.ip} placeholder="172.26.20.21" className="tabular-nums"
+                                        onChange={(e) => set("ip", e.target.value)} />
+                                </CajonCampo>
+                                <CajonCampo etiqueta="MAC"
+                                    pista="La completa la detección sola. Sirve para reconocer el equipo aunque le cambien la IP.">
+                                    <Input value={f.mac} placeholder="La completa la detección" className="tabular-nums uppercase"
+                                        onChange={(e) => set("mac", e.target.value)} />
+                                </CajonCampo>
+                                <CajonCampo etiqueta="Usuario">
+                                    <Input value={f.username} onChange={(e) => set("username", e.target.value)} />
+                                </CajonCampo>
+                                <CajonCampo etiqueta="Contraseña">
+                                    <PasswordInput value={f.password} onChange={(e) => set("password", e.target.value)} />
+                                </CajonCampo>
+                                <CajonCampo etiqueta="Cómo se autentica" 
+                                    pista="Hikvision y Dahua usan Digest. Si con uno no conecta, probá el otro: la detección de abajo lo dice en el acto.">
+                                    <Select value={f.authType} onValueChange={(v) => set("authType", v)}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="none">Sin grupo</SelectItem>
+                                            <SelectItem value="BASIC">Basic</SelectItem>
+                                            <SelectItem value="DIGEST">Digest</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </CajonCampo>
+                            </div>
+
+                            {/*
+                              * Antes acá había un botón que preguntaba modelo, firmware, MAC y serie.
+                              * Eso alcanzaba para saber que el equipo está vivo y para nada más: la URL
+                              * del canal se seguía escribiendo de memoria, y si la cámara sabía avisar
+                              * por cruce de línea no lo decía nadie. El equipo sabe todo eso de sí
+                              * mismo; lo que faltaba era ir a buscarlo.
+                              */}
+                            <Descubridor
+                                datos={f}
+                                pediCanal={!!tipo?.video}
+                                pediGrabador={!!tipo?.canales}
+                                alElegirCanal={(rtsp) => set("rtspUrl", rtsp)}
+                                alSugerirDisparo={(clave) => set("trackTrigger", clave)}
+                                alCompletar={(e) => setF((p) => ({
+                                    ...p,
+                                    /* Sólo lo que esté vacío: si alguien escribió un nombre o un
+                                       modelo a mano, el equipo no tiene por qué pisárselo. */
+                                    mac: p.mac || e.mac || "",
+                                    deviceModel: p.deviceModel || e.modelo || "",
+                                    name: p.name || e.modelo || "",
+                                    authType: e.autenticacion || p.authType,
+                                }))} />
+                        </CajonSeccion>
+                    )}
+
+                    {muestra("lugar") && (
+                        <CajonSeccion titulo="Dónde está y quién pasa" icono={MapPin}>
+                            <CajonCampo etiqueta="En qué lugar del barrio"
+                                pista="En palabras, como lo diría un guardia por radio. Para ubicarlo en el plano hay una pantalla aparte.">
+                                <Input value={f.location} placeholder="Portón de entrada, esquina de Calle 21…"
+                                    onChange={(e) => set("location", e.target.value)} />
+                            </CajonCampo>
+                            {/*
+                              * El grupo de acceso: lo que faltaba.
+                              *
+                              * `createDevice` lee `groupId` del formulario desde siempre, y el
+                              * diálogo recibía la lista de grupos como prop sin usarla nunca. Todo
+                              * equipo nuevo quedaba sin grupo —o sea, sin nadie autorizado a pasar—
+                              * y había que ir a Grupos de Acceso a arreglarlo, sin una sola señal.
+                              *
+                              * Sólo se elige AL DAR DE ALTA. `updateDevice` no toca los grupos, así
+                              * que un selector acá al editar dejaría cambiar algo que no se guarda,
+                              * que es peor que no ofrecerlo: al editar se muestra el que tiene y
+                              * dónde se cambia de verdad.
+                              */}
+                            {esEdicion ? (
+                                <CajonCampo etiqueta="Quiénes pueden pasar por acá"
+                                    ayuda="Los grupos de un equipo ya cargado se cambian en Grupos de Acceso.">
+                                    <div className="flex flex-wrap gap-1.5 min-h-9 items-center">
+                                        {device?.accessGroups?.length ? device.accessGroups.map((g: any) => (
+                                            <span key={g.id} className="px-2.5 py-1 rounded-full border border-border text-[12px] text-muted-foreground">
+                                                {g.name}
+                                            </span>
+                                        )) : (
+                                            <span className="text-[12.5px] text-[var(--aviso-texto)]">
+                                                Sin ningún grupo: hoy no deja pasar a nadie.
+                                            </span>
+                                        )}
+                                    </div>
+                                </CajonCampo>
+                            ) : (
+                                <CajonCampo etiqueta="Quiénes pueden pasar por acá"
+                                    pista="El grupo de acceso decide qué personas tienen permiso en este equipo y en qué horarios. Sin grupo, el equipo queda cargado pero no deja pasar a nadie.">
+                                    <Select value={f.groupId} onValueChange={(v) => set("groupId", v)}>
+                                        <SelectTrigger><SelectValue placeholder="Elegir…" /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">Ninguno por ahora</SelectItem>
                                             {groups.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}
                                         </SelectContent>
                                     </Select>
-                                    {f.groupId === "none" && <p className="text-[12px] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1.5"><AlertTriangle size={13} /> Sin grupo de acceso la cámara no deja pasar a nadie por servidor.</p>}
-                                </Bloque>
-                            </>
-                        )}
+                                </CajonCampo>
+                            )}
+                            {tipo?.sentido && (
+                                <CajonCampo etiqueta="Por dónde pasa la gente acá"
+                                    pista="Decide si lo que lea este equipo cuenta como una entrada o como una salida, y de ahí sale quién está adentro del barrio.">
+                                    <Select value={f.direction} onValueChange={(v) => set("direction", v)}>
+                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="ENTRY">Entra</SelectItem>
+                                            <SelectItem value="EXIT">Sale</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </CajonCampo>
+                            )}
+                        </CajonSeccion>
+                    )}
 
-                        {clave === "grabacion" && (
-                            <Bloque titulo="Grabación en NVR" icono={HardDrive} ayuda="Se busca sola al entrar. Sin NVR no hay clips de las lecturas ni playback.">
-                                {bloqueBusquedaGrabacion}
-                                {!donde?.ubicacion && !buscando && (
-                                    <label className="flex items-center gap-2 text-[13px] cursor-pointer select-none">
-                                        <input type="checkbox" checked={sinGrabar} onChange={(e) => setSinGrabar(e.target.checked)} className="h-4 w-4 accent-[var(--accion)]" />
-                                        Seguir sin grabaciones (funciona, pero sus eventos no van a tener video)
-                                    </label>
-                                )}
-                            </Bloque>
-                        )}
+                    {muestra("aviso") && (
+                        <CajonSeccion titulo=""
+                            ayuda="Esta cámara no abre nada: mira una calle de adentro para saber por dónde anduvo cada vehículo. Lo que cambia entre una opción y otra es quién decide que hay algo para mirar.">
+                            <div className="grid grid-cols-1 gap-2">
+                                {MODOS_DE_AVISO.map((m) => {
+                                    const puesto = f.trackTrigger === m.valor
+                                        /* Las cámaras viejas quedaron guardadas como "camara",
+                                           que es lo mismo que "linea" para el worker. Sin esto,
+                                           editar una de ésas no mostraría nada elegido. */
+                                        || (m.valor === "linea" && f.trackTrigger === "camara");
+                                    return (
+                                        <button key={m.valor} type="button"
+                                            onClick={() => set("trackTrigger", m.valor)}
+                                            className={cn(
+                                                "text-left p-3.5 rounded-[10px] border transition-colors flex gap-3",
+                                                puesto ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]"
+                                                    : "border-border bg-card/40 hover:bg-accent",
+                                            )}>
+                                            <span className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+                                                puesto ? "text-[var(--accion)]" : "text-muted-foreground bg-muted")}>
+                                                <m.icono size={18} />
+                                            </span>
+                                            <span className="min-w-0">
+                                                <span className="block text-[13.5px] font-semibold text-foreground">{m.rotulo}</span>
+                                                <span className="block text-[11.5px] text-muted-foreground leading-snug mt-0.5">{m.que}</span>
+                                                <AnimatePresence initial={false}>
+                                                    {puesto && (
+                                                        <motion.span
+                                                            initial={{ height: 0, opacity: 0 }}
+                                                            animate={{ height: "auto", opacity: 1 }}
+                                                            exit={{ height: 0, opacity: 0 }}
+                                                            transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
+                                                            className="block overflow-hidden">
+                                                            <span className="block text-[11.5px] text-[var(--accion)] leading-snug mt-1.5">{m.nota}</span>
+                                                        </motion.span>
+                                                    )}
+                                                </AnimatePresence>
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </CajonSeccion>
+                    )}
 
-                        {clave === "canales" && (
-                            <Bloque titulo="Qué es cada cámara" icono={Camera} ayuda="La sugerencia sale del nombre del canal (LPR si habla de entrada, salida, acceso, matrícula). Siempre se puede cambiar. Las que ya existen sólo se vinculan."
-                                accion={<Button variant="outline" size="sm" onClick={leerCanales} disabled={leyendo} className="gap-1.5">{leyendo ? <Loader2 size={14} className="animate-spin" /> : <ScanSearch size={14} />} Leer de nuevo</Button>}>
-                                {leyendo && <div className="rounded-xl border border-dashed border-border p-8 grid place-items-center text-muted-foreground text-[13px] gap-2"><Loader2 size={22} className="animate-spin" /> Leyendo los canales del NVR…</div>}
-                                {errorCanales && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-[13px] text-red-600 dark:text-red-300 flex gap-2"><AlertTriangle size={16} className="shrink-0 mt-0.5" /> {errorCanales}. Revisá IP y credenciales en el paso anterior; también podés seguir y importar después desde el menú del NVR.</div>}
-                                {canales && !leyendo && (
-                                    <>
-                                        <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
-                                            <span className="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-semibold inline-flex items-center gap-1"><Car size={12} /> {resumenCanales.lpr} LPR</span>
-                                            <span className="px-2.5 py-1 rounded-full bg-red-500/10 text-red-500 font-semibold inline-flex items-center gap-1"><Radar size={12} /> {resumenCanales.intr} intrusión</span>
-                                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold inline-flex items-center gap-1"><Link2 size={12} /> {resumenCanales.ya} ya existen</span>
-                                            <div className="ml-auto flex items-center gap-1.5 text-muted-foreground">
-                                                Marcar todas:
-                                                {([["lpr", "LPR"], ["intrusion", "Intrusión"], ["omitir", "Ninguna"]] as const).map(([v, t]) => (
-                                                    <button key={v} type="button" onClick={() => setEleccion((p) => Object.fromEntries(Object.entries(p).map(([k, e]) => [k, (canales.find((c) => c.channel === Number(k))?.existente || !canales.find((c) => c.channel === Number(k))?.ip || canales.find((c) => c.channel === Number(k))?.sensorDe) ? e : { ...e, rol: v }])))}
-                                                        className="px-2 h-6 rounded-md border border-border font-semibold hover:bg-accent">{t}</button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div className="border border-border rounded-xl overflow-hidden max-h-[46vh] overflow-y-auto">
-                                            {canales.map((c) => {
-                                                const e = eleccion[c.channel];
-                                                return (
-                                                    <div key={c.channel} className="flex items-center gap-3 px-3 py-2 border-b border-border/50 last:border-0">
-                                                        <span className="w-9 text-center font-mono text-[11px] text-muted-foreground">D{c.channel}</span>
-                                                        <div className="min-w-0 flex-1">
-                                                            <div className="text-[12.5px] font-semibold truncate">{c.name}</div>
-                                                            <div className="text-[10.5px] text-muted-foreground font-mono flex items-center gap-1.5 flex-wrap">{c.ip || "sin IP"}{c.model ? ` · ${c.model}` : ""}
-                                                                <span {...tip(`Fabricante de la cámara según el NVR${c.protocolo ? ` (protocolo ${c.protocolo})` : ""}. Un NVR puede grabar cámaras de otras marcas: esto decide cómo se le habla directo; las grabaciones siempre salen del NVR.`)}
-                                                                    className={cn("font-sans px-1.5 rounded text-[9px] font-bold uppercase border", c.marca === "HIKVISION" ? "bg-red-500/10 text-red-500 border-red-500/25" : c.marca === "DAHUA" ? "bg-sky-500/10 text-sky-500 border-sky-500/25" : "bg-muted text-muted-foreground border-border")}>{c.marca === "OTRA" ? "Otra marca" : c.marca}</span>
-                                                                {c.sensorDe && <span {...tip(`Misma IP que D${c.sensorDe}: otro sensor de la misma cámara (térmico + visible). Se graba igual; no se crea aparte.`)} className="font-sans px-1.5 rounded text-[9px] font-bold uppercase bg-violet-500/10 text-violet-500 border border-violet-500/25">2.º sensor</span>}
+                    {muestra("video") && (
+                        <>
+                            <CajonSeccion titulo="Qué hace esta cámara" icono={Video}
+                                ayuda="No abre la barrera. La pasarela le saca cuadros por RTSP y se los manda al lector, que saca la matrícula; con eso se dibuja por dónde anduvo cada vehículo adentro del barrio. El control de acceso lo siguen haciendo las cámaras de entrada y salida.">
+                                <CajonCampo etiqueta="URL del canal RTSP"
+                                    pista="Usá siempre el flujo principal. El secundario no tiene resolución para leer una matrícula, y la cámara va a parecer que no funciona cuando en realidad está mandando una imagen que no alcanza.">
+                                    <div className="flex gap-2">
+                                        <Input value={f.rtspUrl} className="font-mono text-[12px]"
+                                            placeholder="rtsp://usuario:clave@172.26.20.21:554/Streaming/Channels/101"
+                                            onChange={(e) => set("rtspUrl", e.target.value)} />
+                                        <Button type="button" variant="outline" className="shrink-0"
+                                            onClick={probarRtsp} disabled={probando || !f.rtspUrl.trim()}>
+                                            {probando ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} Probar
+                                        </Button>
+                                    </div>
+                                </CajonCampo>
+
+                                <div className="rounded-[10px] border border-border bg-card/40 p-3 space-y-1">
+                                    <p className="text-[12px] text-muted-foreground"><b className="text-foreground/85">Hikvision</b> <span className="font-mono">…:554/Streaming/Channels/101</span> — 101 es el canal 1, 201 el 2, 301 el 3.</p>
+                                    <p className="text-[12px] text-muted-foreground"><b className="text-foreground/85">Dahua</b> <span className="font-mono">…:554/cam/realmonitor?channel=1&amp;subtype=0</span></p>
+                                    <p className="text-[12px] text-muted-foreground"><b className="text-foreground/85">ONVIF genérica</b> <span className="font-mono">…:554/onvif1</span></p>
+                                </div>
+
+                                <AnimatePresence initial={false}>
+                                    {prueba && (
+                                        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="rounded-[10px] border border-border bg-card/60 p-3">
+                                            {prueba.error ? (
+                                                <p className="text-[12.5px] text-[var(--mal-texto)]">{prueba.error}</p>
+                                            ) : (
+                                                <div className="grid grid-cols-1 sm:grid-cols-[220px_1fr] gap-4">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src={prueba.imagen} alt="Cuadro de prueba" className="rounded-lg w-full object-cover border border-border" />
+                                                    <div className="space-y-1.5">
+                                                        <p className="text-[11.5px] text-muted-foreground tabular-nums">
+                                                            Cuadro de {Math.round(prueba.bytes / 1024)} KB · capturar {prueba.msCaptura} ms · leer {prueba.msLectura} ms
+                                                        </p>
+                                                        {/* La ficha técnica del flujo. Es lo que decide si una cámara
+                                                            sirve, y no la marca: una matrícula a quince metros no entra
+                                                            en 704×480, y eso no da ningún síntoma — el video se ve bien. */}
+                                                        {prueba.flujo && (
+                                                            <p className="text-[11.5px] text-muted-foreground tabular-nums">
+                                                                {[prueba.flujo.ancho && `${prueba.flujo.ancho}×${prueba.flujo.alto}`,
+                                                                  prueba.flujo.codec?.toUpperCase(),
+                                                                  prueba.flujo.cps && `${prueba.flujo.cps} c/s`].filter(Boolean).join(" · ")}
+                                                            </p>
+                                                        )}
+                                                        {(prueba.avisos || []).map((a: any, i: number) => (
+                                                            <p key={i} className={cn("text-[11.5px] leading-snug flex gap-1.5",
+                                                                a.grave ? "text-[var(--mal-texto)]" : "text-[var(--aviso-texto)]")}>
+                                                                <AlertTriangle size={12} className="shrink-0 mt-px" /> <span>{a.que}</span>
+                                                            </p>
+                                                        ))}
+                                                        {prueba.lecturas?.length ? prueba.lecturas.slice(0, 3).map((l: any, i: number) => (
+                                                            <div key={i} className="flex items-center gap-2 text-[13px]">
+                                                                <Check size={13} className={l.confidence >= prueba.umbral ? "text-[var(--bien)]" : "text-[var(--aviso)]"} />
+                                                                <span className="font-bold tracking-[0.12em] tabular-nums text-foreground">{l.plate}</span>
+                                                                <span className="text-muted-foreground tabular-nums">{Math.round(l.confidence * 100)}%</span>
                                                             </div>
-                                                        </div>
-                                                        {c.existente ? (
-                                                            <span {...tip(`Ya existe como «${c.existente.name}». Sólo se le vincula este canal como su grabación.`)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"><Link2 size={12} /> Se vincula</span>
-                                                        ) : !c.ip || c.sensorDe ? <span className="text-[11px] text-muted-foreground">{c.sensorDe ? `con D${c.sensorDe}` : "No importable"}</span> : (
-                                                            <div className="flex items-center gap-1.5">
-                                                                <div className="inline-flex rounded-lg bg-muted/60 p-0.5">
-                                                                    {([["lpr", "LPR", Car], ["intrusion", "Intrusión", Radar], ["omitir", "No", Ban]] as const).map(([v, t, I]) => (
-                                                                        <button key={v} type="button" onClick={() => setEleccion((p) => ({ ...p, [c.channel]: { ...p[c.channel], rol: v } }))}
-                                                                            className={cn("h-7 px-2 rounded-md text-[11px] font-bold inline-flex items-center gap-1", e?.rol === v ? (v === "lpr" ? "bg-amber-500 text-black" : v === "intrusion" ? "bg-red-500 text-white" : "bg-neutral-600 text-white") : "text-muted-foreground hover:text-foreground")}>
-                                                                            <I size={12} /> {t}
-                                                                        </button>
-                                                                    ))}
-                                                                </div>
-                                                                {e?.rol === "lpr" && (
-                                                                    <div className="inline-flex rounded-lg bg-muted/60 p-0.5">
-                                                                        {([["ENTRY", LogIn, "Entrada"], ["EXIT", LogOut, "Salida"]] as const).map(([v, I, t]) => (
-                                                                            <button key={v} type="button" {...tip(t)} onClick={() => setEleccion((p) => ({ ...p, [c.channel]: { ...p[c.channel], direction: v } }))}
-                                                                                className={cn("h-7 w-7 rounded-md grid place-items-center", e.direction === v ? (v === "ENTRY" ? "bg-emerald-500 text-white" : "bg-orange-500 text-white") : "text-muted-foreground hover:text-foreground")}><I size={13} /></button>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                            </div>
+                                                        )) : (
+                                                            <p className="text-[12px] text-muted-foreground leading-relaxed">
+                                                                La cámara contestó y el cuadro llegó bien. No se ve ninguna matrícula, que es
+                                                                lo normal si en ese instante no pasaba un auto.
+                                                            </p>
                                                         )}
                                                     </div>
-                                                );
-                                            })}
-                                        </div>
-                                        {resumenCanales.lpr > 0 && (
-                                            <label className="block">
-                                                <Etiqueta texto="Grupo de acceso para las LPR nuevas" ayuda="Quiénes pasan por las cámaras LPR que se creen. Ej.: «Residentes + Proveedores»." />
-                                                <Select value={f.groupId} onValueChange={(v) => set("groupId", v)}>
-                                                    <SelectTrigger className="h-10"><Users size={15} className="text-muted-foreground mr-1" /><SelectValue /></SelectTrigger>
-                                                    <SelectContent><SelectItem value="none">Sin grupo</SelectItem>{groups.map((g: any) => <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>)}</SelectContent>
-                                                </Select>
-                                            </label>
-                                        )}
-                                    </>
-                                )}
-                            </Bloque>
-                        )}
-
-                        {clave === "puesta" && (
-                            <div className="px-6 py-6 space-y-4">
-                                {tareas.length === 0 ? (
-                                    <>
-                                        <div className="rounded-xl border border-border bg-card/40 p-4 space-y-3">
-                                            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><ListChecks size={14} /> Resumen</div>
-                                            <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 text-[12.5px] text-muted-foreground">
-                                                <span>Tipo: <b className="text-foreground">{meta?.rotulo}</b></span><span>Fabricante: <b className="text-foreground">{f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}</b></span>
-                                                <span>Nombre: <b className="text-foreground">{f.name}</b></span><span>IP: <b className="text-foreground font-mono">{f.ip}{tipo === "NVR" && f.port ? `:${f.port}` : ""}</b></span>
-                                                {tipo === "LPR_CAMERA" && <><span>Sentido: <b className="text-foreground">{f.direction === "ENTRY" ? "Entrada" : "Salida"}</b></span><span>Grupo: <b className="text-foreground">{groups.find((g: any) => g.id === f.groupId)?.name || "sin grupo"}</b></span></>}
-                                                {tipo !== "NVR" && <span className="col-span-2">Grabación: <b className={cn(grabacionElegida ? "text-foreground" : "text-amber-600")}>{grabacionElegida ? `${grabacionElegida.nvrNombre} · canal ${grabacionElegida.ch}` : "sin grabaciones"}</b></span>}
-                                                {tipo === "NVR" && <span className="col-span-2">Cámaras: <b className="text-foreground">{resumenCanales.lpr} LPR · {resumenCanales.intr} intrusión · {resumenCanales.ya} se vinculan</b></span>}
-                                            </div>
-                                        </div>
-                                        {tipo === "LPR_CAMERA" && f.brand === "HIKVISION" && (
-                                            <label className="flex items-center gap-2 text-[13px] cursor-pointer select-none" {...tip("Carga las matrículas habilitadas en la lista de la cámara (las que prenden el semáforo verde). Con muchas matrículas puede tardar un par de minutos.")}>
-                                                <input type="checkbox" checked={cargarMatriculas} onChange={(e) => setCargarMatriculas(e.target.checked)} className="h-4 w-4 accent-[var(--accion)]" />
-                                                Cargar ya las matrículas en la cámara
-                                            </label>
-                                        )}
-                                        <p className="text-[12px] text-muted-foreground">Al apretar «Crear y poner a punto» se da de alta y se configura todo acá abajo, paso por paso.</p>
-                                    </>
-                                ) : (
-                                    <div className="space-y-2">
-                                        {tareas.map((t) => (
-                                            <motion.div key={t.clave} layout className={cn("flex items-start gap-3 rounded-xl border px-3 py-2.5",
-                                                t.estado === "error" ? "border-red-500/30 bg-red-500/5" : t.estado === "ok" ? "border-emerald-500/20" : "border-border")}>
-                                                <span className="mt-0.5"><IconoEstado e={t.estado} /></span>
-                                                <t.icono size={16} className="mt-0.5 text-muted-foreground shrink-0" />
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="text-[13px] font-semibold flex items-center gap-1.5">{t.titulo} <span {...tip(t.ayuda)} className="text-muted-foreground/60 hover:text-[var(--accion)] cursor-help"><Info size={12.5} /></span></div>
-                                                    {t.detalle && <div className={cn("text-[12px] truncate", t.estado === "error" ? "text-red-500" : "text-muted-foreground")}>{t.detalle}</div>}
                                                 </div>
-                                            </motion.div>
-                                        ))}
-                                        {terminado && (
-                                            <div className={cn("rounded-xl p-3 text-[13px] flex items-center gap-2", fallas.length ? "bg-amber-500/10 text-amber-700 dark:text-amber-300" : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300")}>
-                                                {fallas.length ? <AlertTriangle size={16} /> : <Check size={16} />}
-                                                {fallas.length ? `Quedó dado de alta, con ${fallas.length} paso${fallas.length !== 1 ? "s" : ""} para revisar.` : tipo === "CAMERA" ? "Lista. Falta dibujarle la línea o la zona: «Calibrar ahora»." : "Listo: dado de alta y configurado."}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
+                                            )}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </CajonSeccion>
+
+                            <CajonSeccion titulo="Cuánto trabaja" icono={Cpu}>
+                                <div className="grid grid-cols-1 gap-4">
+                                    {/*
+                                      * La misma sensibilidad, dos papeles distintos.
+                                      *
+                                      * Si la cámara avisa, esto es el paracaídas: el worker vuelve
+                                      * solo al disparo por escena cuando la cámara deja de avisar,
+                                      * y sin decirlo acá el número parece muerto y se deja en
+                                      * cualquier cosa. Si la cámara no avisa, esto es el disparo.
+                                      */}
+                                    <CajonCampo
+                                        etiqueta={f.trackTrigger === "escena"
+                                            ? "Sensibilidad de escena"
+                                            : "Sensibilidad de escena (el respaldo)"}
+                                        pista={f.trackTrigger === "escena"
+                                            ? "Cuánto tiene que cambiar la imagen para que se mande un cuadro al lector. Más bajo, más cuadros y más GPU. Se termina de afinar en el calibrador, sobre un cuadro real."
+                                            : "Acá la cámara avisa, así que esto no se usa casi nunca. Pero si la cámara deja de avisar —se le cae la analítica, le cambian la regla— la pasarela vuelve sola a mirar la escena, y entonces este número es lo único que queda. Conviene dejarlo razonable."}>
+                                        <Input value={f.trackScene} placeholder="0.08" className="tabular-nums"
+                                            onChange={(e) => set("trackScene", e.target.value)} />
+                                    </CajonCampo>
+                                    {/*
+                                      * La cámara de la entrada de San Nicolás (.86) no tiene ANPR:
+                                      * es de detección facial. Las matrículas se las lee el
+                                      * contenedor, como a cualquier interior — pero lo que mira es
+                                      * la entrada, y el guardia la busca en el monitor LPR, no en
+                                      * el de seguimiento. Pasarla a "LPR de acceso" la sacaba del
+                                      * contenedor y dejaba de leer; esto la deja leyendo y la pone
+                                      * donde se la busca.
+                                      */}
+                                    {(tipo as any)?.acceso && (
+                                        <CajonCampo etiqueta="Qué mira"
+                                            pista="Una calle de adentro es lo normal: lo que lea dibuja recorridos y estadías. Si mira la entrada o la salida, además figura en el monitor LPR junto a las lectoras de barrera, con ese sentido.">
+                                            <Select value={f.trackAcceso} onValueChange={(v) => set("trackAcceso", v)}>
+                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="INTERNA">Una calle de adentro</SelectItem>
+                                                    <SelectItem value="ENTRY">La entrada del barrio</SelectItem>
+                                                    <SelectItem value="EXIT">La salida del barrio</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </CajonCampo>
+                                    )}
+                                    <CajonCampo etiqueta="Seguimiento"
+                                        pista="Pausada queda cargada y con toda su configuración, pero no se le pide un solo cuadro. Sirve para sacarla de circulación sin borrarla.">
+                                        <Select value={f.trackEnabled} onValueChange={(v) => set("trackEnabled", v)}>
+                                            <SelectTrigger><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="true">Activo</SelectItem>
+                                                <SelectItem value="false">Pausado</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </CajonCampo>
+                                </div>
+                            </CajonSeccion>
+
+                            {/*
+                              * La franja va acá, y sólo en un equipo ya creado, porque para
+                              * dibujarla hace falta un cuadro de la cámara — y para eso hace
+                              * falta que el RTSP esté guardado. Ofrecerla durante el alta
+                              * sería ofrecer un lienzo en blanco sobre el que no se puede
+                              * calibrar nada.
+                              */}
+                            {creado && (
+                                <CajonSeccion titulo="Dónde estacionan" icono={ParkingSquare}
+                                    ayuda="Una franja dibujada sobre la calle mide si cada lugar está ocupado. Reemplaza al criterio anterior, que deducía el estacionamiento de las lecturas de matrícula y terminaba marcando autos donde no había ninguno: una lectura dice que una chapa cruzó el cuadro, no que el vehículo esté quieto.">
+                                    <Franja deviceId={creado} hayRtsp={!!f.rtspUrl} />
+                                </CajonSeccion>
+                            )}
+                        </>
+                    )}
+
+                    {muestra("funciones") && (
+                        <CajonSeccion titulo={esEdicion ? "Qué hace OmniAccess con esta cámara" : ""} icono={esEdicion ? Video : undefined}
+                            ayuda={esEdicion ? "El tipo decide a qué pantalla va; los avisos y OmniVision se prenden por separado." : undefined}>
+                            <FuncionesCamara deviceId={esEdicion ? device.id : null} tipo={f.deviceType as any} marca={f.brand}
+                                alta={funciones} alCambiarAlta={setFunciones}
+                                alCambiarTipo={(t) => set("deviceType", t)} />
+                        </CajonSeccion>
+                    )}
+                    {muestra("listo") && (
+                        <CajonSeccion titulo="">
+                            <Verificacion
+                                deviceId={creado}
+                                datos={f}
+                                tipo={tipo}
+                                faltantes={faltantes} />
+                        </CajonSeccion>
+                    )}
+
+                    {muestra("canales") && (
+                        <CajonSeccion titulo="Qué cámara es cada canal" icono={Network}
+                            ayuda="El grabador numera sus canales; OmniAccess conoce las cámaras por su IP. Este mapeo une las dos cosas, y es lo que después permite ir de un evento a su grabación.">
+                            <div className="flex items-center justify-between gap-3">
+                                <span className="text-[12px] text-muted-foreground">
+                                    {nvrCanales.length ? `${nvrCanales.length} canales leídos` : "Todavía no se leyó el grabador"}
+                                </span>
+                                <Button type="button" variant="outline" onClick={escanearCanales} disabled={nvrOcupado || !f.ip}>
+                                    {nvrOcupado ? <Loader2 size={15} className="animate-spin" /> : <Cpu size={15} />} Leer canales
+                                </Button>
                             </div>
-                        )}
-                    </PasoAnimado>
-                )}
-                <Tooltip id={TT} place="top" className="!max-w-[300px] !text-[12px] !leading-snug !rounded-lg !z-[9999]" />
+
+                            {nvrCanales.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-12 rounded-[10px] border border-dashed border-border text-muted-foreground gap-2">
+                                    <Network size={26} className="opacity-40" />
+                                    <span className="text-[12.5px]">Tocá «Leer canales» para preguntarle al grabador qué tiene conectado.</span>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-2.5">
+                                    {nvrCanales.map((ch: any) => {
+                                        const asignada = nvrCamaras.find((c: any) => nvrMapa[c.ip] === ch.channel);
+                                        const hayCamaraConEsaIp = ch.ip ? nvrCamaras.find((c: any) => c.ip === ch.ip) : null;
+                                        return (
+                                            <div key={ch.channel} className={cn("rounded-[10px] overflow-hidden border transition-colors",
+                                                asignada ? "border-[var(--bien)]/50" : "border-border")}>
+                                                <div className="relative aspect-video bg-black">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src={`/api/nvr/snapshot?ch=${ch.channel}`} alt="" loading="lazy"
+                                                        className="absolute inset-0 w-full h-full object-cover"
+                                                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = "0"; }} />
+                                                    <span className="absolute top-1.5 left-1.5 min-w-6 h-6 px-1.5 rounded-md bg-black/75 border border-white/20 flex items-center justify-center text-white text-[12px] font-bold tabular-nums">
+                                                        {ch.channel}
+                                                    </span>
+                                                    {asignada && (
+                                                        <span className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded bg-[var(--bien)] text-white text-[10px] font-bold flex items-center gap-1">
+                                                            <BadgeCheck size={10} /> Asignado
+                                                        </span>
+                                                    )}
+                                                    <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-2 pb-1.5 pt-6">
+                                                        <span className="block text-[11px] font-semibold text-white truncate">{ch.name || `Canal ${ch.channel}`}</span>
+                                                        <span className="flex items-center gap-1.5 text-[10px] text-white/60 tabular-nums">
+                                                            {/* El grabador sabe si el canal está en línea; se muestra para no importar cámaras muertas sin saberlo. */}
+                                                            {ch.online !== null && ch.online !== undefined && (
+                                                                <span className={cn("inline-block w-1.5 h-1.5 rounded-full shrink-0", ch.online ? "bg-[var(--bien)]" : "bg-[var(--quieto)]")} title={ch.online ? "En línea" : "Sin señal"} />
+                                                            )}
+                                                            {ch.ip || "sin IP"}{ch.model ? ` · ${ch.model}` : ""}
+                                                        </span>
+                                                    </span>
+                                                </div>
+                                                <div className="p-2 space-y-1.5 bg-card/60">
+                                                    <select
+                                                        value={asignada ? asignada.id : ""}
+                                                        onChange={(e) => {
+                                                            const camId = e.target.value;
+                                                            setNvrMapa((prev) => {
+                                                                const m: Record<string, number> = { ...prev };
+                                                                /* Un canal es de una sola cámara: al asignarlo hay que
+                                                                   soltar la que lo tenía, o quedan dos apuntando al
+                                                                   mismo lugar y la grabación sale de cualquiera. */
+                                                                for (const k of Object.keys(m)) if (m[k] === ch.channel) delete m[k];
+                                                                if (camId) {
+                                                                    const cam = nvrCamaras.find((x: any) => x.id === camId);
+                                                                    if (cam) m[cam.ip] = ch.channel;
+                                                                }
+                                                                return m;
+                                                            });
+                                                        }}
+                                                        className="w-full bg-background border border-border rounded-md px-2 py-1.5 text-[12px] text-foreground focus:outline-none focus:ring-1 focus:ring-[var(--accion-foco)]">
+                                                        <option value="">Sin asignar</option>
+                                                        {nvrCamaras.map((c: any) => (
+                                                            <option key={c.id} value={c.id}>{c.name} ({c.ip})</option>
+                                                        ))}
+                                                    </select>
+                                                    {!hayCamaraConEsaIp && ch.ip && !asignada && (
+                                                        <Button type="button" size="sm" className="w-full"
+                                                            onClick={() => crearCamaraDeCanal(ch)} disabled={nvrOcupado}>
+                                                            <Plus size={12} /> Importar esta cámara
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                                <span className="text-[12px] text-muted-foreground">{nvrAviso}</span>
+                                <div className="flex items-center gap-2">
+                                    {canalesSinCamara.length > 0 && (
+                                        <Button type="button" onClick={() => importarCanales(canalesSinCamara.map((c: any) => c.channel))} disabled={nvrOcupado}>
+                                            {nvrOcupado ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+                                            Importar {canalesSinCamara.length} canal{canalesSinCamara.length === 1 ? "" : "es"} sin cámara
+                                        </Button>
+                                    )}
+                                    <Button type="button" variant="outline" onClick={completarPorIp} disabled={nvrOcupado || !esEdicion} title="Mapea cada canal cuya IP es la de una cámara ya cargada">
+                                        Completar por IP
+                                    </Button>
+                                    <Button type="button" variant="outline" onClick={guardarMapa} disabled={nvrOcupado || !nvrCanales.length}>
+                                        Guardar el mapeo
+                                    </Button>
+                                </div>
+                            </div>
+                        </CajonSeccion>
+                    )}
+                </PasoAnimado>
             </CajonContenido>
+            {device?.id && (
+                <ImportarCanales abierto={!!importando} alCerrar={() => setImportando(null)} nvrId={device.id} canales={importando || []}
+                    existentes={nvrCamaras.map((c: any) => ({ id: c.id, ip: c.ip, name: c.name, deviceType: c.deviceType }))}
+                    grupos={(groups || []).map((g: any) => ({ id: g.id, name: g.name }))} alTerminar={despuesDeImportar} />
+            )}
         </Cajon>
-    );
-}
-
-
-/**
- * Cabecera de la ficha: el video en vivo de la cámara de borde a borde, sin marco, con los
- * datos encima (tipo, sentido, IP, grabación, estado) y «Comprobar» como botón flotante.
- * Para un NVR (sin video propio) una banda con su ícono y los mismos datos.
- */
-function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNombre, detectando, puedeDetectar, onComprobar, info }: any) {
-    const [listo, setListo] = useState(false);
-    const [falla, setFalla] = useState(false);
-    const esVideo = tipo !== "NVR";
-    const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
-    // Queda fijo arriba al hacer scroll en la ficha (sticky dentro del área que scrollea del cajón).
-    return (
-        <div className="sticky top-0 z-20 pb-3 bg-background">
-        <div className={cn("relative w-full overflow-hidden rounded-b-2xl bg-black shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)]", esVideo ? "aspect-video" : "h-40 bg-gradient-to-br from-sky-950 via-neutral-900 to-black")}>
-            {esVideo && (<>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api/snapshot/${device.id}?w=960`} alt="" className={cn("absolute inset-0 w-full h-full object-cover transition-all duration-500", listo ? "opacity-0" : "opacity-100 blur-[2px] scale-105")} onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
-                {!falla && <video key={device.id} src={`/go2rtc/api/stream.mp4?src=${encodeURIComponent(`lpr_${device.id}`)}&video=h264`} autoPlay muted playsInline
-                    onPlaying={() => setListo(true)} onError={() => setFalla(true)} className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-500", listo ? "opacity-100" : "opacity-0")} />}
-                {!listo && !falla && <span className="absolute inset-0 grid place-items-center"><span className="flex items-center gap-2 text-white/80 text-[12px] font-semibold"><Loader2 size={15} className="animate-spin" /> Conectando el vivo…</span></span>}
-            </>)}
-            {!esVideo && <span className="absolute right-6 top-1/2 -translate-y-1/2 text-sky-400/25"><HardDrive size={72} /></span>}
-            {/* degradados para leer los datos */}
-            <span className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
-            <span className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent pointer-events-none" />
-            {/* arriba: tipo, sentido, en vivo */}
-            {/* arriba: título del cajón dentro del video + cerrar */}
-            <div className="absolute left-5 top-4 right-4 flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                    <h2 className="text-[19px] font-bold text-white leading-tight truncate drop-shadow">{titulo}</h2>
-                    <p className="text-[12px] text-white/75 truncate drop-shadow">{subtitulo}</p>
-                    <div className="flex items-center gap-1.5 mt-2">
-                        {meta && <span className={chip}><meta.icono size={12} /> {meta.rotulo}</span>}
-                        {tipo === "LPR_CAMERA" && <span className={cn(chip, f.direction === "EXIT" ? "!bg-orange-500/80" : "!bg-emerald-600/80")}>{f.direction === "EXIT" ? "Salida" : "Entrada"}</span>}
-                        {esVideo && listo && <span className={cn(chip, "!bg-red-600/85")}><span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> EN VIVO</span>}
-                    </div>
-                </div>
-                <CajonCerrar className="shrink-0 h-9 w-9 rounded-full bg-black/45 hover:bg-black/70 backdrop-blur-md text-white grid place-items-center ring-1 ring-white/15 transition-colors" aria-label="Cerrar"><X size={17} /></CajonCerrar>
-            </div>
-            {/* abajo: IP, MAC, grabación + comprobar */}
-            <div className="absolute left-4 right-4 bottom-3 flex items-end gap-3">
-                <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={cn(chip, "font-mono")}><Network size={11} /> {f.ip}</span>
-                        {f.mac && <span className={cn(chip, "font-mono font-semibold")}>{f.mac}</span>}
-                        {tipo !== "NVR" && <span className={chip}><HardDrive size={11} /> {actual ? `${nvrNombre || "NVR"} · CH ${actual.ch}` : "Sin grabación"}</span>}
-                    </div>
-                    {info && <div title={info.nota || undefined} className={cn(chip, "max-w-full truncate", info.viaNvr ? "!bg-amber-500/85 !text-black" : info.ok ? "!bg-emerald-600/80" : "!bg-red-600/80")}>{info.ok ? <Check size={11} /> : <AlertTriangle size={11} />} {info.ok ? `${info.viaNvr ? "Según el NVR: " : ""}${info.model || "Responde"}${info.firmwareVersion ? ` · ${info.firmwareVersion}` : ""}` : (info.error || "No respondió")}</div>}
-                </div>
-                <button type="button" onClick={onComprobar} disabled={detectando || !puedeDetectar}
-                    data-tooltip-id={TT} data-tooltip-content="Comprobar: consulta el equipo ahora (modelo, MAC, firmware) para confirmar que responde con estas credenciales."
-                    className="shrink-0 h-9 px-3 rounded-full bg-white/90 hover:bg-white text-black text-[12px] font-bold inline-flex items-center gap-1.5 shadow-lg disabled:opacity-60">
-                    {detectando ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />} Comprobar
-                </button>
-            </div>
-        </div>
-        </div>
     );
 }
