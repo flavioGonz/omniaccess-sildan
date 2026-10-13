@@ -8,6 +8,7 @@ import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CURVA_SUAVE } from "@/components/ui/entrada";
+import type { FotoFila } from "@/lib/detector-propio";
 
 /**
  * Agregar fotos al conjunto: soltarlas, elegirlas, o sacarle una foto a una cámara.
@@ -37,9 +38,9 @@ function imagenesDeHtml(html: string): string[] {
 /** Cuántos links se aceptan por tanda: más es pegar una lista por error. */
 const LINKS_MAX = 40;
 
-function traerUno(link: string): Promise<void> {
+function traerUno(link: string): Promise<FotoFila> {
     return fetch("/api/vision/objetos/fotos", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: link }) })
-        .then(async (r) => { if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error || `El servidor respondió ${r.status}`); });
+        .then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`); return j.foto as FotoFila; });
 }
 
 /** Cuánto queda a la vista la tanda terminada antes de plegarse: lo justo para ver que llegaron. */
@@ -47,14 +48,14 @@ const PLEGAR_MS = 3500;
 /** Lo que acepta el servidor (cualquier image/*, que recomprime): lo demás se avisa en vez de mandarse para que falle. */
 const esFoto = (f: File) => f.type.startsWith("image/");
 
-function subirUna(f: File, alAvanzar: (enviados: number) => void): Promise<void> {
+function subirUna(f: File, alAvanzar: (enviados: number) => void): Promise<FotoFila> {
     return new Promise((ok, mal) => {
         const x = new XMLHttpRequest();
         x.open("POST", "/api/vision/objetos/fotos");
         x.setRequestHeader("content-type", f.type);
         x.upload.onprogress = (e) => { if (e.lengthComputable) alAvanzar(e.loaded); };
         x.onload = () => {
-            if (x.status >= 200 && x.status < 300) return ok();
+            if (x.status >= 200 && x.status < 300) { try { return ok(JSON.parse(x.responseText).foto); } catch { return mal(new Error("El servidor no devolvió la foto")); } }
             let m = `El servidor respondió ${x.status}`;
             try { m = JSON.parse(x.responseText)?.error || m; } catch { /* la respuesta no era JSON: queda el código */ }
             mal(new Error(m));
@@ -64,7 +65,13 @@ function subirUna(f: File, alAvanzar: (enviados: number) => void): Promise<void>
     });
 }
 
-export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; name: string }[]; alAgregar: () => void }) {
+/**
+ * `alAgregar(nuevas, abrir)`: las fotos que llegaron, y si hay que abrirlas para dibujar ya.
+ * Se abren las que vienen de a una y a propósito — un link pegado, Ctrl+V, una imagen arrastrada
+ * desde otra pestaña —: la persona la está mirando y lo siguiente es marcarla. Una tanda de
+ * archivos soltada no: son para dibujar después, de corrido.
+ */
+export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; name: string }[]; alAgregar: (nuevas: FotoFila[], abrir: boolean) => void }) {
     const [lista, setLista] = useState<Subida[]>([]);
     const [encima, setEncima] = useState(false);
     const [enPagina, setEnPagina] = useState(false);
@@ -74,7 +81,7 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
     const [texto, setTexto] = useState("");
     const ocupado = lista.some((s) => s.estado === "espera" || s.estado === "subiendo");
 
-    async function subir(entrada: FileList | File[] | null) {
+    async function subir(entrada: FileList | File[] | null, abrir = false) {
         const todas = [...(entrada || [])];
         const fs = todas.filter(esFoto);
         if (todas.length > fs.length) toast.error({ title: `${todas.length - fs.length} archivo${todas.length - fs.length === 1 ? "" : "s"} no son fotos`, description: "Se saltearon." });
@@ -82,21 +89,22 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
         const nuevas: Subida[] = fs.map((f, i) => ({ id: `${Date.now()}-${i}`, nombre: f.name, url: URL.createObjectURL(f), bytes: f.size, enviados: 0, estado: "espera" }));
         setLista((l) => [...l.filter((s) => s.estado === "espera" || s.estado === "subiendo"), ...nuevas]);
         let mal = 0;
+        const llegaron: FotoFila[] = [];
         for (const [k, f] of fs.entries()) {
             const id = nuevas[k].id;
             const poner = (c: Partial<Subida>) => setLista((l) => l.map((s) => (s.id === id ? { ...s, ...c } : s)));
             poner({ estado: "subiendo" });
-            try { await subirUna(f, (enviados) => poner({ enviados })); poner({ estado: "lista", enviados: f.size }); }
+            try { llegaron.push(await subirUna(f, (enviados) => poner({ enviados }))); poner({ estado: "lista", enviados: f.size }); }
             catch (e: any) { mal++; poner({ estado: "mal", error: e?.message }); }
         }
         if (mal) toast.error({ title: `${mal} de ${fs.length} no se pudieron subir`, description: "Quedan marcadas en rojo: pasá el mouse para ver por qué." });
         else toast.success({ title: `${fs.length} foto${fs.length === 1 ? "" : "s"} agregada${fs.length === 1 ? "" : "s"}`, description: "Están en «Sin dibujar»." });
-        alAgregar();
+        alAgregar(llegaron, abrir);
         // Las que llegaron se pliegan; las que fallaron quedan para que se vea cuáles fueron.
         setTimeout(() => setLista((l) => { l.filter((s) => s.estado === "lista").forEach((s) => URL.revokeObjectURL(s.url)); return l.filter((s) => s.estado !== "lista"); }), PLEGAR_MS);
     }
 
-    async function traer(links: string[]) {
+    async function traer(links: string[], abrir = true) {
         const ls = links.slice(0, LINKS_MAX);
         if (links.length > LINKS_MAX) toast.error({ title: `Se traen los primeros ${LINKS_MAX} links`, description: `Eran ${links.length}.` });
         if (!ls.length) { toast.error({ title: "No hay ningún link", description: "Tiene que empezar con http:// o https://." }); return; }
@@ -106,15 +114,16 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
         });
         setLista((l) => [...l.filter((s) => s.estado === "espera" || s.estado === "subiendo"), ...nuevas]);
         let mal = 0, ultimoError = "";
+        const llegaron: FotoFila[] = [];
         for (const s of nuevas) {
             const poner = (c: Partial<Subida>) => setLista((l) => l.map((x) => (x.id === s.id ? { ...x, ...c } : x)));
             poner({ estado: "subiendo" });
-            try { await traerUno(s.url); poner({ estado: "lista" }); }
+            try { llegaron.push(await traerUno(s.url)); poner({ estado: "lista" }); }
             catch (e: any) { mal++; ultimoError = e?.message || ""; poner({ estado: "mal", error: e?.message }); }
         }
         if (mal) toast.error({ title: `${mal} de ${ls.length} no se pudieron traer`, description: mal === 1 ? ultimoError : "Quedan marcadas en rojo: pasá el mouse para ver por qué." });
         else toast.success({ title: `${ls.length} foto${ls.length === 1 ? "" : "s"} traída${ls.length === 1 ? "" : "s"}`, description: "Están en «Sin dibujar»." });
-        alAgregar();
+        alAgregar(llegaron, abrir);
         setTimeout(() => setLista((l) => l.filter((x) => x.estado !== "lista")), PLEGAR_MS);
     }
 
@@ -125,8 +134,8 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
             const r = await fetch(`/api/vision/objetos/fotos?camara=${encodeURIComponent(camara)}`, { method: "POST" });
             const j = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
-            toast.success({ title: "Foto agregada", description: "Está en «Sin dibujar»." });
-            alAgregar();
+            toast.success({ title: "Foto agregada", description: "Se abre para dibujarla." });
+            alAgregar(j.foto ? [j.foto] : [], true);
         } catch (e: any) { toast.error({ title: "No se sacó la foto", description: e?.message }); }
         finally { setSacando(false); }
     }
@@ -148,7 +157,7 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
             e.preventDefault(); n = 0; setEnPagina(false); setEncima(false);
             const dt = e.dataTransfer!;
             const fotos = [...dt.files].filter(esFoto);
-            if (fotos.length) return void acciones.current.subir(fotos);
+            if (fotos.length) return void acciones.current.subir(fotos, fotos.length === 1);
             // Una imagen arrastrada desde otra página: el <img> del HTML es la imagen; el uri-list
             // a veces es el link de la página que la contiene.
             const links = imagenesDeHtml(dt.getData("text/html"));
@@ -158,7 +167,7 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
             const t = e.target as HTMLElement | null;
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             const fotos = [...(e.clipboardData?.files || [])].filter(esFoto);
-            if (fotos.length) { e.preventDefault(); return void acciones.current.subir(fotos); }
+            if (fotos.length) { e.preventDefault(); return void acciones.current.subir(fotos, true); }
             const links = linksDe(e.clipboardData?.getData("text/plain") || "");
             if (links.length) { e.preventDefault(); acciones.current.traer(links); }
         };
@@ -200,7 +209,7 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
                         </span>
                     </div>
                 </motion.button>
-                <input ref={archivos} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { subir(e.target.files); e.target.value = ""; }} />
+                <input ref={archivos} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { subir(e.target.files, e.target.files?.length === 1); e.target.value = ""; }} />
 
                 {/* Sacarle una foto a una cámara: lo mejor para entrenar (ver «Fotos de las cámaras o subidas»). */}
                 <div className="rounded-[14px] border border-border bg-card p-3 flex flex-col gap-2">
@@ -223,8 +232,8 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
                 className="flex items-center gap-2 rounded-[14px] border border-border bg-card pl-3 pr-1.5 py-1.5">
                 <Link2 size={16} className="text-muted-foreground shrink-0" />
                 <Input value={texto} onChange={(e) => setTexto(e.target.value)}
-                    onPaste={(e) => { const ls = linksDe(e.clipboardData.getData("text/plain")); if (ls.length > 1) { e.preventDefault(); traer(ls); } }}
-                    placeholder="Pegá el link de una imagen (o de la página que la tiene). Varios a la vez también."
+                    onPaste={(e) => { const ls = linksDe(e.clipboardData.getData("text/plain")); if (ls.length) { e.preventDefault(); setTexto(""); traer(ls); } }}
+                    placeholder="Pegá el link de una imagen (o de la página que la tiene): se trae y se abre para dibujar."
                     className="h-9 flex-1 min-w-0 border-0 bg-transparent shadow-none focus-visible:ring-0 px-1" />
                 <Button type="submit" variant="outline" disabled={!texto.trim()}><ImagePlus size={14} /> Traer</Button>
             </form>

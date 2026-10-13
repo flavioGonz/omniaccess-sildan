@@ -45,6 +45,12 @@ export default function ObjetosPropios() {
     const [fotos, setFotos] = useState<FotoFila[] | null>(null);
     const [camaras, setCamaras] = useState<{ id: string; name: string }[]>([]);
     const [anotando, setAnotando] = useState<number | null>(null);
+    /**
+     * Las fotos que se abrieron solas al llegar (link pegado, Ctrl+V, una sola soltada). El
+     * editor recibe SÓLO esas: abrirlo sobre la lista de «Sin dibujar» obligaba a buscar la foto
+     * recién pegada entre las demás. Al cerrarlo se vuelve a la lista de siempre.
+     */
+    const [recien, setRecien] = useState<FotoFila[] | null>(null);
     const [nueva, setNueva] = useState({ nombre: "", descripcion: "" });
     const [editando, setEditando] = useState<ClaseResumen | null>(null);
     const [aBorrar, setABorrar] = useState<ClaseResumen | null>(null);
@@ -90,12 +96,13 @@ export default function ObjetosPropios() {
         try {
             const j = await pedir(`/api/vision/objetos/fotos/${id}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ cajas, revisada: true }) });
             setFotos((l) => l && l.map((f) => (f.id === id ? j.foto : f)));
+            setRecien((l) => l && l.map((f) => (f.id === id ? j.foto : f)));
             fetch("/api/vision/objetos", { cache: "no-store" }).then((r) => r.json()).then(setEstado).catch(() => { });
             return j.foto as FotoFila;
         } catch (e: any) { toast.error({ title: "No se guardó", description: e?.message }); return null; }
     };
     const borrarFoto = async (id: string) => {
-        try { await pedir(`/api/vision/objetos/fotos/${id}`, { method: "DELETE" }); setFotos((l) => l && l.filter((f) => f.id !== id)); return true; }
+        try { await pedir(`/api/vision/objetos/fotos/${id}`, { method: "DELETE" }); setFotos((l) => l && l.filter((f) => f.id !== id)); setRecien((l) => l && l.filter((f) => f.id !== id)); return true; }
         catch (e: any) { toast.error({ title: "No se descartó", description: e?.message }); return false; }
     };
 
@@ -225,7 +232,12 @@ export default function ObjetosPropios() {
                     {/* ── 2. Juntar fotos y dibujar ── */}
                     <section id="fotos" className="scroll-mt-4 space-y-3">
                         <Titulo n={2} titulo="Juntar fotos y dibujar" texto="Fotos donde aparece el objeto (y algunas donde no), y un recuadro sobre cada uno." />
-                        <SoltarFotos camaras={camaras} alAgregar={() => { setVista("sin"); cargar(); }} />
+                        <SoltarFotos camaras={camaras} alAgregar={(nuevas, abrir) => {
+                            setVista("sin"); cargar();
+                            if (!abrir || !nuevas.length || anotando != null) return;
+                            if (!estado.clases.length) { toast.error({ title: "Foto agregada", description: "Para dibujarla, primero creá una clase arriba." }); return; }
+                            setRecien(nuevas); setAnotando(0);
+                        }} />
                         <CamarasOSubidas porOrigen={estado.fotos.porOrigen} />
 
                         <div className="flex items-center gap-2 flex-wrap">
@@ -276,9 +288,9 @@ export default function ObjetosPropios() {
             </div>
             <CerebroFlotante e={ent} />
 
-            {anotando != null && fotos && (
-                <Anotador fotos={fotos} inicio={anotando} clases={estado.clases} alGuardar={guardarFoto} alBorrar={borrarFoto}
-                    alCerrar={() => { setAnotando(null); cargar(); }} />
+            {anotando != null && (recien || fotos) && (
+                <Anotador fotos={(recien || fotos)!} inicio={anotando} clases={estado.clases} alGuardar={guardarFoto} alBorrar={borrarFoto}
+                    alCerrar={() => { setAnotando(null); setRecien(null); cargar(); }} />
             )}
             {aBorrar && (
                 <ConfirmarAccion open onOpenChange={(o) => { if (!o) setABorrar(null); }} id={aBorrar.id} title={`Clase «${aBorrar.nombre}»`}
