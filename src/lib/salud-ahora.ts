@@ -21,6 +21,12 @@ export type MedidaAhora = {
     gpu: { t: number | null; w: number | null; wMax: number | null; uso: number | null; mem: number | null; memTotal: number | null; ventilador: number | null; motivos: string[] } | null;
     cpu: { t: number | null } | null;
     error?: string;
+    /**
+     * Por qué no hay GPU, cuando no hay: «sin-placa» (no existe nvidia-smi: el servidor no tiene
+     * NVIDIA) o «sin-driver» (nvidia-smi está y no habla con la placa). La pantalla lo explica en
+     * vez de mostrar el comando que falló cortado a 120 caracteres, que no decía nada.
+     */
+    gpuFalla?: "sin-placa" | "sin-driver";
 };
 
 let cache: { t: number; m: MedidaAhora } | null = null;
@@ -57,9 +63,14 @@ export async function medirAhora(): Promise<MedidaAhora> {
     if (cache && Date.now() - cache.t < VIGENCIA_MS) return cache.m;
     if (enCurso) return enCurso;
     enCurso = (async () => {
-        let gpu: MedidaAhora["gpu"] = null, error: string | undefined;
-        try { gpu = await medirGpu(); } catch (e: any) { error = `nvidia-smi: ${String(e?.message || e).slice(0, 120)}`; }
-        const m: MedidaAhora = { ts: Date.now(), gpu, cpu: medirCpu(), ...(error ? { error } : {}) };
+        let gpu: MedidaAhora["gpu"] = null, error: string | undefined, gpuFalla: MedidaAhora["gpuFalla"];
+        try { gpu = await medirGpu(); } catch (e: any) {
+            // Lo que explica la falla está en lo que imprime nvidia-smi («Failed to initialize
+            // NVML…», «couldn't communicate with the NVIDIA driver»), no en el «Command failed».
+            gpuFalla = e?.code === "ENOENT" ? "sin-placa" : "sin-driver";
+            error = String(e?.stdout || e?.stderr || e?.message || e).trim().split("\n")[0].slice(0, 200);
+        }
+        const m: MedidaAhora = { ts: Date.now(), gpu, cpu: medirCpu(), ...(error ? { error, gpuFalla } : {}) };
         cache = { t: Date.now(), m };
         return m;
     })().finally(() => { enCurso = null; });

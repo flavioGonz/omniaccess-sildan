@@ -44,7 +44,7 @@ export default function SaludEquipo() {
     const [cargando, setCargando] = useState(false);
     const [cursor, setCursor] = useState<number | null>(null);
     const [vivo, setVivo] = useState<Punto[]>([]);
-    const [ahoraVivo, setAhoraVivo] = useState<{ ts: number; estado: string; gpu: any; cpu: any; limites: Limites | null; error?: string } | null>(null);
+    const [ahoraVivo, setAhoraVivo] = useState<{ ts: number; estado: string; gpu: any; cpu: any; limites: Limites | null; error?: string; gpuFalla?: "sin-placa" | "sin-driver" } | null>(null);
     const enVivo = horas === 0;
 
     // La telemetría guardada (para los rangos, la tabla de entrenamientos y los límites). En vivo se pide 1 h.
@@ -128,18 +128,34 @@ export default function SaludEquipo() {
             </div>
 
             {error && <div className="rounded-[10px] border border-border bg-card px-4 py-3 text-[13px] flex items-center gap-3"><AlertTriangle size={16} className="tono-mal" /> No se pudo traer la historia: {error} <button type="button" onClick={traer} className="ml-auto text-[var(--accion)] font-semibold">Reintentar</button></div>}
-            {a?.error && <div className="rounded-[10px] border chip-aviso px-4 py-2.5 text-[12.5px] flex items-center gap-2"><AlertTriangle size={14} /> {a.error}</div>}
+            {/* Sin GPU: qué pasa y qué hacer, no el comando que falló. En el lab el driver no
+                cargaba (Secure Boot) y esta pantalla mostraba «nvidia-smi: Command failed: …»
+                cortado, con los medidores en «—» sin decir por qué. */}
+            {a?.error && (a.gpuFalla === "sin-placa" ? (
+                <div className="rounded-[10px] border border-border bg-card px-4 py-3 text-[12.5px] flex items-start gap-2.5"><Cpu size={15} className="mt-0.5 text-muted-foreground" />
+                    <span>Este servidor no tiene una placa NVIDIA: no hay GPU que medir. Todo el análisis corre en la CPU.</span></div>
+            ) : (
+                <div className="rounded-[10px] border chip-mal px-4 py-3 text-[12.5px] flex items-start gap-2.5">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                    <div className="space-y-1 min-w-0">
+                        <div className="text-[13.5px] font-bold">La placa de video no responde</div>
+                        <div className="text-foreground/85 leading-snug">El driver de NVIDIA no está cargado, o el servidor no deja usarlo. Mientras tanto OmniVision y el lector de matrículas analizan en la CPU — por eso la CPU trabaja y calienta más que en reposo — y no se puede entrenar.</div>
+                        <div className="text-foreground/85 leading-snug"><b>Qué hacer:</b> si el equipo tiene Secure Boot, apagarlo en el BIOS, o enrolar la llave del driver en la consola al arrancar. Con la placa respondiendo, estos medidores se llenan solos.</div>
+                        <div className="font-mono text-[11px] text-foreground/60 break-words">{a.error}</div>
+                    </div>
+                </div>
+            ))}
 
             {/* ── Ahora: cuatro medidores ── */}
             <div className="grid grid-cols-2 xl:grid-cols-4 gap-2">
                 <Medidor icono={Thermometer} rotulo="Temperatura GPU" valor={a?.gpu?.t ?? null} unidad="°C" min={20} max={100}
-                    aviso={L?.gpu.enfriar} mal={L?.gpu.cortar} pie={L ? `congela en ${L.gpu.enfriar} · corta en ${L.gpu.cortar} °C` : undefined} linea={serie((p) => p.gt)} color={COLOR.gpu} />
+                    aviso={L?.gpu.enfriar} mal={L?.gpu.cortar} pie={a?.gpuFalla === "sin-driver" ? "sin datos: la placa no responde" : L ? `congela en ${L.gpu.enfriar} · corta en ${L.gpu.cortar} °C` : undefined} linea={serie((p) => p.gt)} color={COLOR.gpu} />
                 <Medidor icono={Cpu} rotulo="Temperatura CPU" valor={a?.cpu?.t != null ? Math.round(a.cpu.t) : null} unidad="°C" min={20} max={105}
                     aviso={L?.cpu.enfriar} mal={L?.cpu.cortar} pie={L ? `congela en ${L.cpu.enfriar} · corta en ${L.cpu.cortar} °C` : undefined} linea={serie((p) => p.ct)} color={COLOR.cpu} />
                 <Medidor icono={Zap} rotulo="Consumo GPU" valor={a?.gpu?.w != null ? Math.round(a.gpu.w) : null} unidad="W" min={0} max={a?.gpu?.wMax || 70}
-                    pie={a?.gpu?.wMax ? `tope ${Math.round(a.gpu.wMax)} W${a.gpu.ventilador != null ? ` · ventilador ${a.gpu.ventilador} %` : ""}` : undefined} linea={serie((p) => p.w)} color={COLOR.w} />
+                    pie={a?.gpuFalla === "sin-driver" ? "sin datos: la placa no responde" : a?.gpu?.wMax ? `tope ${Math.round(a.gpu.wMax)} W${a.gpu.ventilador != null ? ` · ventilador ${a.gpu.ventilador} %` : ""}` : undefined} linea={serie((p) => p.w)} color={COLOR.w} />
                 <Medidor icono={Gauge} rotulo="Uso GPU" valor={a?.gpu?.uso ?? null} unidad="%" min={0} max={100}
-                    pie={a?.gpu?.mem != null ? `memoria ${(a.gpu.mem / 1024).toFixed(1)} de ${((a.gpu.memTotal || 0) / 1024).toFixed(1)} GB` : undefined} linea={serie((p) => p.uso)} color={COLOR.mem} />
+                    pie={a?.gpuFalla === "sin-driver" ? "sin datos: la placa no responde" : a?.gpu?.mem != null ? `memoria ${(a.gpu.mem / 1024).toFixed(1)} de ${((a.gpu.memTotal || 0) / 1024).toFixed(1)} GB` : undefined} linea={serie((p) => p.uso)} color={COLOR.mem} />
             </div>
             {a?.gpu?.motivos?.length ? <p className="text-[12px] tono-aviso flex items-center gap-1.5"><AlertTriangle size={13} /> La GPU está bajando el reloj por {a.gpu.motivos.join(", ")}.</p> : null}
 
