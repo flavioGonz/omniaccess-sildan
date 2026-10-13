@@ -2960,8 +2960,14 @@ function watchCatLabel(cat) {
 }
 async function notifyWatchTelegram(text) {
     try {
-        const token = process.env.TELEGRAM_BOT_TOKEN || "8923590022:AAEas5wccmXq8zhE4tT1BZkehOgAcpmgPDc";
-        const chat = process.env.TELEGRAM_CHAT_ID || "-5200291969";
+        // Del .env o de Ajustes › Notificaciones; sin configurar no se manda (antes había un bot
+        // real escrito acá como respaldo, publicado en el repo; ver src/lib/telegram.ts).
+        let token = process.env.TELEGRAM_BOT_TOKEN || "", chat = process.env.TELEGRAM_CHAT_ID || "";
+        if (!token || !chat) {
+            const filas = await prisma.setting.findMany({ where: { key: { in: ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] } } }).catch(() => []);
+            for (const f of filas) { if (f.key === "TELEGRAM_BOT_TOKEN") token ||= (f.value || "").trim(); else chat ||= (f.value || "").trim(); }
+        }
+        if (!token || !chat) return;
         await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ chat_id: chat, text, parse_mode: "HTML" }),
