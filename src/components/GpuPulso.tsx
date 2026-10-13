@@ -25,6 +25,8 @@ import { Pista } from "@/components/ui/pista";
 type Vivo = {
     hay: boolean; uso?: number; memUsada?: number; memTotal?: number; watts?: number | null; limite?: number | null;
     temp?: number | null; enGpu?: boolean | null; edadSeg?: number;
+    /** Sin lectura: por qué (ver /api/gpu/vivo). */
+    motivo?: "sin-placa" | "sin-driver"; detalle?: string | null;
 };
 
 /** Cada cuánto se pregunta: la ruta comparte una lectura de 4 s, más seguido no trae nada nuevo. */
@@ -54,6 +56,35 @@ export function GpuPulso({ collapsed }: { collapsed?: boolean }) {
         return () => { vivo = false; clearInterval(iv); };
     }, []);
 
+    // Sin lectura no se esconde: una placa que no responde es justo lo que hay que ver. Antes el
+    // indicador desaparecía y el lab corría todo en CPU sin que el menú lo dijera.
+    if (p && !p.hay) {
+        const sinDriver = p.motivo !== "sin-placa";
+        const texto = (
+            <span className="block space-y-1.5 text-[12px] leading-snug">
+                {sinDriver ? (
+                    <>
+                        <span className="block text-[var(--mal-texto)] font-semibold">La placa no responde.</span>
+                        <span className="block">El driver de NVIDIA no está cargado (o el servidor no deja usarlo): OmniVision y el lector de matrículas corren en CPU, mucho más lentos, y no se puede entrenar.</span>
+                        <span className="block text-muted-foreground">Si el equipo tiene Secure Boot, hay que enrolar la llave del driver en la consola, o apagar Secure Boot.</span>
+                        {p.detalle && <span className="block text-muted-foreground font-mono text-[10.5px] break-words">{p.detalle}</span>}
+                    </>
+                ) : (
+                    <span className="block">Este servidor no tiene una placa NVIDIA (no hay nvidia-smi): todo corre en CPU.</span>
+                )}
+            </span>
+        );
+        return (
+            <Pista titulo={sinDriver ? "GPU sin driver" : "Sin GPU"} texto={texto} ancho={270}>
+                <Link href="/admin/vision/entrenar/salud" aria-label={sinDriver ? "GPU sin driver" : "Sin GPU"}
+                    className={cn("flex items-center gap-1.5 rounded-lg border px-2 py-1.5 shrink-0 transition-colors hover:bg-accent", sinDriver ? "border-[color-mix(in_oklab,var(--mal)_45%,var(--border))]" : "border-border bg-card/60", collapsed && "px-1.5")}>
+                    <span className={cn("h-2 w-2 rounded-full shrink-0", sinDriver ? "bg-[var(--mal)] animate-pulse" : "bg-muted-foreground/40")} />
+                    {!collapsed && <span className={cn("text-xs font-semibold", sinDriver ? "text-[var(--mal-texto)]" : "text-muted-foreground")}><span className="text-[10px] mr-0.5 opacity-75">GPU</span>{sinDriver ? "sin driver" : "no hay"}</span>}
+                    {collapsed && <Cpu size={13} className="text-muted-foreground" />}
+                </Link>
+            </Pista>
+        );
+    }
     if (!p?.hay || p.uso == null) return null;
 
     const edad = (p.edadSeg ?? 0) + (Date.now() - recibido) / 1000;
