@@ -1301,15 +1301,18 @@ export function VisorCuadro({
                         onElegir={(p) => { setModo("foto"); setPasoViendo(p.actual ? null : p); }}
                         onCerrar={() => setPanel(null)} />
                 )}
+                {/* Buscar parecidos baja como persiana DENTRO de esta ventana (antes era otra ventana a la derecha). */}
+                <AnimatePresence>
+                    {parecidos && fila.snapshotUrl && (
+                        <BuscarParecidos key="parecidos" foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()} onCerrar={() => setParecidos(false)}
+                            onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
+                    )}
+                </AnimatePresence>
             </motion.div>
 
             {compartir && (
                 <CompartirEvento foto={fila.snapshotUrl || null} deviceId={fila.deviceId || null} deviceName={fila.cameraName || null}
                     instante={fila.timestamp} titulo={textoCompartir.titulo} lineas={textoCompartir.lineas} onCerrar={() => setCompartir(false)} />
-            )}
-            {parecidos && fila.snapshotUrl && (
-                <BuscarParecidos foto={fila.snapshotUrl} instanteMs={new Date(fila.timestamp).getTime()} onCerrar={() => setParecidos(false)}
-                    onVerGrabacion={(deviceId, ms, camara) => setGrabacionDe({ deviceId, ms, camara })} />
             )}
             {grabacionDe && (
                 <VerGrabacion deviceId={grabacionDe.deviceId} nombre={grabacionDe.camara} instanteMs={grabacionDe.ms} onClose={() => setGrabacionDe(null)} />

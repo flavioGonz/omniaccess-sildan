@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Crop, Image as ImageIcon, Loader2, PlayCircle, Scan, ScanSearch, Search, Server, Sparkles, X } from "lucide-react";
+import { ChevronUp, Crop, Image as ImageIcon, Loader2, PlayCircle, Scan, ScanSearch, Search, Server, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { ICONO_GRUPO, nombreClase } from "@/components/vision/ObjetoRegistro";
@@ -21,7 +21,16 @@ import { hasAcuSeekNvr } from "@/app/actions/acuseek";
  *
  * Por qué se busca un RECORTE y no la foto entera: las huellas son de recortes (una persona,
  * un auto). Una foto de la calle entera no se parece a ningún recorte.
+ *
+ * Se despliega como una PERSIANA dentro de la ventana del evento (pedido de Nico, 13/10): antes
+ * era un panel aparte a la derecha de la pantalla y quedaban dos ventanas, una tapando a la otra.
+ * Va adentro del marco del evento y baja desde arriba; al cerrarla se enrolla y el evento queda
+ * como estaba (encuadre y zoom incluidos). El padre la envuelve en <AnimatePresence> para que
+ * también se vea subir.
  */
+
+/** La persiana baja con un recorte que se abre de arriba hacia abajo, sin rebote. */
+const PERSIANA = { duration: 0.42, ease: [0.22, 1, 0.36, 1] as const };
 
 type Caja = [number, number, number, number];
 type Objeto = { caja: Caja; clase: string; grupo: string; confianza: number };
@@ -132,11 +141,10 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
     const elegidoEs = useMemo(() => (o: Objeto) => !!caja && JSON.stringify(conMargen(o.caja)) === JSON.stringify(caja), [caja]);
 
     return (
-        <div className="absolute inset-0 z-[70]" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-            <motion.div className="absolute inset-0 bg-black/55" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={onCerrar} />
-            <motion.aside role="dialog" aria-label="Buscar parecidos"
-                initial={{ x: "100%" }} animate={{ x: 0 }} transition={{ type: "spring", stiffness: 380, damping: 38 }}
-                className="dark absolute inset-y-0 right-0 w-full lg:w-[min(1040px,94%)] flex flex-col bg-[#0c0e12]/[0.98] backdrop-blur-xl border-l border-white/10 text-white shadow-[-24px_0_48px_-24px_rgba(0,0,0,0.7)]">
+        <motion.section role="dialog" aria-label="Buscar parecidos"
+            onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onWheel={(e) => e.stopPropagation()}
+            initial={{ clipPath: "inset(0 0 100% 0)" }} animate={{ clipPath: "inset(0 0 0% 0)" }} exit={{ clipPath: "inset(0 0 100% 0)" }} transition={PERSIANA}
+            className="dark absolute inset-0 z-[60] flex flex-col bg-[#0c0e12]/[0.97] backdrop-blur-xl text-white">
 
                 <div className="shrink-0 flex items-start gap-3 px-6 pt-5 pb-4 border-b border-white/[0.08]">
                     <span className="w-10 h-10 rounded-[10px] grid place-items-center bg-white/[0.07] border border-white/10 shrink-0"><ScanSearch size={18} className="text-[var(--accion-en-oscuro)]" /></span>
@@ -144,7 +152,10 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                         <div className="text-[17px] font-bold leading-tight">Buscar parecidos</div>
                         <div className="text-[12.5px] text-white/55 mt-0.5">Recortá lo que querés buscar en la foto (o tocá lo que reconoce OmniVision) y se busca en todas las cámaras.</div>
                     </div>
-                    <button type="button" onClick={onCerrar} aria-label="Cerrar" title="Cerrar  ( Esc )" className="w-8 h-8 grid place-items-center rounded-[6px] text-white/60 hover:text-white hover:bg-white/10"><X size={17} /></button>
+                    <button type="button" onClick={onCerrar} aria-label="Subir la persiana" title="Volver al evento  ( Esc )"
+                        className="h-8 pl-2 pr-3 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-white/70 hover:text-white hover:bg-white/10">
+                        <ChevronUp size={16} /> Volver al evento
+                    </button>
                 </div>
 
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[380px_1fr]">
@@ -313,8 +324,12 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                         </div>
                     </div>
                 )}
-            </motion.aside>
-        </div>
+                {/* El borde de abajo de la persiana: tirar de acá la enrolla. */}
+                <button type="button" onClick={onCerrar} aria-label="Subir la persiana" title="Volver al evento  ( Esc )"
+                    className="shrink-0 h-5 grid place-items-center border-t border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07] transition-colors">
+                    <span className="block w-12 h-1 rounded-full bg-white/30" />
+                </button>
+        </motion.section>
     );
 }
 
