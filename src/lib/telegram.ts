@@ -5,19 +5,40 @@
 
 import https from "https";
 import { fecha } from "@/lib/fechas";
+import { prisma } from "@/lib/prisma";
 
-// Bot configuration — can be overridden via env vars
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8923590022:AAEas5wccmXq8zhE4tT1BZkehOgAcpmgPDc";
-const CHAT_ID = process.env.TELEGRAM_CHAT_ID || "-5200291969";
-
-const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
+/**
+ * El bot y el grupo salen del .env o de Ajustes › Notificaciones (las mismas claves que guarda
+ * CentroNotificaciones). Si no hay ninguno, NO se manda nada.
+ *
+ * Antes había un token y un chat escritos acá como respaldo: un bot real publicado en el repo, y
+ * cualquier instalación sin configurar (el lab, una nueva) le mandaba sus alertas a ese grupo.
+ * En San Nicolás, además, ya no servía: desde el 7/10 Telegram contesta «bot was kicked from
+ * the group chat». Sin configuración, lo correcto es callarse y decirlo una vez en el log.
+ */
+let avisado = false;
+async function configTelegram(): Promise<{ api: string; chat: string } | null> {
+    let token = process.env.TELEGRAM_BOT_TOKEN || "", chat = process.env.TELEGRAM_CHAT_ID || "";
+    if (!token || !chat) {
+        const filas = await prisma.setting.findMany({ where: { key: { in: ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"] } } }).catch(() => []);
+        const v = Object.fromEntries(filas.map((f) => [f.key, (f.value || "").trim()]));
+        token ||= v.TELEGRAM_BOT_TOKEN || ""; chat ||= v.TELEGRAM_CHAT_ID || "";
+    }
+    if (!token || !chat) {
+        if (!avisado) { avisado = true; console.warn("[Telegram] sin bot o grupo configurado: no se manda nada (Ajustes › Notificaciones)."); }
+        return null;
+    }
+    return { api: `https://api.telegram.org/bot${token}`, chat };
+}
 
 // ─── Send Text Message ─────────────────────────────
 export async function sendTelegramMessage(text: string): Promise<boolean> {
     try {
-        const url = `${TELEGRAM_API}/sendMessage`;
+        const cfg = await configTelegram();
+        if (!cfg) return false;
+        const url = `${cfg.api}/sendMessage`;
         const body = JSON.stringify({
-            chat_id: CHAT_ID,
+            chat_id: cfg.chat,
             text,
             parse_mode: "HTML",
             disable_web_page_preview: true,
@@ -70,6 +91,8 @@ export async function sendTelegramPhoto(
     password: string
 ): Promise<boolean> {
     try {
+        const cfg = await configTelegram();
+        if (!cfg) return false;
         // First, fetch the snapshot from the camera
         const imageBuffer = await fetchCameraSnapshot(deviceIp, username, password);
 
@@ -85,7 +108,7 @@ export async function sendTelegramPhoto(
 
         // chat_id
         parts.push(Buffer.from(
-            `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${CHAT_ID}\r\n`
+            `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${cfg.chat}\r\n`
         ));
 
         // caption
@@ -108,7 +131,7 @@ export async function sendTelegramPhoto(
         const body = Buffer.concat(parts);
 
         return new Promise((resolve) => {
-            const url = new URL(`${TELEGRAM_API}/sendPhoto`);
+            const url = new URL(`${cfg.api}/sendPhoto`);
             const req = https.request({
                 hostname: url.hostname,
                 path: url.pathname,
