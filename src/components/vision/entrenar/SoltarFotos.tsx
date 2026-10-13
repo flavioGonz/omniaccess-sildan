@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, Check, ImagePlus, Link2, Loader2, Upload, Video, X } from "lucide-react";
+import { Camera, Check, ClipboardPaste, ImagePlus, Link2, Loader2, Upload, Video, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
@@ -127,6 +127,30 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
         setTimeout(() => setLista((l) => l.filter((x) => x.estado !== "lista")), PLEGAR_MS);
     }
 
+    /**
+     * El botón «Pegar»: lee el portapapeles (una imagen copiada, o un link) sin tener que saber de
+     * Ctrl+V. El navegador pide permiso la primera vez; si no lo da, o no sabe leer imágenes del
+     * portapapeles (Firefox), se dice que Ctrl+V anda igual.
+     */
+    async function pegarDelPortapapeles() {
+        try {
+            const items = await navigator.clipboard.read();
+            const fotos: File[] = [];
+            let texto = "";
+            for (const it of items) {
+                const tipo = it.types.find((t) => t.startsWith("image/"));
+                if (tipo) { const b = await it.getType(tipo); fotos.push(new File([b], `pegada.${tipo.split("/")[1] || "png"}`, { type: tipo })); }
+                else if (it.types.includes("text/plain")) texto += " " + (await (await it.getType("text/plain")).text());
+            }
+            if (fotos.length) return void subir(fotos, true);
+            const ls = linksDe(texto);
+            if (ls.length) return void traer(ls);
+            toast.error({ title: "En el portapapeles no hay una imagen ni un link", description: "Copiá la imagen (clic derecho › Copiar imagen) o su link, y volvé a tocar «Pegar»." });
+        } catch {
+            toast.error({ title: "El navegador no dejó leer el portapapeles", description: "Apretá Ctrl+V en esta página: anda igual, con imágenes y con links." });
+        }
+    }
+
     async function sacarFoto() {
         if (!camara) return;
         setSacando(true);
@@ -195,11 +219,18 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
                 className="flex items-center gap-2.5 rounded-[14px] border-2 border-[color-mix(in_oklab,var(--accion)_45%,var(--border))] bg-card pl-2 pr-2 py-2 focus-within:border-[var(--accion)] transition-colors">
                 <span className="grid h-10 w-10 place-items-center rounded-[10px] bg-[color-mix(in_oklab,var(--accion)_14%,transparent)] text-[var(--accion-texto,var(--accion))] shrink-0"><Link2 size={19} /></span>
                 <Input value={texto} onChange={(e) => setTexto(e.target.value)}
-                    onPaste={(e) => { const ls = linksDe(e.clipboardData.getData("text/plain")); if (ls.length) { e.preventDefault(); setTexto(""); traer(ls); } }}
-                    placeholder="Pegá acá el link de una imagen: se trae y se abre para dibujar"
+                    onPaste={(e) => {
+                        // Una imagen copiada también se pega acá (antes el campo sólo tomaba links).
+                        const fotos = [...e.clipboardData.files].filter(esFoto);
+                        if (fotos.length) { e.preventDefault(); setTexto(""); subir(fotos, true); return; }
+                        const ls = linksDe(e.clipboardData.getData("text/plain")); if (ls.length) { e.preventDefault(); setTexto(""); traer(ls); }
+                    }}
+                    placeholder="Pegá acá una imagen copiada o el link de una imagen: se trae y se abre para dibujar"
                     aria-label="Link de una imagen"
                     className="h-10 flex-1 min-w-0 border-0 bg-transparent shadow-none focus-visible:ring-0 px-1 text-[14px] placeholder:text-muted-foreground/80" />
-                <Button type="submit" disabled={!texto.trim()} className="h-10 px-4"><ImagePlus size={15} /> Traer</Button>
+                {texto.trim()
+                    ? <Button type="submit" className="h-10 px-4"><ImagePlus size={15} /> Traer</Button>
+                    : <Button type="button" onClick={pegarDelPortapapeles} className="h-10 px-4" title="Pega lo que copiaste: una imagen o un link"><ClipboardPaste size={15} /> Pegar</Button>}
             </form>
 
             <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_280px] gap-2">
@@ -240,7 +271,7 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
                 </div>
             </div>
 
-            <p className="text-[11px] text-muted-foreground px-1">También: arrastrá una imagen desde otra pestaña, o copiala y apretá <kbd className="px-1 rounded bg-muted">Ctrl</kbd>+<kbd className="px-1 rounded bg-muted">V</kbd> en esta página. Una sola foto se abre para dibujar; una tanda queda en «Sin dibujar».</p>
+            <p className="text-[11px] text-muted-foreground px-1">También: <kbd className="px-1 rounded bg-muted">Ctrl</kbd>+<kbd className="px-1 rounded bg-muted">V</kbd> en cualquier parte de esta página pega una imagen copiada o un link, y se puede arrastrar una imagen desde otra pestaña. Una sola foto se abre para dibujar; una tanda queda en «Sin dibujar».</p>
 
             {/* La tanda que sube: total arriba, cada foto con su avance. */}
             <AnimatePresence initial={false}>
