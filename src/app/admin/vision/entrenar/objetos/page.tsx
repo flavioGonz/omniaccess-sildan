@@ -14,7 +14,7 @@ import { ErrorEstado, Cargando, Chip } from "@/components/ui/estados";
 import { CURVA_SUAVE } from "@/components/ui/entrada";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { Anotador } from "@/components/vision/entrenar/Anotador";
-import { CerebroFlotante, PanelEntrenar, ResultadosEntrenamiento, useEntrenamientos } from "@/components/vision/entrenar/EntrenarDetector";
+import { CerebroFlotante, GaleriaEntrenamientos, PanelEntrenar, useEntrenamientos } from "@/components/vision/entrenar/EntrenarDetector";
 import { SoltarFotos } from "@/components/vision/entrenar/SoltarFotos";
 import { CamarasOSubidas } from "@/components/vision/entrenar/CamarasOSubidas";
 import { GuiaDibujo, UnModeloVariasClases } from "@/components/vision/entrenar/GuiaDibujo";
@@ -147,6 +147,9 @@ export default function ObjetosPropios() {
                 </Link>
                 <AlCelular />
             </div>
+
+            {/* Los entrenamientos, lo primero al entrar: antes estaban al fondo, debajo de todas las fotos. */}
+            <GaleriaEntrenamientos clases={estado.clases} e={ent} />
 
             {/* Dos columnas: lo que se arma (clases, fotos, dibujo) y, fijo a la derecha, el
                 entrenamiento — que acompaña el scroll porque es lo que se mira mientras se dibuja. */}
@@ -285,7 +288,6 @@ export default function ObjetosPropios() {
                         )}
                     </section>
 
-                    <ResultadosEntrenamiento clases={estado.clases} e={ent} />
                 </div>
 
                 <aside className="lg:sticky lg:top-4 space-y-3">

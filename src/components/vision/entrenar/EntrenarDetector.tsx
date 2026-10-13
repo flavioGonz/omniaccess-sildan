@@ -10,8 +10,9 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Chip, ErrorEstado } from "@/components/ui/estados";
 import { Pista } from "@/components/ui/pista";
-import { MODELOS_ENTRENAMIENTO, MODELOS_GUARDADOS, PARAMETROS_DEFECTO, PARIDAD_MIN, type ClaseResumen } from "@/lib/detector-propio";
+import { CAJAS_MINIMO, MODELOS_ENTRENAMIENTO, MODELOS_GUARDADOS, PARAMETROS_DEFECTO, PARIDAD_MIN, type ClaseResumen } from "@/lib/detector-propio";
 import { fechaHoraSeg } from "@/lib/fechas";
+import { Cajon, CajonContenido } from "@/components/ui/cajon";
 
 /**
  * El entrenamiento del detector propio: ponerlo en cola, seguirlo y ver qué salió.
@@ -373,13 +374,59 @@ function Consumo({ s }: { s: any }) {
     );
 }
 
-/** Los terminados, con su veredicto y para usarlos o borrarlos. Va en la columna principal: ocupa. */
-export function ResultadosEntrenamiento({ clases, e }: { clases: ClaseResumen[]; e: DatosEntrenar }) {
+/** Cuántos entrenamientos terminados entran en la galería antes de «ver todos». */
+const GALERIA_MAX = 7;
+
+/** El anillo de «acierta»: el número que importa de un entrenamiento, de un vistazo. */
+function Anillo({ v, tono, tamano = 64, grueso = 6, children }: { v: number | null; tono: string; tamano?: number; grueso?: number; children?: React.ReactNode }) {
+    const r = (tamano - grueso) / 2, l = 2 * Math.PI * r, f = v == null ? 0 : Math.max(0, Math.min(1, v));
+    return (
+        <span className="relative grid place-items-center shrink-0" style={{ width: tamano, height: tamano }}>
+            <svg width={tamano} height={tamano} className="-rotate-90" aria-hidden>
+                <circle cx={tamano / 2} cy={tamano / 2} r={r} fill="none" stroke="var(--muted)" strokeWidth={grueso} />
+                <circle cx={tamano / 2} cy={tamano / 2} r={r} fill="none" stroke={tono} strokeWidth={grueso} strokeLinecap="round" strokeDasharray={l} strokeDashoffset={l * (1 - f)} style={{ transition: "stroke-dashoffset .7s ease" }} />
+            </svg>
+            <span className="absolute inset-0 grid place-items-center text-center leading-none">{children}</span>
+        </span>
+    );
+}
+
+const TONO_VAR = { bien: "var(--bien)", aviso: "var(--aviso)", mal: "var(--mal)", info: "var(--info)", quieto: "var(--quieto)" } as const;
+/** Lo que se lee de un entrenamiento terminado: veredicto si hay medición, y si no, su estado. */
+function lecturaDe(t: Entrenamiento) {
+    const med = t.resultado?.medicion;
+    if (med) { const v = veredicto(med.f1 || 0, t.resultado?.paridad); return { f1: med.f1 as number, tono: v.tono, rotulo: v.t }; }
+    const e = ESTADO[t.estado] || { t: t.estado, tono: "quieto" as const };
+    return { f1: null, tono: e.tono, rotulo: e.t };
+}
+
+/**
+ * La galería de entrenamientos, arriba de todo (pedido de Nico el 13/10: «estaban medio
+ * ocultos»). Antes vivían al final de la columna, debajo de todas las fotos: para ver si el último
+ * había dado bien había que bajar hasta el fondo.
+ *
+ * Bento: el protagonista grande (el que corre ahora, o el último terminado), al lado el que está
+ * en uso en las cámaras, y el resto en tarjetas chicas. Cada tarjeta dice lo que se busca de un
+ * vistazo —cuánto acierta, si sirve, cuándo, con qué— y el detalle completo se abre en un cajón.
+ */
+export function GaleriaEntrenamientos({ clases, e }: { clases: ClaseResumen[]; e: DatosEntrenar }) {
+    const { datos, activo, cargar, enCurso, pausado } = e;
+    const [abierto, setAbierto] = useState<string | null>(null);
+    const [todos, setTodos] = useState(false);
     const [activando, setActivando] = useState<string | null>(null);
-    const { datos, activo, cargar } = e;
-    const lista = (datos?.entrenamientos || []).filter((t) => !ACTIVOS.includes(t.estado) && t.estado !== "PAUSADO");
-    if (!lista.length) return null;
+    if (!datos) return <div className="h-[220px] rounded-[14px] border border-border bg-card grid place-items-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
+
     const nombre = (id: string) => clases.find((c) => c.id === id)?.nombre || id;
+    const terminados = datos.entrenamientos.filter((t) => !ACTIVOS.includes(t.estado) && t.estado !== "PAUSADO");
+    const vivo = enCurso || pausado;
+    const enUsoId: string | null = activo?.activo?.entrenamiento || null;
+    const enUso = enUsoId ? datos.entrenamientos.find((t) => t.id === enUsoId) || null : null;
+    // El grande: el que corre; si no, el último terminado.
+    const grande = vivo || terminados[0] || null;
+    const resto = terminados.filter((t) => t.id !== grande?.id && t.id !== enUsoId);
+    const visibles = todos ? resto : resto.slice(0, GALERIA_MAX);
+    const detalle = abierto ? datos.entrenamientos.find((t) => t.id === abierto) || null : null;
+
     async function usar(id: string) {
         setActivando(id);
         try {
@@ -391,11 +438,157 @@ export function ResultadosEntrenamiento({ clases, e }: { clases: ClaseResumen[];
         } catch (x: any) { toast.error({ title: "No se activó", description: x?.message }); }
         finally { setActivando(null); }
     }
+
+    if (!grande) {
+        return (
+            <section id="resultados" className="scroll-mt-4 rounded-[14px] border border-dashed border-border bg-card px-6 py-7 flex items-center gap-5">
+                <Cerebro progreso={0} estado="reposo" tamano={96} />
+                <div className="min-w-0">
+                    <h2 className="text-[16px] font-bold">Todavía no hay entrenamientos</h2>
+                    <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5 max-w-[620px]">Cuando entrenes, cada uno aparece acá con cuánto acierta y si sirve para las cámaras. Para empezar: elegí qué enseñarle, sumá fotos y dibujá unos {CAJAS_MINIMO} recuadros por clase.</p>
+                </div>
+            </section>
+        );
+    }
+
     return (
         <section id="resultados" className="scroll-mt-4 space-y-2">
-            <div className="flex items-baseline gap-2"><h2 className="text-[15px] font-bold">Entrenamientos</h2><span className="text-[12px] text-muted-foreground">Cada uno con su examen. El mejor se usa en las cámaras.</span></div>
-            {lista.map((t) => <Terminado key={t.id} t={t} nombre={nombre} enUso={activo?.activo?.entrenamiento === t.id} ocupado={activando === t.id} alUsar={() => usar(t.id)} alBorrado={cargar} />)}
+            <div className="flex items-baseline gap-2 flex-wrap">
+                <h2 className="text-[15px] font-bold">Entrenamientos</h2>
+                <span className="text-[12px] text-muted-foreground">{datos.entrenamientos.length} en total · tocá uno para ver su examen completo</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 auto-rows-[118px] gap-2.5">
+                {/* El protagonista */}
+                <Protagonista t={grande} vivo={!!vivo} enUso={grande.id === enUsoId} nombre={nombre} alAbrir={() => setAbierto(grande.id)}
+                    alUsar={() => usar(grande.id)} ocupado={activando === grande.id} />
+                {/* En uso en las cámaras */}
+                <button type="button" onClick={() => enUso && setAbierto(enUso.id)} disabled={!enUso}
+                    className={cn("col-span-2 row-span-1 rounded-[14px] border p-4 text-left flex items-center gap-4 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]",
+                        activo?.activo ? "chip-bien hover:brightness-[1.03]" : "border-dashed border-border bg-card")}>
+                    <span className={cn("grid h-11 w-11 place-items-center rounded-[12px] shrink-0", activo?.activo ? "pleno-bien" : "bg-muted text-muted-foreground")}><Power size={20} /></span>
+                    <span className="min-w-0">
+                        <span className="block text-[9px] font-bold uppercase tracking-[0.14em] opacity-70">En las cámaras</span>
+                        {activo?.activo ? (
+                            <>
+                                <span className="block text-[14px] font-bold truncate">{activo.activo.clases.map((c: any) => c.nombre).join(", ")}</span>
+                                <span className="block text-[11.5px] opacity-80 tabular-nums">umbral {activo.activo.umbral}{enUso?.resultado?.medicion ? ` · acierta ${pct(enUso.resultado.medicion.f1)}` : ""}{enUso ? ` · del ${fechaHoraSeg(enUso.createdAt)}` : ""}</span>
+                            </>
+                        ) : (
+                            <>
+                                <span className="block text-[14px] font-bold">Ninguno en uso</span>
+                                <span className="block text-[11.5px] text-muted-foreground">Las cámaras usan sólo el detector de fábrica.</span>
+                            </>
+                        )}
+                    </span>
+                </button>
+                {/* El resto */}
+                {visibles.map((t) => <Tarjeta key={t.id} t={t} alAbrir={() => setAbierto(t.id)} />)}
+                {!todos && resto.length > GALERIA_MAX && (
+                    <button type="button" onClick={() => setTodos(true)} className="rounded-[14px] border border-dashed border-border bg-card text-[12.5px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">
+                        Ver {resto.length - GALERIA_MAX} más
+                    </button>
+                )}
+            </div>
+
+            {detalle && (
+                <Cajon open onOpenChange={(o) => { if (!o) setAbierto(null); }}>
+                    <CajonContenido ancho="medio" titulo={`Entrenamiento del ${fechaHoraSeg(detalle.createdAt)}`}
+                        descripcion={`${MODELOS_ENTRENAMIENTO.find((m) => m.id === detalle.parametros?.modelo)?.rotulo || detalle.parametros?.modelo || ""}${detalle.conjunto?.fotos ? ` · ${detalle.conjunto.fotos} fotos` : ""}`}>
+                        {ACTIVOS.includes(detalle.estado) || detalle.estado === "PAUSADO" ? (
+                            <p className="text-[13px] text-muted-foreground">Está {ESTADO[detalle.estado]?.t.toLowerCase()}: se sigue en el panel de la derecha. El examen aparece acá cuando termine.</p>
+                        ) : (
+                            <>
+                                <Terminado t={detalle} nombre={nombre} enUso={detalle.id === enUsoId} ocupado={activando === detalle.id}
+                                    alUsar={() => usar(detalle.id)} alBorrado={() => { setAbierto(null); cargar(); }} />
+                                {(detalle.resultado?.salud || detalle.progreso?.salud) && <Consumo s={detalle.resultado?.salud || detalle.progreso?.salud} />}
+                            </>
+                        )}
+                    </CajonContenido>
+                </Cajon>
+            )}
         </section>
+    );
+}
+
+/** La tarjeta grande: el que corre ahora (con el cerebro), o el último terminado (con su examen). */
+function Protagonista({ t, vivo, enUso, nombre, alAbrir, alUsar, ocupado }: { t: Entrenamiento; vivo: boolean; enUso: boolean; nombre: (id: string) => string; alAbrir: () => void; alUsar: () => void; ocupado: boolean }) {
+    const p = t.progreso || {};
+    if (vivo) {
+        const frac = p.de ? Math.min(1, (p.epoca || 0) / p.de) : 0;
+        const e = ESTADO[t.estado];
+        return (
+            <a href="#entrenar" className="col-span-2 row-span-2 rounded-[14px] border border-[color-mix(in_oklab,var(--info)_40%,var(--border))] bg-card p-4 flex items-center gap-4 hover:bg-accent/40 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]">
+                <Cerebro progreso={frac} estado={estadoCerebro(t, false)} tamano={150} />
+                <span className="min-w-0 space-y-1.5">
+                    <Chip tono={e?.tono || "info"}>{e?.t || t.estado}</Chip>
+                    <span className="block text-[34px] font-bold tabular-nums leading-none tracking-[-0.02em]">{Math.round(frac * 100)} %</span>
+                    <span className="block text-[12px] text-muted-foreground tabular-nums">época {p.epoca || 0} de {p.de || "?"}{p.segundos ? ` · ${minutos(p.segundos)}` : ""}</span>
+                    <span className="block text-[11.5px] text-muted-foreground">Seguilo, pausalo o cancelalo en el panel de la derecha.</span>
+                </span>
+            </a>
+        );
+    }
+    const l = lecturaDe(t);
+    const med = t.resultado?.medicion;
+    const clases = Object.entries(med?.por_clase || {}) as [string, any][];
+    const usable = t.resultado?.ok && (t.resultado.paridad == null || t.resultado.paridad >= PARIDAD_MIN) && !t.resultado?.archivo?.borradoAt && (t.estado === "LISTO" || t.estado === "CANCELADO");
+    return (
+        <div className="col-span-2 row-span-2 rounded-[14px] border border-border bg-card p-4 flex flex-col gap-3 min-h-0">
+            <button type="button" onClick={alAbrir} className="flex items-center gap-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)] rounded-[10px]">
+                <Anillo v={l.f1} tono={TONO_VAR[l.tono]} tamano={84} grueso={8}>
+                    <span><span className="block text-[20px] font-bold tabular-nums">{l.f1 != null ? Math.round(l.f1 * 100) : "—"}</span><span className="block text-[9.5px] text-muted-foreground mt-0.5">{l.f1 != null ? "acierta %" : "sin examen"}</span></span>
+                </Anillo>
+                <span className="min-w-0 space-y-1">
+                    <span className="block text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Último entrenamiento</span>
+                    <Chip tono={l.tono}>{l.rotulo}</Chip>
+                    <span className="block text-[12px] text-muted-foreground tabular-nums">{fechaHoraSeg(t.createdAt)} · {MODELOS_ENTRENAMIENTO.find((m) => m.id === t.parametros?.modelo)?.rotulo || t.parametros?.modelo}{t.resultado?.segundos ? ` · ${minutos(t.resultado.segundos)}` : ""}</span>
+                </span>
+            </button>
+            {clases.length > 0 && (
+                <div className="space-y-1.5 min-h-0 overflow-hidden">
+                    {clases.slice(0, 3).map(([id, c]) => {
+                        const f = c.recuadros ? c.encontrados / c.recuadros : 0;
+                        return (
+                            <div key={id} className="flex items-center gap-2 text-[11.5px]">
+                                <span className="w-[110px] truncate font-semibold">{nombre(id)}</span>
+                                <span className="relative flex-1 h-1.5 rounded-full bg-muted overflow-hidden"><span className="absolute inset-y-0 left-0 rounded-full bg-[var(--info)]" style={{ width: `${f * 100}%` }} /></span>
+                                <span className="tabular-nums text-muted-foreground w-[52px] text-right">{c.encontrados}/{c.recuadros}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+            <div className="mt-auto flex items-center gap-2">
+                {enUso ? <Chip tono="bien" icono={CircleCheck}>En uso</Chip> : usable ? (
+                    <Button size="sm" onClick={alUsar} disabled={ocupado}>{ocupado ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />} Usar en las cámaras</Button>
+                ) : null}
+                <Button size="sm" variant="outline" className="ml-auto" onClick={alAbrir}>Ver examen</Button>
+            </div>
+        </div>
+    );
+}
+
+/** Una tarjeta chica: anillo, veredicto, cuándo y con qué. */
+function Tarjeta({ t, alAbrir }: { t: Entrenamiento; alAbrir: () => void }) {
+    const l = lecturaDe(t);
+    return (
+        <button type="button" onClick={alAbrir}
+            className="rounded-[14px] border border-border bg-card p-3 text-left flex flex-col justify-between hover:border-[color-mix(in_oklab,var(--accion)_45%,var(--border))] hover:bg-accent/30 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)] min-w-0">
+            <span className="flex items-center gap-2.5 min-w-0">
+                <Anillo v={l.f1} tono={TONO_VAR[l.tono]} tamano={42} grueso={4.5}>
+                    <span className="text-[11px] font-bold tabular-nums">{l.f1 != null ? Math.round(l.f1 * 100) : "—"}</span>
+                </Anillo>
+                <span className="min-w-0">
+                    <span className={cn("block text-[12px] font-bold truncate", `tono-${l.tono}`)}>{l.rotulo}</span>
+                    <span className="block text-[11px] text-muted-foreground tabular-nums truncate">{fechaHoraSeg(t.createdAt)}</span>
+                </span>
+            </span>
+            <span className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground tabular-nums min-w-0">
+                <span className="truncate">{MODELOS_ENTRENAMIENTO.find((m) => m.id === t.parametros?.modelo)?.rotulo?.split(" ")[0] || t.parametros?.modelo}</span>
+                {t.resultado?.segundos ? <span>· {minutos(t.resultado.segundos)}</span> : null}
+                {t.conjunto?.corto?.length > 0 && <span className="ml-auto rounded-full bg-muted px-1.5">de prueba</span>}
+            </span>
+        </button>
     );
 }
 
