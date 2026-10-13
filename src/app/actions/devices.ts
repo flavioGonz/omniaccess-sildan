@@ -147,7 +147,7 @@ export async function createDevice(formData: FormData) {
 
     // Puesta a punto automatica (config rapida): hora, HTTP host->server, ANPR, codec H264, stream.
     // Las matriculas NO aca (puede tardar): se cargan con el boton "Poner a punto".
-    if (newDevice.brand === "HIKVISION" && (newDevice.deviceType as any) === "LPR_CAMERA") {
+    if (newDevice.brand === "HIKVISION" && (newDevice.deviceType as any) === "LPR_CAMERA" && formData.get("puestaManual") !== "1") {
         try { const { provisionLprDevice } = await import("@/app/actions/provision"); await provisionLprDevice(newDevice.id, false); }
         catch (err) { console.error("auto-provision failed on create:", err); }
     }
@@ -314,7 +314,51 @@ export async function probeDeviceInfo(input: { ip: string; username?: string; pa
     const ip = (input.ip || "").trim();
     if (!ip) return { ok: false, error: "IP requerida" };
     const brand = (input.brand || "HIKVISION").toUpperCase();
-    if (brand !== "HIKVISION") return { ok: false, error: "Autodeteccion disponible solo para HIKVISION por ahora" };
+    if (brand === "DAHUA") {
+        const probar = async (username: string, password: string): Promise<any> => {
+            // Dahua: RPC2 (lo mismo que usa su web). Modelo, firmware, serie, nombre y MAC.
+            try {
+                const { rpc2Sesion, rpc2Varios } = await import("@/lib/dahua-rpc2");
+                const sesion = await rpc2Sesion({ ip, username, password }, 7000);
+                try {
+                    const r = await rpc2Varios(sesion, { tipo: ["magicBox.getDeviceType"], ver: ["magicBox.getSoftwareVersion"], sn: ["magicBox.getSerialNo"], nombre: ["magicBox.getMachineName"], red: ["netApp.getNetInterfaces"] });
+                    const eth = (r.red?.netInterface || []).find((n: any) => n.ConnStatus === "Connected") || (r.red?.netInterface || [])[0];
+                    return { ok: true, online: true, authType: "DIGEST", model: r.tipo?.type || "", firmwareVersion: r.ver?.version?.Version || "", serialNumber: r.sn?.sn || "", deviceName: r.nombre?.name || "", macAddress: eth?.PhysicalAddress || "" };
+                } finally { await sesion.close(); }
+            } catch (e: any) {
+                // Fallback CGI (equipos viejos sin RPC2)
+                try {
+                    const { authenticatedRequest } = await import("@/lib/digest-auth");
+                    const dev: any = { ip, username, password, authType: "DIGEST" };
+                    const tipo = String(await authenticatedRequest("GET", "/cgi-bin/magicBox.cgi?action=getDeviceType", dev, { responseType: "text", timeout: 6000 }));
+                    const ver = String(await authenticatedRequest("GET", "/cgi-bin/magicBox.cgi?action=getSoftwareVersion", dev, { responseType: "text", timeout: 6000 }).catch(() => ""));
+                    const sn = String(await authenticatedRequest("GET", "/cgi-bin/magicBox.cgi?action=getSerialNo", dev, { responseType: "text", timeout: 6000 }).catch(() => ""));
+                    return { ok: true, online: true, authType: "DIGEST", model: (/type=(.+)/.exec(tipo)?.[1] || "").trim(), firmwareVersion: (/version=([^,\r\n]+)/.exec(ver)?.[1] || "").trim(), serialNumber: (/sn=(.+)/.exec(sn)?.[1] || "").trim(), macAddress: "" };
+                } catch (e2: any) {
+                    const m = String(e?.message || e2?.message || "");
+                    return { ok: false, online: false, authError: /incorrect|401|Invalid Authority|password|locked/i.test(m), error: /incorrect|401|Invalid Authority/i.test(m) ? "El equipo respondió pero no acepta ese usuario y contraseña" : m || "Sin respuesta (revisá IP/credenciales)" };
+                }
+            }
+        };
+        const r1 = await probar(input.username || "admin", input.password || "");
+        if (r1.ok) return r1;
+        // Una cámara que graba en un NVR Dahua: el NVR sabe con qué usuario y clave entra a
+        // ella (suelen no ser las del NVR, que son las que se copian al importar).
+        try {
+            const { camaraSegunNvr } = await import("@/lib/camara-desde-nvr");
+            const n = await camaraSegunNvr(ip);
+            if (n) {
+                if (n.username && (n.username !== input.username || n.password !== input.password)) {
+                    const r2 = await probar(n.username, n.password);
+                    if (r2.ok) return { ...r2, credenciales: { username: n.username, password: n.password }, nota: `Respondió con el usuario y la clave que usa ${n.nvrNombre} para esta cámara. Guardá para quedarte con esas.` };
+                }
+                return { ok: true, online: null, viaNvr: true, authType: "DIGEST", model: n.model, firmwareVersion: n.firmwareVersion, serialNumber: n.serialNumber, macAddress: n.macAddress, deviceName: n.deviceName,
+                    nota: `La cámara no aceptó las credenciales; los datos son los que informa ${n.nvrNombre}, que sí la ve.` };
+            }
+        } catch { /* sin NVR Dahua o no respondió: queda el error original */ }
+        return r1;
+    }
+    if (brand !== "HIKVISION") return { ok: false, error: `Autodetección no disponible para ${brand}` };
     const driver = new HikvisionDriver();
     const order = (input.authType || "DIGEST").toUpperCase() === "BASIC" ? ["BASIC", "DIGEST"] : ["DIGEST", "BASIC"];
     let lastErr = "";
