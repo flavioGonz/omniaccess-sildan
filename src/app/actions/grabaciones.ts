@@ -107,3 +107,15 @@ export async function calcularRetencion(deviceId: string): Promise<{ ok: boolean
         return { ok: true, retencion: await calcular(d.ip) };
     } catch (e: any) { return { ok: false, error: e?.message || "No se pudo calcular" }; }
 }
+
+/**
+ * La retención guardada de una cámara (la última calculada). La ficha la muestra al abrir y,
+ * si la cámara graba en un NVR y nunca se calculó, la calcula sola: antes había que acordarse
+ * de apretar «Calcular retención» en cada cámara.
+ */
+export async function retencionGuardada(deviceId: string): Promise<Retencion | null> {
+    await conSesion();
+    const d = await prisma.device.findUnique({ where: { id: deviceId }, select: { ip: true } });
+    if (!d?.ip) return null;
+    return (await leerRetenciones())[d.ip] || null;
+}

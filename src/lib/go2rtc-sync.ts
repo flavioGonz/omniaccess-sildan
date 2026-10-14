@@ -147,3 +147,26 @@ export async function syncLprStream(dev: Dev): Promise<void> {
         console.error("[go2rtc-sync] failed:", (e as any)?.message);
     }
 }
+
+/**
+ * Vivo de un canal de NVR que todavía no es un equipo: la vista previa al importar y los puertos
+ * de la cabecera del NVR. Se registra en go2rtc sólo en memoria (no en el yaml): es para mirar,
+ * no una cámara dada de alta. Tomado de Los Olivos (main), con el transcode de esta instalación.
+ * Devuelve el id con que se arma el nombre del stream (`lpr_<id>`), como el de un equipo.
+ */
+export async function registrarCanalNvr(nvrId: string, ch: number): Promise<string | null> {
+    const nvr = await resolveNvrById(nvrId);
+    if (!nvr || !ch) return null;
+    const id = `nvrch-${nvrId}-${ch}`;
+    const name = `lpr_${id}`;
+    const put = async (n: string, src: string) => {
+        try {
+            const c = new AbortController(); const t = setTimeout(() => c.abort(), 5000);
+            await fetch(`${GO2RTC}/api/streams?name=${enc(n)}&src=${enc(src)}&src=${enc(transcode(n))}`, { method: "PUT", signal: c.signal });
+            clearTimeout(t);
+        } catch { }
+    };
+    await put(name, rtspViaNvr(nvr as any, ch, false));
+    await put(`${name}_hd`, rtspViaNvr(nvr as any, ch, true));
+    return id;
+}
