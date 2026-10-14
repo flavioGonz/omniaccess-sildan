@@ -81,13 +81,19 @@ function CajonCerrar({ ...props }: React.ComponentProps<typeof DialogPrimitive.C
  * `tituloOculto` lo deja sólo para quien lo necesita.
  */
 function CajonContenido({
-    className, children, ancho = "medio", titulo, descripcion, tituloOculto, pie, encabezado,
+    className, children, ancho = "medio", titulo, descripcion, tituloOculto, sinCabecera, pie, encabezado,
     ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
     ancho?: keyof typeof ANCHOS;
     titulo: string;
     descripcion?: string;
     tituloOculto?: boolean;
+    /**
+     * Sin la franja de arriba (título + cerrar): el contenido trae su propia cabecera con el
+     * botón de cerrar (la ficha de un equipo, con el video a sangre). Con `tituloOculto` solo la
+     * franja quedaba vacía con su X, y la ficha mostraba dos botones de cerrar.
+     */
+    sinCabecera?: boolean;
     /** Lo que queda fijo abajo — casi siempre guardar y cancelar. No hace scroll. */
     pie?: React.ReactNode;
     /** Lo que queda fijo arriba, debajo del título. Filtros, pestañas, lo que sea. */
@@ -111,7 +117,7 @@ function CajonContenido({
                 )}
                 {...props}>
 
-                {tituloOculto ? (
+                {tituloOculto || sinCabecera ? (
                     /* Sin barra de título: el contenido trae su propia cabecera (y su botón de cerrar). */
                     <>
                         <DialogPrimitive.Title className="sr-only">{titulo}</DialogPrimitive.Title>

@@ -111,7 +111,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                 .map((c) => ({ channel: c.channel, rol: (c.existente ? "intrusion" : eleccion[c.channel]?.rol || "omitir") as RolImport, direction: eleccion[c.channel]?.direction, groupId: grupo }));
             const r = await importarCanalesClasificados(nvr.id, pedidos);
             if (!r.ok) { toast.error({ title: "No se pudo importar", description: r.error }); return; }
-            toast.success({ title: `Importación lista: ${r.creadas} nueva${r.creadas !== 1 ? "s" : ""}`, description: `${r.mapeadas} ya existían y quedaron vinculadas a su grabación.` });
+            toast.success({ title: `Importación lista: ${r.creadas} nueva${r.creadas !== 1 ? "s" : ""}`, description: `${r.mapeadas} ya existían y quedaron vinculadas a su grabación. La retención de cada una se calcula sola en segundo plano.` });
             onListo(); onOpenChange(false);
         } finally { setImportando(false); }
     };
