@@ -434,6 +434,8 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
     const nuevo: Record<string, { nvr: string | null; ch: number }> = {};
     for (const k of Object.keys(mapa)) nuevo[k] = { nvr: mapa[k].nvrId, ch: mapa[k].ch };
     let creadas = 0, mapeadas = 0;
+    // Las cámaras que quedan grabando en este NVR: a todas se les calcula la retención al final.
+    const paraRetencion: string[] = [];
     for (const p of pedidos) {
         const c: any = porCanal.get(Number(p.channel));
         if (!c) { detalle.push({ channel: p.channel, name: `Canal ${p.channel}`, accion: "omitida", motivo: "el NVR ya no tiene ese canal" }); continue; }
@@ -442,6 +444,7 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
         if (!c.ip) { detalle.push({ channel: c.channel, name, accion: "omitida", motivo: "el canal no tiene IP" }); continue; }
         const existente = await prisma.device.findFirst({ where: { ip: c.ip } });
         nuevo[c.ip] = { nvr: nvr.id, ch: Number(c.channel) };
+        paraRetencion.push(c.ip);
         const marca = (c.brand && c.brand !== "OTRA" ? c.brand : null) as any;
         if (existente) {
             // Si la marca guardada no es la de la cámara (p.ej. una Hikvision por ONVIF cargada como Dahua), se corrige.
@@ -476,5 +479,13 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
         if (lpr && modoLpr !== "omnivision" && String(dev.brand) === "HIKVISION") { try { const { provisionLprDevice } = await import("@/app/actions/provision"); await provisionLprDevice(dev.id, false); } catch { } }
     }
     await prisma.setting.upsert({ where: { key: "NVR_CHANNEL_MAP" }, update: { value: JSON.stringify(nuevo) }, create: { key: "NVR_CHANNEL_MAP", value: JSON.stringify(nuevo) } });
+    // La retención de cada una, sin esperar (Nico, 14/10: «para no tener que hacerlo sí o sí a
+    // mano»). Va de a una — es una búsqueda de grabaciones en el NVR por canal — y en segundo
+    // plano: con 30 canales serían minutos de espera para el que importa. Queda guardada y la
+    // ficha y la lista la muestran; si alguna falla, la ficha la vuelve a intentar al abrirse.
+    if (paraRetencion.length) void (async () => {
+        const { calcularRetencion } = await import("@/lib/grabaciones");
+        for (const ip of paraRetencion) await calcularRetencion(ip).catch(() => null);
+    })();
     return { ok: true, creadas, mapeadas, detalle };
 }

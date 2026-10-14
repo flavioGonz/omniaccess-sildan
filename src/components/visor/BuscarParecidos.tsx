@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronUp, Crop, Image as ImageIcon, Loader2, PlayCircle, Scan, ScanSearch, Search, Server, Sparkles, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, Crop, Image as ImageIcon, LayoutGrid, Loader2, PlayCircle, Scan, ScanSearch, Search, Server, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { fechaCorta, horaSeg } from "@/lib/fechas";
 import { ICONO_GRUPO, nombreClase } from "@/components/vision/ObjetoRegistro";
@@ -27,6 +27,11 @@ import { hasAcuSeekNvr } from "@/app/actions/acuseek";
  * Va adentro del marco del evento y baja desde arriba; al cerrarla se enrolla y el evento queda
  * como estaba (encuadre y zoom incluidos). El padre la envuelve en <AnimatePresence> para que
  * también se vea subir.
+ *
+ * Un resultado se abre EN EL LUGAR de la grilla (14/10): antes se abría en un recuadro con su
+ * marco sobre la persiana, que a su vez está sobre el evento — una ventana dentro de otra dentro
+ * de otra. Ahora la foto ocupa el panel de resultados a sangre, con la tira de los demás abajo
+ * para pasar de uno a otro (← →) y «Resultados» para volver a la grilla.
  */
 
 /** La persiana baja con un recorte que se abre de arriba hacia abajo, sin rebote. */
@@ -68,14 +73,27 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
     const [res, setRes] = useState<{ resultados: Resultado[]; comparados: number; ms: number } | null>(null);
     const [buscando, setBuscando] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [abierto, setAbierto] = useState<Resultado | null>(null);
+    /** El resultado abierto, por posición en la lista: así ← y → pasan al anterior y al siguiente. */
+    const [abiertoIdx, setAbiertoIdx] = useState<number | null>(null);
+    const abierto = abiertoIdx != null ? res?.resultados[abiertoIdx] ?? null : null;
+    const tira = useRef<HTMLDivElement>(null);
     const lienzo = useRef<HTMLDivElement>(null);
 
     useEffect(() => { hasAcuSeekNvr().then(setConNvr).catch(() => { }); }, []);
     useEffect(() => {
-        const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); if (abierto) setAbierto(null); else onCerrar(); } };
+        const n = res?.resultados.length || 0;
+        const k = (e: KeyboardEvent) => {
+            if (e.key === "Escape") { e.stopPropagation(); if (abiertoIdx != null) setAbiertoIdx(null); else onCerrar(); return; }
+            if (abiertoIdx == null || !n) return;
+            if (e.key === "ArrowRight") { e.stopPropagation(); e.preventDefault(); setAbiertoIdx((i) => Math.min(n - 1, (i ?? 0) + 1)); }
+            if (e.key === "ArrowLeft") { e.stopPropagation(); e.preventDefault(); setAbiertoIdx((i) => Math.max(0, (i ?? 0) - 1)); }
+        };
         window.addEventListener("keydown", k, true); return () => window.removeEventListener("keydown", k, true);
-    }, [onCerrar, abierto]);
+    }, [onCerrar, abiertoIdx, res]);
+    // La miniatura del abierto, siempre a la vista en la tira.
+    useEffect(() => { if (abiertoIdx != null) tira.current?.querySelector<HTMLElement>(`[data-i="${abiertoIdx}"]`)?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" }); }, [abiertoIdx]);
+    // Una búsqueda nueva vuelve a la grilla.
+    useEffect(() => { setAbiertoIdx(null); }, [res]);
 
     // La foto del evento, achicada, y lo que OmniVision reconoce en ella.
     useEffect(() => {
@@ -200,12 +218,15 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                             {objetos?.map((o, i) => {
                                 const I = ICONO_GRUPO[o.grupo] || Scan;
                                 const sel = elegidoEs(o);
+                                // Dos autos en la foto eran dos pastillas «Auto» iguales: se numeran, de izquierda a derecha.
+                                const iguales = objetos.filter((x) => x.clase === o.clase);
+                                const nombre = iguales.length > 1 ? `${nombreClase(o.clase)} ${[...iguales].sort((a, b) => a.caja[0] - b.caja[0]).indexOf(o) + 1}` : nombreClase(o.clase);
                                 return (
-                                    <button key={i} type="button" onClick={() => { setCaja(conMargen(o.caja)); setEtiqueta(nombreClase(o.clase)); }} aria-pressed={sel}
+                                    <button key={i} type="button" onClick={() => { setCaja(conMargen(o.caja)); setEtiqueta(nombre); }} aria-pressed={sel}
                                         className={cn("h-8 pl-1 pr-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5 transition-colors",
                                             sel ? "border-white bg-white text-black" : "border-white/15 text-white/80 hover:bg-white/[0.06]")}>
                                         <span className={cn("grid place-items-center h-6 w-6 rounded-full", sel ? "bg-black/10" : "bg-white/10")}><I size={13} /></span>
-                                        {nombreClase(o.clase)}
+                                        {nombre}
                                     </button>
                                 );
                             })}
@@ -232,6 +253,10 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
 
                     {/* ── Derecha: los resultados ── */}
                     <div className="min-h-0 flex flex-col">
+                        {abierto && res ? (
+                            <DetalleResultado r={abierto} i={abiertoIdx!} total={res.resultados.length} resultados={res.resultados} tira={tira}
+                                alElegir={setAbiertoIdx} alVolver={() => setAbiertoIdx(null)} onVerGrabacion={onVerGrabacion} />
+                        ) : (<>
                         <div className="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-b border-white/[0.08]">
                             <span className="flex items-center rounded-full border border-white/15 p-0.5">
                                 <button type="button" onClick={() => setMotor("omni")} aria-pressed={motor === "omni"}
@@ -272,7 +297,7 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                                         const rel = max > min ? (r.coseno - min) / (max - min) : 1;
                                         const I = ICONO_GRUPO[r.grupo] || Scan;
                                         return (
-                                            <button key={r.id} type="button" onClick={() => setAbierto(r)}
+                                            <button key={r.id} type="button" onClick={() => setAbiertoIdx(i)}
                                                 className="text-left rounded-[10px] border border-white/10 overflow-hidden hover:border-[var(--accion-en-oscuro)] transition-colors bg-white/[0.02]">
                                                 <div className="relative aspect-square bg-black">
                                                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -290,46 +315,78 @@ export function BuscarParecidos({ foto, instanteMs, onCerrar, onVerGrabacion }: 
                                 </div>
                             )}
                         </div>
+                        </>)}
                     </div>
                 </div>
 
-                {/* Un resultado, en grande. */}
-                {abierto && (
-                    <div className="absolute inset-0 z-10 bg-black/80 grid place-items-center p-6" onClick={() => setAbierto(null)}>
-                        <div className="w-full max-w-4xl rounded-[14px] overflow-hidden border border-white/10 bg-[#0c0e12]" onClick={(e) => e.stopPropagation()}>
-                            <div className="relative bg-black">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={img(abierto.foto || abierto.recorte)} alt="" className="block w-full max-h-[66vh] object-contain" />
-                                {abierto.foto && abierto.caja && (
-                                    <div className="absolute border-2 border-[var(--accion-en-oscuro)] rounded-[3px] pointer-events-none"
-                                        style={{ left: `${abierto.caja[0] * 100}%`, top: `${abierto.caja[1] * 100}%`, width: `${(abierto.caja[2] - abierto.caja[0]) * 100}%`, height: `${(abierto.caja[3] - abierto.caja[1]) * 100}%` }} />
-                                )}
-                            </div>
-                            <div className="flex items-center gap-3 px-4 py-3">
-                                <div className="min-w-0">
-                                    <div className="text-[14px] font-bold">{nombreClase(abierto.clase)} · {abierto.camara}</div>
-                                    <div className="text-[12px] text-white/55 tabular-nums">{fechaCorta(abierto.primeraVez)} {horaSeg(abierto.primeraVez)}</div>
-                                </div>
-                                <div className="ml-auto flex items-center gap-2">
-                                    {onVerGrabacion && abierto.deviceId && (
-                                        <button type="button" onClick={() => onVerGrabacion(abierto.deviceId!, Date.parse(abierto.primeraVez), abierto.camara)}
-                                            className="h-9 px-4 rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[13px] font-bold inline-flex items-center gap-2">
-                                            <PlayCircle size={15} /> Ver grabación
-                                        </button>
-                                    )}
-                                    <a href="/admin/vision/buscar" className="h-9 px-3 rounded-[6px] text-[13px] font-semibold text-white/70 hover:text-white hover:bg-white/10 inline-flex items-center gap-1.5"><Search size={14} /> OmniVision › Buscar</a>
-                                    <button type="button" onClick={() => setAbierto(null)} className="w-9 h-9 grid place-items-center rounded-[6px] text-white/60 hover:text-white hover:bg-white/10"><X size={16} /></button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
                 {/* El borde de abajo de la persiana: tirar de acá la enrolla. */}
                 <button type="button" onClick={onCerrar} aria-label="Subir la persiana" title="Volver al evento  ( Esc )"
                     className="shrink-0 h-5 grid place-items-center border-t border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.07] transition-colors">
                     <span className="block w-12 h-1 rounded-full bg-white/30" />
                 </button>
         </motion.section>
+    );
+}
+
+/**
+ * Un resultado abierto, en el panel de resultados: la foto a sangre con el objeto marcado, los
+ * datos y la grabación en una barra, y la tira de todos los resultados abajo. Sin marco ni
+ * fondo oscurecido: es el mismo panel que cambia de grilla a detalle, no otra ventana encima.
+ */
+function DetalleResultado({ r, i, total, resultados, tira, alElegir, alVolver, onVerGrabacion }: {
+    r: Resultado; i: number; total: number; resultados: Resultado[]; tira: React.RefObject<HTMLDivElement | null>;
+    alElegir: (i: number) => void; alVolver: () => void; onVerGrabacion?: (deviceId: string, ms: number, camara: string) => void;
+}) {
+    const I = ICONO_GRUPO[r.grupo] || Scan;
+    const [nat, setNat] = useState<{ w: number; h: number } | null>(null);
+    useEffect(() => { setNat(null); }, [r.id]);
+    const flecha = "w-10 h-10 grid place-items-center rounded-full bg-black/55 hover:bg-black/80 text-white disabled:opacity-0 transition-opacity";
+    return (
+        <>
+            <div className="shrink-0 flex items-center gap-3 px-5 py-2.5 border-b border-white/[0.08]">
+                <button type="button" onClick={alVolver} title="Volver a la grilla  ( Esc )"
+                    className="h-8 pl-2 pr-3 rounded-[6px] text-[12.5px] font-semibold inline-flex items-center gap-1.5 text-white/70 hover:text-white hover:bg-white/10">
+                    <LayoutGrid size={14} /> Resultados
+                </button>
+                <span className="text-[12px] text-white/45 tabular-nums">{i + 1} de {total}</span>
+                <span className="min-w-0 flex items-center gap-1.5 text-[13px] font-semibold truncate"><I size={13} className="shrink-0 text-white/60" /> {nombreClase(r.clase)} · {r.camara}</span>
+                <span className="text-[12px] text-white/55 tabular-nums whitespace-nowrap">{fechaCorta(r.primeraVez)} {horaSeg(r.primeraVez)}</span>
+                <div className="ml-auto flex items-center gap-1.5">
+                    <a href="/admin/vision/buscar" className="h-8 px-2.5 rounded-[6px] text-[12.5px] font-semibold text-white/60 hover:text-white hover:bg-white/10 inline-flex items-center gap-1.5"><Search size={13} /> OmniVision › Buscar</a>
+                    {onVerGrabacion && r.deviceId && (
+                        <button type="button" onClick={() => onVerGrabacion(r.deviceId!, Date.parse(r.primeraVez), r.camara)}
+                            className="h-8 px-3.5 rounded-[6px] bg-[var(--accion)] hover:bg-[var(--accion-sobre)] text-white text-[12.5px] font-bold inline-flex items-center gap-1.5">
+                            <PlayCircle size={14} /> Ver grabación
+                        </button>
+                    )}
+                </div>
+            </div>
+            <div className="relative flex-1 min-h-0 bg-black overflow-hidden">
+                {/* La foto llena el panel (contain) y el recuadro va en un SVG con el mismo tamaño
+                    natural y el mismo encaje: así queda sobre el objeto a cualquier tamaño de panel. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img key={r.id} src={img(r.foto || r.recorte)} alt="" onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+                    className="absolute inset-0 w-full h-full object-contain" />
+                {r.foto && r.caja && nat && (
+                    <svg viewBox={`0 0 ${nat.w} ${nat.h}`} preserveAspectRatio="xMidYMid meet" className="absolute inset-0 w-full h-full pointer-events-none">
+                        <rect x={r.caja[0] * nat.w} y={r.caja[1] * nat.h} width={(r.caja[2] - r.caja[0]) * nat.w} height={(r.caja[3] - r.caja[1]) * nat.h}
+                            rx={3} fill="none" stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+                    </svg>
+                )}
+                <button type="button" aria-label="Anterior" disabled={i === 0} onClick={() => alElegir(i - 1)} className={cn(flecha, "absolute left-3 top-1/2 -translate-y-1/2")}><ChevronLeft size={20} /></button>
+                <button type="button" aria-label="Siguiente" disabled={i >= total - 1} onClick={() => alElegir(i + 1)} className={cn(flecha, "absolute right-3 top-1/2 -translate-y-1/2")}><ChevronRight size={20} /></button>
+            </div>
+            <div ref={tira} className="shrink-0 flex gap-1.5 overflow-x-auto px-5 py-2.5 border-t border-white/[0.08]">
+                {resultados.map((x, j) => (
+                    <button key={x.id} data-i={j} type="button" onClick={() => alElegir(j)} aria-pressed={j === i} title={`${j + 1} · ${x.camara}`}
+                        className={cn("relative shrink-0 w-[72px] h-[54px] rounded-[6px] overflow-hidden bg-black transition-opacity", j === i ? "ring-2 ring-[var(--accion-en-oscuro)]" : "opacity-55 hover:opacity-100")}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {x.recorte && <img src={img(x.recorte, 128)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />}
+                        <span className="absolute left-0.5 top-0.5 px-1 rounded-[4px] bg-black/70 text-[9.5px] font-bold tabular-nums">{j + 1}</span>
+                    </button>
+                ))}
+            </div>
+        </>
     );
 }
 

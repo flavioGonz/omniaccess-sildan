@@ -6,7 +6,7 @@ import { Tooltip } from "react-tooltip";
 import {
     Camera, Radar, HardDrive, Network, MapPin, Rocket, ScanSearch, Loader2, Check, X, AlertTriangle, Info,
     LogIn, LogOut, KeyRound, User, Cpu, Fingerprint, Clock, BellRing, ScanLine, Film, Video, ListChecks, Server,
-    ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users,
+    ChevronRight, ChevronLeft, Tag, Hash, Type, Plug, Car, Ban, Link2, Save, Crosshair, Download, Activity, ShieldCheck, Users, Sparkles,
 } from "lucide-react";
 import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,8 @@ import { BarraDePasos, PasoAnimado } from "@/components/devices/Pasos";
 import { createDevice, updateDevice, probeDeviceInfo, getDevices } from "@/app/actions/devices";
 import { provisionLprDevice } from "@/app/actions/provision";
 import { getNvrList, getNvrChannels, getNvrChannelInfo, importarCanalesClasificados, type RolImport } from "@/app/actions/nvr";
-import { dondeGraba, asignarGrabacion, calcularRetencion } from "@/app/actions/grabaciones";
+import { dondeGraba, asignarGrabacion, calcularRetencion, retencionGuardada } from "@/app/actions/grabaciones";
+import { CabeceraNvr } from "@/components/devices/CabeceraNvr";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { ElegirModoIntrusion, ElegirModoLpr, ModoEnFila, OPCIONES_INTRUSION_FILA, OPCIONES_LPR_FILA } from "@/components/devices/ModoCamara";
@@ -55,6 +56,21 @@ const TIPOS: { valor: Tipo; rotulo: string; que: string; icono: any; color: stri
     { valor: "NVR", rotulo: "NVR / Grabador", icono: HardDrive, color: "text-sky-500 bg-sky-500/10 border-sky-500/30",
         que: "Guarda el video. Al agregarlo se leen sus canales y se importan las cámaras, clasificadas.",
         ejemplo: "Ej.: «NVR Sildan» en 172.16.2.59, Hikvision DS-9664NI de 64 canales." },
+];
+
+/**
+ * Lo que se ofrece en el primer paso del alta. La cámara para omni-LPR es una cámara LPR con el
+ * modo «Lectura OmniVision» ya elegido: antes había que saber que esa opción estaba escondida en
+ * el paso «Modo» de «Cámara LPR» (Nico, 14/10: «¿cómo le digo que va a ser para omni-LPR?»).
+ */
+type OpcionAlta = { id: string; valor: Tipo; modo?: ModoLpr; rotulo: string; que: string; icono: any; color: string; ejemplo: string };
+const OPCIONES_ALTA: OpcionAlta[] = [
+    { ...TIPOS[0], id: "lpr", modo: "camara", que: "Lectora con ANPR propio: lee la matrícula y abre con su lista. Se le puede sumar la doble verificación de omni-lpr." },
+    { id: "omnilpr", valor: "LPR_CAMERA", modo: "omnivision", rotulo: "Cámara para omni-LPR", icono: Sparkles, color: "text-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_10%,transparent)] border-[color-mix(in_oklab,var(--accion)_30%,transparent)]",
+        que: "Una cámara común, sin ANPR, mirando el acceso: la matrícula la lee nuestro omni-lpr desde el video. Puede abrir la barrera.",
+        ejemplo: "Ej.: una bullet de 4 MP apuntando al carril, como la de la entrada de San Nicolás (.86)." },
+    { ...TIPOS[1], id: "intrusion" },
+    { ...TIPOS[2], id: "nvr" },
 ];
 
 const PASOS_POR_TIPO: Record<Tipo, { clave: string; rotulo: string }[]> = {
@@ -195,13 +211,14 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const [corriendo, setCorriendo] = useState(false);
     const [terminado, setTerminado] = useState(false);
     const [creadoId, setCreadoId] = useState<string | null>(null);
+    const [opcionAlta, setOpcionAlta] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
 
     useEffect(() => {
         if (!open) return;
         setF(blanco()); setPaso(0); setHacia(1); setInfo(null); setDonde(null); setManual({ nvrId: "", ch: "" });
         setSinGrabar(false); setActual(null); setRetencion(null); setCanales(null); setErrorCanales(""); setEleccion({});
-        setTareas([]); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false);
+        setTareas([]); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false); setOpcionAlta(null);
         {
             const ml = device ? modoLprDe(device) : null;
             const mi = device ? modoIntrusionDe(device, null) : null;
@@ -214,7 +231,17 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             }).catch(() => { });
         }
         getNvrList().then(setNvrs).catch(() => setNvrs([]));
-        if (device?.id && device.deviceType !== "NVR") getNvrChannelInfo(device.id).then(setActual).catch(() => setActual(null));
+        if (device?.id && device.deviceType !== "NVR") {
+            getNvrChannelInfo(device.id).then((a) => {
+                setActual(a);
+                // La retención guardada se muestra al abrir; si graba en un NVR y nunca se
+                // calculó, se calcula sola (antes había que apretar el botón cámara por cámara).
+                retencionGuardada(device.id).then((r) => {
+                    if (r) setRetencion(textoRetencion(r));
+                    else if (a) calcRet();
+                }).catch(() => { });
+            }).catch(() => setActual(null));
+        }
     }, [open, blanco, device]);
 
     // La lectura de OmniVision se guarda como LPR_INTERIOR que mira un acceso (lib/modo-camara.ts):
@@ -438,14 +465,14 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         } catch (e: any) { toast.error({ title: "No se pudo guardar", description: e?.message }); }
         finally { setGuardando(false); }
     };
-    const calcRet = async () => {
+    async function calcRet() {
         if (!device?.id) return;
         setCalculando(true);
         try {
             const rt = await calcularRetencion(device.id);
-            setRetencion(rt.ok && rt.retencion && !rt.retencion.error ? `${rt.retencion.dias} días guardados (desde ${rt.retencion.desde.slice(0, 10)})${rt.retencion.grabando === false ? " · NO está grabando ahora" : ""}` : `No se pudo calcular: ${rt.error || rt.retencion?.error || "sin respuesta"}`);
+            setRetencion(rt.ok && rt.retencion && !rt.retencion.error ? textoRetencion(rt.retencion) : `No se pudo calcular: ${rt.error || rt.retencion?.error || "sin respuesta"}`);
         } finally { setCalculando(false); }
-    };
+    }
 
     const fallas = tareas.filter((t) => t.estado === "error");
     const nvrActual = actual ? nvrs.find((n) => n.id === actual.nvr) : null;
@@ -611,9 +638,9 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
 
     return (
         <Cajon open={open} onOpenChange={(v) => { if (!corriendo) onOpenChange(v); }}>
-            <CajonContenido ancho={esEdicion ? "intermedio" : "medio"} tituloOculto={esEdicion}
+            <CajonContenido ancho={esEdicion ? "intermedio" : "medio"} tituloOculto={esEdicion} sinCabecera={esEdicion}
                 titulo={esEdicion ? (device?.name || "Equipo") : (clave === "modo" ? TITULO_MODO[tipo] : TITULOS[clave]) || "Nuevo equipo"}
-                descripcion={esEdicion ? `${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}` : clave === "tipo" ? "Lo primero, porque de esto dependen los pasos que siguen." : `${meta?.rotulo} · alta guiada`}
+                descripcion={esEdicion ? `${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}` : clave === "tipo" ? "Lo primero, porque de esto dependen los pasos que siguen." : `${OPCIONES_ALTA.find((o) => o.id === opcionAlta)?.rotulo || meta?.rotulo} · alta guiada`}
                 encabezado={esEdicion ? undefined : clave === "tipo"
                     ? <div className="h-0.5 bg-border/60"><div className="h-full w-[6%] bg-[var(--accion)]" /></div>
                     : <BarraDePasos pasos={pasos.slice(1)} actual={paso - 1} alIr={(i) => !corriendo && !terminado && i + 1 < paso && ir(i + 1)} />}
@@ -622,20 +649,24 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                 {esEdicion ? (
                     /* ───────── FICHA (edición) ───────── */
                     <div>
-                        <CabeceraVideo device={device} titulo={f.name || device?.name || "Equipo"} subtitulo={`${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}`} tipo={tipo} meta={meta} f={f} actual={actual} nvrNombre={nvrActual?.name || null}
-                            detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} />
+                        {tipo === "NVR" ? (
+                            <CabeceraNvr device={device} titulo={f.name || device?.name || "NVR"} subtitulo={`NVR / Grabador · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}`}
+                                ip={f.ip} mac={f.mac} detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} />
+                        ) : (
+                            <CabeceraVideo device={device} titulo={f.name || device?.name || "Equipo"} subtitulo={`${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}`} tipo={tipo} meta={meta} f={f} actual={actual} nvrNombre={nvrActual?.name || null}
+                                detectando={detectando} puedeDetectar={ipValida} onComprobar={detectar} info={info} />
+                        )}
                         <Bloque titulo="Identidad" icono={Tag} ayuda="Cómo se llama el equipo y dónde está. Es lo que se ve en el monitor, el historial y los avisos.">
                             <Campo etiqueta="Nombre" icono={Type} value={f.name} onChange={(v) => set("name", v)}
                                 placeholder={tipo === "NVR" ? "NVR Sildan" : tipo === "CAMERA" ? "Perímetro Norte 12" : "P1 - Entrada (207)"}
                                 ayuda={tipo === "LPR_CAMERA" ? "Conviene incluir la garita y el sentido. Ej.: «P1 - Entrada (207)». Si incluye P1, P2… el monitor agrupa el semáforo en esa garita." : "El nombre del lugar dice más que el modelo. Ej.: «Perímetro Norte 12»."} />
                             <div className="grid grid-cols-2 gap-4">
-                                <Campo etiqueta="Modelo" icono={Cpu} value={f.deviceModel} onChange={(v) => set("deviceModel", v)} placeholder="iDS-TCM403-GIR"
-                                    ayuda="Lo completa «Comprobar». Ej.: iDS-TCM403-GIR, DS-2CD2T47G2, DS-9664NI-I8." />
+                                <Dato etiqueta="Modelo" icono={Cpu} valor={f.deviceModel} faltante="Sin leer: «Comprobar» lo trae del equipo"
+                                    ayuda="Lo lee el equipo mismo al comprobar (no se escribe a mano): un modelo tipeado mal hacía elegir mal el driver y la foto." />
                                 {tipo !== "NVR" && <Campo etiqueta="Ubicación / garita" icono={MapPin} value={f.location} onChange={(v) => set("location", v)} placeholder="Garita P1"
                                     ayuda="Texto libre. Ej.: «Garita P1», «Lote 120 fondo». En LPR, «P1»/«P2» agrupan el semáforo en el monitor." />}
                             </div>
                             {tipo === "LPR_CAMERA" && <div><Etiqueta texto="Sentido" ayuda="Decide la columna del monitor, si suma a «adentro ahora» y si cierra visitas. Ej.: el carril de ingreso de P1 es Entrada." />{bloqueSentido}</div>}
-                            <div><Etiqueta texto="Fabricante" ayuda="No se cambia en un equipo dado de alta." />{bloqueMarca}</div>
                         </Bloque>
                         {(tipo === "LPR_CAMERA" || tipo === "CAMERA") && (
                             <Bloque titulo="Qué hace OmniAccess con esta cámara" icono={tipo === "LPR_CAMERA" ? ScanLine : Radar}
@@ -673,10 +704,10 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                     <PasoAnimado clave={clave} hacia={hacia}>
                         {clave === "tipo" && (
                             <div className="px-6 py-6 grid gap-3">
-                                {TIPOS.map((t) => (
-                                    <button key={t.valor} type="button" onClick={() => { set("deviceType", t.valor); setHacia(1); setPaso(1); setCanales(null); setDonde(null); }}
-                                        className={cn("group text-left rounded-2xl border p-4 flex gap-4 transition-all hover:-translate-y-px hover:shadow-md",
-                                            tipo === t.valor ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border bg-card/40 hover:bg-accent/50")}>
+                                {OPCIONES_ALTA.map((t) => (
+                                    <button key={t.id} type="button" onClick={() => { set("deviceType", t.valor); if (t.modo) { setModoLpr(t.modo); setAbre(false); } setOpcionAlta(t.id); setHacia(1); setPaso(1); setCanales(null); setDonde(null); }}
+                                        className={cn("group text-left rounded-2xl border p-4 flex gap-4 transition-colors",
+                                            opcionAlta === t.id ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_6%,transparent)]" : "border-border bg-card/40 hover:bg-accent/50")}>
                                         <span className={cn("grid h-12 w-12 shrink-0 place-items-center rounded-xl border", t.color)}><t.icono size={22} /></span>
                                         <span className="min-w-0 flex-1">
                                             <span className="flex items-center gap-2 text-[14.5px] font-bold text-foreground">{t.rotulo}<span {...tip(t.ejemplo)} className="text-muted-foreground/60 hover:text-[var(--accion)]"><Info size={13} /></span></span>
@@ -826,7 +857,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                         <div className="rounded-xl border border-border bg-card/40 p-4 space-y-3">
                                             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><ListChecks size={14} /> Resumen</div>
                                             <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 text-[12.5px] text-muted-foreground">
-                                                <span>Tipo: <b className="text-foreground">{meta?.rotulo}</b></span><span>Fabricante: <b className="text-foreground">{f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}</b></span>
+                                                <span>Tipo: <b className="text-foreground">{OPCIONES_ALTA.find((o) => o.id === opcionAlta)?.rotulo || meta?.rotulo}</b></span><span>Fabricante: <b className="text-foreground">{f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}</b></span>
                                                 {tipo !== "NVR" && <span className="col-span-2">Modo: <b className="text-foreground">{tipo === "LPR_CAMERA" ? `${MODOS_LPR[modoLpr].rotulo}${modoLpr === "omnivision" ? (abre ? " · abre la barrera" : " · sólo registra") : ""}` : MODOS_INTRUSION[modoIntr].rotulo}</b></span>}
                                                 <span>Nombre: <b className="text-foreground">{f.name}</b></span><span>IP: <b className="text-foreground font-mono">{f.ip}{tipo === "NVR" && f.port ? `:${f.port}` : ""}</b></span>
                                                 {tipo === "LPR_CAMERA" && <><span>Sentido: <b className="text-foreground">{f.direction === "ENTRY" ? "Entrada" : "Salida"}</b></span><span>Grupo: <b className="text-foreground">{groups.find((g: any) => g.id === f.groupId)?.name || "sin grupo"}</b></span></>}
@@ -885,9 +916,11 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
     const esVideo = tipo !== "NVR";
     const chip = "inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/45 backdrop-blur-md text-white text-[10.5px] font-bold ring-1 ring-white/10";
     // Queda fijo arriba al hacer scroll en la ficha (sticky dentro del área que scrollea del cajón).
+    // A sangre (14/10): sin el margen, el redondeo ni la sombra, que la hacían ver como una
+    // tarjeta flotando dentro del cajón en vez de la cabecera del cajón.
     return (
-        <div className="sticky top-0 z-20 pb-3 bg-background">
-        <div className={cn("relative w-full overflow-hidden rounded-b-2xl bg-black shadow-[0_10px_30px_-12px_rgba(0,0,0,0.6)]", esVideo ? "aspect-video" : "h-40 bg-gradient-to-br from-sky-950 via-neutral-900 to-black")}>
+        <div className="sticky top-0 z-20">
+        <div className={cn("relative w-full overflow-hidden bg-black", esVideo ? "aspect-video" : "h-40 bg-gradient-to-br from-sky-950 via-neutral-900 to-black")}>
             {esVideo && (<>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`/api/snapshot/${device.id}?w=960`} alt="" className={cn("absolute inset-0 w-full h-full object-cover transition-all duration-500", listo ? "opacity-0" : "opacity-100 blur-[2px] scale-105")} onError={(e) => { (e.target as HTMLImageElement).style.visibility = "hidden"; }} />
@@ -930,6 +963,29 @@ function CabeceraVideo({ device, titulo, subtitulo, tipo, meta, f, actual, nvrNo
                 </button>
             </div>
         </div>
+        </div>
+    );
+}
+
+
+/** La retención en una frase: días, desde cuándo y si está grabando. */
+function textoRetencion(r: { dias: number; desde: string; grabando: boolean | null; error?: string }): string {
+    if (r.error) return `No se pudo calcular: ${r.error}`;
+    return `${r.dias} días guardados (desde ${r.desde.slice(0, 10)})${r.grabando === false ? " · NO está grabando ahora" : ""}`;
+}
+
+/**
+ * Un dato que lee el equipo y no se escribe: el modelo. Antes era un campo de texto, y lo que se
+ * tipeaba ahí se usaba para elegir foto y driver; un «DS-2CD» mal escrito no fallaba, elegía mal.
+ */
+function Dato({ etiqueta, icono: I, valor, faltante, ayuda }: { etiqueta: string; icono: any; valor?: string | null; faltante: string; ayuda?: string }) {
+    return (
+        <div>
+            <Etiqueta texto={etiqueta} ayuda={ayuda} />
+            <div className="h-10 rounded-lg bg-muted/50 px-3 flex items-center gap-2 text-[13px]">
+                <I size={15} className="text-muted-foreground shrink-0" />
+                {valor ? <span className="font-semibold truncate">{valor}</span> : <span className="text-muted-foreground text-[12px] truncate">{faltante}</span>}
+            </div>
         </div>
     );
 }
