@@ -15,10 +15,15 @@ set -e
 cd "$(dirname "$0")"
 [ "${SIN_BUILD:-0}" = "1" ] || docker build -t omni-lpr:gpu -f Dockerfile.gpu .
 docker rm -f omni-lpr 2>/dev/null || true
+# Sólo los que son de verdad un dispositivo: en el lab (14/10) /dev/nvidia-modeset existía pero no
+# era un nodo de dispositivo, Docker se negó a arrancar el contenedor y — como el viejo ya estaba
+# borrado — el lector quedó caído. Un --device que no corresponde no agrega nada; uno que falta sí.
+DISPOSITIVOS=""
+for d in /dev/nvidia0 /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia-modeset; do
+  [ -c "$d" ] && DISPOSITIVOS="$DISPOSITIVOS --device $d"
+done
 if nvidia-smi -L >/dev/null 2>&1; then
-  docker run -d --name omni-lpr --restart unless-stopped --gpus all \
-    --device /dev/nvidia0 --device /dev/nvidiactl --device /dev/nvidia-uvm \
-    --device /dev/nvidia-uvm-tools --device /dev/nvidia-modeset \
+  docker run -d --name omni-lpr --restart unless-stopped --gpus all $DISPOSITIVOS \
     -p 127.0.0.1:8000:8000 -e EXECUTION_DEVICE=cuda \
     -v omni_lpr_models:/root/.cache omni-lpr:gpu
   echo "omni-lpr: en GPU"
