@@ -33,7 +33,8 @@ async function adjuntarVigilancia<T extends { plateDetected?: string | null; use
  * En el panel los recortes se sirven por /api/vision/imagen (con sesión).
  */
 async function adjuntarRelectura<T extends { id: string; plateDetected?: string | null }>(events: T[]): Promise<(T & { relectura?: RelecturaEvento })[]> {
-    const ids = events.filter((e) => esNoLeida(e.plateDetected)).map((e) => e.id);
+    // También las lecturas de una cámara con doble verificación (lib/modo-camara.ts).
+    const ids = events.filter((e) => esNoLeida(e.plateDetected) || !!(e as any).device?.lprVerifica).map((e) => e.id);
     if (!ids.length) return events;
     try {
         const porEvento = await relecturasDe(ids, (clave) => `/api/vision/imagen/${clave}`);

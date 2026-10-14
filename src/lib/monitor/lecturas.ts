@@ -10,11 +10,13 @@ import { metodoDeLectura } from "@/lib/lectura-metodo";
  */
 // El rol y la marca VIP van para la clase de la lectura (lib/monitor/identidad): la pantalla
 // la nombra igual que el monitor LPR del panel.
-export const INCLUIR_LECTURA = { user: { select: { name: true, role: true, vip: true, unit: { select: { name: true } } } }, device: { select: { name: true } } } as const;
+export const INCLUIR_LECTURA = { user: { select: { name: true, role: true, vip: true, unit: { select: { name: true } } } }, device: { select: { name: true, lprVerifica: true } } } as const;
 
 export const formaLectura = (e: any) => ({
     id: e.id, ts: e.timestamp.toISOString(), plate: e.plateDetected || e.plateNumber || null, persona: e.user?.name || null,
     unidad: e.user?.unit?.name || null,
     camara: e.device?.name || e.location || null, sentido: e.direction, decision: e.decision, accessType: e.accessType,
     foto: e.snapshotPath || e.imagePath || null, detalles: e.details || null, metodo: metodoDeLectura(e.details || null),
+    // Cámara con doble verificación (lib/modo-camara.ts): su relectura se espera también con chapa leída.
+    verifica: !!e.device?.lprVerifica,
 });

@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { VisorEventoAcceso } from "@/components/eventos/VisorEventoAcceso";
 import { cn } from "@/lib/utils";
-import { chapaDe, esSinLectura, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
+import { chapaDe, esSinLectura, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 import { Pista } from "@/components/ui/pista";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { Momento, Matricula, Miniatura, Nada } from "@/components/ui/celdas";
@@ -489,7 +489,7 @@ export function TablaUnificada({ buscar, desde, hasta, tipos, identificacion = "
                         /* Una NO_LEIDA: la chapa que leyó OmniVision (doble verificación) con su marca, o
                            «Sin lectura» si tampoco pudo. Antes salía «NO_LEIDA» dibujado como si fuera una chapa. */
                         const ch = chapaDe(f.plate, f.vision?.releida);
-                        if (f.plate && !esSinLectura(f.plate)) return <Matricula p={f.plate} />;
+                        if (f.plate && !esSinLectura(f.plate)) return <><Matricula p={f.plate} /><MarcaVerificacion plate={f.plate} r={f.vision?.releida} tamano="xs" soloIcono /></>;
                         if (ch.plate) return <><Matricula p={textoChapa(ch)} className="border-dashed" /><MarcaOmniVision r={f.vision?.releida} tamano="xs" /></>;
                         if (f.plate) return <><span className="text-[13px] text-muted-foreground">Sin lectura</span>{f.vision?.releida && <MarcaOmniVision r={f.vision.releida} tamano="xs" soloIcono />}</>;
                         return <span className="text-[13px] text-muted-foreground">{f.persona || "—"}</span>;

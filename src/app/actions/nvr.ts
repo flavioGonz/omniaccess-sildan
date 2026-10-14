@@ -421,7 +421,7 @@ export async function canalesParaImportar(nvrDeviceId: string): Promise<{ ok: bo
     };
 }
 
-export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: { channel: number; rol: RolImport; direction?: "ENTRY" | "EXIT"; groupId?: string | null }[]): Promise<{ ok: boolean; error?: string; creadas: number; mapeadas: number; detalle: { channel: number; name: string; accion: string; motivo?: string }[] }> {
+export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: { channel: number; rol: RolImport; direction?: "ENTRY" | "EXIT"; groupId?: string | null; modo?: string | null }[]): Promise<{ ok: boolean; error?: string; creadas: number; mapeadas: number; detalle: { channel: number; name: string; accion: string; motivo?: string }[] }> {
     const { getSession } = await import("@/app/actions/auth");
     if (!(await getSession())) return { ok: false, error: "Hace falta una sesión del panel.", creadas: 0, mapeadas: 0, detalle: [] };
     const detalle: { channel: number; name: string; accion: string; motivo?: string }[] = [];
@@ -461,9 +461,19 @@ export async function importarCanalesClasificados(nvrDeviceId: string, pedidos: 
             },
         });
         creadas++;
-        detalle.push({ channel: c.channel, name, accion: lpr ? "creada como LPR" : "creada como intrusión" });
         try { const { syncLprStream } = await import("@/lib/go2rtc-sync"); await syncLprStream(dev as any); } catch { }
-        if (lpr && String(dev.brand) === "HIKVISION") { try { const { provisionLprDevice } = await import("@/app/actions/provision"); await provisionLprDevice(dev.id, false); } catch { } }
+        // El modo elegido en la fila (lib/modo-camara.ts). La lectura de OmniVision no lleva la
+        // puesta a punto de ANPR: la cámara no lee, sólo da el video.
+        const { esModoLpr, esModoIntrusion, MODOS_LPR, MODOS_INTRUSION } = await import("@/lib/modo-camara");
+        const { aplicarModoCamara } = await import("@/lib/modo-camara-db");
+        const modoLpr = lpr && esModoLpr(p.modo) ? p.modo : null;
+        const modoIntr = !lpr && esModoIntrusion(p.modo) ? p.modo : null;
+        let pendientes: string[] = [];
+        if (modoLpr && modoLpr !== "camara") pendientes = (await aplicarModoCamara(dev.id, { lpr: { modo: modoLpr } }).catch(() => ({ pendientes: ["no se pudo aplicar el modo"] }))).pendientes;
+        if (modoIntr) pendientes = (await aplicarModoCamara(dev.id, { intrusion: modoIntr }).catch(() => ({ pendientes: ["no se pudo aplicar el modo"] }))).pendientes;
+        const rotulo = modoLpr ? MODOS_LPR[modoLpr].rotulo : modoIntr ? MODOS_INTRUSION[modoIntr].rotulo : null;
+        detalle.push({ channel: c.channel, name, accion: `${lpr ? "creada como LPR" : "creada como intrusión"}${rotulo ? ` · ${rotulo}` : ""}`, ...(pendientes.length ? { motivo: pendientes.join(" · ") } : {}) });
+        if (lpr && modoLpr !== "omnivision" && String(dev.brand) === "HIKVISION") { try { const { provisionLprDevice } = await import("@/app/actions/provision"); await provisionLprDevice(dev.id, false); } catch { } }
     }
     await prisma.setting.upsert({ where: { key: "NVR_CHANNEL_MAP" }, update: { value: JSON.stringify(nuevo) }, create: { key: "NVR_CHANNEL_MAP", value: JSON.stringify(nuevo) } });
     return { ok: true, creadas, mapeadas, detalle };

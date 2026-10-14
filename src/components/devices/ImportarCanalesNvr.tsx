@@ -15,6 +15,11 @@ import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
 import { canalesParaImportar, importarCanalesClasificados, type CanalParaImportar, type RolImport } from "@/app/actions/nvr";
 import { IconoTipo, ICONO_TIPO } from "@/components/devices/ArbolAreas";
+import { ModoEnFila, OPCIONES_INTRUSION_FILA, OPCIONES_LPR_FILA } from "@/components/devices/ModoCamara";
+import type { ModoIntrusion, ModoLpr } from "@/lib/modo-camara";
+
+/** Lo que se elige por canal: el rol, el sentido (LPR) y el modo (lib/modo-camara.ts). */
+type Eleccion = { rol: RolImport; direction: "ENTRY" | "EXIT"; modoLpr?: ModoLpr; modoIntr?: ModoIntrusion };
 
 /**
  * Importar las cámaras de un NVR clasificando cada una antes de crearla: LPR (entrada o
@@ -56,7 +61,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
     const [canales, setCanales] = useState<CanalParaImportar[]>([]);
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState("");
-    const [eleccion, setEleccion] = useState<Record<number, { rol: RolImport; direction: "ENTRY" | "EXIT" }>>({});
+    const [eleccion, setEleccion] = useState<Record<number, Eleccion>>({});
     const [grupo, setGrupo] = useState("none");
     const [importando, setImportando] = useState(false);
     const [filtro, setFiltro] = useState<Filtro>("todas");
@@ -80,7 +85,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
         canalesParaImportar(nvr.id).then((r) => {
             if (!r.ok) { setError(r.error || "No se pudieron leer los canales"); return; }
             setCanales(r.canales);
-            setEleccion(Object.fromEntries(r.canales.map((c) => [c.channel, { rol: c.existente || c.sensorDe || !c.ip ? "omitir" : c.sugerido.rol, direction: c.sugerido.direction }])));
+            setEleccion(Object.fromEntries(r.canales.map((c) => [c.channel, { rol: c.existente || c.sensorDe || !c.ip ? "omitir" : c.sugerido.rol, direction: c.sugerido.direction, modoLpr: "camara", modoIntr: "doble" } as Eleccion])));
             setFiltro(r.canales.some((c) => !c.existente && c.ip && !c.sensorDe) ? "nuevas" : "todas");
         }).catch((e) => setError(e?.message || "Error")).finally(() => setCargando(false));
     };
@@ -94,7 +99,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
         intr: nuevas.filter((c) => eleccion[c.channel]?.rol === "intrusion").length,
         corregir: existentes.filter((c) => c.existente && c.existente.marca !== c.marca && c.marca !== "OTRA").length,
     }), [eleccion, canales]); // eslint-disable-line react-hooks/exhaustive-deps
-    const set = (ch: number, cambios: Partial<{ rol: RolImport; direction: "ENTRY" | "EXIT" }>) => setEleccion((p) => ({ ...p, [ch]: { ...p[ch], ...cambios } }));
+    const set = (ch: number, cambios: Partial<Eleccion>) => setEleccion((p) => ({ ...p, [ch]: { ...p[ch], ...cambios } }));
     const todasNuevasComo = (rol: RolImport) => setEleccion((p) => { const n = { ...p }; for (const c of nuevas) n[c.channel] = { ...n[c.channel], rol }; return n; });
 
     const visibles = useMemo(() => {
@@ -108,7 +113,13 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
         setImportando(true);
         try {
             const pedidos = canales.filter((c) => c.existente || (esNueva(c) && eleccion[c.channel]?.rol !== "omitir"))
-                .map((c) => ({ channel: c.channel, rol: (c.existente ? "intrusion" : eleccion[c.channel]?.rol || "omitir") as RolImport, direction: eleccion[c.channel]?.direction, groupId: grupo }));
+                .map((c) => {
+                    const e = eleccion[c.channel];
+                    const rol = (c.existente ? "intrusion" : e?.rol || "omitir") as RolImport;
+                    // A una que ya existe no se le cambia el modo: sólo se vincula su grabación.
+                    const modo = c.existente ? undefined : rol === "lpr" ? e?.modoLpr : rol === "intrusion" ? e?.modoIntr : undefined;
+                    return { channel: c.channel, rol, direction: e?.direction, groupId: grupo, modo };
+                });
             const r = await importarCanalesClasificados(nvr.id, pedidos);
             if (!r.ok) { toast.error({ title: "No se pudo importar", description: r.error }); return; }
             toast.success({ title: `Importación lista: ${r.creadas} nueva${r.creadas !== 1 ? "s" : ""}`, description: `${r.mapeadas} ya existían y quedaron vinculadas a su grabación.` });
@@ -125,7 +136,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
     return (
         <Cajon open={open} onOpenChange={(v) => !importando && onOpenChange(v)}>
             <CajonContenido ancho="medio" titulo={`Importar cámaras de ${nvr?.name || "NVR"}`}
-                descripcion="Elegí qué es cada cámara antes de crearla. Las que ya existen sólo se vinculan a su grabación."
+                descripcion="Elegí qué es cada cámara y quién lee o detecta (la cámara, la cámara verificada por OmniVision, u OmniVision sola) antes de crearla. Las que ya existen sólo se vinculan a su grabación."
                 encabezado={
                     <div className="px-6 py-3 space-y-3">
                         <div className="grid grid-cols-3 gap-2">
@@ -236,7 +247,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                                                 ) : !nueva ? (
                                                     <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1"><Info size={12} /> {c.sensorDe ? `Se graba con D${c.sensorDe}` : "Sin IP: no se puede importar"}</span>
                                                 ) : (
-                                                    <div className="flex items-center gap-1.5">
+                                                    <div className="flex flex-wrap items-center justify-end gap-1.5">
                                                         <div className="inline-flex rounded-lg bg-muted/60 p-0.5" {...tip(`Sugerido: ${c.sugerido.rol === "lpr" ? "LPR" : "intrusión"} (${c.sugerido.por}).`)}>
                                                             {([["lpr", "LPR", Car], ["intrusion", "Intrusión", Radar], ["omitir", "No", Ban]] as const).map(([v, t, I]) => (
                                                                 <button key={v} type="button" onClick={() => set(c.channel, { rol: v })}
@@ -256,6 +267,8 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                                                                 ))}
                                                             </div>
                                                         )}
+                                                        {e?.rol === "lpr" && <ModoEnFila opciones={OPCIONES_LPR_FILA} valor={e.modoLpr || "camara"} onCambiar={(m) => set(c.channel, { modoLpr: m })} />}
+                                                        {e?.rol === "intrusion" && <ModoEnFila opciones={OPCIONES_INTRUSION_FILA} valor={e.modoIntr || "doble"} onCambiar={(m) => set(c.channel, { modoIntr: m })} />}
                                                     </div>
                                                 )}
                                             </div>

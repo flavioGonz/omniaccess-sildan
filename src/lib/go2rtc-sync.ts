@@ -21,7 +21,7 @@ function tcpReachable(ip: string, port = 554, ms = 1500): Promise<boolean> {
 const CONFIG = process.env.GO2RTC_CONFIG || "/opt/OmniAccess/go2rtc.yaml";
 const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
 
-type Dev = {
+export type Dev = {
     id: string;
     ip?: string | null;
     username?: string | null;
@@ -34,7 +34,7 @@ type Dev = {
 const enc = encodeURIComponent;
 
 /** RTSP directo a una cámara (LPR), por marca. */
-function rtspDirect(dev: Dev, channel: string): string {
+export function rtspDirect(dev: Dev, channel: string): string {
     const user = dev.username || "admin";
     const pass = dev.password || "";
     const cred = pass ? `${enc(user)}:${enc(pass)}@` : `${enc(user)}@`;
