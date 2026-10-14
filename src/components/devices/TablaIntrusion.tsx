@@ -1,5 +1,8 @@
 "use client";
 
+import { ChipModo } from "@/components/devices/ModoCamara";
+import { modoIntrusionDe } from "@/lib/modo-camara";
+
 import { useEffect, useMemo, useState } from "react";
 import { Radar, Server, BellRing, BellOff, Crosshair, Settings2, Trash2, Search, Loader2, Camera, Activity } from "lucide-react";
 import { Tooltip } from "react-tooltip";
@@ -87,7 +90,9 @@ export function TablaIntrusion({ devices, health, analyticsIds, groups, onReload
                                             </span>
                                             <div className="min-w-0">
                                                 <p className={cn("font-semibold text-foreground text-sm leading-tight truncate max-w-[240px]", claseNombreConAlerta(alertasDe[d.id]))}>{d.name}</p>
-                                                <p className="text-[10px] text-muted-foreground">{d.brand}{d.deviceModel ? ` · ${d.deviceModel}` : ""}</p>
+                                                <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">{d.brand}{d.deviceModel ? ` · ${d.deviceModel}` : ""}
+                                                    {/* Quién detecta (lib/modo-camara.ts). Sin modo elegido, se deduce de si avisa. */}
+                                                    <ChipModo modo={modoIntrusionDe(d, c ? !!c.alarmOk : null)} tipo="intrusion" /></p>
                                                 <AlertasFila alertas={alertasDe[d.id]} onVer={() => onVerSalud?.(d)} />
                                             </div>
                                         </div>

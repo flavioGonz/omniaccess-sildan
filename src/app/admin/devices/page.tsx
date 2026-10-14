@@ -105,6 +105,8 @@ import {
 import { cn } from "@/lib/utils";
 import { HardDrive as HardDriveIco, ScanSearch, Calculator } from "lucide-react";
 import { CajonDispositivo } from "@/components/devices/CajonDispositivo";
+import { ChipModo } from "@/components/devices/ModoCamara";
+import { esLprDeAcceso, modoLprDe } from "@/lib/modo-camara";
 import { AlertasFila, claseNombreConAlerta, type AlertaEquipo } from "@/components/devices/AlertasFila";
 import { ConfirmarHora } from "@/components/devices/ConfirmarHora";
 import { IntrusionCalibrator as CalibradorIntrusion } from "@/components/IntrusionCalibrator";
@@ -121,6 +123,13 @@ import { leerAreas, type EstadoAreas } from "@/app/actions/areas";
 // Inline SVG data URIs for fallback images (avoid 404s for missing placeholder files)
 const PLACEHOLDER_DEVICE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="8" fill="%23262626"/><path d="M24 14a4 4 0 100 8 4 4 0 000-8zm-6 14c0-2 4-3.1 6-3.1S30 26 30 28v1H18v-1z" fill="%23525252"/><rect x="14" y="32" width="20" height="3" rx="1.5" fill="%23525252"/></svg>')}`;
 const PLACEHOLDER_BRAND = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="4" fill="%23262626"/><circle cx="16" cy="16" r="8" stroke="%23525252" stroke-width="1.5" fill="none"/><path d="M16 12v4l3 3" stroke="%23525252" stroke-width="1.5" stroke-linecap="round"/></svg>')}`;
+
+/**
+ * En qué vista va cada equipo. La lectura de OmniVision se guarda como LPR_INTERIOR que mira un
+ * acceso (lib/modo-camara.ts), pero es una cámara LPR de acceso: va con las LPR, no con las de
+ * seguimiento interior, que es donde nadie la buscaba.
+ */
+const vistaDe = (d: any): string => (esLprDeAcceso(d) ? "LPR_CAMERA" : String(d.deviceType));
 
 const TYPE_META: Record<string, { label: string; color: string; activeClass: string }> = {
     LPR_CAMERA: { label: "Cámaras LPR", color: "text-amber-400", activeClass: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
@@ -298,7 +307,7 @@ export default function DevicesPage() {
     const allowedTypes: string[] = [];
     if (modules.MODULE_LPR) { allowedTypes.push("LPR_CAMERA"); allowedTypes.push("CAMERA"); allowedTypes.push("NVR"); }
     // (SN) Sólo si hay alguna: en una instalación sin LPR interior la vista vacía no suma nada.
-    if (modules.MODULE_LPR && devices.some((d) => d.deviceType === "LPR_INTERIOR")) allowedTypes.splice(1, 0, "LPR_INTERIOR");
+    if (modules.MODULE_LPR && devices.some((d) => vistaDe(d) === "LPR_INTERIOR")) allowedTypes.splice(1, 0, "LPR_INTERIOR");
     if (modules.MODULE_FACE) allowedTypes.push("FACE_TERMINAL");
     if (modules.MODULE_QUEUE) allowedTypes.push("QUEUE_COUNTER");
     const pedido = searchParams.get('type');
@@ -313,8 +322,8 @@ export default function DevicesPage() {
 
     const filteredDevices = devices.filter(d => {
         // Only show devices whose type belongs to an active module
-        if (!allowedTypes.includes(d.deviceType)) return false;
-        const matchesType = d.deviceType === typeFilter;
+        if (!allowedTypes.includes(vistaDe(d))) return false;
+        const matchesType = vistaDe(d) === typeFilter;
         const matchesSearch = d.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             d.ip.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (d.location && d.location.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -554,9 +563,9 @@ export default function DevicesPage() {
 
             <div className="flex gap-4 items-start">
                 <ArbolAreas estado={areas} setEstado={setAreas} devices={devices} tiposVisibles={allowedTypes} tipoActual={typeFilter}
-                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(d.deviceType) ? setEditando(d) : null)} health={health} alertasDe={alertasDe}
+                    seleccion={areaSel} onSeleccion={setAreaSel} onAbrirEquipo={(d) => (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(d)) ? setEditando(d) : null)} health={health} alertasDe={alertasDe}
                     colapsado={panelCerrado} onColapsar={colapsarPanel} onTipo={(t) => { setAreaSel(TODAS); setFilter(t); }}
-                    tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => d.deviceType === t).length, alertas: devices.filter((d) => d.deviceType === t && alertasDe[d.id]?.length).length }))} />
+                    tipos={allowedTypes.map((t) => ({ tipo: t, rotulo: TYPE_META[t]?.label || t, cuenta: devices.filter((d) => vistaDe(d) === t).length, alertas: devices.filter((d) => vistaDe(d) === t && alertasDe[d.id]?.length).length }))} />
                 <div className="flex-1 min-w-0 space-y-4">
             {areaSel !== TODAS ? (
                 <VistaArea estado={areas} areaId={areaSel} devices={devices.filter((d) => allowedTypes.includes(d.deviceType))} busqueda={searchTerm}
@@ -601,7 +610,7 @@ export default function DevicesPage() {
                             const h = health[dev.id];
 
                             return (
-                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; if (["LPR_CAMERA", "CAMERA", "NVR"].includes(dev.deviceType)) setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
+                                <TableRow key={dev.id} draggable onDragStart={(e) => arrastrarEquipos(e, [dev.id], dev.name)} onClick={(e: React.MouseEvent) => { const t = e.target as HTMLElement; if (!(e.currentTarget as HTMLElement).contains(t) || t.closest('button,a,input,select,textarea,label,[role="menuitem"],[data-no-fila]')) return; if (["LPR_CAMERA", "CAMERA", "NVR"].includes(vistaDe(dev))) setEditando(dev); }} className={cn("border-border/50 hover:bg-foreground/[0.04] transition-colors group cursor-pointer", alertasDe[dev.id] && "bg-red-500/[0.035]")}>
                                     <TableCell className="py-2 pl-4">
                                         <div className="flex items-center gap-3 min-w-0">
                                             <div className="relative shrink-0">
@@ -617,11 +626,12 @@ export default function DevicesPage() {
                                             <div className="min-w-0 space-y-1">
                                                 <div className="flex items-center gap-1.5 min-w-0">
                                                     <p className={cn("font-semibold text-foreground text-[13px] leading-none truncate max-w-[200px]", claseNombreConAlerta(alertasDe[dev.id]))} data-tooltip-id="tt-grab" data-tooltip-content={dev.name}>{dev.name}</p>
-                                                    {dev.deviceType === "LPR_CAMERA" && dev.direction && (
+                                                    {esLprDeAcceso(dev) && dev.direction && (
                                                         <span className={cn("h-[16px] px-1 rounded text-[9px] font-black grid place-items-center", dev.direction === "ENTRY" ? "bg-emerald-500/15 text-emerald-500" : "bg-orange-500/15 text-orange-500")}
                                                             data-tooltip-id="tt-grab" data-tooltip-content={dev.direction === "ENTRY" ? "Entrada" : "Salida"}>{dev.direction === "ENTRY" ? <LogInIco size={10} /> : <LogOutIco size={10} />}</span>
                                                     )}
                                                     {analyticsIds.has(dev.id) && <span className="h-[16px] w-[16px] rounded bg-red-500/15 text-red-500 grid place-items-center" data-tooltip-id="tt-grab" data-tooltip-content="Con analíticas configuradas"><Radar size={10} /></span>}
+                                                    <ChipModo modo={modoLprDe(dev)} tipo="lpr" />
                                                 </div>
                                                 <div className="flex items-center gap-1 flex-wrap">
                                                     <span className="h-[17px] px-1.5 rounded bg-muted text-[9px] font-bold uppercase text-muted-foreground grid place-items-center" data-tooltip-id="tt-grab" data-tooltip-content={`${brand.label}${dev.deviceModel ? ` · ${dev.deviceModel}` : ""}`}>

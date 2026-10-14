@@ -117,9 +117,26 @@ function iniciar({ prisma, log, vision, estado, bajar, subir }) {
         };
     }
 
+    /**
+     * Las cámaras cuyo modo de intrusión NO pide verificación (src/lib/modo-camara.ts: sólo
+     * «doble» y las que nunca eligieron modo la llevan). Antes se verificaba todo por igual.
+     * Se relee cada minuto: el modo se cambia desde la ficha sin reiniciar el worker.
+     */
+    let sinVerificar = { ids: [], hasta: 0 };
+    async function camarasSinVerificar() {
+        if (Date.now() < sinVerificar.hasta) return sinVerificar.ids;
+        const filas = await prisma.device.findMany({ where: { deviceType: "CAMERA", intrusionModo: { in: ["camara", "omnivision", "video"] } }, select: { id: true } }).catch(() => null);
+        if (filas) sinVerificar = { ids: filas.map((f) => f.id), hasta: Date.now() + 60_000 };
+        return sinVerificar.ids;
+    }
+
     async function unaIntrusion() {
+        const fuera = await camarasSinVerificar();
         const d = await prisma.detection.findFirst({
-            where: { verifAt: null, type: { in: TIPOS_INTRUSION }, timestamp: { gte: new Date(Date.now() - VENTANA_INTRUSION_MS) } },
+            where: {
+                verifAt: null, type: { in: TIPOS_INTRUSION }, timestamp: { gte: new Date(Date.now() - VENTANA_INTRUSION_MS) },
+                ...(fuera.length ? { OR: [{ deviceId: null }, { deviceId: { notIn: fuera } }] } : {}),
+            },
             orderBy: { timestamp: "desc" }, select: { id: true, deviceId: true, snapshotPath: true, timestamp: true },
         });
         if (!d) return false;

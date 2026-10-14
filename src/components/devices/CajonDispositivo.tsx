@@ -18,6 +18,10 @@ import { getNvrList, getNvrChannels, getNvrChannelInfo, importarCanalesClasifica
 import { dondeGraba, asignarGrabacion, calcularRetencion } from "@/app/actions/grabaciones";
 import { cn } from "@/lib/utils";
 import { sileo as toast } from "sileo";
+import { ElegirModoIntrusion, ElegirModoLpr, ModoEnFila, OPCIONES_INTRUSION_FILA, OPCIONES_LPR_FILA } from "@/components/devices/ModoCamara";
+import { ponerModoCamara } from "@/app/actions/modo-camara";
+import { rolesDeCamaras } from "@/app/actions/roles-camaras";
+import { MODOS_INTRUSION, MODOS_LPR, modoIntrusionDe, modoLprDe, type ModoIntrusion, type ModoLpr } from "@/lib/modo-camara";
 
 /**
  * Alta y edición de equipos en un único cajón, como en San Nicolás.
@@ -54,15 +58,20 @@ const TIPOS: { valor: Tipo; rotulo: string; que: string; icono: any; color: stri
 ];
 
 const PASOS_POR_TIPO: Record<Tipo, { clave: string; rotulo: string }[]> = {
-    LPR_CAMERA: [{ clave: "equipo", rotulo: "Equipo" }, { clave: "conexion", rotulo: "Conexión" }, { clave: "lugar", rotulo: "Ubicación" }, { clave: "grabacion", rotulo: "Grabación" }, { clave: "puesta", rotulo: "Puesta a punto" }],
-    CAMERA: [{ clave: "equipo", rotulo: "Equipo" }, { clave: "conexion", rotulo: "Conexión" }, { clave: "grabacion", rotulo: "Grabación" }, { clave: "puesta", rotulo: "Puesta a punto" }],
+    // «Modo» (14/10): quién lee la matrícula o quién detecta la intrusión, elegido con nombre.
+    LPR_CAMERA: [{ clave: "equipo", rotulo: "Equipo" }, { clave: "conexion", rotulo: "Conexión" }, { clave: "modo", rotulo: "Modo" }, { clave: "lugar", rotulo: "Ubicación" }, { clave: "grabacion", rotulo: "Grabación" }, { clave: "puesta", rotulo: "Puesta a punto" }],
+    CAMERA: [{ clave: "equipo", rotulo: "Equipo" }, { clave: "conexion", rotulo: "Conexión" }, { clave: "modo", rotulo: "Modo" }, { clave: "grabacion", rotulo: "Grabación" }, { clave: "puesta", rotulo: "Puesta a punto" }],
     NVR: [{ clave: "equipo", rotulo: "Equipo" }, { clave: "conexion", rotulo: "Conexión" }, { clave: "canales", rotulo: "Canales" }, { clave: "puesta", rotulo: "Puesta a punto" }],
 };
 
 const TITULOS: Record<string, string> = {
     tipo: "¿Qué vas a agregar?", equipo: "¿Qué equipo es?", conexion: "¿Cómo se llega al equipo?", lugar: "¿Dónde está y por dónde pasan?",
-    grabacion: "¿Dónde se graba?", canales: "Las cámaras del grabador", puesta: "Puesta a punto",
+    grabacion: "¿Dónde se graba?", canales: "Las cámaras del grabador", puesta: "Puesta a punto", modo: "¿Qué hace OmniAccess con esta cámara?",
 };
+const TITULO_MODO: Record<string, string> = { LPR_CAMERA: "¿Quién lee la matrícula?", CAMERA: "¿Quién detecta la intrusión?" };
+
+/** Lo que elige cada canal al importar: el rol, su modo y (LPR) el sentido. */
+type EleccionCanal = { rol: RolImport; direction: "ENTRY" | "EXIT"; modoLpr?: ModoLpr; modoIntr?: ModoIntrusion };
 
 /* ── Piezas de formulario con ícono y tooltip ─────────────────────────────────── */
 
@@ -174,7 +183,12 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const [leyendo, setLeyendo] = useState(false);
     const [canales, setCanales] = useState<Canal[] | null>(null);
     const [errorCanales, setErrorCanales] = useState("");
-    const [eleccion, setEleccion] = useState<Record<number, { rol: RolImport; direction: "ENTRY" | "EXIT" }>>({});
+    const [eleccion, setEleccion] = useState<Record<number, EleccionCanal>>({});
+    // Modo (lib/modo-camara.ts). En la ficha, `modoAntes` es el guardado: si no cambió no se toca.
+    const [modoLpr, setModoLpr] = useState<ModoLpr>("camara");
+    const [abre, setAbre] = useState(false);
+    const [modoIntr, setModoIntr] = useState<ModoIntrusion>("doble");
+    const [modoAntes, setModoAntes] = useState<{ lpr: ModoLpr | null; abre: boolean; intr: ModoIntrusion | null }>({ lpr: null, abre: false, intr: null });
     // Puesta a punto
     const [cargarMatriculas, setCargarMatriculas] = useState(true);
     const [tareas, setTareas] = useState<Tarea[]>([]);
@@ -188,11 +202,25 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         setF(blanco()); setPaso(0); setHacia(1); setInfo(null); setDonde(null); setManual({ nvrId: "", ch: "" });
         setSinGrabar(false); setActual(null); setRetencion(null); setCanales(null); setErrorCanales(""); setEleccion({});
         setTareas([]); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false);
+        {
+            const ml = device ? modoLprDe(device) : null;
+            const mi = device ? modoIntrusionDe(device, null) : null;
+            setModoLpr(ml || "camara"); setAbre(!!device?.lprAbre); setModoIntr(mi || "doble");
+            setModoAntes({ lpr: ml, abre: !!device?.lprAbre, intr: mi });
+            // Una cámara de antes sin modo elegido: si no le avisa a OmniAccess, es «sólo video».
+            if (device?.deviceType === "CAMERA" && !device.intrusionModo) rolesDeCamaras().then((r) => {
+                const m = modoIntrusionDe(device, r.avisan.includes(device.ip));
+                setModoIntr(m || "doble"); setModoAntes((a) => ({ ...a, intr: m }));
+            }).catch(() => { });
+        }
         getNvrList().then(setNvrs).catch(() => setNvrs([]));
         if (device?.id && device.deviceType !== "NVR") getNvrChannelInfo(device.id).then(setActual).catch(() => setActual(null));
     }, [open, blanco, device]);
 
-    const tipo = f.deviceType as Tipo | "";
+    // La lectura de OmniVision se guarda como LPR_INTERIOR que mira un acceso (lib/modo-camara.ts):
+    // en pantalla es una cámara LPR más, con su sentido y su grupo.
+    const esLprOmni = String(f.deviceType) === "LPR_INTERIOR" && !!device?.trackAcceso;
+    const tipo = (esLprOmni ? "LPR_CAMERA" : f.deviceType) as Tipo | "";
     const meta = TIPOS.find((t) => t.valor === tipo);
     const pasos = useMemo(() => esEdicion ? [{ clave: "ficha", rotulo: "Ficha" }] : [{ clave: "tipo", rotulo: "Tipo" }, ...(tipo ? PASOS_POR_TIPO[tipo] : [])], [esEdicion, tipo]);
     const clave = pasos[Math.min(paso, pasos.length - 1)]?.clave || "tipo";
@@ -235,7 +263,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                 return { channel: Number(c.channel), ip: c.ip || null, name: (c.name && String(c.name).trim()) || `Canal ${c.channel}`, model: c.model || null, marca: c.brand || f.brand, protocolo: c.protocolo || null, sensorDe: c.sensorDe ?? null, existente: e ? { id: e.id, name: e.name, tipo: String(e.deviceType) } : null };
             });
             setCanales(lista);
-            setEleccion(Object.fromEntries(lista.map((c) => [c.channel, { rol: (c.existente || !c.ip || c.sensorDe ? "omitir" : ES_LPR.test(`${c.name} ${c.model || ""}`) ? "lpr" : "intrusion") as RolImport, direction: (/salida|exit/i.test(c.name) ? "EXIT" : "ENTRY") as "ENTRY" | "EXIT" }])));
+            setEleccion(Object.fromEntries(lista.map((c) => [c.channel, { rol: (c.existente || !c.ip || c.sensorDe ? "omitir" : ES_LPR.test(`${c.name} ${c.model || ""}`) ? "lpr" : "intrusion") as RolImport, direction: (/salida|exit/i.test(c.name) ? "EXIT" : "ENTRY") as "ENTRY" | "EXIT", modoLpr: "camara" as ModoLpr, modoIntr: "doble" as ModoIntrusion }])));
         } catch (e: any) { setErrorCanales(e?.message || "No se pudo leer el NVR"); }
         finally { setLeyendo(false); }
     }, [f.ip, f.username, f.password, f.authType, f.brand]);
@@ -273,12 +301,30 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
         }
     };
 
+    /** El modo elegido, recién creada la cámara. Lo que le falte para andar va en el detalle. */
+    const aplicarModo = async (id: string) => {
+        actualizar("modo", { estado: "corriendo" });
+        const r = await ponerModoCamara(id, tipo === "LPR_CAMERA" ? { lpr: { modo: modoLpr, abre } } : { intrusion: modoIntr }).catch((e) => ({ ok: false, error: e?.message, pendientes: [] as string[] }));
+        actualizar("modo", r.ok ? { estado: "ok", detalle: r.pendientes.length ? `Falta: ${r.pendientes.join(" · ")}` : "aplicado" } : { estado: "error", detalle: r.error || "no se pudo aplicar" });
+        if (r.ok && r.pendientes.length) toast.info({ title: "El modo quedó elegido; le falta:", description: r.pendientes.join(" · ") });
+    };
+
     const puestaAPunto = async () => {
         if (!tipo) return;
         const hik = f.brand === "HIKVISION";
         const T = (clave: string, titulo: string, ayuda: string, icono: any): Tarea => ({ clave, titulo, ayuda, icono, estado: "espera" });
-        const lista: Tarea[] = tipo === "LPR_CAMERA" ? [
-            T("crear", "Dar de alta la cámara", "Se guarda con su IP, credenciales, sentido y grupo de acceso.", Camera),
+        const tModo = tipo === "LPR_CAMERA"
+            ? T("modo", `Modo: ${MODOS_LPR[modoLpr].rotulo}`, MODOS_LPR[modoLpr].que, ScanLine)
+            : T("modo", `Modo: ${MODOS_INTRUSION[modoIntr].rotulo}`, MODOS_INTRUSION[modoIntr].que, Radar);
+        const lista: Tarea[] = tipo === "LPR_CAMERA" && modoLpr === "omnivision" ? [
+            // Lectura OmniVision: la cámara no lee; no se le configura ANPR, envío de lecturas ni lista.
+            T("crear", "Dar de alta la cámara", "Se guarda con su IP, credenciales, sentido y grupo de acceso.", Camera), tModo,
+            T("hora", "Poner la hora", "Hora del servidor (Montevideo). Con la hora corrida el clip de la lectura no coincide.", Clock),
+            T("vivo", "Video para omni-lpr", "Se registra el stream que lee omni-lpr y que se ve en el monitor.", Video),
+            T("grabacion", "Vincular la grabación", "En qué NVR y canal se graba, para clips y playback.", HardDrive),
+            T("retencion", "Calcular retención", "La grabación más vieja de ese canal: de ese día a hoy es lo que guarda.", Server),
+        ] : tipo === "LPR_CAMERA" ? [
+            T("crear", "Dar de alta la cámara", "Se guarda con su IP, credenciales, sentido y grupo de acceso.", Camera), tModo,
             T("hora", "Poner la hora", "Hora del servidor (Montevideo). Con la hora corrida el clip de la lectura no coincide.", Clock),
             T("eventos", "Servidor de alarmas → OmniAccess", "Se configura el envío de cada lectura a OmniAccess (HTTP host). Sin esto la cámara lee pero nadie se entera.", BellRing),
             T("anpr", "Modo ANPR", "Se activa la lectura de matrículas.", ScanLine),
@@ -288,7 +334,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             T("grabacion", "Vincular la grabación", "En qué NVR y canal se graba, para clips y playback.", HardDrive),
             T("retencion", "Calcular retención", "La grabación más vieja de ese canal: de ese día a hoy es lo que guarda.", Server),
         ] : tipo === "CAMERA" ? [
-            T("crear", "Dar de alta la cámara", "Se guarda como cámara de intrusión con su IP y credenciales.", Camera),
+            T("crear", "Dar de alta la cámara", "Se guarda como cámara de intrusión con su IP y credenciales.", Camera), tModo,
             T("hora", "Poner la hora", "Hora del servidor. Las alarmas quedan con la hora correcta y el clip coincide.", Clock),
             T("eventos", "Servidor de alarmas → OmniAccess", "La cámara manda los cruces de línea y entradas a zona a OmniAccess. Sin esto no llegan al monitor de intrusión.", BellRing),
             T("vivo", "Video en vivo", "Se registra el stream en go2rtc para el monitor de intrusión.", Video),
@@ -312,7 +358,12 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             actualizar("crear", { estado: "ok", detalle: `${f.name} · ${f.ip}` });
             onSuccess();
 
-            if (tipo === "LPR_CAMERA") {
+            if (tipo !== "NVR") await aplicarModo(id);
+            if (tipo === "LPR_CAMERA" && modoLpr === "omnivision") {
+                await ponerHora(id);
+                actualizar("vivo", { estado: "ok", detalle: "registrado al poner el modo" });
+                await vincularGrabacion(id);
+            } else if (tipo === "LPR_CAMERA") {
                 if (hik) {
                     ["hora", "eventos", "anpr", "h264", "vivo", "matriculas"].forEach((k) => actualizar(k, { estado: k === "matriculas" && !cargarMatriculas ? "salteado" : "corriendo" }));
                     const p: any = await provisionLprDevice(id, cargarMatriculas);
@@ -330,15 +381,23 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                 await vincularGrabacion(id);
             } else if (tipo === "CAMERA") {
                 await ponerHora(id);
-                actualizar("eventos", { estado: "corriendo" });
-                const a = await fetch(`/api/devices/alarm-host?deviceId=${id}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
-                actualizar("eventos", { estado: a?.ok ? "ok" : "error", detalle: a?.info || a?.error || (a?.ok ? "configurado" : "sin respuesta — se reintenta desde el calibrador") });
+                if (MODOS_INTRUSION[modoIntr].avisos) {
+                    actualizar("eventos", { estado: "corriendo" });
+                    const a = await fetch(`/api/devices/alarm-host?deviceId=${id}`, { method: "POST" }).then((x) => x.json()).catch(() => null);
+                    actualizar("eventos", { estado: a?.ok ? "ok" : "error", detalle: a?.info || a?.error || (a?.ok ? "configurado" : "sin respuesta — se reintenta desde el calibrador") });
+                } else actualizar("eventos", { estado: "salteado", detalle: "en este modo la cámara no avisa: la mira OmniVision" });
                 actualizar("vivo", { estado: "ok", detalle: "registrado al crear" });
                 await vincularGrabacion(id);
             } else {
                 await ponerHora(id);
                 const pedidos = (canales || []).filter((c) => c.existente || (eleccion[c.channel]?.rol && eleccion[c.channel].rol !== "omitir"))
-                    .map((c) => ({ channel: c.channel, rol: (c.existente ? "intrusion" : eleccion[c.channel].rol) as RolImport, direction: eleccion[c.channel]?.direction, groupId: f.groupId }));
+                    .map((c) => {
+                        const e = eleccion[c.channel];
+                        const rol = (c.existente ? "intrusion" : e.rol) as RolImport;
+                        // A una que ya existe no se le cambia el modo: sólo se vincula su grabación.
+                        const modo = c.existente ? undefined : rol === "lpr" ? e?.modoLpr : rol === "intrusion" ? e?.modoIntr : undefined;
+                        return { channel: c.channel, rol, direction: e?.direction, groupId: f.groupId, modo };
+                    });
                 if (!pedidos.length) actualizar("importar", { estado: "salteado", detalle: "no se eligió ninguna cámara (se puede hacer después desde el menú del NVR)" });
                 else {
                     actualizar("importar", { estado: "corriendo", detalle: `${pedidos.length} canales…` });
@@ -364,6 +423,15 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             const fd = new FormData();
             Object.entries(f).forEach(([k, v]) => fd.append(k, String(v)));
             await updateDevice(device.id, fd);
+            // El modo va después: puede cambiar el tipo guardado (la lectura de OmniVision es una
+            // LPR_INTERIOR), y updateDevice escribe el tipo que traía el formulario.
+            const cambioLpr = tipo === "LPR_CAMERA" && (modoLpr !== modoAntes.lpr || abre !== modoAntes.abre);
+            const cambioIntr = tipo === "CAMERA" && modoIntr !== modoAntes.intr;
+            if (cambioLpr || cambioIntr) {
+                const r = await ponerModoCamara(device.id, cambioLpr ? { lpr: { modo: modoLpr, abre } } : { intrusion: modoIntr });
+                if (!r.ok) throw new Error(r.error || "No se pudo cambiar el modo");
+                if (r.pendientes.length) toast.info({ title: "Modo cambiado; le falta:", description: r.pendientes.join(" · ") });
+            }
             if (grabacionElegida?.nvrId && (!actual || actual.ch !== grabacionElegida.ch || actual.nvr !== grabacionElegida.nvrId)) await asignarGrabacion(f.ip.trim(), grabacionElegida.nvrId, grabacionElegida.ch);
             toast.success({ title: "Cambios guardados", description: f.name });
             onSuccess(); onOpenChange(false);
@@ -544,7 +612,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     return (
         <Cajon open={open} onOpenChange={(v) => { if (!corriendo) onOpenChange(v); }}>
             <CajonContenido ancho={esEdicion ? "intermedio" : "medio"} tituloOculto={esEdicion}
-                titulo={esEdicion ? (device?.name || "Equipo") : TITULOS[clave] || "Nuevo equipo"}
+                titulo={esEdicion ? (device?.name || "Equipo") : (clave === "modo" ? TITULO_MODO[tipo] : TITULOS[clave]) || "Nuevo equipo"}
                 descripcion={esEdicion ? `${meta?.rotulo || "Equipo"} · ${f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}${f.deviceModel ? ` · ${f.deviceModel}` : ""}` : clave === "tipo" ? "Lo primero, porque de esto dependen los pasos que siguen." : `${meta?.rotulo} · alta guiada`}
                 encabezado={esEdicion ? undefined : clave === "tipo"
                     ? <div className="h-0.5 bg-border/60"><div className="h-full w-[6%] bg-[var(--accion)]" /></div>
@@ -569,6 +637,14 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                             {tipo === "LPR_CAMERA" && <div><Etiqueta texto="Sentido" ayuda="Decide la columna del monitor, si suma a «adentro ahora» y si cierra visitas. Ej.: el carril de ingreso de P1 es Entrada." />{bloqueSentido}</div>}
                             <div><Etiqueta texto="Fabricante" ayuda="No se cambia en un equipo dado de alta." />{bloqueMarca}</div>
                         </Bloque>
+                        {(tipo === "LPR_CAMERA" || tipo === "CAMERA") && (
+                            <Bloque titulo="Qué hace OmniAccess con esta cámara" icono={tipo === "LPR_CAMERA" ? ScanLine : Radar}
+                                ayuda={tipo === "LPR_CAMERA" ? "Quién lee la matrícula: la cámara, la cámara verificada por omni-lpr, u omni-lpr solo. Se aplica al guardar." : "Quién detecta la intrusión: la cámara, la cámara verificada por OmniVision, OmniVision solo, o nadie (sólo video). Se aplica al guardar."}>
+                                {tipo === "LPR_CAMERA"
+                                    ? <ElegirModoLpr valor={modoLpr} abre={abre} onCambiar={(m, a) => { setModoLpr(m); setAbre(a); }} antes={modoAntes.lpr} />
+                                    : <ElegirModoIntrusion valor={modoIntr} onCambiar={setModoIntr} antes={modoAntes.intr} />}
+                            </Bloque>
+                        )}
                         <Bloque titulo="Conexión" icono={Network} ayuda="Cómo llega el servidor al equipo. Si cambiás IP o clave, «Comprobar» confirma que sigue respondiendo.">{bloqueConexion}</Bloque>
                         {tipo !== "NVR" && (
                             <Bloque titulo="Grabación" icono={HardDrive} ayuda="En qué NVR y canal se graba: de ahí salen los clips y el playback."
@@ -631,6 +707,14 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                         )}
 
                         {clave === "conexion" && <Bloque titulo="Acceso al equipo" icono={Network} ayuda="IP y credenciales juntas: la detección necesita las tres cosas.">{bloqueConexion}</Bloque>}
+
+                        {clave === "modo" && (
+                            <div className="px-6 py-6">
+                                {tipo === "LPR_CAMERA"
+                                    ? <ElegirModoLpr valor={modoLpr} abre={abre} onCambiar={(m, a) => { setModoLpr(m); setAbre(a); }} />
+                                    : <ElegirModoIntrusion valor={modoIntr} onCambiar={setModoIntr} />}
+                            </div>
+                        )}
 
                         {clave === "lugar" && (
                             <>
@@ -696,7 +780,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                                         {c.existente ? (
                                                             <span {...tip(`Ya existe como «${c.existente.name}». Sólo se le vincula este canal como su grabación.`)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400"><Link2 size={12} /> Se vincula</span>
                                                         ) : !c.ip || c.sensorDe ? <span className="text-[11px] text-muted-foreground">{c.sensorDe ? `con D${c.sensorDe}` : "No importable"}</span> : (
-                                                            <div className="flex items-center gap-1.5">
+                                                            <div className="flex flex-wrap items-center justify-end gap-1.5">
                                                                 <div className="inline-flex rounded-lg bg-muted/60 p-0.5">
                                                                     {([["lpr", "LPR", Car], ["intrusion", "Intrusión", Radar], ["omitir", "No", Ban]] as const).map(([v, t, I]) => (
                                                                         <button key={v} type="button" onClick={() => setEleccion((p) => ({ ...p, [c.channel]: { ...p[c.channel], rol: v } }))}
@@ -713,6 +797,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                                                         ))}
                                                                     </div>
                                                                 )}
+                                                                {e?.rol === "lpr" && <ModoEnFila opciones={OPCIONES_LPR_FILA} valor={e.modoLpr || "camara"} onCambiar={(m) => setEleccion((p) => ({ ...p, [c.channel]: { ...p[c.channel], modoLpr: m } }))} />}
+                                                                {e?.rol === "intrusion" && <ModoEnFila opciones={OPCIONES_INTRUSION_FILA} valor={e.modoIntr || "doble"} onCambiar={(m) => setEleccion((p) => ({ ...p, [c.channel]: { ...p[c.channel], modoIntr: m } }))} />}
                                                             </div>
                                                         )}
                                                     </div>
@@ -741,6 +827,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><ListChecks size={14} /> Resumen</div>
                                             <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 text-[12.5px] text-muted-foreground">
                                                 <span>Tipo: <b className="text-foreground">{meta?.rotulo}</b></span><span>Fabricante: <b className="text-foreground">{f.brand === "HIKVISION" ? "Hikvision" : "Dahua"}</b></span>
+                                                {tipo !== "NVR" && <span className="col-span-2">Modo: <b className="text-foreground">{tipo === "LPR_CAMERA" ? `${MODOS_LPR[modoLpr].rotulo}${modoLpr === "omnivision" ? (abre ? " · abre la barrera" : " · sólo registra") : ""}` : MODOS_INTRUSION[modoIntr].rotulo}</b></span>}
                                                 <span>Nombre: <b className="text-foreground">{f.name}</b></span><span>IP: <b className="text-foreground font-mono">{f.ip}{tipo === "NVR" && f.port ? `:${f.port}` : ""}</b></span>
                                                 {tipo === "LPR_CAMERA" && <><span>Sentido: <b className="text-foreground">{f.direction === "ENTRY" ? "Entrada" : "Salida"}</b></span><span>Grupo: <b className="text-foreground">{groups.find((g: any) => g.id === f.groupId)?.name || "sin grupo"}</b></span></>}
                                                 {tipo !== "NVR" && <span className="col-span-2">Grabación: <b className={cn(grabacionElegida ? "text-foreground" : "text-amber-600")}>{grabacionElegida ? `${grabacionElegida.nvrNombre} · canal ${grabacionElegida.ch}` : "sin grabaciones"}</b></span>}

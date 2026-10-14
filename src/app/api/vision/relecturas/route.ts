@@ -1,3 +1,4 @@
+import { compararLectura } from "@/lib/verificacion-lpr";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/app/actions/auth";
 import { permisosDeSesion } from "@/lib/permisos";
@@ -53,7 +54,18 @@ export async function GET(req: NextRequest) {
         select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, snapshotPath: true, device: { select: { name: true } } },
     }) : [];
     const evento = new Map(eventos.map((e) => [e.id, e]));
-    const enRango = filas.filter((f) => { const e = evento.get(f.accessEventId); return !!e && e.timestamp >= desde; });
+    const enRangoTodas = filas.filter((f) => { const e = evento.get(f.accessEventId); return !!e && e.timestamp >= desde; });
+    // La doble verificación (cámaras con «lprVerifica», marcada por vision-relectura.js) se
+    // cuenta aparte: no es la relectura de una NO_LEIDA, y mezclada acá inflaba «releídas» y
+    // contaba como «el guardia la corrigió» a la chapa que había leído la cámara.
+    const esDoble = (f: { candidatos: any }) => !!(f.candidatos && (f.candidatos as any).doble);
+    const enRango = enRangoTodas.filter((f) => !esDoble(f));
+    const doble = { total: 0, coincide: 0, casi: 0, difiere: 0, sin: 0 };
+    for (const f of enRangoTodas) {
+        if (!esDoble(f)) continue;
+        const c = compararLectura(evento.get(f.accessEventId)?.plateDetected, { plate: f.plate, estado: estadoConUmbral(f.estado, f.confianza, umbral), confianza: f.confianza });
+        doble.total++; if (c) doble[c.estado]++;
+    }
 
     // ¿La vio otra cámara? Una consulta para todas las chapas sugeridas.
     const sugeridas = [...new Set(enRango.map((f) => f.plate).filter(Boolean))] as string[];
@@ -99,7 +111,7 @@ export async function GET(req: NextRequest) {
     let estado: any = null, activa = true;
     try { estado = JSON.parse(estadoCrudo?.value || "null")?.relectura ?? null; } catch { }
     try { activa = (JSON.parse(analiticasCrudo?.value || "{}") || {}).relectura !== false; } catch { }
-    return NextResponse.json({ h, noLeidas, conteo, activa, estado, umbral, porUmbral, otraLecturaH: OTRA_LECTURA_H, filas: lista.slice(0, LISTA_MAX) });
+    return NextResponse.json({ h, noLeidas, conteo, doble, activa, estado, umbral, porUmbral, otraLecturaH: OTRA_LECTURA_H, filas: lista.slice(0, LISTA_MAX) });
 }
 
 /** POST /api/vision/relecturas { umbral } — desde qué confianza una relectura es acertada. Pide Ajustes. */

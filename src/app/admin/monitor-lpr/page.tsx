@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useRef, memo, useCallback, createContext,
 import { io, Socket } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import { getAccessEvents, getEventsCountToday, getLprCounters, getLastEventPerDevice, relecturasDeEventos } from "@/app/actions/history";
-import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
+import { chapaDe, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 import type { RelecturaEvento } from "@/lib/relectura";
 import { getDevices, getAvailableStreams } from "@/app/actions/devices";
 import { MinInteriorButton } from "@/components/MinInteriorButton";
@@ -240,7 +240,7 @@ function CamTile({ dev, accent = "emerald", ev, onRegister, className }: { dev: 
                     <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md font-mono text-sm font-bold tracking-widest text-white backdrop-blur-sm border shadow-lg",
                         chCam.omni ? "bg-black/65 border-dashed border-[var(--accion-en-oscuro)]" : anomalous ? "bg-yellow-500/40 border-yellow-300/50 text-yellow-100" : ok ? "bg-emerald-600/80 border-emerald-300/40" : "bg-red-600/80 border-red-300/40")}>
                         {/* Una NO_LEIDA: la chapa que leyó OmniVision, con su destello. */}
-                        {chCam.omni ? <>{textoChapa(chCam)}<MarcaOmniVision r={relCam} oscuro tamano="xs" soloIcono /></> : anomalous ? "S/L" : plate}
+                        {chCam.omni ? <>{textoChapa(chCam)}<MarcaOmniVision r={relCam} oscuro tamano="xs" soloIcono /></> : anomalous ? "S/L" : <>{plate}<MarcaVerificacion plate={plate} r={relCam} oscuro tamano="xs" soloIcono /></>}
                     </div>
                 </div>
             )}
@@ -395,7 +395,10 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
                             {ev.id && <PlateManualButton eventId={ev.id} currentPlate={plate} sugerida={relHero?.plate ? { plate: relHero.plate, confianza: relHero.confianza } : null} onSaved={() => router.refresh()} label className="!bg-white/15 hover:!bg-white/25 !text-amber-200 uppercase tracking-wide backdrop-blur" />}
                         </div>
                     ) : (
-                        <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-[clamp(18px,1.9vw,30px)] font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
+                        <div className="flex flex-col items-center gap-1">
+                            <div className="inline-block px-4 py-1.5 bg-black/50 rounded-lg border border-blue-400/40 backdrop-blur-sm"><span className="font-mono text-[clamp(18px,1.9vw,30px)] font-bold tracking-[0.2em] text-white drop-shadow">{plate}</span></div>
+                            <MarcaVerificacion plate={plate} r={relHero} oscuro tamano="md" />
+                        </div>
                     )}
                     <div className="mt-1.5 text-[11px] text-white/80 flex items-center gap-2">
                         {marca && <span className="font-semibold">{marca}</span>}
@@ -507,7 +510,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                                     {relCard && <MarcaOmniVision r={relCard} tamano="xs" soloIcono />}
                                 </div>
                             ) : (
-                                <span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span>
+                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span><MarcaVerificacion plate={event.plateDetected} r={relCard} tamano="xs" /></span>
                             )}
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
                             {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}
@@ -589,7 +592,7 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
                                             ) : anomalous ? (
                                                 <span className="inline-flex items-center gap-1 text-xs font-bold text-yellow-300"><AlertTriangle size={12} /> SIN LECTURA</span>
                                             ) : (
-                                                <span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plateDetected}</span>
+                                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold tracking-wider text-foreground">{ev.plateDetected}</span><MarcaVerificacion plate={ev.plateDetected} r={ev.relectura || relMap[ev.id]} tamano="xs" /></span>
                                             )}
                                             <Badge className={cn("text-[8px] px-1 py-0", dir === "EXIT" ? "bg-orange-500" : "bg-emerald-500")}>{dir === "EXIT" ? "SALIDA" : "ENTRADA"}</Badge>
                                         </div>
@@ -1140,12 +1143,16 @@ export default function MonitorLPR() {
      * segundos por las que todavía no la tienen (y son recientes), hasta que aparece.
      */
     const [relecturas, setRelecturas] = useState<Record<string, RelecturaEvento>>({});
+    // Las cámaras con doble verificación (lib/modo-camara.ts): de esas se espera la relectura de
+    // TODA lectura, no sólo de las NO_LEIDA. Sale de la lista de equipos y no del evento, porque el
+    // evento que llega por el socket trae la cámara como la conoce server.js.
+    const verifican = useMemo(() => new Set(devices.filter((x: any) => x.lprVerifica).map((x: any) => x.id as string)), [devices]);
     const esperando = useMemo(() => {
         const ahora = Date.now();
         const todos = [...events, ...Object.values(lastCapByDev)] as any[];
-        return [...new Set(todos.filter((e) => e?.id && !e.sinEvento && esSinLeer(e.plateDetected) && !e.relectura && !relecturas[e.id]
+        return [...new Set(todos.filter((e) => e?.id && !e.sinEvento && (esSinLeer(e.plateDetected) || verifican.has(e.device?.id || e.deviceId)) && !e.relectura && !relecturas[e.id]
             && ahora - new Date(e.timestamp).getTime() < RELECTURA_ESPERA_MAX_MS).map((e) => e.id as string))];
-    }, [events, lastCapByDev, relecturas]);
+    }, [events, lastCapByDev, relecturas, verifican]);
     useEffect(() => {
         if (!esperando.length) return;
         const desde = Date.now();

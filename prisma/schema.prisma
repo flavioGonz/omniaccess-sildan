@@ -230,6 +230,17 @@ model Device {
   // con el sentido de `direction`. Sin esto, la unica manera de verla ahi era
   // cambiarle el tipo a LPR_CAMERA, y eso la sacaba del seguimiento: dejaba de leer.
   trackAcceso     Boolean          @default(false)
+  // Modo de una LPR de acceso (ver src/lib/modo-camara.ts). Antes no había forma de decir
+  // «la cámara lee y OmniVision verifica cada lectura»: la relectura corría sólo sobre las
+  // NO_LEIDA de todas las cámaras por igual. Con esto la doble verificación es por cámara.
+  lprVerifica     Boolean          @default(false)
+  // Sólo para la lectura de OmniVision (LPR_INTERIOR con trackAcceso): si una lectura
+  // permitida acciona el relé de la cámara. Además hace falta que el servidor lo tenga
+  // habilitado (OMNI_ABRE_BARRERAS): el lab mira cámaras de un barrio y nunca debe abrir.
+  lprAbre         Boolean          @default(false)
+  // Modo de una cámara de intrusión: camara | doble | omnivision | video. Null = como
+  // siempre (verificación global si la cámara avisa); se resuelve en modoIntrusionDe().
+  intrusionModo   String?
   // Intrusión: capa transversal (cruce de línea / zona AcuSense). La geometría se guarda
   // como String JSON (0..1), mismo criterio que trackLine, y se escribe en la cámara por ISAPI.
   intrusionEnabled  Boolean        @default(false)

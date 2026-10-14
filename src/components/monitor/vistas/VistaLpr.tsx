@@ -17,7 +17,7 @@ import { watchCatMeta } from "@/lib/watch-categories";
 import { presentarLectura, rotulosContadores, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
-import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
+import { chapaDe, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 import {
     claseDeLectura, ESTILO_MONITOR, ESTILO_APAGADO, NIVELES, COMPORTAMIENTO_DEFECTO, normalizarComportamiento,
     type ClaseMonitor, type ClaveComportamiento, type Comportamiento, type NivelListaNegra,
@@ -236,8 +236,10 @@ export function VistaLpr() {
             else if (clase && clase !== "alerta" && comportamiento[clase as ClaveComportamiento]?.sonido) sonar("aviso");
         }
         setTimeout(recargar, 1200);
-        // La relectura de una NO_LEIDA tarda unos segundos (vision-worker): se vuelve a pedir para traerla.
-        if (esNoLeida(l.plate)) setTimeout(recargar, RELECTURA_ESPERA_MS);
+        // La relectura tarda unos segundos (vision-worker): se vuelve a pedir para traerla. Con
+        // chapa leída también: si la cámara tiene doble verificación, llega igual (el socket no
+        // trae el modo de la cámara, y una consulta de más no cuesta nada en la pared).
+        setTimeout(recargar, RELECTURA_ESPERA_MS);
     });
     // Visitas que se abren o cierran, y avisos a la guardia: se vuelve a pedir el estado.
     useTiempoReal("visita", () => recargar());
@@ -346,6 +348,7 @@ export function VistaLpr() {
                                                         <span className="flex items-center gap-1.5 min-w-0">
                                                             <span className="text-[18px] font-bold text-white tabular-nums tracking-[0.1em] truncate">{ch.plate ? textoChapa(ch) : esNoLeida(l.plate) ? "S/L" : l.plate}</span>
                                                             {esNoLeida(l.plate) && l.relectura && <MarcaOmniVision r={l.relectura} oscuro tamano="sm" soloIcono={!ch.omni} />}
+                                                            <MarcaVerificacion plate={l.plate} r={l.relectura} oscuro tamano="sm" soloIcono />
                                                         </span>
                                                     );
                                                 })()}
@@ -475,6 +478,7 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
                                         {ch.plate ? textoChapa(ch) : esNoLeida(l.plate) ? "S/L" : l.plate}
                                     </div>
                                     {esNoLeida(l.plate) && l.relectura && <MarcaOmniVision r={l.relectura} oscuro tamano="lg" />}
+                                    <MarcaVerificacion plate={l.plate} r={l.relectura} oscuro tamano="lg" />
                                 </div>
                             );
                         })()}

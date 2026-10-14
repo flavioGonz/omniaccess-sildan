@@ -3,6 +3,7 @@ import { avisarPorSocket } from "@/lib/avisar";
 import { notificarEvento } from "@/lib/reglas-notificacion";
 import { alLeerMatricula } from "@/lib/visitas/motor";
 import { estaEnListaNegra, detalleListaNegra } from "@/lib/lista-negra";
+import { abrirPorLectura } from "@/lib/barrera-omnivision";
 
 /**
  * Una lectura del contenedor en una cámara que mira un ACCESO se convierte en un evento
@@ -18,8 +19,10 @@ import { estaEnListaNegra, detalleListaNegra } from "@/lib/lista-negra";
  *
  * La decisión se toma como en server.js para las lectoras: la matrícula está cargada
  * como credencial → PERMITIDO (o DENEGADO si el modo LPR es lista negra); si no, DENEGADO.
- * Esta cámara no abre nada: "permitido" acá significa "vehículo conocido", igual que en
- * la barrera cuando la decide el servidor y no la cámara.
+ * Por defecto esta cámara no abre nada: "permitido" acá significa "vehículo conocido", igual
+ * que en la barrera cuando la decide el servidor y no la cámara. Desde el 14/10 se puede elegir
+ * que abra (modo «Lectura OmniVision» con «Abre la barrera», ver lib/barrera-omnivision.ts), y
+ * lo que pasó con la barrera queda escrito en el evento.
  */
 
 /** Cómo se leyó la chapa; aparece en `details` como `Metodo: …`. */
@@ -71,12 +74,16 @@ export async function registrarPasoPorAcceso(l: Lectura): Promise<string | null>
             decision = modo === "BLACKLIST" ? "DENY" : "GRANT";
         }
 
+        // Antes de escribir: el auto está esperando frente a la barrera.
+        const barrera = await abrirPorLectura(device.id, decision).catch((e) => `no se pudo abrir: ${e?.message || e}`);
+
         const confianza = l.confidence != null ? Math.round(Number(l.confidence) * 100) : null;
         const details = [
             negra.negra ? detalleListaNegra(negra.motivo) : null,
             `Metodo: ${METODO_RTSP}`,
             confianza != null ? `Confianza: ${confianza}%` : null,
             l.reads != null ? `Lecturas: ${l.reads}` : null,
+            barrera ? `Barrera: ${barrera}` : null,
             "Source: Server",
         ].filter(Boolean).join(", ");
 

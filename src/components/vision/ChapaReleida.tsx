@@ -1,7 +1,9 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
+import { ShieldAlert, ShieldCheck, ShieldQuestion, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { compararLectura, type Comparacion } from "@/lib/verificacion-lpr";
+export { compararLectura, type Comparacion };
 
 /**
  * La chapa de una NO_LEIDA, contada por OmniVision.
@@ -83,6 +85,43 @@ export function MarcaOmniVision({ r, oscuro, tamano = "sm", soloIcono, className
                 className)}>
             <Sparkles size={ico} className="shrink-0" />
             {!soloIcono && (leyo ? `OmniVision${r.estado === "DUDOSA" ? " · dudosa" : ""}` : "OmniVision no la leyó")}
+        </span>
+    );
+}
+
+
+/* ── Doble verificación (14/10) ────────────────────────────────────────────────────────────
+ * En las cámaras con modo «Doble verificación» (lib/modo-camara.ts) OmniVision relee también
+ * las chapas que la cámara SÍ leyó. Lo que importa al guardia no es la chapa de OmniVision sino
+ * si coincide: la marca dice eso, y sólo muestra la otra chapa cuando difiere.
+ *
+ * Una letra de diferencia se distingue de «otra chapa»: el OCR confunde 0/O, 8/B, 1/I, y eso no
+ * es lo mismo que haber leído otro auto. */
+
+const TEXTO_COMP: Record<Comparacion["estado"], (c: Comparacion) => string> = {
+    coincide: () => "Verificada",
+    casi: (c) => `OmniVision: ${c.omni}`,
+    difiere: (c) => `OmniVision leyó ${c.omni}`,
+    sin: () => "Sin verificar",
+};
+
+/** La marca de la doble verificación, pegada a la chapa que leyó la cámara. */
+export function MarcaVerificacion({ plate, r, oscuro, tamano = "sm", soloIcono, className }: {
+    plate: string | null | undefined; r: ReleidaMin; oscuro?: boolean; tamano?: "xs" | "sm" | "md" | "lg"; soloIcono?: boolean; className?: string;
+}) {
+    const c = compararLectura(plate, r);
+    if (!c) return null;
+    const ico = { xs: 10, sm: 11, md: 13, lg: 18 }[tamano];
+    const texto = { xs: "text-[10px]", sm: "text-[10.5px]", md: "text-[11.5px]", lg: "text-[15px]" }[tamano];
+    const I = c.estado === "coincide" ? ShieldCheck : c.estado === "sin" ? ShieldQuestion : ShieldAlert;
+    const tono = c.estado === "coincide" ? "tono-bien" : c.estado === "casi" ? "tono-aviso" : c.estado === "difiere" ? "tono-mal" : oscuro ? "text-white/45" : "tono-quieto";
+    const titulo = c.estado === "coincide" ? `Doble verificación: OmniVision releyó la foto y leyó la misma chapa${r?.confianza != null ? ` (${Math.round(r.confianza * 100)} %)` : ""}.`
+        : c.estado === "sin" ? "Doble verificación: OmniVision releyó la foto y no pudo leer la chapa. Vale la lectura de la cámara."
+        : `Doble verificación: la cámara leyó ${plate} y OmniVision ${c.omni}${c.estado === "casi" ? " (un carácter de diferencia)" : ""}. La barrera decidió con la de la cámara: mirá la foto.`;
+    return (
+        <span title={titulo} className={cn("inline-flex items-center gap-1 font-semibold whitespace-nowrap align-middle", texto, tono, className)}>
+            <I size={ico} className="shrink-0" />
+            {!soloIcono && TEXTO_COMP[c.estado](c)}
         </span>
     );
 }

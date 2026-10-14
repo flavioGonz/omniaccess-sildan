@@ -30,6 +30,8 @@ type Respuesta = {
     umbral: number; porUmbral: { umbral: number; acertadas: number; confirmadas: number }[];
     conteo: { releidas: number; leidas: number; dudosas: number; sinChapa: number; sinVehiculo: number; sinFoto: number; errores: number; confirmadasOtraCamara: number; guardiaIgual: number; guardiaDistinta: number };
     estado: null | { activa: boolean; hechas: number; ultimoError: string | null; msUltima: number | null };
+    /** Doble verificación: relecturas de chapas que la cámara SÍ leyó (cámaras con ese modo). */
+    doble?: { total: number; coincide: number; casi: number; difiere: number; sin: number };
 };
 
 /**
@@ -139,6 +141,15 @@ export default function RelecturasVision() {
                 <Numero n={c.guardiaIgual + c.guardiaDistinta} rotulo="El guardia cargó la chapa" sub={`${c.guardiaIgual} igual a la sugerida · ${c.guardiaDistinta} distinta`} />
                 <Numero n={c.sinChapa + c.sinVehiculo} rotulo="Sin sugerencia" sub={`${c.sinChapa} sin chapa legible · ${c.sinVehiculo} sin vehículo`} />
             </section>
+
+            {!!datos.doble?.total && (
+                <section className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <Numero n={datos.doble.total} rotulo="Doble verificación" sub="lecturas de la cámara que OmniVision releyó" />
+                    <Numero n={datos.doble.coincide} rotulo="Coinciden" sub={pct(datos.doble.coincide, datos.doble.total)} tono="bien" />
+                    <Numero n={datos.doble.casi + datos.doble.difiere} rotulo="Difieren" sub={`${datos.doble.casi} por un carácter · ${datos.doble.difiere} otra chapa`} tono="aviso" />
+                    <Numero n={datos.doble.sin} rotulo="Sin poder releer" sub="vale la lectura de la cámara" />
+                </section>
+            )}
 
             <Filtros grupos={[
                 { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },

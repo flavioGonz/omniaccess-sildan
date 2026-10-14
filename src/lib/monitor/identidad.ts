@@ -24,14 +24,15 @@ export type Identidad = {
     relectura: RelecturaEvento | null;
 };
 
-type EventoMinimo = { id: string; plateDetected?: string | null; user?: { role?: any; vip?: boolean | null } | null };
+type EventoMinimo = { id: string; plateDetected?: string | null; user?: { role?: any; vip?: boolean | null } | null; device?: { lprVerifica?: boolean | null } | null };
 
 export async function identidadDeLecturas(events: EventoMinimo[]): Promise<Map<string, Identidad>> {
     const out = new Map<string, Identidad>();
     const chapas = [...new Set(events.map((e) => normalizarMatricula(e.plateDetected)).filter(Boolean))] as string[];
     const [vigiladas, relecturas] = await Promise.all([
         chapas.length ? prisma.plateWatch.findMany({ where: { active: true, plate: { in: chapas } }, select: { plate: true, category: true, label: true, motivo: true } }).catch(() => []) : [],
-        relecturasDe(events.filter((e) => esNoLeida(e.plateDetected)).map((e) => e.id),
+        // Las NO_LEIDA, y todas las de una cámara con doble verificación (lib/modo-camara.ts).
+        relecturasDe(events.filter((e) => esNoLeida(e.plateDetected) || !!e.device?.lprVerifica).map((e) => e.id),
             (_clave, eventoId, que) => `/api/monitor/lpr/relectura/${encodeURIComponent(eventoId)}?que=${que}`).catch(() => new Map<string, RelecturaEvento>()),
     ]);
     const vig = new Map(vigiladas.map((v) => [normalizarMatricula(v.plate), v]));

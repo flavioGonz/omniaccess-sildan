@@ -32,7 +32,7 @@ import { GrabacionVisor } from "@/components/visor/GrabacionVisor";
 import { SeguimientoVivo } from "@/components/visor/SeguimientoVivo";
 import { BuscarParecidos } from "@/components/visor/BuscarParecidos";
 import { describirObjeto } from "@/components/visor/FichaVisor";
-import { chapaDe, esSinLectura, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaReleida";
+import { chapaDe, esSinLectura, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
 
 export type CuadroAvistamiento = {
     plate: string;
@@ -1027,6 +1027,7 @@ export function VisorCuadro({
                         {datos?.empresa && <LogoSobreFoto empresa={datos.empresa} className="h-9 max-w-[120px]" />}
                         {copiada && <span className="text-[11px] font-semibold text-white/70">copiada</span>}
                         {!chapaVisor.plate && chapaVisor.intento && datos?.relectura && <MarcaOmniVision r={datos.relectura} oscuro tamano="md" />}
+                        {!chapaVisor.omni && <MarcaVerificacion plate={fila.plate} r={datos?.relectura} oscuro tamano="md" />}
                     </div>
 
                     {/*

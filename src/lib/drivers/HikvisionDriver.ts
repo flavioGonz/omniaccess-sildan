@@ -338,6 +338,20 @@ export class HikvisionDriver implements ILprDriver, IFaceDriver, ILogDriver {
         return this.getPlatesFromCamera(device);
     }
 
+    /**
+     * Lo mismo que triggerRelay, pero diciendo si salió. triggerRelay se traga el error (lo usa
+     * el botón «Relé», que avisa igual); para una apertura automática hay que poder anotar en el
+     * evento si la barrera se accionó o no: un «abrió» que no abrió es peor que no decir nada.
+     */
+    async abrirRele(device: Device): Promise<{ ok: boolean; error?: string }> {
+        try {
+            await this.request("PUT", `/ISAPI/System/IO/outputs/1/trigger?format=json`, { IOPortData: { outputState: "high" } }, device);
+            return { ok: true };
+        } catch (e: any) {
+            return { ok: false, error: e?.response?.status ? `la cámara respondió ${e.response.status}` : (e?.message || "sin respuesta") };
+        }
+    }
+
     async triggerRelay(device: Device): Promise<void> {
         try {
             await this.request(

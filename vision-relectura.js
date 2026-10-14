@@ -1,5 +1,7 @@
 /**
- * Relectura de las NO_LEIDA — corre dentro de vision-worker.
+ * Relectura de las NO_LEIDA — corre dentro de vision-worker. Y desde el 14/10, la doble
+ * verificación: en las cámaras con «lprVerifica» se relee también cada lectura de la cámara,
+ * con el mismo procedimiento; si coincide o no se decide al mostrar (lib/verificacion-lpr.ts).
  *
  * Cuando la lectora de un acceso (la Hikvision con su ANPR) no lee la chapa, el evento queda
  * como NO_LEIDA con su foto. Acá se toma esa foto, omni-vision encuentra el vehículo, se lo
@@ -52,6 +54,13 @@ const CLAVE_UMBRAL = "RELECTURA_CONF_SEGURA";
 const UMBRAL_MIN = 0.5, UMBRAL_MAX = 0.99;
 /** Hasta cuándo se relee hacia atrás: al arrancar se pone al día con el último día. */
 const VENTANA_MS = 24 * 3600_000;
+/**
+ * Doble verificación (cámaras con «lprVerifica»): además de las NO_LEIDA se relee CADA lectura,
+ * para confirmar o marcar la diferencia. Sirve mientras el auto está en la pantalla del guardia;
+ * hacia atrás alcanza con dos horas — ponerse al día con un día entero de lecturas buenas sería
+ * gastar GPU en algo que ya nadie mira.
+ */
+const VENTANA_DOBLE_MS = 2 * 3600_000;
 /** La foto del evento puede llegar tarde a MinIO: se espera esto antes de darla por perdida. */
 const FOTO_ESPERA_MS = 90_000;
 /** Pausa entre eventos con cola pendiente, y entre vueltas sin nada que hacer. */
@@ -133,6 +142,9 @@ async function leerRecorte(jpeg) {
     return { mejor, otras: chapas.slice(1, 3).map((c) => ({ plate: c.plate, confianza: Math.round(c.confianza * 1000) / 1000 })), chapa };
 }
 
+/** La cámara leyó una chapa: esta relectura es la doble verificación, no la de una NO_LEIDA. */
+const esDoble = (ev) => !!ev.chapa && !NO_LEIDAS.includes(ev.chapa);
+
 function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
     const contadores = { hechas: 0, leidas: 0, dudosas: 0, sinChapa: 0, sinVehiculo: 0, sinFoto: 0, errores: 0, ultimoError: null, msUltima: null };
 
@@ -141,17 +153,25 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
         // «createdAt» es la hora UTC sin zona: se compara contra now() en UTC, no contra un Date de
         // JS (la sesión está en hora de Montevideo y lo correría tres horas).
         return prisma.$queryRaw`
-            SELECT e.id, e."snapshotPath" AS foto, e.timestamp, r.id AS rid,
+            SELECT e.id, e."snapshotPath" AS foto, e.timestamp, e."plateDetected" AS chapa, r.id AS rid,
                    COALESCE((r.candidatos->>'intentos')::int, 1) AS intentos
             FROM "AccessEvent" e LEFT JOIN "Relectura" r ON r."accessEventId" = e.id
-            WHERE e."accessType" = 'PLATE' AND e."plateDetected" = ANY(${NO_LEIDAS})
-              AND e.timestamp > ${new Date(Date.now() - VENTANA_MS)}
+                 LEFT JOIN "Device" d ON d.id = e."deviceId"
+            WHERE e."accessType" = 'PLATE'
+              AND ((e."plateDetected" = ANY(${NO_LEIDAS}) AND e.timestamp > ${new Date(Date.now() - VENTANA_MS)})
+                   OR (d."lprVerifica" = true AND e.timestamp > ${new Date(Date.now() - VENTANA_DOBLE_MS)}))
               AND (r.id IS NULL OR (r.estado = 'ERROR' AND r."createdAt" < (now() AT TIME ZONE 'UTC') - make_interval(secs => ${REINTENTO_MS / 1000})
                                     AND COALESCE((r.candidatos->>'intentos')::int, 1) < ${INTENTOS_MAX}))
             ORDER BY (r.id IS NULL) DESC, e.timestamp DESC LIMIT 5`;
     }
 
-    async function guardar(id, datos, rid) {
+    /**
+     * `doble`: la cámara SÍ había leído (doble verificación). Queda marcado en la fila porque
+     * después no se puede saber: si el guardia corrige una NO_LEIDA, el evento también pasa a
+     * tener chapa, y la pantalla de relecturas contaría como «corregida» una que nunca lo fue.
+     */
+    async function guardar(id, datos, rid, doble = false) {
+        if (doble) datos = { ...datos, candidatos: { ...(datos.candidatos || {}), doble: true } };
         // Un reintento pisa su fila de ERROR (y le corre la fecha: de ahí se cuenta el próximo).
         if (rid) { await prisma.relectura.update({ where: { id: rid }, data: { error: null, ...datos, createdAt: new Date() } }); return; }
         await prisma.relectura.create({ data: { accessEventId: id, ...datos } }).catch((e) => {
@@ -182,7 +202,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
         if (!f) return false; // no se pudo preguntar: se reintenta en otra vuelta
         if (f.falta) {
             if (Date.now() - new Date(ev.timestamp).getTime() < FOTO_ESPERA_MS) return false; // todavía puede llegar
-            await guardar(ev.id, { estado: "SIN_FOTO" }, ev.rid); contadores.sinFoto++;
+            await guardar(ev.id, { estado: "SIN_FOTO" }, ev.rid, esDoble(ev)); contadores.sinFoto++;
             return true;
         }
         const jpeg = f.jpeg;
@@ -241,7 +261,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
             estado, plate: mejor?.plate || null, confianza: mejor ? Math.round(mejor.confianza * 1000) / 1000 : null,
             candidatos: { otras: unicas, acuerdo: mejor?.acuerdo ?? null, fina: mejor?.fina || null },
             vehiculo, vehiculos: vehiculos.length, recorte, recorteChapa, ms: Date.now() - t0,
-        }, ev.rid);
+        }, ev.rid, esDoble(ev));
         contadores.hechas++; contadores.msUltima = Date.now() - t0;
         if (estado === "LEIDA") contadores.leidas++; else if (estado === "DUDOSA") contadores.dudosas++;
         else if (estado === "SIN_CHAPA") contadores.sinChapa++; else contadores.sinVehiculo++;
@@ -263,7 +283,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
                         catch (e) {
                             contadores.errores++; contadores.ultimoError = e.message;
                             // Se reintenta hasta INTENTOS_MAX veces (cada REINTENTO_MS); después queda registrado.
-                            await guardar(ev.id, { estado: "ERROR", error: String(e.message).slice(0, 300), candidatos: { intentos: Number(ev.intentos || 0) + (ev.rid ? 1 : 0) || 1 } }, ev.rid).catch(() => null);
+                            await guardar(ev.id, { estado: "ERROR", error: String(e.message).slice(0, 300), candidatos: { intentos: Number(ev.intentos || 0) + (ev.rid ? 1 : 0) || 1 } }, ev.rid, esDoble(ev)).catch(() => null);
                             if (Date.now() - ultimoLog > 60_000) { log("relectura:", e.message); ultimoLog = Date.now(); }
                             hizo = true; break;
                         }
