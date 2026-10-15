@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut } from "lucide-react";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
-import { VerGrabacion } from "@/components/video/VerGrabacion";
+import { Grabacion } from "./Grabacion";
+import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { SUAVE } from "@/components/monitor/tactil";
 import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, FOTO_MS, type Canal, type Alerta, type Lectura } from "./piezas";
 import { cn } from "@/lib/utils";
@@ -18,8 +19,9 @@ import { cn } from "@/lib/utils";
  * ocupa todo y los controles son íconos sobre la imagen que se esconden solos a los
  * OCULTAR_MS sin mover el mouse — vuelven al moverlo o al tocar.
  *
- * La pantalla completa es la del documento y no la de este elemento: la grabación (VerGrabacion)
- * se abre en <body>, y un elemento en pantalla completa sólo muestra lo que tiene adentro.
+ * La grabación se ve en este mismo cuadro (Grabacion), con la regla encima: no abre otra ventana.
+ * La pantalla completa es la del documento y no la de este elemento, para que los menús que
+ * se montan en <body> se sigan viendo.
  */
 
 /** Sin mover el mouse este tiempo, los controles se apagan. */
@@ -28,6 +30,8 @@ const OCULTAR_MS = 3500;
 const CIERRA_SOLA_MS = 3 * 60_000;
 /** Cuánto antes de "ahora" arranca la grabación si no hay detección de referencia. */
 const GRABACION_ANTES_MS = 60_000;
+/** Con una detección en curso, la grabación arranca un poco antes de ella: se ve llegar al que la causó. */
+const GRABACION_ANTES_ALERTA_MS = 5_000;
 
 function Icono({ children, onClick, titulo, activo, href }: { children: React.ReactNode; onClick?: () => void; titulo: string; activo?: boolean; href?: string }) {
     const cls = cn("w-11 h-11 rounded-full grid place-items-center transition-colors", activo ? "bg-white text-black" : "text-white/85 hover:text-white hover:bg-white/15");
@@ -55,15 +59,17 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     /** Abrir este canal solo en otra ventana (para otro monitor). */
     alVentana?: () => void;
 }) {
-    const [grabacion, setGrabacion] = useState(false);
+    // La grabación se ve en el mismo cuadro (Grabacion): `desde` es dónde arranca; null = en vivo.
+    const [grabacion, setGrabacionDesde] = useState<number | null>(null);
+    const { pantalla } = useMarco();
     const [fallo, setFallo] = useState(false);
     const [hd, setHd] = useState(true);
     const [verGeom, setVerGeom] = useState(true);
     const [visibles, setVisibles] = useState(true);
     const [lleno, setLleno] = useState(false);
     const entreYo = useRef(false);
-    useEffect(() => { setGrabacion(false); setFallo(false); }, [c?.clave]);
-    const grabacionRef = useRef(grabacion); grabacionRef.current = grabacion;
+    useEffect(() => { setGrabacionDesde(null); setFallo(false); }, [c?.clave]);
+    const grabacionRef = useRef(grabacion != null); grabacionRef.current = grabacion != null;
     const alCerrarRef = useRef(alCerrar); alCerrarRef.current = alCerrar;
 
     // Controles que se apagan solos, y la ficha que se cierra sola.
@@ -96,7 +102,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     }, [!!c]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const teclas = useCallback((e: KeyboardEvent) => {
-        if (grabacionRef.current) return;
+        // En la grabación, Esc vuelve al vivo; las flechas son de la regla (Grabacion).
+        if (grabacionRef.current) { if (e.key === "Escape") { e.preventDefault(); setGrabacionDesde(null); } return; }
         if (e.key === "Escape") { e.preventDefault(); alCerrar(); }
         else if (e.key === "ArrowRight" && alMover) alMover(1);
         else if (e.key === "ArrowLeft" && alMover) alMover(-1);
@@ -116,7 +123,10 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
             {c && (
                 <motion.div key="ficha" role="dialog" aria-label={c.nombre} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE}
                     className={cn("fixed inset-0 z-[2900] bg-black", !visibles && "cursor-none")}>
-                    {c.online === false ? (
+                    {grabacion != null ? (
+                        <Grabacion c={c} h265={h265} hls={hls} desdeMs={grabacion} visibles={visibles} alVivo={() => setGrabacionDesde(null)}
+                            deviceIdEnvio={!pantalla && c.equipoId ? c.equipoId : undefined} />
+                    ) : c.online === false ? (
                         <>
                             {foto && <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-contain opacity-60" />}
                             <span className="absolute inset-0 grid place-items-center text-white/60"><span className="flex flex-col items-center gap-2"><VideoOff size={40} /><span className="text-[18px] font-semibold">El NVR no ve este canal</span></span></span>
@@ -132,9 +142,9 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         <div className="min-w-0 visor-sombra-texto">
                             <h1 className="text-[18px] sm:text-[24px] font-bold tracking-[-0.015em] text-white leading-tight truncate max-w-[50vw]">{c.nombre}</h1>
                             <p className="flex items-center gap-2 mt-1 text-[14px] text-white/75 tabular-nums">
-                                <Radio size={14} className="text-[var(--mal)] animate-pulse shrink-0" />
+                                {grabacion != null ? <History size={14} className="text-[var(--accion-en-oscuro)] shrink-0" /> : <Radio size={14} className="text-[var(--mal)] animate-pulse shrink-0" />}
                                 <span className="font-semibold text-white/90">{ubicacion(c)}</span>
-                                <span className="text-white/30">·</span><span>{calidad}</span>
+                                <span className="text-white/30">·</span><span>{grabacion != null ? "grabación" : calidad}</span>
                             </p>
                             {alerta && m && (
                                 <span className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[14px] font-bold pleno-mal"><m.Icon size={15} /> {m.label} · {horaCorta(alerta.ts)} · {hace(alerta.ts)}</span>
@@ -152,13 +162,16 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 </span>
                             )}
                             <span className="visor-panel rounded-full p-1 flex items-center gap-0.5">
-                                {h265 && c.online !== false && (
+                                {h265 && c.online !== false && grabacion == null && (
                                     <Icono onClick={() => { setHd((x) => !x); setFallo(false); }} activo={enHd} titulo={enHd ? "Alta calidad · cambiar al subflujo, más liviano" : "Subflujo · cambiar a alta calidad"}>
                                         <span className="text-[11px] font-bold tracking-wide">{enHd ? "HD" : "SD"}</span>
                                     </Icono>
                                 )}
                                 {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
-                                {(c.equipoId || (c.nvrId && c.ch != null)) && <Icono onClick={() => setGrabacion(true)} titulo="Ver la grabación"><History size={18} /></Icono>}
+                                {c.nvrId && c.ch != null && (
+                                    <Icono onClick={() => setGrabacionDesde((g) => (g != null ? null : alerta ? +new Date(alerta.ts) - GRABACION_ANTES_ALERTA_MS : Date.now() - GRABACION_ANTES_MS))}
+                                        activo={grabacion != null} titulo={grabacion != null ? "Volver al vivo  ( Esc )" : "Ver la grabación sobre este mismo cuadro"}><History size={18} /></Icono>
+                                )}
                                 {foto && <span className="hidden sm:contents"><Icono href={foto.replace(/[?&]w=\d+/, "")} titulo="Abrir la foto de ahora en una pestaña"><Camera size={18} /></Icono></span>}
                                 {alVentana && <span className="hidden md:contents"><Icono onClick={alVentana} titulo="Abrir este canal solo en otra ventana (para otro monitor)"><AppWindow size={18} /></Icono></span>}
                                 <Icono onClick={alternarLleno} titulo={lleno ? "Salir de pantalla completa" : "Pantalla completa"}>{lleno ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</Icono>
@@ -168,18 +181,22 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         </div>
                     </div>
 
+                    {/* La grabación, a mano: el mismo interruptor que el ícono de arriba, donde el pulgar llega. */}
+                    {grabacion == null && c.nvrId && c.ch != null && (
+                        <button type="button" onClick={() => setGrabacionDesde(alerta ? +new Date(alerta.ts) - GRABACION_ANTES_ALERTA_MS : Date.now() - GRABACION_ANTES_MS)}
+                            className={cn("absolute right-4 sm:right-7 bottom-5 z-10 h-11 px-4 rounded-full visor-panel text-white text-[14px] font-semibold inline-flex items-center gap-2 transition-opacity duration-300", !visibles && "opacity-0 pointer-events-none")}>
+                            <History size={16} /> {alerta ? "Ver la detección grabada" : "Grabación"}
+                        </button>
+                    )}
+
                     {/* Abajo: las últimas chapas, si la cámara lee. */}
-                    {lecturas.length > 0 && (
-                        <div className={cn("absolute bottom-0 inset-x-0 p-5 md:px-7 flex items-center gap-2 flex-wrap bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0")}>
+                    {lecturas.length > 0 && grabacion == null && (
+                        <div className={cn("absolute bottom-0 inset-x-0 p-5 md:px-7 pr-[220px] flex items-center gap-2 flex-wrap bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0")}>
                             <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/60 mr-1">Últimas lecturas</span>
                             {lecturas.slice(0, 6).map((l) => <ChapaChica key={l.id} l={l} />)}
                         </div>
                     )}
 
-                    {grabacion && (
-                        <VerGrabacion deviceId={c.equipoId || `nvrch-${c.nvrId}-${c.ch}`} nombre={c.nombre} canal={c.ch} nvrId={c.nvrId}
-                            instanteMs={alerta ? +new Date(alerta.ts) : Date.now() - GRABACION_ANTES_MS} onClose={() => setGrabacion(false)} />
-                    )}
                 </motion.div>
             )}
         </AnimatePresence>

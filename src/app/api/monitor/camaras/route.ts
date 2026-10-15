@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
 import { getNvrChannels, type CanalNvr } from "@/app/actions/nvr";
 import { registrarCanalNvr } from "@/lib/go2rtc-sync";
+import { getChannelMap } from "@/lib/nvr-resolve";
 import { getAnalyticsGeometryBatch } from "@/app/actions/detections";
 import { puedeDisenarVistas } from "@/app/actions/monitores";
 import { AJUSTE_VISTAS_CAMARAS, leerVistas } from "@/lib/monitor/disposiciones";
@@ -169,9 +170,15 @@ export async function GET() {
         }
     }
     // Las cámaras que son equipo y no aparecieron en ningún NVR: las que tienen vivo en go2rtc.
+    // Si están en el mapa de canales (NVR_CHANNEL_MAP), se sabe en qué NVR graban: es lo que
+    // necesita la grabación sobre el vivo. Pasa, por ejemplo, con las del NVR que no contesta.
+    const mapa = await getChannelMap().catch(() => ({} as Record<string, { nvrId: string | null; ch: number }>));
+    const nombreNvr = new Map(nvrs.map((n) => [n.id, n.name]));
     for (const e of equipos) {
         if (usados.has(e.id) || !streams?.has(`lpr_${e.id}`)) continue;
-        canales.push({ clave: `dev:${e.id}`, nombre: e.name, nvrId: null, nvr: null, ch: null, online: null, stream: `lpr_${e.id}`, equipoId: e.id, alerta: alertaPorEquipo.get(e.id) || null, ...extrasDe(e.id) });
+        const m = e.ip ? mapa[e.ip] : undefined;
+        const nvrId = m?.nvrId && nombreNvr.has(m.nvrId) ? m.nvrId : null;
+        canales.push({ clave: `dev:${e.id}`, nombre: e.name, nvrId, nvr: nvrId ? nombreNvr.get(nvrId)! : null, ch: nvrId && m ? m.ch : null, online: null, stream: `lpr_${e.id}`, equipoId: e.id, alerta: alertaPorEquipo.get(e.id) || null, ...extrasDe(e.id) });
     }
     // Registrar en go2rtc es sólo dejar la receta: no abre ninguna conexión hasta que alguien mira.
     if (streams) await Promise.all(porRegistrar.map((x) => registrarCanalNvr(x.nvrId, x.ch).catch(() => null)));
