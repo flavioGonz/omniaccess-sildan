@@ -5,6 +5,22 @@ import { puedeAbrir, permisosDeSesion } from '@/lib/permisos'
 import { esVista, alcanceCubre, enlaceAbre, COOKIE_PANTALLA, PARAM_PANTALLA, type ClaveVista } from '@/lib/monitor/vistas'
 import { accionPermitidaSinSesion } from '@/lib/acciones-publicas'
 
+/**
+ * Lo único de go2rtc que pide un navegador: el vivo en MP4 (las 23 llamadas del cliente son a
+ * esto). Todo lo demás de su API (listar streams con sus claves, leer y escribir la
+ * configuración, sacar cuadros, reiniciarlo) lo usa el servidor por 127.0.0.1:1984, nunca a
+ * través de acá. Si un reproductor nuevo necesita otro camino, se agrega acá con su porqué.
+ * El vivo sigue sin pedir sesión: lo usan las páginas /pwa de los equipos de la garita, que no
+ * tienen sesión del panel. Pedirla es el paso siguiente, cuando esas páginas tengan la suya.
+ */
+const GO2RTC_REPRODUCIR = ['/api/stream.mp4']
+/**
+ * `src` tiene que ser el NOMBRE de un stream ya dado de alta (lpr_<id>, face_<id>…). go2rtc
+ * también acepta ahí una URL y arma un stream nuevo con ella: sin esto, el vivo público servía
+ * para hacerle abrir al servidor cualquier origen, incluidos los que ejecutan comandos.
+ */
+const GO2RTC_NOMBRE_STREAM = /^[A-Za-z0-9_-]{1,120}$/
+
 const secretKey = process.env.JWT_SECRET
 const key = secretKey ? new TextEncoder().encode(secretKey) : null
 
@@ -42,6 +58,22 @@ export async function middleware(request: NextRequest) {
     const rechazo = await puertaDeAcciones(request)
     if (rechazo) return rechazo
 
+    // --- go2rtc: sólo lo que reproduce, nada de su administración ---
+    // Por qué (15/10, medido desde internet sin sesión): /go2rtc/ se reenviaba entero a la API
+    // de go2rtc. `GET /go2rtc/api/streams` devolvía las 32 URL RTSP con usuario y clave de cada
+    // cámara y NVR, y la misma API acepta escribir la configuración y agregar orígenes `exec:`
+    // (un comando en el servidor). `/go2rtc/api/config` daba el go2rtc.yaml entero. La aplicación
+    // sólo usa la reproducción (ver GO2RTC_REPRODUCIR).
+    // `/go2rtc` a secas también cae en la reescritura (`:path*` acepta cero tramos): es la
+    // página de administración de go2rtc, con su editor de configuración.
+    if (pathname === '/go2rtc' || pathname.startsWith('/go2rtc/')) {
+        const sub = pathname.slice('/go2rtc'.length)
+        const src = request.nextUrl.searchParams.getAll('src')
+        const pide = (request.method === 'GET' || request.method === 'HEAD') && GO2RTC_REPRODUCIR.includes(sub)
+        if (pide && src.length === 1 && GO2RTC_NOMBRE_STREAM.test(src[0]) && !request.nextUrl.searchParams.has('name')) return NextResponse.next()
+        return new NextResponse('No disponible', { status: 403 })
+    }
+
     // --- ALWAYS PUBLIC (no auth needed) ---
     if (
         pathname.startsWith('/_next') ||
@@ -50,7 +82,6 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith('/guards') ||
         pathname.startsWith('/sounds') ||
         pathname.startsWith('/io/') ||
-        pathname.startsWith('/go2rtc/') ||
         pathname === '/login' ||
         pathname === '/guard' ||
         pathname.startsWith('/guard-iphone') ||
