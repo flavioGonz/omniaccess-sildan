@@ -60,6 +60,7 @@ import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
+import { marcaDeEvento, AVISO_MARCA_CAMARA } from "@/lib/marca-vehiculo";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { rotuloLectura } from "@/lib/lectura-metodo";
 import { getImagePath } from "@/lib/image-path";
@@ -467,7 +468,9 @@ function VehicleCardSkeleton() {
 const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithParking, watchMap, onPlaza, logos }: { event: any; onRegister: (p?: string) => void; platesWithParking?: Set<string>; watchMap?: Record<string, any>; onPlaza?: (plate: string) => void; logos?: LogosMatricula }) {
     const router = useRouter();
     const meta = parseMeta(event.details);
-    const logoUrl = getCarLogo(meta.Marca);
+    // Padrón primero; la de la cámara, atenuada (lib/marca-vehiculo).
+    const marcaEv = marcaDeEvento(event, meta.Marca);
+    const logoUrl = getCarLogo(marcaEv?.marca);
     const fullImageUrl = getImagePath(event.snapshotPath || event.imagePath) || "";
     const isAnomalous = event.plateDetected === "NO_LEIDA" || event.plateDetected === "unknown" || event.plateDetected === "S/P" || !event.plateDetected;
     const relCard = useRelectura(event);
@@ -493,8 +496,8 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
             )}>
                 {tipo && <span className={cn("absolute left-0 top-0 bottom-0 w-1", tipo.dot)} />}
                 <div className="flex items-center gap-3">
-                    <div className="w-16 h-14 rounded-lg border border-border shrink-0 bg-card/60 flex items-center justify-center overflow-hidden p-1.5" title={meta.Marca || "Marca desconocida"}>
-                        {logoUrl ? <Image src={logoUrl} alt={meta.Marca || "marca"} width={48} height={48} className="object-contain w-full h-full" /> : <Car size={22} className="text-muted-foreground" />}
+                    <div className="w-16 h-14 rounded-lg border border-border shrink-0 bg-card/60 flex items-center justify-center overflow-hidden p-1.5" title={!marcaEv ? "Marca desconocida" : marcaEv.deCamara ? `${marcaEv.marca} · ${AVISO_MARCA_CAMARA}` : `${marcaEv.marca} · del padrón`}>
+                        {logoUrl ? <Image src={logoUrl} alt={marcaEv?.marca || "marca"} width={48} height={48} className={cn("object-contain w-full h-full", marcaEv?.deCamara && "grayscale opacity-40")} /> : <Car size={22} className="text-muted-foreground" />}
                     </div>
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -628,7 +631,7 @@ function PinnedAnomalies({ items, onDismiss, onClear, onRegister }: { items: any
 
 /** Alertas críticas (merodeo + lista negra): mini-popups abajo a la IZQUIERDA con
  *  animación de peligro constante. Siempre activas, se cierran a mano. */
-function CriticalAlerts({ items, onDismiss, onClear, onRegister }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void }) {
+function CriticalAlerts({ items, onDismiss, onClear, onRegister, onAbrirIntrusion }: { items: any[]; onDismiss: (id: string) => void; onClear: () => void; onRegister: (p?: string) => void; onAbrirIntrusion: (ev: any) => void }) {
     const router = useRouter();
     if (!items.length) return null;
     return (
@@ -661,7 +664,9 @@ function CriticalAlerts({ items, onDismiss, onClear, onRegister }: { items: any[
                                     </div>
                                 </button>
                             ) : isIntr ? (
-                                <div className="w-full text-left flex gap-2.5 p-2.5">
+                                /* Era un <div>: la de merodeo y la de lista negra se tocaban y abrían su detalle, la de
+                                   intrusión no hacía nada, y la guardia no tenía cómo volver al evento (San Nicolás, 15/10). */
+                                <button type="button" onClick={() => onAbrirIntrusion(ev)} title="Ver la detección: captura y grabación" className="w-full text-left flex gap-2.5 p-2.5 hover:bg-accent/40 transition-colors">
                                     <div className="w-12 h-12 rounded-lg bg-red-500/15 border border-red-500/40 flex items-center justify-center shrink-0">
                                         <ShieldAlert size={22} className="text-red-400" style={{ animation: "oaLatir 1s ease-in-out infinite" }} />
                                     </div>
@@ -673,7 +678,7 @@ function CriticalAlerts({ items, onDismiss, onClear, onRegister }: { items: any[
                                         <div className="mt-0.5 text-[10px] text-muted-foreground truncate">{ev.details || (ev.type === "line" ? "Cruce de línea" : "Zona")}</div>
                                         <div className="mt-0.5 text-[10px] text-muted-foreground"><TimeAgo timestamp={ev.timestamp} /></div>
                                     </div>
-                                </div>
+                                </button>
                             ) : (
                                 <EventDetailsDialog event={ev} timeStatus={null} onRegister={(p) => onRegister(p)}>
                                     <div className="flex gap-2.5 p-2.5 cursor-pointer">
@@ -1044,8 +1049,14 @@ export default function MonitorLPR() {
         const NOMBRE_DETECCION: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión en zona", REGION_ENTER: "Entró a la zona", REGION_EXIT: "Salió de la zona" };
         newSocket.on("general_detection", (a: any) => {
             if (!a?.id || a.type === "MOTION") return;
-            setCriticals((prev) => prev.some((x) => x.id === a.id) ? prev : [{ id: a.id, kind: "intrusion", timestamp: a.timestamp || new Date().toISOString(), deviceName: a.deviceName, details: NOMBRE_DETECCION[a.type] || "Detección", snapshotPath: a.snapshotPath || null }, ...prev].slice(0, 24));
+            setCriticals((prev) => prev.some((x) => x.id === a.id) ? prev : [{ id: a.id, kind: "intrusion", timestamp: a.timestamp || new Date().toISOString(), deviceId: a.deviceId || null, type: a.type, label: a.label || null, deviceName: a.deviceName, details: NOMBRE_DETECCION[a.type] || "Detección", snapshotPath: a.snapshotPath || null }, ...prev].slice(0, 24));
             if (soundOnRef.current) beep(true);
+        });
+        // La captura de una detección llega unos segundos después: sin esto la ficha que se abre
+        // desde la alerta lateral quedaba sin foto.
+        newSocket.on("detection_snapshot", (d: any) => {
+            if (!d?.id || !d.snapshotPath) return;
+            setCriticals((prev) => prev.some((x) => x.id === d.id) ? prev.map((x) => (x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x)) : prev);
         });
         setSocket(newSocket);
         return () => {
@@ -1256,8 +1267,9 @@ export default function MonitorLPR() {
                                 {/* Cámaras que esperan una decisión (sin confirmar o confirmadas sin resolver). */}
                                 {(alarmas.porCamara.size + alarmas.atencion.size) > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full pleno-mal text-[8px] font-bold flex items-center justify-center">{new Set([...alarmas.porCamara.keys(), ...alarmas.atencion]).size}</span>}
                             </button>
-                            <button onClick={() => setShowWatch(true)} title="Lista negra" className="relative h-full px-2.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
-                                <ShieldAlert size={16} />
+                            {/* Con el rótulo a la vista: sólo el escudo no se reconocía como la lista negra (San Nicolás, 15/10). */}
+                            <button onClick={() => setShowWatch(true)} title="Lista negra" className="relative h-full px-2.5 inline-flex items-center gap-1.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
+                                <ShieldAlert size={16} /><span className="hidden xl:inline text-[12px] font-semibold">Lista negra</span>
                                 {Object.keys(watchMap).length > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{Object.keys(watchMap).length}</span>}
                             </button>
                             <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Popup automático de anomalías: ACTIVADO" : "Popup automático de anomalías: desactivado"}
@@ -1301,7 +1313,8 @@ export default function MonitorLPR() {
                     onRegistrar={(p) => { setPlazaDe(null); openRegister(p); }}
                     alCambiar={() => getPlatesWithParking().then((pl) => setPlatesPark(new Set(pl))).catch(() => { })} />
                 <PinnedAnomalies items={pinned} onDismiss={dismissPin} onClear={() => setPinned([])} onRegister={openRegister} />
-                <CriticalAlerts items={criticals} onDismiss={dismissCritical} onClear={() => setCriticals([])} onRegister={openRegister} />
+                <CriticalAlerts items={criticals} onDismiss={dismissCritical} onClear={() => setCriticals([])} onRegister={openRegister}
+                    onAbrirIntrusion={(ev) => setFichaDet({ id: ev.id, deviceId: ev.deviceId || null, deviceName: ev.deviceName || null, type: ev.type || "OTHER", eventType: null, snapshotPath: ev.snapshotPath || null, timestamp: ev.timestamp, label: ev.label || null })} />
                 {/* Registrar pregunta primero qué es la matrícula (persona del barrio o seguimiento)
                     y recién ahí abre el cajón que corresponde. Antes abría el alta vieja de persona. */}
                 <RegistrarMatricula plate={registerOpen ? registerInit?.plate || null : null}

@@ -56,6 +56,9 @@ export async function relecturasDeEventos(ids: string[]): Promise<Record<string,
     catch { return {}; }
 }
 
+/** Cuántas lecturas releídas por OmniVision entran como máximo en una búsqueda por chapa. */
+const TOPE_RELEIDAS_BUSQUEDA = 2000;
+
 export async function getAccessEvents(options?: {
     take?: number,
     skip?: number,
@@ -105,8 +108,18 @@ export async function getAccessEvents(options?: {
 
     if (options?.search) {
         const search = options.search.toLowerCase();
+        /*
+         * Las lecturas que la cámara NO leyó (NO_LEIDA) y OmniVision sí releyó: buscar la chapa
+         * no las encontraba, porque sólo se miraba lo que mandó la cámara. La guardia de San
+         * Nicolás lo vio como «en el historial no aparecen los que no identificó» (15/10): el
+         * auto había pasado, OmniVision lo había leído, y buscarlo devolvía nada.
+         */
+        const releidas = search.length >= 3
+            ? await prisma.relectura.findMany({ where: { plate: { contains: search, mode: 'insensitive' } }, select: { accessEventId: true }, take: TOPE_RELEIDAS_BUSQUEDA }).catch(() => [])
+            : [];
         // search logic (plate OR user name OR device name OR unit name OR details for FaceID)
         whereClause.OR = [
+            ...(releidas.length ? [{ id: { in: releidas.map((r) => r.accessEventId) } }] : []),
             { plateDetected: { contains: search, mode: 'insensitive' } },
             { user: { name: { contains: search, mode: 'insensitive' } } },
             { user: { unit: { name: { contains: search, mode: 'insensitive' } } } },

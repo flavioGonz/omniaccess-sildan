@@ -75,6 +75,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
 import { ThemeProvider } from "@/components/theme-provider";
 import ThemedToaster from "@/components/ThemedToaster";
+import VersionAlDia from "@/components/VersionAlDia";
+import { versionApp } from "@/lib/version-app";
 import "sileo/styles.css";
 
 export default function RootLayout({
@@ -102,6 +104,8 @@ export default function RootLayout({
         >
           {children}
           <ThemedToaster />
+          {/* La versión con la que se dibujó esta página: si el servidor cambia, se recarga (ver VersionAlDia). */}
+          <VersionAlDia version={versionApp()} />
         </ThemeProvider>
       </body>
     </html>
