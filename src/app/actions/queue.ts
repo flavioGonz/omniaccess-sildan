@@ -1005,3 +1005,89 @@ export async function cleanOrphanRings() {
     } catch {}
     return { removed, bytes };
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Calibración del rebote (Bosch): mide con los eventos reales cuánto duran los
+// "parpadeos" del aforo y cuántas entradas terminan en una salida enseguida.
+// Sugiere el DebounceTime de la zona y la ventana anti doble conteo de la cámara.
+// ─────────────────────────────────────────────────────────────────────────
+const TRAMOS = [0.5, 1, 2, 3, 5, 10, 30];
+function histograma(valores: number[]) {
+    const etiquetas = ["<0,5 s", "0,5-1 s", "1-2 s", "2-3 s", "3-5 s", "5-10 s", "10-30 s", ">30 s"];
+    const cuentas = new Array(etiquetas.length).fill(0);
+    for (const v of valores) {
+        let i = TRAMOS.findIndex((t) => v < t);
+        if (i < 0) i = TRAMOS.length;
+        cuentas[i]++;
+    }
+    return etiquetas.map((label, i) => ({ label, n: cuentas[i] }));
+}
+const percentil = (xs: number[], p: number) => {
+    if (!xs.length) return null;
+    const s = [...xs].sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
+};
+const redondeo = (v: number, paso: number) => Math.round(v / paso) * paso;
+
+export async function getQueueBounceAnalysis(deviceId?: string, minutes: number = 240) {
+    const since = new Date(Date.now() - minutes * 60 * 1000);
+    const base: any = { timestamp: { gte: since } };
+    if (deviceId) base.deviceId = deviceId;
+    const rows = await prisma.queueEvent.findMany({
+        where: { ...base, channelName: { in: ["Aforo", "Entrada", "Salida"] } },
+        orderBy: { timestamp: "asc" },
+        select: { channelName: true, peopleCount: true, timestamp: true },
+    });
+
+    // 1) Aforo: duración de cada valor antes de cambiar. Un valor que dura muy poco y vuelve al
+    //    anterior es un parpadeo del detector (persona que se pierde y reaparece).
+    const aforo = rows.filter((r) => r.channelName === "Aforo").map((r) => ({ t: new Date(r.timestamp).getTime(), v: r.peopleCount }));
+    const parpadeos: number[] = [];
+    const tramosAforo: number[] = [];
+    for (let i = 1; i < aforo.length - 1; i++) {
+        const dur = (aforo[i + 1].t - aforo[i].t) / 1000;
+        if (aforo[i].v === aforo[i - 1].v) continue;
+        tramosAforo.push(dur);
+        if (aforo[i + 1].v === aforo[i - 1].v && dur < 10) parpadeos.push(dur);
+    }
+
+    // 2) Entrada → Salida: tiempo hasta la siguiente salida. Si es de pocos segundos, la persona
+    //    "rebotó" en el borde de la zona (o el detector la perdió y la volvió a encontrar).
+    const ent = rows.filter((r) => r.channelName === "Entrada").map((r) => new Date(r.timestamp).getTime());
+    const sal = rows.filter((r) => r.channelName === "Salida").map((r) => new Date(r.timestamp).getTime());
+    const brechas: number[] = [];
+    let j = 0;
+    for (const t of ent) {
+        while (j < sal.length && sal[j] < t) j++;
+        if (j < sal.length) brechas.push((sal[j] - t) / 1000);
+    }
+    const rebotesBorde = brechas.filter((g) => g < 5);
+
+    // 3) Entradas repetidas muy juntas (la ventana de la cámara debería filtrarlas).
+    const repetidas: number[] = [];
+    for (let i = 1; i < ent.length; i++) repetidas.push((ent[i] - ent[i - 1]) / 1000);
+
+    const p80 = percentil(parpadeos, 80);
+    const debounceSugerido = p80 == null ? null : Math.min(5, Math.max(0.5, redondeo(p80 + 0.25, 0.25)));
+    const p90b = percentil(rebotesBorde, 90);
+    const ventanaSugerida = p90b == null ? null : Math.min(60, Math.max(5, Math.ceil(p90b * 4)));
+
+    return {
+        minutes,
+        muestras: { aforo: aforo.length, entradas: ent.length, salidas: sal.length },
+        aforo: {
+            cambios: tramosAforo.length,
+            parpadeos: parpadeos.length,
+            porcentajeParpadeo: tramosAforo.length ? Math.round((parpadeos.length / tramosAforo.length) * 100) : 0,
+            p50: percentil(parpadeos, 50), p80, histograma: histograma(parpadeos),
+        },
+        borde: {
+            pares: brechas.length,
+            rebotes: rebotesBorde.length,
+            porcentaje: brechas.length ? Math.round((rebotesBorde.length / brechas.length) * 100) : 0,
+            p50: percentil(rebotesBorde, 50), histograma: histograma(brechas),
+        },
+        repetidasMenos10s: repetidas.filter((d) => d < 10).length,
+        sugerido: { debounce: debounceSugerido, ventana: ventanaSugerida },
+    };
+}
