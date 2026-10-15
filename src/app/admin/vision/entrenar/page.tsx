@@ -1,81 +1,64 @@
 "use client";
 
 import { AlCelular } from "@/components/vision/entrenar/AlCelular";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { GraduationCap, Plus, Boxes, Trash2 } from "lucide-react";
-import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
+import { GraduationCap, Plus, Boxes, BellRing, Tag, ChevronRight, CircleDashed, Lightbulb, MapPin } from "lucide-react";
 import { sileo as toast } from "sileo";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
+import { Chip } from "@/components/ui/estados";
+import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { CajonZona, FORM_VACIO, aCuerpo, type FormZona } from "@/components/vision/FormZonaEntrenable";
 import { RECOMENDADO_POR_CLASE } from "@/lib/zona-entrenable";
-import { haceCuanto, type ZonaLista } from "@/components/vision/ZonaComun";
-import { MuestraVista, Medidor } from "@/components/vision/entrenar/Piezas";
+import { EstadoAhora, haceCuanto, type ZonaLista } from "@/components/vision/ZonaComun";
+import { MuestraVista } from "@/components/vision/entrenar/Piezas";
+import { Camino, ChipEtapa, ConfirmarAvisar, cambiarAvisar } from "@/components/vision/entrenar/Produccion";
+import { ACIERTO_PRODUCCION, chequeos, etapaDe, sugerencias, type Etapa } from "@/lib/zona-produccion";
 import type { Analisis } from "@/lib/vision-capa";
-import { motion } from "motion/react";
 
 /**
- * OmniVision › Entrenar: las analíticas que arma uno. Cada tarjeta dice lo que importa para
- * confiar en ella: en qué estado está ahora, si decide con frases o con lo entrenado, y cuántos
- * ejemplos tiene.
+ * OmniVision › Entrenar · «Cómo está un lugar».
+ *
+ * Rediseño del 15/10 (Nico: «bloques más pequeños, tipo tabla, con iconografía, preview de la
+ * escena y columnas de datos reales; tiene que decir claramente cómo se activan»). Antes eran
+ * tarjetas grandes con la foto a 4:3: entraban tres por pantalla y cada una contaba lo suyo con
+ * chips sueltos («Entrenada · 97 %», «Sólo registra») sin decir qué venía después.
+ *
+ * Ahora: arriba el camino de cuatro etapas con cuántas analíticas hay en cada una (cómo se llega
+ * a avisar a la guardia, contado una vez); abajo una tabla, una fila por analítica, con la foto
+ * de lo que ve, en qué etapa está, ejemplos contra la meta, acierto y lo que hizo en la semana; y
+ * en cada fila la acción que corresponde. La etapa y las condiciones salen de lib/zona-produccion.
  */
-function Tarjeta({ z, i, alBorrada }: { z: ZonaLista & { estado: (ZonaLista["estado"] & { analisis?: Analisis | null }) | null }; i: number; alBorrada: () => void }) {
-    const ejemplos = z.conteo.pos + z.conteo.neg;
-    return (
-        <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.35 }} className="relative group/tarjeta">
-            {/* Borrar a la vista: antes estaba sólo adentro del cajón de edición de cada analítica. */}
-            <span className="absolute top-2 right-2 z-10 opacity-0 group-hover/tarjeta:opacity-100 focus-within:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                <DeleteConfirmDialog id={z.id} title={`«${z.nombre}»`}
-                    description="Se borra la analítica con sus ejemplos (las fotos etiquetadas) y lo entrenado. No se puede deshacer."
-                    onDelete={async (id: string) => {
-                        const r = await fetch(`/api/vision/zonas/${id}`, { method: "DELETE" }).catch(() => null);
-                        const j = await r?.json().catch(() => ({}));
-                        if (r?.ok && j?.recortesBorrados === false) toast.warning({ title: "Borrada", description: "Las fotos quedaron en el almacenamiento: no se pudieron borrar." });
-                        return r?.ok ? { success: true } : { success: false, error: j?.error || "No se pudo borrar" };
-                    }}
-                    onSuccess={alBorrada}>
-                    <button type="button" title="Eliminar esta analítica" aria-label="Eliminar esta analítica"
-                        className="w-8 h-8 rounded-full grid place-items-center bg-black/55 text-white hover:bg-[var(--mal)] transition-colors">
-                        <Trash2 size={14} />
-                    </button>
-                </DeleteConfirmDialog>
+type Fila = ZonaLista & { estado: (ZonaLista["estado"] & { analisis?: Analisis | null }) | null };
+
+/** Dos barras chicas contra la meta: así se ve de un vistazo qué estado está corto de ejemplos. */
+function Ejemplos({ z }: { z: Fila }) {
+    const barra = (n: number, nombre: string, tono: string) => (
+        <div className="flex items-center gap-2 min-w-0" title={`${n} ejemplos de «${nombre}» (meta ${RECOMENDADO_POR_CLASE})`}>
+            <span className="h-1.5 w-20 shrink-0 rounded-full bg-muted overflow-hidden">
+                <span className={cn("block h-full rounded-full", n >= RECOMENDADO_POR_CLASE ? "pleno-bien" : tono)} style={{ width: `${Math.min(100, (n / RECOMENDADO_POR_CLASE) * 100)}%` }} />
             </span>
-            <Link href={`/admin/vision/entrenar/${z.id}`} className="group rounded-[10px] border border-border bg-card overflow-hidden hover:border-[var(--accion)] transition-colors flex flex-col h-full">
-                <div className="relative">
-                    {z.estado?.muestraUrl ? <MuestraVista url={z.estado.muestraUrl} analisis={z.estado.analisis} ancho={640} className="aspect-[4/3] transition-transform duration-500 group-hover:scale-[1.02]" />
-                        : <div className="aspect-[4/3] bg-black grid place-items-center text-[12px] text-white/50">Sin muestras todavía</div>}
-                    {!z.activa && <span className="absolute top-2 left-2"><Chip tono="quieto">Pausada</Chip></span>}
-                </div>
-                <div className="p-3 flex gap-3 flex-1">
-                    <Medidor prob={z.estado?.prob ?? null} umbral={z.umbral} positivo={z.positivo} negativo={z.negativo} tam={84} />
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                        <div className="text-[14px] font-bold leading-tight truncate">{z.nombre}</div>
-                        <div className="text-[12px] text-muted-foreground truncate">{z.camara}</div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                            {z.modelo ? <Chip tono="bien">Entrenada · {z.modelo.exactitud != null ? `${Math.round(z.modelo.exactitud * 100)} %` : "sin medir"}</Chip> : <Chip tono="info">Con frases</Chip>}
-                            {!z.avisar && <Chip tono="quieto">Sólo registra</Chip>}
-                        </div>
-                        <div className="text-[11.5px] text-muted-foreground tabular-nums">
-                            {ejemplos ? `${z.conteo.pos} «${z.positivo}» + ${z.conteo.neg} «${z.negativo}»` : `sin ejemplos todavía (meta ${RECOMENDADO_POR_CLASE} de cada uno)`}
-                            {z.estado?.al && ` · ${haceCuanto(z.estado.al)}`}
-                        </div>
-                        {z.estado?.error && <div className="text-[11.5px] tono-mal truncate">{z.estado.error}</div>}
-                    </div>
-                </div>
-            </Link>
-        </motion.div>
+            <span className="text-[11.5px] tabular-nums text-muted-foreground truncate"><b className="text-foreground font-semibold">{n}</b> {nombre}</span>
+        </div>
+    );
+    return (
+        <div className="space-y-1 min-w-0">
+            {barra(z.conteo.pos, z.positivo, "pleno-aviso")}
+            {barra(z.conteo.neg, z.negativo, "bg-[var(--accion)]")}
+        </div>
     );
 }
 
 export default function EntrenarVision() {
     const router = useRouter();
-    const [datos, setDatos] = useState<{ zonas: ZonaLista[]; camaras: { id: string; name: string }[]; activa: boolean } | null>(null);
+    const [datos, setDatos] = useState<{ zonas: Fila[]; camaras: { id: string; name: string }[]; activa: boolean } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [nueva, setNueva] = useState(false);
     const [guardando, setGuardando] = useState(false);
+    const [confirmar, setConfirmar] = useState<Fila | null>(null);
 
     const cargar = useCallback(async () => {
         try {
@@ -87,11 +70,16 @@ export default function EntrenarVision() {
     }, []);
     useEffect(() => { cargar(); }, [cargar]);
     useTiempoReal<{ id: string; estado: any }>("zona_estado", (d) => setDatos((x) => x ? { ...x, zonas: x.zonas.map((z) => z.id === d.id ? { ...z, estado: { ...d.estado, muestraUrl: d.estado?.muestra ? `/api/vision/imagen/${d.estado.muestra}` : z.estado?.muestraUrl } } : z) } : x));
-    const pasos = [
-        { n: 1, t: "Dibujá la zona", d: "Sobre el contenedor, el portón o el lugar que importa." },
-        { n: 2, t: "Describí los dos estados", d: "«Desbordado» y «Normal», con una frase de cómo se ve cada uno." },
-        { n: 3, t: "Enseñale con ejemplos", d: "Toma fotos solas; vos decís qué es cada una. Con 30 de cada uno, aprende tu lugar." },
-    ];
+
+    const prendida = datos?.activa !== false;
+    const cuantas = useMemo(() => {
+        const c: Partial<Record<Etapa, number>> = { aprendiendo: 0, prueba: 0, lista: 0, produccion: 0 };
+        for (const z of datos?.zonas || []) { const e = etapaDe(z, prendida); c[e] = (c[e] || 0) + 1; }
+        return c;
+    }, [datos, prendida]);
+    // Lo más urgente de todas, con el nombre de la analítica adelante. Tope: es una guía, no una lista de tareas.
+    const avisos = useMemo(() => (datos?.zonas || []).flatMap((z) => sugerencias(z, prendida).map((s) => ({ ...s, z })))
+        .sort((a, b) => ["mal", "aviso", "bien", "info", "neutro", "quieto"].indexOf(a.tono) - ["mal", "aviso", "bien", "info", "neutro", "quieto"].indexOf(b.tono)).slice(0, 6), [datos, prendida]);
 
     async function crear(f: FormZona) {
         setGuardando(true);
@@ -105,65 +93,124 @@ export default function EntrenarVision() {
         finally { setGuardando(false); }
     }
 
+    const columnas: ColumnaTabla<Fila>[] = [
+        {
+            clave: "vista", titulo: "Escena", ancho: 128, auxiliar: true,
+            celda: (z) => z.estado?.muestraUrl
+                ? <MuestraVista url={z.estado.muestraUrl} analisis={z.estado.analisis} ancho={240} etiquetas={false} ajuste="cover" className="h-[60px] w-[104px] rounded-md" />
+                : <div className="h-[60px] w-[104px] rounded-md bg-muted grid place-items-center text-[10.5px] text-muted-foreground">sin fotos</div>,
+        },
+        {
+            clave: "nombre", titulo: "Analítica", ordenable: true, valor: (z) => z.nombre,
+            celda: (z) => (
+                <div className="min-w-0">
+                    <div className="text-[13px] font-bold truncate">{z.nombre}</div>
+                    <div className="text-[11.5px] text-muted-foreground truncate inline-flex items-center gap-1"><MapPin size={11} /> {z.camara} · cada {Math.round(z.cadaSeg / 60) || 1} min</div>
+                </div>
+            ),
+        },
+        {
+            clave: "ahora", titulo: "Ahora", ancho: 190, ayuda: "Lo que dice la última foto, con su probabilidad.", ordenable: true, valor: (z) => z.estado?.prob ?? null,
+            celda: (z) => <div className="space-y-1"><EstadoAhora z={z} />{z.estado?.al && <div className="text-[11px] text-muted-foreground tabular-nums">{haceCuanto(z.estado.al)}</div>}</div>,
+        },
+        {
+            clave: "etapa", titulo: "Etapa", ancho: 170, ordenable: true, ayuda: "Aprendiendo → En prueba → Lista para avisar → Avisa a la guardia.",
+            valor: (z) => etapaDe(z, prendida),
+            celda: (z) => { const c = chequeos(z, prendida); const ok = c.filter((x) => x.ok).length; return <div className="space-y-1"><ChipEtapa etapa={etapaDe(z, prendida)} /><div className="text-[11px] text-muted-foreground tabular-nums">{ok} de {c.length} condiciones</div></div>; },
+        },
+        { clave: "ejemplos", titulo: "Ejemplos", ancho: 220, ayuda: `Etiquetados de cada estado, contra la meta de ${RECOMENDADO_POR_CLASE}.`, ordenable: true, valor: (z) => z.conteo.pos + z.conteo.neg, celda: (z) => <Ejemplos z={z} /> },
+        {
+            clave: "esperando", titulo: "Sin etiquetar", ancho: 104, alinear: "der", ordenable: true, valor: (z) => z.conteo.sin,
+            celda: (z) => <div className="tabular-nums"><div className="text-[13px] font-semibold">{z.conteo.sin}</div><div className="text-[11px] text-muted-foreground">{z.actividad?.muestras24h ?? 0} fotos en 24 h</div></div>,
+        },
+        {
+            clave: "acierto", titulo: "Acierto", ancho: 92, alinear: "der", ordenable: true, ayuda: "En ejemplos que no vio al entrenar.", valor: (z) => z.modelo?.exactitud ?? null,
+            celda: (z) => z.modelo?.exactitud != null
+                ? <span className={cn("text-[15px] font-bold tabular-nums", z.modelo.exactitud >= ACIERTO_PRODUCCION ? "tono-bien" : "tono-aviso")}>{Math.round(z.modelo.exactitud * 100)} %</span>
+                : <span className="text-[11.5px] text-muted-foreground">con frases</span>,
+        },
+        {
+            clave: "semana", titulo: "7 días", ancho: 130, ordenable: true, ayuda: "Veces que el estado se sostuvo el tiempo elegido, y cuántas avisaron a la guardia.", valor: (z) => z.actividad?.eventos7d ?? 0,
+            celda: (z) => {
+                const a = z.actividad;
+                if (!a?.eventos7d) return <span className="text-[11.5px] text-muted-foreground">no se sostuvo</span>;
+                return <div className="tabular-nums"><div className="text-[12.5px]"><b>{a.eventos7d}</b> {a.eventos7d === 1 ? "vez" : "veces"}{a.avisos7d ? <> · <span className="tono-aviso font-semibold">{a.avisos7d} aviso{a.avisos7d === 1 ? "" : "s"}</span></> : ""}</div>{a.ultimoEvento && <div className="text-[11px] text-muted-foreground">{haceCuanto(a.ultimoEvento)}</div>}</div>;
+            },
+        },
+        {
+            clave: "accion", titulo: "", ancho: 170, auxiliar: true, alinear: "der",
+            celda: (z) => {
+                const e = etapaDe(z, prendida);
+                const parar = (ev: React.MouseEvent) => ev.stopPropagation();
+                if (e === "lista") return <Button size="sm" onClick={(ev) => { parar(ev); setConfirmar(z); }}><BellRing size={14} /> Poner a avisar</Button>;
+                if (e === "produccion") return <Button size="sm" variant="outline" onClick={async (ev) => { parar(ev); if (await cambiarAvisar(z.id, false)) cargar(); }}>Volver a prueba</Button>;
+                if (z.conteo.sin > 0) return <Button size="sm" variant="outline" onClick={(ev) => { parar(ev); router.push(`/admin/vision/entrenar/${z.id}?etiquetar=1`); }}><Tag size={14} /> Etiquetar {z.conteo.sin}</Button>;
+                return <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">Abrir <ChevronRight size={14} /></span>;
+            },
+        },
+    ];
+
     return (
         <div className="p-6 lg:p-8 space-y-5 max-w-[1500px] mx-auto">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
                 <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><GraduationCap size={18} strokeWidth={2.3} /></span>
                 <div className="min-w-0 flex-1">
                     <h1 className="text-[17px] font-bold leading-tight">Entrenar</h1>
-                    <p className="text-[12.5px] text-muted-foreground leading-snug">Enseñarle a OmniVision algo nuevo. Hay dos formas, según qué querés que aprenda.</p>
+                    <p className="text-[12.5px] text-muted-foreground leading-snug">Enseñarle a OmniVision algo nuevo, probarlo y ponerlo a avisar a la guardia.</p>
                 </div>
                 <AlCelular />
+                <Button onClick={() => setNueva(true)} disabled={!datos}><Plus size={15} /> Nueva zona</Button>
             </div>
 
-            {/* Las dos formas, lado a lado: elegir mal es lo que más tiempo hace perder (zonas para
-                objetos que se mueven, o cientos de recuadros para algo que es un estado de un lugar). */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <a href="#zonas" className="rounded-[10px] border-2 border-[var(--accion)] bg-card p-4 flex gap-3.5 hover:bg-accent transition-colors">
-                    <IlustracionZona />
-                    <div className="min-w-0">
-                        <div className="text-[14px] font-bold">Cómo está un lugar</div>
-                        <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5">La cámara mira siempre el mismo lugar y le enseñás a distinguir dos estados.</p>
-                        <p className="text-[12px] mt-1.5"><b>Ej.:</b> contenedor desbordado o normal · portón abierto o cerrado · lugar ocupado o libre.</p>
-                        <p className="text-[11.5px] text-muted-foreground mt-1.5">Con 30 ejemplos de cada estado. Es esta página.</p>
-                    </div>
-                </a>
-                <Link href="/admin/vision/entrenar/objetos" className="rounded-[10px] border border-border bg-card p-4 flex gap-3.5 hover:bg-accent hover:border-[var(--accion)] transition-colors">
-                    <IlustracionObjeto />
-                    <div className="min-w-0">
-                        <div className="text-[14px] font-bold inline-flex items-center gap-1.5">Un objeto nuevo <Boxes size={14} /></div>
-                        <p className="text-[12.5px] text-muted-foreground leading-snug mt-0.5">Le enseñás al detector una cosa que no conoce, para que la encuentre en cualquier cámara y lugar.</p>
-                        <p className="text-[12px] mt-1.5"><b>Ej.:</b> contenedor de basura · cono · carretilla · volqueta.</p>
-                        <p className="text-[11.5px] text-muted-foreground mt-1.5">Con 100 a 300 fotos dibujadas. Abre «Objetos nuevos».</p>
-                    </div>
+            {/* Las dos formas, como elección (píldora = elección): elegir mal es lo que más tiempo hace perder. */}
+            <div className="flex flex-wrap items-stretch gap-2">
+                <span className="inline-flex items-center gap-3 rounded-full border-2 border-[var(--accion)] bg-card pl-1.5 pr-4 py-1.5">
+                    <IlustracionZona /><span><b className="text-[13px]">Cómo está un lugar</b><span className="block text-[11.5px] text-muted-foreground">dos estados de un mismo lugar · contenedor lleno, portón abierto</span></span>
+                </span>
+                <Link href="/admin/vision/entrenar/objetos" className="inline-flex items-center gap-3 rounded-full border border-border bg-card pl-1.5 pr-4 py-1.5 hover:bg-accent transition-colors">
+                    <IlustracionObjeto /><span><b className="text-[13px] inline-flex items-center gap-1">Un objeto nuevo <Boxes size={13} /></b><span className="block text-[11.5px] text-muted-foreground">que lo encuentre en cualquier cámara · cono, volqueta</span></span>
                 </Link>
             </div>
 
-            <div id="zonas" className="scroll-mt-4 flex items-center gap-2 flex-wrap pt-1">
-                <h2 className="text-[15px] font-bold">Zonas entrenables</h2>
-                {datos && !datos.activa && <Chip tono="quieto">Apagada en Analíticas: no mira ninguna</Chip>}
-                <Button className="ml-auto" onClick={() => setNueva(true)} disabled={!datos}><Plus size={15} /> Nueva zona</Button>
-            </div>
+            {/* Cómo llega a la guardia: las cuatro etapas, con cuántas hay en cada una. */}
+            <section className="space-y-2">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                    <h2 className="text-[15px] font-bold">Cómo llega a avisar a la guardia</h2>
+                    <p className="text-[12px] text-muted-foreground">Toda analítica nueva arranca <b className="text-foreground">sin avisar</b>. Cuando cumple las condiciones pasa a «Lista» y se pone a avisar con un botón; se puede volver a prueba en cualquier momento.</p>
+                </div>
+                <Camino cuantas={cuantas} />
+                {datos && !datos.activa && (
+                    <p className="rounded-[10px] border border-border bg-muted/40 px-3 py-2 text-[12.5px]"><b>Ninguna está mirando:</b> «Analíticas entrenables» está apagada. <Link href="/admin/vision/analiticas" className="text-[var(--accion)] font-semibold">Prenderla en OmniVision › Analíticas</Link></p>
+                )}
+            </section>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {pasos.map((p, i) => (
-                    <motion.div key={p.n} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }} className="rounded-[10px] border border-border bg-card px-4 py-3 flex gap-3">
-                        <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--accion)] text-white text-[13px] font-bold tabular-nums shrink-0">{p.n}</span>
-                        <div><div className="text-[13px] font-bold">{p.t}</div><div className="text-[12px] text-muted-foreground leading-snug">{p.d}</div></div>
-                    </motion.div>
-                ))}
-            </div>
+            <section className="space-y-2">
+                <h2 className="text-[15px] font-bold">Analíticas de lugar</h2>
+                <Tabla<Fila> id="entrenar-zonas" filas={datos?.zonas || []} clave={(z) => z.id} columnas={columnas}
+                    cargando={!datos && !error} error={!datos ? error : null} alReintentar={cargar}
+                    vacio={{ icono: GraduationCap, titulo: "Todavía no hay ninguna", ayuda: "Nueva zona: elegí una cámara, dibujá el lugar y describí los dos estados." }}
+                    alClickFila={(z) => router.push(`/admin/vision/entrenar/${z.id}`)} seleccionCeldas={false} filasFantasma={3} nombreArchivo="analiticas-de-lugar" />
+            </section>
 
-            {error && !datos ? <ErrorEstado mensaje={error} alReintentar={cargar} />
-                : !datos ? <Cargando texto="Trayendo las analíticas…" />
-                    : datos.zonas.length === 0 ? (
-                        <div className="rounded-[10px] border border-dashed border-border p-10 text-center space-y-2">
-                            <p className="text-[13px] text-muted-foreground">Todavía no hay ninguna. Elegí una cámara, dibujá la zona y describí los dos estados.</p>
-                            <Button onClick={() => setNueva(true)}><Plus size={15} /> Crear la primera</Button>
-                        </div>
-                    ) : <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">{datos.zonas.map((z, i) => <Tarjeta key={z.id} z={z} i={i} alBorrada={cargar} />)}</div>}
+            {avisos.length > 0 && (
+                <section className="rounded-[10px] border border-border bg-card px-4 py-3">
+                    <div className="flex items-center gap-2 text-[13px] font-bold mb-2"><Lightbulb size={15} /> Qué conviene hacer ahora</div>
+                    <ul className="divide-y divide-border">
+                        {avisos.map((a, i) => (
+                            <li key={i}>
+                                <Link href={`/admin/vision/entrenar/${a.z.id}`} className="flex items-start gap-2.5 py-2 text-[12.5px] leading-snug hover:bg-accent/40 -mx-2 px-2 rounded-md">
+                                    <CircleDashed size={13} className={cn("mt-0.5 shrink-0", a.tono === "mal" ? "tono-mal" : a.tono === "aviso" ? "tono-aviso" : a.tono === "bien" ? "tono-bien" : "tono-info")} />
+                                    <span className="min-w-0"><b>{a.z.nombre}:</b> {a.texto}</span>
+                                    <ChevronRight size={14} className="ml-auto shrink-0 text-muted-foreground" />
+                                </Link>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
+            )}
 
             {nueva && datos && <CajonZona inicial={FORM_VACIO} nueva camaras={datos.camaras} guardando={guardando} alCerrar={() => setNueva(false)} alGuardar={crear} />}
+            {confirmar && <ConfirmarAvisar z={confirmar} id={confirmar.id} prendida={prendida} abierto alCerrar={() => setConfirmar(null)} alCambio={cargar} />}
         </div>
     );
 }
@@ -171,7 +218,7 @@ export default function EntrenarVision() {
 /** Una cámara mirando siempre el mismo rectángulo, con dos estados: lleno y vacío. */
 function IlustracionZona() {
     return (
-        <svg viewBox="0 0 96 64" className="w-24 h-16 shrink-0 rounded-[8px]" aria-hidden>
+        <svg viewBox="0 0 96 64" className="w-[60px] h-10 shrink-0 rounded-[20px]" aria-hidden>
             <rect width={96} height={64} fill="var(--muted)" />
             <rect x={8} y={14} width={36} height={36} rx={2} fill="none" stroke="var(--accion)" strokeWidth={2} strokeDasharray="4 3" />
             <rect x={14} y={30} width={24} height={18} fill="var(--muted-foreground)" /><circle cx={20} cy={26} r={5} fill="var(--muted-foreground)" /><circle cx={30} cy={24} r={6} fill="var(--muted-foreground)" />
@@ -185,7 +232,7 @@ function IlustracionZona() {
 /** El mismo objeto en dos cámaras distintas, cada uno con su recuadro. */
 function IlustracionObjeto() {
     return (
-        <svg viewBox="0 0 96 64" className="w-24 h-16 shrink-0 rounded-[8px]" aria-hidden>
+        <svg viewBox="0 0 96 64" className="w-[60px] h-10 shrink-0 rounded-[20px]" aria-hidden>
             <rect width={96} height={64} fill="var(--muted)" />
             <line x1={0} y1={52} x2={96} y2={52} stroke="var(--border)" strokeWidth={2} />
             <rect x={10} y={30} width={22} height={20} fill="var(--muted-foreground)" /><rect x={8} y={26} width={26} height={5} fill="var(--muted-foreground)" />

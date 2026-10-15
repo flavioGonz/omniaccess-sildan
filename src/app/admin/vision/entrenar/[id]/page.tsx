@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowLeft, Camera, ChevronDown, CircleCheck, GraduationCap, Loader2, Settings2, Sparkles, TriangleAlert, Undo2 } from "lucide-react";
 import { sileo as toast } from "sileo";
@@ -17,6 +17,8 @@ import { EstadoAhora, haceCuanto, type ZonaLista } from "@/components/vision/Zon
 import { MuestraVista, Escaneo, Medidor, ZonaSobreCuadro } from "@/components/vision/entrenar/Piezas";
 import { EtiquetadoRapido } from "@/components/vision/entrenar/EtiquetadoRapido";
 import { ComoSeEntrena } from "@/components/vision/entrenar/ComoSeEntrena";
+import { PanelProduccion, ChipEtapa } from "@/components/vision/entrenar/Produccion";
+import { etapaDe } from "@/lib/zona-produccion";
 import { MIN_POR_CLASE, RECOMENDADO_POR_CLASE } from "@/lib/zona-entrenable";
 import type { Analisis } from "@/lib/vision-capa";
 
@@ -74,6 +76,8 @@ export default function ZonaEntrenable() {
     const [guardando, setGuardando] = useState(false);
     const [entrenando, setEntrenando] = useState(false);
     const [mirando, setMirando] = useState(false);
+    const [prendida, setPrendida] = useState(true);
+    const searchParams = useSearchParams();
 
     const leer = useCallback(async (q: string) => {
         const r = await fetch(`/api/vision/zonas/${id}/muestras?${q}`, { cache: "no-store" });
@@ -87,7 +91,7 @@ export default function ZonaEntrenable() {
             const [r, rc] = await Promise.all([fetch(`/api/vision/zonas/${id}`, { cache: "no-store" }), fetch("/api/vision/zonas", { cache: "no-store" })]);
             const j = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
-            setZona(j.zona); setEventos(j.eventos || []); setError(null);
+            setZona(j.zona); setEventos(j.eventos || []); setError(null); setPrendida(j.analiticaPrendida !== false);
             setGuia((g) => (g == null ? !j.zona.modelo : g));
             const jc = await rc.json().catch(() => ({}));
             if (rc.ok) setCamaras(jc.camaras || []);
@@ -138,6 +142,15 @@ export default function ZonaEntrenable() {
         try { setRapido((await leer(`vista=dudosas&limite=${TANDA_RAPIDA}`)).muestras); }
         catch (e: any) { toast.error({ title: "No se pudieron traer las muestras", description: e?.message }); }
     }
+    // «Etiquetar N» de la lista llega con ?etiquetar=1: se abre directo el etiquetado rápido.
+    const [pedidoEtiquetar, setPedidoEtiquetar] = useState(() => searchParams?.get("etiquetar") === "1");
+    useEffect(() => {
+        if (!pedidoEtiquetar || !zona) return;
+        setPedidoEtiquetar(false);
+        router.replace(`/admin/vision/entrenar/${id}`, { scroll: false });
+        abrirRapido();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pedidoEtiquetar, zona]);
 
     async function entrenar() {
         setEntrenando(true);
@@ -206,14 +219,17 @@ export default function ZonaEntrenable() {
                     <div className="flex items-center gap-2 flex-wrap">
                         <h1 className="text-[17px] font-bold leading-tight">{zona.nombre}</h1>
                         <EstadoAhora z={zona} />
-                        {!zona.activa && <Chip tono="quieto">Pausada</Chip>}
-                        {!zona.avisar && <Chip tono="quieto">No avisa: sólo registra</Chip>}
+                        {/* La etapa en vez de «No avisa: sólo registra», que no decía cómo se salía de ahí. */}
+                        <ChipEtapa etapa={etapaDe(zona, prendida)} />
                     </div>
                     <p className="text-[12px] text-muted-foreground mt-0.5">{zona.camara} · mira cada {Math.round(zona.cadaSeg / 60)} min · avisa con «{zona.positivo}» sostenido {Math.round(zona.sostenerSeg / 60)} min desde {pct(zona.umbral)}{zona.horario ? ` · de ${zona.horario.desde} a ${zona.horario.hasta}` : ""}</p>
                 </div>
                 <Button variant="outline" onClick={mirarAhora} disabled={mirando || !zona.activa}>{mirando ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />} Mirar ahora</Button>
                 <Button variant="outline" onClick={() => setEditando(true)}><Settings2 size={15} /> Configurar</Button>
             </div>
+
+            {/* Cómo se pone a avisar: etapa, condiciones con sus números y el botón (Nico, 15/10). */}
+            <PanelProduccion id={zona.id} z={zona} prendida={prendida} alCambio={cargar} />
 
             {/* Dónde mira · qué ve · qué decide */}
             <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.35fr] gap-3">
