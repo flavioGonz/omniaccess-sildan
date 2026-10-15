@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car } from "lucide-react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint } from "lucide-react";
 import { Scrub, type MarcaScrub } from "@/components/Scrub";
 import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
@@ -42,9 +42,23 @@ const ESPERA_MS = 10_000;
 /** El arrastre no pide nada al NVR hasta que la regla se queda quieta este tiempo. */
 const ASENTAR_MS = 350;
 const SALTO_MS = 30_000;
+/**
+ * Arrastrar sobre el video (pedido 15/10: «drag and drop para ir para atrás o adelante en
+ * cualquier parte»): un ancho entero de pantalla son ARRASTRE_ANCHO_MS. Dos minutos dejan
+ * apuntar al segundo con el dedo; para saltos largos están la regla, las marcas y la hora.
+ */
+const ARRASTRE_ANCHO_MS = 120_000;
+/** Lo que dura el desenfoque al saltar (botones, teclas, marcas, soltar el arrastre). */
+const DESENFOQUE_MS = 480;
+/** Desenfoque y corrimiento máximos, en px: lo justo para que se lea «movimiento», no «roto». */
+const DESENFOQUE_MAX = 22;
+const CORRIMIENTO_MAX = 64;
 const VENTANA_POR_DEFECTO: VentanaClip = { antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } };
 
-type Evento = { id: string; ts: number; clase: "deteccion" | "lectura"; tipo: string; plate: string | null; ok: boolean | null };
+/** clase: quién lo detectó — la cámara (deteccion), el lector de chapas (lectura) u OmniVision (vision; tipo = grupo). */
+type Evento = { id: string; ts: number; clase: "deteccion" | "lectura" | "vision"; tipo: string; plate: string | null; ok: boolean | null };
+/** OmniVision, por grupo: ícono y nombre. Van en azul (tono info) para distinguirlos de lo que avisó la cámara. */
+const VISION_GRUPO: Record<string, { Icon: any; nombre: string }> = { persona: { Icon: User, nombre: "Persona" }, vehiculo: { Icon: Car, nombre: "Vehículo" }, animal: { Icon: PawPrint, nombre: "Animal" } };
 type Linea = { dia: string; desde: number; hasta: number; tramos: [number, number][] | null; eventos: Evento[] };
 
 const partes = (ms: number) => {
@@ -105,7 +119,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     useEffect(() => {
         if (!c.nvrId || c.ch == null) return;
         let vivo = true;
-        const q = new URLSearchParams({ nvr: c.nvrId, ch: String(c.ch), dia, ...(c.equipoId ? { equipo: c.equipoId } : {}) });
+        const q = new URLSearchParams({ nvr: c.nvrId, ch: String(c.ch), dia, ...(c.equipoId ? { equipo: c.equipoId } : {}) }); // sin equipo, la ruta busca lo de OmniVision como nvrch-<nvr>-<ch>
         fetch(`/api/monitor/camaras/linea?${q}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (vivo && d) setLinea(d); }).catch(() => { });
         return () => { vivo = false; };
     }, [c.nvrId, c.ch, c.equipoId, dia]);
@@ -121,8 +135,33 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
         const v = Math.min(Date.now() - 5000, ms);
         pausado.current = false; setPosMs(null); setT(v);
     }, []);
+    // ── El movimiento: desenfoque horizontal hacia donde se va ───────────────────────────
+    // Un SVG feGaussianBlur con desvío sólo en X es un desenfoque de movimiento de verdad (el
+    // blur() de CSS es redondo). El corrimiento dice el sentido: adelante, el cuadro llega desde
+    // la derecha; atrás, desde la izquierda.
+    const uid = useId().replace(/:/g, "");
+    const [efecto, setEfecto] = useState<{ blur: number; x: number }>({ blur: 0, x: 0 });
+    const pulsoRaf = useRef(0);
+    const pulso = useCallback((dir: number) => {
+        cancelAnimationFrame(pulsoRaf.current);
+        const t0 = performance.now();
+        const paso = (t: number) => {
+            const k = Math.min(1, (t - t0) / DESENFOQUE_MS), e = 1 - Math.pow(1 - k, 3);
+            setEfecto({ blur: DESENFOQUE_MAX * (1 - e), x: dir * CORRIMIENTO_MAX * (1 - e) });
+            if (k < 1) pulsoRaf.current = requestAnimationFrame(paso);
+        };
+        pulsoRaf.current = requestAnimationFrame(paso);
+    }, []);
+    useEffect(() => () => cancelAnimationFrame(pulsoRaf.current), []);
+    /** Ir a un instante con el efecto de movimiento en el sentido del salto. */
+    const saltar = useCallback((ms: number, desde: number) => { pulso(ms >= desde ? 1 : -1); ir(ms); }, [ir, pulso]);
+
     // El arrastre y los saltos seguidos no le piden al NVR cada paso: sólo donde se queda.
     useEffect(() => { setEstado("buscando"); const k = setTimeout(() => { setCargaT(t); setIntento(0); setConvertir(!h265); }, ASENTAR_MS); return () => clearTimeout(k); }, [t, h265]);
+
+    /** El arrastre sobre el cuadro: de dónde salió, cuánto se movió y a qué velocidad va. */
+    const [tirando, setTirando] = useState<{ x0: number; t0: number; dx: number; ancho: number; vx: number; xa: number; ta: number } | null>(null);
+    const destinoArrastre = (a: { t0: number; dx: number; ancho: number }) => Math.min(Date.now() - 5000, a.t0 + (a.dx / a.ancho) * ARRASTRE_ANCHO_MS);
 
     const sinGrabacionAhi = hayEn(cargaT) === false;
     const url = c.nvrId && c.ch != null && !sinGrabacionAhi
@@ -151,15 +190,15 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     const eventos = linea?.eventos || [];
     const siguiente = eventos.find((e) => e.ts - ANTES_DE_MARCA_MS > ahora + 1500) || null;
     const anterior = [...eventos].reverse().find((e) => e.ts - ANTES_DE_MARCA_MS < ahora - 3000) || null;
-    const irAMarca = (e: Evento | null) => { if (e) ir(e.ts - ANTES_DE_MARCA_MS); };
+    const irAMarca = (e: Evento | null) => { if (e) saltar(e.ts - ANTES_DE_MARCA_MS, ahora); };
 
     useEffect(() => {
         const k = (e: KeyboardEvent) => {
             const el = e.target as HTMLElement | null;
             if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
             if (e.key === " ") { e.preventDefault(); alternarPlay(); }
-            else if (e.key === "ArrowLeft") { e.preventDefault(); ir(ahora - 10_000); }
-            else if (e.key === "ArrowRight") { e.preventDefault(); ir(ahora + 10_000); }
+            else if (e.key === "ArrowLeft") { e.preventDefault(); saltar(ahora - 10_000, ahora); }
+            else if (e.key === "ArrowRight") { e.preventDefault(); saltar(ahora + 10_000, ahora); }
             else if (e.key === ",") irAMarca(anterior);
             else if (e.key === ".") irAMarca(siguiente);
         };
@@ -179,11 +218,15 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     const minutoDe = (ms: number) => { const [h, m, sg] = partes(ms).hora.split(":").map(Number); return h * 60 + m + sg / 60; };
     const tramosMin = useMemo(() => linea?.tramos?.map(([a, b]) => [a <= linea.desde ? 0 : minutoDe(a), b >= linea.hasta ? 1440 : minutoDe(b)] as [number, number]), [linea]); // eslint-disable-line react-hooks/exhaustive-deps
     const marcas = useMemo<MarcaScrub[]>(() => eventos.map((e) => {
-        const det = e.clase === "deteccion";
         const hora = partes(e.ts).hora;
+        if (e.clase === "vision") {
+            const g = VISION_GRUPO[e.tipo] || VISION_GRUPO.persona;
+            return { id: e.id, m: minutoDe(e.ts), Icon: g.Icon, titulo: `OmniVision · ${g.nombre} · ${hora}`, tono: "info" };
+        }
+        const det = e.clase === "deteccion";
         return {
             id: e.id, m: minutoDe(e.ts), Icon: det ? metaDe(e.tipo).Icon : Car,
-            titulo: det ? `${metaDe(e.tipo).label} · ${hora}` : `${e.plate || "Sin leer"} · ${e.tipo === "EXIT" ? "sale" : "entra"} · ${hora}`,
+            titulo: det ? `Cámara · ${metaDe(e.tipo).label} · ${hora}` : `${e.plate || "Sin leer"} · ${e.tipo === "EXIT" ? "sale" : "entra"} · ${hora}`,
             tono: det ? "mal" : e.ok ? "bien" : "mal",
         };
     }), [eventos]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -199,9 +242,14 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
 
     return (
         <>
+            <svg width="0" height="0" className="absolute" aria-hidden>
+                <filter id={`mov-${uid}`} x="-10%" y="0" width="120%" height="100%"><feGaussianBlur stdDeviation={`${efecto.blur.toFixed(1)} 0`} /></filter>
+            </svg>
+            <div className="absolute inset-0 overflow-hidden bg-black">
+            <div className="absolute inset-0 will-change-transform"
+                style={efecto.blur > 0.3 || Math.abs(efecto.x) > 0.5 ? { filter: `url(#mov-${uid})`, transform: `translateX(${efecto.x.toFixed(1)}px)` } : undefined}>
             {url && (
                 <video key={`${url}#${intento}`} ref={video} src={url} muted playsInline autoPlay preload="auto" disablePictureInPicture
-                    onClick={alternarPlay}
                     onPlay={() => setJugando(true)} onPause={() => setJugando(false)}
                     onPlaying={() => { setEstado("viendo"); setJugando(true); }}
                     onLoadedData={() => { if (!pausado.current) video.current?.play().catch(() => { }); }}
@@ -214,8 +262,58 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                         if (!pausado.current && sig < Date.now() - 15_000) ir(sig);
                     }}
                     onError={() => { if (!convertir && !hls) { setConvertir(true); setIntento((i) => i + 1); } else setEstado("sin"); }}
-                    className="absolute inset-0 w-full h-full object-contain cursor-pointer" />
+                    className="absolute inset-0 w-full h-full object-contain" />
             )}
+            </div>
+            </div>
+
+            {/* Arrastrar en cualquier parte del cuadro: a la derecha adelanta, a la izquierda vuelve.
+                Un toque sin arrastrar pausa o sigue, como en cualquier reproductor. */}
+            <div className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none"
+                onPointerDown={(e) => {
+                    if (e.button !== 0) return;
+                    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { }
+                    cancelAnimationFrame(pulsoRaf.current);
+                    setTirando({ x0: e.clientX, t0: ahora, dx: 0, ancho: e.currentTarget.clientWidth || 1, vx: 0, xa: e.clientX, ta: performance.now() });
+                }}
+                onPointerMove={(e) => {
+                    if (!tirando) return;
+                    const now = performance.now();
+                    const vx = (e.clientX - tirando.xa) / Math.max(1, now - tirando.ta); // px/ms
+                    const dx = e.clientX - tirando.x0;
+                    setTirando({ ...tirando, dx, vx: tirando.vx * 0.6 + vx * 0.4, xa: e.clientX, ta: now });
+                    // Mientras se arrastra, el desenfoque sigue a la velocidad y el corrimiento al sentido.
+                    setEfecto({ blur: Math.min(DESENFOQUE_MAX, Math.abs(vx) * 14 + 3), x: Math.max(-CORRIMIENTO_MAX, Math.min(CORRIMIENTO_MAX, dx * 0.08)) });
+                }}
+                onPointerUp={() => {
+                    if (!tirando) return;
+                    const movio = Math.abs(tirando.dx) > 6;
+                    if (movio) { const destino = destinoArrastre(tirando); pulso(destino >= tirando.t0 ? 1 : -1); ir(destino); }
+                    else { setEfecto({ blur: 0, x: 0 }); alternarPlay(); }
+                    setTirando(null);
+                }}
+                onPointerCancel={() => { setTirando(null); pulso(0); }} />
+
+            {/* Mientras se arrastra: hacia dónde, cuánto y a qué hora se llega. */}
+            {tirando && Math.abs(tirando.dx) > 6 && (() => {
+                const destino = destinoArrastre(tirando);
+                const d = Math.round((destino - tirando.t0) / 1000), adelante = d >= 0;
+                const abs = Math.abs(d), txt = `${adelante ? "+" : "−"}${abs >= 60 ? `${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, "0")}` : `${abs} s`}`;
+                return (
+                    <>
+                        <span className={cn("absolute inset-y-0 w-1/3 pointer-events-none", adelante ? "right-0 bg-gradient-to-l" : "left-0 bg-gradient-to-r", "from-white/10 to-transparent")} />
+                        <div className="absolute inset-0 grid place-items-center pointer-events-none">
+                            <span className="visor-panel rounded-[18px] px-6 py-4 flex items-center gap-4 text-white">
+                                {adelante ? <FastForward size={34} /> : <Rewind size={34} />}
+                                <span className="flex flex-col leading-none">
+                                    <span className="text-[30px] font-bold tabular-nums tracking-[-0.02em]">{txt}</span>
+                                    <span className="text-[14px] text-white/70 tabular-nums mt-1.5">{partes(destino).hora}</span>
+                                </span>
+                            </span>
+                        </div>
+                    </>
+                );
+            })()}
 
             {/* El vivo, chico, en una esquina: un toque vuelve a él. */}
             <button type="button" onClick={alVivo} title="Volver al vivo"
@@ -233,7 +331,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                         <span className="flex flex-col items-center gap-2 text-center visor-sombra-texto pointer-events-auto">
                             <span className="text-white text-[18px] font-bold">Sin grabación a esta hora</span>
                             {proximoTramo != null && (
-                                <button type="button" onClick={() => ir(proximoTramo)} className="h-10 px-4 rounded-full bg-white/15 hover:bg-white/25 text-white text-[14px] font-semibold">
+                                <button type="button" onClick={() => saltar(proximoTramo, ahora)} className="h-10 px-4 rounded-full bg-white/15 hover:bg-white/25 text-white text-[14px] font-semibold">
                                     Ir a la próxima grabación · {horaCorta(proximoTramo)}
                                 </button>
                             )}
@@ -265,11 +363,11 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
 
                     <span className="visor-panel rounded-full p-1 inline-flex items-center gap-0.5">
                         <Boton onClick={() => irAMarca(anterior)} disabled={!anterior} titulo={anterior ? `Evento anterior · ${partes(anterior.ts).hora}  ( , )` : "No hay eventos antes en este día"}><SkipBack size={18} /></Boton>
-                        <Boton onClick={() => ir(ahora - SALTO_MS)} titulo="30 s atrás  ( ← 10 s )"><Rewind size={18} /></Boton>
+                        <Boton onClick={() => saltar(ahora - SALTO_MS, ahora)} titulo="30 s atrás  ( ← 10 s )"><Rewind size={18} /></Boton>
                         <Boton onClick={alternarPlay} titulo={jugando ? "Pausar  ( espacio )" : "Reproducir  ( espacio )"} grande disabled={!url}>
                             {estado === "buscando" && url ? <Loader2 size={20} className="animate-spin" /> : jugando ? <Pause size={20} /> : <Play size={20} className="ml-0.5" />}
                         </Boton>
-                        <Boton onClick={() => ir(ahora + SALTO_MS)} titulo="30 s adelante  ( → 10 s )" disabled={ahora + SALTO_MS > Date.now()}><FastForward size={18} /></Boton>
+                        <Boton onClick={() => saltar(ahora + SALTO_MS, ahora)} titulo="30 s adelante  ( → 10 s )" disabled={ahora + SALTO_MS > Date.now()}><FastForward size={18} /></Boton>
                         <Boton onClick={() => irAMarca(siguiente)} disabled={!siguiente} titulo={siguiente ? `Evento siguiente · ${partes(siguiente.ts).hora}  ( . )` : "No hay eventos después en este día"}><SkipForward size={18} /></Boton>
                     </span>
 
@@ -280,13 +378,23 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                     <span className="hidden lg:inline-flex items-center gap-3 text-[12px] text-white/60 ml-1">
                         {estado === "viendo" && !convertir && <span title="El servidor no la convierte: la pasa tal cual la grabó el NVR">H.265 directo</span>}
                         {tramosMin && <span className="inline-flex items-center gap-1"><span className="w-3 h-1 rounded-full bg-[color-mix(in_oklab,var(--bien)_80%,transparent)]" /> hay grabación</span>}
+                        {eventos.some((e) => e.clase === "deteccion") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#dc2626] ring-1 ring-white/70" /> cámara</span>}
+                        {eventos.some((e) => e.clase === "vision") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#0284c7] ring-1 ring-white/70" /> OmniVision</span>}
+                        {eventos.some((e) => e.clase === "deteccion") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#dc2626] ring-1 ring-white/70" /> cámara</span>}
+                        {eventos.some((e) => e.clase === "vision") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#0284c7] ring-1 ring-white/70" /> OmniVision</span>}
                     </span>
                 </div>
 
                 {/* La regla de siempre (la del visor): la hora grande arriba, se arrastra, y las marcas se tocan. */}
                 <div ref={cajaRegla} className="mt-1">
                     <Scrub step="1" momentum={30} format="24h" width={ancho} difuminado={8} value={minutoDe(ahora)} start={minutoDe(ahora)}
-                        onChange={(mins) => { const ms = msDe(p.dia, `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.round(mins) % 60).padStart(2, "0")}`); if (ms) ir(ms); }}
+                        sinEnvolver
+                        onChange={(mins) => {
+                            // Minutos desde la medianoche del día que se mira, sin envolver: negativos son
+                            // el día anterior (pasar las 00:00 hacia atrás), más de 1440 el siguiente.
+                            const medianoche = msDe(p.dia, "00:00"); if (medianoche == null) return;
+                            saltar(medianoche + Math.round(mins) * 60_000, ahora);
+                        }}
                         marcas={marcas} onMarca={irAMarcaScrub} tramos={tramosMin || undefined} />
                 </div>
             </div>

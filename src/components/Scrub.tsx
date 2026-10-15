@@ -48,7 +48,7 @@ export type MarcaScrub = { id: string; m: number; Icon: React.ComponentType<{ si
 /** Cuántos minutos cubre un ícono de marca a 2 px/min: dos eventos más cerca que esto se juntan en una sola marca con contador. */
 const MINUTOS_POR_MARCA = 9;
 
-export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos }: {
+export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos, sinEnvolver = false }: {
     step?: string; momentum?: number; format?: string; corner?: number; start?: number; width?: number;
     /**
      * Qué porcentaje de cada borde de la regla se esfuma. 22 es el del vivo, donde la regla es
@@ -67,6 +67,13 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
      * siempre.
      */
     tramos?: [number, number][];
+    /**
+     * Añadido de OmniAccess (15/10): `onChange` recibe los minutos SIN envolver, relativos a la
+     * medianoche del día de `value`. Pasar las 00:00 hacia atrás da negativos (el día anterior) y
+     * pasar las 24:00, más de 1440 (el siguiente). Envueltos, volver de 00:05 a 23:55 caía en las
+     * 23:55 del MISMO día: casi un día entero hacia adelante.
+     */
+    sinEnvolver?: boolean;
 } = {}) {
     const HALF = (width - 36) / 2;
     const still = stillness();
@@ -79,6 +86,7 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     const lastStep = useRef(Math.floor(start / (Number(step) || 15)));
     const dragging = useRef(false);
     const onChangeRef = useRef(onChange); onChangeRef.current = onChange;
+    const envolverRef = useRef((m: number) => (sinEnvolver ? m : wrap(m))); envolverRef.current = (m: number) => (sinEnvolver ? m : wrap(m));
     const onMarcaRef = useRef(onMarca); onMarcaRef.current = onMarca;
 
     // seguir el reloj externo cuando NO se está arrastrando ni asentándose tras un arrastre.
@@ -102,14 +110,14 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
             const c = p.current;
             c.v += ((c.to - c.x) * 0.022 - c.v * 0.26) * dt;
             const x = c.x + c.v * dt;
-            if (Math.abs(c.to - x) < 0.01 && Math.abs(c.v) < 0.01) { c.v = 0; set(c.to); raf.current = 0; onChangeRef.current?.(wrap(Math.round(c.to))); return; }
+            if (Math.abs(c.to - x) < 0.01 && Math.abs(c.v) < 0.01) { c.v = 0; set(c.to); raf.current = 0; onChangeRef.current?.(envolverRef.current(Math.round(c.to))); return; }
             set(x); raf.current = requestAnimationFrame(tick);
         };
         raf.current = requestAnimationFrame(tick);
     };
     useEffect(() => () => { cancelAnimationFrame(raf.current); raf.current = 0; }, []);
 
-    const goTo = (to: number, v = p.current.v) => { p.current.to = to; p.current.v = v; if (still) { p.current.v = 0; set(to); onChangeRef.current?.(wrap(Math.round(to))); return; } run(); };
+    const goTo = (to: number, v = p.current.v) => { p.current.to = to; p.current.v = v; if (still) { p.current.v = 0; set(to); onChangeRef.current?.(envolverRef.current(Math.round(to))); return; } run(); };
 
     const drag = useRef<null | { x: number; t: number; v: number; k: number }>(null);
     const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -186,7 +194,7 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     };
 
     return (
-        <div className="tms" style={{ "--tms-r": `${Math.max(0, corner)}px`, "--tms-fade": `${clamp(difuminado, 0, 45)}%`, width } as React.CSSProperties}>
+        <div className="tms" data-tramos={tramos ? "" : undefined} style={{ "--tms-r": `${Math.max(0, corner)}px`, "--tms-fade": `${clamp(difuminado, 0, 45)}%`, width } as React.CSSProperties}>
             <div className="tms-read" aria-live="polite" aria-label={`${time} ${mer}`}>
                 <span className="tms-time">
                     {time.split("").map((c, i) => c === ":" ? <span key={`c${i}`} className="tms-colon">:</span> : <Digit key={time.length - i} d={c} />)}
@@ -203,8 +211,9 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 <div className="tms-ventana">
                 <div className="tms-track">
                     {tramos?.map(([a, b], i) => {
-                        // Los tramos son del día que se mira; `pos` puede haber dado la vuelta (no se envuelve).
-                        const base = pos - wrap(pos);
+                        // Los tramos son del día de `value` (minutos 0–1440): `pos` sin envolver puede estar en
+                        // el día anterior (negativo) o el siguiente, y ahí no se dibujan los de hoy.
+                        const base = 0;
                         const x1 = (a + base - pos) * PX, x2 = (b + base - pos) * PX;
                         if (x2 < -HALF - 40 || x1 > HALF + 40) return null;
                         return <span key={`t${i}`} className="tms-tramo" style={{ transform: `translateX(${x1.toFixed(2)}px)`, width: Math.max(2, x2 - x1) }} />;
@@ -273,6 +282,10 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 .tms-marca[data-tono="mal"]   { background: #dc2626; box-shadow: 0 0 10px rgba(239,68,68,0.75); }
                 .tms-marca[data-tono="aviso"] { background: #d97706; box-shadow: 0 0 10px rgba(245,158,11,0.7); }
                 .tms-marca[data-tono="bien"]  { background: #059669; box-shadow: 0 0 10px rgba(16,185,129,0.7); }
+                /* Con franja de grabación (añadido de OmniAccess), las marcas se apoyan SOBRE la franja
+                   verde: el centro del ícono cae en la línea, como en la línea de tiempo de un NVR. */
+                .tms[data-tramos] .tms-marcas { top: 9px; }
+                .tms[data-tramos] .tms-tramo { height: 3px; top: 1px; }
                 .tms-tramo { position: absolute; left: 0; top: 0; height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--bien) 80%, transparent); }
                 .tms-marca[data-tono="info"]  { background: #0284c7; box-shadow: 0 0 10px rgba(56,189,248,0.7); }
                 /* Contexto: otros eventos de la misma cámara. Grises y sin brillo, para no competir con el evento. */
