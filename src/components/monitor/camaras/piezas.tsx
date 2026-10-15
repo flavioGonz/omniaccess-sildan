@@ -1,0 +1,139 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
+import type { Disposicion } from "@/lib/monitor/disposiciones";
+import { cn } from "@/lib/utils";
+
+/** Lo que trae /api/monitor/camaras de cada canal (ver la ruta para el porqué de cada campo). */
+export type Alerta = { id: string; tipo: string; ts: string };
+export type Lectura = { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean };
+export type Punto = { x: number; y: number };
+export type Canal = {
+    clave: string; nombre: string; nvrId: string | null; nvr: string | null; ch: number | null; online: boolean | null;
+    stream: string; equipoId: string | null; alerta: Alerta | null;
+    funcion: "intrusion" | "lpr" | null; geom: { line: Punto[]; field: Punto[] } | null; ultima: Alerta | null; lecturas: Lectura[];
+};
+export type Modo = "directo" | "convertido" | "foto";
+
+/** Cadencia de la foto en las baldosas que no van en vivo. */
+export const FOTO_MS = 8000;
+/** Sin imagen en este tiempo, el vivo se da por fallido. */
+const VIVO_ESPERA_MS = 12_000;
+/** El códec que se pregunta: H.265 Main, nivel 3.1 (alcanza para 640×360 y sobra). */
+const TIPOS_H265 = ['video/mp4; codecs="hvc1.1.6.L93.B0"', 'video/mp4; codecs="hev1.1.6.L93.B0"'];
+
+export function reproduceH265(): boolean {
+    try {
+        const v = document.createElement("video");
+        const ms = (window as any).MediaSource;
+        return TIPOS_H265.some((t) => v.canPlayType(t) === "probably" || !!ms?.isTypeSupported?.(t));
+    } catch { return false; }
+}
+
+export const fotoDe = (c: Canal, ancho = 640) => c.equipoId
+    ? `/api/snapshot/${c.equipoId}?w=${ancho}`
+    : c.nvrId && c.ch != null ? `/api/monitor/camaras/foto?nvr=${encodeURIComponent(c.nvrId)}&ch=${c.ch}&w=${ancho}` : null;
+export const vivoDe = (stream: string, convertido: boolean) => `/go2rtc/api/stream.mp4?src=${encodeURIComponent(stream)}${convertido ? "&video=h264" : ""}`;
+export const ubicacion = (c: Canal) => [c.nvr, c.ch != null ? `CH ${c.ch}` : null].filter(Boolean).join(" · ") || "Cámara";
+export const grupoDe = (c: Canal) => c.nvr || "Cámaras sueltas";
+
+/** Un <video> de go2rtc que avisa si arrancó o no, y suelta la conexión al desmontarse. */
+export function Vivo({ src, alResultado, className }: { src: string; alResultado?: (ok: boolean) => void; className?: string }) {
+    const ref = useRef<HTMLVideoElement>(null);
+    const avisar = useRef(alResultado); avisar.current = alResultado;
+    useEffect(() => {
+        const v = ref.current; if (!v) return;
+        let listo = false;
+        const ok = () => { if (!listo) { listo = true; avisar.current?.(true); } };
+        const mal = () => { if (!listo) { listo = true; avisar.current?.(false); } };
+        const to = setTimeout(mal, VIVO_ESPERA_MS);
+        v.addEventListener("loadeddata", ok); v.addEventListener("error", mal);
+        v.src = src; v.play().catch(() => { });
+        return () => {
+            clearTimeout(to); v.removeEventListener("loadeddata", ok); v.removeEventListener("error", mal);
+            // Sin esto el navegador mantiene la descarga abierta y go2rtc sigue sirviendo el canal.
+            try { v.pause(); v.removeAttribute("src"); v.load(); } catch { }
+        };
+    }, [src]);
+    return <video ref={ref} muted playsInline autoPlay disablePictureInPicture className={className} />;
+}
+
+/** Foto que se renueva sola. La nueva sólo reemplaza a la vieja cuando terminó de bajar. */
+export function Foto({ src, ms, className }: { src: string; ms: number; className?: string }) {
+    const [k, setK] = useState(() => Date.now());
+    const [mostrada, setMostrada] = useState<string | null>(null);
+    const [falla, setFalla] = useState(false);
+    useEffect(() => { const iv = setInterval(() => setK(Date.now()), ms); return () => clearInterval(iv); }, [ms]);
+    useEffect(() => { setMostrada(null); setFalla(false); }, [src]);
+    const pedida = `${src}${src.includes("?") ? "&" : "?"}t=${k}`;
+    return (
+        <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {mostrada && <img src={mostrada} alt="" draggable={false} className={className} />}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img key={pedida} src={pedida} alt="" className="hidden" onLoad={() => { setMostrada(pedida); setFalla(false); }} onError={() => setFalla(true)} />
+            {!mostrada && !falla && <span className="absolute inset-0 grid place-items-center text-white/30"><Loader2 size={22} className="animate-spin" /></span>}
+            {!mostrada && falla && <span className="absolute inset-0 grid place-items-center text-white/40 text-[13px]">Sin foto del canal</span>}
+        </>
+    );
+}
+
+/**
+ * La línea y la zona de la cámara, sobre su video. Las coordenadas vienen en 0–100 del cuadro
+ * de la cámara (16:9). GeomOverlay de intrusión estira el dibujo a la baldosa entera, que sólo
+ * coincide si la baldosa es 16:9; acá el SVG copia el ajuste del video — `slice` es
+ * object-cover y `meet` es object-contain — así la línea cae donde la cámara la tiene.
+ */
+export function Geometria({ geom, alerta, ajuste }: { geom: { line: Punto[]; field: Punto[] }; alerta: boolean; ajuste: "cover" | "contain" }) {
+    const p = (q: Punto[]) => q.map((x) => `${(x.x * 1.6).toFixed(1)},${(x.y * 0.9).toFixed(1)}`).join(" ");
+    const linea = alerta ? "#f87171" : "#38bdf8";
+    return (
+        <svg viewBox="0 0 160 90" preserveAspectRatio={ajuste === "cover" ? "xMidYMid slice" : "xMidYMid meet"} className="absolute inset-0 w-full h-full pointer-events-none">
+            {geom.field.length >= 3 && <polygon points={p(geom.field)} fill={alerta ? "rgba(239,68,68,0.28)" : "rgba(244,63,94,0.12)"} stroke={alerta ? "#ef4444" : "#f43f5e"} strokeWidth={0.5} vectorEffect="non-scaling-stroke" />}
+            {geom.line.length >= 2 && <polyline points={p(geom.line)} fill="none" stroke={linea} strokeWidth={2} strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+        </svg>
+    );
+}
+
+/** El dibujo de una disposición, como los íconos de división de pantalla de un NVR. */
+export function Glifo({ d, tam = 22, className }: { d: Disposicion; tam?: number; className?: string }) {
+    const W = 24, H = 16, g = 1.4;
+    const cw = (W - g * (d.cols - 1)) / d.cols, ch = (H - g * (d.filas - 1)) / d.filas;
+    return (
+        <svg width={tam} height={(tam * H) / W} viewBox={`0 0 ${W} ${H}`} className={className} aria-hidden>
+            {d.casillas.map((c, i) => (
+                <rect key={i} x={c.x * (cw + g)} y={c.y * (ch + g)} width={c.w * cw + (c.w - 1) * g} height={c.h * ch + (c.h - 1) * g}
+                    rx={1} fill="currentColor" opacity={c.w > 1 ? 0.95 : 0.55} />
+            ))}
+        </svg>
+    );
+}
+
+/** El posicionamiento de una casilla en la cuadrícula CSS. */
+export const estiloCasilla = (c: { x: number; y: number; w: number; h: number }) =>
+    ({ gridColumn: `${c.x + 1} / span ${c.w}`, gridRow: `${c.y + 1} / span ${c.h}` }) as React.CSSProperties;
+
+/**
+ * Un menú flotante propio. No se usa ui/popover: se monta en <body>, fuera del `dark` del marco
+ * de la pared, y salía en tema claro sobre una pantalla negra.
+ */
+export function Flotante({ abierto, alCerrar, children, className, lado = "izquierda" }: {
+    abierto: boolean; alCerrar: () => void; children: React.ReactNode; className?: string; lado?: "izquierda" | "derecha";
+}) {
+    const ref = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!abierto) return;
+        const fuera = (e: PointerEvent) => { if (ref.current && !ref.current.parentElement?.contains(e.target as Node)) alCerrar(); };
+        const esc = (e: KeyboardEvent) => { if (e.key === "Escape") alCerrar(); };
+        window.addEventListener("pointerdown", fuera); window.addEventListener("keydown", esc);
+        return () => { window.removeEventListener("pointerdown", fuera); window.removeEventListener("keydown", esc); };
+    }, [abierto, alCerrar]);
+    if (!abierto) return null;
+    return (
+        <div ref={ref} className={cn("absolute top-[calc(100%+6px)] z-40 rounded-[14px] border border-border bg-card p-1.5 shadow-[var(--sombra-flotante)]",
+            lado === "izquierda" ? "left-0" : "right-0", className)}>
+            {children}
+        </div>
+    );
+}
