@@ -34,7 +34,22 @@ export function reproduceH265(): boolean {
 export const fotoDe = (c: Canal, ancho = 640) => c.equipoId
     ? `/api/snapshot/${c.equipoId}?w=${ancho}`
     : c.nvrId && c.ch != null ? `/api/monitor/camaras/foto?nvr=${encodeURIComponent(c.nvrId)}&ch=${c.ch}&w=${ancho}` : null;
-export const vivoDe = (stream: string, convertido: boolean) => `/go2rtc/api/stream.mp4?src=${encodeURIComponent(stream)}${convertido ? "&video=h264" : ""}`;
+/**
+ * Safari (y todo navegador de iPhone, que por dentro es Safari) no abre el MP4 continuo de
+ * go2rtc: se le da HLS, que reproduce nativo. Medido el 15/10 en SN: con `&mp4` go2rtc arma HLS
+ * en fMP4 con el H.265 tal cual (hvc1), y con `&video=h264` lo convierte (avc1). En Chrome se
+ * sigue con MP4: menos demora que HLS, que trabaja por segmentos.
+ */
+export function usaHls(): boolean {
+    try {
+        const v = document.createElement("video");
+        const ua = navigator.userAgent;
+        return !!v.canPlayType("application/vnd.apple.mpegurl") && !/Chrome|Chromium|Android|Edg\//.test(ua);
+    } catch { return false; }
+}
+export const vivoDe = (stream: string, convertido: boolean, hls = false) => hls
+    ? `/go2rtc/api/stream.m3u8?src=${encodeURIComponent(stream)}${convertido ? "&video=h264" : "&mp4"}`
+    : `/go2rtc/api/stream.mp4?src=${encodeURIComponent(stream)}${convertido ? "&video=h264" : ""}`;
 export const ubicacion = (c: Canal) => [c.nvr, c.ch != null ? `CH ${c.ch}` : null].filter(Boolean).join(" · ") || "Cámara";
 export const grupoDe = (c: Canal) => c.nvr || "Cámaras sueltas";
 

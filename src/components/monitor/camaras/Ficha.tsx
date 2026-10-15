@@ -47,8 +47,8 @@ function ChapaChica({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, alerta, lecturas, alCerrar, alMover, alVentana }: {
-    c: Canal | null; h265: boolean; alerta: Alerta | null; lecturas: Lectura[];
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana }: {
+    c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
     alCerrar: () => void;
     /** Al canal anterior o siguiente de la pared (null si no hay). */
     alMover?: ((paso: 1 | -1) => void) | null;
@@ -122,15 +122,15 @@ export function FichaCanal({ c, h265, alerta, lecturas, alCerrar, alMover, alVen
                             <span className="absolute inset-0 grid place-items-center text-white/60"><span className="flex flex-col items-center gap-2"><VideoOff size={40} /><span className="text-[18px] font-semibold">El NVR no ve este canal</span></span></span>
                         </>
                     ) : (
-                        <Vivo key={`${c.clave}-${enHd ? "hd" : "sd"}`} src={enHd ? vivoDe(`${c.stream}_hd`, false) : vivoDe(c.stream, !h265)}
+                        <Vivo key={`${c.clave}-${enHd ? "hd" : "sd"}`} src={enHd ? vivoDe(`${c.stream}_hd`, false, hls) : vivoDe(c.stream, !h265, hls)}
                             alResultado={(ok) => { if (!ok && enHd) setFallo(true); }} className="absolute inset-0 w-full h-full object-contain" />
                     )}
                     {c.geom && verGeom && <Geometria geom={c.geom} alerta={!!alerta} ajuste="contain" />}
 
                     {/* Arriba a la izquierda: qué se mira. Texto sobre la imagen, sin caja. */}
-                    <div className={cn("absolute top-0 inset-x-0 p-5 md:px-7 flex items-start justify-between gap-4 bg-gradient-to-b from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0 pointer-events-none")}>
+                    <div className={cn("absolute top-0 inset-x-0 p-3 sm:p-5 md:px-7 flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4 bg-gradient-to-b from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0 pointer-events-none")}>
                         <div className="min-w-0 visor-sombra-texto">
-                            <h1 className="text-[24px] font-bold tracking-[-0.015em] text-white leading-tight truncate max-w-[50vw]">{c.nombre}</h1>
+                            <h1 className="text-[18px] sm:text-[24px] font-bold tracking-[-0.015em] text-white leading-tight truncate max-w-[50vw]">{c.nombre}</h1>
                             <p className="flex items-center gap-2 mt-1 text-[14px] text-white/75 tabular-nums">
                                 <Radio size={14} className="text-[var(--mal)] animate-pulse shrink-0" />
                                 <span className="font-semibold text-white/90">{ubicacion(c)}</span>
@@ -159,8 +159,8 @@ export function FichaCanal({ c, h265, alerta, lecturas, alCerrar, alMover, alVen
                                 )}
                                 {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
                                 {(c.equipoId || (c.nvrId && c.ch != null)) && <Icono onClick={() => setGrabacion(true)} titulo="Ver la grabación"><History size={18} /></Icono>}
-                                {foto && <Icono href={foto.replace(/[?&]w=\d+/, "")} titulo="Abrir la foto de ahora en una pestaña"><Camera size={18} /></Icono>}
-                                {alVentana && <Icono onClick={alVentana} titulo="Abrir este canal solo en otra ventana (para otro monitor)"><AppWindow size={18} /></Icono>}
+                                {foto && <span className="hidden sm:contents"><Icono href={foto.replace(/[?&]w=\d+/, "")} titulo="Abrir la foto de ahora en una pestaña"><Camera size={18} /></Icono></span>}
+                                {alVentana && <span className="hidden md:contents"><Icono onClick={alVentana} titulo="Abrir este canal solo en otra ventana (para otro monitor)"><AppWindow size={18} /></Icono></span>}
                                 <Icono onClick={alternarLleno} titulo={lleno ? "Salir de pantalla completa" : "Pantalla completa"}>{lleno ? <Minimize2 size={18} /> : <Maximize2 size={18} />}</Icono>
                                 <span className="w-px h-5 bg-white/15 mx-0.5" />
                                 <Icono onClick={alCerrar} titulo="Volver a la pared  ( Esc )"><X size={20} /></Icono>

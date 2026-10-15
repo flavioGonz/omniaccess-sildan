@@ -6,14 +6,21 @@ import { esVista, alcanceCubre, enlaceAbre, COOKIE_PANTALLA, PARAM_PANTALLA, typ
 import { accionPermitidaSinSesion } from '@/lib/acciones-publicas'
 
 /**
- * Lo único de go2rtc que pide un navegador: el vivo en MP4 (las 23 llamadas del cliente son a
- * esto). Todo lo demás de su API (listar streams con sus claves, leer y escribir la
+ * Lo único de go2rtc que pide un navegador: el vivo en MP4 (las 23 llamadas del cliente) y,
+ * para Safari, el mismo vivo en HLS (ver GO2RTC_HLS). Todo lo demás de su API (listar streams con sus claves, leer y escribir la
  * configuración, sacar cuadros, reiniciarlo) lo usa el servidor por 127.0.0.1:1984, nunca a
  * través de acá. Si un reproductor nuevo necesita otro camino, se agrega acá con su porqué.
  * El vivo sigue sin pedir sesión: lo usan las páginas /pwa de los equipos de la garita, que no
  * tienen sesión del panel. Pedirla es el paso siguiente, cuando esas páginas tengan la suya.
  */
-const GO2RTC_REPRODUCIR = ['/api/stream.mp4']
+const GO2RTC_REPRODUCIR = ['/api/stream.mp4', '/api/stream.m3u8']
+/**
+ * HLS (stream.m3u8) es lo que reproduce un iPhone: Safari no abre el MP4 continuo de go2rtc
+ * (15/10, la pared en el celular de Nico quedó toda en fotos). El primer pedido trae `src`; los
+ * que siguen (lista, encabezado y segmentos) traen el `id` de sesión que armó go2rtc.
+ */
+const GO2RTC_HLS = ['/api/hls/playlist.m3u8', '/api/hls/init.mp4', '/api/hls/segment.m4s', '/api/hls/segment.ts']
+const GO2RTC_ID_HLS = /^[A-Za-z0-9]{1,40}$/
 /**
  * `src` tiene que ser el NOMBRE de un stream ya dado de alta (lpr_<id>, face_<id>…). go2rtc
  * también acepta ahí una URL y arma un stream nuevo con ella: sin esto, el vivo público servía
@@ -68,6 +75,9 @@ export async function middleware(request: NextRequest) {
     // página de administración de go2rtc, con su editor de configuración.
     if (pathname === '/go2rtc' || pathname.startsWith('/go2rtc/')) {
         const sub = pathname.slice('/go2rtc'.length)
+        const lee = request.method === 'GET' || request.method === 'HEAD'
+        const q = request.nextUrl.searchParams
+        if (lee && GO2RTC_HLS.includes(sub) && GO2RTC_ID_HLS.test(q.get('id') || '') && !q.has('src') && !q.has('name')) return NextResponse.next()
         const src = request.nextUrl.searchParams.getAll('src')
         const pide = (request.method === 'GET' || request.method === 'HEAD') && GO2RTC_REPRODUCIR.includes(sub)
         if (pide && src.length === 1 && GO2RTC_NOMBRE_STREAM.test(src[0]) && !request.nextUrl.searchParams.has('name')) return NextResponse.next()
