@@ -29,7 +29,13 @@ const GO2RTC_RTSP = process.env.GO2RTC_RTSP || "rtsp://127.0.0.1:8554";
 const CUADROS_POR_SEG = 3;
 const SESIONES_MAX = 2;
 const SESION_MAX_MS = 10 * 60_000;
-const GRUPOS = "persona,vehiculo,animal";
+/**
+ * «propio»: lo que encuentra el detector entrenado en OmniVision › Entrenar › Objetos nuevos
+ * (basurero, cono…), cuando hay uno activo. Antes se pedían sólo los tres grupos de fábrica y lo
+ * entrenado quedaba afuera aunque omni-vision lo estuviera viendo (15/10, Nico: «¿no debería
+ * detectar también mis entrenamientos?»). Sale como caja (el detector propio no segmenta).
+ */
+const GRUPOS = "persona,vehiculo,animal,propio";
 /** Puntos por silueta que viajan al navegador: más no se distingue a este tamaño. */
 const PUNTOS_SILUETA_MAX = 60;
 const NOMBRE_STREAM = /^(lpr|face)_[\w-]{1,100}$/;
