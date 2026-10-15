@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from "react";
 import { SlidersHorizontal, RefreshCw, Activity, Waves, CheckCircle2, Info, Loader2, Timer, Camera, HelpCircle, Gauge } from "lucide-react";
 import { getQueueRawVsStable, getQueueDevices } from "@/app/actions/queue";
+import EditorBosch from "@/components/queue/EditorBosch";
+import { ScanLine, LineChart } from "lucide-react";
 
 type Pt = { t: number; v: number };
 type Data = {
@@ -35,7 +37,7 @@ function Chart({ raw, stable }: { raw: Pt[]; stable: Pt[] }) {
     );
 }
 
-export default function CalibracionPage() {
+function SenalAforo() {
     const [data, setData] = useState<Data | null>(null);
     const [loading, setLoading] = useState(true);
     const [minutes, setMinutes] = useState(10);
@@ -59,7 +61,7 @@ export default function CalibracionPage() {
     const rebote = m?.suggestedReboteSec ?? null;
 
     return (
-        <div className="max-w-5xl mx-auto space-y-6 p-6">
+        <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3.5">
@@ -67,7 +69,7 @@ export default function CalibracionPage() {
                         <SlidersHorizontal size={20} className="text-white" />
                     </div>
                     <div>
-                        <h1 className="text-xl font-bold tracking-tight">Calibración de Aforo</h1>
+                        <h2 className="text-lg font-bold tracking-tight">Señal del aforo</h2>
                         <p className="text-xs text-muted-foreground">{deviceName} · ajustá la estabilidad del conteo de personas</p>
                     </div>
                 </div>
@@ -192,6 +194,52 @@ export default function CalibracionPage() {
                 <Info size={13} className="shrink-0 mt-0.5 text-violet-400" />
                 <span>Este panel mide el ruido residual sobre {m?.samples ?? 0} lecturas de los últimos {minutes} minutos. La cámara aplica su propio rebote antes de enviar; lo que ves acá es la recomendación para terminar de afinarlo.</span>
             </div>
+        </div>
+    );
+}
+
+
+/** Calibración de la fila: zona y rebote que usa la cámara (editable) + señal medida del aforo. */
+export default function CalibracionPage() {
+    const [tab, setTab] = useState<"zona" | "senal">("zona");
+    const [devs, setDevs] = useState<{ id: string; name: string; ip: string; brand: string }[]>([]);
+    const [sel, setSel] = useState("");
+    useEffect(() => { getQueueDevices().then((d: any[]) => { setDevs(d); if (d[0]) setSel(d[0].id); }).catch(() => {}); }, []);
+    const dev = devs.find((d) => d.id === sel);
+    const tabs = [
+        { id: "zona" as const, label: "Zona y rebote en la cámara", icon: ScanLine },
+        { id: "senal" as const, label: "Señal del aforo", icon: LineChart },
+    ];
+    return (
+        <div className="max-w-[1500px] mx-auto space-y-6 p-6">
+            <div className="flex items-center gap-3.5 flex-wrap">
+                <div className="w-11 h-11 rounded-xl bg-primary/15 text-primary flex items-center justify-center"><SlidersHorizontal size={20} /></div>
+                <div>
+                    <h1 className="text-xl font-bold tracking-tight">Calibración de la fila</h1>
+                    <p className="text-xs text-muted-foreground">Dibujá la zona, ajustá el rebote y el umbral de aforo directamente en la cámara</p>
+                </div>
+                {devs.length > 1 && (
+                    <select value={sel} onChange={(e) => setSel(e.target.value)} className="ml-auto rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                        {devs.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.ip}</option>)}
+                    </select>
+                )}
+            </div>
+            <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-muted/60 border border-border">
+                {tabs.map((t) => {
+                    const I = t.icon;
+                    return (
+                        <button key={t.id} onClick={() => setTab(t.id)}
+                            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold transition ${tab === t.id ? "bg-card text-foreground border border-border" : "text-muted-foreground hover:text-foreground"}`}>
+                            <I size={14} /> {t.label}
+                        </button>
+                    );
+                })}
+            </div>
+            {tab === "zona" ? (
+                !dev ? <div className="text-sm text-muted-foreground">No hay cámaras de fila cargadas.</div>
+                    : dev.brand !== "BOSCH" ? <div className="text-sm text-muted-foreground">El editor de zona y rebote está disponible para cámaras Bosch. {dev.name} es {dev.brand}.</div>
+                        : <EditorBosch key={dev.id} deviceId={dev.id} streamSrc={`bosch_${dev.ip.replace(/\./g, "_")}`} />
+            ) : <SenalAforo />}
         </div>
     );
 }
