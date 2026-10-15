@@ -79,6 +79,7 @@ import { OtpInput, type OtpStatus } from "@/components/ui/otp-input";
 import axios from "axios";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import ModosSection from "./ModosSection";
+import { useSessionRole } from "@/hooks/useSessionRole";
 import VisitasSection from "./VisitasSection";
 import EmpresasSection from "./EmpresasSection";
 import { HistorialBot } from "@/components/settings/HistorialBot";
@@ -247,9 +248,15 @@ const DRIVERS = [
     { brand: "UniFi", tech: "Protect API", active: false, color: "blue" },
 ];
 
+/* Empresas y Visitas son conceptos de LPR: con LPR apagado (p. ej. sólo Filas) no se muestran. */
+const SECCIONES_SOLO_LPR: readonly string[] = ["empresas", "visitas"];
+
 export default function SettingsPage() {
     const router = useRouter();
     const [activeSection, setActiveSection] = useState("system_status");
+    // Branding (identidad, login, reportes, PWA) es solo para administradores.
+    const { role: sessionRole } = useSessionRole();
+    const isAdmin = sessionRole === "ADMIN";
     const [openGroup, setOpenGroup] = useState<string | null>(null);
     const [brandingTab, setBrandingTab] = useState("identidad");
     const [notifTab, setNotifTab] = useState("canales");
@@ -310,7 +317,14 @@ export default function SettingsPage() {
             <div className="sticky top-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border mb-6 -mx-6 px-4 py-3 shadow-md shadow-black/20">
                 {openGroup && <div className="fixed inset-0 z-40" onClick={() => setOpenGroup(null)} />}
                 <div className="relative z-50 flex items-center gap-1.5 flex-wrap">
-                    {NAV_GROUPS.map((g) => {
+                    {NAV_GROUPS
+                        .filter((g) => g.id !== "branding" || isAdmin)
+                        .map((g) => ({
+                            ...g,
+                            // Empresas y Visitas son conceptos de LPR: en modo Filas no aplican.
+                            items: g.items.filter((it) => !(SECCIONES_SOLO_LPR.includes(it.sec) && !enabledModules.MODULE_LPR)),
+                        }))
+                        .map((g) => {
                         const GIcon = g.icon;
                         const groupActive = g.items.some((it: any) => it.sec === activeSection && (it.btab ? it.btab === brandingTab : true) && (it.ntab ? it.ntab === notifTab : true));
                         const isOpen = openGroup === g.id;
@@ -365,7 +379,7 @@ export default function SettingsPage() {
 
                     {activeSection === "webhooks" && <WebhookDebugPage />}
 
-                    {activeSection === "branding" && <BrandingSection activeTab={brandingTab} />}
+                    {activeSection === "branding" && isAdmin && <BrandingSection activeTab={brandingTab} />}
 
 
                     {activeSection === "modo" && (
