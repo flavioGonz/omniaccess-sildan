@@ -48,7 +48,7 @@ export type MarcaScrub = { id: string; m: number; Icon: React.ComponentType<{ si
 /** Cuántos minutos cubre un ícono de marca a 2 px/min: dos eventos más cerca que esto se juntan en una sola marca con contador. */
 const MINUTOS_POR_MARCA = 9;
 
-export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22 }: {
+export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20, start = 570, width = 300, value, onChange, marcas, onMarca, difuminado = 22, tramos }: {
     step?: string; momentum?: number; format?: string; corner?: number; start?: number; width?: number;
     /**
      * Qué porcentaje de cada borde de la regla se esfuma. 22 es el del vivo, donde la regla es
@@ -60,6 +60,13 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
     marcas?: MarcaScrub[];
     /** Se tocó una marca: la regla ya está sobre ella; el padre decide qué grabación abrir. */
     onMarca?: (marca: MarcaScrub, grupo: MarcaScrub[]) => void;
+    /**
+     * Añadido de OmniAccess (15/10, la grabación sobre la pared de cámaras): dónde HAY
+     * grabación, como [desde, hasta] en minutos del día. Se dibuja como una franja sobre los
+     * ticks para que un hueco se vea antes de arrastrar hasta él. Sin esto, la regla es la de
+     * siempre.
+     */
+    tramos?: [number, number][];
 } = {}) {
     const HALF = (width - 36) / 2;
     const still = stillness();
@@ -195,6 +202,13 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                     cortadas por la mitad. La ventana sube lo que cuelgan. */}
                 <div className="tms-ventana">
                 <div className="tms-track">
+                    {tramos?.map(([a, b], i) => {
+                        // Los tramos son del día que se mira; `pos` puede haber dado la vuelta (no se envuelve).
+                        const base = pos - wrap(pos);
+                        const x1 = (a + base - pos) * PX, x2 = (b + base - pos) * PX;
+                        if (x2 < -HALF - 40 || x1 > HALF + 40) return null;
+                        return <span key={`t${i}`} className="tms-tramo" style={{ transform: `translateX(${x1.toFixed(2)}px)`, width: Math.max(2, x2 - x1) }} />;
+                    })}
                     {ticks.map((t) => (
                         <span key={t.m} className="tms-tick" data-kind={t.kind}
                             style={{ transform: `translateX(${t.x.toFixed(2)}px) scaleY(${(0.55 + 0.45 * t.f).toFixed(3)})`, opacity: 0.18 + 0.82 * t.f }} />
@@ -258,6 +272,8 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 .tms-marca { position: absolute; left: 0; top: 0; width: 22px; height: 22px; border-radius: 999px; border: 1.5px solid rgba(255,255,255,0.85); display: grid; place-items: center; color: #fff; cursor: pointer; padding: 0; transform: translateX(var(--tx, 0px)) translateX(-50%); transition: box-shadow 120ms ease; touch-action: none; }
                 .tms-marca[data-tono="mal"]   { background: #dc2626; box-shadow: 0 0 10px rgba(239,68,68,0.75); }
                 .tms-marca[data-tono="aviso"] { background: #d97706; box-shadow: 0 0 10px rgba(245,158,11,0.7); }
+                .tms-marca[data-tono="bien"]  { background: #059669; box-shadow: 0 0 10px rgba(16,185,129,0.7); }
+                .tms-tramo { position: absolute; left: 0; top: 0; height: 4px; border-radius: 2px; background: color-mix(in oklab, var(--bien) 80%, transparent); }
                 .tms-marca[data-tono="info"]  { background: #0284c7; box-shadow: 0 0 10px rgba(56,189,248,0.7); }
                 /* Contexto: otros eventos de la misma cámara. Grises y sin brillo, para no competir con el evento. */
                 .tms-marca[data-tono="quieto"] { background: #3f3f46; border-color: rgba(255,255,255,0.55); box-shadow: none; }

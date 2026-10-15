@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, ZoomIn, ZoomOut, Download, Radio, Loader2, CalendarDays, Clock } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car } from "lucide-react";
+import { Scrub, type MarcaScrub } from "@/components/Scrub";
 import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { ZONA } from "@/lib/fechas";
@@ -16,14 +17,14 @@ import { cn } from "@/lib/utils";
  * grabación y la regla se dibuja encima, abajo; el vivo queda chico en una esquina y un toque
  * vuelve a él.
  *
- * La regla, mejorada respecto de la del visor:
- *  · Dice dónde HAY grabación (los tramos que informa el NVR) antes de tocarla. Antes un hueco
- *    se descubría esperando 9 s a que el NVR no mandara nada.
- *  · Tiene las detecciones y las lecturas de la cámara como marcas, y flechas para saltar a la
- *    anterior o a la siguiente: revisar una noche es ir de marca en marca, no arrastrar a ciegas.
- *  · Se arrastra (la hora queda fija en el centro y la regla corre debajo), se toca para saltar
- *    y se acerca o aleja de 24 h a 15 min.
- *  · Día y hora se eligen con sus campos; ±30 s con botones o con ← →; , y . saltan de marca.
+ * La regla es la misma rueda del visor (Scrub: la hora grande con sus dígitos, el cursor rojo,
+ * se arrastra con inercia). Nico lo pidió así el 15/10 —«no estás usando la barra que
+ * tenemos»— y con los controles ARRIBA de la regla, que queda al pie. Lo que se le sumó:
+ *  · La franja de dónde HAY grabación (los tramos que informa el NVR), dibujada sobre los
+ *    ticks: un hueco se ve antes de llegar. Antes se descubría esperando 9 s.
+ *  · Las detecciones y las lecturas de la cámara como marcas (tono por resultado), y flechas
+ *    para saltar a la anterior o a la siguiente: revisar una noche es ir de marca en marca.
+ *  · Día y hora se eligen con sus campos; ±30 s con botones o ±10 s con ← →; , y . saltan de marca.
  *
  * El video: si el navegador reproduce H.265 se le pide la grabación tal cual (`hevc=1`) y el
  * servidor sólo la reempaqueta; si no arranca, se pide sin eso (el servidor la convierte). En
@@ -41,13 +42,6 @@ const ESPERA_MS = 10_000;
 /** El arrastre no pide nada al NVR hasta que la regla se queda quieta este tiempo. */
 const ASENTAR_MS = 350;
 const SALTO_MS = 30_000;
-/** Las escalas de la regla: cuánto tiempo entra a lo ancho, y cada cuánto va una raya y un rótulo. */
-const ESCALAS = [
-    { nombre: "24 h", span: 24 * 3600e3, raya: 3600e3, rotulo: 2 * 3600e3 },
-    { nombre: "6 h", span: 6 * 3600e3, raya: 1800e3, rotulo: 3600e3 },
-    { nombre: "1 h", span: 3600e3, raya: 300e3, rotulo: 600e3 },
-    { nombre: "15 min", span: 900e3, raya: 60e3, rotulo: 300e3 },
-] as const;
 const VENTANA_POR_DEFECTO: VentanaClip = { antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } };
 
 type Evento = { id: string; ts: number; clase: "deteccion" | "lectura"; tipo: string; plate: string | null; ok: boolean | null };
@@ -68,7 +62,6 @@ function msDe(dia: string, hora: string): number | null {
     return comoUtc - (Date.UTC(y, mo - 1, d, hh, mi, ss) - comoUtc);
 }
 const horaCorta = (ms: number) => partes(ms).hora.slice(0, 5);
-const fechaLarga = (ms: number) => new Date(ms).toLocaleDateString("es-UY", { timeZone: ZONA, weekday: "long", day: "numeric", month: "long" });
 
 function Boton({ children, onClick, titulo, disabled, grande, activo }: { children: React.ReactNode; onClick: () => void; titulo: string; disabled?: boolean; grande?: boolean; activo?: boolean }) {
     return (
@@ -100,7 +93,6 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     const [intento, setIntento] = useState(0);
     const pausado = useRef(false);
     const video = useRef<HTMLVideoElement>(null);
-    const [escala, setEscala] = useState(2);
     const [linea, setLinea] = useState<Linea | null>(null);
     const [descarga, setDescarga] = useState(false);
     const [ventana, setVentana] = useState<VentanaClip>(VENTANA_POR_DEFECTO);
@@ -175,49 +167,31 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
         return () => window.removeEventListener("keydown", k);
     });
 
-    // ── La regla ────────────────────────────────────────────────────────────────────
-    const regla = useRef<HTMLDivElement>(null);
+    // ── La regla: la misma rueda del visor (Scrub), con los tramos y las marcas de este día ──
+    const cajaRegla = useRef<HTMLDivElement>(null);
     const [ancho, setAncho] = useState(800);
     useLayoutEffect(() => {
-        const el = regla.current; if (!el) return;
+        const el = cajaRegla.current; if (!el) return;
         const ro = new ResizeObserver(() => setAncho(el.clientWidth || 800));
         ro.observe(el); setAncho(el.clientWidth || 800);
         return () => ro.disconnect();
     }, []);
-    const E = ESCALAS[escala];
-    const msPorPx = E.span / Math.max(1, ancho);
-    const [arrastre, setArrastre] = useState<{ x0: number; t0: number; t: number; movio: boolean } | null>(null);
-    const centro = arrastre ? arrastre.t : ahora;
-    const inicio = centro - E.span / 2;
-    const xDe = (ms: number) => (ms - inicio) / msPorPx;
-    const rayas = useMemo(() => {
-        const out: { ms: number; rotulo: boolean }[] = [];
-        for (let ms = Math.ceil(inicio / E.raya) * E.raya; ms <= inicio + E.span; ms += E.raya) {
-            // Las rayas van en la hora del barrio: el desfase de la zona se corrige con el rótulo.
-            out.push({ ms, rotulo: Math.round((ms - (msDe(partes(ms).dia, "00:00") || 0)) % E.rotulo) === 0 });
-        }
-        return out;
-    }, [inicio, E]);
-    const abajo = (e: React.PointerEvent) => { try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { } setArrastre({ x0: e.clientX, t0: centro, t: centro, movio: false }); };
-    const mover = (e: React.PointerEvent) => {
-        if (!arrastre) return;
-        const dx = e.clientX - arrastre.x0;
-        setArrastre({ ...arrastre, t: Math.min(Date.now(), arrastre.t0 - dx * msPorPx), movio: arrastre.movio || Math.abs(dx) > 4 });
-    };
-    const arriba = (e: React.PointerEvent) => {
-        if (!arrastre) return;
-        if (arrastre.movio) ir(arrastre.t);
-        else {
-            // Un toque sin arrastrar: salta a donde se tocó.
-            const caja = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            ir(inicio + (e.clientX - caja.left) * msPorPx);
-        }
-        setArrastre(null);
-    };
+    const minutoDe = (ms: number) => { const [h, m, sg] = partes(ms).hora.split(":").map(Number); return h * 60 + m + sg / 60; };
+    const tramosMin = useMemo(() => linea?.tramos?.map(([a, b]) => [a <= linea.desde ? 0 : minutoDe(a), b >= linea.hasta ? 1440 : minutoDe(b)] as [number, number]), [linea]); // eslint-disable-line react-hooks/exhaustive-deps
+    const marcas = useMemo<MarcaScrub[]>(() => eventos.map((e) => {
+        const det = e.clase === "deteccion";
+        const hora = partes(e.ts).hora;
+        return {
+            id: e.id, m: minutoDe(e.ts), Icon: det ? metaDe(e.tipo).Icon : Car,
+            titulo: det ? `${metaDe(e.tipo).label} · ${hora}` : `${e.plate || "Sin leer"} · ${e.tipo === "EXIT" ? "sale" : "entra"} · ${hora}`,
+            tono: det ? "mal" : e.ok ? "bien" : "mal",
+        };
+    }), [eventos]); // eslint-disable-line react-hooks/exhaustive-deps
+    const irAMarcaScrub = (k: MarcaScrub) => irAMarca(eventos.find((e) => e.id === k.id) || null);
 
-    const sigueVisible = visibles || !jugando || !!arrastre || estado !== "viendo";
+    const sigueVisible = visibles || !jugando || estado !== "viendo";
     const hrefDescarga = (antes: number, despues: number, instante: number) => `/api/nvr/playback?ch=${c.ch}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1&nvr=${encodeURIComponent(c.nvrId || "")}`;
-    const p = partes(centro);
+    const p = partes(ahora);
 
     if (!c.nvrId || c.ch == null) {
         return <div className="absolute inset-0 grid place-items-center text-white/70 text-[16px] px-6 text-center">No se sabe en qué NVR graba esta cámara: no hay grabación para mostrar.</div>;
@@ -268,52 +242,10 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                 </div>
             )}
 
-            {/* Abajo: la regla y los controles, sobre el video. */}
-            <div className={cn("absolute bottom-0 inset-x-0 px-3 sm:px-6 pb-4 pt-16 bg-gradient-to-t from-black/90 via-black/55 to-transparent transition-opacity duration-300", !sigueVisible && "opacity-0 pointer-events-none")}>
-                {/* La hora que se ve (o a la que se va, mientras se arrastra) */}
-                <div className="flex items-baseline justify-center gap-3 mb-2 visor-sombra-texto">
-                    <span className="text-[13px] text-white/70 capitalize">{fechaLarga(centro)}</span>
-                    <span className="text-[26px] sm:text-[30px] font-bold tabular-nums text-white leading-none">{p.hora}</span>
-                    {!arrastre && estado === "viendo" && !convertir && <span className="text-[12px] text-white/55" title="El servidor no la convierte: la pasa tal cual la grabó el NVR">H.265 directo</span>}
-                </div>
-
-                <div ref={regla} onPointerDown={abajo} onPointerMove={mover} onPointerUp={arriba} onPointerCancel={() => setArrastre(null)}
-                    className="relative h-[64px] cursor-grab active:cursor-grabbing select-none touch-none overflow-hidden rounded-[10px] bg-white/[0.06]">
-                    {/* Tramos con grabación */}
-                    {linea?.tramos?.map(([a, b], i) => {
-                        const x1 = Math.max(0, xDe(a)), x2 = Math.min(ancho, xDe(b));
-                        return x2 > x1 ? <span key={i} className="absolute bottom-[18px] h-[6px] rounded-full bg-[color-mix(in_oklab,var(--bien)_70%,transparent)]" style={{ left: x1, width: x2 - x1 }} /> : null;
-                    })}
-                    {linea && !linea.tramos && <span className="absolute bottom-[18px] inset-x-0 h-[6px] rounded-full bg-white/15" title="El NVR no informa los tramos: se sabe si hay grabación al pedirla" />}
-                    {/* Futuro: no se puede ir */}
-                    {xDe(Date.now()) < ancho && <span className="absolute top-0 bottom-0 right-0 bg-black/40" style={{ left: Math.max(0, xDe(Date.now())) }} />}
-                    {/* Rayas y rótulos */}
-                    {rayas.map((r) => (
-                        <span key={r.ms} className="absolute bottom-0 flex flex-col items-center" style={{ left: xDe(r.ms), transform: "translateX(-50%)" }}>
-                            {r.rotulo && <span className="text-[10px] tabular-nums text-white/60 mb-0.5">{horaCorta(r.ms)}</span>}
-                            <span className={cn("w-px", r.rotulo ? "h-3 bg-white/50" : "h-1.5 bg-white/30")} />
-                        </span>
-                    ))}
-                    {/* Marcas: detecciones y lecturas */}
-                    {eventos.map((e) => {
-                        const x = xDe(e.ts); if (x < -8 || x > ancho + 8) return null;
-                        const color = e.clase === "deteccion" ? "var(--mal)" : e.ok ? "var(--bien)" : "var(--mal)";
-                        const titulo = e.clase === "deteccion" ? `${metaDe(e.tipo).label} · ${partes(e.ts).hora}` : `${e.plate || "Sin leer"} · ${e.tipo === "EXIT" ? "sale" : "entra"} · ${partes(e.ts).hora}`;
-                        return (
-                            <button key={e.id} type="button" title={titulo} aria-label={titulo}
-                                onPointerDown={(ev) => ev.stopPropagation()} onClick={(ev) => { ev.stopPropagation(); irAMarca(e); }}
-                                className="absolute top-1.5 w-5 h-6 -ml-2.5 grid place-items-start justify-center group" style={{ left: x }}>
-                                <span className="block w-2.5 h-2.5 rotate-45 rounded-[2px] ring-1 ring-black/50 group-hover:scale-125 transition-transform" style={{ background: color }} />
-                            </button>
-                        );
-                    })}
-                    {/* El cursor: la hora de arriba es la de esta raya */}
-                    <span className="absolute top-0 bottom-0 left-1/2 w-[2px] -ml-px bg-[var(--accion-en-oscuro)]" />
-                </div>
-
-                {/* Controles */}
-                <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" onClick={alVivo} title="Volver al vivo"
+            {/* Abajo, sobre el video: arriba los controles, y al pie la regla. */}
+            <div className={cn("absolute bottom-0 inset-x-0 px-3 sm:px-6 pb-2 pt-16 bg-gradient-to-t from-black/90 via-black/55 to-transparent transition-opacity duration-300", !sigueVisible && "opacity-0 pointer-events-none")}>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button type="button" onClick={alVivo} title="Volver al vivo  ( Esc )"
                         className="h-10 px-3.5 rounded-full visor-panel text-white text-[13px] font-semibold inline-flex items-center gap-1.5"><Radio size={14} className="text-[var(--mal)]" /> Vivo</button>
 
                     <span className="visor-panel rounded-full h-10 px-1 inline-flex items-center gap-1">
@@ -341,23 +273,21 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                         <Boton onClick={() => irAMarca(siguiente)} disabled={!siguiente} titulo={siguiente ? `Evento siguiente · ${partes(siguiente.ts).hora}  ( . )` : "No hay eventos después en este día"}><SkipForward size={18} /></Boton>
                     </span>
 
-                    <span className="visor-panel rounded-full p-1 inline-flex items-center gap-0.5">
-                        <Boton onClick={() => setEscala((x) => Math.max(0, x - 1))} disabled={escala === 0} titulo="Ver más tiempo en la regla"><ZoomOut size={17} /></Boton>
-                        <span className="text-[12px] font-semibold text-white/80 tabular-nums w-[44px] text-center">{E.nombre}</span>
-                        <Boton onClick={() => setEscala((x) => Math.min(ESCALAS.length - 1, x + 1))} disabled={escala === ESCALAS.length - 1} titulo="Acercar la regla"><ZoomIn size={17} /></Boton>
-                    </span>
-
                     <span className="visor-panel rounded-full p-1 inline-flex items-center">
                         <Boton onClick={() => setDescarga(true)} titulo="Exportar un clip de este momento"><Download size={17} /></Boton>
                     </span>
 
-                    {eventos.length > 0 && (
-                        <span className="hidden lg:inline-flex items-center gap-3 text-[12px] text-white/60 ml-1">
-                            <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rotate-45 rounded-[1px] bg-[var(--mal)]" /> detección o no pasó</span>
-                            {eventos.some((e) => e.clase === "lectura") && <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rotate-45 rounded-[1px] bg-[var(--bien)]" /> pasó</span>}
-                            <span className="inline-flex items-center gap-1"><span className="w-3 h-1.5 rounded-full bg-[color-mix(in_oklab,var(--bien)_70%,transparent)]" /> hay grabación</span>
-                        </span>
-                    )}
+                    <span className="hidden lg:inline-flex items-center gap-3 text-[12px] text-white/60 ml-1">
+                        {estado === "viendo" && !convertir && <span title="El servidor no la convierte: la pasa tal cual la grabó el NVR">H.265 directo</span>}
+                        {tramosMin && <span className="inline-flex items-center gap-1"><span className="w-3 h-1 rounded-full bg-[color-mix(in_oklab,var(--bien)_80%,transparent)]" /> hay grabación</span>}
+                    </span>
+                </div>
+
+                {/* La regla de siempre (la del visor): la hora grande arriba, se arrastra, y las marcas se tocan. */}
+                <div ref={cajaRegla} className="mt-1">
+                    <Scrub step="1" momentum={30} format="24h" width={ancho} difuminado={8} value={minutoDe(ahora)} start={minutoDe(ahora)}
+                        onChange={(mins) => { const ms = msDe(p.dia, `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.round(mins) % 60).padStart(2, "0")}`); if (ms) ir(ms); }}
+                        marcas={marcas} onMarca={irAMarcaScrub} tramos={tramosMin || undefined} />
                 </div>
             </div>
 
