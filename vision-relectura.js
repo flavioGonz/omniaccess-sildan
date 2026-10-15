@@ -25,6 +25,7 @@
  */
 
 const sharp = require("sharp");
+const { normalizarChapa } = require("./lib-chapa");
 
 const APP = (process.env.APP_INTERNAL_URL || "http://127.0.0.1:10001").replace(/\/$/, "");
 const LPR = (process.env.OMNI_LPR_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -78,8 +79,12 @@ const INTENTOS_MAX = 3;
 const LADO_VEHICULO = 480;
 const ANCHO_CHAPA = 320;
 
-const limpia = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-const parece = (p) => !!p && p.length >= 6 && p.length <= 8 && /[A-Z]/.test(p) && /[0-9]/.test(p);
+/**
+ * La chapa con forma del Mercosur, corregida por posición (lib-chapa.js), o null. Antes alcanzaba
+ * con 6–8 caracteres con letras y números: el 22 % de las relecturas de una semana en San Nicolás
+ * no tenía forma de chapa (15/10).
+ */
+const chapaDe = (t) => normalizarChapa(t)?.plate || null;
 const promedio = (c) => (Array.isArray(c) ? (c.length ? c.reduce((a, b) => a + b, 0) / c.length : 0) : (c ?? 0));
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -97,8 +102,8 @@ async function leerChapas(jpeg) {
     const items = await lpr("detect_and_recognize_plate", { image_base64: jpeg.toString("base64"), detector_model: DETECTOR, ocr_model: OCR });
     const out = [];
     for (const it of items) {
-        const plate = limpia(it?.ocr?.text);
-        if (!parece(plate)) continue;
+        const plate = chapaDe(it?.ocr?.text);
+        if (!plate) continue;
         out.push({ plate, confianza: Math.min(promedio(it?.ocr?.confidence) || 0, it?.detection?.confidence ?? 1), caja: it?.detection?.bounding_box || null });
     }
     return out.sort((a, b) => b.confianza - a.confianza);
@@ -108,8 +113,7 @@ async function leerChapas(jpeg) {
 async function releer(chapa) {
     try {
         const d = await lpr("recognize_plate", { image_base64: chapa.toString("base64"), ocr_model: OCR_FINO }, 15000);
-        const t = limpia(d?.[0]?.plate ?? d?.[0]?.ocr?.text);
-        return parece(t) ? t : null;
+        return chapaDe(d?.[0]?.plate ?? d?.[0]?.ocr?.text);
     } catch { return null; }
 }
 
@@ -133,7 +137,8 @@ async function leerRecorte(jpeg) {
     if (!chapas.length) return { mejor: null, otras: [], chapa: null };
     const m = chapas[0];
     const chapa = await recortarChapa(jpeg, m.caja).catch(() => null);
-    let mejor = { plate: m.plate, confianza: m.confianza, acuerdo: null };
+    // `caja`: dónde está la chapa, en píxeles del recorte; quien llama la pasa a la foto entera.
+    let mejor = { plate: m.plate, confianza: m.confianza, acuerdo: null, caja: m.caja };
     if (chapa) {
         const fina = await releer(chapa);
         if (fina && fina === m.plate) mejor = { ...mejor, confianza: Math.max(m.confianza, 0.9), acuerdo: true };
@@ -217,7 +222,12 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
             .map((o) => ({ ...o, area: (o.caja[2] - o.caja[0]) * (o.caja[3] - o.caja[1]) }))
             .sort((a, b) => b.area - a.area).slice(0, VEHICULOS_MAX);
 
-        let mejor = null, otras = [], vehiculo = null, recorteV = null, chapa = null;
+        let mejor = null, otras = [], vehiculo = null, recorteV = null, chapa = null, cajaChapa = null;
+        /**
+         * La caja de la chapa en la foto ENTERA, normalizada 0-1: la pantalla la dibuja dentro de la
+         * silueta del vehículo, como un recuadro más de lo que vio OmniVision (Nico, 15/10).
+         */
+        const aFoto = (c, dx, dy) => (c && W && H ? [(dx + c.x1) / W, (dy + c.y1) / H, (dx + c.x2) / W, (dy + c.y2) / H].map((n) => Math.round(Math.min(1, Math.max(0, n)) * 10000) / 10000) : null);
         for (const v of vehiculos) {
             const [x1, y1, x2, y2] = v.caja;
             const mw = (x2 - x1) * MARGEN, mh = (y2 - y1) * MARGEN;
@@ -227,7 +237,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
             const l = await leerRecorte(rec);
             if (l.mejor && (!mejor || l.mejor.confianza > mejor.confianza)) {
                 if (mejor) otras.push({ plate: mejor.plate, confianza: Math.round(mejor.confianza * 1000) / 1000 });
-                mejor = l.mejor; vehiculo = v.clase; recorteV = rec; chapa = l.chapa;
+                mejor = l.mejor; vehiculo = v.clase; recorteV = rec; chapa = l.chapa; cajaChapa = aFoto(l.mejor.caja, left, top);
                 otras.push(...l.otras);
             } else if (l.mejor) otras.push({ plate: l.mejor.plate, confianza: Math.round(l.mejor.confianza * 1000) / 1000 }, ...l.otras);
             if (!recorteV) recorteV = rec;
@@ -236,7 +246,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
         // que es lo que haría la lectora. Rara vez sirve, pero cuesta una inferencia.
         if (!vehiculos.length) {
             const l = await leerRecorte(jpeg);
-            if (l.mejor) { mejor = l.mejor; otras = l.otras; chapa = l.chapa; }
+            if (l.mejor) { mejor = l.mejor; otras = l.otras; chapa = l.chapa; cajaChapa = aFoto(l.mejor.caja, 0, 0); }
         }
 
         const dia = new Date().toISOString().slice(0, 10);
@@ -259,7 +269,7 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
         const unicas = [...new Map(otras.filter((o) => !mejor || o.plate !== mejor.plate).map((o) => [o.plate, o])).values()].slice(0, 4);
         await guardar(ev.id, {
             estado, plate: mejor?.plate || null, confianza: mejor ? Math.round(mejor.confianza * 1000) / 1000 : null,
-            candidatos: { otras: unicas, acuerdo: mejor?.acuerdo ?? null, fina: mejor?.fina || null },
+            candidatos: { otras: unicas, acuerdo: mejor?.acuerdo ?? null, fina: mejor?.fina || null, caja: mejor ? cajaChapa : null },
             vehiculo, vehiculos: vehiculos.length, recorte, recorteChapa, ms: Date.now() - t0,
         }, ev.rid, esDoble(ev));
         contadores.hechas++; contadores.msUltima = Date.now() - t0;

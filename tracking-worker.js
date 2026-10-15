@@ -47,6 +47,7 @@ const http = require("http");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { normalizarChapa } = require("./lib-chapa");
 const sharp = require("sharp");
 const { PrismaClient } = require("@prisma/client");
 
@@ -617,8 +618,10 @@ async function leerMatriculas(jpeg) {
     // Corsa estacionado quedo registrado con 0,90 y el Tiida que salia no quedo.
     const crudas = [];
     for (const it of items) {
-        const texto = (it?.ocr?.text || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-        if (!pareceMatricula(texto)) continue;
+        // Forma de chapa del Mercosur, corregida por posición (lib-chapa.js); si no, es ruido.
+        const norm = normalizarChapa(it?.ocr?.text);
+        if (!norm) continue;
+        const texto = norm.plate;
         const conf = Math.min(promedio(it?.ocr?.confidence) || 0, it?.detection?.confidence ?? 1);
         crudas.push({ plate: texto, confidence: conf, chars: it?.ocr?.confidence, caja: it?.detection?.bounding_box || null });
     }
@@ -711,8 +714,8 @@ function mismaChapa(a, b) {
  * Esto tambien lo controla la API; aca ahorra el viaje.
  */
 function pareceMatricula(p) {
-    if (!p || p.length < 6 || p.length > 8) return false;
-    return /[A-Z]/.test(p) && /[0-9]/.test(p);
+    // Desde el 15/10: formato Mercosur (más moto y vieja uruguaya), ver lib-chapa.js.
+    return !!normalizarChapa(p);
 }
 
 /** Parte las lecturas de la rafaga en un grupo por vehiculo. */
@@ -738,8 +741,7 @@ async function releer(recorte, modelo) {
     try {
         const d = await invocar("recognize_plate", { image_base64: recorte.toString("base64"), ocr_model: modelo }, 15000);
         const bruto = d?.[0]?.plate ?? d?.[0]?.ocr?.text ?? "";
-        const texto = String(bruto).toUpperCase().replace(/[^A-Z0-9]/g, "");
-        return pareceMatricula(texto) ? texto : null;
+        return normalizarChapa(bruto)?.plate || null;
     } catch { return null; }
 }
 

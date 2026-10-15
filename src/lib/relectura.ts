@@ -22,6 +22,8 @@ export type RelecturaEvento = {
     /** URLs de los recortes (vehículo y chapa); las pone quien sirve las imágenes. */
     recorte: string | null; chapa: string | null;
     otras: { plate: string; confianza: number }[];
+    /** Dónde está la chapa en la foto entera (x1, y1, x2, y2 normalizados); null en las de antes del 15/10. */
+    caja?: [number, number, number, number] | null;
     /** Si la chapa sugerida es de alguien del padrón. */
     quien: { id: string; name: string; role: string; vip: boolean; unidad: string | null } | null;
     /** Si la chapa sugerida está en la lista negra (alerta máxima o en búsqueda). */
@@ -57,6 +59,7 @@ export async function relecturasDe(eventoIds: string[], url: (clave: string, eve
             recorte: f.recorte ? url(f.recorte, f.accessEventId, "v") : null,
             chapa: f.recorteChapa ? url(f.recorteChapa, f.accessEventId, "c") : null,
             otras: Array.isArray(c.otras) ? c.otras : [],
+            caja: Array.isArray(c.caja) && c.caja.length === 4 && c.caja.every((n: unknown) => typeof n === "number") ? c.caja as [number, number, number, number] : null,
             quien: u ? { id: u.id, name: u.name, role: String(u.role), vip: !!u.vip, unidad: u.unit?.name || null } : null,
             vigilancia: w ? { category: w.category, label: w.label, motivo: w.motivo } : null,
         });

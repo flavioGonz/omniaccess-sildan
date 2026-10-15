@@ -25,6 +25,14 @@ export const COLOR_GRUPO: Record<string, string> = { persona: "#38bdf8", vehicul
 export const COLOR_OTRO = "#e2e8f0";
 const COLOR_GEOM = "#f8fafc";
 const COLOR_TOCA = "#f43f5e";
+/**
+ * La chapa que leyó OmniVision (Nico, 15/10: «dentro de las siluetas, la matrícula cuadrada
+ * similar»): un recuadro blanco sobre la chapa misma, y debajo la chapa dibujada como una
+ * Mercosur —franja azul arriba, letras negras— para que se lea como matrícula y no como rótulo.
+ */
+const COLOR_CHAPA = "#f8fafc";
+const AZUL_MERCOSUR = "#1d4ed8";
+export type ChapaEnFoto = { plate: string; caja: [number, number, number, number] };
 /** El ícono dice QUÉ es antes de leer: la clase si la conocemos, si no el grupo. */
 export const ICONO_CLASE: Record<string, LucideIcon> = {
     person: User, car: Car, truck: Truck, bus: Bus, motorcycle: Motorbike, bicycle: Bike,
@@ -35,8 +43,10 @@ export const ICONO_GRUPO: Record<string, LucideIcon> = { persona: User, vehiculo
 const pts = (p: Pt[], w: number, h: number) => p.map(([x, y]) => `${(x * w).toFixed(1)},${(y * h).toFixed(1)}`).join(" ");
 const ptsPx = (p: Pt[]) => p.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
 
-export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, className }: {
+export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = true, atributos = false, chapa, className }: {
     analisis: Analisis;
+    /** La chapa que leyó OmniVision, con su caja en la foto (relectura). */
+    chapa?: ChapaEnFoto | null;
     geom?: GeomNorm | null;
     ajuste?: "contain" | "cover";
     /** El rótulo «Persona 92 %» sobre cada objeto. En una miniatura sobra. */
@@ -132,6 +142,28 @@ export function CapaAnalisis({ analisis, geom, ajuste = "contain", etiquetas = t
                     ))}
                 </g>
             ))}
+
+            {/* La chapa: recuadro sobre la chapa y, debajo (o arriba si no entra), la matrícula dibujada. */}
+            {chapa && (() => {
+                const [x1, y1, x2, y2] = chapa.caja;
+                const bx = x1 * W, by = y1 * H, bw = Math.max(2, (x2 - x1) * W), bh = Math.max(2, (y2 - y1) * H);
+                const f = fuente * 1.15, pw = Math.max(bw, chapa.plate.length * f * 0.72 + f * 1.2), ph = f * 2.05, franja = ph * 0.26;
+                const px = Math.min(W - pw - 2, Math.max(2, bx + bw / 2 - pw / 2));
+                const debajo = by + bh + f * 0.5 + ph < H;
+                const py = debajo ? by + bh + f * 0.5 : Math.max(2, by - f * 0.5 - ph);
+                return (
+                    <g>
+                        <rect x={bx} y={by} width={bw} height={bh} rx={lado * 0.004} fill={COLOR_CHAPA} fillOpacity={0.08} stroke={COLOR_CHAPA} strokeWidth={2.25} vectorEffect="non-scaling-stroke" filter={`url(#brillo-${uid})`} />
+                        <line x1={bx + bw / 2} y1={debajo ? by + bh : by} x2={bx + bw / 2} y2={debajo ? py : py + ph} stroke={COLOR_CHAPA} strokeOpacity={0.7} strokeWidth={1.4} vectorEffect="non-scaling-stroke" />
+                        <g filter={`url(#sombra-${uid})`}>
+                            <rect x={px} y={py} width={pw} height={ph} rx={f * 0.22} fill="#ffffff" stroke="#0f172a" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                            <path d={`M${px + f * 0.22},${py} h${pw - f * 0.44} a${f * 0.22},${f * 0.22} 0 0 1 ${f * 0.22},${f * 0.22} v${franja - f * 0.22} h${-pw} v${-(franja - f * 0.22)} a${f * 0.22},${f * 0.22} 0 0 1 ${f * 0.22},${-f * 0.22} z`} fill={AZUL_MERCOSUR} />
+                        </g>
+                        <text x={px + pw / 2} y={py + franja + (ph - franja) * 0.74} textAnchor="middle" fontSize={f * 1.08} fontWeight={800} fill="#0b0f19"
+                            fontFamily="Outfit, system-ui, sans-serif" letterSpacing={0.06 * f} style={{ fontVariantNumeric: "tabular-nums" }}>{chapa.plate}</text>
+                    </g>
+                );
+            })()}
 
             {/* Rótulos: un punto anillado sobre lo más alto de la silueta, una línea guía con codo, y
                 el texto sin fondo apoyado sobre la línea: arriba el ícono y qué es, abajo los atributos
