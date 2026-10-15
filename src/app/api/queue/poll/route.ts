@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
     // Start auto-polling
     if (searchParams.get("start")) {
-        const interval = parseInt(searchParams.get("interval") || "1000", 10);
+        const interval = Math.max(2000, parseInt(searchParams.get("interval") || "5000", 10));
         startAutoPolling(interval);
         return NextResponse.json({
             status: "ok",

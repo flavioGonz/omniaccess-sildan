@@ -113,10 +113,12 @@ app.prepare().then(() => {
 
     server.listen(port, "0.0.0.0", () => {
         console.log("> Next.js + go2rtc WS proxy ready on http://0.0.0.0:" + port);
-        setTimeout(function () {
+        // QUEUE_AUTOPOLL=false desactiva el polling ONVIF automatico (copias de desarrollo
+        // que no deben cargar la camara real). Intervalo por defecto 5s: las Bosch se saturan a 1s.
+        if (process.env.QUEUE_AUTOPOLL !== "false") setTimeout(function () {
             try {
                 var http = require("http");
-                http.get("http://127.0.0.1:" + port + "/api/queue/poll?start=1", function (r) {
+                http.get("http://127.0.0.1:" + port + "/api/queue/poll?start=1&interval=" + (process.env.QUEUE_POLL_MS || "5000"), function (r) {
                     var b = ""; r.on("data", function (d) { b += d; }); r.on("end", function () { console.log("> ONVIF auto-polling:", b.slice(0, 80)); });
                 }).on("error", function (e) { console.log("> ONVIF auto-poll start failed:", e.message); });
             } catch (e) { console.log("> ONVIF auto-poll error:", e.message); }

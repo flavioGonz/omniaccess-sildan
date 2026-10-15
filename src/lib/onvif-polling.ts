@@ -910,7 +910,7 @@ export async function startPushSubscriptions() {
     if (!pushRenewInterval) pushRenewInterval = setInterval(() => { subscribePushForAll().catch(() => {}); }, 90000);
 }
 
-export function startAutoPolling(intervalMs = 1000) {
+export function startAutoPolling(intervalMs = 5000) {
     if (pollInterval) {
         console.log("[ONVIF-Poll] Auto-polling already running");
         return;
