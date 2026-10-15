@@ -126,6 +126,8 @@ export type DatosVisor = {
     relectura?: {
         estado: string; plate: string | null; confianza: number | null; vehiculo?: string | null;
         recorte?: string | null; chapa?: string | null; otras?: { plate: string; confianza: number }[];
+        /** Dónde está la chapa en la foto (normalizado): se dibuja con las siluetas. */
+        caja?: [number, number, number, number] | null;
     } | null;
     empresa?: { nombre: string; logo: string; transparente: boolean } | null;
     /** Los pasos de la chapa en los últimos días y cuándo se la ve (panel «Comportamiento»). */
@@ -830,7 +832,8 @@ export function VisorCuadro({
                         {/* Lo que vio OmniVision: siluetas y rótulos. La caja es exactamente la
                             foto (misma proporción), así que el ajuste «contain» cae justo. */}
                         {modo === "foto" && !enPaso && !limpio && verSiluetas && vision && (
-                            <CapaAnalisis analisis={vision} atributos className="z-[6]" />
+                            <CapaAnalisis analisis={vision} atributos className="z-[6]"
+                                chapa={datos?.relectura?.plate && datos.relectura.caja ? { plate: datos.relectura.plate, caja: datos.relectura.caja } : null} />
                         )}
 
                         {/* La cápsula va DENTRO del transform para seguir al auto mientras

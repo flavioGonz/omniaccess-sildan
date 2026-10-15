@@ -1,3 +1,5 @@
+import { normalizarChapa } from "@/lib/formato-chapa";
+
 /**
  * ¿Dos lecturas de la misma chapa, o de dos chapas distintas?
  *
@@ -64,10 +66,7 @@ export function mismaChapa(a: string, b: string) {
  * números. `1111` no tiene letras; `CWA` no tiene números.
  */
 export function pareceMatricula(p: string) {
-    if (!p) return false;
-    const s = p.toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (s.length < 6 || s.length > 8) return false;
-    if (!/[A-Z]/.test(s)) return false;
-    if (!/[0-9]/.test(s)) return false;
-    return true;
+    // Desde el 15/10 se exige el formato Mercosur (más la moto y la vieja uruguaya): ver
+    // lib/formato-chapa. Lo de arriba sigue valiendo: no se exige SÓLO el molde uruguayo.
+    return !!normalizarChapa(p);
 }

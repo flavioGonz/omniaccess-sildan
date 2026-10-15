@@ -61,6 +61,7 @@ import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
 import { marcaDeEvento, AVISO_MARCA_CAMARA } from "@/lib/marca-vehiculo";
+import { MarcaFormatoChapa } from "@/components/ui/MarcaFormatoChapa";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { rotuloLectura } from "@/lib/lectura-metodo";
 import { getImagePath } from "@/lib/image-path";
@@ -513,7 +514,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                                     {relCard && <MarcaOmniVision r={relCard} tamano="xs" soloIcono />}
                                 </div>
                             ) : (
-                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span><MarcaVerificacion plate={event.plateDetected} r={relCard} tamano="xs" /></span>
+                                <span className="inline-flex items-center gap-1.5"><span className="font-mono text-sm font-bold text-foreground tracking-wider">{event.plateDetected}</span><MarcaFormatoChapa plate={event.plateDetected} /><MarcaVerificacion plate={event.plateDetected} r={relCard} tamano="xs" /></span>
                             )}
                             <Badge variant="outline" className={cn("text-[9px] px-1.5 py-0", event.decision === "GRANT" ? "border-emerald-500/50 text-emerald-400" : "border-red-500/50 text-red-400")}>{event.decision === "GRANT" ? "OK" : "DENY"}</Badge>
                             {watchStyle && <span className={cn("inline-flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded", watchStyle.badge)} title={watch?.label || ""}><ShieldAlert size={9} /> {watchStyle.label}</span>}

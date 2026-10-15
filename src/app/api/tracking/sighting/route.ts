@@ -8,6 +8,7 @@ import {
     estadoDeEstadia, ESTADOS_DE_ESTADIA, VISTO,
 } from "@/lib/estadias";
 import { mismaChapa, pareceMatricula } from "@/lib/matriculas";
+import { normalizarChapa } from "@/lib/formato-chapa";
 import {
     leerCaja, areaTipica, pareceChapa, area as areaDe, type Caja,
 } from "@/lib/recuadros";
@@ -125,7 +126,9 @@ export async function POST(req: NextRequest) {
     let body: any = {};
     try { body = await req.json(); } catch { }
 
-    const patente = String(body.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    // Con forma de chapa del Mercosur y corregida por posición (O/0, I/1, B/8: lib/formato-chapa).
+    const cruda = String(body.plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const patente = normalizarChapa(cruda)?.plate || cruda;
 
     /**
      * Antes acá alcanzaba con cuatro caracteres, y por esa puerta entraron `1111` y

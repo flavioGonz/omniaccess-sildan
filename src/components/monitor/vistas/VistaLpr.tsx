@@ -161,6 +161,8 @@ const desdeEvento = (e: any): Lectura | null => e?.id && e?.timestamp ? ({
 }) : null;
 
 const esListaNegra = (l: Lectura) => /lista negra/i.test(l.detalles || "");
+/** La chapa que leyó OmniVision, con su caja, para dibujarla con las siluetas (CapaAnalisis). */
+const chapaEnFoto = (l: Lectura) => (l.relectura?.plate && l.relectura.caja ? { plate: l.relectura.plate, caja: l.relectura.caja } : null);
 
 /**
  * El color de quien pasa, para leerlo de lejos sin leer nada (traído de Los Olivos, 15/10):
@@ -485,7 +487,7 @@ function Protagonista({ l, tactil, modo, alAmpliar, alAbrirFicha, empresa, comp 
         <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {foto ? <img src={fotoVista!} alt="" draggable={false} onLoad={() => setCargada(fotoVista)} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <div className="absolute inset-0 grid place-items-center text-white/30"><Camera size={64} /></div>}
-            {foto && l.analisis && cargada === fotoVista && <CapaAnalisis analisis={l.analisis} atributos />}
+            {foto && l.analisis && cargada === fotoVista && <CapaAnalisis analisis={l.analisis} atributos chapa={chapaEnFoto(l)} />}
             {foto && <button type="button" onClick={() => alAmpliar(foto)} aria-label="Ver la captura grande" className="absolute inset-0 cursor-zoom-in" />}
             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/40 pointer-events-none" />
             <div className="absolute top-0 inset-x-0 p-4 lg:p-6 flex items-start justify-between gap-4 pointer-events-none">
@@ -604,7 +606,7 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                                         className={cn("relative block w-full aspect-video rounded-2xl overflow-hidden bg-neutral-900", foto && tocable)}>
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {foto ? <img src={foto} alt="" draggable={false} className="absolute inset-0 w-full h-full object-contain bg-black" /> : <span className="absolute inset-0 grid place-items-center text-white/30"><Camera size={40} /></span>}
-                                        {foto && l.analisis && <CapaAnalisis analisis={l.analisis} atributos />}
+                                        {foto && l.analisis && <CapaAnalisis analisis={l.analisis} atributos chapa={chapaEnFoto(l)} />}
                                         {foto && <span className="absolute bottom-3 right-3 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white"><Maximize2 size={18} /></span>}
                                     </button>
 
