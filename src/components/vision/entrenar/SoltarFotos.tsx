@@ -76,6 +76,23 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
     const [encima, setEncima] = useState(false);
     const [enPagina, setEnPagina] = useState(false);
     const [camara, setCamara] = useState("");
+    /**
+     * Todas las cámaras, incluidas las que son sólo un canal de NVR (pedido 15/10: el selector
+     * listaba sólo equipos y en San Nicolás casi todo es canal de NVR). Salen de la misma lista
+     * que la pared de cámaras; si no se pudo leer, quedan los equipos que trae la página.
+     */
+    const [canales, setCanales] = useState<{ id: string; nombre: string; grupo: string }[] | null>(null);
+    useEffect(() => {
+        fetch("/api/monitor/camaras", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+            if (!j?.canales) return;
+            setCanales(j.canales.map((c: any) => ({
+                id: c.equipoId || `nvrch-${c.nvrId}-${c.ch}`,
+                nombre: c.nombre + (c.online === false ? " (sin señal)" : ""),
+                grupo: c.nvr || "Cámaras sueltas",
+            })));
+        }).catch(() => { });
+    }, []);
+    const grupos = canales ? [...new Set(canales.map((c) => c.grupo))] : [];
     const [sacando, setSacando] = useState(false);
     const archivos = useRef<HTMLInputElement>(null);
     const [texto, setTexto] = useState("");
@@ -262,7 +279,13 @@ export function SoltarFotos({ camaras, alAgregar }: { camaras: { id: string; nam
                         <Video size={14} className="shrink-0" />
                         <select value={camara} onChange={(e) => setCamara(e.target.value)} aria-label="Cámara" className="appearance-none bg-transparent outline-none pr-4 w-full min-w-0 [&>option]:text-foreground [&>option]:bg-background">
                             <option value="">Elegí una cámara</option>
-                            {camaras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            {canales
+                                ? grupos.map((g) => (
+                                    <optgroup key={g} label={g}>
+                                        {canales.filter((c) => c.grupo === g).map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                    </optgroup>
+                                ))
+                                : camaras.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                         <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
                     </label>
