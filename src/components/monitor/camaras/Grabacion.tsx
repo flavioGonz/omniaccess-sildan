@@ -8,7 +8,7 @@ import { Scrub, type MarcaScrub } from "@/components/Scrub";
 import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { ZONA } from "@/lib/fechas";
-import { Vivo, vivoDe, type Canal } from "./piezas";
+import { Vivo, vivoDe, fotoDe, type Canal } from "./piezas";
 import { cn } from "@/lib/utils";
 
 /**
@@ -140,10 +140,31 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     }, [linea]);
     const proximoTramo = useMemo(() => linea?.tramos?.find(([a]) => a > t)?.[0] ?? null, [linea, t]);
 
+    /**
+     * El último cuadro, congelado, mientras el NVR abre el tramo nuevo. Por qué (15/10, Nico: «el
+     * desenfoque está bien pero en un momento mete una pantalla negra y rompe la idea de
+     * movimiento»): cada salto cambia la dirección del video y el <video> se vuelve a montar; hasta
+     * el primer cuadro del tramo nuevo (1–2 s de NVR) quedaba negro. Ahora se copia el cuadro que
+     * se estaba viendo y queda debajo, desenfocado, hasta que el nuevo arranca y lo cubre.
+     * Al abrir la grabación no hay cuadro anterior: va la foto de la cámara, bien desenfocada.
+     */
+    const [congelado, setCongelado] = useState<string | null>(() => fotoDe(c, 960));
+    const [nuevoListo, setNuevoListo] = useState(false);
+    const congelar = useCallback(() => {
+        const v = video.current;
+        if (!v || v.readyState < 2 || !v.videoWidth) return;
+        try {
+            const ancho = Math.min(1280, v.videoWidth), alto = Math.round((ancho * v.videoHeight) / v.videoWidth);
+            const lienzo = document.createElement("canvas"); lienzo.width = ancho; lienzo.height = alto;
+            lienzo.getContext("2d")?.drawImage(v, 0, 0, ancho, alto);
+            setCongelado(lienzo.toDataURL("image/jpeg", 0.82));
+        } catch { /* sin cuadro: queda el anterior */ }
+    }, []);
     const ir = useCallback((ms: number) => {
         const v = Math.min(Date.now() - 5000, ms);
+        congelar();
         pausado.current = false; setPosMs(null); setT(v);
-    }, []);
+    }, [congelar]);
     // ── El movimiento: desenfoque horizontal hacia donde se va ───────────────────────────
     // Un SVG feGaussianBlur con desvío sólo en X es un desenfoque de movimiento de verdad (el
     // blur() de CSS es redondo). El corrimiento dice el sentido: adelante, el cuadro llega desde
@@ -173,6 +194,8 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     const destinoArrastre = (a: { t0: number; dx: number; ancho: number }) => Math.min(Date.now() - 5000, a.t0 + (a.dx / a.ancho) * ARRASTRE_ANCHO_MS);
 
     const sinGrabacionAhi = hayEn(cargaT) === false;
+    // Un tramo nuevo empieza invisible: el cuadro congelado queda arriba hasta su primer cuadro.
+    useEffect(() => { setNuevoListo(false); }, [cargaT, intento]);
     const url = c.nvrId && c.ch != null && !sinGrabacionAhi
         ? `/api/nvr/playback?ch=${c.ch}&nvr=${encodeURIComponent(c.nvrId)}&t=${Math.floor(cargaT)}&pre=0` + (hls ? `&whole=1&dur=${TRAMO_SAFARI_SEG}` : `&dur=${TRAMO_SEG}${convertir ? "" : "&hevc=1"}`)
         : null;
@@ -293,10 +316,16 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
             <div className="absolute inset-0 overflow-hidden bg-black">
             <div className="absolute inset-0 will-change-transform"
                 style={efecto.blur > 0.3 || Math.abs(efecto.x) > 0.5 ? { filter: `url(#mov-${uid})`, transform: `translateX(${efecto.x.toFixed(1)}px)` } : undefined}>
+            {congelado && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={congelado} alt="" draggable={false}
+                    className={cn("absolute inset-0 w-full h-full object-contain transition-[filter,opacity] duration-300", nuevoListo ? "opacity-0" : "opacity-100",
+                        estado === "buscando" ? "blur-[6px] brightness-[0.75]" : estado === "sin" ? "blur-[10px] brightness-50" : "")} />
+            )}
             {url && (
                 <video key={`${url}#${intento}`} ref={video} src={url} muted playsInline autoPlay preload="auto" disablePictureInPicture
                     onPlay={() => setJugando(true)} onPause={() => setJugando(false)}
-                    onPlaying={() => { setEstado("viendo"); setJugando(true); }}
+                    onPlaying={() => { setEstado("viendo"); setJugando(true); setNuevoListo(true); }}
                     onLoadedData={() => { if (!pausado.current) video.current?.play().catch(() => { }); }}
                     onTimeUpdate={(e) => { const ms = cargaT + e.currentTarget.currentTime * 1000; if (Math.abs(ms - (posMs ?? 0)) >= 900) setPosMs(ms); }}
                     onEnded={(e) => {
@@ -307,7 +336,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                         if (!pausado.current && sig < Date.now() - 15_000) ir(sig);
                     }}
                     onError={() => { if (!convertir && !hls) { setConvertir(true); setIntento((i) => i + 1); } else setEstado("sin"); }}
-                    className="absolute inset-0 w-full h-full object-contain" />
+                    className={cn("absolute inset-0 w-full h-full object-contain transition-opacity duration-300", nuevoListo ? "opacity-100" : "opacity-0")} />
             )}
             {verSiluetas && siluetas && estado === "viendo" && (
                 <CapaAnalisis analisis={siluetas.analisis} geom={geomDeIntrusion(c.geom)} ajuste="contain" className="pointer-events-none" />
@@ -374,7 +403,8 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
             {estado !== "viendo" && (
                 <div className="absolute inset-x-0 top-0 bottom-[190px] grid place-items-center pointer-events-none">
                     {estado === "buscando" ? (
-                        <span className="inline-flex items-center gap-2 text-white text-[18px] font-bold visor-sombra-texto"><Loader2 size={20} className="animate-spin" /> Buscando la grabación en el NVR</span>
+                        // Chico y sobre el cuadro congelado: un cartel grande en el medio cortaba la sensación de movimiento.
+                        <span className="inline-flex items-center gap-2 rounded-full visor-panel px-3.5 py-1.5 text-white/90 text-[13px] font-semibold"><Loader2 size={14} className="animate-spin" /> Buscando en el NVR</span>
                     ) : (
                         <span className="flex flex-col items-center gap-2 text-center visor-sombra-texto pointer-events-auto">
                             <span className="text-white text-[18px] font-bold">Sin grabación a esta hora</span>
@@ -428,8 +458,6 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                     <span className="hidden lg:inline-flex items-center gap-3 text-[12px] text-white/60 ml-1">
                         {estado === "viendo" && !convertir && <span title="El servidor no la convierte: la pasa tal cual la grabó el NVR">H.265 directo</span>}
                         {tramosMin && <span className="inline-flex items-center gap-1"><span className="w-3 h-1 rounded-full bg-[color-mix(in_oklab,var(--bien)_80%,transparent)]" /> hay grabación</span>}
-                        {eventos.some((e) => e.clase === "deteccion") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#dc2626] ring-1 ring-white/70" /> cámara</span>}
-                        {eventos.some((e) => e.clase === "vision") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#0284c7] ring-1 ring-white/70" /> OmniVision</span>}
                         {eventos.some((e) => e.clase === "deteccion") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#dc2626] ring-1 ring-white/70" /> cámara</span>}
                         {eventos.some((e) => e.clase === "vision") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#0284c7] ring-1 ring-white/70" /> OmniVision</span>}
                     </span>
