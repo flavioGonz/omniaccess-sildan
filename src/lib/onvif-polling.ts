@@ -894,7 +894,10 @@ export function getActiveSubscriptions(): Array<{
  * mientras no. Si manana alguien da de alta un contador, la proxima ronda lenta lo ve y
  * el ritmo se acelera solo. No hay que reiniciar nada ni acordarse de ningun interruptor.
  */
-const RITMO_ACTIVO_MS = 1_000;
+/* Las Bosch se saturan si se les pregunta cada 1 s (medido en HB, 15/10): 5 s por defecto
+   y nunca menos de 2 s, aunque lo pidan por la URL. */
+export const RITMO_ACTIVO_MS = 5_000;
+export const RITMO_MINIMO_MS = 2_000;
 const RITMO_DORMIDO_MS = 5 * 60_000;
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null;

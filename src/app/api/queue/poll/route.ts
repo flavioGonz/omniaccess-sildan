@@ -5,6 +5,8 @@ import {
     startAutoPolling,
     stopAutoPolling,
     isAutoPollingActive,
+    RITMO_ACTIVO_MS,
+    RITMO_MINIMO_MS,
 } from "@/lib/onvif-polling";
 
 /**
@@ -23,7 +25,7 @@ export async function GET(req: NextRequest) {
 
     // Start auto-polling
     if (searchParams.get("start")) {
-        const interval = parseInt(searchParams.get("interval") || "1000", 10);
+        const interval = Math.max(RITMO_MINIMO_MS, parseInt(searchParams.get("interval") || String(RITMO_ACTIVO_MS), 10));
         startAutoPolling(interval);
         /* El intervalo pedido es el ritmo CON contadores; sin ninguno dado de alta el
            ciclo se va a dormir solo. Decir "cada 1s" a secas seria mentir en la mayoria
