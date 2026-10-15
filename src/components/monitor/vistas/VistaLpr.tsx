@@ -161,6 +161,35 @@ const desdeEvento = (e: any): Lectura | null => e?.id && e?.timestamp ? ({
 }) : null;
 
 const esListaNegra = (l: Lectura) => /lista negra/i.test(l.detalles || "");
+
+/**
+ * El color de quien pasa, para leerlo de lejos sin leer nada (traído de Los Olivos, 15/10):
+ * rojo no autorizado (y lista negra o en búsqueda, más fuerte), verde autorizado, amarillo
+ * proveedor, violeta visita. Tiñe TODA la pantalla de la pared —encabezado incluido, con
+ * MarcoMonitor.setFondo—, el borde de la lectura grande y el de cada lectura de la tira.
+ * Sin lectura, la pantalla queda como siempre.
+ */
+type Tinte = "autorizado" | "proveedor" | "visita" | "negra" | "denegado" | "desconocido";
+const tinteDe = (l: Lectura | null | undefined, conEmpresa?: boolean): Tinte => {
+    if (!l) return "desconocido";
+    if (esListaNegra(l) || l.clase === "alerta" || l.clase === "busqueda") return "negra";
+    if (l.decision !== "GRANT") return "denegado";
+    if (l.clase === "proveedores" || conEmpresa) return "proveedor";
+    if (l.clase === "visitas") return "visita";
+    return "autorizado";
+};
+/** `color`: el tono puro; el fondo de la pantalla lo mezcla con negro (MEZCLA_FONDO) para que el texto se lea. */
+const TINTE: Record<Tinte, { color: string; anillo: string }> = {
+    autorizado: { color: "rgb(16,185,129)", anillo: "ring-emerald-400" },
+    proveedor: { color: "rgb(245,158,11)", anillo: "ring-amber-400" },
+    visita: { color: "rgb(139,92,246)", anillo: "ring-violet-400" },
+    denegado: { color: "rgb(239,68,68)", anillo: "ring-red-500" },
+    negra: { color: "rgb(239,68,68)", anillo: "ring-red-500" },
+    desconocido: { color: "rgb(120,120,120)", anillo: "ring-white/25" },
+};
+/** Cuánto color lleva el fondo (el resto es negro). La lista negra, más: tiene que gritar. */
+const MEZCLA_FONDO = { normal: 62, negra: 72 };
+const fondoDe = (t: Tinte) => (t === "desconocido" ? null : `color-mix(in oklab, ${TINTE[t].color} ${t === "negra" ? MEZCLA_FONDO.negra : MEZCLA_FONDO.normal}%, #050505)`);
 /**
  * El motivo del denegado, sacado de `details`. Ese campo mezcla el motivo con la ficha del
  * vehículo que leyó la cámara ("Marca: …, Modelo: …, Color: …"): se descartan esos pares y
@@ -206,7 +235,7 @@ function Contador({ rotulo, valor, Icono, tono, activo, alTocar }: { rotulo: str
 }
 
 export function VistaLpr() {
-    const { latir, setTitulo, ajustes, silencio, tactil } = useMarco();
+    const { latir, setTitulo, setFondo, ajustes, silencio, tactil } = useMarco();
     useEffect(() => { setTitulo("Control LPR"); }, [setTitulo]);
     usarReloj();
     const { datos, error, recargar } = usarDatos<Datos>("/api/monitor/lpr", INTERVALO_MS, latir);
@@ -225,6 +254,8 @@ export function VistaLpr() {
     useTiempoReal("access_event", (e: any) => {
         const l = desdeEvento(e); if (!l) return;
         latir();
+        // La clase del socket, para que el color de la pantalla sea el correcto desde el primer instante.
+        l.clase = claseDeLectura(e.user, e.watch?.category) as any;
         setUltima((prev) => { if (prev && prev.id !== l.id) setTira((t) => [prev, ...t.filter((x) => x.id !== prev.id)].slice(0, ULTIMAS_EN_TIRA)); return l; });
         if (!silencio && modoSonido !== "off") {
             // La clase sale del socket (usuario y vigilancia del evento), igual que en el monitor LPR.
@@ -256,6 +287,10 @@ export function VistaLpr() {
 
     const c = datos?.contadores;
     const protagonista = fijada || ultima;
+    const tinte = tinteDe(protagonista, !!(protagonista?.plate && datos?.logos?.[protagonista.plate]));
+    // Toda la pantalla, encabezado incluido, toma el color de quien pasó.
+    useEffect(() => { setFondo(fondoDe(tinte)); }, [tinte, setFondo]);
+    useEffect(() => () => setFondo(null), [setFondo]);
     const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
     const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro, modo)), [tira, filtro, modo]);
     const rotulos = rotulosContadores(modo);
@@ -267,7 +302,7 @@ export function VistaLpr() {
             <div className="min-w-0 min-h-0 flex-1 flex flex-col gap-3 lg:gap-4">
                 {/* Protagonista */}
                 <div className={cn("relative flex-1 min-h-[220px] rounded-2xl overflow-hidden bg-neutral-900 ring-2 transition-[box-shadow,--tw-ring-color] duration-300",
-                    !protagonista ? "ring-white/10" : estadoDe(protagonista, modo).ok ? "ring-[var(--bien)]" : estadoDe(protagonista, modo).error ? "ring-[var(--mal)]" : "ring-white/25")}>
+                    !protagonista ? "ring-white/10" : TINTE[tinte].anillo)}>
                     <AnimatePresence mode="popLayout" initial={false}>
                         {protagonista ? (
                             <motion.div key={protagonista.id} initial={{ opacity: 0, scale: 1.015 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={SUAVE} className="absolute inset-0">
@@ -332,7 +367,7 @@ export function VistaLpr() {
                                     <motion.button key={l.id} type="button" layout="position" onClick={() => setFijada(l)}
                                         initial={{ opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.94 }} transition={SUAVE}
                                         className={cn("relative w-[200px] shrink-0 snap-start rounded-xl overflow-hidden bg-neutral-900 text-left", tocable,
-                                            sel ? "ring-[3px] ring-[var(--accion-en-oscuro)]" : ok ? "ring-1 ring-[color-mix(in_oklab,var(--bien)_50%,transparent)]" : est.error ? "ring-1 ring-[color-mix(in_oklab,var(--mal)_60%,transparent)]" : "ring-1 ring-white/15")}>
+                                            sel ? "ring-[3px] ring-[var(--accion-en-oscuro)]" : cn("ring-2", TINTE[tinteDe(l, !!(l.plate && datos?.logos?.[l.plate]))].anillo))}>
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
                                         {f && <img src={f} alt="" loading="lazy" draggable={false} className="absolute inset-0 w-full h-full object-cover" />}
                                         {f && l.analisis && <CapaAnalisis analisis={l.analisis} ajuste="cover" etiquetas={false} />}
