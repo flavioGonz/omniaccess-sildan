@@ -8,6 +8,7 @@ import { horaCorta, hace } from "@/lib/monitor/cliente";
 import { Grabacion } from "./Grabacion";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { SUAVE } from "@/components/monitor/tactil";
+import { PasoVisionCanal, type PasoVision } from "./PasoVision";
 import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, idCanal, FOTO_MS, useSiluetasEnVivo, type Canal, type Alerta, type Lectura } from "./piezas";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { SeguimientoVisual } from "./Seguimiento";
@@ -55,7 +56,7 @@ function ChapaChica({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision }: {
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso }: {
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
     /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
     canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
@@ -64,6 +65,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     alSeguir?: (destino: Canal) => void; origen?: Canal | null; alVolverOrigen?: () => void; alSoltarOrigen?: () => void;
     /** Mandar esta cámara a OmniVision o retirarla (sólo con permiso de Ajustes). */
     alVision?: () => void;
+    /** Entrando o saliendo de OmniVision: se cuenta sobre el cuadro (ver PasoVision). */
+    pasoVision?: PasoVision | null; alCerrarPaso?: () => void;
     /** Abrir directo en la grabación, desde este instante (el control de la baldosa). null = en vivo. */
     grabacionInicial?: number | null;
     alCerrar: () => void;
@@ -176,6 +179,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     {grabacion == null && sil.analisis && (
                         <CapaAnalisis analisis={tamVideo ? { ...sil.analisis, ancho: tamVideo.w, alto: tamVideo.h } : sil.analisis} geom={verGeom ? geomDeIntrusion(c.geom) : null} ajuste="contain" className="pointer-events-none" />
                     )}
+
+                    {grabacion == null && <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} grande alCerrar={alCerrarPaso} capa="z-0" />}
 
                     {/* Arriba a la izquierda: qué se mira. Texto sobre la imagen, sin caja. */}
                     <div className={cn("absolute top-0 inset-x-0 p-3 sm:p-5 md:px-7 flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4 bg-gradient-to-b from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0 pointer-events-none")}>

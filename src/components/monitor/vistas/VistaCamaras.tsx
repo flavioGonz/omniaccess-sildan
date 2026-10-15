@@ -17,6 +17,7 @@ import { DISPOSICIONES, disposicionDe, disposicionDeGrilla, DISPOSICION_POR_DEFE
 import { Vivo, Foto, Geometria, Glifo, Flotante, estiloCasilla, fotoDe, vivoDe, ubicacion, grupoDe, idCanal, reproduceH265, usaHls, FOTO_MS, type Canal, type Alerta, type Lectura, type Modo } from "@/components/monitor/camaras/piezas";
 import { Recursos } from "@/components/monitor/camaras/Recursos";
 import { FichaCanal } from "@/components/monitor/camaras/Ficha";
+import { PasoVisionCanal, type PasoVision } from "@/components/monitor/camaras/PasoVision";
 import { EditorVista } from "@/components/monitor/camaras/Editor";
 import { abrirVentana, listarPantallas, hayVariasPantallasApi, clavePrefs, type Pantalla } from "@/components/monitor/camaras/ventanas";
 import { cn } from "@/lib/utils";
@@ -160,7 +161,12 @@ function CapturaConSiluetas({ a, geom, ancho }: { a: Alerta; geom: Canal["geom"]
     );
 }
 
-function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, ocupadoVision }: {
+/** Cuánto se ve, como mínimo, «enviando»; cuánto la confirmación; cuánto un error si nadie lo cierra. */
+const PASO_VISION_MIN_MS = 1400;
+const PASO_VISION_LISTO_MS = 2600;
+const PASO_VISION_ERROR_MS = 9000;
+
+function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
     hls: boolean;
@@ -174,8 +180,11 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     alVentana?: () => void;
     /** Mandarla a OmniVision o retirarla (sólo con permiso de Ajustes). */
     alVision?: () => void;
-    ocupadoVision?: boolean;
+    /** Entrando o saliendo de OmniVision: el canal muestra el paso en lugar del video. */
+    pasoVision?: PasoVision | null;
+    alCerrarPaso?: () => void;
 }) {
+    const ocupadoVision = pasoVision?.fase === "enviando" || pasoVision?.fase === "retirando";
     const c = celda.canal;
     const grande = celda.casilla.w > 1;
     if (!c) {
@@ -207,6 +216,7 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
             )}
             {c.geom && !caido && <Geometria geom={c.geom} alerta={!!alerta} ajuste="cover" />}
             {captura && <CapturaConSiluetas key={captura.id} a={captura} geom={c.geom} ancho={grande ? 960 : 640} />}
+            <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} alCerrar={alCerrarPaso} />
 
             <div className="absolute top-0 inset-x-0 px-3 pt-2 pb-6 bg-gradient-to-b from-black/75 to-transparent flex items-start gap-2">
                 <div className="min-w-0 flex-1">
@@ -218,6 +228,8 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
                     <span title={`OmniVision analiza esta cámara${c.vision.porSeg != null ? ` · ${c.vision.porSeg.toLocaleString("es-UY", { maximumFractionDigits: 2 })} análisis por segundo` : ""}`}
                         className="inline-flex items-center gap-1 h-7 px-2 rounded-full bg-[color-mix(in_oklab,var(--accion-en-oscuro)_30%,rgba(0,0,0,0.55))] text-white text-[11px] font-semibold shrink-0 [@media(hover:hover)]:group-hover:opacity-0 transition-opacity">
                         <ScanEye size={13} /> Omni
+                        {/* Recién agregada: el motor la toma en su próxima vuelta y la medición tarda. */}
+                        {!(c.vision.porSeg && c.vision.porSeg > 0) && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accion-en-oscuro)] animate-pulse" aria-label="arrancando" />}
                     </span>
                 )}
                 {c.funcion && (
@@ -413,7 +425,11 @@ export function VistaCamaras() {
     const [editando, setEditando] = useState<VistaGuardada | null>(null);
     const [pantallas, setPantallas] = useState<Pantalla[] | null>(null);
     const [aviso, setAviso] = useState<string | null>(null);
-    const [ocupadosVision, setOcupadosVision] = useState<Set<string>>(new Set());
+    /** Por canal: en qué paso está su entrada o salida de OmniVision (se dibuja en el canal mismo). */
+    const [pasosVision, setPasosVision] = useState<Record<string, PasoVision>>({});
+    const ponerPaso = useCallback((clave: string, paso: PasoVision | null) => setPasosVision((s) => {
+        const n = { ...s }; if (paso) n[clave] = paso; else delete n[clave]; return n;
+    }), []);
     useEffect(() => { if (!aviso) return; const t = setTimeout(() => setAviso(null), 6000); return () => clearTimeout(t); }, [aviso]);
 
     const paramsVista = (): Record<string, string> => modoVista === "solo" ? { canal: canalSolo! } : guardada ? { vista: guardada.id } : { vista: AUTO, disposicion: disp.clave };
@@ -497,15 +513,22 @@ export function VistaCamaras() {
      * decide si hay cupo: si no, contesta 409 con el porqué y se muestra tal cual.
      */
     const ponerEnVision = async (c: Canal) => {
+        if (pasosVision[c.clave]) return; // ya hay un pedido de este canal en curso
         const analiza = !c.vision?.analiza;
-        setOcupadosVision((s) => new Set(s).add(c.clave));
+        ponerPaso(c.clave, { fase: analiza ? "enviando" : "retirando" });
+        // El pedido tarda decenas de ms: sin un mínimo, el cartel parpadea y no se llega a leer.
+        const minimo = new Promise((r) => setTimeout(r, PASO_VISION_MIN_MS));
+        let fallo: string | null = null;
         try {
             const r = await fetch(`/api/vision/camaras/${encodeURIComponent(idCanal(c))}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ analiza, nombre: `${c.nombre}${c.nvr ? ` · ${c.nvr}` : ""}` }) });
             const j = await r.json().catch(() => ({}));
-            if (!r.ok) setAviso(j.error || `No se pudo: el servidor respondió ${r.status}`);
-            else setAviso(analiza ? `«${c.nombre}» entra a OmniVision. En unos segundos empieza a analizarla.` : `«${c.nombre}» sale de OmniVision.`);
-            await recargar();
-        } finally { setOcupadosVision((s) => { const n = new Set(s); n.delete(c.clave); return n; }); }
+            if (!r.ok) fallo = j.error || `El servidor respondió ${r.status}.`;
+        } catch { fallo = "No hubo respuesta del servidor. Probá de nuevo."; }
+        await minimo;
+        if (fallo) { ponerPaso(c.clave, { fase: "error", texto: fallo }); setTimeout(() => setPasosVision((s) => (s[c.clave]?.fase === "error" ? (({ [c.clave]: _, ...resto }) => resto)(s) : s)), PASO_VISION_ERROR_MS); return; }
+        await recargar();
+        ponerPaso(c.clave, { fase: analiza ? "listo" : "retirado" });
+        setTimeout(() => setPasosVision((s) => (s[c.clave]?.fase === "listo" || s[c.clave]?.fase === "retirado" ? (({ [c.clave]: _, ...resto }) => resto)(s) : s)), PASO_VISION_LISTO_MS);
     };
 
     const baldosa = (celda: Celda, i: number, libre = false) => (
@@ -516,7 +539,8 @@ export function VistaCamaras() {
             alTocar={() => { if (celda.canal) { setGrabacionInicial(null); setAbiertaClave(celda.canal.clave); } }} alResultado={alResultado}
             alGrabacion={celda.canal?.nvrId && celda.canal.ch != null ? () => { const k = celda.canal!; const a = alertaDe(k); setGrabacionInicial(a ? +new Date(a.ts) - 5000 : Date.now() - 60_000); setAbiertaClave(k.clave); } : undefined}
             alVentana={!movil && celda.canal ? () => { const k = celda.canal!; if (!abrirVentana({ canal: k.clave }, `canal-${k.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined}
-            alVision={datos?.vision?.puedeCambiar && celda.canal ? () => ponerEnVision(celda.canal!) : undefined} ocupadoVision={!!celda.canal && ocupadosVision.has(celda.canal.clave)} />
+            alVision={datos?.vision?.puedeCambiar && celda.canal ? () => ponerEnVision(celda.canal!) : undefined} pasoVision={celda.canal ? pasosVision[celda.canal.clave] || null : null}
+            alCerrarPaso={celda.canal ? () => ponerPaso(celda.canal!.clave, null) : undefined} />
     );
 
     const estados = (
@@ -671,6 +695,7 @@ export function VistaCamaras() {
                 alVolverOrigen={() => { if (origenClave) { setAbiertaClave(origenClave); setOrigenClave(null); } }}
                 alSoltarOrigen={() => setOrigenClave(null)}
                 alVision={datos?.vision?.puedeCambiar && abierta ? () => ponerEnVision(abierta) : undefined}
+                pasoVision={abierta ? pasosVision[abierta.clave] || null : null} alCerrarPaso={abierta ? () => ponerPaso(abierta.clave, null) : undefined}
                 alVentana={!movil && abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
         </div>
     );
