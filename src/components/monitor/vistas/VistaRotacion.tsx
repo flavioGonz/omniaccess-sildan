@@ -11,13 +11,14 @@ import { VistaLpr } from "./VistaLpr";
 import { VistaMapa } from "./VistaMapa";
 import { VistaResumen } from "./VistaResumen";
 import { VistaSalud } from "./VistaSalud";
+import { VistaCamaras } from "./VistaCamaras";
 
 /**
  * Rotación: alterna las vistas configuradas en Monitores cada N segundos, con fundido.
  * Una intrusión confirmada o pendiente la clava en Intrusión hasta que se resuelva: una
  * pared que sigue girando mientras hay alguien adentro es una pared que no sirve.
  */
-const COMPONENTES: Record<Exclude<ClaveVista, "rotacion">, React.ComponentType> = { intrusion: VistaIntrusion, lpr: VistaLpr, mapa: VistaMapa, resumen: VistaResumen, salud: VistaSalud };
+const COMPONENTES: Record<Exclude<ClaveVista, "rotacion">, React.ComponentType> = { intrusion: VistaIntrusion, lpr: VistaLpr, mapa: VistaMapa, resumen: VistaResumen, salud: VistaSalud, camaras: VistaCamaras };
 type Alarmas = { pendientes: any[]; confirmadas: any[] };
 
 export function VistaRotacion() {
