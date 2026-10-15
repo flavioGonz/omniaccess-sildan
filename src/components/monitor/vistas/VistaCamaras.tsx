@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye } from "lucide-react";
+import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye, Crosshair } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, horaCorta, hace, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -18,6 +18,8 @@ import { Vivo, Foto, Geometria, Glifo, Flotante, estiloCasilla, fotoDe, vivoDe, 
 import { Recursos } from "@/components/monitor/camaras/Recursos";
 import { FichaCanal } from "@/components/monitor/camaras/Ficha";
 import { PasoVisionCanal, type PasoVision } from "@/components/monitor/camaras/PasoVision";
+import { EnlacesBaldosa, cuadroCover, aCuadro, type Enlace } from "@/components/monitor/camaras/EnlacesBaldosa";
+import { setVisualTrackLinks, type TrackLink } from "@/app/actions/detections";
 import { EditorVista } from "@/components/monitor/camaras/Editor";
 import { abrirVentana, listarPantallas, hayVariasPantallasApi, clavePrefs, type Pantalla } from "@/components/monitor/camaras/ventanas";
 import { cn } from "@/lib/utils";
@@ -161,12 +163,15 @@ function CapturaConSiluetas({ a, geom, ancho }: { a: Alerta; geom: Canal["geom"]
     );
 }
 
+/** El tipo del arrastre de una baldosa sobre otra (seguimiento visual): sólo esto se acepta al soltar. */
+const TIPO_ARRASTRE = "application/x-omni-canal";
+
 /** Cuánto se ve, como mínimo, «enviando»; cuánto la confirmación; cuánto un error si nadie lo cierra. */
 const PASO_VISION_MIN_MS = 1400;
 const PASO_VISION_LISTO_MS = 2600;
 const PASO_VISION_ERROR_MS = 9000;
 
-function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso }: {
+function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, pasoVision = null, alCerrarPaso, enlaces = [], editandoSeg = false, alSeguir, alSoltarCanal, alCambiarEnlaces }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
     hls: boolean;
@@ -183,7 +188,14 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     /** Entrando o saliendo de OmniVision: el canal muestra el paso en lugar del video. */
     pasoVision?: PasoVision | null;
     alCerrarPaso?: () => void;
+    /** Seguimiento visual: los enlaces de este canal, y si se están editando (arrastrar y soltar). */
+    enlaces?: Enlace[]; editandoSeg?: boolean;
+    alSeguir?: (destino: Canal) => void;
+    alSoltarCanal?: (origenClave: string, x: number, y: number) => void;
+    alCambiarEnlaces?: (links: TrackLink[]) => void;
 }) {
+    const [aspecto, setAspecto] = useState(16 / 9);
+    const [encima, setEncima] = useState(false);
     const ocupadoVision = pasoVision?.fase === "enviando" || pasoVision?.fase === "retirando";
     const c = celda.canal;
     const grande = celda.casilla.w > 1;
@@ -212,10 +224,33 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
             ) : dormida ? null : modo === "foto" ? (
                 foto ? <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-cover" /> : null
             ) : (
-                <Vivo src={vivoDe(c.stream, modo === "convertido", hls)} alResultado={(ok) => alResultado(c, modo, ok)} className="absolute inset-0 w-full h-full object-cover" />
+                <Vivo src={vivoDe(c.stream, modo === "convertido", hls)} alResultado={(ok) => alResultado(c, modo, ok)} alMedir={(w, h) => { if (w && h) setAspecto(w / h); }} className="absolute inset-0 w-full h-full object-cover" />
             )}
             {c.geom && !caido && <Geometria geom={c.geom} alerta={!!alerta} ajuste="cover" />}
             {captura && <CapturaConSiluetas key={captura.id} a={captura} geom={c.geom} ancho={grande ? 960 : 640} />}
+            {/* Editando el seguimiento: la baldosa entera se arrastra (lleva su canal) y recibe a las
+                otras; donde se suelta, queda el ícono. Es una capa encima y no el motion.div, porque
+                framer-motion se queda con onDragStart para su propio gesto. */}
+            {editandoSeg && (
+                <div draggable className={cn("absolute inset-0 z-[14] cursor-grab active:cursor-grabbing transition-colors", encima && "bg-[color-mix(in_oklab,var(--accion-en-oscuro)_22%,transparent)] ring-4 ring-inset ring-[var(--accion-en-oscuro)]")}
+                    onClick={(e) => e.stopPropagation()}
+                    onDragStart={(e) => { e.dataTransfer.setData(TIPO_ARRASTRE, c.clave); e.dataTransfer.effectAllowed = "link"; }}
+                    onDragOver={(e) => { if (e.dataTransfer.types.includes(TIPO_ARRASTRE)) { e.preventDefault(); e.dataTransfer.dropEffect = "link"; if (!encima) setEncima(true); } }}
+                    onDragLeave={() => setEncima(false)}
+                    onDrop={(e) => {
+                        e.preventDefault(); setEncima(false);
+                        const origen = e.dataTransfer.getData(TIPO_ARRASTRE); if (!origen || origen === c.clave) return;
+                        const b = e.currentTarget.getBoundingClientRect();
+                        const p = aCuadro(cuadroCover(b.width, b.height, aspecto), e.clientX - b.left, e.clientY - b.top);
+                        alSoltarCanal?.(origen, p.x, p.y);
+                    }} />
+            )}
+            {!caido && (enlaces.length > 0 || editandoSeg) && (
+                <EnlacesBaldosa enlaces={enlaces} aspecto={aspecto} editando={editandoSeg} chica={!grande && !libre}
+                    alSeguir={(d) => alSeguir?.(d)}
+                    alMover={(i, x, y) => alCambiarEnlaces?.(enlaces.map((e, j) => (j === i ? { ...e.link, x, y } : e.link)))}
+                    alQuitar={(i) => alCambiarEnlaces?.(enlaces.filter((_, j) => j !== i).map((e) => e.link))} />
+            )}
             <PasoVisionCanal paso={pasoVision} nombre={c.nombre} foto={foto} alCerrar={alCerrarPaso} />
 
             <div className="absolute top-0 inset-x-0 px-3 pt-2 pb-6 bg-gradient-to-b from-black/75 to-transparent flex items-start gap-2">
@@ -240,7 +275,7 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
             </div>
             {/* Los controles de la baldosa: aparecen al pasar el mouse, como los de la ficha. Con el
                 dedo no hay «pasar»: tocar la baldosa abre la ficha, que los tiene todos. */}
-            <div className="absolute top-2 right-2 hidden [@media(hover:hover)]:flex items-center gap-0.5 rounded-full visor-panel p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+            <div className={cn("absolute top-2 right-2 hidden [@media(hover:hover)]:flex items-center gap-0.5 rounded-full visor-panel p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity", editandoSeg && "[@media(hover:hover)]:hidden")}>
                 <AccionBaldosa titulo="Abrir a pantalla completa" onClick={alTocar}><Maximize2 size={15} /></AccionBaldosa>
                 {alGrabacion && <AccionBaldosa titulo="Ver la grabación" onClick={alGrabacion}><History size={15} /></AccionBaldosa>}
                 {foto && <AccionBaldosa titulo="Abrir la foto de ahora en una pestaña" href={foto.replace(/[?&]w=\d+/, "")}><Camera size={15} /></AccionBaldosa>}
@@ -364,12 +399,14 @@ export function VistaCamaras() {
     const [pagina, setPagina] = useState(0);
     const hayAlerta = ordenados.some((c) => alertaDe(c));
     const pausada = !!prefs?.pausa;
+    /** Editando el seguimiento visual (arrastrar cámaras unas sobre otras): la página no pasa sola. */
+    const [editandoSeg, setEditandoSeg] = useState(false);
     useEffect(() => { if (hayAlerta) setPagina(0); }, [hayAlerta]);
     useEffect(() => {
-        if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta) return;
+        if (modoVista !== "auto" || paginas <= 1 || pausada || hayAlerta || editandoSeg) return;
         const iv = setInterval(() => setPagina((p) => (p + 1) % paginas), (prefs?.pagSeg || 20) * 1000);
         return () => clearInterval(iv);
-    }, [modoVista, paginas, pausada, hayAlerta, prefs?.pagSeg]);
+    }, [modoVista, paginas, pausada, hayAlerta, prefs?.pagSeg, editandoSeg]);
     const pag = Math.min(pagina, paginas - 1);
 
     const celdas: Celda[] = useMemo(() => {
@@ -427,6 +464,30 @@ export function VistaCamaras() {
     const [aviso, setAviso] = useState<string | null>(null);
     /** Por canal: en qué paso está su entrada o salida de OmniVision (se dibuja en el canal mismo). */
     const [pasosVision, setPasosVision] = useState<Record<string, PasoVision>>({});
+    /**
+     * Seguimiento visual en la pared: lo que dice el servidor más lo que se cambió acá (se guarda
+     * enseguida; esto evita esperar la próxima recarga para verlo). `editandoSeg` prende el modo
+     * de arrastrar cámaras unas sobre otras.
+     */
+    const [segLocal, setSegLocal] = useState<Record<string, TrackLink[]>>({});
+    const seguimiento = useMemo(() => ({ ...(datos?.seguimiento || {}), ...segLocal }), [datos?.seguimiento, segLocal]);
+    const porIdCanal = useMemo(() => new Map(todos.map((c) => [idCanal(c), c])), [todos]);
+    const enlacesDe = useCallback((c: Canal): Enlace[] => (seguimiento[idCanal(c)] || [])
+        .map((link) => { const destino = porIdCanal.get(link.to); return destino ? { link, destino, alarma: !!alertaDe(destino) } : null; })
+        .filter((x): x is Enlace => !!x), [seguimiento, porIdCanal, alertaDe]);
+    const guardarSeg = async (c: Canal, links: TrackLink[]) => {
+        const id = idCanal(c), antes = seguimiento[id] || [];
+        setSegLocal((s) => ({ ...s, [id]: links }));
+        const r = await setVisualTrackLinks(id, links).catch(() => ({ ok: false }));
+        if (!r.ok) { setSegLocal((s) => ({ ...s, [id]: antes })); setAviso("No se pudo guardar el seguimiento visual: hace falta entrar al panel con sesión."); }
+    };
+    /** Soltar la cámara `origen` sobre `c` en (x, y) del cuadro de `c`: enlace nuevo, o mover el que ya había. */
+    const enlazar = (c: Canal, origenClave: string, x: number, y: number) => {
+        const o = porClave.get(origenClave); if (!o || o.clave === c.clave) return;
+        const to = idCanal(o), actuales = seguimiento[idCanal(c)] || [];
+        const n = actuales.some((l) => l.to === to) ? actuales.map((l) => (l.to === to ? { to, x, y } : l)) : [...actuales, { to, x, y }];
+        void guardarSeg(c, n);
+    };
     const ponerPaso = useCallback((clave: string, paso: PasoVision | null) => setPasosVision((s) => {
         const n = { ...s }; if (paso) n[clave] = paso; else delete n[clave]; return n;
     }), []);
@@ -536,7 +597,11 @@ export function VistaCamaras() {
             dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
             alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
             destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}
-            alTocar={() => { if (celda.canal) { setGrabacionInicial(null); setAbiertaClave(celda.canal.clave); } }} alResultado={alResultado}
+            alTocar={() => { if (celda.canal && !editandoSeg) { setGrabacionInicial(null); setAbiertaClave(celda.canal.clave); } }} alResultado={alResultado}
+            enlaces={celda.canal ? enlacesDe(celda.canal) : []} editandoSeg={editandoSeg && !libre}
+            alSeguir={(d) => { if (!celda.canal) return; setOrigenClave(celda.canal.clave); setGrabacionInicial(null); setAbiertaClave(d.clave); }}
+            alSoltarCanal={(origen, x, y) => { if (celda.canal) enlazar(celda.canal, origen, x, y); }}
+            alCambiarEnlaces={(n) => { if (celda.canal) void guardarSeg(celda.canal, n); }}
             alGrabacion={celda.canal?.nvrId && celda.canal.ch != null ? () => { const k = celda.canal!; const a = alertaDe(k); setGrabacionInicial(a ? +new Date(a.ts) - 5000 : Date.now() - 60_000); setAbiertaClave(k.clave); } : undefined}
             alVentana={!movil && celda.canal ? () => { const k = celda.canal!; if (!abrirVentana({ canal: k.clave }, `canal-${k.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined}
             alVision={datos?.vision?.puedeCambiar && celda.canal ? () => ponerEnVision(celda.canal!) : undefined} pasoVision={celda.canal ? pasosVision[celda.canal.clave] || null : null}
@@ -618,6 +683,12 @@ export function VistaCamaras() {
                         </>)}
                         <div className="ml-auto flex items-center gap-1.5 min-w-0">
                             <Recursos h265={h265} directosOk={directosOk} directosMal={directosMal} />
+                            {datos?.puedeEditar && modoVista !== "solo" && (
+                                <BotonBarra onClick={() => setEditandoSeg((x) => !x)} activo={editandoSeg} className="px-2.5"
+                                    titulo={editandoSeg ? "Terminar de editar el seguimiento visual" : "Seguimiento visual: enlazar cámaras arrastrando una sobre otra"}>
+                                    <Crosshair size={16} />{editandoSeg && <span>Listo</span>}
+                                </BotonBarra>
+                            )}
                             <div className="relative shrink-0">
                                 <BotonBarra onClick={() => alternar("ventanas")} activo={menu === "ventanas"} titulo="Desacoplar esta vista en otra ventana, para otro monitor" className="px-2.5">
                                     <AppWindow size={16} />
@@ -644,6 +715,15 @@ export function VistaCamaras() {
                 </BarraDelMarco>
             )}
 
+            {editandoSeg && !movil && (
+                <div className="shrink-0 px-3 pt-3">
+                    <div className="rounded-[10px] border border-[color-mix(in_oklab,var(--accion-en-oscuro)_45%,transparent)] bg-[color-mix(in_oklab,var(--accion-en-oscuro)_10%,transparent)] px-3 py-2 text-[13px] flex items-center gap-3">
+                        <Crosshair size={16} className="text-[var(--accion-en-oscuro)] shrink-0" />
+                        <span className="flex-1">Arrastrá una cámara y soltala <b>sobre otra</b>, en el punto de la escena por donde se pasa a ella: queda un ícono ahí. Los íconos se mueven arrastrándolos y se quitan con la ✕.</span>
+                        <button type="button" onClick={() => setEditandoSeg(false)} className="h-8 px-3 rounded-full bg-[var(--accion)] text-white text-[12.5px] font-semibold shrink-0">Listo</button>
+                    </div>
+                </div>
+            )}
             {(aviso || (datos && !datos.go2rtc) || (!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos)) && (
                 <div className="shrink-0 px-3 pt-3 flex flex-col gap-2">
                     {aviso && <div className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">{aviso}</div>}
@@ -689,7 +769,7 @@ export function VistaCamaras() {
             <FichaCanal c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
                 alCerrar={() => { setAbiertaClave(null); setOrigenClave(null); }} alMover={enPantalla.length > 1 ? mover : null}
-                canales={todos} seguimiento={datos?.seguimiento || {}} puedeEditar={!!datos?.puedeEditar} alertaDe={alertaDe}
+                canales={todos} seguimiento={seguimiento} alGuardarSeguimiento={(id, n) => setSegLocal((s) => ({ ...s, [id]: n }))} puedeEditar={!!datos?.puedeEditar} alertaDe={alertaDe}
                 alSeguir={(d) => { setOrigenClave(abiertaClave); setGrabacionInicial(null); setAbiertaClave(d.clave); }}
                 origen={origenClave ? porClave.get(origenClave) || null : null}
                 alVolverOrigen={() => { if (origenClave) { setAbiertaClave(origenClave); setOrigenClave(null); } }}

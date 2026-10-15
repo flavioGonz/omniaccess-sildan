@@ -56,10 +56,12 @@ function ChapaChica({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso }: {
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision, pasoVision = null, alCerrarPaso, alGuardarSeguimiento }: {
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
     /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
     canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
+    /** Se guardaron enlaces desde la ficha: la pared los muestra sin esperar la próxima recarga. */
+    alGuardarSeguimiento?: (idCanal: string, links: TrackLink[]) => void;
     alertaDe?: (c: Canal) => Alerta | null;
     /** Pasar a la cámara vecina por un enlace del seguimiento; `origen` es de dónde se vino. */
     alSeguir?: (destino: Canal) => void; origen?: Canal | null; alVolverOrigen?: () => void; alSoltarOrigen?: () => void;
@@ -249,7 +251,8 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     {/* Seguimiento visual: los enlaces a las cámaras vecinas, sobre el vivo. */}
                     {grabacion == null && c.online !== false && (
                         <SeguimientoVisual key={c.clave} c={c} canales={canales} links={seguimiento[idCanal(c)] || []} editando={editandoSeguimiento}
-                            cuadro={cuadro} h265={h265} hls={hls} alertaDe={alertaDe || (() => null)} alSeguir={(d) => alSeguir?.(d)} />
+                            cuadro={cuadro} h265={h265} hls={hls} alertaDe={alertaDe || (() => null)} alSeguir={(d) => alSeguir?.(d)}
+                            alGuardado={(n) => alGuardarSeguimiento?.(idCanal(c), n)} />
                     )}
                     {/* La cámara de la que se vino por el seguimiento: chica, abajo a la izquierda, para volver. */}
                     {origen && grabacion == null && (
