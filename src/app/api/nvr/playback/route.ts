@@ -32,7 +32,16 @@ export async function GET(req: NextRequest) {
     // compartido con el clip de las alertas y el envío por WhatsApp.
     const forceTx = sp.get("tx") === "1";
     const cfg = await configClips();
-    const { url, canCopy, DEC, SWUP, VF, ENC } = await planDeCorte(conn, ch, startMs, dur, { forceTx, cfg });
+    const { url, canCopy: copiaH264, codec, DEC, SWUP, VF, ENC } = await planDeCorte(conn, ch, startMs, dur, { forceTx, cfg });
+    /**
+     * `hevc=1`: quien pide reproduce H.265 (lo comprobó con su vivo), así que un canal que graba
+     * H.265 se le pasa tal cual en vez de convertirlo. Por qué (15/10, la pared de cámaras): en
+     * San Nicolás los dos NVR graban todo en H.265 y el CT no tiene GPU, así que cada playback era
+     * un libx264 por CPU — la misma CPU de la lectura de matrículas — y además bajado a 720p. Con
+     * esto el NVR entrega y ffmpeg sólo reempaqueta. La etiqueta hvc1 es la que piden Chrome y Safari.
+     */
+    const copiaHevc = !forceTx && sp.get("hevc") === "1" && /^(hevc|h265)$/i.test(codec || "");
+    const canCopy = copiaH264 || copiaHevc;
 
     // Modo "clip completo": genera un MP4 completo (faststart) a un archivo temporal y lo sirve
     // con Content-Length + soporte de rangos. Necesario para que el <video> reproduzca en el
@@ -71,7 +80,7 @@ export async function GET(req: NextRequest) {
             "-allowed_media_types", "video", "-fflags", "nobuffer+genpts", "-flags", "low_delay",
             "-probesize", "500000", "-analyzeduration", "500000",
             "-rtsp_transport", "tcp", "-i", url, "-t", String(dur),
-            "-an", "-c:v", "copy",
+            "-an", "-c:v", "copy", ...(copiaHevc ? ["-tag:v", "hvc1"] : []),
             "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-frag_duration", "200000",
             "-f", "mp4", "pipe:1",
         ]

@@ -83,7 +83,8 @@ export async function getCodec(conn: any, ch: string): Promise<string | null> {
 }
 
 
-export type PlanDeCorte = { url: string; canCopy: boolean; DEC: string[]; SWUP: string[]; VF: string; ENC: string[] };
+/** codec: lo que graba el canal ("h264", "hevc"…; null si no se supo o se forzó la conversión). */
+export type PlanDeCorte = { url: string; canCopy: boolean; codec: string | null; DEC: string[]; SWUP: string[]; VF: string; ENC: string[] };
 
 /** URL de playback + cómo procesarla (copy si el canal graba H.264, transcode si HEVC). */
 export async function planDeCorte(conn: NvrConn, ch: string, startMs: number, durSeg: number, opciones: { forceTx?: boolean; cfg?: ConfigClip } = {}): Promise<PlanDeCorte> {
@@ -129,7 +130,7 @@ export async function planDeCorte(conn: NvrConn, ch: string, startMs: number, du
         ? ["-c:v", "h264_vaapi", "-qp", String(CRF_POR_CALIDAD[cfg.calidad])]
         : ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-crf", String(CRF_POR_CALIDAD[cfg.calidad]), "-g", "25", "-threads", "4"];
 
-    return { url, canCopy, DEC, SWUP, VF, ENC };
+    return { url, canCopy, codec: srcCodec, DEC, SWUP, VF, ENC };
 }
 
 /**
