@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Sparkles } from "lucide-react";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { geomDeIntrusion } from "@/lib/vision-capa";
 import { Scrub, type MarcaScrub } from "@/components/Scrub";
 import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
@@ -42,6 +44,9 @@ const ESPERA_MS = 10_000;
 /** El arrastre no pide nada al NVR hasta que la regla se queda quieta este tiempo. */
 const ASENTAR_MS = 350;
 const SALTO_MS = 30_000;
+/** Cada cuánto se mira el cuadro de la grabación (si cambió) y a qué ancho se manda. */
+const SILUETAS_CADA_MS = 400;
+const SILUETAS_ANCHO = 640;
 /**
  * Arrastrar sobre el video (pedido 15/10: «drag and drop para ir para atrás o adelante en
  * cualquier parte»): un ancho entero de pantalla son ARRASTRE_ANCHO_MS. Dos minutos dejan
@@ -107,6 +112,10 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     const [intento, setIntento] = useState(0);
     const pausado = useRef(false);
     const video = useRef<HTMLVideoElement>(null);
+    // Siluetas sobre la grabación: el navegador manda el cuadro que muestra (ver POST de
+    // /api/monitor/camaras/siluetas). Prendidas por defecto; se apagan con el ícono de abajo.
+    const [verSiluetas, setVerSiluetas] = useState(true);
+    const [siluetas, setSiluetas] = useState<{ analisis: any; ms: number } | null>(null);
     const [linea, setLinea] = useState<Linea | null>(null);
     const [descarga, setDescarga] = useState(false);
     const [ventana, setVentana] = useState<VentanaClip>(VENTANA_POR_DEFECTO);
@@ -180,6 +189,42 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
         }, ESPERA_MS);
         return () => clearTimeout(k);
     }, [url, intento]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    /**
+     * El bucle de las siluetas: cada SILUETAS_CADA_MS, si el cuadro en pantalla cambió desde el
+     * último mirado (o recién se pausó), lo saca del <video> a 640 px y lo manda. Uno por vez: si
+     * el anterior no volvió, se espera. Un 429 (tope entre todas las pantallas) espera un segundo.
+     * En pausa se mira una sola vez: el cuadro no cambia.
+     */
+    useEffect(() => {
+        if (!verSiluetas) { setSiluetas(null); return; }
+        let vivo = true, enVuelo = false, ultimo = -1, esperarHasta = 0;
+        const lienzo = document.createElement("canvas");
+        const vuelta = async () => {
+            const v = video.current;
+            if (!vivo || enVuelo || !v || v.readyState < 2 || !v.videoWidth || Date.now() < esperarHasta) return;
+            if (Math.abs(v.currentTime - ultimo) < 0.05) return;
+            ultimo = v.currentTime;
+            const ancho = Math.min(SILUETAS_ANCHO, v.videoWidth), alto = Math.round((ancho * v.videoHeight) / v.videoWidth);
+            lienzo.width = ancho; lienzo.height = alto;
+            const g = lienzo.getContext("2d"); if (!g) return;
+            g.drawImage(v, 0, 0, ancho, alto);
+            const blob: Blob | null = await new Promise((r) => lienzo.toBlob(r, "image/jpeg", 0.78));
+            if (!blob || !vivo) return;
+            enVuelo = true;
+            try {
+                const r = await fetch("/api/monitor/camaras/siluetas", { method: "POST", body: blob, headers: { "content-type": "image/jpeg" } });
+                if (r.status === 429) { esperarHasta = Date.now() + 1000; return; }
+                const j = await r.json().catch(() => null);
+                // Las coordenadas vienen en 0–1: se dibujan con el tamaño real del video.
+                if (vivo && r.ok && j?.analisis) setSiluetas({ analisis: { ...j.analisis, ancho: v.videoWidth, alto: v.videoHeight }, ms: j.ms });
+            } catch { /* la próxima vuelta */ } finally { enVuelo = false; }
+        };
+        const iv = setInterval(vuelta, SILUETAS_CADA_MS);
+        return () => { vivo = false; clearInterval(iv); };
+    }, [verSiluetas]);
+    // Un salto deja las siluetas del cuadro anterior: se borran hasta que llegue el nuevo análisis.
+    useEffect(() => { setSiluetas(null); }, [cargaT]);
 
     const alternarPlay = useCallback(() => {
         const v = video.current; if (!v) return;
@@ -263,6 +308,9 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                     }}
                     onError={() => { if (!convertir && !hls) { setConvertir(true); setIntento((i) => i + 1); } else setEstado("sin"); }}
                     className="absolute inset-0 w-full h-full object-contain" />
+            )}
+            {verSiluetas && siluetas && estado === "viendo" && (
+                <CapaAnalisis analisis={siluetas.analisis} geom={geomDeIntrusion(c.geom)} ajuste="contain" className="pointer-events-none" />
             )}
             </div>
             </div>
@@ -372,6 +420,8 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
                     </span>
 
                     <span className="visor-panel rounded-full p-1 inline-flex items-center">
+                        <Boton onClick={() => setVerSiluetas((x) => !x)} activo={verSiluetas}
+                            titulo={verSiluetas ? `Siluetas de OmniVision sobre la grabación${siluetas ? ` · ${siluetas.ms} ms por cuadro` : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision sobre la grabación"}><Sparkles size={17} /></Boton>
                         <Boton onClick={() => setDescarga(true)} titulo="Exportar un clip de este momento"><Download size={17} /></Boton>
                     </span>
 
