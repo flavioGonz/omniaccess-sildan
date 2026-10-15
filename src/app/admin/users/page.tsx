@@ -116,8 +116,10 @@ export default function UsersPage() {
     // ?tab=… y ?action=create&face=…|plate=… (desde la ficha de un evento o el monitor)
     useEffect(() => {
         const t = TAB_DE_URL(searchParams.get("tab"));
-        if (t) setPestania(t);
         const action = searchParams.get("action");
+        // Sin ?tab= se vuelve a Residentes: el menú tiene «Usuarios» y «Lista negra» sobre la misma
+        // página, y tocar «Usuarios» estando en la lista negra no cambiaba nada.
+        if (t) setPestania(t); else if (!action) setPestania("residentes");
         const face = searchParams.get("face");
         const plateQ = searchParams.get("plate");
         if (action === "create") {

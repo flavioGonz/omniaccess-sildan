@@ -14,6 +14,7 @@ import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaR
 import { useRouter } from "next/navigation";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { getCarLogo } from "@/lib/car-logos";
+import { marcaDeEvento, AVISO_MARCA_CAMARA } from "@/lib/marca-vehiculo";
 import { getRelatedSessionEvents } from "@/app/actions/history";
 import { getImagePath } from "@/lib/image-path";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -181,7 +182,11 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
 
     let brandName = meta.Marca || "";
     if (brandName.startsWith("Brand ")) brandName = getVehicleBrandName(brandName.replace("Brand ", ""));
-    const logoUrl = isLPR ? getCarLogo(brandName || meta.Marca) : null;
+    // Padrón primero; la de la cámara se muestra atenuada y aclarada (lib/marca-vehiculo).
+    const marcaEv = isLPR ? marcaDeEvento(event, brandName || meta.Marca) : null;
+    if (marcaEv) brandName = marcaEv.marca;
+    const marcaDeCamara = !!marcaEv?.deCamara;
+    const logoUrl = marcaEv ? getCarLogo(marcaEv.marca) : null;
 
     const fmtDur = (ms: number) => { const sec = Math.floor(ms / 1000); const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m` : `${sec}s`; };
     const permanencia = (() => {
@@ -460,8 +465,8 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                 {isLPR && (brandName || meta.Color || meta.Tipo) && (
                                     <div className="grid grid-cols-3 gap-2">
                                         <div className="bg-muted/40 p-2 rounded-lg border border-border/30 flex items-center gap-2">
-                                            {logoUrl && !logoErr ? <div className="bg-white rounded-md w-9 h-9 p-1 shrink-0 flex items-center justify-center"><img src={logoUrl} alt="" className="w-full h-full object-contain" /></div> : <div className="w-9 h-9 rounded-md bg-muted flex items-center justify-center shrink-0"><Car size={16} className="text-muted-foreground" /></div>}
-                                            <div className="min-w-0"><p className="text-[9px] text-muted-foreground uppercase font-bold">Marca</p><p className="text-xs font-semibold truncate">{brandName || "—"}</p></div>
+                                            {logoUrl && !logoErr ? <div className="bg-white rounded-md w-9 h-9 p-1 shrink-0 flex items-center justify-center" title={marcaDeCamara ? AVISO_MARCA_CAMARA : "Del padrón"}><img src={logoUrl} alt="" className={cn("w-full h-full object-contain", marcaDeCamara && "grayscale opacity-40")} /></div> : <div className="w-9 h-9 rounded-md bg-muted flex items-center justify-center shrink-0"><Car size={16} className="text-muted-foreground" /></div>}
+                                            <div className="min-w-0"><p className="text-[9px] text-muted-foreground uppercase font-bold">Marca</p><p className="text-xs font-semibold truncate">{brandName || "—"}{marcaDeCamara && <span className="font-normal italic text-muted-foreground"> · según la cámara</span>}</p></div>
                                         </div>
                                         <div className="bg-muted/40 p-2 rounded-lg border border-border/30"><p className="text-[9px] text-muted-foreground uppercase font-bold">Color</p><div className="flex items-center gap-1.5 mt-0.5"><div className="w-3 h-3 rounded-full border border-border" style={{ backgroundColor: getVehicleColor(meta.Color).bg }} /><p className="text-xs font-semibold">{meta.Color || "—"}</p></div></div>
                                         <div className="bg-muted/40 p-2 rounded-lg border border-border/30"><p className="text-[9px] text-muted-foreground uppercase font-bold">Tipo</p><p className="text-xs font-semibold">{meta.Tipo || "—"}</p></div>
@@ -547,7 +552,7 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
                                             {event.user && <button onClick={() => setIsEditing(!isEditing)} className={cn("p-1 rounded", isEditing ? "text-emerald-400 bg-emerald-500/10" : "text-muted-foreground hover:text-foreground hover:bg-muted")}>{isEditing ? <Save size={12} /> : <Edit2 size={12} />}</button>}
                                         </div>
                                     </div>
-                                    {logoUrl && !logoErr && <div className="w-16 h-16 rounded-xl bg-white p-2 shadow-lg shrink-0 flex items-center justify-center" title={brandName}><img src={logoUrl} alt={brandName} className="w-full h-full object-contain" /></div>}
+                                    {logoUrl && !logoErr && <div className="w-16 h-16 rounded-xl bg-white p-2 shadow-lg shrink-0 flex items-center justify-center" title={marcaDeCamara ? `${brandName} · ${AVISO_MARCA_CAMARA}` : brandName}><img src={logoUrl} alt={brandName} className={cn("w-full h-full object-contain", marcaDeCamara && "grayscale opacity-40")} /></div>}
                                 </div>
 
                                 {/* acciones */}

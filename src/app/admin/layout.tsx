@@ -8,7 +8,7 @@ import { GpuPulso } from "@/components/GpuPulso";
 import { OmniLogo } from "@/components/brand/OmniLogo";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
     LayoutDashboard,
     Radar,
@@ -43,6 +43,7 @@ import {
     Sparkles,
     Ticket,
     MonitorPlay,
+    Ban,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -94,6 +95,9 @@ export default function AdminLayout({
     children: React.ReactNode;
 }) {
     const pathname = usePathname();
+    const searchParams = useSearchParams();
+    // La pestaña Lista negra tiene su entrada en el menú: las dos viven en /admin/users.
+    const enListaNegra = pathname === "/admin/users" && searchParams?.get("tab") === "listanegra";
     const router = useRouter();
     const [collapsed, setCollapsed] = useState(false);
     const { role: sessionRole, loaded: roleLoaded, tiene, puede } = useSessionRole();
@@ -211,7 +215,10 @@ export default function AdminLayout({
                         <>
                             {!collapsed && <div className="pt-3 pb-1 px-3 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider transition-opacity">Gestión</div>}
                             {collapsed && <div className="my-2 border-t border-border" />}
-                            {ve("usuarios") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users"} collapsed={collapsed} />)}
+                            {ve("usuarios") && (<SidebarItem icon={<Users size={18} />} label="Usuarios & Residentes" href="/admin/users" active={pathname === "/admin/users" && !enListaNegra} collapsed={collapsed} />)}
+                            {/* Entrada propia (San Nicolás, 15/10): desde que la «Lista de vigilancia» pasó a ser una pestaña
+                                de Usuarios, la guardia no la encontraba. Es lo que más se busca con apuro. */}
+                            {ve("usuarios") && (<SidebarItem icon={<Ban size={18} />} label="Lista negra" href="/admin/users?tab=listanegra" active={enListaNegra} collapsed={collapsed} />)}
                             {ve("unidades") && (<SidebarItem icon={<DoorOpen size={18} />} label="Unidades / Lotes" href="/admin/units" active={pathname === "/admin/units"} collapsed={collapsed} />)}
                             {/* Una sola entrada para toda la flota.
                                 Antes había tres —una por módulo—, y cada una llevaba su propio
@@ -347,7 +354,9 @@ export default function AdminLayout({
                 ) : children}
             </main>
 
-            <AforoAlertOverlay />
+            {/* Sólo con el módulo de Filas: sin él consultaba tres acciones cada 20 s y abría un socket
+                en cada pantalla del panel, en barrios que no tienen ninguna cámara de aforo (15/10). */}
+            {modulosListos && modules.MODULE_QUEUE && <AforoAlertOverlay />}
             {/* Intrusión confirmada por una cámara: respira en rojo en TODA la aplicación hasta que alguien decida real / falsa. */}
             <AlertaIntrusionGlobal />
             <LiveEdgeKeeper />

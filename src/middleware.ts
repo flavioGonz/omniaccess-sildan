@@ -64,6 +64,8 @@ export async function middleware(request: NextRequest) {
     // --- PUBLIC API ROUTES (webhooks, external integrations) ---
     if (
         pathname === '/api/health' ||
+        // La versión y si la sesión sigue: la pregunta una pantalla que puede tener la sesión vencida.
+        pathname === '/api/version' ||
         pathname.startsWith('/api/apk') ||
         pathname.startsWith('/api/webhooks/') ||
         pathname.startsWith('/api/devices/health/tick') ||

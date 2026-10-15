@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import io from "socket.io-client";
-import { ShieldAlert, Check, X, Volume2, VolumeX, Radar, Clock, ExternalLink, Loader2 } from "lucide-react";
+import { ShieldAlert, Check, X, Volume2, VolumeX, Radar, Clock, MonitorPlay, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getActiveAlarms, ackAlarms, setAttending, getIntrusionCameras, reclasificarComoFalsa, type ActiveAlarm } from "@/app/actions/detections";
 import { getImagePath } from "@/lib/image-path";
@@ -34,6 +34,15 @@ const INTERVALO_RELECTURA_MS = 30000;
 /** En la pared se relee más seguido: es la única forma en que se entera de que la resolvieron. */
 const INTERVALO_RELECTURA_PARED_MS = 10000;
 
+/**
+ * El video del evento en la ventana: desde unos segundos ANTES de la detección, en bucle.
+ * Pedido de la guardia de San Nicolás (15/10): con la foto sola no se sabe qué pasó; con los
+ * segundos previos se ve quién cruzó y desde dónde. Es la misma miniatura del monitor de
+ * intrusión (mismos segundos), sacada del NVR que graba la cámara.
+ */
+const VIDEO_ANTES_SEG = 3;
+const VIDEO_DUR_SEG = 14;
+
 type Alarma = ActiveAlarm & { deviceName?: string | null; label?: string | null; snapshotPath?: string | null };
 
 function pitido(urgente = true) {
@@ -42,6 +51,37 @@ function pitido(urgente = true) {
         const ctx = new Ctx(); const tonos = urgente ? [988, 1319, 988, 1319] : [880];
         tonos.forEach((f, i) => { const o = ctx.createOscillator(); const g = ctx.createGain(); o.connect(g); g.connect(ctx.destination); o.type = "square"; o.frequency.value = f; const t = ctx.currentTime + i * 0.16; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14); o.start(t); o.stop(t + 0.15); });
     } catch { /* sin audio */ }
+}
+
+/**
+ * Encima de la foto: la grabación desde VIDEO_ANTES_SEG antes. Si la cámara no está en un NVR o
+ * el NVR no la tiene, queda la foto y se dice por qué — no un cuadro negro que parece cargando.
+ */
+function VideoDelEvento({ deviceId, ts }: { deviceId: string; ts: string }) {
+    const [canal, setCanal] = useState<{ ch: number; nvr: string } | null | undefined>(undefined);
+    const [estado, setEstado] = useState<"cargando" | "andando" | "sin">("cargando");
+    useEffect(() => {
+        let vivo = true;
+        setCanal(undefined); setEstado("cargando");
+        fetch(`/api/nvr/channel?deviceId=${encodeURIComponent(deviceId)}`, { cache: "no-store" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((j) => { if (!vivo) return; if (j && j.nvr && j.channel != null) setCanal({ ch: j.channel, nvr: String(j.nvr) }); else { setCanal(null); setEstado("sin"); } })
+            .catch(() => { if (vivo) { setCanal(null); setEstado("sin"); } });
+        return () => { vivo = false; };
+    }, [deviceId]);
+    const t = new Date(ts).getTime();
+    return (<>
+        {canal && estado !== "sin" && (
+            <video key={`${deviceId}-${t}`} autoPlay muted loop playsInline onPlaying={() => setEstado("andando")} onError={() => setEstado("sin")}
+                src={`/api/nvr/playback?ch=${canal.ch}&t=${t}&pre=${VIDEO_ANTES_SEG}&dur=${VIDEO_DUR_SEG}&nvr=${canal.nvr}`}
+                className={cn("absolute inset-0 w-full h-full object-contain bg-black transition-opacity", estado === "andando" ? "opacity-100" : "opacity-0")} />
+        )}
+        <span className="absolute top-[86px] right-4 z-[1] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/60 text-[11px] font-semibold text-white/85 pointer-events-none">
+            {estado === "cargando" ? <><Loader2 size={11} className="animate-spin" /> Cargando el video del evento…</>
+                : estado === "andando" ? <>Video · desde {VIDEO_ANTES_SEG} s antes</>
+                    : <>Sin grabación del momento: se ve la foto</>}
+        </span>
+    </>);
 }
 
 /**
@@ -188,6 +228,7 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
                     <div className="relative aspect-video max-h-[62vh] w-full bg-black">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={foto} alt="" className="absolute inset-0 w-full h-full object-contain" />
+                        <VideoDelEvento deviceId={actual.deviceId} ts={primera.ts} />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/10 to-black/60 pointer-events-none" />
                         <div className="absolute top-0 inset-x-0 p-4 flex items-start gap-3">
                             <span className="w-11 h-11 rounded-xl bg-[var(--mal)] grid place-items-center shrink-0 respirar-icono"><ShieldAlert size={22} className="text-white" /></span>
@@ -214,7 +255,6 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
                                     <p className="text-[15px] text-white/85 leading-snug">{confirmada ? <>Un operador confirmó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b> y todavía no la resolvió.</> : <>La cámara detectó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b>. Se decide desde el panel; esta pantalla se libera sola.</>}</p>
                                 ) : (<>
                                     <p className="text-[13px] text-white/85 leading-snug">La cámara confirmó <b className="text-white">{(TIPOS[primera.type] || "una detección").toLowerCase()}</b> en <b className="text-white">{nombre}</b>. Decidí qué es: la alerta no se cierra sola.</p>
-                                    <button onClick={() => router.push("/admin/monitor-intrusion")} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-semibold text-red-200 hover:text-white underline decoration-dotted"><ExternalLink size={12} /> Ver en el monitor de intrusión (vivo, grabación, otras cámaras)</button>
                                 </>)}
                             </div>
                             {decide && confirmada && (
@@ -224,7 +264,9 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
                                 </div>
                             )}
                             {(!soloLectura || (decide && !confirmada)) && (
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                    {/* Era una frase subrayada y la guardia no la veía como algo que se toca (15/10): ahora es un botón más. */}
+                                    {!soloLectura && <button onClick={() => router.push("/admin/monitor-intrusion")} title="Vivo, grabación completa y las otras cámaras" className="inline-flex items-center gap-1.5 px-4 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-white text-[13px] font-bold ring-1 ring-white/15"><MonitorPlay size={15} /> Ver en el monitor</button>}
                                     <button onClick={() => resolver(actual.deviceId, "false")} disabled={!!resolviendo} className="inline-flex items-center gap-1.5 px-5 h-11 rounded-[10px] bg-white/10 hover:bg-white/20 text-amber-200 text-[13px] font-extrabold ring-1 ring-white/15 disabled:opacity-50">{resolviendo === actual.deviceId ? <Loader2 size={15} className="animate-spin" /> : <X size={15} />} Falsa alarma</button>
                                     <button onClick={() => resolver(actual.deviceId, "real")} disabled={!!resolviendo} className="inline-flex items-center gap-2 px-6 h-11 rounded-[10px] bg-[var(--mal)] hover:opacity-90 text-white text-[14px] font-extrabold disabled:opacity-50"><Check size={17} /> Intrusión real: la atiendo</button>
                                 </div>
