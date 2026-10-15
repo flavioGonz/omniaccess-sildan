@@ -456,6 +456,8 @@ async function analizarCuadro(cam, jpeg, registra, rapido = null) {
     const est = (porCamara[cam.id] ||= { nombre: cam.name, analizados: 0, saltados: 0, errores: 0, objetos: 0, ultimo: null, ms: null, error: null });
     est.nombre = cam.name;
     est.rapido = !!rapido;
+    // Para la tabla de Analíticas: si sus objetos van al registro, o la mira sólo por una regla.
+    est.registra = !!registra;
     const h = await huella(jpeg);
     const dif = diferencia(h, huellas[cam.id]);
     // En la ronda, contra el cuadro anterior; en el carril rápido, contra el último analizado.
@@ -512,7 +514,7 @@ function resumenDifs(v) {
     return { mediana: o[Math.floor(o.length / 2)], max: o[o.length - 1], n: o.length };
 }
 
-let eventosPrevio = null, cargaEventos = 0;
+let eventosPrevio = null, cargaEventos = 0, ultimoCicloMs = null;
 /** La lista cruda de VISION_CAMARAS (ids), tal como está guardada. */
 function elegidasCrudas(valor) { try { const v = JSON.parse(valor || "[]"); return Array.isArray(v) ? v.map(String) : []; } catch { return []; } }
 async function escribirEstado() {
@@ -527,6 +529,7 @@ async function escribirEstado() {
     const registroPorSeg = [...marcas.keys()].reduce((s, k) => s + porSegundo(k), 0);
     const valor = JSON.stringify({
         t: new Date().toISOString(), activo: ajustes.activo, tareasApagadas: [...ajustes.apagadas], mira: ajustes.mira, intervaloMs: INTERVALO_MS, umbral: UMBRAL, cambioMin: CAMBIO_MIN,
+        cicloMs: ultimoCicloMs, rapidoFps: RAPIDO_FPS, analizarIgualMs: ANALIZAR_IGUAL_MS,
         camaras, contadores, pistasAbiertas: abiertas.size, retencionDias: ajustes.retencionDias,
         carga: { registro: Math.round(registroPorSeg * 100) / 100, eventos: Math.round(cargaEventos * 100) / 100, total: Math.round((registroPorSeg + cargaEventos) * 100) / 100, tope: ajustes.topePorSeg || TOPE_POR_SEG_DEFECTO, ventanaMs: MEDICION_MS },
         relectura: relector ? { activa: ajustes.relectura, ...relector.contadores } : null,
@@ -706,6 +709,8 @@ async function principal() {
                     }
                 }
             }
+            // Cuánto tardó la vuelta entera: cada cámara de la ronda se mira, como mucho, una vez por vuelta.
+            if (lista.length) ultimoCicloMs = Date.now() - t0;
             // Con el registro apagado, las pistas abiertas por el carril rápido también se cierran.
             await cerrarVencidas(!ajustes.activo || !ajustes.mira);
             contadores.ciclos++;

@@ -5,6 +5,7 @@ import { permisosDeSesion } from "@/lib/permisos";
 import { verifyApiAuth, unauthorizedResponse, forbiddenResponse } from "@/lib/api-auth";
 import { leerAjuste, guardarAjuste } from "@/lib/ajustes-db";
 import { leerInterruptores } from "@/lib/vision";
+import { camarasVision, CANAL_NVR } from "@/lib/vision-camaras";
 import { CLAVE_REGLAS, TIPOS_REGLA, validarReglas, type ReglaVision, type TipoRegla } from "@/lib/vision-reglas";
 
 export const dynamic = "force-dynamic";
@@ -26,12 +27,25 @@ export async function GET() {
     const auth = await verifyApiAuth();
     if (!auth.authenticated) return unauthorizedResponse();
     if (auth.pantalla) return forbiddenResponse("No es una vista de pantalla.");
-    const [crudo, camaras, inter, estadoCrudo] = await Promise.all([
+    const [crudo, equipos, inter, estadoCrudo, enVision, nombresCrudo] = await Promise.all([
         leerAjuste(CLAVE_REGLAS),
         prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
         leerInterruptores(),
         leerAjuste("VISION_REGISTRO_ESTADO"),
+        camarasVision(),
+        leerAjuste("VISION_CAMARAS_NOMBRES"),
     ]);
+    /*
+     * Las cámaras para elegir: las de OmniVision primero (equipos Y canales de NVR), después el
+     * resto. Antes se listaban sólo los equipos: un canal de NVR agregado a OmniVision desde la
+     * pared no aparecía, y una regla en una cámara afuera de OmniVision se guardaba y no corría
+     * (desde el 15/10 la lista de OmniVision decide todo). `analiza` lo dice en la pantalla.
+     */
+    let nombres: Record<string, string> = {};
+    try { nombres = JSON.parse(nombresCrudo?.value || "{}") || {}; } catch { nombres = {}; }
+    const canales = [...enVision.ids].filter((id) => CANAL_NVR.test(id)).map((id) => { const m = CANAL_NVR.exec(id)!; return { id, name: nombres[id] || `NVR ${m[1]} · CH ${m[2]}` }; });
+    const camaras = [...equipos, ...canales].map((c) => ({ ...c, analiza: enVision.ids.has(c.id) }))
+        .sort((a, b) => Number(b.analiza) - Number(a.analiza) || a.name.localeCompare(b.name));
     const reglas = leerReglas(crudo?.value);
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const ids = reglas.map((r) => r.id);
@@ -78,6 +92,8 @@ export async function PUT(req: NextRequest) {
     const { reglas, errores } = validarReglas(b?.reglas);
     if (errores.length) return NextResponse.json({ error: errores.join(" · ") }, { status: 400 });
     const ids = new Set((await prisma.device.findMany({ select: { id: true } })).map((d) => d.id));
+    // Los canales de NVR que están en OmniVision también son cámaras válidas para una regla.
+    for (const id of (await camarasVision()).ids) if (CANAL_NVR.test(id)) ids.add(id);
     const sinCamara = reglas.filter((r) => !ids.has(r.deviceId));
     if (sinCamara.length) return NextResponse.json({ error: `La cámara de «${sinCamara[0].nombre}» ya no existe.` }, { status: 400 });
     await guardarAjuste(CLAVE_REGLAS, JSON.stringify(reglas));

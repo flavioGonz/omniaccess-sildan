@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
     PersonStanding, Car, Truck, Bus, Motorbike, Bike, Dog, Backpack, ShoppingBag, Luggage, Armchair, Sofa, Sprout, Boxes, Gauge,
-    type LucideIcon,
+    TriangleAlert, ScanEye, type LucideIcon,
 } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
@@ -37,7 +37,8 @@ import { listaPropias, nombrePropio, useNombresPropios } from "@/lib/nombres-pro
 type Evento = { id: string; tipo: string; reglaId: string; regla: string; camara: string; clase: string | null; sentido: string | null; valor: number | null; foto: string | null; fotoAntes?: string | null; caja: [number, number, number, number] | null; avisoId: string | null; ts: string };
 type Resumen = { ab: number; ba: number; porClase: Record<string, { ab: number; ba: number }>; porHora: number[]; hoy: number; max: number | null };
 type Respuesta = {
-    reglas: ReglaVision[]; camaras: { id: string; name: string }[];
+    /** `analiza`: si está en OmniVision. Una regla en una cámara afuera se guarda y NO corre. */
+    reglas: ReglaVision[]; camaras: { id: string; name: string; analiza: boolean }[];
     analiticas: Record<TipoRegla, boolean>; rotulado: boolean;
     estado: null | { t: string; reglas: null | { cruces: number; sentido: number; permanencia: number; aglomeracion: number; avisos: number; errores: number; ultimoError: string | null } };
     resumen: Record<string, Resumen>; eventos: Evento[];
@@ -135,6 +136,17 @@ export default function ReglasVision() {
     };
 
     const nombreCamara = useMemo(() => new Map((datos?.camaras || []).map((c) => [c.id, c.name])), [datos?.camaras]);
+    const analizaCamara = useMemo(() => new Map((datos?.camaras || []).map((c) => [c.id, c.analiza])), [datos?.camaras]);
+    const [agregando, setAgregando] = useState<string | null>(null);
+    const agregarAVision = async (id: string) => {
+        setAgregando(id);
+        try {
+            const r = await fetch(`/api/vision/camaras/${encodeURIComponent(id)}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ analiza: true, nombre: nombreCamara.get(id) || null }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) toast.error({ title: "No se pudo agregar", description: j.error || `El servidor respondió ${r.status}` });
+            else { toast.success({ title: "Entra a OmniVision", description: "Sus reglas empiezan a correr en la próxima vuelta del motor (menos de 30 s)." }); cargar(); }
+        } finally { setAgregando(null); }
+    };
 
     if (!datos && error) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><ErrorEstado mensaje={error} alReintentar={cargar} /></div>;
     if (!datos) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><Cargando texto="Trayendo las reglas…" /></div>;
@@ -217,6 +229,14 @@ export default function ReglasVision() {
                             <Camera size={14} className="text-muted-foreground" />
                             <h2 className="text-[13px] font-bold">{nombreCamara.get(cam) || "Cámara borrada"}</h2>
                             <span className="text-[12px] text-muted-foreground tabular-nums">{deCam.length} regla{deCam.length === 1 ? "" : "s"}</span>
+                            {/* Desde el 15/10 la lista de OmniVision decide todo: afuera, la regla no corre. */}
+                            {nombreCamara.has(cam) && !analizaCamara.get(cam) && (<>
+                                <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full chip-aviso text-[11.5px] font-semibold"><TriangleAlert size={12} /> OmniVision no analiza esta cámara: sus reglas no corren</span>
+                                <button type="button" onClick={() => agregarAVision(cam)} disabled={agregando === cam}
+                                    className="h-7 px-2.5 rounded-full bg-[var(--accion)] text-white text-[12px] font-semibold inline-flex items-center gap-1 disabled:opacity-60">
+                                    {agregando === cam ? <Loader2 size={12} className="animate-spin" /> : <ScanEye size={12} />} Agregar a OmniVision
+                                </button>
+                            </>)}
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
                             {deCam.map((r) => (
@@ -320,6 +340,13 @@ export default function ReglasVision() {
     );
 }
 
+/** La foto de la cámara de una regla: un canal de NVR (nvrch-<nvr>-<ch>) no tiene /api/snapshot. */
+const CANAL = /^nvrch-([\w-]+)-(\d{1,4})$/;
+function fotoCamara(id: string, w: number) {
+    const m = CANAL.exec(id);
+    return m ? `/api/monitor/camaras/foto?nvr=${encodeURIComponent(m[1])}&ch=${m[2]}&w=${w}` : `/api/snapshot/${id}?w=${w}`;
+}
+
 function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: ReglaVision; camara: string; s?: Resumen; apagadaLab: boolean; alAbrir: () => void; alActivar: (v: boolean) => void }) {
     const Ic = ICONO[r.tipo];
     const max = Math.max(1, ...(s?.porHora || [0]));
@@ -328,7 +355,7 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: Reg
             {/* El cuadro de la cámara con lo dibujado encima: se reconoce la regla sin leerla. */}
             <button type="button" onClick={alAbrir} className="relative aspect-[16/7] bg-black overflow-hidden" aria-label={`Editar ${r.nombre}`}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api/snapshot/${r.deviceId}?w=480`} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
+                <img src={fotoCamara(r.deviceId, 480)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-80" />
                 <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full">
                     {r.zona && r.zona.length >= 3 && <polygon points={r.zona.map(([x, y]) => `${x},${y}`).join(" ")} fill="var(--accion-en-oscuro)" fillOpacity={0.22} stroke="var(--accion-en-oscuro)" strokeWidth={2} vectorEffect="non-scaling-stroke" />}
                     {r.linea && <line x1={r.linea.a[0]} y1={r.linea.a[1]} x2={r.linea.b[0]} y2={r.linea.b[1]} stroke="var(--accion-en-oscuro)" strokeWidth={3} vectorEffect="non-scaling-stroke" strokeLinecap="round" />}
@@ -420,7 +447,7 @@ function Esquema({ tipo }: { tipo: TipoRegla }) {
 }
 
 function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alBorrar }: {
-    regla: ReglaVision; nueva: boolean; camaras: { id: string; name: string }[]; guardando: boolean;
+    regla: ReglaVision; nueva: boolean; camaras: { id: string; name: string; analiza: boolean }[]; guardando: boolean;
     alCerrar: () => void; alGuardar: (r: ReglaVision) => void; alBorrar: () => void;
 }) {
     const [r, setR] = useState<ReglaVision>(regla);
@@ -463,7 +490,7 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
                         <CajonCampo etiqueta="Cámara">
                             <Select value={r.deviceId} onValueChange={(v) => cambiar({ deviceId: v, linea: null, zona: [] })}>
                                 <SelectTrigger><SelectValue placeholder="Elegí la cámara" /></SelectTrigger>
-                                <SelectContent>{camaras.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                                <SelectContent>{camaras.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}{c.analiza ? "" : " · fuera de OmniVision"}</SelectItem>)}</SelectContent>
                             </Select>
                         </CajonCampo>
                         <CajonCampo etiqueta="Nombre" ayuda={r.tipo === "conteo" ? EJEMPLO_AVISO.conteo(r.nombre || "…") : `Así sale en el aviso: ${EJEMPLO_AVISO[r.tipo](r.nombre || "…")}.`}>
