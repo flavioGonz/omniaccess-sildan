@@ -1,16 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { motion } from "framer-motion";
-import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid } from "lucide-react";
-import { useMarco } from "@/components/monitor/MarcoMonitor";
+import { motion, AnimatePresence } from "framer-motion";
+import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X } from "lucide-react";
+import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, horaCorta, hace, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { metaDe } from "@/components/intrusion/comun";
 import { SUAVE, tocable } from "@/components/monitor/tactil";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
 import { DISPOSICIONES, disposicionDe, disposicionDeGrilla, DISPOSICION_POR_DEFECTO, CLAVE_CANAL, type Casilla, type VistaCamaras as VistaGuardada } from "@/lib/monitor/disposiciones";
-import { Vivo, Foto, Geometria, Glifo, Flotante, estiloCasilla, fotoDe, vivoDe, ubicacion, grupoDe, reproduceH265, FOTO_MS, type Canal, type Alerta, type Lectura, type Modo } from "@/components/monitor/camaras/piezas";
+import { Vivo, Foto, Geometria, Glifo, Flotante, estiloCasilla, fotoDe, vivoDe, ubicacion, grupoDe, reproduceH265, usaHls, FOTO_MS, type Canal, type Alerta, type Lectura, type Modo } from "@/components/monitor/camaras/piezas";
 import { Recursos } from "@/components/monitor/camaras/Recursos";
 import { FichaCanal } from "@/components/monitor/camaras/Ficha";
 import { EditorVista } from "@/components/monitor/camaras/Editor";
@@ -51,10 +51,11 @@ const CHAPAS_CHICA = 2, CHAPAS_GRANDE = 4;
 const AUTO = "auto";
 
 type Datos = { canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean };
-type Prefs = { vista: string; disposicion: string; pagSeg: number; pausa: boolean; nvr: string };
+/** colMovil: en el celular la pared es una lista que se desliza, de 1 o 2 columnas. */
+type Prefs = { vista: string; disposicion: string; pagSeg: number; pausa: boolean; nvr: string; colMovil: 1 | 2 };
 type Celda = { casilla: Casilla; canal: Canal | null; claveFaltante?: string | null };
 
-const PREFS_INICIALES: Prefs = { vista: AUTO, disposicion: DISPOSICION_POR_DEFECTO, pagSeg: 20, pausa: false, nvr: "todos" };
+const PREFS_INICIALES: Prefs = { vista: AUTO, disposicion: DISPOSICION_POR_DEFECTO, pagSeg: 20, pausa: false, nvr: "todos", colMovil: 1 };
 
 /** Los ajustes de esta ventana; los parámetros de la dirección mandan sobre lo guardado. */
 function leerPrefs(): { prefs: Prefs; canalSolo: string | null } {
@@ -111,9 +112,14 @@ function ChapaMini({ l, nueva }: { l: Lectura; nueva?: boolean }) {
     );
 }
 
-function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado }: {
+function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
+    hls: boolean;
+    /** En el celular: la baldosa no va en una casilla de la cuadrícula sino en una lista, a 16:9. */
+    libre?: boolean;
+    /** Fuera de la pantalla del celular: no abre video (datos y batería). */
+    dormida?: boolean;
 }) {
     const c = celda.canal;
     const grande = celda.casilla.w > 1;
@@ -131,17 +137,17 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     const r = MODO_ROTULO[modo];
     const okDestello = destello ? destello.decision === "GRANT" && !destello.listaNegra : null;
     return (
-        <motion.button type="button" layout="position" onClick={alTocar} transition={SUAVE} aria-label={`Abrir ${c.nombre}`} style={estiloCasilla(celda.casilla)}
-            className={cn("relative min-h-0 rounded-[10px] overflow-hidden bg-neutral-950 text-left", tocable,
+        <motion.button type="button" layout="position" onClick={alTocar} transition={SUAVE} aria-label={`Abrir ${c.nombre}`} style={libre ? undefined : estiloCasilla(celda.casilla)}
+            className={cn("relative rounded-[10px] overflow-hidden bg-neutral-950 text-left", libre ? "aspect-video w-full" : "min-h-0", tocable,
                 alerta ? "ring-4 ring-[var(--mal)]" : destello ? (okDestello ? "ring-4 ring-[var(--bien)]" : "ring-4 ring-[var(--mal)]") : "ring-1 ring-white/10")}>
             {caido ? (
                 <span className="absolute inset-0 grid place-items-center text-white/45">
                     <span className="flex flex-col items-center gap-2"><VideoOff size={grande ? 36 : 26} /><span className="text-[13px] font-semibold">Sin señal en el NVR</span></span>
                 </span>
-            ) : modo === "foto" ? (
+            ) : dormida ? null : modo === "foto" ? (
                 foto ? <Foto src={foto} ms={FOTO_MS} className="absolute inset-0 w-full h-full object-cover" /> : null
             ) : (
-                <Vivo src={vivoDe(c.stream, modo === "convertido")} alResultado={(ok) => alResultado(c, modo, ok)} className="absolute inset-0 w-full h-full object-cover" />
+                <Vivo src={vivoDe(c.stream, modo === "convertido", hls)} alResultado={(ok) => alResultado(c, modo, ok)} className="absolute inset-0 w-full h-full object-cover" />
             )}
             {c.geom && !caido && <Geometria geom={c.geom} alerta={!!alerta} ajuste="cover" />}
 
@@ -186,7 +192,24 @@ export function VistaCamaras() {
     const [h265, setH265] = useState<boolean | null>(null);
     const [prefs, setPrefsState] = useState<Prefs | null>(null);
     const [canalSolo, setCanalSolo] = useState<string | null>(null);
-    useEffect(() => { setH265(reproduceH265()); const l = leerPrefs(); setPrefsState(l.prefs); setCanalSolo(l.canalSolo); }, []);
+    const [hls, setHls] = useState(false);
+    useEffect(() => { setH265(reproduceH265()); setHls(usaHls()); const l = leerPrefs(); setPrefsState(l.prefs); setCanalSolo(l.canalSolo); }, []);
+    // Celular: menos de 768 px de ancho. La pared pasa a ser una lista con un menú abajo.
+    const [movil, setMovil] = useState(false);
+    useEffect(() => {
+        try { const mq = window.matchMedia("(max-width: 767px)"); const leer = () => setMovil(mq.matches); leer(); mq.addEventListener?.("change", leer); return () => mq.removeEventListener?.("change", leer); } catch { }
+    }, []);
+    // Qué baldosas de la lista del celular están a la vista: sólo esas abren video.
+    const [aLaVista, setALaVista] = useState<Set<string>>(new Set());
+    const observador = useMemo(() => (typeof window === "undefined" || !("IntersectionObserver" in window)) ? null : new IntersectionObserver((entradas) => {
+        setALaVista((prev) => {
+            const n = new Set(prev);
+            for (const e of entradas) { const k = (e.target as HTMLElement).dataset.clave; if (!k) continue; if (e.isIntersecting) n.add(k); else n.delete(k); }
+            return n;
+        });
+    }, { rootMargin: "120px 0px" }), []);
+    useEffect(() => () => observador?.disconnect(), [observador]);
+    const observar = useCallback((el: HTMLElement | null) => { if (el && observador) observador.observe(el); }, [observador]);
     const setPrefs = useCallback((cambio: Partial<Prefs>) => setPrefsState((p) => {
         const n = { ...(p || PREFS_INICIALES), ...cambio };
         try { localStorage.setItem(clavePrefs(PREFS_BASE), JSON.stringify(n)); } catch { }
@@ -263,7 +286,10 @@ export function VistaCamaras() {
         const lista = ordenados.slice(pag * porPagina, pag * porPagina + porPagina);
         return disp.casillas.map((casilla, i) => ({ casilla, canal: lista[i] || null }));
     }, [modoVista, disp, porClave, canalSolo, guardada, ordenados, pag, porPagina]);
-    const enPantalla = celdas.map((x) => x.canal).filter(Boolean) as Canal[];
+    // En el celular no hay casillas ni páginas: la lista entera de la vista, y sólo se mira lo visible.
+    const lista: Canal[] = useMemo(() => modoVista === "solo" ? celdas.map((x) => x.canal).filter(Boolean) as Canal[]
+        : modoVista === "guardada" ? (guardada!.canales.map((k) => (k ? porClave.get(k) : null)).filter(Boolean) as Canal[]) : ordenados, [modoVista, celdas, guardada, porClave, ordenados]);
+    const enPantalla = movil ? lista : celdas.map((x) => x.canal).filter(Boolean) as Canal[];
 
     useEffect(() => {
         setTitulo(modoVista === "solo" ? (porClave.get(canalSolo!)?.nombre || "Cámara") : guardada ? `Cámaras · ${guardada.nombre}` : "Cámaras");
@@ -274,15 +300,14 @@ export function VistaCamaras() {
     const modos = useMemo(() => {
         const m = new Map<string, Modo>();
         let convertidos = 0;
-        const orden = [...celdas].filter((x) => x.canal).sort((a, b) => b.casilla.w - a.casilla.w);
-        for (const { canal: c } of orden) {
-            if (!c) continue;
+        const orden = movil ? lista.filter((c) => aLaVista.has(c.clave)) : [...celdas].filter((x) => x.canal).sort((a, b) => b.casilla.w - a.casilla.w).map((x) => x.canal!);
+        for (const c of orden) {
             if (h265 && resultados[`${c.clave}|directo`] !== false) { m.set(c.clave, "directo"); continue; }
             if (convertidos < MAX_CONVERTIDOS && c.online !== false && resultados[`${c.clave}|convertido`] !== false) { m.set(c.clave, "convertido"); convertidos++; continue; }
             m.set(c.clave, "foto");
         }
         return m;
-    }, [celdas, h265, resultados]);
+    }, [celdas, h265, resultados, movil, lista, aLaVista]);
 
     const directos = Object.entries(resultados).filter(([k]) => k.endsWith("|directo")).map(([, v]) => v);
     const directosOk = directos.filter(Boolean).length;
@@ -298,7 +323,7 @@ export function VistaCamaras() {
     }, [abiertaClave, enPantalla]);
 
     // Menús de la barra.
-    const [menu, setMenu] = useState<null | "vista" | "disposicion" | "nvr" | "paginas" | "ventanas">(null);
+    const [menu, setMenu] = useState<null | "vista" | "disposicion" | "nvr" | "paginas" | "ventanas" | "recursos">(null);
     const cerrarMenu = useCallback(() => setMenu(null), []);
     const alternar = (m: NonNullable<typeof menu>) => setMenu((x) => (x === m ? null : m));
     const [editando, setEditando] = useState<VistaGuardada | null>(null);
@@ -329,156 +354,253 @@ export function VistaCamaras() {
         );
     }
 
+
     const nombreVista = modoVista === "solo" ? (porClave.get(canalSolo!)?.nombre || "Una cámara") : guardada ? guardada.nombre : filtro === "todos" ? "Todas las cámaras" : filtro;
+    // Los NVR que no contestan van en su menú, apagados y con el porqué: un aviso fijo arriba
+    // (como era hasta el 15/10) le sacaba una fila al video para algo que no se puede arreglar desde acá.
+    const nvrsCaidos = datos?.errores || [];
+
+    // Lo que hay en cada menú: el mismo contenido en el menú flotante (escritorio) y en la hoja de abajo (celular).
+    const opcionesVista = (
+        <>
+            <OpcionMenu onClick={() => { setPrefs({ vista: AUTO }); setPagina(0); setMenu(null); }} elegida={modoVista === "auto"}>
+                <LayoutGrid size={16} className="text-muted-foreground" /> <span className="flex-1">Automática <span className="text-muted-foreground font-normal">· todos los canales</span></span>
+            </OpcionMenu>
+            {(datos?.vistas || []).length > 0 && <div className="my-1 h-px bg-border" />}
+            {(datos?.vistas || []).map((v) => (
+                <OpcionMenu key={v.id} onClick={() => { setPrefs({ vista: v.id }); setMenu(null); }} elegida={guardada?.id === v.id}>
+                    <Glifo d={disposicionDe(v.disposicion)} tam={20} className="text-muted-foreground shrink-0" />
+                    <span className="truncate">{v.nombre}</span>
+                    <span className="text-[12px] text-muted-foreground tabular-nums">{v.canales.filter(Boolean).length}</span>
+                </OpcionMenu>
+            ))}
+            {datos?.puedeEditar && !movil && (<>
+                <div className="my-1 h-px bg-border" />
+                {guardada && <OpcionMenu onClick={() => { setEditando(guardada); setMenu(null); }}><Pencil size={15} className="text-muted-foreground" /> Editar «{guardada.nombre}»</OpcionMenu>}
+                <OpcionMenu onClick={() => {
+                    const d = disposicionDe(modoVista === "auto" ? disp.clave : DISPOSICION_POR_DEFECTO);
+                    // Arranca con lo que se está viendo: casi siempre se diseña a partir de eso.
+                    setEditando({ id: "", nombre: "", disposicion: d.clave, canales: d.casillas.map((_, i) => (modoVista === "auto" ? celdas[i]?.canal?.clave : null) || null) });
+                    setMenu(null);
+                }}><Plus size={15} className="text-muted-foreground" /> Nueva vista</OpcionMenu>
+            </>)}
+            {datos && !datos.puedeEditar && !movil && <p className="px-2.5 py-1.5 text-[12px] text-muted-foreground">Diseñar vistas pide entrar al panel con el permiso Monitores.</p>}
+            {movil && datos?.puedeEditar && <p className="px-2.5 py-1.5 text-[12px] text-muted-foreground">Las vistas se diseñan desde una pantalla grande.</p>}
+        </>
+    );
+    const opcionesNvr = (
+        <>
+            {["todos", ...nvrs].map((n) => (
+                <OpcionMenu key={n} onClick={() => { setPrefs({ nvr: n }); setPagina(0); setMenu(null); }} elegida={filtro === n}>
+                    <span className="flex-1 truncate">{n === "todos" ? "Todos los NVR" : n}</span>
+                    <span className="text-[12px] text-muted-foreground tabular-nums">{n === "todos" ? todos.length : todos.filter((c) => grupoDe(c) === n).length}</span>
+                </OpcionMenu>
+            ))}
+            {nvrsCaidos.map((e) => (
+                <div key={e.nvr} title={e.error} className="flex items-center gap-2.5 rounded-[8px] px-2.5 py-2 text-[13px] text-muted-foreground">
+                    <span className="h-2 w-2 rounded-full bg-[var(--mal)] shrink-0" />
+                    <span className="flex-1 truncate">{e.nvr}</span>
+                    <span className="text-[12px]">no responde</span>
+                </div>
+            ))}
+        </>
+    );
+    const hayNvrs = nvrs.length > 1 || nvrsCaidos.length > 0;
+
+    const baldosa = (celda: Celda, i: number, libre = false) => (
+        <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} hls={hls} libre={libre}
+            dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
+            alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
+            destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}
+            alTocar={() => celda.canal && setAbiertaClave(celda.canal.clave)} alResultado={alResultado} />
+    );
+
+    const estados = (
+        <>
+            {!datos && !error && <div className="col-span-full row-span-full grid place-items-center py-16 text-muted-foreground"><Loader2 className="animate-spin" /></div>}
+            {error && !datos && (
+                <div className="col-span-full row-span-full grid place-items-center text-center py-16">
+                    <div>
+                        <div className="text-[18px] text-[var(--mal-texto)]">No se pudo leer la lista de canales: {error}</div>
+                        <button type="button" onClick={recargar} className={cn("mt-3 h-11 px-4 rounded-[6px] bg-[var(--accion)] text-white font-semibold", tocable)}>Reintentar</button>
+                    </div>
+                </div>
+            )}
+            {datos && todos.length === 0 && <div className="col-span-full row-span-full grid place-items-center py-16 text-[18px] text-muted-foreground">No hay canales para mostrar.</div>}
+        </>
+    );
 
     return (
-        <div className="absolute inset-0 flex flex-col gap-2.5 p-3">
+        <div className="absolute inset-0 flex flex-col">
             <LiveEdgeKeeper />
-            {/* La barra: qué se mira y cómo, a la izquierda; lo que cuesta y las ventanas, a la derecha. */}
-            <div className="shrink-0 flex items-center gap-1.5">
-                {modoVista !== "solo" && (<>
-                    <div className="relative">
-                        <BotonBarra onClick={() => alternar("vista")} activo={menu === "vista"} titulo="Elegir o diseñar una vista">
-                            <LayoutGrid size={15} className="text-muted-foreground" /> <span className="max-w-[220px] truncate">{nombreVista}</span> <ChevronDown size={14} className="text-muted-foreground" />
-                        </BotonBarra>
-                        <Flotante abierto={menu === "vista"} alCerrar={cerrarMenu} className="w-[300px]">
-                            <OpcionMenu onClick={() => { setPrefs({ vista: AUTO }); setPagina(0); setMenu(null); }} elegida={modoVista === "auto"}>
-                                <LayoutGrid size={16} className="text-muted-foreground" /> <span className="flex-1">Automática <span className="text-muted-foreground font-normal">· todos los canales, por páginas</span></span>
-                            </OpcionMenu>
-                            {(datos?.vistas || []).length > 0 && <div className="my-1 h-px bg-border" />}
-                            {(datos?.vistas || []).map((v) => (
-                                <OpcionMenu key={v.id} onClick={() => { setPrefs({ vista: v.id }); setMenu(null); }} elegida={guardada?.id === v.id}>
-                                    <Glifo d={disposicionDe(v.disposicion)} tam={20} className="text-muted-foreground shrink-0" />
-                                    <span className="truncate">{v.nombre}</span>
-                                    <span className="text-[12px] text-muted-foreground tabular-nums">{v.canales.filter(Boolean).length}</span>
-                                </OpcionMenu>
-                            ))}
-                            {datos?.puedeEditar && (<>
-                                <div className="my-1 h-px bg-border" />
-                                {guardada && <OpcionMenu onClick={() => { setEditando(guardada); setMenu(null); }}><Pencil size={15} className="text-muted-foreground" /> Editar «{guardada.nombre}»</OpcionMenu>}
-                                <OpcionMenu onClick={() => {
-                                    const d = disposicionDe(modoVista === "auto" ? disp.clave : DISPOSICION_POR_DEFECTO);
-                                    // Arranca con lo que se está viendo: casi siempre se diseña a partir de eso.
-                                    setEditando({ id: "", nombre: "", disposicion: d.clave, canales: d.casillas.map((_, i) => (modoVista === "auto" ? celdas[i]?.canal?.clave : null) || null) });
-                                    setMenu(null);
-                                }}><Plus size={15} className="text-muted-foreground" /> Nueva vista</OpcionMenu>
-                            </>)}
-                            {datos && !datos.puedeEditar && <p className="px-2.5 py-1.5 text-[12px] text-muted-foreground">Diseñar vistas pide entrar al panel con el permiso Monitores.</p>}
-                        </Flotante>
-                    </div>
-
-                    {modoVista === "auto" && (<>
-                        <div className="relative">
-                            <BotonBarra onClick={() => alternar("disposicion")} activo={menu === "disposicion"} titulo="Cómo se divide la pantalla">
-                                <Glifo d={disp} tam={22} /> <span className="tabular-nums">{disp.casillas.length}</span> <ChevronDown size={14} className="text-muted-foreground" />
-                            </BotonBarra>
-                            <Flotante abierto={menu === "disposicion"} alCerrar={cerrarMenu} className="w-[264px]">
-                                <div className="grid grid-cols-3 gap-1">
-                                    {DISPOSICIONES.map((d) => (
-                                        <button key={d.clave} type="button" onClick={() => { setPrefs({ disposicion: d.clave }); setPagina(0); setMenu(null); }} aria-pressed={disp.clave === d.clave}
-                                            className={cn("flex flex-col items-center gap-1.5 rounded-[8px] py-2.5 transition-colors",
-                                                disp.clave === d.clave ? "bg-[color-mix(in_oklab,var(--accion-en-oscuro)_20%,transparent)] text-[var(--accion-en-oscuro)]" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-                                            <Glifo d={d} tam={34} />
-                                            <span className="text-[11px] font-semibold">{d.nombre}</span>
-                                        </button>
-                                    ))}
+            {/* Escritorio: los controles van en el encabezado del marco, en la misma fila que el título y la hora. */}
+            {!movil && (
+                <BarraDelMarco>
+                    <div className="flex items-center gap-1.5 min-w-0 w-full">
+                        {modoVista !== "solo" && (<>
+                            <div className="relative shrink-0">
+                                <BotonBarra onClick={() => alternar("vista")} activo={menu === "vista"} titulo="Elegir o diseñar una vista">
+                                    <LayoutGrid size={15} className="text-muted-foreground" /> <span className="max-w-[180px] truncate">{nombreVista}</span> <ChevronDown size={14} className="text-muted-foreground" />
+                                </BotonBarra>
+                                <Flotante abierto={menu === "vista"} alCerrar={cerrarMenu} className="w-[300px]">{opcionesVista}</Flotante>
+                            </div>
+                            {modoVista === "auto" && (<>
+                                <div className="relative shrink-0">
+                                    <BotonBarra onClick={() => alternar("disposicion")} activo={menu === "disposicion"} titulo="Cómo se divide la pantalla">
+                                        <Glifo d={disp} tam={22} /> <ChevronDown size={14} className="text-muted-foreground" />
+                                    </BotonBarra>
+                                    <Flotante abierto={menu === "disposicion"} alCerrar={cerrarMenu} className="w-[264px]">
+                                        <div className="grid grid-cols-3 gap-1">
+                                            {DISPOSICIONES.map((d) => (
+                                                <button key={d.clave} type="button" onClick={() => { setPrefs({ disposicion: d.clave }); setPagina(0); setMenu(null); }} aria-pressed={disp.clave === d.clave}
+                                                    className={cn("flex flex-col items-center gap-1.5 rounded-[8px] py-2.5 transition-colors",
+                                                        disp.clave === d.clave ? "bg-[color-mix(in_oklab,var(--accion-en-oscuro)_20%,transparent)] text-[var(--accion-en-oscuro)]" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
+                                                    <Glifo d={d} tam={34} />
+                                                    <span className="text-[11px] font-semibold">{d.nombre}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </Flotante>
                                 </div>
-                            </Flotante>
-                        </div>
-                        {nvrs.length > 1 && (
-                            <div className="relative">
-                                <BotonBarra onClick={() => alternar("nvr")} activo={menu === "nvr"} titulo="Mostrar los canales de un solo grabador">
-                                    <Server size={15} className="text-muted-foreground" /> {filtro === "todos" ? "Todos los NVR" : filtro} <ChevronDown size={14} className="text-muted-foreground" />
-                                </BotonBarra>
-                                <Flotante abierto={menu === "nvr"} alCerrar={cerrarMenu} className="w-[240px]">
-                                    {["todos", ...nvrs].map((n) => (
-                                        <OpcionMenu key={n} onClick={() => { setPrefs({ nvr: n }); setPagina(0); setMenu(null); }} elegida={filtro === n}>
-                                            <span className="flex-1 truncate">{n === "todos" ? "Todos los NVR" : n}</span>
-                                            <span className="text-[12px] text-muted-foreground tabular-nums">{n === "todos" ? todos.length : todos.filter((c) => grupoDe(c) === n).length}</span>
-                                        </OpcionMenu>
-                                    ))}
-                                </Flotante>
-                            </div>
-                        )}
-                        {paginas > 1 && (
-                            <div className="relative flex items-center gap-1">
-                                <BotonBarra onClick={() => setPagina((p) => (p - 1 + paginas) % paginas)} titulo="Página anterior" className="px-2"><ChevronLeft size={16} /></BotonBarra>
-                                <BotonBarra onClick={() => alternar("paginas")} activo={menu === "paginas"} titulo="Cada cuánto pasa de página">
-                                    <span className="tabular-nums">{pag + 1}/{paginas}</span>
-                                    <span className="inline-flex items-center gap-1 text-muted-foreground font-normal"><Timer size={13} /> {pausada ? "fija" : hayAlerta ? "fija por detección" : `${prefs?.pagSeg || 20} s`}</span>
-                                </BotonBarra>
-                                <BotonBarra onClick={() => setPagina((p) => (p + 1) % paginas)} titulo="Página siguiente" className="px-2"><ChevronRight size={16} /></BotonBarra>
-                                <Flotante abierto={menu === "paginas"} alCerrar={cerrarMenu} className="w-[200px] left-9">
-                                    <OpcionMenu onClick={() => { setPrefs({ pausa: true }); setMenu(null); }} elegida={pausada}>Quedarse en esta página</OpcionMenu>
-                                    {PAGINA_SEG.map((s) => <OpcionMenu key={s} onClick={() => { setPrefs({ pausa: false, pagSeg: s }); setMenu(null); }} elegida={!pausada && prefs?.pagSeg === s}>Pasar cada {s} s</OpcionMenu>)}
-                                </Flotante>
-                            </div>
-                        )}
-                    </>)}
-                </>)}
-
-                <div className="ml-auto flex items-center gap-1.5 min-w-0">
-                    <Recursos h265={h265} directosOk={directosOk} directosMal={directosMal} />
-                    <div className="relative shrink-0">
-                        <BotonBarra onClick={() => alternar("ventanas")} activo={menu === "ventanas"} titulo="Desacoplar esta vista en otra ventana, para otro monitor">
-                            <AppWindow size={16} /> <span className="hidden xl:inline">Ventanas</span>
-                        </BotonBarra>
-                        <Flotante abierto={menu === "ventanas"} alCerrar={cerrarMenu} lado="derecha" className="w-[300px]">
-                            <OpcionMenu onClick={() => desacoplar(null)}><AppWindow size={15} className="text-muted-foreground" /> Abrir «{nombreVista}» en otra ventana</OpcionMenu>
-                            {hayVariasPantallasApi() && (<>
-                                <div className="my-1 h-px bg-border" />
-                                {!pantallas ? (
-                                    <OpcionMenu onClick={detectarPantallas}><Monitor size={15} className="text-muted-foreground" /> Detectar los monitores</OpcionMenu>
-                                ) : pantallas.map((p) => (
-                                    <OpcionMenu key={p.id} onClick={() => desacoplar(p)}>
-                                        <Monitor size={15} className="text-muted-foreground" />
-                                        <span className="flex-1 truncate">Abrir en {p.nombre}{p.principal ? " (principal)" : ""}</span>
-                                        <span className="text-[11px] text-muted-foreground tabular-nums">{p.width}×{p.height}</span>
-                                    </OpcionMenu>
-                                ))}
+                                {hayNvrs && (
+                                    <div className="relative shrink-0">
+                                        <BotonBarra onClick={() => alternar("nvr")} activo={menu === "nvr"} titulo="Mostrar los canales de un solo grabador">
+                                            <Server size={15} className="text-muted-foreground" /> <span className="hidden 2xl:inline">{filtro === "todos" ? "Todos los NVR" : filtro}</span>
+                                            {nvrsCaidos.length > 0 && <span className="h-2 w-2 rounded-full bg-[var(--mal)]" title={`${nvrsCaidos.length} sin respuesta`} />}
+                                            <ChevronDown size={14} className="text-muted-foreground" />
+                                        </BotonBarra>
+                                        <Flotante abierto={menu === "nvr"} alCerrar={cerrarMenu} className="w-[260px]">{opcionesNvr}</Flotante>
+                                    </div>
+                                )}
+                                {paginas > 1 && (
+                                    <div className="relative flex items-center gap-1 shrink-0">
+                                        <BotonBarra onClick={() => setPagina((p) => (p - 1 + paginas) % paginas)} titulo="Página anterior" className="px-2"><ChevronLeft size={16} /></BotonBarra>
+                                        <BotonBarra onClick={() => alternar("paginas")} activo={menu === "paginas"} titulo="Cada cuánto pasa de página">
+                                            <span className="tabular-nums">{pag + 1}/{paginas}</span>
+                                            <span className="inline-flex items-center gap-1 text-muted-foreground font-normal"><Timer size={13} /> {pausada ? "fija" : hayAlerta ? "fija" : `${prefs?.pagSeg || 20} s`}</span>
+                                        </BotonBarra>
+                                        <BotonBarra onClick={() => setPagina((p) => (p + 1) % paginas)} titulo="Página siguiente" className="px-2"><ChevronRight size={16} /></BotonBarra>
+                                        <Flotante abierto={menu === "paginas"} alCerrar={cerrarMenu} className="w-[200px] left-9">
+                                            <OpcionMenu onClick={() => { setPrefs({ pausa: true }); setMenu(null); }} elegida={pausada}>Quedarse en esta página</OpcionMenu>
+                                            {PAGINA_SEG.map((s) => <OpcionMenu key={s} onClick={() => { setPrefs({ pausa: false, pagSeg: s }); setMenu(null); }} elegida={!pausada && prefs?.pagSeg === s}>Pasar cada {s} s</OpcionMenu>)}
+                                        </Flotante>
+                                    </div>
+                                )}
                             </>)}
-                            <p className="px-2.5 py-1.5 text-[12px] text-muted-foreground">Cada ventana guarda su vista y su disposición. En la ventana nueva, el primer toque la pone en pantalla completa.</p>
-                        </Flotante>
-                    </div>
-                </div>
-            </div>
-
-            {aviso && <div className="shrink-0 rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">{aviso}</div>}
-            {datos?.errores?.length ? (
-                <div className="shrink-0 rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">
-                    {datos.errores.map((e) => `${e.nvr}: no se pudieron leer sus canales (${e.error})`).join(" · ")}
-                </div>
-            ) : null}
-            {datos && !datos.go2rtc && (
-                <div className="shrink-0 rounded-[10px] chip-mal border px-3 py-2 text-[13px]">El servidor de video (go2rtc) no responde: los vivos no van a abrir.</div>
-            )}
-            {!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos && (
-                <div className="shrink-0 rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">Esa vista ya no existe: se muestra la automática.</div>
-            )}
-
-            <div className="flex-1 min-h-0 grid gap-2" style={{ gridTemplateColumns: `repeat(${disp.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${disp.filas}, minmax(0, 1fr))` }}>
-                {!datos && !error && <div className="col-span-full row-span-full grid place-items-center text-[18px] text-muted-foreground"><Loader2 className="animate-spin" /></div>}
-                {error && !datos && (
-                    <div className="col-span-full row-span-full grid place-items-center text-center">
-                        <div>
-                            <div className="text-[18px] text-[var(--mal-texto)]">No se pudo leer la lista de canales: {error}</div>
-                            <button type="button" onClick={recargar} className={cn("mt-3 h-11 px-4 rounded-[6px] bg-[var(--accion)] text-white font-semibold", tocable)}>Reintentar</button>
+                        </>)}
+                        <div className="ml-auto flex items-center gap-1.5 min-w-0">
+                            <Recursos h265={h265} directosOk={directosOk} directosMal={directosMal} />
+                            <div className="relative shrink-0">
+                                <BotonBarra onClick={() => alternar("ventanas")} activo={menu === "ventanas"} titulo="Desacoplar esta vista en otra ventana, para otro monitor" className="px-2.5">
+                                    <AppWindow size={16} />
+                                </BotonBarra>
+                                <Flotante abierto={menu === "ventanas"} alCerrar={cerrarMenu} lado="derecha" className="w-[300px]">
+                                    <OpcionMenu onClick={() => desacoplar(null)}><AppWindow size={15} className="text-muted-foreground" /> Abrir «{nombreVista}» en otra ventana</OpcionMenu>
+                                    {hayVariasPantallasApi() && (<>
+                                        <div className="my-1 h-px bg-border" />
+                                        {!pantallas ? (
+                                            <OpcionMenu onClick={detectarPantallas}><Monitor size={15} className="text-muted-foreground" /> Detectar los monitores</OpcionMenu>
+                                        ) : pantallas.map((p) => (
+                                            <OpcionMenu key={p.id} onClick={() => desacoplar(p)}>
+                                                <Monitor size={15} className="text-muted-foreground" />
+                                                <span className="flex-1 truncate">Abrir en {p.nombre}{p.principal ? " (principal)" : ""}</span>
+                                                <span className="text-[11px] text-muted-foreground tabular-nums">{p.width}×{p.height}</span>
+                                            </OpcionMenu>
+                                        ))}
+                                    </>)}
+                                    <p className="px-2.5 py-1.5 text-[12px] text-muted-foreground">Cada ventana guarda su vista y su disposición. En la ventana nueva, el primer toque la pone en pantalla completa.</p>
+                                </Flotante>
+                            </div>
                         </div>
                     </div>
-                )}
-                {datos && todos.length === 0 && <div className="col-span-full row-span-full grid place-items-center text-[18px] text-muted-foreground">No hay canales para mostrar.</div>}
-                {datos && h265 !== null && todos.length > 0 && celdas.map((celda, i) => (
-                    <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"}
-                        alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
-                        destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}
-                        alTocar={() => celda.canal && setAbiertaClave(celda.canal.clave)} alResultado={alResultado} />
-                ))}
-            </div>
+                </BarraDelMarco>
+            )}
 
-            <FichaCanal c={abierta} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)}
+            {(aviso || (datos && !datos.go2rtc) || (!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos)) && (
+                <div className="shrink-0 px-3 pt-3 flex flex-col gap-2">
+                    {aviso && <div className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">{aviso}</div>}
+                    {datos && !datos.go2rtc && <div className="rounded-[10px] chip-mal border px-3 py-2 text-[13px]">El servidor de video (go2rtc) no responde: los vivos no van a abrir.</div>}
+                    {!canalSolo && prefs && prefs.vista !== AUTO && !guardada && datos && <div className="rounded-[10px] chip-aviso border px-3 py-2 text-[13px]">Esa vista ya no existe: se muestra la automática.</div>}
+                </div>
+            )}
+
+            {movil ? (
+                /* Celular: una lista que se desliza, de 1 o 2 columnas; el menú va abajo, al alcance del pulgar. */
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2 pt-2 pb-[calc(84px+env(safe-area-inset-bottom))]">
+                    <div className={cn("grid gap-2", prefs?.colMovil === 2 ? "grid-cols-2" : "grid-cols-1")}>
+                        {estados}
+                        {datos && h265 !== null && lista.map((c, i) => (
+                            <div key={c.clave} ref={observar} data-clave={c.clave}>{baldosa({ casilla: { x: 0, y: 0, w: 1, h: 1 }, canal: c }, i, true)}</div>
+                        ))}
+                    </div>
+                </div>
+            ) : (
+                <div className="flex-1 min-h-0 grid gap-2 p-3" style={{ gridTemplateColumns: `repeat(${disp.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${disp.filas}, minmax(0, 1fr))` }}>
+                    {estados}
+                    {datos && h265 !== null && todos.length > 0 && celdas.map((celda, i) => baldosa(celda, i))}
+                </div>
+            )}
+
+            {movil && modoVista !== "solo" && (
+                <MenuInferior
+                    items={[
+                        { k: "vista", Icono: LayoutGrid, rotulo: guardada ? guardada.nombre : "Vista", activo: menu === "vista", onClick: () => alternar("vista") },
+                        { k: "col", Icono: prefs?.colMovil === 2 ? Columns2 : Rows3, rotulo: prefs?.colMovil === 2 ? "2 columnas" : "1 columna", onClick: () => setPrefs({ colMovil: prefs?.colMovil === 2 ? 1 : 2 }) },
+                        ...(modoVista === "auto" && hayNvrs ? [{ k: "nvr", Icono: Server, rotulo: filtro === "todos" ? "NVR" : filtro, activo: menu === "nvr", onClick: () => alternar("nvr"), punto: nvrsCaidos.length > 0 }] : []),
+                        { k: "recursos", Icono: Gauge, rotulo: "Servidor", activo: menu === "recursos", onClick: () => alternar("recursos") },
+                    ]} />
+            )}
+            {movil && (
+                <Hoja abierta={menu === "vista" || menu === "nvr" || menu === "recursos"} titulo={menu === "vista" ? "Vista" : menu === "nvr" ? "Grabador" : "Lo que usa el servidor"} alCerrar={cerrarMenu}>
+                    {menu === "vista" && opcionesVista}
+                    {menu === "nvr" && opcionesNvr}
+                    {menu === "recursos" && <div className="flex flex-wrap gap-1.5"><Recursos h265={h265} directosOk={directosOk} directosMal={directosMal} envolver /></div>}
+                </Hoja>
+            )}
+
+            <FichaCanal c={abierta} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
                 alCerrar={() => setAbiertaClave(null)} alMover={enPantalla.length > 1 ? mover : null}
-                alVentana={abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
+                alVentana={!movil && abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
         </div>
+    );
+}
+
+/** El menú de abajo del celular: cuatro botones con ícono y rótulo, al alcance del pulgar. */
+function MenuInferior({ items }: { items: { k: string; Icono: any; rotulo: string; activo?: boolean; onClick: () => void; punto?: boolean }[] }) {
+    return (
+        <nav className="fixed bottom-0 inset-x-0 z-30 border-t border-border bg-card/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+            <div className="grid h-[68px]" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+                {items.map((x) => (
+                    <button key={x.k} type="button" onClick={x.onClick} aria-expanded={x.activo}
+                        className={cn("relative flex flex-col items-center justify-center gap-1 min-w-0 px-1 text-[11px] font-semibold", tocable, x.activo ? "text-[var(--accion-en-oscuro)]" : "text-muted-foreground")}>
+                        <x.Icono size={22} />
+                        <span className="max-w-full truncate">{x.rotulo}</span>
+                        {x.punto && <span className="absolute top-3 left-[calc(50%+8px)] h-2 w-2 rounded-full bg-[var(--mal)]" />}
+                    </button>
+                ))}
+            </div>
+        </nav>
+    );
+}
+
+/** Hoja que sube desde abajo, para los menús del celular. */
+function Hoja({ abierta, titulo, alCerrar, children }: { abierta: boolean; titulo: string; alCerrar: () => void; children: React.ReactNode }) {
+    return (
+        <AnimatePresence>
+            {abierta && (<>
+                <motion.button key="fondo" type="button" aria-label="Cerrar" onClick={alCerrar} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SUAVE}
+                    className="fixed inset-0 z-40 bg-black/55" />
+                <motion.div key="hoja" role="dialog" aria-label={titulo} initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={SUAVE}
+                    className="fixed inset-x-0 bottom-0 z-50 max-h-[75dvh] overflow-y-auto rounded-t-[14px] border-t border-border bg-card px-3 pt-2 pb-[calc(16px+env(safe-area-inset-bottom))] shadow-[var(--sombra-flotante)]">
+                    <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-border" />
+                    <div className="flex items-center mb-1">
+                        <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground px-1">{titulo}</span>
+                        <button type="button" onClick={alCerrar} aria-label="Cerrar" className="ml-auto grid h-10 w-10 place-items-center rounded-full hover:bg-muted"><X size={18} /></button>
+                    </div>
+                    {children}
+                </motion.div>
+            </>)}
+        </AnimatePresence>
     );
 }

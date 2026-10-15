@@ -36,10 +36,10 @@ const tono = (pct: number | null | undefined) => pct == null ? "quieto" : pct >=
 const tonoTemp = (t: number | null | undefined) => t == null ? null : t >= TEMP.mal ? "tono-mal" : t >= TEMP.aviso ? "tono-aviso" : null;
 const gb = (b: number) => (b / 1024 ** 3).toLocaleString("es-UY", { maximumFractionDigits: 1 });
 
-function Medidor({ Icono, rotulo, pct, valor, extra, titulo }: { Icono: any; rotulo: string; pct: number | null; valor: string; extra?: React.ReactNode; titulo: string }) {
+function Medidor({ Icono, rotulo, pct, valor, extra, titulo, className }: { Icono: any; rotulo: string; pct: number | null; valor: string; extra?: React.ReactNode; titulo: string; className?: string }) {
     const t = tono(pct);
     return (
-        <div title={titulo} className="flex items-center gap-2 h-10 pl-2.5 pr-3 rounded-[10px] bg-muted/60 min-w-0">
+        <div title={titulo} className={cn("flex items-center gap-2 h-10 pl-2.5 pr-3 rounded-[10px] bg-muted/60 min-w-0 shrink-0", className)}>
             <Icono size={15} className="text-muted-foreground shrink-0" />
             <div className="min-w-0">
                 <div className="flex items-baseline gap-1.5 leading-none">
@@ -55,7 +55,7 @@ function Medidor({ Icono, rotulo, pct, valor, extra, titulo }: { Icono: any; rot
     );
 }
 
-export function Recursos({ h265, directosOk, directosMal }: { h265: boolean | null; directosOk: number; directosMal: number }) {
+export function Recursos({ h265, directosOk, directosMal, envolver }: { h265: boolean | null; directosOk: number; directosMal: number; envolver?: boolean }) {
     const [m, setM] = useState<Medida | null>(null);
     const [error, setError] = useState(false);
     useEffect(() => {
@@ -74,13 +74,13 @@ export function Recursos({ h265, directosOk, directosMal }: { h265: boolean | nu
     // En el navegador: lo que dice saber y lo que de verdad arrancó.
     const navegador = h265 === null ? null : h265 && !(directosMal && !directosOk) ? "bien" : "aviso";
     return (
-        <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto [scrollbar-width:none]">
+        <div className={cn("flex items-center gap-1.5 min-w-0", envolver ? "flex-wrap" : "overflow-x-auto [scrollbar-width:none]")}>
             {error && !m && <span className="text-[12px] text-muted-foreground px-2">Sin medida de recursos</span>}
             {m && (<>
                 <Medidor Icono={Cpu} rotulo="CPU" pct={m.cpu.uso} valor={m.cpu.uso != null ? `${m.cpu.uso} %` : "—"}
                     extra={m.cpu.temp != null ? <span className={cn("text-[12px] tabular-nums text-muted-foreground", tonoTemp(m.cpu.temp))}>{Math.round(m.cpu.temp)}°</span> : null}
                     titulo={`Procesador del servidor: ${m.cpu.uso ?? "—"} % de ${m.cpu.nucleos} núcleos (carga ${m.cpu.carga.toLocaleString("es-UY")}). Es la que se usa para convertir video y la que comparte con la lectura de matrículas.`} />
-                <Medidor Icono={MemoryStick} rotulo="RAM" pct={memPct} valor={`${gb(m.memoria.usada)}/${gb(m.memoria.total)} GB`}
+                <Medidor Icono={MemoryStick} rotulo="RAM" className={envolver ? undefined : "hidden min-[1750px]:flex"} pct={memPct} valor={`${gb(m.memoria.usada)}/${gb(m.memoria.total)} GB`}
                     titulo={`Memoria en uso del servidor: ${memPct} %. No cuenta la caché que el sistema suelta cuando hace falta.`} />
                 {m.gpu ? (
                     <Medidor Icono={Gauge} rotulo="GPU" pct={m.gpu.uso} valor={`${m.gpu.uso ?? "—"} %`}
@@ -94,18 +94,18 @@ export function Recursos({ h265, directosOk, directosMal }: { h265: boolean | nu
                 )}
                 {v && (
                     <div title={`go2rtc está sirviendo ${v.activos} vivos a ${v.espectadores} navegadores: ${v.directos} directos (sólo reempaqueta, casi no cuesta) y ${v.convertidos} convertidos a H.264 (cada uno usa CPU).`}
-                        className="flex items-center gap-2 h-10 pl-2.5 pr-3 rounded-[10px] bg-muted/60 whitespace-nowrap">
+                        className="flex items-center gap-2 h-10 pl-2.5 pr-3 rounded-[10px] bg-muted/60 whitespace-nowrap shrink-0">
                         <Video size={15} className="text-muted-foreground shrink-0" />
                         <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Vivos</span>
-                        <span className="text-[13px] font-semibold tabular-nums">{v.directos}</span><span className="text-[12px] text-muted-foreground">directos</span>
-                        <span className={cn("text-[13px] font-semibold tabular-nums", v.convertidos > 0 && "tono-aviso")}>{v.convertidos}</span><span className="text-[12px] text-muted-foreground">convertidos</span>
+                        <span className="text-[13px] font-semibold tabular-nums">{v.directos}</span><span className="text-[12px] text-muted-foreground">{envolver ? "directos" : "dir."}</span>
+                        <span className={cn("text-[13px] font-semibold tabular-nums", v.convertidos > 0 && "tono-aviso")}>{v.convertidos}</span><span className="text-[12px] text-muted-foreground">{envolver ? "convertidos" : "conv."}</span>
                     </div>
                 )}
             </>)}
             {navegador && (
                 <span title={h265 ? "Este navegador decodifica H.265: sus vivos no le cuestan nada al servidor." : "Este navegador no reproduce H.265: el servidor convierte unos pocos canales y el resto son fotos. Chrome o Edge en Windows con aceleración por hardware lo reproducen directo."}
-                    className={cn("h-10 px-3 rounded-[10px] border inline-flex items-center gap-1.5 text-[12px] font-semibold whitespace-nowrap", `chip-${navegador}`)}>
-                    {h265 ? (directosMal && !directosOk ? "H.265 anunciado, no reproduce" : `H.265 en este equipo${directosMal ? ` · ${directosMal} fallaron` : ""}`) : "Sin H.265 en este equipo"}
+                    className={cn("h-10 px-3 rounded-[10px] border inline-flex items-center gap-1.5 text-[12px] font-semibold whitespace-nowrap shrink-0", `chip-${navegador}`)}>
+                    {h265 ? (directosMal && !directosOk ? "H.265 no reproduce" : `H.265${directosMal ? ` · ${directosMal} fallaron` : envolver ? " en este equipo" : ""}`) : envolver ? "Sin H.265 en este equipo" : "Sin H.265"}
                 </span>
             )}
         </div>

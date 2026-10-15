@@ -19,6 +19,9 @@ export default function LiveEdgeKeeper() {
                     const src = v.currentSrc || v.src || "";
                     if (!src.includes("/go2rtc/")) return;      // sólo streams en vivo
                     if (v.loop) return;
+                    // HLS (Safari): el reproductor del sistema ya se mantiene cerca del vivo, y
+                    // moverle currentTime a mano lo hace cortar y volver a pedir segmentos.
+                    if (src.includes(".m3u8")) return;
                     const b = v.buffered;
                     if (!b || b.length === 0) return;
                     const end = b.end(b.length - 1);

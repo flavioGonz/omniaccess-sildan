@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Maximize2, Minimize2, Volume2, VolumeX, WifiOff, RefreshCw, AlertTriangle, Link2Off } from "lucide-react";
 import { useTiempoReal } from "@/lib/tiempo-real";
 import { usarDatos } from "@/lib/monitor/cliente";
@@ -53,9 +54,23 @@ type Marco = {
     audioBloqueado: boolean;
     /** Quien mira entró al panel con el permiso del monitor de intrusión: puede confirmar y resolver desde acá. */
     puedeDecidir: boolean;
+    /**
+     * El lugar del encabezado, entre el título y «En vivo», donde una vista puede poner sus
+     * controles (con BarraDelMarco). Lo pidió la pared de cámaras el 15/10: dos filas arriba
+     * (encabezado + barra de la vista) le comían al video una franja entera.
+     */
+    barra: HTMLElement | null;
+    setUsaBarra: (v: boolean) => void;
 };
 const Ctx = createContext<Marco | null>(null);
 export const useMarco = () => { const c = useContext(Ctx); if (!c) throw new Error("useMarco fuera de MarcoMonitor"); return c; };
+
+/** Dibuja `children` dentro del encabezado del marco, en la misma fila que el título y la hora. */
+export function BarraDelMarco({ children }: { children: React.ReactNode }) {
+    const { barra, setUsaBarra } = useMarco();
+    useEffect(() => { setUsaBarra(true); return () => setUsaBarra(false); }, [setUsaBarra]);
+    return barra ? createPortal(children, barra) : null;
+}
 
 export function MarcoMonitor({ children, puedeDecidir = false }: { children: React.ReactNode; puedeDecidir?: boolean }) {
     const [titulo, setTitulo] = useState("");
@@ -71,6 +86,8 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
     /* La hora se dibuja recién en el navegador: la del servidor (al armar la página) nunca
        coincide al segundo con la del cliente, y React lo marcaba como error de hidratación. */
     const [montado, setMontado] = useState(false);
+    const [barra, setBarra] = useState<HTMLDivElement | null>(null);
+    const [usaBarra, setUsaBarra] = useState(false);
     useEffect(() => { setMontado(true); }, []);
     useEffect(() => {
         try {
@@ -114,8 +131,8 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
 
     const valor = useMemo<Marco>(() => ({
         barrio: marco?.barrio || "OmniAccess", ajustes: marco?.ajustes || null, pantalla: marco?.pantalla || null,
-        latir, tactil, conectado, setTitulo, setFondo, silencio, audioBloqueado: bloqueado, puedeDecidir,
-    }), [marco, latir, tactil, conectado, silencio, bloqueado, puedeDecidir]);
+        latir, tactil, conectado, setTitulo, setFondo, silencio, audioBloqueado: bloqueado, puedeDecidir, barra, setUsaBarra,
+    }), [marco, latir, tactil, conectado, silencio, bloqueado, puedeDecidir, barra]);
 
     const hora = new Date(ahora).toLocaleTimeString("es-UY", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: ZONA });
     const fecha = new Date(ahora).toLocaleDateString("es-UY", { weekday: "long", day: "numeric", month: "long", timeZone: ZONA });
@@ -150,17 +167,20 @@ export function MarcoMonitor({ children, puedeDecidir = false }: { children: Rea
                 {/* Encabezado: barrio, vista, vitalidad y reloj. En "sin datos" se pinta ENTERO de ámbar. */}
                 <header className={cn("shrink-0 flex items-center gap-4 lg:gap-6 px-4 lg:px-8 h-[64px] border-b transition-colors",
                     sinDatos ? "bg-[var(--aviso)] text-[#16120a] border-transparent" : fondo ? "bg-black/20 border-white/15" : "bg-card/60 border-border")}>
-                    <div className="min-w-0 flex items-baseline gap-3">
+                    <div className={cn("min-w-0 flex items-baseline gap-3", usaBarra && "md:shrink-0 md:max-w-[300px]")}>
                         <span className="text-[22px] font-bold truncate">{valor.barrio}</span>
                         {titulo && <span className={cn("text-[18px] font-semibold truncate", sinDatos ? "opacity-80" : "text-muted-foreground")}>· {titulo}</span>}
                     </div>
-                    <div className={cn("ml-auto flex items-center gap-2 text-[14px] lg:text-[16px] font-bold uppercase tracking-[0.12em] whitespace-nowrap", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
+                    {/* Los controles de la vista, si los pone (BarraDelMarco). Fuera de escritorio no: en
+                        un celular no entran en la fila, y la vista los lleva abajo. */}
+                    <div ref={setBarra} className={cn("min-w-0 flex-1 items-center", usaBarra ? "hidden md:flex" : "hidden")} />
+                    <div className={cn("ml-auto flex items-center gap-2 text-[14px] lg:text-[16px] font-bold uppercase tracking-[0.12em] whitespace-nowrap", usaBarra && "md:ml-0", !sinDatos && (reconectando ? "text-[var(--aviso-texto)]" : "text-[var(--bien-texto)]"))}>
                         {sinDatos ? <><AlertTriangle size={22} /> Sin datos hace {minutosSin} min</>
                             : reconectando ? <><RefreshCw size={18} className="animate-spin" /> Reconectando</>
                                 : <><span className="h-3 w-3 rounded-full bg-[var(--bien)] animate-pulse" /> En vivo</>}
                     </div>
                     <div className="flex items-baseline gap-3 tabular-nums">
-                        <span className={cn("hidden lg:inline text-[16px] capitalize whitespace-nowrap", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>
+                        <span className={cn("hidden text-[16px] capitalize whitespace-nowrap", usaBarra ? "min-[2200px]:inline" : "lg:inline", sinDatos ? "opacity-80" : "text-muted-foreground")} suppressHydrationWarning>{montado ? fecha : ""}</span>
                         <span className="text-[26px] lg:text-[30px] font-bold leading-none" suppressHydrationWarning>{montado ? hora : "--:--:--"}</span>
                     </div>
                     <div className={cn("flex items-center gap-1 transition-opacity duration-300", quieto && !tactil ? "opacity-0" : "opacity-100")}>
