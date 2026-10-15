@@ -7,7 +7,10 @@ import { Chip } from "@/components/ui/estados";
 export type ZonaLista = {
     id: string; nombre: string; deviceId: string; camara: string; positivo: string; negativo: string;
     umbral: number; avisar: boolean; activa: boolean; cadaSeg: number; sostenerSeg: number;
-    modelo: { exactitud: number | null; n: { pos: number; neg: number }; entrenado: string } | null;
+    modelo: { exactitud: number | null; n: { pos: number; neg: number }; entrenado: string; matriz?: { vp: number; fp: number; vn: number; fn: number } | null } | null;
+    horario?: { desde: string; hasta: string } | null;
+    /** Lo que hizo en los últimos días (lo trae la lista): veces que se sostuvo, avisos, fotos. */
+    actividad?: { eventos7d: number; avisos7d: number; ultimoEvento: string | null; muestras24h: number };
     estado: { prob?: number; fuente?: string; al?: string; muestraUrl?: string | null; positivoDesde?: string | null; avisado?: boolean; armada?: boolean; error?: string | null } | null;
     conteo: { pos: number; neg: number; sin: number };
 };

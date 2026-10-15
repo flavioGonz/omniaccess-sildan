@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getS3Client } from "@/lib/s3";
 import { validarZona } from "@/lib/zona-entrenable";
+import { leerInterruptores } from "@/lib/vision";
 import { puedeMirar, puedeCambiar, conteos, salida } from "@/lib/zona-entrenable-servidor";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +16,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const z = await prisma.zonaEntrenable.findUnique({ where: { id } });
     if (!z) return NextResponse.json({ error: "No existe." }, { status: 404 });
     const [c, cam] = await Promise.all([conteos([id]), prisma.device.findUnique({ where: { id: z.deviceId }, select: { name: true } })]);
-    const eventos = await prisma.eventoVision.findMany({ where: { reglaId: id, tipo: "ZONA" }, orderBy: { ts: "desc" }, take: 20 });
+    const [eventos, inter] = await Promise.all([
+        prisma.eventoVision.findMany({ where: { reglaId: id, tipo: "ZONA" }, orderBy: { ts: "desc" }, take: 20 }),
+        leerInterruptores(),
+    ]);
     return NextResponse.json({
         zona: salida(z, c.get(id), cam?.name),
+        // Si «Analíticas entrenables» está apagada, ninguna zona mira: la puesta en producción lo dice.
+        analiticaPrendida: inter.analiticas["zona-entrenable"] !== false,
         eventos: eventos.map((e) => ({ id: e.id, ts: e.ts.toISOString(), prob: e.valor, foto: e.foto ? `/api/vision/imagen/${e.foto}` : null, avisado: !!e.avisoId })),
     }, { headers: { "Cache-Control": "no-store" } });
 }
@@ -43,6 +49,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         },
     });
     return NextResponse.json({ ok: true, modeloDescartado: otraMirada && !!antes.modelo });
+}
+
+/**
+ * PATCH — sólo prender o apagar: `avisar` (ponerla a avisar a la guardia o volverla a prueba) y
+ * `activa` (pausarla). El PUT pide el formulario entero; para el botón «Poner a avisar» de la
+ * lista eso era reenviar la zona, las frases y el horario para cambiar un sí/no.
+ */
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+    const { error } = await puedeCambiar(); if (error) return error;
+    const { id } = await params;
+    const b = await req.json().catch(() => null);
+    const data: { avisar?: boolean; activa?: boolean } = {};
+    if (typeof b?.avisar === "boolean") data.avisar = b.avisar;
+    if (typeof b?.activa === "boolean") data.activa = b.activa;
+    if (!Object.keys(data).length) return NextResponse.json({ error: "Nada que cambiar: avisar o activa." }, { status: 400 });
+    const z = await prisma.zonaEntrenable.update({ where: { id }, data }).catch(() => null);
+    if (!z) return NextResponse.json({ error: "No existe." }, { status: 404 });
+    return NextResponse.json({ ok: true, avisar: z.avisar, activa: z.activa });
 }
 
 /** DELETE — la zona, sus muestras y sus recortes. */
