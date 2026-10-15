@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles } from "lucide-react";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
 import { Grabacion } from "./Grabacion";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { SUAVE } from "@/components/monitor/tactil";
-import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, FOTO_MS, type Canal, type Alerta, type Lectura } from "./piezas";
+import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, FOTO_MS, useSiluetasEnVivo, type Canal, type Alerta, type Lectura } from "./piezas";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { geomDeIntrusion } from "@/lib/vision-capa";
 import { cn } from "@/lib/utils";
 
 /**
@@ -67,6 +69,16 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const [fallo, setFallo] = useState(false);
     const [hd, setHd] = useState(true);
     const [verGeom, setVerGeom] = useState(true);
+    // Siluetas de OmniVision sobre el vivo (pedido 15/10: «pretendo que sea la silueta»). Prendidas
+    // al abrir; sólo mientras se mira el vivo de ESTE canal (la GPU no trabaja para nadie más).
+    const [verSiluetas, setVerSiluetas] = useState(true);
+    /**
+     * El tamaño del video que se ve. Las siluetas salen del subflujo y vienen en 0–1 de su cuadro;
+     * se dibujan con el tamaño del video EN PANTALLA, porque el HD puede tener otra proporción que
+     * el subflujo (medido el 15/10: el subflujo de LPR Entrada es 704×576, 4:3, y su HD es 16:9).
+     * Los dos ven lo mismo; cambia cómo está estirado.
+     */
+    const [tamVideo, setTamVideo] = useState<{ w: number; h: number } | null>(null);
     const [visibles, setVisibles] = useState(true);
     const [lleno, setLleno] = useState(false);
     const entreYo = useRef(false);
@@ -112,6 +124,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     }, [alCerrar, alMover]);
     useEffect(() => { if (!c) return; window.addEventListener("keydown", teclas); return () => window.removeEventListener("keydown", teclas); }, [!!c, teclas]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    const sil = useSiluetasEnVivo(c && c.online !== false ? c.stream : null, !!c && verSiluetas && grabacion == null);
     // HD convertido es varias veces más caro que el subflujo: sin H.265 se ve el subflujo convertido.
     const enHd = h265 && hd && !fallo;
     const m = alerta ? metaDe(alerta.tipo) : null;
@@ -135,9 +148,14 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         </>
                     ) : (
                         <Vivo key={`${c.clave}-${enHd ? "hd" : "sd"}`} src={enHd ? vivoDe(`${c.stream}_hd`, false, hls) : vivoDe(c.stream, !h265, hls)}
-                            alResultado={(ok) => { if (!ok && enHd) setFallo(true); }} className="absolute inset-0 w-full h-full object-contain" />
+                            alResultado={(ok) => { if (!ok && enHd) setFallo(true); }} alMedir={(w, h) => setTamVideo({ w, h })} className="absolute inset-0 w-full h-full object-contain" />
                     )}
-                    {c.geom && verGeom && <Geometria geom={c.geom} alerta={!!alerta} ajuste="contain" />}
+                    {c.geom && verGeom && !(sil.analisis && grabacion == null) && <Geometria geom={c.geom} alerta={!!alerta} ajuste="contain" />}
+                    {/* Las siluetas van sobre el vivo con el mismo ajuste (contain): el análisis es del
+                        subflujo 16:9, igual que el video. Si dejan de llegar cuadros, se borran solas. */}
+                    {grabacion == null && sil.analisis && (
+                        <CapaAnalisis analisis={tamVideo ? { ...sil.analisis, ancho: tamVideo.w, alto: tamVideo.h } : sil.analisis} geom={verGeom ? geomDeIntrusion(c.geom) : null} ajuste="contain" className="pointer-events-none" />
+                    )}
 
                     {/* Arriba a la izquierda: qué se mira. Texto sobre la imagen, sin caja. */}
                     <div className={cn("absolute top-0 inset-x-0 p-3 sm:p-5 md:px-7 flex flex-col sm:flex-row items-start justify-between gap-3 sm:gap-4 bg-gradient-to-b from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0 pointer-events-none")}>
@@ -147,6 +165,12 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 {grabacion != null ? <History size={14} className="text-[var(--accion-en-oscuro)] shrink-0" /> : <Radio size={14} className="text-[var(--mal)] animate-pulse shrink-0" />}
                                 <span className="font-semibold text-white/90">{ubicacion(c)}</span>
                                 <span className="text-white/30">·</span><span>{grabacion != null ? "grabación" : calidad}</span>
+                                {grabacion == null && verSiluetas && sil.estado !== "apagado" && (<>
+                                    <span className="text-white/30">·</span>
+                                    <span className={cn(sil.estado === "ocupado" || sil.estado === "error" ? "text-[var(--aviso-texto)]" : "")}>
+                                        {sil.estado === "vivo" ? "siluetas en vivo" : sil.estado === "conectando" ? "buscando siluetas…" : sil.estado === "ocupado" ? "siluetas ocupadas (2 canales a la vez)" : "siluetas sin respuesta"}
+                                    </span>
+                                </>)}
                             </p>
                             {alerta && m && (
                                 <span className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[14px] font-bold pleno-mal"><m.Icon size={15} /> {m.label} · {horaCorta(alerta.ts)} · {hace(alerta.ts)}</span>
@@ -167,6 +191,12 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 {h265 && c.online !== false && grabacion == null && (
                                     <Icono onClick={() => { setHd((x) => !x); setFallo(false); }} activo={enHd} titulo={enHd ? "Alta calidad · cambiar al subflujo, más liviano" : "Subflujo · cambiar a alta calidad"}>
                                         <span className="text-[11px] font-bold tracking-wide">{enHd ? "HD" : "SD"}</span>
+                                    </Icono>
+                                )}
+                                {grabacion == null && c.online !== false && (
+                                    <Icono onClick={() => setVerSiluetas((x) => !x)} activo={verSiluetas}
+                                        titulo={verSiluetas ? `Siluetas de OmniVision en vivo${sil.estado === "vivo" && sil.ms != null ? ` · ${sil.ms} ms por cuadro` : sil.estado === "ocupado" ? " · ocupado: ya hay dos canales con siluetas" : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision en vivo"}>
+                                        <Sparkles size={18} />
                                     </Icono>
                                 )}
                                 {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}

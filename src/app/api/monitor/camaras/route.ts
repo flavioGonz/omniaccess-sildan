@@ -10,6 +10,7 @@ import { getChannelMap } from "@/lib/nvr-resolve";
 import { getAnalyticsGeometryBatch } from "@/app/actions/detections";
 import { puedeDisenarVistas } from "@/app/actions/monitores";
 import { AJUSTE_VISTAS_CAMARAS, leerVistas } from "@/lib/monitor/disposiciones";
+import { verificacionesDe } from "@/lib/verificacion";
 
 /**
  * GET /api/monitor/camaras → los canales que dibuja la pared de video (vista Cámaras).
@@ -83,13 +84,18 @@ export type CanalPared = {
     stream: string;
     /** Si es un equipo de OmniAccess: sus detecciones llegan con este id. */
     equipoId: string | null;
-    alerta: { id: string; tipo: string; ts: string } | null;
+    /**
+     * La detección en curso (de los últimos VENTANA_ALERTA_MS). `foto` es su captura y `verif` lo
+     * que OmniVision vio en ella (siluetas y veredicto): la baldosa la muestra un rato con las
+     * siluetas encima. Llega sola cuando vision-worker termina de mirarla (socket detection_verified).
+     */
+    alerta: { id: string; tipo: string; ts: string; foto?: string | null; verif?: { veredicto: string | null; analisis: any } | null } | null;
     /** Qué hace además de filmar: se dibuja encima de su video. */
     funcion: "intrusion" | "lpr" | null;
     /** La línea y la zona configuradas en la cámara (sólo intrusión). */
     geom: { line: { x: number; y: number }[]; field: { x: number; y: number }[] } | null;
     /** La última detección de las últimas 24 h, aunque ya no esté en alerta. */
-    ultima: { id: string; tipo: string; ts: string } | null;
+    ultima: { id: string; tipo: string; ts: string; foto?: string | null } | null;
     lecturas: { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean }[];
 };
 
@@ -104,7 +110,7 @@ export async function GET() {
         streamsEnGo2rtc(),
         prisma.detection.findMany({
             where: { timestamp: { gte: new Date(Date.now() - ULTIMA_DETECCION_MS) }, type: { not: "MOTION" } },
-            select: { id: true, deviceId: true, type: true, label: true, timestamp: true }, orderBy: { timestamp: "desc" }, take: 1000,
+            select: { id: true, deviceId: true, type: true, label: true, timestamp: true, snapshotPath: true }, orderBy: { timestamp: "desc" }, take: 1000,
         }).catch(() => []),
         prisma.detection.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad }, type: { not: "MOTION" } } }).catch(() => []),
         prisma.accessEvent.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad } } }).catch(() => []),
@@ -117,7 +123,7 @@ export async function GET() {
     const ultimaPorCanal = new Map<string, NonNullable<CanalPared["ultima"]>>();
     for (const d of recientes) {
         if (!d.deviceId) continue;
-        const a = { id: d.id, tipo: String(d.type), ts: d.timestamp.toISOString() };
+        const a = { id: d.id, tipo: String(d.type), ts: d.timestamp.toISOString(), foto: d.snapshotPath || null };
         const m = d.label ? ETIQUETA_CANAL_SIN_MAPEAR.exec(d.label) : null;
         if (m) { const k = `${d.deviceId}:${m[1]}`; if (!ultimaPorCanal.has(k)) ultimaPorCanal.set(k, a); }
         else if (!ultimaPorEquipo.has(d.deviceId)) ultimaPorEquipo.set(d.deviceId, a);
@@ -182,6 +188,16 @@ export async function GET() {
     }
     // Registrar en go2rtc es sólo dejar la receta: no abre ninguna conexión hasta que alguien mira.
     if (streams) await Promise.all(porRegistrar.map((x) => registrarCanalNvr(x.nvrId, x.ch).catch(() => null)));
+
+    // Lo que vio OmniVision en las capturas de las detecciones en curso (pocas: las de 2 minutos).
+    const enCurso = canales.map((c) => c.alerta?.id).filter(Boolean) as string[];
+    if (enCurso.length) {
+        const v = await verificacionesDe(enCurso, geoms).catch(() => new Map());
+        for (const c of canales) {
+            const x = c.alerta ? v.get(c.alerta.id) : null;
+            if (c.alerta && x?.analisis) c.alerta = { ...c.alerta, verif: { veredicto: x.veredicto, analisis: x.analisis } };
+        }
+    }
 
     return NextResponse.json({
         canales,

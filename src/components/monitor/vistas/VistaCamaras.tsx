@@ -9,6 +9,10 @@ import { useTiempoReal } from "@/lib/tiempo-real";
 import { metaDe } from "@/components/intrusion/comun";
 import { SUAVE, tocable } from "@/components/monitor/tactil";
 import LiveEdgeKeeper from "@/components/LiveEdgeKeeper";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { geomDeIntrusion } from "@/lib/vision-capa";
+import { getImagePath } from "@/lib/image-path";
+import { conAncho } from "@/lib/ancho-foto";
 import { DISPOSICIONES, disposicionDe, disposicionDeGrilla, DISPOSICION_POR_DEFECTO, CLAVE_CANAL, type Casilla, type VistaCamaras as VistaGuardada } from "@/lib/monitor/disposiciones";
 import { Vivo, Foto, Geometria, Glifo, Flotante, estiloCasilla, fotoDe, vivoDe, ubicacion, grupoDe, reproduceH265, usaHls, FOTO_MS, type Canal, type Alerta, type Lectura, type Modo } from "@/components/monitor/camaras/piezas";
 import { Recursos } from "@/components/monitor/camaras/Recursos";
@@ -49,6 +53,12 @@ const DESTELLO_MS = 4000;
 /** Cuántas chapas recientes entran en una baldosa chica y en una grande. */
 const CHAPAS_CHICA = 2, CHAPAS_GRANDE = 4;
 const AUTO = "auto";
+/**
+ * Cuánto se queda en la baldosa la captura de una detección con las siluetas de OmniVision,
+ * desde que llega el análisis. Después vuelve el vivo (el borde rojo sigue los 2 minutos).
+ * Es lo que se puede mostrar sin costo: ese análisis ya lo hace vision-worker para verificar.
+ */
+const CAPTURA_EN_BALDOSA_MS = 15_000;
 
 type Datos = { canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean };
 /** colMovil: en el celular la pared es una lista que se desliza, de 1 o 2 columnas. */
@@ -123,6 +133,28 @@ function AccionBaldosa({ children, titulo, onClick, href }: { children: React.Re
     return <button type="button" title={titulo} aria-label={titulo} onPointerDown={cortar} onClick={(e) => { cortar(e); onClick?.(); }} className={cls}>{children}</button>;
 }
 
+/**
+ * La captura de la detección con lo que vio OmniVision, sobre la baldosa durante
+ * CAPTURA_EN_BALDOSA_MS. No se dibuja sobre el vivo: la persona ya se movió desde la captura, y
+ * su silueta flotando en otro lugar del video sería una mentira. Lo dice el rótulo.
+ */
+function CapturaConSiluetas({ a, geom, ancho }: { a: Alerta; geom: Canal["geom"]; ancho: number }) {
+    const [visible, setVisible] = useState(true);
+    useEffect(() => { const k = setTimeout(() => setVisible(false), CAPTURA_EN_BALDOSA_MS); return () => clearTimeout(k); }, []);
+    const src = conAncho(getImagePath(a.foto || null), ancho);
+    if (!visible || !src) return null;
+    return (
+        <div className="absolute inset-0 bg-black">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={src} alt="" draggable={false} className="absolute inset-0 w-full h-full object-cover" />
+            <CapaAnalisis analisis={a.verif!.analisis} geom={geomDeIntrusion(geom)} ajuste="cover" etiquetas={false} />
+            <span className="absolute top-12 left-2 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white/85 tabular-nums">
+                Captura {horaCorta(a.ts)} · OmniVision
+            </span>
+        </div>
+    );
+}
+
 function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
@@ -147,6 +179,7 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     }
     const caido = c.online === false;
     const m = alerta ? metaDe(alerta.tipo) : null;
+    const captura = alerta?.verif?.analisis && alerta.foto ? alerta : null;
     const ult = !alerta && c.ultima ? metaDe(c.ultima.tipo) : null;
     const foto = fotoDe(c, grande ? 960 : 640);
     const r = MODO_ROTULO[modo];
@@ -165,6 +198,7 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
                 <Vivo src={vivoDe(c.stream, modo === "convertido", hls)} alResultado={(ok) => alResultado(c, modo, ok)} className="absolute inset-0 w-full h-full object-cover" />
             )}
             {c.geom && !caido && <Geometria geom={c.geom} alerta={!!alerta} ajuste="cover" />}
+            {captura && <CapturaConSiluetas key={captura.id} a={captura} geom={c.geom} ancho={grande ? 960 : 640} />}
 
             <div className="absolute top-0 inset-x-0 px-3 pt-2 pb-6 bg-gradient-to-b from-black/75 to-transparent flex items-start gap-2">
                 <div className="min-w-0 flex-1">
@@ -254,6 +288,8 @@ export function VistaCamaras() {
         // Si quien avisó es un NVR (canal sin mapear), el canal lo resuelve la consulta.
         setTimeout(recargar, 1500);
     });
+    // OmniVision terminó de mirar una captura: la consulta trae sus siluetas para la baldosa.
+    useTiempoReal("detection_verified", () => { recargar(); });
     useTiempoReal("access_event", (e: any) => {
         const dev = e?.deviceId || e?.device?.id;
         if (!e?.id || !dev) return;
@@ -265,7 +301,8 @@ export function VistaCamaras() {
     });
     const ventana = datos?.ventanaAlertaMs || 120_000;
     const alertaDe = useCallback((c: Canal): Alerta | null => {
-        const viva = c.equipoId ? alertasVivas[c.equipoId] : undefined;
+        // La del socket no trae captura ni análisis: si es la misma detección, vale la de la consulta.
+        const viva = c.equipoId && alertasVivas[c.equipoId]?.id !== c.alerta?.id ? alertasVivas[c.equipoId] : undefined;
         const a = [c.alerta, viva].filter(Boolean).sort((x, y) => +new Date(y!.ts) - +new Date(x!.ts))[0] || null;
         return a && Date.now() - +new Date(a.ts) < ventana ? a : null;
     }, [alertasVivas, ventana]);

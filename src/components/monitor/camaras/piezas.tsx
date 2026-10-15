@@ -6,7 +6,9 @@ import type { Disposicion } from "@/lib/monitor/disposiciones";
 import { cn } from "@/lib/utils";
 
 /** Lo que trae /api/monitor/camaras de cada canal (ver la ruta para el porqué de cada campo). */
-export type Alerta = { id: string; tipo: string; ts: string };
+export type Alerta = { id: string; tipo: string; ts: string;
+    /** La captura de la detección y lo que OmniVision vio en ella (sólo las de la consulta, no las del socket). */
+    foto?: string | null; verif?: { veredicto: string | null; analisis: any } | null };
 export type Lectura = { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean };
 export type Punto = { x: number; y: number };
 export type Canal = {
@@ -54,13 +56,16 @@ export const ubicacion = (c: Canal) => [c.nvr, c.ch != null ? `CH ${c.ch}` : nul
 export const grupoDe = (c: Canal) => c.nvr || "Cámaras sueltas";
 
 /** Un <video> de go2rtc que avisa si arrancó o no, y suelta la conexión al desmontarse. */
-export function Vivo({ src, alResultado, className }: { src: string; alResultado?: (ok: boolean) => void; className?: string }) {
+export function Vivo({ src, alResultado, className, alMedir }: { src: string; alResultado?: (ok: boolean) => void; className?: string;
+    /** El tamaño real del video, cuando se sabe: lo usan las siluetas para caer donde van. */
+    alMedir?: (ancho: number, alto: number) => void }) {
     const ref = useRef<HTMLVideoElement>(null);
     const avisar = useRef(alResultado); avisar.current = alResultado;
+    const medir = useRef(alMedir); medir.current = alMedir;
     useEffect(() => {
         const v = ref.current; if (!v) return;
         let listo = false;
-        const ok = () => { if (!listo) { listo = true; avisar.current?.(true); } };
+        const ok = () => { if (v.videoWidth) medir.current?.(v.videoWidth, v.videoHeight); if (!listo) { listo = true; avisar.current?.(true); } };
         const mal = () => { if (!listo) { listo = true; avisar.current?.(false); } };
         const to = setTimeout(mal, VIVO_ESPERA_MS);
         v.addEventListener("loadeddata", ok); v.addEventListener("error", mal);
@@ -151,4 +156,40 @@ export function Flotante({ abierto, alCerrar, children, className, lado = "izqui
             {children}
         </div>
     );
+}
+
+/** Si no llega un cuadro analizado en este tiempo, las siluetas se borran: dibujar las viejas sería mentir. */
+const SILUETAS_VIEJAS_MS = 2000;
+
+/**
+ * Las siluetas del canal en vivo (/api/monitor/camaras/siluetas, por EventSource). Devuelve el
+ * último análisis, lo que tardó y si el servidor no dio lugar (tope de canales a la vez).
+ * `activo` en false no abre nada: la GPU no trabaja para una ficha que no las muestra.
+ */
+export function useSiluetasEnVivo(stream: string | null, activo: boolean) {
+    const [analisis, setAnalisis] = useState<any | null>(null);
+    const [ms, setMs] = useState<number | null>(null);
+    const [estado, setEstado] = useState<"apagado" | "conectando" | "vivo" | "ocupado" | "error">("apagado");
+    useEffect(() => {
+        if (!stream || !activo) { setAnalisis(null); setEstado("apagado"); return; }
+        setEstado("conectando");
+        let viejo: ReturnType<typeof setTimeout> | null = null;
+        let es: EventSource | null = null;
+        const abrir = () => {
+            es = new EventSource(`/api/monitor/camaras/siluetas?stream=${encodeURIComponent(stream)}`);
+            // Sin lugar (tope de canales a la vez): el servidor lo dice y se cierra; sin cerrar acá,
+            // EventSource reintentaría solo para siempre.
+            es.addEventListener("ocupado", () => { es?.close(); setEstado("ocupado"); });
+            es.addEventListener("cuadro", (e: MessageEvent) => {
+                const d = JSON.parse(e.data);
+                setAnalisis(d.analisis); setMs(d.ms); setEstado("vivo");
+                if (viejo) clearTimeout(viejo);
+                viejo = setTimeout(() => setAnalisis(null), SILUETAS_VIEJAS_MS);
+            });
+            es.onerror = () => { if (es?.readyState === EventSource.CLOSED) { setEstado("error"); } };
+        };
+        abrir();
+        return () => { if (viejo) clearTimeout(viejo); es?.close(); };
+    }, [stream, activo]);
+    return { analisis, ms, estado };
 }
