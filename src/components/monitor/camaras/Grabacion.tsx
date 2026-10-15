@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Sparkles } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radio, Loader2, CalendarDays, Clock, Car, User, PawPrint, Sparkles, Boxes } from "lucide-react";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { geomDeIntrusion } from "@/lib/vision-capa";
-import { Scrub, type MarcaScrub } from "@/components/Scrub";
+import { Scrub, type MarcaScrub, type BandaScrub, type ScrubMando } from "@/components/Scrub";
+import { nombrePropio, useNombresPropios } from "@/lib/nombres-propios";
 import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
 import { ZONA } from "@/lib/fechas";
@@ -48,11 +49,21 @@ const SALTO_MS = 30_000;
 const SILUETAS_CADA_MS = 400;
 const SILUETAS_ANCHO = 640;
 /**
- * Arrastrar sobre el video (pedido 15/10: «drag and drop para ir para atrás o adelante en
- * cualquier parte»): un ancho entero de pantalla son ARRASTRE_ANCHO_MS. Dos minutos dejan
- * apuntar al segundo con el dedo; para saltos largos están la regla, las marcas y la hora.
+ * La escala de la regla en la grabación, en px por minuto (la del visor es 2). Arrastrar en
+ * cualquier parte del cuadro ES arrastrar la regla (pedido 15/10: «cuando arrastro la pantalla,
+ * debe moverse también la barra de tiempo»): misma escala, mismo sentido, misma inercia. Antes el
+ * cuadro tenía su propia escala (2 min por pantalla) y la regla se corría 4 px: parecía suelta.
+ * A 6 px/min, 100 px son ~17 min y el paso de 15 s queda en 1,5 px; lo fino, con ← → y ±30 s.
  */
-const ARRASTRE_ANCHO_MS = 120_000;
+const PX_POR_MINUTO = 6;
+/** El paso al soltar la regla: 15 s. Al minuto, un arrastre corto no se movía. */
+const PASO_REGLA = "0.25";
+/**
+ * Cuánto se pinta cada evento en la regla cuando no trae su fin (la cámara y el lector dicen
+ * un instante). Y eventos de la misma clase a menos de JUNTAR_MS se pintan como un solo tramo.
+ */
+const DURA_MS: Record<string, number> = { deteccion: 20_000, lectura: 10_000, vision: 5_000 };
+const JUNTAR_MS = 30_000;
 /** Lo que dura el desenfoque al saltar (botones, teclas, marcas, soltar el arrastre). */
 const DESENFOQUE_MS = 480;
 /** Desenfoque y corrimiento máximos, en px: lo justo para que se lea «movimiento», no «roto». */
@@ -61,9 +72,11 @@ const CORRIMIENTO_MAX = 64;
 const VENTANA_POR_DEFECTO: VentanaClip = { antes: 10, despues: 10, topes: { antesMax: 60, despuesMax: 170, despuesMin: 3 } };
 
 /** clase: quién lo detectó — la cámara (deteccion), el lector de chapas (lectura) u OmniVision (vision; tipo = grupo). */
-type Evento = { id: string; ts: number; clase: "deteccion" | "lectura" | "vision"; tipo: string; plate: string | null; ok: boolean | null };
+type Evento = { id: string; ts: number; fin?: number; clase: "deteccion" | "lectura" | "vision"; tipo: string; nombre?: string | null; plate: string | null; ok: boolean | null };
 /** OmniVision, por grupo: ícono y nombre. Van en azul (tono info) para distinguirlos de lo que avisó la cámara. */
-const VISION_GRUPO: Record<string, { Icon: any; nombre: string }> = { persona: { Icon: User, nombre: "Persona" }, vehiculo: { Icon: Car, nombre: "Vehículo" }, animal: { Icon: PawPrint, nombre: "Animal" } };
+const VISION_GRUPO: Record<string, { Icon: any; nombre: string }> = { persona: { Icon: User, nombre: "Persona" }, vehiculo: { Icon: Car, nombre: "Vehículo" }, animal: { Icon: PawPrint, nombre: "Animal" }, propio: { Icon: Boxes, nombre: "Objeto propio" } };
+/** El color de cada clase en la regla (marca y tramo). El rojo es «sin grabación»: la cámara va en ámbar. */
+const tonoDe = (e: Evento) => (e.clase === "vision" ? (e.tipo === "propio" ? "propio" : "info") : e.clase === "deteccion" ? "aviso" : "lectura");
 type Linea = { dia: string; desde: number; hasta: number; tramos: [number, number][] | null; eventos: Evento[] };
 
 const partes = (ms: number) => {
@@ -189,9 +202,11 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
     // El arrastre y los saltos seguidos no le piden al NVR cada paso: sólo donde se queda.
     useEffect(() => { setEstado("buscando"); const k = setTimeout(() => { setCargaT(t); setIntento(0); setConvertir(!h265); }, ASENTAR_MS); return () => clearTimeout(k); }, [t, h265]);
 
-    /** El arrastre sobre el cuadro: de dónde salió, cuánto se movió y a qué velocidad va. */
-    const [tirando, setTirando] = useState<{ x0: number; t0: number; dx: number; ancho: number; vx: number; xa: number; ta: number } | null>(null);
-    const destinoArrastre = (a: { t0: number; dx: number; ancho: number }) => Math.min(Date.now() - 5000, a.t0 + (a.dx / a.ancho) * ARRASTRE_ANCHO_MS);
+    /** El arrastre sobre el cuadro: de dónde salió, cuánto se movió y a qué velocidad va. Lo mueve la regla (`mando`). */
+    const [tirando, setTirando] = useState<{ x0: number; t0: number; dx: number; vx: number; xa: number; ta: number } | null>(null);
+    const mando = useRef<ScrubMando | null>(null);
+    /** Dónde está la regla mientras se arrastra (ms), para el cartel del centro. */
+    const [enRegla, setEnRegla] = useState<number | null>(null);
 
     const sinGrabacionAhi = hayEn(cargaT) === false;
     // Un tramo nuevo empieza invisible: el cuadro congelado queda arriba hasta su primer cuadro.
@@ -283,24 +298,51 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
         ro.observe(el); setAncho(el.clientWidth || 800);
         return () => ro.disconnect();
     }, []);
-    const minutoDe = (ms: number) => { const [h, m, sg] = partes(ms).hora.split(":").map(Number); return h * 60 + m + sg / 60; };
-    const tramosMin = useMemo(() => linea?.tramos?.map(([a, b]) => [a <= linea.desde ? 0 : minutoDe(a), b >= linea.hasta ? 1440 : minutoDe(b)] as [number, number]), [linea]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Todo en minutos desde la medianoche del día que se mira, SIN envolver: así la regla, los
+    // tramos y el arrastre hablan del mismo día aunque se pase de las 00:00 para atrás.
+    const medianoche = (linea?.dia === dia ? linea.desde : null) ?? msDe(dia, "00:00") ?? 0;
+    const minRel = (ms: number) => (ms - medianoche) / 60_000;
+    const lineaDeHoy = linea?.dia === dia ? linea : null;
+    const tramosMin = useMemo(() => lineaDeHoy?.tramos?.map(([a, b]) => [Math.max(0, minRel(a)), Math.min(1440, minRel(b))] as [number, number]), [lineaDeHoy]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Hasta dónde se sabe si hay grabación: el día entero, o hasta ahora si es hoy.
+    const rangoTramos: [number, number] | undefined = tramosMin ? [0, Math.min(1440, minRel(Date.now()))] : undefined;
+    useNombresPropios();
     const marcas = useMemo<MarcaScrub[]>(() => eventos.map((e) => {
         const hora = partes(e.ts).hora;
         if (e.clase === "vision") {
             const g = VISION_GRUPO[e.tipo] || VISION_GRUPO.persona;
-            return { id: e.id, m: minutoDe(e.ts), Icon: g.Icon, titulo: `OmniVision · ${g.nombre} · ${hora}`, tono: "info" };
+            const nombre = e.tipo === "propio" ? nombrePropio(e.nombre || "") || g.nombre : g.nombre;
+            return { id: e.id, m: minRel(e.ts), Icon: g.Icon, titulo: `OmniVision · ${nombre} · ${hora}`, tono: tonoDe(e) };
         }
         const det = e.clase === "deteccion";
         return {
-            id: e.id, m: minutoDe(e.ts), Icon: det ? metaDe(e.tipo).Icon : Car,
+            id: e.id, m: minRel(e.ts), Icon: det ? metaDe(e.tipo).Icon : Car,
             titulo: det ? `Cámara · ${metaDe(e.tipo).label} · ${hora}` : `${e.plate || "Sin leer"} · ${e.tipo === "EXIT" ? "sale" : "entra"} · ${hora}`,
-            tono: det ? "mal" : e.ok ? "bien" : "mal",
+            // La lectura conserva su resultado en la marca (autorizada o no); su tramo va en blanco.
+            tono: det ? "aviso" : e.ok ? "bien" : "mal",
         };
-    }), [eventos]); // eslint-disable-line react-hooks/exhaustive-deps
+    }), [eventos, medianoche]); // eslint-disable-line react-hooks/exhaustive-deps
+    /**
+     * Los tramos con detección (pedido 15/10: «los tramos de detecciones, cada uno con su color»):
+     * cada evento dura lo que estuvo a la vista (OmniVision) o DURA_MS, y los de la misma clase
+     * que se tocan se juntan. Como en la línea de tiempo de un NVR: de un vistazo, dónde pasó algo.
+     */
+    const bandas = useMemo<BandaScrub[]>(() => {
+        const abiertas = new Map<string, { a: number; b: number }>();
+        const out: BandaScrub[] = [];
+        for (const e of eventos) {
+            const tono = tonoDe(e), a = e.ts, b = Math.max(e.fin ?? 0, e.ts + (DURA_MS[e.clase] || 10_000));
+            const u = abiertas.get(tono);
+            if (u && a <= u.b + JUNTAR_MS) { u.b = Math.max(u.b, b); continue; }
+            if (u) out.push({ a: minRel(u.a), b: minRel(u.b), tono });
+            abiertas.set(tono, { a, b });
+        }
+        for (const [tono, u] of abiertas) out.push({ a: minRel(u.a), b: minRel(u.b), tono });
+        return out;
+    }, [eventos, medianoche]); // eslint-disable-line react-hooks/exhaustive-deps
     const irAMarcaScrub = (k: MarcaScrub) => irAMarca(eventos.find((e) => e.id === k.id) || null);
 
-    const sigueVisible = visibles || !jugando || estado !== "viendo";
+    const sigueVisible = visibles || !jugando || estado !== "viendo" || !!tirando;
     const hrefDescarga = (antes: number, despues: number, instante: number) => `/api/nvr/playback?ch=${c.ch}&t=${Math.floor(instante)}&pre=${antes}&dur=${antes + despues}&download=1&nvr=${encodeURIComponent(c.nvrId || "")}`;
     const p = partes(ahora);
 
@@ -344,36 +386,39 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
             </div>
             </div>
 
-            {/* Arrastrar en cualquier parte del cuadro: a la derecha adelanta, a la izquierda vuelve.
+            {/* Arrastrar en cualquier parte del cuadro es arrastrar la regla de abajo: se mueve bajo el
+                dedo, con su inercia (a la izquierda adelanta, a la derecha vuelve, como la regla).
                 Un toque sin arrastrar pausa o sigue, como en cualquier reproductor. */}
             <div className="absolute inset-0 cursor-grab active:cursor-grabbing touch-none"
                 onPointerDown={(e) => {
                     if (e.button !== 0) return;
                     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { }
                     cancelAnimationFrame(pulsoRaf.current);
-                    setTirando({ x0: e.clientX, t0: ahora, dx: 0, ancho: e.currentTarget.clientWidth || 1, vx: 0, xa: e.clientX, ta: performance.now() });
+                    setTirando({ x0: e.clientX, t0: ahora, dx: 0, vx: 0, xa: e.clientX, ta: performance.now() });
+                    mando.current?.empezar(e.clientX);
                 }}
                 onPointerMove={(e) => {
                     if (!tirando) return;
+                    mando.current?.mover(e.clientX);
                     const now = performance.now();
                     const vx = (e.clientX - tirando.xa) / Math.max(1, now - tirando.ta); // px/ms
                     const dx = e.clientX - tirando.x0;
                     setTirando({ ...tirando, dx, vx: tirando.vx * 0.6 + vx * 0.4, xa: e.clientX, ta: now });
-                    // Mientras se arrastra, el desenfoque sigue a la velocidad y el corrimiento al sentido.
+                    // Mientras se arrastra, el desenfoque sigue a la velocidad y el cuadro acompaña al dedo.
                     setEfecto({ blur: Math.min(DESENFOQUE_MAX, Math.abs(vx) * 14 + 3), x: Math.max(-CORRIMIENTO_MAX, Math.min(CORRIMIENTO_MAX, dx * 0.08)) });
                 }}
                 onPointerUp={() => {
                     if (!tirando) return;
-                    const movio = Math.abs(tirando.dx) > 6;
-                    if (movio) { const destino = destinoArrastre(tirando); pulso(destino >= tirando.t0 ? 1 : -1); ir(destino); }
-                    else { setEfecto({ blur: 0, x: 0 }); alternarPlay(); }
+                    // Al soltar, la regla sigue con su inercia y, cuando se asienta, su onChange salta.
+                    if (Math.abs(tirando.dx) > 6) mando.current?.soltar();
+                    else { mando.current?.cancelar(); setEfecto({ blur: 0, x: 0 }); alternarPlay(); }
                     setTirando(null);
                 }}
-                onPointerCancel={() => { setTirando(null); pulso(0); }} />
+                onPointerCancel={() => { mando.current?.cancelar(); setTirando(null); pulso(0); }} />
 
             {/* Mientras se arrastra: hacia dónde, cuánto y a qué hora se llega. */}
-            {tirando && Math.abs(tirando.dx) > 6 && (() => {
-                const destino = destinoArrastre(tirando);
+            {tirando && Math.abs(tirando.dx) > 6 && enRegla != null && (() => {
+                const destino = Math.min(Date.now() - 5000, enRegla);
                 const d = Math.round((destino - tirando.t0) / 1000), adelante = d >= 0;
                 const abs = Math.abs(d), txt = `${adelante ? "+" : "−"}${abs >= 60 ? `${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, "0")}` : `${abs} s`}`;
                 return (
@@ -457,23 +502,27 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
 
                     <span className="hidden lg:inline-flex items-center gap-3 text-[12px] text-white/60 ml-1">
                         {estado === "viendo" && !convertir && <span title="El servidor no la convierte: la pasa tal cual la grabó el NVR">H.265 directo</span>}
-                        {tramosMin && <span className="inline-flex items-center gap-1"><span className="w-3 h-1 rounded-full bg-[color-mix(in_oklab,var(--bien)_80%,transparent)]" /> hay grabación</span>}
-                        {eventos.some((e) => e.clase === "deteccion") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#dc2626] ring-1 ring-white/70" /> cámara</span>}
-                        {eventos.some((e) => e.clase === "vision") && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#0284c7] ring-1 ring-white/70" /> OmniVision</span>}
+                        {tramosMin && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[var(--bien)]" /> grabación</span>}
+                        {tramosMin && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[var(--mal)]" /> sin grabación</span>}
+                        {eventos.some((e) => e.clase === "deteccion") && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[var(--aviso)]" /> cámara</span>}
+                        {eventos.some((e) => e.clase === "vision" && e.tipo !== "propio") && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[var(--accion-en-oscuro)]" /> OmniVision</span>}
+                        {eventos.some((e) => e.clase === "vision" && e.tipo === "propio") && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-[#c084fc]" /> entrenado</span>}
+                        {eventos.some((e) => e.clase === "lectura") && <span className="inline-flex items-center gap-1"><span className="w-3.5 h-1.5 bg-white" /> lectura</span>}
                     </span>
                 </div>
 
                 {/* La regla de siempre (la del visor): la hora grande arriba, se arrastra, y las marcas se tocan. */}
                 <div ref={cajaRegla} className="mt-1">
-                    <Scrub step="1" momentum={30} format="24h" width={ancho} difuminado={8} value={minutoDe(ahora)} start={minutoDe(ahora)}
-                        sinEnvolver
+                    <Scrub step={PASO_REGLA} momentum={30} format="24h" width={ancho} difuminado={8} value={minRel(ahora)} start={minRel(ahora)}
+                        sinEnvolver pxPorMinuto={PX_POR_MINUTO} mando={mando}
+                        alArrastrar={(m) => setEnRegla(m == null ? null : medianoche + m * 60_000)}
                         onChange={(mins) => {
                             // Minutos desde la medianoche del día que se mira, sin envolver: negativos son
                             // el día anterior (pasar las 00:00 hacia atrás), más de 1440 el siguiente.
-                            const medianoche = msDe(p.dia, "00:00"); if (medianoche == null) return;
-                            saltar(medianoche + Math.round(mins) * 60_000, ahora);
+                            const ms = medianoche + mins * 60_000;
+                            if (Math.abs(ms - ahora) > 1000) saltar(ms, ahora);
                         }}
-                        marcas={marcas} onMarca={irAMarcaScrub} tramos={tramosMin || undefined} />
+                        marcas={marcas} onMarca={irAMarcaScrub} tramos={tramosMin || undefined} rangoTramos={rangoTramos} bandas={bandas} />
                 </div>
             </div>
 

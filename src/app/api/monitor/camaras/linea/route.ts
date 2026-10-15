@@ -28,7 +28,7 @@ import { ZONA } from "@/lib/fechas";
 /** Hasta cuántos tramos se piden por día (páginas de 100). Un canal que graba por movimiento puede tener cientos. */
 const PAGINAS_MAX = 6;
 /** Lo que OmniVision registra y vale la pena marcar en la regla. */
-const GRUPOS_VISION = ["persona", "vehiculo", "animal"];
+const GRUPOS_VISION = ["persona", "vehiculo", "animal", "propio"];
 /** Hasta cuántas marcas por día: más no se distinguen en la regla y sólo pesan. */
 const EVENTOS_MAX = 600;
 /** La etiqueta con la que server.js deja la detección de un canal que no está en el mapa. */
@@ -104,14 +104,15 @@ export async function GET(req: NextRequest) {
         // Lo que OmniVision registró en esta cámara (vision-worker): una marca por pista, al empezar.
         prisma.objetoVisto.findMany({
             where: { deviceId: vid, primeraVez: rango, grupo: { in: GRUPOS_VISION } },
-            select: { id: true, primeraVez: true, grupo: true, clase: true, confianza: true }, orderBy: { primeraVez: "asc" }, take: EVENTOS_MAX,
+            select: { id: true, primeraVez: true, ultimaVez: true, grupo: true, clase: true, confianza: true }, orderBy: { primeraVez: "asc" }, take: EVENTOS_MAX,
         }).catch(() => []),
     ]);
 
     const eventos = [
         ...detecciones.map((d) => ({ id: d.id, ts: d.timestamp.getTime(), clase: "deteccion" as const, tipo: String(d.type), plate: null as string | null, ok: null as boolean | null })),
         ...lecturas.map((l) => ({ id: l.id, ts: l.timestamp.getTime(), clase: "lectura" as const, tipo: String(l.direction), plate: l.plateDetected || null, ok: String(l.decision) === "GRANT" && !/lista negra/i.test(l.details || "") })),
-        ...vistos.map((o) => ({ id: o.id, ts: o.primeraVez.getTime(), clase: "vision" as const, tipo: o.grupo, plate: null as string | null, ok: null as boolean | null })),
+        // `fin`: cuánto estuvo a la vista (la pista de OmniVision), para pintar el tramo en la regla.
+        ...vistos.map((o) => ({ id: o.id, ts: o.primeraVez.getTime(), fin: o.ultimaVez.getTime(), clase: "vision" as const, tipo: o.grupo, nombre: o.grupo === "propio" ? o.clase : null, plate: null as string | null, ok: null as boolean | null })),
     ].sort((a, b) => a.ts - b.ts).slice(0, EVENTOS_MAX);
 
     return NextResponse.json({ dia, desde, hasta, tramos, eventos, marca: conn ? String(conn.brand) : null }, { headers: SIN_CACHE });
