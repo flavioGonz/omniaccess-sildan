@@ -27,6 +27,8 @@ import type { HistorialPista, LecturaCruzada, PasoChapa, Persona, Vigilancia } f
  */
 export type ResultadoBusqueda = FilaObjeto & { coseno: number; prob: number | null; historial: HistorialPista | null };
 
+/** Una pista vista hace menos de esto está «en curso» (el worker la cierra a los 15 s sin verla). */
+const EN_CURSO_MS = 20_000;
 /** Cada cuántas tarjetas va una grande: si no, un mosaico de iguales no destaca nada. */
 const RITMO_BENTO = 9;
 /** Lo que ocupa el objeto en la tarjeta: acercarlo hasta acá, sin pasar de ACERCAR_MAX. */
@@ -121,8 +123,11 @@ function pedirSilueta(id: string): Promise<Analisis | null> {
     return p;
 }
 
-const Tarjeta = memo(function Tarjeta({ r, grande, relevancia, lejos, siluetas, alAbrir }: {
-    r: ResultadoBusqueda; grande: boolean; relevancia: number | null; lejos: boolean; siluetas: boolean; alAbrir: (r: ResultadoBusqueda) => void;
+const Tarjeta = memo(function Tarjeta({ r, grande, relevancia, lejos, siluetas, nueva, alAbrir }: {
+    r: ResultadoBusqueda; grande: boolean; relevancia: number | null; lejos: boolean; siluetas: boolean;
+    /** Llegó en el último refresco (Detecciones en vivo): un anillo que se apaga solo. */
+    nueva: boolean;
+    alAbrir: (r: ResultadoBusqueda) => void;
 }) {
     const [cargada, setCargada] = useState(false);
     const Ic = ICONO_GRUPO[r.grupo] || Shapes;
@@ -135,7 +140,7 @@ const Tarjeta = memo(function Tarjeta({ r, grande, relevancia, lejos, siluetas, 
     return (
         <button type="button" onClick={() => alAbrir(r)} title={`${l?.plate || nombreClase(r.clase)} · ${r.camara}`}
             className={cn("group relative overflow-hidden rounded-[8px] bg-black text-left outline-none transition-[box-shadow,opacity] duration-200 hover:ring-2 hover:ring-[var(--accion)] focus-visible:ring-2 focus-visible:ring-[var(--accion)] [content-visibility:auto]",
-                grande && "col-span-2 row-span-2", negra && "ring-2 ring-[var(--mal)]", lejos && "opacity-60 hover:opacity-100")}>
+                grande && "col-span-2 row-span-2", negra && "ring-2 ring-[var(--mal)]", lejos && "opacity-60 hover:opacity-100", nueva && !negra && "ring-2 ring-[var(--accion-en-oscuro)] animate-[pulse_1.2s_ease-in-out_2]")}>
             <span className="absolute inset-0 overflow-hidden">
                 {!cargada && <span className="absolute inset-0 animate-pulse bg-white/5" />}
                 <span className="absolute inset-0 transition-transform duration-300 group-hover:scale-[1.04]">
@@ -159,6 +164,10 @@ const Tarjeta = memo(function Tarjeta({ r, grande, relevancia, lejos, siluetas, 
                         <Ic size={11} />{chica && l ? "" : nombreClase(r.clase)}
                     </span>
                     {ma && <span className="grid h-5 w-5 place-items-center rounded-md pleno-aviso shrink-0" title={`${ma.label} · ${hora(alerta!.ts)}`}><ma.Icon size={11} /></span>}
+                    {/* Todavía a la vista de la cámara (el worker cierra la pista a los 15 s sin verla). */}
+                    {Date.now() - new Date(r.ultimaVez).getTime() < EN_CURSO_MS && (
+                        <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.08em] pleno-bien shrink-0"><span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />{grande ? "en curso" : ""}</span>
+                    )}
                 </span>
                 <span className="flex items-center gap-1 shrink-0">
                     {r.empresa && (
@@ -199,10 +208,12 @@ const Tarjeta = memo(function Tarjeta({ r, grande, relevancia, lejos, siluetas, 
  * El mosaico. Van en grande: los dos primeros (lo más parecido), lo vigilado (lista negra o en
  * búsqueda: es lo que más importa encontrar) y una cada RITMO_BENTO.
  */
-export function MosaicoBuscar({ resultados, alAbrir, relativa, lejos = false, atenuado = false }: {
+export function MosaicoBuscar({ resultados, alAbrir, relativa, lejos = false, atenuado = false, nuevas }: {
     resultados: ResultadoBusqueda[]; alAbrir: (r: ResultadoBusqueda) => void;
     /** Dar el % relativo al primero (texto, foto, parecidos); en la búsqueda por chapa no aplica. */
     relativa: boolean; lejos?: boolean; atenuado?: boolean;
+    /** Ids que acaban de llegar (pantalla en vivo). */
+    nuevas?: Set<string>;
 }) {
     const max = resultados[0]?.coseno || 1, min = resultados[resultados.length - 1]?.coseno ?? 0;
     // La misma preferencia que el historial y el visor: apagarla en uno las apaga en todos.
@@ -212,7 +223,7 @@ export function MosaicoBuscar({ resultados, alAbrir, relativa, lejos = false, at
             {resultados.map((r, i) => {
                 const grande = !lejos && (i < 2 || esNegra(r.historial?.lectura?.vigilancia) || i % RITMO_BENTO === 0);
                 const rel = relativa ? (max > min ? (r.coseno - min) / (max - min) : 1) : null;
-                return <Tarjeta key={r.id} r={r} grande={grande} relevancia={rel} lejos={lejos} siluetas={siluetas} alAbrir={alAbrir} />;
+                return <Tarjeta key={r.id} r={r} grande={grande} relevancia={rel} lejos={lejos} siluetas={siluetas} nueva={!!nuevas?.has(r.id)} alAbrir={alAbrir} />;
             })}
         </div>
     );

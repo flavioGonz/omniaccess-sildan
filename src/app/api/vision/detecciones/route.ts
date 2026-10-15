@@ -5,6 +5,8 @@ import { leerAjuste } from "@/lib/ajustes-db";
 import { saludVision, empresasEnTextos } from "@/lib/vision";
 import { leerCatalogo } from "@/lib/empresas-servidor";
 import { normalizarNombre } from "@/lib/empresas";
+import { historialDePistas } from "@/lib/vision-historial";
+import { CANAL_NVR } from "@/lib/vision-camaras";
 import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +52,7 @@ export async function GET(req: NextRequest) {
         prisma.objetoVisto.groupBy({ by: ["deviceId"], where: { primeraVez: { gte: desde } }, _count: { _all: true } }),
         leerAjuste("VISION_REGISTRO_ESTADO"),
         leerAjuste("VISION_CAMARAS"),
+        // (los nombres de los canales de NVR van en VISION_CAMARAS_NOMBRES, abajo)
         prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, deviceType: true }, orderBy: { name: "asc" } }),
         saludVision(),
     ]);
@@ -66,12 +69,20 @@ export async function GET(req: NextRequest) {
         const marcados = empresasEnTextos(textos, catalogo as any, normalizarNombre);
         return { ...f, textos: marcados, empresa: (marcados.find((t: any) => t.empresa) as any)?.empresa || null };
     }).filter((f) => !rotulo || (f.textos && f.textos.length));
+    // Lo que el historial sabe de cada pista (chapa leída, autorizado, dueño, alertas): lo mismo que
+    // Buscar, para que la tarjeta sea la misma en las dos pantallas (ver lib/vision-historial).
+    const historial = await historialDePistas(conEmpresa).catch(() => new Map());
+    const enriquecidas = conEmpresa.map((f) => ({ ...f, coseno: 0, prob: null, historial: historial.get(f.id) || null }));
+    // Las cámaras para filtrar: los equipos y los canales de NVR que están en OmniVision.
+    let nombres: Record<string, string> = {};
+    try { nombres = JSON.parse((await leerAjuste("VISION_CAMARAS_NOMBRES"))?.value || "{}") || {}; } catch { nombres = {}; }
+    const canales = elegidas.filter((id) => CANAL_NVR.test(id)).map((id) => ({ id, name: nombres[id] || id, deviceType: "NVR_CANAL", registra: true }));
     return NextResponse.json({
-        filas: conEmpresa, h, porPagina: POR_PAGINA,
+        filas: enriquecidas, h, porPagina: POR_PAGINA,
         porClase: porClase.map((x) => ({ clase: x.clase, grupo: x.grupo, n: x._count._all })).sort((a, b) => b.n - a.n),
         porCamara: Object.fromEntries(porCamara.map((x) => [x.deviceId || "", x._count._all])),
         // "Todas" se guarda como lista vacía: así una cámara nueva entra sola.
-        camaras: camaras.map((c) => ({ ...c, registra: !elegidas.length || elegidas.includes(c.id) })),
+        camaras: [...camaras.map((c) => ({ ...c, registra: !elegidas.length || elegidas.includes(c.id) })), ...canales],
         estado,
         vision: { ok: !!vision.salud, error: vision.error || null },
     }, { headers: { "Cache-Control": "no-store" } });

@@ -1,48 +1,47 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-    ListVideo, Camera, Loader2, Activity, User, Car, PawPrint, Backpack, Shapes,
-    type LucideIcon, Boxes } from "lucide-react";
-import { sileo as toast } from "sileo";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { ListVideo, Loader2, User, Car, PawPrint, Backpack, Shapes, Sparkles, Video, Gauge, type LucideIcon, Boxes, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Chip, ErrorEstado, Cargando } from "@/components/ui/estados";
+import { ErrorEstado, Cargando, Vacio } from "@/components/ui/estados";
 import { Filtros } from "@/components/ui/filtros";
-import { Cajon, CajonContenido } from "@/components/ui/cajon";
-import { TarjetaObjeto as Tarjeta, FichaObjeto as Ficha, pct, hora, fecha, duracion, nombreClase, type FilaObjeto as Fila } from "@/components/vision/ObjetoRegistro";
+import { Pista } from "@/components/ui/pista";
+import { Cajon, CajonContenido, CajonSeccion } from "@/components/ui/cajon";
+import { FichaObjeto as Ficha, pct, hora, fecha, duracion, nombreClase } from "@/components/vision/ObjetoRegistro";
+import { MosaicoBuscar, HistorialDePista, type ResultadoBusqueda as Fila } from "@/components/vision/buscar/MosaicoBuscar";
+import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
 import { useNombresPropios } from "@/lib/nombres-propios";
+import { useSiluetas } from "@/lib/use-siluetas";
 
 /**
- * Detecciones: lo que guardó el registro de detecciones (vision-worker).
+ * Detecciones: lo que guardó el registro de OmniVision (vision-worker), en vivo.
  *
- * Aparte del laboratorio a pedido de Nico (9/10): el laboratorio prueba un cuadro; esto es lo
- * que el detector vio solo, durante horas, para saber qué detecta bien, qué confunde y cuánto.
- * Sin entrada en el menú, bajo el permiso Ajustes (como /admin/vision).
+ * Desde el 15/10 (pedido de Nico: «tipo grilla bento, con todas las detecciones, similar a Buscar;
+ * la tabla de cámaras parece redundante») es el mismo mosaico que Buscar y el historial: el cuadro
+ * de la cámara acercado al objeto, su silueta, y lo que el historial sabe (chapa leída, dueño,
+ * vigilancia, alertas). Las tarjetas de cámaras con interruptor se fueron: qué cámaras procesa
+ * OmniVision y cuánto consume cada una está en Analíticas (tabla del motor), y se agregan o
+ * quitan desde la pared. Acá queda un filtro por cámara.
  *
- * Una tarjeta es una PISTA, no un cuadro: una persona que cruza la cámara en 12 s es una
- * tarjeta, con el mejor recorte de su paso. La ficha muestra el cuadro de ese momento con la
- * caja y el recorrido entero, y abre la grabación del NVR en ese instante.
+ * Una tarjeta es una PISTA, no un cuadro: una persona que cruza la cámara en 12 s es una tarjeta,
+ * con su mejor foto. Se refresca cada REFRESCO_MS; lo que llega se marca un momento.
  */
-
-type EstadoCamara = { nombre: string; analizados: number; saltados: number; errores: number; objetos: number; ultimo: string | null; ms: number | null; error: string | null; cambio: { mediana: number; max: number; n: number } | null };
 type Respuesta = {
     filas: Fila[]; h: number; porPagina: number;
     porClase: { clase: string; grupo: string; n: number }[];
     porCamara: Record<string, number>;
     camaras: { id: string; name: string; deviceType: string; registra: boolean }[];
-    estado: null | {
-        t: string; activo: boolean; intervaloMs: number; umbral: number; cambioMin: number; pistasAbiertas: number; retencionDias: number;
-        camaras: Record<string, EstadoCamara>; contadores: { ciclos: number; analizados: number; saltados: number; errores: number; abiertas: number; cerradas: number };
-    };
+    estado: null | { t: string; activo: boolean; intervaloMs: number; cicloMs?: number | null; umbral: number; pistasAbiertas: number; retencionDias: number };
     vision: { ok: boolean; error: string | null };
 };
 
-/** Cada cuánto se vuelve a pedir la lista. El registro mira cada cámara cada 2 s; más seguido no trae nada nuevo. */
-const REFRESCO_MS = 8000;
+/** Cada cuánto se vuelve a pedir la lista: la vuelta del motor anda en 4 s, más seguido no trae nada. */
+const REFRESCO_MS = 6000;
 /** Sin noticias del proceso durante esto, se dice que no hay señal (escribe su estado cada 15 s). */
 const SIN_SENAL_MS = 60_000;
+/** Cuánto dura la marca de «recién llegada». */
+const NUEVA_MS = 4000;
 const RANGOS = [{ v: "1", r: "1 h" }, { v: "6", r: "6 h" }, { v: "24", r: "24 h" }, { v: "72", r: "3 días" }, { v: "168", r: "7 días" }];
 const GRUPOS: { v: string; r: string; icono: LucideIcon }[] = [
     { v: "", r: "Todo", icono: Shapes }, { v: "persona", r: "Personas", icono: User }, { v: "vehiculo", r: "Vehículos", icono: Car },
@@ -50,14 +49,6 @@ const GRUPOS: { v: string; r: string; icono: LucideIcon }[] = [
     // Lo que encuentra el detector propio (OmniVision › Entrenar › Objetos nuevos). Sólo se ofrece si hay.
     { v: "propio", r: "Propios", icono: Boxes },
 ];
-
-
-function haceCuanto(iso: string | null) {
-    if (!iso) return "nunca";
-    const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-    return s < 60 ? `hace ${s} s` : s < 3600 ? `hace ${Math.floor(s / 60)} min` : `hace ${Math.floor(s / 3600)} h`;
-}
-
 
 export default function DeteccionesVision() {
     useNombresPropios();  // las clases del detector propio con su nombre, no «propio:…»
@@ -70,8 +61,12 @@ export default function DeteccionesVision() {
     const [clase, setClase] = useState("");
     const [conRotulo, setConRotulo] = useState(false);
     const [cargandoMas, setCargandoMas] = useState(false);
+    const [noHayMas, setNoHayMas] = useState(false);
     const [abierta, setAbierta] = useState<Fila | null>(null);
-    const [, setTic] = useState(0);
+    const [siluetas, setSiluetas] = useSiluetas();
+    const [nuevas, setNuevas] = useState<Set<string>>(new Set());
+    const vistas = useRef<Set<string> | null>(null);
+    const { abrirRegistro, marcarNegra, cajones } = useRegistrarDesdeCaptura();
 
     const consulta = useCallback((antes?: string) => {
         const q = new URLSearchParams({ h });
@@ -86,47 +81,49 @@ export default function DeteccionesVision() {
     const cargar = useCallback(async () => {
         try {
             const r = await fetch(consulta(), { cache: "no-store" });
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
+            const j: Respuesta = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error((j as any)?.error || `El servidor respondió ${r.status}`);
+            // Lo que no estaba en la vuelta anterior se marca un momento (la primera carga no).
+            if (vistas.current) {
+                const llegaron = j.filas.filter((f) => !vistas.current!.has(f.id)).map((f) => f.id);
+                if (llegaron.length) { setNuevas(new Set(llegaron)); setTimeout(() => setNuevas(new Set()), NUEVA_MS); }
+            }
+            vistas.current = new Set(j.filas.map((f) => f.id));
             setDatos(j); setError(null);
         } catch (e: any) { setError(e?.message || "sin respuesta"); }
     }, [consulta]);
 
-    // Al cambiar un filtro se empieza de cero; la página 1 se refresca sola, lo ya cargado de más no.
-    useEffect(() => { setMas([]); cargar(); const t = setInterval(cargar, REFRESCO_MS); return () => clearInterval(t); }, [cargar]);
-    // Los "hace N s" envejecen aunque no lleguen datos nuevos.
-    useEffect(() => { const t = setInterval(() => setTic((x) => x + 1), 5000); return () => clearInterval(t); }, []);
+    // Al cambiar un filtro se empieza de cero; la primera página se refresca sola, lo ya cargado de más no.
+    useEffect(() => { setMas([]); setNoHayMas(false); vistas.current = null; cargar(); const t = setInterval(cargar, REFRESCO_MS); return () => clearInterval(t); }, [cargar]);
 
-    async function cargarMas() {
-        const todas = [...(datos?.filas || []), ...mas];
-        const ultima = todas[todas.length - 1];
-        if (!ultima) return;
+    const filas = useMemo(() => {
+        const ya = new Set<string>();
+        return [...(datos?.filas || []), ...mas].filter((f) => (ya.has(f.id) ? false : (ya.add(f.id), true)));
+    }, [datos, mas]);
+
+    const cargarMas = useCallback(async () => {
+        const ultima = filas[filas.length - 1];
+        if (!ultima || cargandoMas || noHayMas) return;
         setCargandoMas(true);
         try {
             const r = await fetch(consulta(ultima.primeraVez), { cache: "no-store" });
             const j = await r.json();
             if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
             setMas((m) => [...m, ...j.filas]);
-        } catch (e: any) { toast.error({ title: "No se pudieron traer más", description: e?.message }); }
+            if (j.filas.length < (datos?.porPagina || 60)) setNoHayMas(true);
+        } catch { setNoHayMas(true); }
         finally { setCargandoMas(false); }
-    }
+    }, [filas, cargandoMas, noHayMas, consulta, datos?.porPagina]);
 
-    async function alternarCamara(id: string, registra: boolean) {
-        if (!datos) return;
-        const nuevas = datos.camaras.filter((c) => (c.id === id ? registra : c.registra)).map((c) => c.id);
-        try {
-            const r = await fetch("/api/vision/registro", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ camaras: nuevas }) });
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(j?.error || `El servidor respondió ${r.status}`);
-            toast.success({ title: registra ? "Se registra" : "Deja de registrarse", description: "El proceso lo toma en menos de 30 s." });
-            cargar();
-        } catch (e: any) { toast.error({ title: "No se guardó", description: e?.message }); }
-    }
-
-    const filas = useMemo(() => {
-        const vistas = new Set<string>();
-        return [...(datos?.filas || []), ...mas].filter((f) => (vistas.has(f.id) ? false : (vistas.add(f.id), true)));
-    }, [datos, mas]);
+    // Scroll infinito, como el historial: al asomar el final se pide más.
+    const centinela = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const el = centinela.current;
+        if (!el || !datos || filas.length < (datos.porPagina || 60)) return;
+        const io = new IntersectionObserver((e) => { if (e[0]?.isIntersecting) void cargarMas(); }, { rootMargin: "800px 0px" });
+        io.observe(el);
+        return () => io.disconnect();
+    }, [cargarMas, datos, filas.length]);
 
     if (!datos && error) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><ErrorEstado mensaje={error} alReintentar={cargar} /></div>;
     if (!datos) return <div className="p-6 lg:p-8 max-w-[1500px] mx-auto"><Cargando texto="Trayendo lo que vio el detector…" /></div>;
@@ -135,109 +132,91 @@ export default function DeteccionesVision() {
     const sinSenal = !est || Date.now() - new Date(est.t).getTime() > SIN_SENAL_MS;
     const totalRango = datos.porClase.reduce((s, x) => s + x.n, 0);
     const porGrupo = (g: string) => datos.porClase.filter((x) => !g || x.grupo === g).reduce((s, x) => s + x.n, 0);
-    const hayMas = (datos.filas.length + mas.length) >= datos.porPagina && (mas.length === 0 || mas.length % datos.porPagina === 0);
+    const camaras = datos.camaras.filter((c) => c.registra);
 
     return (
-        <div className="p-6 lg:p-8 space-y-6 max-w-[1500px] mx-auto">
-            {/* Encabezado */}
-            <div className="rounded-[10px] border border-border bg-card px-4 py-3 flex items-center gap-3 flex-wrap">
-                <span className="grid h-10 w-10 place-items-center rounded-full bg-muted shrink-0"><ListVideo size={20} /></span>
+        <div className="p-6 lg:p-8 space-y-4 max-w-[1500px] mx-auto">
+            <div className="flex items-center gap-3 flex-wrap">
+                <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-foreground text-background shrink-0"><ListVideo size={18} strokeWidth={2.3} /></span>
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                         <h1 className="text-[17px] font-bold leading-tight">Detecciones</h1>
-                        {sinSenal ? <Chip tono="mal" icono={Activity}>El registro no da señal</Chip>
-                            : est!.activo ? <Chip tono="bien" icono={Activity}>Registrando · {est!.pistasAbiertas} en curso</Chip>
-                                : <Chip tono="quieto">Registro apagado</Chip>}
-                        {!datos.vision.ok && <Chip tono="mal">omni-vision: {datos.vision.error}</Chip>}
+                        {sinSenal ? <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-full chip-mal text-[11.5px] font-semibold">El registro no da señal</span>
+                            : est!.activo ? <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-full chip-bien text-[11.5px] font-semibold"><span className="h-1.5 w-1.5 rounded-full bg-[var(--bien)] animate-pulse" /> En vivo · {est!.pistasAbiertas} en curso</span>
+                                : <span className="inline-flex items-center h-6 px-2 rounded-full chip-quieto text-[11.5px] font-semibold">Registro apagado</span>}
+                        {!datos.vision.ok && <span className="inline-flex items-center h-6 px-2 rounded-full chip-mal text-[11.5px] font-semibold">omni-vision: {datos.vision.error}</span>}
                     </div>
-                    <p className="text-[12px] text-muted-foreground leading-snug mt-0.5">
-                        Lo que el detector vio solo, cámara por cámara: una tarjeta por cada persona, vehículo o animal que pasó, con su mejor foto, sus atributos y su recorrido.
-                        {est && <> Mira cada cámara cada {Math.round(est.intervaloMs / 1000)} s cuando la imagen cambia, guarda desde {pct(est.umbral)} de confianza y borra a los {est.retencionDias} días.</>}
+                    <p className="text-[12px] text-muted-foreground leading-snug">
+                        Todo lo que OmniVision vio pasar, con su mejor foto y lo que sabe el historial.
+                        {est && <> Guarda desde {pct(est.umbral)} de confianza y borra a los {est.retencionDias} días.</>}
                     </p>
                 </div>
+                <Link href="/admin/vision/analiticas" className="h-8 px-3 rounded-md border border-border text-[12.5px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent">
+                    <Gauge size={14} /> Cámaras y consumo
+                </Link>
             </div>
 
-            {/* Cámaras: qué se registra y cómo viene cada una */}
-            <section>
-                <div className="flex items-baseline justify-between mb-2">
-                    <h2 className="text-[13px] font-bold">Cámaras</h2>
-                    {est && <span className="text-[11.5px] text-muted-foreground tabular-nums">
-                        {est.contadores.analizados} cuadros analizados · {est.contadores.saltados} sin cambios (no se analizaron) · {est.contadores.errores} errores desde que arrancó
-                    </span>}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
-                    {datos.camaras.map((c) => {
-                        const e = est?.camaras?.[c.id];
-                        const elegida = camara === c.id;
-                        return (
-                            <div key={c.id} className={cn("rounded-[10px] border bg-card p-3 flex flex-col gap-1.5", elegida ? "border-[var(--accion)]" : "border-border", !c.registra && "opacity-60")}>
-                                <div className="flex items-center gap-2">
-                                    <button type="button" onClick={() => setCamara(elegida ? "" : c.id)} className="flex items-center gap-1.5 min-w-0 flex-1 text-left" title="Ver sólo lo de esta cámara">
-                                        <Camera size={13} className="text-muted-foreground shrink-0" />
-                                        <span className="text-[13px] font-semibold truncate">{c.name}</span>
-                                    </button>
-                                    <Switch checked={c.registra} onCheckedChange={(v) => alternarCamara(c.id, v)} aria-label={`${c.registra ? "Dejar de registrar" : "Registrar"} ${c.name}`} />
-                                </div>
-                                <div className="text-[11.5px] text-muted-foreground tabular-nums leading-snug">
-                                    <b className="text-foreground">{datos.porCamara[c.id] || 0}</b> en el rango
-                                    {e && <> · {e.objetos} ahora · {haceCuanto(e.ultimo)}</>}
-                                </div>
-                                {e?.error ? <div className="text-[11px] text-[var(--mal-texto)] leading-snug">{e.error}</div>
-                                    : e?.cambio && <div className="text-[11px] text-muted-foreground tabular-nums" title={`Cuánto cambia la imagen entre cuadros (0-255). Por debajo de ${est?.cambioMin} no se analiza.`}>cambio {e.cambio.mediana} (máx {e.cambio.max}) · {e.ms ?? "—"} ms</div>}
-                            </div>
-                        );
-                    })}
-                </div>
-            </section>
-
-            {/* Filtros */}
-            <section className="space-y-2">
-                <Filtros grupos={[
+            {/* Filtros en una fila, como Buscar. */}
+            <div className="flex items-center gap-2 flex-wrap">
+                <Filtros solido grupos={[
                     { clave: "h", titulo: "Rango", valor: h, alElegir: setH, opciones: RANGOS.map((x) => ({ valor: x.v, rotulo: x.r })) },
+                    { clave: "grupo", titulo: "Qué", valor: grupo, alElegir: (v) => { setGrupo(v); setClase(""); }, opciones: GRUPOS.filter((g) => g.v !== "propio" || porGrupo("propio") > 0 || grupo === "propio").map((g) => ({ valor: g.v, rotulo: g.r, icono: g.icono, cuenta: porGrupo(g.v) })) },
                     { clave: "rotulo", titulo: "Rotulado", valor: conRotulo ? "si" : "", alElegir: (v) => setConRotulo(v === "si"), opciones: [{ valor: "", rotulo: "Todo" }, { valor: "si", rotulo: "Con texto leído" }] },
-                    { clave: "grupo", titulo: "Qué", valor: grupo, alElegir: (v) => { setGrupo(v); setClase(""); }, opciones: GRUPOS.filter((g) => g.v !== "propio" || porGrupo("propio") > 0 || grupo === "propio").map((g) => ({ valor: g.v, rotulo: g.r, cuenta: porGrupo(g.v) })) },
                 ]} />
-                {datos.porClase.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                        {datos.porClase.filter((x) => !grupo || x.grupo === grupo).map((x) => (
-                            <button key={x.clase} type="button" onClick={() => setClase(clase === x.clase ? "" : x.clase)}
-                                className={cn("h-7 px-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5",
-                                    clase === x.clase ? "bg-[var(--accion)] text-[var(--accion-texto)] border-transparent" : "border-border text-muted-foreground hover:text-foreground")}>
-                                {nombreClase(x.clase)} <span className="tabular-nums opacity-75">{x.n}</span>
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </section>
-
-            {/* La grilla */}
-            {error && <div className="rounded-[10px] border border-[color-mix(in_oklab,var(--mal)_40%,transparent)] bg-[var(--mal-suave)] px-4 py-2.5 text-[12.5px] text-[var(--mal-texto)]">No se pudo actualizar: {error}. Se muestra lo último que llegó.</div>}
-            {filas.length === 0 ? (
-                <div className="rounded-[10px] border border-border bg-card p-10 text-center text-[13px] text-muted-foreground">
-                    {totalRango === 0
-                        ? (sinSenal ? "El registro no está corriendo, así que no hay nada guardado en este rango." : "Todavía no se guardó nada en este rango. Cuando pase alguien frente a una cámara registrada, aparece acá.")
-                        : "Nada con este filtro."}
-                </div>
-            ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">
-                    {filas.map((f) => <Tarjeta key={f.id} f={f} alAbrir={() => setAbierta(f)} />)}
+                <label className={cn("relative inline-flex items-center h-[34px] rounded-lg pl-2.5 pr-2 gap-1.5 text-[12px] font-semibold cursor-pointer", camara ? "bg-[var(--accion)] text-white" : "bg-muted/60 text-foreground")}>
+                    <Video size={14} strokeWidth={2.2} />
+                    <select value={camara} onChange={(e) => setCamara(e.target.value)} aria-label="Cámara"
+                        className="appearance-none bg-transparent outline-none pr-4 cursor-pointer max-w-[220px] truncate [&>option]:text-foreground [&>option]:bg-background">
+                        <option value="">Todas las cámaras ({camaras.length})</option>
+                        {camaras.map((c) => <option key={c.id} value={c.id}>{c.name} · {datos.porCamara[c.id] || 0}</option>)}
+                    </select>
+                    <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
+                </label>
+                <Pista titulo="Siluetas de OmniVision" texto="Dibuja sobre cada tarjeta la silueta del objeto. Se calcula al mirarla. Es la misma opción que en Buscar, el historial y el visor.">
+                    <button type="button" onClick={() => setSiluetas(!siluetas)} aria-pressed={siluetas} aria-label="Siluetas de OmniVision"
+                        className={cn("h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",
+                            siluetas ? "accion border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                        <Sparkles size={14} /> Siluetas
+                    </button>
+                </Pista>
+            </div>
+            {datos.porClase.length > 1 && (
+                <div className="flex flex-wrap gap-1.5">
+                    {datos.porClase.filter((x) => !grupo || x.grupo === grupo).map((x) => (
+                        <button key={x.clase} type="button" onClick={() => setClase(clase === x.clase ? "" : x.clase)}
+                            className={cn("h-7 px-2.5 rounded-full border text-[12px] font-semibold inline-flex items-center gap-1.5",
+                                clase === x.clase ? "bg-[var(--accion)] text-[var(--accion-texto)] border-transparent" : "border-border text-muted-foreground hover:text-foreground")}>
+                            {nombreClase(x.clase)} <span className="tabular-nums opacity-75">{x.n}</span>
+                        </button>
+                    ))}
                 </div>
             )}
-            {hayMas && filas.length > 0 && (
-                <div className="flex justify-center">
-                    <Button variant="outline" onClick={cargarMas} disabled={cargandoMas}>{cargandoMas ? <Loader2 size={14} className="animate-spin" /> : null} Cargar más</Button>
-                </div>
+
+            {error && <div className="rounded-[10px] border border-[color-mix(in_oklab,var(--mal)_40%,transparent)] bg-[var(--mal-suave)] px-4 py-2.5 text-[12.5px] text-[var(--mal-texto)]">No se pudo actualizar: {error}. Se muestra lo último que llegó.</div>}
+            {filas.length === 0 ? (
+                <Vacio icono={Inbox} titulo={totalRango === 0 ? "Nada guardado en este rango" : "Nada con este filtro"}
+                    ayuda={totalRango === 0 ? (sinSenal ? "El registro no está corriendo." : "Cuando pase alguien frente a una cámara de OmniVision, aparece acá.") : "Probá con otro rango o quitá algún filtro."} />
+            ) : (
+                <>
+                    <MosaicoBuscar resultados={filas} alAbrir={setAbierta} relativa={false} nuevas={nuevas} />
+                    <div ref={centinela} className="h-12 grid place-items-center text-[12px] text-muted-foreground">
+                        {cargandoMas ? <Loader2 size={14} className="animate-spin" /> : noHayMas ? "No hay más en este rango." : null}
+                    </div>
+                </>
             )}
 
             <Cajon open={!!abierta} onOpenChange={(o) => { if (!o) setAbierta(null); }}>
                 {abierta && (
                     <CajonContenido ancho="ancho" titulo={`${nombreClase(abierta.clase)} · ${abierta.camara}`}
                         descripcion={`${fecha(abierta.primeraVez)}, ${hora(abierta.primeraVez)} a ${hora(abierta.ultimaVez)} · ${duracion(abierta.primeraVez, abierta.ultimaVez)}`}>
+                        <CajonSeccion titulo="En el historial" compacta ayuda="Lo que el sistema sabe de este momento: la chapa que leyó la lectora de esta cámara, de quién es, si está vigilada, y las alertas de la cámara.">
+                            <HistorialDePista r={abierta} alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }} alListaNegra={() => { void marcarNegra(abierta); setAbierta(null); }} />
+                        </CajonSeccion>
                         <Ficha f={abierta} />
                     </CajonContenido>
                 )}
             </Cajon>
+            {cajones}
         </div>
     );
 }
-

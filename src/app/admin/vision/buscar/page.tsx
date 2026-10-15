@@ -12,12 +12,7 @@ import { Cajon, CajonContenido } from "@/components/ui/cajon";
 import { FichaObjeto, img, nombreClase, fecha, hora, type FilaObjeto } from "@/components/vision/ObjetoRegistro";
 import { CajonSeccion } from "@/components/ui/cajon";
 import { MosaicoBuscar, HistorialDePista, PasosDeChapa, type ResultadoBusqueda } from "@/components/vision/buscar/MosaicoBuscar";
-import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
-import { CajonListaNegra } from "@/components/users/CajonListaNegra";
-import { getUnits } from "@/app/actions/units";
-import { getAccessGroups } from "@/app/actions/groups";
-import { getDevices } from "@/app/actions/devices";
-import { getParkingSlots } from "@/app/actions/plazas";
+import { useRegistrarDesdeCaptura } from "@/components/vision/buscar/RegistrarDesdeCaptura";
 import type { PasoChapa } from "@/lib/vision-historial";
 import { FotoParaBuscar, type FotoElegida } from "@/components/vision/FotoParaBuscar";
 import { useNombresPropios } from "@/lib/nombres-propios";
@@ -78,26 +73,8 @@ export default function BuscarVision() {
     const [buscando, setBuscando] = useState(false);
     const [abierta, setAbierta] = useState<Resultado | null>(null);
     const [siluetas, setSiluetas] = useSiluetas();
-    // Registrar una matrícula (residente, personal, proveedor o lista negra): el selector del monitor de LPR.
-    const [registrar, setRegistrar] = useState<string | null>(null);
-    const [listas, setListas] = useState<{ units: any[]; groups: any[]; devices: any[]; parkingSlots: any[] } | null>(null);
-    const abrirRegistro = (plate: string) => {
-        setRegistrar(plate);
-        if (!listas) Promise.all([getUnits(), getAccessGroups(), getDevices(), getParkingSlots()])
-            .then(([u, g, d, p]: any) => setListas({ units: u || [], groups: g || [], devices: d || [], parkingSlots: p || [] }))
-            .catch(() => setListas({ units: [], groups: [], devices: [], parkingSlots: [] }));
-    };
-    // Lista negra desde una captura: la foto del recorte va como foto del registro.
-    const [negra, setNegra] = useState<{ foto: File | null; motivo: string; chapa?: string } | null>(null);
-    const marcarNegra = async (r: Resultado) => {
-        let foto: File | null = null;
-        try {
-            const clave = r.recorte || r.foto;
-            if (clave) { const b = await (await fetch(img(clave))).blob(); foto = new File([b], `captura-${r.id}.jpg`, { type: b.type || "image/jpeg" }); }
-        } catch { /* sin foto: se carga a mano */ }
-        setNegra({ foto, motivo: `Visto por OmniVision en ${r.camara}, ${fecha(r.primeraVez)} ${hora(r.primeraVez)}.`, chapa: r.historial?.lectura?.plate });
-        setAbierta(null);
-    };
+    // Registrar la matrícula o marcar en lista negra desde la captura (compartido con Detecciones y Relecturas).
+    const { abrirRegistro, marcarNegra, cajones } = useRegistrarDesdeCaptura(() => setPedido((p) => (p ? { ...p } : p)));
 
     // ?q=… viene del historial («Ver todo en Buscar»): se busca al entrar, con la misma frase.
     useEffect(() => {
@@ -258,17 +235,14 @@ export default function BuscarVision() {
                 {abierta && (
                     <CajonContenido ancho="intermedio" titulo={`${nombreClase(abierta.clase)} · ${abierta.camara}`} descripcion={`${fecha(abierta.primeraVez)} ${hora(abierta.primeraVez)}`}>
                         <CajonSeccion titulo="En el historial" compacta ayuda="Lo que el sistema sabe de este momento: la chapa que leyó la lectora de esta cámara mientras el vehículo estaba a la vista, de quién es, si está vigilada, y las alertas de la cámara.">
-                            <HistorialDePista r={abierta} alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }} alListaNegra={() => marcarNegra(abierta)} />
+                            <HistorialDePista r={abierta} alRegistrar={(p) => { setAbierta(null); abrirRegistro(p); }} alListaNegra={() => { void marcarNegra(abierta); setAbierta(null); }} />
                         </CajonSeccion>
                         <FichaObjeto f={abierta} alParecidos={() => { setPedido({ parecido: abierta }); setAbierta(null); }} />
                     </CajonContenido>
                 )}
             </Cajon>
 
-            <RegistrarMatricula plate={registrar} alCerrar={() => setRegistrar(null)} alTerminar={() => { setRegistrar(null); setPedido((p) => (p ? { ...p } : p)); }}
-                units={listas?.units || []} groups={listas?.groups || []} devices={listas?.devices || []} parkingSlots={listas?.parkingSlots || []} />
-            <CajonListaNegra abierta={!!negra} ficha={null} chapaInicial={negra?.chapa} fotoInicial={negra?.foto} motivoInicial={negra?.motivo}
-                alCerrar={() => setNegra(null)} alCambiar={() => setPedido((p) => (p ? { ...p } : p))} />
+            {cajones}
         </div>
     );
 }
