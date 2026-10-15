@@ -6,6 +6,9 @@ import { prisma } from "@/lib/prisma";
 import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
 import { getNvrChannels, type CanalNvr } from "@/app/actions/nvr";
 import { registrarCanalNvr } from "@/lib/go2rtc-sync";
+import { getAnalyticsGeometryBatch } from "@/app/actions/detections";
+import { puedeDisenarVistas } from "@/app/actions/monitores";
+import { AJUSTE_VISTAS_CAMARAS, leerVistas } from "@/lib/monitor/disposiciones";
 
 /**
  * GET /api/monitor/camaras → los canales que dibuja la pared de video (vista Cámaras).
@@ -28,6 +31,16 @@ const GO2RTC = process.env.GO2RTC_API || "http://127.0.0.1:1984";
 const CANALES_VIGENTES_MS = 60_000;
 /** Cuánto dura roja una baldosa después de la última detección de su cámara. */
 const VENTANA_ALERTA_MS = 2 * 60_000;
+/** Hasta dónde se mira para «la última detección» que muestra una cámara de intrusión en calma. */
+const ULTIMA_DETECCION_MS = 24 * 3600_000;
+/**
+ * Una cámara cuenta como de intrusión o de LPR si trabajó como tal en este tiempo, además de
+ * por su tipo: en San Nicolás «MATRICULA SALIDA» está dada de alta como cámara común y lee
+ * chapas, y las perimetrales son CAMERA y vigilan una línea.
+ */
+const ACTIVIDAD_MS = 7 * 24 * 3600_000;
+/** Cuántas lecturas recientes muestra una cámara LPR en su baldosa. */
+const LECTURAS_POR_CAMARA = 4;
 /**
  * Lo que server.js escribe como etiqueta cuando el NVR avisa de un canal que no está en el mapa
  * de canales: la detección queda sobre el NVR, y esta es la única pista de qué canal fue.
@@ -70,32 +83,65 @@ export type CanalPared = {
     /** Si es un equipo de OmniAccess: sus detecciones llegan con este id. */
     equipoId: string | null;
     alerta: { id: string; tipo: string; ts: string } | null;
+    /** Qué hace además de filmar: se dibuja encima de su video. */
+    funcion: "intrusion" | "lpr" | null;
+    /** La línea y la zona configuradas en la cámara (sólo intrusión). */
+    geom: { line: { x: number; y: number }[]; field: { x: number; y: number }[] } | null;
+    /** La última detección de las últimas 24 h, aunque ya no esté en alerta. */
+    ultima: { id: string; tipo: string; ts: string } | null;
+    lecturas: { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean }[];
 };
 
 export async function GET() {
     const p = await autorizarMonitor("/api/monitor/camaras");
     if (p.error) return p.error;
 
-    const [nvrs, equipos, streams, recientes] = await Promise.all([
+    const desdeActividad = new Date(Date.now() - ACTIVIDAD_MS);
+    const [nvrs, equipos, streams, recientes, conDetecciones, conLecturas, filaVistas, puedeEditar] = await Promise.all([
         prisma.device.findMany({ where: { deviceType: "NVR" as any }, select: { id: true, name: true, ip: true, username: true, password: true, authType: true }, orderBy: { name: "asc" } }),
-        prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, ip: true }, orderBy: { name: "asc" } }),
+        prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, ip: true, deviceType: true }, orderBy: { name: "asc" } }),
         streamsEnGo2rtc(),
         prisma.detection.findMany({
-            where: { timestamp: { gte: new Date(Date.now() - VENTANA_ALERTA_MS) }, type: { not: "MOTION" } },
-            select: { id: true, deviceId: true, type: true, label: true, timestamp: true }, orderBy: { timestamp: "desc" }, take: 300,
+            where: { timestamp: { gte: new Date(Date.now() - ULTIMA_DETECCION_MS) }, type: { not: "MOTION" } },
+            select: { id: true, deviceId: true, type: true, label: true, timestamp: true }, orderBy: { timestamp: "desc" }, take: 1000,
         }).catch(() => []),
+        prisma.detection.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad }, type: { not: "MOTION" } } }).catch(() => []),
+        prisma.accessEvent.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad } } }).catch(() => []),
+        prisma.setting.findUnique({ where: { key: AJUSTE_VISTAS_CAMARAS } }).catch(() => null),
+        p.auth.pantalla ? Promise.resolve(false) : puedeDisenarVistas(),
     ]);
 
     // La última detección de cada cámara, y la de cada canal sin mapear de cada NVR.
-    const alertaPorEquipo = new Map<string, CanalPared["alerta"]>();
-    const alertaPorCanal = new Map<string, CanalPared["alerta"]>();
+    const ultimaPorEquipo = new Map<string, NonNullable<CanalPared["ultima"]>>();
+    const ultimaPorCanal = new Map<string, NonNullable<CanalPared["ultima"]>>();
     for (const d of recientes) {
         if (!d.deviceId) continue;
         const a = { id: d.id, tipo: String(d.type), ts: d.timestamp.toISOString() };
         const m = d.label ? ETIQUETA_CANAL_SIN_MAPEAR.exec(d.label) : null;
-        if (m) { const k = `${d.deviceId}:${m[1]}`; if (!alertaPorCanal.has(k)) alertaPorCanal.set(k, a); }
-        else if (!alertaPorEquipo.has(d.deviceId)) alertaPorEquipo.set(d.deviceId, a);
+        if (m) { const k = `${d.deviceId}:${m[1]}`; if (!ultimaPorCanal.has(k)) ultimaPorCanal.set(k, a); }
+        else if (!ultimaPorEquipo.has(d.deviceId)) ultimaPorEquipo.set(d.deviceId, a);
     }
+    const vigente = (a: CanalPared["ultima"] | undefined) => (a && Date.now() - +new Date(a.ts) < VENTANA_ALERTA_MS ? a : null);
+    const alertaPorEquipo = { get: (id: string) => vigente(ultimaPorEquipo.get(id)) };
+    const alertaPorCanal = { get: (k: string) => vigente(ultimaPorCanal.get(k)) };
+
+    // Qué hace cada equipo además de filmar.
+    const detecta = new Set(conDetecciones.map((x: any) => x.deviceId).filter(Boolean));
+    const lee = new Set([...conLecturas.map((x: any) => x.deviceId).filter(Boolean), ...equipos.filter((e) => String(e.deviceType).startsWith("LPR")).map((e) => e.id)]);
+    const candidatosIntrusion = equipos.filter((e) => ["CAMERA", "LPR_INTERIOR"].includes(String(e.deviceType))).map((e) => e.id);
+    const geoms: Record<string, any> = await getAnalyticsGeometryBatch(candidatosIntrusion).catch(() => ({}));
+    const tieneGeom = (id: string) => { const g = geoms[id]; return !!g && ((g.line?.length || 0) >= 2 || (g.field?.length || 0) >= 3); };
+    const funcionDe = (id: string): CanalPared["funcion"] => (lee.has(id) ? "lpr" : detecta.has(id) || tieneGeom(id) ? "intrusion" : null);
+    const lecturasPorEquipo = new Map<string, CanalPared["lecturas"]>();
+    await Promise.all([...lee].map(async (id) => {
+        const filas = await prisma.accessEvent.findMany({ where: { deviceId: id }, orderBy: { timestamp: "desc" }, take: LECTURAS_POR_CAMARA, select: { id: true, timestamp: true, plateDetected: true, decision: true, direction: true, details: true } }).catch(() => []);
+        lecturasPorEquipo.set(id, filas.map((f) => ({ id: f.id, ts: f.timestamp.toISOString(), plate: f.plateDetected || null, decision: String(f.decision), sentido: String(f.direction), listaNegra: /lista negra/i.test(f.details || "") })));
+    }));
+    const extrasDe = (id: string) => {
+        const funcion = funcionDe(id);
+        const g = funcion === "intrusion" && tieneGeom(id) ? { line: geoms[id].line || [], field: geoms[id].field || [] } : null;
+        return { funcion, geom: g, ultima: ultimaPorEquipo.get(id) || null, lecturas: funcion === "lpr" ? lecturasPorEquipo.get(id) || [] : [] };
+    };
 
     const porIp = new Map(equipos.filter((e) => e.ip).map((e) => [e.ip as string, e]));
     const usados = new Set<string>();
@@ -113,18 +159,19 @@ export async function GET() {
             const eq = c.ip ? porIp.get(c.ip) : undefined;
             if (eq && streams?.has(`lpr_${eq.id}`)) {
                 usados.add(eq.id);
-                canales.push({ clave: `dev:${eq.id}`, nombre: eq.name, nvrId: n.id, nvr: n.name, ch, online: c.online ?? null, stream: `lpr_${eq.id}`, equipoId: eq.id, alerta: alertaPorEquipo.get(eq.id) || alertaPorCanal.get(`${n.id}:${ch}`) || null });
+                canales.push({ clave: `dev:${eq.id}`, nombre: eq.name, nvrId: n.id, nvr: n.name, ch, online: c.online ?? null, stream: `lpr_${eq.id}`, equipoId: eq.id, alerta: alertaPorEquipo.get(eq.id) || alertaPorCanal.get(`${n.id}:${ch}`) || null, ...extrasDe(eq.id) });
                 continue;
             }
             const stream = `lpr_nvrch-${n.id}-${ch}`;
             if (!streams?.has(stream) || !streams?.has(`${stream}_hd`)) porRegistrar.push({ nvrId: n.id, ch });
-            canales.push({ clave: `nvr:${n.id}:${ch}`, nombre: c.name || `Canal ${ch}`, nvrId: n.id, nvr: n.name, ch, online: c.online ?? null, stream, equipoId: null, alerta: alertaPorCanal.get(`${n.id}:${ch}`) || null });
+            canales.push({ clave: `nvr:${n.id}:${ch}`, nombre: c.name || `Canal ${ch}`, nvrId: n.id, nvr: n.name, ch, online: c.online ?? null, stream, equipoId: null, alerta: alertaPorCanal.get(`${n.id}:${ch}`) || null,
+                funcion: ultimaPorCanal.has(`${n.id}:${ch}`) ? "intrusion" : null, geom: null, ultima: ultimaPorCanal.get(`${n.id}:${ch}`) || null, lecturas: [] });
         }
     }
     // Las cámaras que son equipo y no aparecieron en ningún NVR: las que tienen vivo en go2rtc.
     for (const e of equipos) {
         if (usados.has(e.id) || !streams?.has(`lpr_${e.id}`)) continue;
-        canales.push({ clave: `dev:${e.id}`, nombre: e.name, nvrId: null, nvr: null, ch: null, online: null, stream: `lpr_${e.id}`, equipoId: e.id, alerta: alertaPorEquipo.get(e.id) || null });
+        canales.push({ clave: `dev:${e.id}`, nombre: e.name, nvrId: null, nvr: null, ch: null, online: null, stream: `lpr_${e.id}`, equipoId: e.id, alerta: alertaPorEquipo.get(e.id) || null, ...extrasDe(e.id) });
     }
     // Registrar en go2rtc es sólo dejar la receta: no abre ninguna conexión hasta que alguien mira.
     if (streams) await Promise.all(porRegistrar.map((x) => registrarCanalNvr(x.nvrId, x.ch).catch(() => null)));
@@ -132,6 +179,8 @@ export async function GET() {
     return NextResponse.json({
         canales,
         errores,
+        vistas: leerVistas(filaVistas?.value),
+        puedeEditar,
         go2rtc: !!streams,
         ventanaAlertaMs: VENTANA_ALERTA_MS,
         ahora: new Date().toISOString(),
