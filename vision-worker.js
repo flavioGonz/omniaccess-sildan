@@ -51,6 +51,8 @@ const INTERVALO_MS = Number(process.env.VISION_REGISTRO_INTERVALO_MS || 2000);
 const CAMBIO_MIN = Number(process.env.VISION_REGISTRO_CAMBIO_MIN || 3.5);
 /** Aunque no cambie nada, cada tanto se analiza igual: un objeto quieto también existe. */
 const ANALIZAR_IGUAL_MS = 60_000;
+/** Cuántos cuadros se piden a go2rtc a la vez en la ronda (ver el bucle principal). */
+const CUADROS_EN_PARALELO = Math.max(1, Number(process.env.VISION_CUADROS_PARALELO || 4));
 /** Confianza mínima para registrar. Un poco más alta que la del laboratorio: esto queda guardado. */
 const UMBRAL = Number(process.env.VISION_REGISTRO_UMBRAL || 0.45);
 /** Una pista que no se ve durante esto se da por terminada. */
@@ -440,10 +442,10 @@ const ultimoAnalisis = {};
 let ultimoErrorLog = 0;
 
 /** `registra`: si esta cámara es del registro de detecciones (además puede estar por una regla). */
-async function mirar(cam, registra = true) {
+async function mirar(cam, registra = true, pedido = null) {
     const est = (porCamara[cam.id] ||= { nombre: cam.name, analizados: 0, saltados: 0, errores: 0, objetos: 0, ultimo: null, ms: null, error: null });
     est.nombre = cam.name;
-    const jpeg = await cuadro(cam.id);
+    const jpeg = await (pedido || cuadro(cam.id));
     if (!jpeg) { est.errores++; est.error = "go2rtc no entregó cuadro"; return; }
     await analizarCuadro(cam, jpeg, registra);
 }
@@ -699,9 +701,22 @@ async function principal() {
             const lista = ajustes.dispositivos.filter((d) => (registro.has(d.id) || porReglas.has(d.id)) && !rapidas.has(d.id));
             hayTrabajo = lista.length > 0 || rapidas.size > 0;
             if (hayTrabajo) {
+                /*
+                 * Los cuadros se piden de a CUADROS_EN_PARALELO por delante de la que se analiza. Un
+                 * cuadro de go2rtc (frame.jpeg) arranca un ffmpeg y decodifica H.265: ~1 s por cámara,
+                 * mientras omni-vision contesta en ~40 ms. Pedidos de a uno, con 14 cámaras la vuelta
+                 * duraba 13,9 s (medido el 15/10 en San Nicolás, con la GPU al 20 % del tope): cada
+                 * cámara se miraba una vez cada 14 s. El análisis sigue siendo de a uno.
+                 */
+                const pedidos = new Map();
+                let sig = 0;
+                const pedirMas = () => { while (pedidos.size < CUADROS_EN_PARALELO && sig < lista.length) { const c = lista[sig++]; pedidos.set(c.id, cuadro(c.id)); } };
                 for (const cam of lista) {
                     if (!corriendo) break;
-                    try { await mirar(cam, registro.has(cam.id)); }
+                    pedirMas();
+                    const pedido = pedidos.get(cam.id) || null;
+                    pedidos.delete(cam.id);
+                    try { await mirar(cam, registro.has(cam.id), pedido); }
                     catch (e) {
                         contadores.errores++;
                         (porCamara[cam.id] ||= {}).error = e.message;
