@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X } from "lucide-react";
+import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, horaCorta, hace, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -112,7 +112,18 @@ function ChapaMini({ l, nueva }: { l: Lectura; nueva?: boolean }) {
     );
 }
 
-function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida }: {
+/**
+ * Botón chico sobre la baldosa (aparecen al pasar el mouse). Corta el clic para que no abra
+ * además la ficha, que es lo que hace tocar el resto de la baldosa.
+ */
+function AccionBaldosa({ children, titulo, onClick, href }: { children: React.ReactNode; titulo: string; onClick?: () => void; href?: string }) {
+    const cls = "w-8 h-8 rounded-full grid place-items-center text-white/85 hover:text-white hover:bg-white/15 transition-colors";
+    const cortar = (e: React.SyntheticEvent) => e.stopPropagation();
+    if (href) return <a href={href} target="_blank" rel="noreferrer" title={titulo} aria-label={titulo} onClick={cortar} onPointerDown={cortar} className={cls}>{children}</a>;
+    return <button type="button" title={titulo} aria-label={titulo} onPointerDown={cortar} onClick={(e) => { cortar(e); onClick?.(); }} className={cls}>{children}</button>;
+}
+
+function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
     hls: boolean;
@@ -120,6 +131,10 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     libre?: boolean;
     /** Fuera de la pantalla del celular: no abre video (datos y batería). */
     dormida?: boolean;
+    /** Abrir el canal directo en su grabación (sólo si se sabe en qué NVR graba). */
+    alGrabacion?: () => void;
+    /** Abrir el canal solo en otra ventana (escritorio). */
+    alVentana?: () => void;
 }) {
     const c = celda.canal;
     const grande = celda.casilla.w > 1;
@@ -137,8 +152,8 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     const r = MODO_ROTULO[modo];
     const okDestello = destello ? destello.decision === "GRANT" && !destello.listaNegra : null;
     return (
-        <motion.button type="button" layout="position" onClick={alTocar} transition={SUAVE} aria-label={`Abrir ${c.nombre}`} style={libre ? undefined : estiloCasilla(celda.casilla)}
-            className={cn("relative rounded-[10px] overflow-hidden bg-neutral-950 text-left", libre ? "aspect-video w-full" : "min-h-0", tocable,
+        <motion.div role="button" tabIndex={0} layout="position" onClick={alTocar} onKeyDown={(e) => { if (e.key === "Enter") alTocar(); }} transition={SUAVE} aria-label={`Abrir ${c.nombre}`} style={libre ? undefined : estiloCasilla(celda.casilla)}
+            className={cn("group relative rounded-[10px] overflow-hidden bg-neutral-950 text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion-en-oscuro)]", libre ? "aspect-video w-full" : "min-h-0", tocable,
                 alerta ? "ring-4 ring-[var(--mal)]" : destello ? (okDestello ? "ring-4 ring-[var(--bien)]" : "ring-4 ring-[var(--mal)]") : "ring-1 ring-white/10")}>
             {caido ? (
                 <span className="absolute inset-0 grid place-items-center text-white/45">
@@ -157,10 +172,18 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
                     <div className="text-[11.5px] text-white/65 inline-flex items-center gap-1 truncate max-w-full">{c.nvr && <Server size={10} />} {ubicacion(c)}</div>
                 </div>
                 {c.funcion && (
-                    <span title={c.funcion === "lpr" ? "Lee matrículas" : "Vigila una línea o una zona"} className="grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white/80 shrink-0">
+                    <span title={c.funcion === "lpr" ? "Lee matrículas" : "Vigila una línea o una zona"} className="grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white/80 shrink-0 [@media(hover:hover)]:group-hover:opacity-0 transition-opacity">
                         {c.funcion === "lpr" ? <Car size={14} /> : <ShieldAlert size={14} />}
                     </span>
                 )}
+            </div>
+            {/* Los controles de la baldosa: aparecen al pasar el mouse, como los de la ficha. Con el
+                dedo no hay «pasar»: tocar la baldosa abre la ficha, que los tiene todos. */}
+            <div className="absolute top-2 right-2 hidden [@media(hover:hover)]:flex items-center gap-0.5 rounded-full visor-panel p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+                <AccionBaldosa titulo="Abrir a pantalla completa" onClick={alTocar}><Maximize2 size={15} /></AccionBaldosa>
+                {alGrabacion && <AccionBaldosa titulo="Ver la grabación" onClick={alGrabacion}><History size={15} /></AccionBaldosa>}
+                {foto && <AccionBaldosa titulo="Abrir la foto de ahora en una pestaña" href={foto.replace(/[?&]w=\d+/, "")}><Camera size={15} /></AccionBaldosa>}
+                {alVentana && <AccionBaldosa titulo="Abrir este canal solo en otra ventana (para otro monitor)" onClick={alVentana}><AppWindow size={15} /></AccionBaldosa>}
             </div>
 
             <div className="absolute bottom-2 left-2 right-2 flex items-end gap-2">
@@ -179,7 +202,7 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
                     </span>
                 )}
             </div>
-        </motion.button>
+        </motion.div>
     );
 }
 
@@ -315,6 +338,8 @@ export function VistaCamaras() {
 
     // La ficha a pantalla completa, por clave (así se actualiza con cada vuelta de datos).
     const [abiertaClave, setAbiertaClave] = useState<string | null>(null);
+    /** Si la ficha se abrió desde el control «grabación» de una baldosa: el instante donde arranca. */
+    const [grabacionInicial, setGrabacionInicial] = useState<number | null>(null);
     const abierta = abiertaClave ? porClave.get(abiertaClave) || null : null;
     const mover = useCallback((paso: 1 | -1) => {
         if (!abiertaClave || !enPantalla.length) return;
@@ -412,7 +437,9 @@ export function VistaCamaras() {
             dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
             alerta={celda.canal ? alertaDe(celda.canal) : null} lecturas={celda.canal ? lecturasDe(celda.canal) : []}
             destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}
-            alTocar={() => celda.canal && setAbiertaClave(celda.canal.clave)} alResultado={alResultado} />
+            alTocar={() => { if (celda.canal) { setGrabacionInicial(null); setAbiertaClave(celda.canal.clave); } }} alResultado={alResultado}
+            alGrabacion={celda.canal?.nvrId && celda.canal.ch != null ? () => { const k = celda.canal!; const a = alertaDe(k); setGrabacionInicial(a ? +new Date(a.ts) - 5000 : Date.now() - 60_000); setAbiertaClave(k.clave); } : undefined}
+            alVentana={!movil && celda.canal ? () => { const k = celda.canal!; if (!abrirVentana({ canal: k.clave }, `canal-${k.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
     );
 
     const estados = (
@@ -558,7 +585,7 @@ export function VistaCamaras() {
                 </Hoja>
             )}
 
-            <FichaCanal c={abierta} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
+            <FichaCanal c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
                 alCerrar={() => setAbiertaClave(null)} alMover={enPantalla.length > 1 ? mover : null}
                 alVentana={!movil && abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
