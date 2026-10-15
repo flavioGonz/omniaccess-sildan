@@ -1,15 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair } from "lucide-react";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
 import { Grabacion } from "./Grabacion";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { SUAVE } from "@/components/monitor/tactil";
-import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, FOTO_MS, useSiluetasEnVivo, type Canal, type Alerta, type Lectura } from "./piezas";
+import { Vivo, Foto, Geometria, fotoDe, vivoDe, ubicacion, idCanal, FOTO_MS, useSiluetasEnVivo, type Canal, type Alerta, type Lectura } from "./piezas";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { SeguimientoVisual } from "./Seguimiento";
+import type { TrackLink } from "@/app/actions/detections";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { cn } from "@/lib/utils";
 
@@ -53,8 +55,13 @@ function ChapaChica({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null }: {
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen }: {
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
+    /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
+    canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
+    alertaDe?: (c: Canal) => Alerta | null;
+    /** Pasar a la cámara vecina por un enlace del seguimiento; `origen` es de dónde se vino. */
+    alSeguir?: (destino: Canal) => void; origen?: Canal | null; alVolverOrigen?: () => void; alSoltarOrigen?: () => void;
     /** Abrir directo en la grabación, desde este instante (el control de la baldosa). null = en vivo. */
     grabacionInicial?: number | null;
     alCerrar: () => void;
@@ -79,6 +86,17 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
      * Los dos ven lo mismo; cambia cómo está estirado.
      */
     const [tamVideo, setTamVideo] = useState<{ w: number; h: number } | null>(null);
+    // Dónde cae el cuadro del video en la pantalla («contain»): ahí se ubican los enlaces.
+    const [pantallaTam, setPantallaTam] = useState(() => (typeof window === "undefined" ? { w: 1920, h: 1080 } : { w: window.innerWidth, h: window.innerHeight }));
+    useEffect(() => { const r = () => setPantallaTam({ w: window.innerWidth, h: window.innerHeight }); window.addEventListener("resize", r); return () => window.removeEventListener("resize", r); }, []);
+    const cuadro = useMemo(() => {
+        if (!tamVideo) return null;
+        const k = Math.min(pantallaTam.w / tamVideo.w, pantallaTam.h / tamVideo.h);
+        const width = tamVideo.w * k, height = tamVideo.h * k;
+        return { left: (pantallaTam.w - width) / 2, top: (pantallaTam.h - height) / 2, width, height };
+    }, [tamVideo, pantallaTam]);
+    const [editandoSeguimiento, setEditandoSeguimiento] = useState(false);
+    useEffect(() => { setEditandoSeguimiento(false); }, [c?.clave]);
     const [visibles, setVisibles] = useState(true);
     const [lleno, setLleno] = useState(false);
     const entreYo = useRef(false);
@@ -199,6 +217,10 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                         <Sparkles size={18} />
                                     </Icono>
                                 )}
+                                {grabacion == null && puedeEditar && (
+                                    <Icono onClick={() => setEditandoSeguimiento((x) => !x)} activo={editandoSeguimiento}
+                                        titulo={editandoSeguimiento ? "Terminar de editar el seguimiento visual" : "Editar el seguimiento visual (a qué cámaras se pasa desde esta)"}><Crosshair size={18} /></Icono>
+                                )}
                                 {c.geom && <Icono onClick={() => setVerGeom((x) => !x)} activo={verGeom} titulo={verGeom ? "Ocultar la línea y la zona" : "Mostrar la línea y la zona de la cámara"}><Spline size={18} /></Icono>}
                                 {c.nvrId && c.ch != null && (
                                     <Icono onClick={() => setGrabacionDesde((g) => (g != null ? null : alerta ? +new Date(alerta.ts) - GRABACION_ANTES_ALERTA_MS : Date.now() - GRABACION_ANTES_MS))}
@@ -212,6 +234,21 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                             </span>
                         </div>
                     </div>
+
+                    {/* Seguimiento visual: los enlaces a las cámaras vecinas, sobre el vivo. */}
+                    {grabacion == null && c.online !== false && (
+                        <SeguimientoVisual key={c.clave} c={c} canales={canales} links={seguimiento[idCanal(c)] || []} editando={editandoSeguimiento}
+                            cuadro={cuadro} h265={h265} hls={hls} alertaDe={alertaDe || (() => null)} alSeguir={(d) => alSeguir?.(d)} />
+                    )}
+                    {/* La cámara de la que se vino por el seguimiento: chica, abajo a la izquierda, para volver. */}
+                    {origen && grabacion == null && (
+                        <div className={cn("absolute left-4 bottom-24 w-[240px] aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity", !visibles && "opacity-60")}>
+                            <Vivo src={vivoDe(origen.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-cover" />
+                            <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white"><Crosshair size={11} /> Origen · {origen.nombre}</span>
+                            <button type="button" onClick={alVolverOrigen} className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-[var(--accion)] text-white text-[12px] font-semibold"><ChevronLeft size={13} /> Volver</button>
+                            <button type="button" onClick={alSoltarOrigen} aria-label="Cerrar el origen" className="absolute top-1.5 right-1.5 w-7 h-7 grid place-items-center rounded-full bg-black/60 text-white/85"><X size={14} /></button>
+                        </div>
+                    )}
 
                     {/* La grabación, a mano: el mismo interruptor que el ícono de arriba, donde el pulgar llega. */}
                     {grabacion == null && c.nvrId && c.ch != null && (

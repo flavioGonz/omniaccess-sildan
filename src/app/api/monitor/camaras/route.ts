@@ -104,7 +104,7 @@ export async function GET() {
     if (p.error) return p.error;
 
     const desdeActividad = new Date(Date.now() - ACTIVIDAD_MS);
-    const [nvrs, equipos, streams, recientes, conDetecciones, conLecturas, filaVistas, puedeEditar] = await Promise.all([
+    const [nvrs, equipos, streams, recientes, conDetecciones, conLecturas, filasAjustes, puedeEditar] = await Promise.all([
         prisma.device.findMany({ where: { deviceType: "NVR" as any }, select: { id: true, name: true, ip: true, username: true, password: true, authType: true }, orderBy: { name: "asc" } }),
         prisma.device.findMany({ where: { deviceType: { not: "NVR" as any } }, select: { id: true, name: true, ip: true, deviceType: true }, orderBy: { name: "asc" } }),
         streamsEnGo2rtc(),
@@ -114,7 +114,7 @@ export async function GET() {
         }).catch(() => []),
         prisma.detection.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad }, type: { not: "MOTION" } } }).catch(() => []),
         prisma.accessEvent.groupBy({ by: ["deviceId"], where: { timestamp: { gte: desdeActividad } } }).catch(() => []),
-        prisma.setting.findUnique({ where: { key: AJUSTE_VISTAS_CAMARAS } }).catch(() => null),
+        prisma.setting.findMany({ where: { key: { in: [AJUSTE_VISTAS_CAMARAS, "VISUAL_TRACK_LINKS"] } } }).catch(() => []),
         p.auth.pantalla ? Promise.resolve(false) : puedeDisenarVistas(),
     ]);
 
@@ -202,7 +202,10 @@ export async function GET() {
     return NextResponse.json({
         canales,
         errores,
-        vistas: leerVistas(filaVistas?.value),
+        vistas: leerVistas(filasAjustes.find((f) => f.key === AJUSTE_VISTAS_CAMARAS)?.value),
+        // Seguimiento visual (el mismo Setting que la ficha de intrusión): por cámara, a qué vecinas
+        // se pasa y por qué punto. Se manda entero: son pocas cámaras y pocos enlaces.
+        seguimiento: (() => { try { return JSON.parse(filasAjustes.find((f) => f.key === "VISUAL_TRACK_LINKS")?.value || "{}"); } catch { return {}; } })(),
         puedeEditar,
         go2rtc: !!streams,
         ventanaAlertaMs: VENTANA_ALERTA_MS,

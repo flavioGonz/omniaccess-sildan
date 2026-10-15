@@ -60,7 +60,9 @@ const AUTO = "auto";
  */
 const CAPTURA_EN_BALDOSA_MS = 15_000;
 
-type Datos = { canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean };
+type Datos = { canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean;
+    /** Seguimiento visual: por idCanal, los enlaces a las cámaras vecinas. */
+    seguimiento?: Record<string, { to: string; x: number; y: number }[]> };
 /** colMovil: en el celular la pared es una lista que se desliza, de 1 o 2 columnas. */
 type Prefs = { vista: string; disposicion: string; pagSeg: number; pausa: boolean; nvr: string; colMovil: 1 | 2 };
 type Celda = { casilla: Casilla; canal: Canal | null; claveFaltante?: string | null };
@@ -377,6 +379,8 @@ export function VistaCamaras() {
     const [abiertaClave, setAbiertaClave] = useState<string | null>(null);
     /** Si la ficha se abrió desde el control «grabación» de una baldosa: el instante donde arranca. */
     const [grabacionInicial, setGrabacionInicial] = useState<number | null>(null);
+    /** De qué cámara se vino por el seguimiento visual (para volver). */
+    const [origenClave, setOrigenClave] = useState<string | null>(null);
     const abierta = abiertaClave ? porClave.get(abiertaClave) || null : null;
     const mover = useCallback((paso: 1 | -1) => {
         if (!abiertaClave || !enPantalla.length) return;
@@ -624,7 +628,12 @@ export function VistaCamaras() {
 
             <FichaCanal c={abierta} grabacionInicial={grabacionInicial} h265={!!h265 && (abierta ? resultados[`${abierta.clave}|directo`] !== false : true)} hls={hls}
                 alerta={abierta ? alertaDe(abierta) : null} lecturas={abierta ? lecturasDe(abierta) : []}
-                alCerrar={() => setAbiertaClave(null)} alMover={enPantalla.length > 1 ? mover : null}
+                alCerrar={() => { setAbiertaClave(null); setOrigenClave(null); }} alMover={enPantalla.length > 1 ? mover : null}
+                canales={todos} seguimiento={datos?.seguimiento || {}} puedeEditar={!!datos?.puedeEditar} alertaDe={alertaDe}
+                alSeguir={(d) => { setOrigenClave(abiertaClave); setGrabacionInicial(null); setAbiertaClave(d.clave); }}
+                origen={origenClave ? porClave.get(origenClave) || null : null}
+                alVolverOrigen={() => { if (origenClave) { setAbiertaClave(origenClave); setOrigenClave(null); } }}
+                alSoltarOrigen={() => setOrigenClave(null)}
                 alVentana={!movil && abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
         </div>
     );
