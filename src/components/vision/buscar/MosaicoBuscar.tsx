@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Ban, Camera, CheckCircle2, LogIn, LogOut, ShieldAlert, Shapes, UserPlus, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,9 @@ import { getImagePath } from "@/lib/image-path";
 import { metaDe } from "@/components/intrusion/comun";
 import { rolEtiqueta } from "@/lib/roles-etiquetas";
 import { ICONO_GRUPO, img, nombreClase, hora, fecha, type FilaObjeto } from "@/components/vision/ObjetoRegistro";
+import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
+import { useSiluetas } from "@/lib/use-siluetas";
+import type { Analisis } from "@/lib/vision-capa";
 import type { HistorialPista, LecturaCruzada, PasoChapa, Persona, Vigilancia } from "@/lib/vision-historial";
 
 /**
@@ -33,26 +36,93 @@ const ACERCAR_MAX = 3;
 export const esNegra = (v: Vigilancia | null | undefined) => v?.categoria === "BLACKLISTED" || v?.categoria === "SEARCH";
 
 /**
- * El cuadro entero acercado al objeto: `cover` con el punto de interés en el centro de la caja,
- * y una escala que lo lleva a ocupar ~55 % de la tarjeta. El recorte suelto (lo de antes) perdía
- * el contexto: la vereda, el portón, hacia dónde iba.
+ * El cuadro entero acercado al objeto, con su silueta encima (como en el historial).
+ *
+ * Se arma a mano en vez de con object-fit: la foto va en una caja del tamaño que le toca (cover
+ * por ACERCAR, con el centro de la caja del objeto en el centro de la tarjeta, sin dejar bordes
+ * vacíos), y la silueta en la MISMA caja, con su misma proporción: así coinciden siempre. Con
+ * object-position y un scale() la foto quedaba bien pero la silueta no tenía cómo seguirla.
+ * El recorte suelto de antes perdía el contexto: la vereda, el portón, hacia dónde iba.
  */
-function FotoAcercada({ f, ancho, alCargar }: { f: FilaObjeto; ancho: number; alCargar: () => void }) {
-    const c = f.caja;
+function FotoAcercada({ f, ancho, siluetas, alCargar }: { f: FilaObjeto; ancho: number; siluetas: boolean; alCargar: () => void }) {
+    const caja = useRef<HTMLSpanElement>(null);
+    const [tam, setTam] = useState<{ w: number; h: number } | null>(null);
+    const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+    const [analisis, setAnalisis] = useState<Analisis | null>(null);
+    useLayoutEffect(() => {
+        const el = caja.current; if (!el) return;
+        const ro = new ResizeObserver(() => setTam({ w: el.clientWidth, h: el.clientHeight }));
+        ro.observe(el); setTam({ w: el.clientWidth, h: el.clientHeight });
+        return () => ro.disconnect();
+    }, []);
+    // La silueta se pide sólo con la tarjeta a la vista y las siluetas prendidas.
+    useEffect(() => {
+        if (!siluetas || !f.foto || !f.caja || analisis) return;
+        const el = caja.current; if (!el) return;
+        let vivo = true;
+        const io = new IntersectionObserver((e) => {
+            if (!e[0]?.isIntersecting) return;
+            io.disconnect();
+            pedirSilueta(f.id).then((a) => { if (vivo && a) setAnalisis(a); });
+        }, { rootMargin: "200px 0px" });
+        io.observe(el);
+        return () => { vivo = false; io.disconnect(); };
+    }, [siluetas, f.id, f.foto, f.caja, analisis]);
+
     const src = f.foto ? img(f.foto, ancho) : f.recorte ? img(f.recorte, ancho) : null;
-    if (!src) return null;
-    const cx = c ? ((c[0] + c[2]) / 2) * 100 : 50, cy = c ? ((c[1] + c[3]) / 2) * 100 : 50;
-    const k = f.foto && c ? Math.max(1, Math.min(ACERCAR_MAX, OCUPA / Math.max(c[2] - c[0], c[3] - c[1], 0.05))) : 1;
+    if (!src) return <span ref={caja} className="absolute inset-0" />;
+    if (!f.foto || !f.caja) {
+        return (
+            <span ref={caja} className="absolute inset-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt={nombreClase(f.clase)} loading="lazy" decoding="async" onLoad={alCargar} onError={alCargar} className="absolute inset-0 w-full h-full object-contain" />
+            </span>
+        );
+    }
+    const c = f.caja;
+    const W = natural?.w || analisis?.ancho || 16, H = natural?.h || analisis?.alto || 9;
+    let estilo: React.CSSProperties = { inset: 0 };
+    if (tam?.w && tam.h) {
+        const k = Math.max(1, Math.min(ACERCAR_MAX, OCUPA / Math.max(c[2] - c[0], c[3] - c[1], 0.05)));
+        const s = Math.max(tam.w / W, tam.h / H) * k, iw = W * s, ih = H * s;
+        const bx = (c[0] + c[2]) / 2, by = (c[1] + c[3]) / 2;
+        const left = Math.min(0, Math.max(tam.w - iw, tam.w / 2 - bx * iw)), top = Math.min(0, Math.max(tam.h - ih, tam.h / 2 - by * ih));
+        estilo = { left, top, width: iw, height: ih };
+    }
     return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={nombreClase(f.clase)} loading="lazy" decoding="async" onLoad={alCargar} onError={alCargar}
-            className={cn("absolute inset-0 w-full h-full", f.foto ? "object-cover" : "object-contain")}
-            style={f.foto ? { objectPosition: `${cx}% ${cy}%`, transform: `scale(${k.toFixed(2)})`, transformOrigin: `${cx}% ${cy}%` } : undefined} />
+        <span ref={caja} className="absolute inset-0 overflow-hidden">
+            <span className="absolute" style={estilo}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src} alt={nombreClase(f.clase)} loading="lazy" decoding="async"
+                    onLoad={(e) => { const i = e.currentTarget; if (i.naturalWidth) setNatural({ w: i.naturalWidth, h: i.naturalHeight }); alCargar(); }} onError={alCargar}
+                    className="absolute inset-0 w-full h-full" />
+                {siluetas && analisis && analisis.objetos.length > 0 && <CapaAnalisis analisis={analisis} ajuste="contain" etiquetas={false} className="absolute inset-0 w-full h-full pointer-events-none" />}
+            </span>
+        </span>
     );
 }
 
-const Tarjeta = memo(function Tarjeta({ r, grande, relevancia, lejos, alAbrir }: {
-    r: ResultadoBusqueda; grande: boolean; relevancia: number | null; lejos: boolean; alAbrir: (r: ResultadoBusqueda) => void;
+/**
+ * Las siluetas se piden de a dos: cada una es un pedido a omni-vision (~40 ms) que el servidor
+ * atiende de a uno. Un mosaico de 60 abre todas a la vez; sin esta fila salían 60 pedidos juntos.
+ */
+const EN_VUELO_MAX = 2;
+let enVuelo = 0;
+const esperando: (() => void)[] = [];
+const yaPedidas = new Map<string, Promise<Analisis | null>>();
+function pedirSilueta(id: string): Promise<Analisis | null> {
+    const ya = yaPedidas.get(id); if (ya) return ya;
+    const p = new Promise<void>((r) => { if (enVuelo < EN_VUELO_MAX) { enVuelo++; r(); } else esperando.push(() => { enVuelo++; r(); }); })
+        .then(() => fetch(`/api/vision/objetos/${encodeURIComponent(id)}/silueta`).then((r) => (r.ok ? r.json() : null)).catch(() => null))
+        .finally(() => { enVuelo--; esperando.shift()?.(); });
+    // Un 429 o un error no se recuerda: la próxima vez que se vea, se vuelve a pedir.
+    p.then((a) => { if (!a) yaPedidas.delete(id); });
+    yaPedidas.set(id, p);
+    return p;
+}
+
+const Tarjeta = memo(function Tarjeta({ r, grande, relevancia, lejos, siluetas, alAbrir }: {
+    r: ResultadoBusqueda; grande: boolean; relevancia: number | null; lejos: boolean; siluetas: boolean; alAbrir: (r: ResultadoBusqueda) => void;
 }) {
     const [cargada, setCargada] = useState(false);
     const Ic = ICONO_GRUPO[r.grupo] || Shapes;
@@ -69,7 +139,7 @@ const Tarjeta = memo(function Tarjeta({ r, grande, relevancia, lejos, alAbrir }:
             <span className="absolute inset-0 overflow-hidden">
                 {!cargada && <span className="absolute inset-0 animate-pulse bg-white/5" />}
                 <span className="absolute inset-0 transition-transform duration-300 group-hover:scale-[1.04]">
-                    <FotoAcercada f={r} ancho={grande ? 960 : 480} alCargar={() => setCargada(true)} />
+                    <FotoAcercada f={r} ancho={grande ? 960 : 640} siluetas={siluetas} alCargar={() => setCargada(true)} />
                 </span>
                 {!r.foto && !r.recorte && <span className="absolute inset-0 grid place-items-center text-white/40"><Camera size={20} /></span>}
             </span>
@@ -135,12 +205,14 @@ export function MosaicoBuscar({ resultados, alAbrir, relativa, lejos = false, at
     relativa: boolean; lejos?: boolean; atenuado?: boolean;
 }) {
     const max = resultados[0]?.coseno || 1, min = resultados[resultados.length - 1]?.coseno ?? 0;
+    // La misma preferencia que el historial y el visor: apagarla en uno las apaga en todos.
+    const [siluetas] = useSiluetas();
     return (
         <div className={cn("grid gap-2 grid-cols-[repeat(auto-fill,minmax(160px,1fr))] auto-rows-[104px] [grid-auto-flow:dense] transition-opacity", atenuado && "opacity-60")}>
             {resultados.map((r, i) => {
                 const grande = !lejos && (i < 2 || esNegra(r.historial?.lectura?.vigilancia) || i % RITMO_BENTO === 0);
                 const rel = relativa ? (max > min ? (r.coseno - min) / (max - min) : 1) : null;
-                return <Tarjeta key={r.id} r={r} grande={grande} relevancia={rel} lejos={lejos} alAbrir={alAbrir} />;
+                return <Tarjeta key={r.id} r={r} grande={grande} relevancia={rel} lejos={lejos} siluetas={siluetas} alAbrir={alAbrir} />;
             })}
         </div>
     );

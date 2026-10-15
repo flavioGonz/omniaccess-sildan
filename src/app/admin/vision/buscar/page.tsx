@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Backpack, Bike, Camera, Car, Clock, Dog, HardHat, Layers, Loader2, PawPrint, ScanSearch, Search, Truck, User, Video, X, Boxes } from "lucide-react";
+import { Backpack, Bike, Camera, Car, Clock, Dog, HardHat, Layers, Loader2, PawPrint, ScanSearch, Search, Sparkles, Truck, User, Video, X, Boxes } from "lucide-react";
+import { useSiluetas } from "@/lib/use-siluetas";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Pista } from "@/components/ui/pista";
@@ -76,6 +77,7 @@ export default function BuscarVision() {
     const [error, setError] = useState<string | null>(null);
     const [buscando, setBuscando] = useState(false);
     const [abierta, setAbierta] = useState<Resultado | null>(null);
+    const [siluetas, setSiluetas] = useSiluetas();
     // Registrar una matrícula (residente, personal, proveedor o lista negra): el selector del monitor de LPR.
     const [registrar, setRegistrar] = useState<string | null>(null);
     const [listas, setListas] = useState<{ units: any[]; groups: any[]; devices: any[]; parkingSlots: any[] } | null>(null);
@@ -200,6 +202,13 @@ export default function BuscarVision() {
                     </select>
                     <span className="pointer-events-none absolute right-2 text-[9px] opacity-70">▼</span>
                 </label>
+                <Pista titulo="Siluetas de OmniVision" texto="Dibuja sobre cada resultado la silueta del objeto. Se calcula al mirarlo (la primera vez tarda un instante). Es la misma opción que en el historial y el visor.">
+                    <button type="button" onClick={() => setSiluetas(!siluetas)} aria-pressed={siluetas} aria-label="Siluetas de OmniVision"
+                        className={cn("h-[34px] px-2.5 rounded-lg border inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors",
+                            siluetas ? "accion border-transparent" : "border-border text-muted-foreground hover:text-foreground hover:bg-accent")}>
+                        <Sparkles size={14} /> Siluetas
+                    </button>
+                </Pista>
             </div>
 
             {error ? <ErrorEstado mensaje={error} alReintentar={() => setPedido((p) => (p ? { ...p } : p))} />
