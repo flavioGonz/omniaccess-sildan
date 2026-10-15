@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MonitorPlay, ShieldAlert, Car, Map as MapIco, LayoutDashboard, HeartPulse, RefreshCw, ExternalLink, Link2, Plus, Copy, Check, Ban, Volume2, Clock, Info, Terminal } from "lucide-react";
+import { MonitorPlay, ShieldAlert, Car, Map as MapIco, LayoutDashboard, HeartPulse, RefreshCw, Cctv, ExternalLink, Link2, Plus, Copy, Check, Ban, Volume2, Clock, Info, Terminal } from "lucide-react";
 import { sileo as toast } from "sileo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { listarEnlacesPantalla, crearEnlacePantalla, revocarEnlacePantalla, leer
  * sus enlaces, y los ajustes (sonido por vista, rotación).
  */
 
-const ICONOS: Record<Vista["icono"], any> = { ShieldAlert, Car, Map: MapIco, LayoutDashboard, HeartPulse, RefreshCw };
+const ICONOS: Record<Vista["icono"], any> = { ShieldAlert, Car, Map: MapIco, LayoutDashboard, HeartPulse, RefreshCw, Cctv };
 
 function CopiarUrl({ url }: { url: string }) {
     const [ok, setOk] = useState(false);

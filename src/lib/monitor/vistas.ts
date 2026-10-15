@@ -7,7 +7,7 @@
  * ningún otro lado.
  */
 
-export type ClaveVista = "intrusion" | "lpr" | "mapa" | "resumen" | "salud" | "rotacion";
+export type ClaveVista = "intrusion" | "lpr" | "mapa" | "resumen" | "salud" | "rotacion" | "camaras";
 
 export type Vista = {
     clave: ClaveVista;
@@ -17,7 +17,7 @@ export type Vista = {
     /** Qué muestra, en dos o tres frases. */
     queMuestra: string;
     /** Ícono de lucide, por nombre: el menú lo resuelve. */
-    icono: "ShieldAlert" | "Car" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw";
+    icono: "ShieldAlert" | "Car" | "Map" | "LayoutDashboard" | "HeartPulse" | "RefreshCw" | "Cctv";
     /** Si la vista puede sonar y con qué modos. */
     sonido?: { ajuste: string; modos: { valor: string; rotulo: string }[] };
 };
@@ -51,6 +51,11 @@ export const VISTAS: Vista[] = [
         queMuestra: "Cada cámara, lectora y NVR, el bot de WhatsApp, el almacenamiento, la base y los procesos, en verde, ámbar o rojo, con hace cuánto respondió y desde cuándo falla.",
     },
     {
+        clave: "camaras", nombre: "Cámaras", icono: "Cctv",
+        paraQuien: "La pared de video: todos los canales del barrio a la vista, como en el NVR.",
+        queMuestra: "Los canales de los NVR y las cámaras sueltas en mosaico de 2×2 a 5×5, con su nombre, su NVR y su canal; si son más que el mosaico, pasa de página sola. La que detecta algo se pone roja y pasa adelante. Tocar un canal lo abre grande.",
+    },
+    {
         clave: "rotacion", nombre: "Rotación", icono: "RefreshCw",
         paraQuien: "Quien tiene un solo monitor y quiere ver varias cosas.",
         queMuestra: "Alterna las vistas que elijas cada tantos segundos. Si hay una intrusión confirmada, se queda en Intrusión hasta que se resuelva.",
@@ -75,6 +80,7 @@ export const ALCANCE_POR_VISTA: Record<ClaveVista, string[]> = {
     mapa: ["/api/monitor/mapa"],
     resumen: ["/api/monitor/resumen"],
     salud: ["/api/monitor/salud", "/api/system-status"],
+    camaras: ["/api/monitor/camaras"],
     rotacion: ["/api/monitor/"],
 };
 
