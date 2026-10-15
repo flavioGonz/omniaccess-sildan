@@ -51,8 +51,10 @@ function ChapaChica({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana }: {
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null }: {
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
+    /** Abrir directo en la grabación, desde este instante (el control de la baldosa). null = en vivo. */
+    grabacionInicial?: number | null;
     alCerrar: () => void;
     /** Al canal anterior o siguiente de la pared (null si no hay). */
     alMover?: ((paso: 1 | -1) => void) | null;
@@ -68,7 +70,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
     const [visibles, setVisibles] = useState(true);
     const [lleno, setLleno] = useState(false);
     const entreYo = useRef(false);
-    useEffect(() => { setGrabacionDesde(null); setFallo(false); }, [c?.clave]);
+    useEffect(() => { setGrabacionDesde(grabacionInicial); setFallo(false); }, [c?.clave]); // eslint-disable-line react-hooks/exhaustive-deps
     const grabacionRef = useRef(grabacion != null); grabacionRef.current = grabacion != null;
     const alCerrarRef = useRef(alCerrar); alCerrarRef.current = alCerrar;
 
