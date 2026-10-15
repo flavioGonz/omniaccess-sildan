@@ -42,7 +42,7 @@ const WebhookDriverNode = memo(({ data }: any) => {
 
     return (
         <div className={cn(
-            "relative flex flex-col p-3 transition-all duration-300 bg-[#1e1e24] border-2 rounded-xl min-w-[180px] custom-drag-handle group/node cursor-grab active:cursor-grabbing",
+            "relative flex flex-col p-3 transition-all duration-300 bg-card border-2 rounded-xl min-w-[180px] custom-drag-handle group/node cursor-grab active:cursor-grabbing",
             isActive ? "border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.6)] scale-105" : "border-blue-500/50"
         )}>
             <Handle type="source" position={Position.Top} className="!bg-blue-500 !w-3 !h-3" />
@@ -76,7 +76,7 @@ const WebhookDriverNode = memo(({ data }: any) => {
             </div>
 
             {/* Path Section */}
-            <div className="flex items-center justify-between gap-2 p-1.5 bg-black/20 rounded-lg border border-border group relative z-10">
+            <div className="flex items-center justify-between gap-2 p-1.5 bg-muted/60 rounded-lg border border-border group relative z-10">
                 <code className="text-[9px] text-muted-foreground font-mono truncate max-w-[120px] pointer-events-auto select-all">
                     {data.sub.toLowerCase()}
                 </code>
@@ -114,53 +114,53 @@ const initialNodes: Node[] = [
         id: 'frontend',
         data: { label: 'Frontend', icon: Monitor, sub: 'Next.js App', ip: 'localhost', port: '10001', status: 'unknown' },
         position: { x: 400, y: 50 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #8b5cf6', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #8b5cf6', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {
         id: 'lpr-node',
         data: { label: 'OmniAccess', icon: ShieldCheck, sub: 'Backend API', ip: 'localhost', port: '10000', status: 'connected' },
         position: { x: 400, y: 250 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #6366f1', width: 220, borderRadius: 16, padding: 15, boxShadow: '0 0 30px rgba(99, 102, 241, 0.4)' },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #6366f1', width: 220, borderRadius: 16, padding: 15, boxShadow: '0 0 30px rgba(99, 102, 241, 0.4)' },
         type: 'default',
     },
     {
         id: 'postgres',
         data: { label: 'Primary DB', icon: Database, sub: 'PostgreSQL 15', ip: '127.0.0.1', port: '5432', status: 'unknown' },
         position: { x: 100, y: 250 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #3b82f6', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #3b82f6', width: 200, borderRadius: 12, padding: 12 },
     },
     {
         id: 'minio',
         data: { label: 'Object Storage', icon: HardDrive, sub: 'MinIO Cluster', ip: '192.168.99.108', port: '9000', status: 'unknown' },
         position: { x: 100, y: 450 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #ef4444', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #ef4444', width: 200, borderRadius: 12, padding: 12 },
     },
     {
         id: 'waha',
         data: { label: 'WhatsApp', icon: MessageSquare, sub: 'OpenWA Gateway', ip: '192.168.99.22', port: '2785', status: 'unknown' },
         position: { x: 700, y: 250 },
-        style: { background: '#0b2e1a', color: '#fff', border: '2px solid #25D366', width: 220, borderRadius: 12, padding: 12, boxShadow: '0 0 28px rgba(37, 211, 102, 0.35)' },
+        style: { background: 'color-mix(in srgb, #25D366 12%, var(--card))', color: 'var(--foreground)', border: '2px solid #25D366', width: 220, borderRadius: 12, padding: 12, boxShadow: '0 0 28px rgba(37, 211, 102, 0.35)' },
     },
     {
         id: 'webhook-api',
         data: { label: 'Webhook API', icon: Webhook, sub: 'Event Gateway', ip: 'localhost', port: '10000', status: 'idle', lastEvent: null },
         position: { x: 380, y: 450 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #3b82f6', width: 220, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #3b82f6', width: 220, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {
         id: 'redis',
         data: { label: 'Cola & Cache', icon: Zap, sub: 'Redis 8 + BullMQ', ip: '127.0.0.1', port: '6379', status: 'connected' },
         position: { x: 700, y: 450 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #f59e0b', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #f59e0b', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
     {
         id: 'media',
         data: { label: 'Media & Clips', icon: Film, sub: 'ffmpeg + go2rtc', ip: '127.0.0.1', port: '1984', status: 'connected' },
         position: { x: 100, y: 640 },
-        style: { background: '#1e1e24', color: '#fff', border: '2px solid #a855f7', width: 200, borderRadius: 12, padding: 12 },
+        style: { background: 'var(--card)', color: 'var(--foreground)', border: '2px solid #a855f7', width: 200, borderRadius: 12, padding: 12 },
         type: 'default',
     },
 ];
@@ -175,7 +175,7 @@ const webhookDrivers = [
     { id: 'webhook-waha', label: 'OpenWA Bot', path: '/api/webhooks/whatsapp', icon: MessageSquare, color: '#25D366' },
 ];
 
-const connectionLineStyle = { stroke: '#fff' };
+const connectionLineStyle = { stroke: 'var(--muted-foreground)' };
 const edgeTypes = {
     floating: FloatingEdge,
 };

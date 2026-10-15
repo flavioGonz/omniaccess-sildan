@@ -70,6 +70,7 @@ import { sileo as toast } from "sileo";
 import { getEnabledModules, toggleModule, setExclusiveMode } from "@/app/actions/modules";
 import { MODULE_DEFINITIONS, type ModuleId } from "@/lib/module-definitions";
 import { Switch } from "@/components/ui/switch";
+import { useSessionRole } from "@/hooks/useSessionRole";
 import PlaybackSection from "./PlaybackSection";
 import EmpresasSection from "./EmpresasSection";
 import VisitasSection from "./VisitasSection";
@@ -211,6 +212,9 @@ const DRIVERS = [
 
 export default function SettingsPage() {
     const [activeSection, setActiveSection] = useState("system_status");
+    // Branding (identidad, login, reportes, PWA) es solo para administradores.
+    const { role: sessionRole } = useSessionRole();
+    const isAdmin = sessionRole === "ADMIN";
     const [openGroup, setOpenGroup] = useState<string | null>(null);
     const [brandingTab, setBrandingTab] = useState("identidad");
     const [storageTab, setStorageTab] = useState("explorador");
@@ -231,7 +235,14 @@ export default function SettingsPage() {
             <div className="sticky top-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border mb-6 -mx-6 px-4 py-3 shadow-md shadow-black/20">
                 {openGroup && <div className="fixed inset-0 z-40" onClick={() => setOpenGroup(null)} />}
                 <div className="relative z-50 flex items-center gap-1.5 flex-wrap">
-                    {NAV_GROUPS.map((g) => {
+                    {NAV_GROUPS
+                        .filter((g) => g.id !== "branding" || isAdmin)
+                        .map((g) => ({
+                            ...g,
+                            // Empresas y Visitas son conceptos de LPR: en modo Filas no aplican.
+                            items: g.items.filter((it) => !(["empresas", "visitas"].includes(it.sec) && !enabledModules.MODULE_LPR)),
+                        }))
+                        .map((g) => {
                         const GIcon = g.icon;
                         const groupActive = g.items.some(it => it.sec === activeSection && (it.btab ? it.btab === brandingTab : true));
                         const isOpen = openGroup === g.id;
@@ -283,7 +294,7 @@ export default function SettingsPage() {
 
                     {activeSection === "webhooks" && <WebhookDebugPage />}
 
-                    {activeSection === "branding" && <BrandingSection activeTab={brandingTab} />}
+                    {activeSection === "branding" && isAdmin && <BrandingSection activeTab={brandingTab} />}
 
 
                     {activeSection === "modo" && (
