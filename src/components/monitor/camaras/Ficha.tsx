@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, History, AppWindow, Maximize2, Minimize2, Camera, Radio, Spline, VideoOff, LogIn, LogOut, Sparkles, Crosshair, ScanEye } from "lucide-react";
 import { metaDe } from "@/components/intrusion/comun";
 import { horaCorta, hace } from "@/lib/monitor/cliente";
 import { Grabacion } from "./Grabacion";
@@ -55,13 +55,15 @@ function ChapaChica({ l }: { l: Lectura }) {
     );
 }
 
-export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen }: {
+export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, alMover, alVentana, grabacionInicial = null, canales = [], seguimiento = {}, puedeEditar = false, alertaDe, alSeguir, origen, alVolverOrigen, alSoltarOrigen, alVision }: {
     c: Canal | null; h265: boolean; hls?: boolean; alerta: Alerta | null; lecturas: Lectura[];
     /** Todas las cámaras de la pared y los enlaces del seguimiento visual (por idCanal). */
     canales?: Canal[]; seguimiento?: Record<string, TrackLink[]>; puedeEditar?: boolean;
     alertaDe?: (c: Canal) => Alerta | null;
     /** Pasar a la cámara vecina por un enlace del seguimiento; `origen` es de dónde se vino. */
     alSeguir?: (destino: Canal) => void; origen?: Canal | null; alVolverOrigen?: () => void; alSoltarOrigen?: () => void;
+    /** Mandar esta cámara a OmniVision o retirarla (sólo con permiso de Ajustes). */
+    alVision?: () => void;
     /** Abrir directo en la grabación, desde este instante (el control de la baldosa). null = en vivo. */
     grabacionInicial?: number | null;
     alCerrar: () => void;
@@ -216,6 +218,10 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                         titulo={verSiluetas ? `Siluetas de OmniVision en vivo${sil.estado === "vivo" && sil.ms != null ? ` · ${sil.ms} ms por cuadro` : sil.estado === "ocupado" ? " · ocupado: ya hay dos canales con siluetas" : ""} · tocar para apagar` : "Mostrar las siluetas de OmniVision en vivo"}>
                                         <Sparkles size={18} />
                                     </Icono>
+                                )}
+                                {alVision && (
+                                    <Icono onClick={alVision} activo={!!c.vision?.analiza}
+                                        titulo={c.vision?.analiza ? `OmniVision analiza esta cámara${c.vision.porSeg != null ? ` (${c.vision.porSeg.toLocaleString("es-UY", { maximumFractionDigits: 2 })} análisis/s)` : ""} · tocar para retirarla` : "Analizar con OmniVision: siluetas, búsqueda, reglas y verificación"}><ScanEye size={18} /></Icono>
                                 )}
                                 {grabacion == null && puedeEditar && (
                                     <Icono onClick={() => setEditandoSeguimiento((x) => !x)} activo={editandoSeguimiento}

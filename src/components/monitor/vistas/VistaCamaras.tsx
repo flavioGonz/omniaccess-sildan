@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera } from "lucide-react";
+import { Server, VideoOff, ChevronLeft, ChevronRight, ChevronDown, Cpu, Image as ImageIcon, Loader2, ShieldAlert, Car, Check, Plus, Pencil, AppWindow, Monitor, Timer, LogIn, LogOut, LayoutGrid, Rows3, Columns2, Gauge, X, Maximize2, History, Camera, ScanEye } from "lucide-react";
 import { useMarco, BarraDelMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, horaCorta, hace, usarReloj } from "@/lib/monitor/cliente";
 import { useTiempoReal } from "@/lib/tiempo-real";
@@ -14,7 +14,7 @@ import { geomDeIntrusion } from "@/lib/vision-capa";
 import { getImagePath } from "@/lib/image-path";
 import { conAncho } from "@/lib/ancho-foto";
 import { DISPOSICIONES, disposicionDe, disposicionDeGrilla, DISPOSICION_POR_DEFECTO, CLAVE_CANAL, type Casilla, type VistaCamaras as VistaGuardada } from "@/lib/monitor/disposiciones";
-import { Vivo, Foto, Geometria, Glifo, Flotante, estiloCasilla, fotoDe, vivoDe, ubicacion, grupoDe, reproduceH265, usaHls, FOTO_MS, type Canal, type Alerta, type Lectura, type Modo } from "@/components/monitor/camaras/piezas";
+import { Vivo, Foto, Geometria, Glifo, Flotante, estiloCasilla, fotoDe, vivoDe, ubicacion, grupoDe, idCanal, reproduceH265, usaHls, FOTO_MS, type Canal, type Alerta, type Lectura, type Modo } from "@/components/monitor/camaras/piezas";
 import { Recursos } from "@/components/monitor/camaras/Recursos";
 import { FichaCanal } from "@/components/monitor/camaras/Ficha";
 import { EditorVista } from "@/components/monitor/camaras/Editor";
@@ -60,7 +60,10 @@ const AUTO = "auto";
  */
 const CAPTURA_EN_BALDOSA_MS = 15_000;
 
-type Datos = { canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean;
+type Datos = {
+    /** OmniVision: carga medida contra su tope, cuántas cámaras analiza, y si quien mira puede cambiarlo. */
+    vision?: { total: number; tope: number; medido: boolean; cuantas: number; puedeCambiar: boolean };
+    canales: Canal[]; errores: { nvr: string; error: string }[]; go2rtc: boolean; ventanaAlertaMs: number; ahora: string; vistas: VistaGuardada[]; puedeEditar: boolean;
     /** Seguimiento visual: por idCanal, los enlaces a las cámaras vecinas. */
     seguimiento?: Record<string, { to: string; x: number; y: number }[]> };
 /** colMovil: en el celular la pared es una lista que se desliza, de 1 o 2 columnas. */
@@ -128,8 +131,8 @@ function ChapaMini({ l, nueva }: { l: Lectura; nueva?: boolean }) {
  * Botón chico sobre la baldosa (aparecen al pasar el mouse). Corta el clic para que no abra
  * además la ficha, que es lo que hace tocar el resto de la baldosa.
  */
-function AccionBaldosa({ children, titulo, onClick, href }: { children: React.ReactNode; titulo: string; onClick?: () => void; href?: string }) {
-    const cls = "w-8 h-8 rounded-full grid place-items-center text-white/85 hover:text-white hover:bg-white/15 transition-colors";
+function AccionBaldosa({ children, titulo, onClick, href, activo }: { children: React.ReactNode; titulo: string; onClick?: () => void; href?: string; activo?: boolean }) {
+    const cls = cn("w-8 h-8 rounded-full grid place-items-center transition-colors", activo ? "bg-white text-black" : "text-white/85 hover:text-white hover:bg-white/15");
     const cortar = (e: React.SyntheticEvent) => e.stopPropagation();
     if (href) return <a href={href} target="_blank" rel="noreferrer" title={titulo} aria-label={titulo} onClick={cortar} onPointerDown={cortar} className={cls}>{children}</a>;
     return <button type="button" title={titulo} aria-label={titulo} onPointerDown={cortar} onClick={(e) => { cortar(e); onClick?.(); }} className={cls}>{children}</button>;
@@ -157,7 +160,7 @@ function CapturaConSiluetas({ a, geom, ancho }: { a: Alerta; geom: Canal["geom"]
     );
 }
 
-function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana }: {
+function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado, hls, libre, dormida, alGrabacion, alVentana, alVision, ocupadoVision }: {
     celda: Celda; modo: Modo; alerta: Alerta | null; lecturas: Lectura[]; destello: Lectura | null;
     alTocar: () => void; alResultado: (c: Canal, modo: Modo, ok: boolean) => void;
     hls: boolean;
@@ -169,6 +172,9 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
     alGrabacion?: () => void;
     /** Abrir el canal solo en otra ventana (escritorio). */
     alVentana?: () => void;
+    /** Mandarla a OmniVision o retirarla (sólo con permiso de Ajustes). */
+    alVision?: () => void;
+    ocupadoVision?: boolean;
 }) {
     const c = celda.canal;
     const grande = celda.casilla.w > 1;
@@ -207,6 +213,13 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
                     <div className={cn("font-bold text-white leading-tight truncate", grande ? "text-[18px]" : "text-[14px]")}>{c.nombre}</div>
                     <div className="text-[11.5px] text-white/65 inline-flex items-center gap-1 truncate max-w-full">{c.nvr && <Server size={10} />} {ubicacion(c)}</div>
                 </div>
+                {/* OmniVision la analiza: queda a la vista siempre, no sólo al pasar el mouse. */}
+                {c.vision?.analiza && (
+                    <span title={`OmniVision analiza esta cámara${c.vision.porSeg != null ? ` · ${c.vision.porSeg.toLocaleString("es-UY", { maximumFractionDigits: 2 })} análisis por segundo` : ""}`}
+                        className="inline-flex items-center gap-1 h-7 px-2 rounded-full bg-[color-mix(in_oklab,var(--accion-en-oscuro)_30%,rgba(0,0,0,0.55))] text-white text-[11px] font-semibold shrink-0 [@media(hover:hover)]:group-hover:opacity-0 transition-opacity">
+                        <ScanEye size={13} /> Omni
+                    </span>
+                )}
                 {c.funcion && (
                     <span title={c.funcion === "lpr" ? "Lee matrículas" : "Vigila una línea o una zona"} className="grid h-7 w-7 place-items-center rounded-full bg-black/55 text-white/80 shrink-0 [@media(hover:hover)]:group-hover:opacity-0 transition-opacity">
                         {c.funcion === "lpr" ? <Car size={14} /> : <ShieldAlert size={14} />}
@@ -220,6 +233,11 @@ function Baldosa({ celda, modo, alerta, lecturas, destello, alTocar, alResultado
                 {alGrabacion && <AccionBaldosa titulo="Ver la grabación" onClick={alGrabacion}><History size={15} /></AccionBaldosa>}
                 {foto && <AccionBaldosa titulo="Abrir la foto de ahora en una pestaña" href={foto.replace(/[?&]w=\d+/, "")}><Camera size={15} /></AccionBaldosa>}
                 {alVentana && <AccionBaldosa titulo="Abrir este canal solo en otra ventana (para otro monitor)" onClick={alVentana}><AppWindow size={15} /></AccionBaldosa>}
+                {alVision && (
+                    <AccionBaldosa titulo={c.vision?.analiza ? `Retirar de OmniVision${c.vision.porSeg != null ? ` (usa ${c.vision.porSeg.toLocaleString("es-UY", { maximumFractionDigits: 2 })} análisis/s)` : ""}` : "Analizar con OmniVision: siluetas, búsqueda, reglas y verificación"} onClick={alVision} activo={c.vision?.analiza}>
+                        {ocupadoVision ? <Loader2 size={15} className="animate-spin" /> : <ScanEye size={15} />}
+                    </AccionBaldosa>
+                )}
             </div>
 
             <div className="absolute bottom-2 left-2 right-2 flex items-end gap-2">
@@ -395,6 +413,7 @@ export function VistaCamaras() {
     const [editando, setEditando] = useState<VistaGuardada | null>(null);
     const [pantallas, setPantallas] = useState<Pantalla[] | null>(null);
     const [aviso, setAviso] = useState<string | null>(null);
+    const [ocupadosVision, setOcupadosVision] = useState<Set<string>>(new Set());
     useEffect(() => { if (!aviso) return; const t = setTimeout(() => setAviso(null), 6000); return () => clearTimeout(t); }, [aviso]);
 
     const paramsVista = (): Record<string, string> => modoVista === "solo" ? { canal: canalSolo! } : guardada ? { vista: guardada.id } : { vista: AUTO, disposicion: disp.clave };
@@ -473,6 +492,22 @@ export function VistaCamaras() {
     );
     const hayNvrs = nvrs.length > 1 || nvrsCaidos.length > 0;
 
+    /**
+     * Mandar a OmniVision o retirar (PUT /api/vision/camaras/<id>, permiso Ajustes). El servidor
+     * decide si hay cupo: si no, contesta 409 con el porqué y se muestra tal cual.
+     */
+    const ponerEnVision = async (c: Canal) => {
+        const analiza = !c.vision?.analiza;
+        setOcupadosVision((s) => new Set(s).add(c.clave));
+        try {
+            const r = await fetch(`/api/vision/camaras/${encodeURIComponent(idCanal(c))}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ analiza, nombre: `${c.nombre}${c.nvr ? ` · ${c.nvr}` : ""}` }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) setAviso(j.error || `No se pudo: el servidor respondió ${r.status}`);
+            else setAviso(analiza ? `«${c.nombre}» entra a OmniVision. En unos segundos empieza a analizarla.` : `«${c.nombre}» sale de OmniVision.`);
+            await recargar();
+        } finally { setOcupadosVision((s) => { const n = new Set(s); n.delete(c.clave); return n; }); }
+    };
+
     const baldosa = (celda: Celda, i: number, libre = false) => (
         <Baldosa key={celda.canal?.clave || `vacia-${i}`} celda={celda} modo={celda.canal ? modos.get(celda.canal.clave) || "foto" : "foto"} hls={hls} libre={libre}
             dormida={libre && !!celda.canal && !aLaVista.has(celda.canal.clave)}
@@ -480,7 +515,8 @@ export function VistaCamaras() {
             destello={celda.canal?.equipoId ? destellos[celda.canal.equipoId] || null : null}
             alTocar={() => { if (celda.canal) { setGrabacionInicial(null); setAbiertaClave(celda.canal.clave); } }} alResultado={alResultado}
             alGrabacion={celda.canal?.nvrId && celda.canal.ch != null ? () => { const k = celda.canal!; const a = alertaDe(k); setGrabacionInicial(a ? +new Date(a.ts) - 5000 : Date.now() - 60_000); setAbiertaClave(k.clave); } : undefined}
-            alVentana={!movil && celda.canal ? () => { const k = celda.canal!; if (!abrirVentana({ canal: k.clave }, `canal-${k.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
+            alVentana={!movil && celda.canal ? () => { const k = celda.canal!; if (!abrirVentana({ canal: k.clave }, `canal-${k.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined}
+            alVision={datos?.vision?.puedeCambiar && celda.canal ? () => ponerEnVision(celda.canal!) : undefined} ocupadoVision={!!celda.canal && ocupadosVision.has(celda.canal.clave)} />
     );
 
     const estados = (
@@ -634,6 +670,7 @@ export function VistaCamaras() {
                 origen={origenClave ? porClave.get(origenClave) || null : null}
                 alVolverOrigen={() => { if (origenClave) { setAbiertaClave(origenClave); setOrigenClave(null); } }}
                 alSoltarOrigen={() => setOrigenClave(null)}
+                alVision={datos?.vision?.puedeCambiar && abierta ? () => ponerEnVision(abierta) : undefined}
                 alVentana={!movil && abierta ? () => { if (!abrirVentana({ canal: abierta.clave }, `canal-${abierta.clave}`, null)) setAviso("El navegador bloqueó la ventana: permití las ventanas emergentes para este sitio."); } : undefined} />
         </div>
     );

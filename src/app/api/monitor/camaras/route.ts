@@ -11,6 +11,9 @@ import { getAnalyticsGeometryBatch } from "@/app/actions/detections";
 import { puedeDisenarVistas } from "@/app/actions/monitores";
 import { AJUSTE_VISTAS_CAMARAS, leerVistas } from "@/lib/monitor/disposiciones";
 import { verificacionesDe } from "@/lib/verificacion";
+import { camarasVision, cargaVision } from "@/lib/vision-camaras";
+import { getSession } from "@/app/actions/auth";
+import { permisosDeSesion } from "@/lib/permisos";
 
 /**
  * GET /api/monitor/camaras → los canales que dibuja la pared de video (vista Cámaras).
@@ -97,6 +100,8 @@ export type CanalPared = {
     /** La última detección de las últimas 24 h, aunque ya no esté en alerta. */
     ultima: { id: string; tipo: string; ts: string; foto?: string | null } | null;
     lecturas: { id: string; ts: string; plate: string | null; decision: string; sentido: string; listaNegra: boolean }[];
+    /** Si OmniVision analiza esta cámara (VISION_CAMARAS) y cuántos análisis por segundo le cuesta, medido. */
+    vision?: { analiza: boolean; porSeg: number | null };
 };
 
 export async function GET() {
@@ -199,8 +204,16 @@ export async function GET() {
         }
     }
 
+    // OmniVision: qué cámaras analiza y cuánto cuesta cada una (lo mide vision-worker).
+    const [enVision, carga, sesion] = await Promise.all([camarasVision().catch(() => ({ todas: false, ids: new Set<string>() })), cargaVision(), p.auth.pantalla ? null : getSession().catch(() => null)]);
+    for (const c of canales) {
+        const id = c.equipoId || `nvrch-${c.nvrId}-${c.ch}`;
+        c.vision = { analiza: enVision.ids.has(id), porSeg: carga.porCamara[id] ?? null };
+    }
+
     return NextResponse.json({
         canales,
+        vision: { ...carga, cuantas: enVision.ids.size, puedeCambiar: !!sesion && permisosDeSesion(sesion as any).includes("ajustes") },
         errores,
         vistas: leerVistas(filasAjustes.find((f) => f.key === AJUSTE_VISTAS_CAMARAS)?.value),
         // Seguimiento visual (el mismo Setting que la ficha de intrusión): por cámara, a qué vecinas

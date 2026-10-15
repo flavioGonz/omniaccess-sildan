@@ -150,7 +150,7 @@ async function leerRecorte(jpeg) {
 /** La cámara leyó una chapa: esta relectura es la doble verificación, no la de una NO_LEIDA. */
 const esDoble = (ev) => !!ev.chapa && !NO_LEIDAS.includes(ev.chapa);
 
-function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
+function iniciar({ prisma, subir, ajuste, log, vision, activa, permitidas = () => null }) {
     const contadores = { hechas: 0, leidas: 0, dudosas: 0, sinChapa: 0, sinVehiculo: 0, sinFoto: 0, errores: 0, ultimoError: null, msUltima: null };
 
     async function pendientes() {
@@ -163,6 +163,8 @@ function iniciar({ prisma, subir, ajuste, log, vision, activa }) {
             FROM "AccessEvent" e LEFT JOIN "Relectura" r ON r."accessEventId" = e.id
                  LEFT JOIN "Device" d ON d.id = e."deviceId"
             WHERE e."accessType" = 'PLATE'
+              -- Sólo las cámaras que OmniVision puede tocar (VISION_CAMARAS, el botón de la pared).
+              AND (${!!(permitidas() || { todas: true }).todas}::boolean OR e."deviceId" = ANY(${(permitidas() || { ids: [] }).ids || []}::text[]))
               AND ((e."plateDetected" = ANY(${NO_LEIDAS}) AND e.timestamp > ${new Date(Date.now() - VENTANA_MS)})
                    OR (d."lprVerifica" = true AND e.timestamp > ${new Date(Date.now() - VENTANA_DOBLE_MS)}))
               AND (r.id IS NULL OR (r.estado = 'ERROR' AND r."createdAt" < (now() AT TIME ZONE 'UTC') - make_interval(secs => ${REINTENTO_MS / 1000})

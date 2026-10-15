@@ -23,6 +23,12 @@ export async function POST(req: NextRequest) {
     const ids = existen.map((d) => d.id);
     // Lista vacía quiere decir "todas": no se puede usar para "ninguna". Para eso está el interruptor.
     if (!ids.length) return NextResponse.json({ error: "Para no registrar ninguna cámara, apagá «Registro de detecciones» en el laboratorio." }, { status: 400 });
-    await guardarAjuste("VISION_CAMARAS", JSON.stringify(ids.length === total ? [] : ids));
-    return NextResponse.json({ ok: true, camaras: ids.length === total ? [] : ids });
+    // Los canales de NVR mandados desde la pared de cámaras (`nvrch-…`) no están en esta lista de
+    // equipos: se conservan. Con alguno, la lista queda explícita (vacía sería «todos los equipos»
+    // y los canales se perderían).
+    const actual = await prisma.setting.findUnique({ where: { key: "VISION_CAMARAS" } }).catch(() => null);
+    let canales: string[] = []; try { canales = (JSON.parse(actual?.value || "[]") as string[]).filter((x) => /^nvrch-/.test(String(x))); } catch { }
+    const valor = ids.length === total && !canales.length ? [] : [...ids, ...canales];
+    await guardarAjuste("VISION_CAMARAS", JSON.stringify(valor));
+    return NextResponse.json({ ok: true, camaras: valor });
 }

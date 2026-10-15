@@ -6,6 +6,7 @@ import fs from "fs";
 import { NextResponse } from "next/server";
 import { autorizarMonitor, SIN_CACHE } from "@/lib/monitor/servidor";
 import { medirAhora } from "@/lib/salud-ahora";
+import { cargaVision } from "@/lib/vision-camaras";
 
 /**
  * GET /api/monitor/camaras/recursos → lo que cuesta la pared ahora mismo en el servidor: CPU,
@@ -66,7 +67,7 @@ async function video(): Promise<Video | null> {
 }
 
 async function medir() {
-    const [ahora, vid] = await Promise.all([medirAhora().catch(() => null), video()]);
+    const [ahora, vid, vision] = await Promise.all([medirAhora().catch(() => null), video(), cargaVision().catch(() => null)]);
     const nucleos = os.cpus().length || 1;
     // La memoria del contenedor (lxcfs muestra la del CT en /proc/meminfo). Se usa MemAvailable y
     // no os.freemem(): ésta es MemFree, que no cuenta la caché que el sistema suelta cuando hace
@@ -81,6 +82,8 @@ async function medir() {
         gpu: ahora?.gpu ? { uso: ahora.gpu.uso, mem: ahora.gpu.mem, memTotal: ahora.gpu.memTotal, temp: ahora.gpu.t, w: ahora.gpu.w } : null,
         gpuFalla: ahora?.gpuFalla || null,
         video: vid,
+        // Lo que hace OmniVision por segundo contra su tope (lo mide vision-worker).
+        vision: vision ? { total: vision.total, tope: vision.tope, medido: vision.medido } : null,
     };
 }
 
