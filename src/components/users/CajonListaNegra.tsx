@@ -39,12 +39,18 @@ const limpiar = (v: string) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/
 
 type Deteccion = DeteccionFicha & { plate: string };
 
-export function CajonListaNegra({ abierta, ficha, chapaInicial, alCerrar, alCambiar, alAbrirPersona }: {
+export function CajonListaNegra({ abierta, ficha, chapaInicial, fotoInicial, motivoInicial, alCerrar, alCambiar, alAbrirPersona }: {
     abierta: boolean;
     /** Null = alta. */
     ficha: FichaListaNegra | null;
     /** Alta desde un atajo con la matrícula ya escrita (?action=listanegra&plate=…). */
     chapaInicial?: string;
+    /**
+     * Alta desde una captura (OmniVision › Buscar): el cuadro de la pista como foto del registro, y
+     * de dónde salió como motivo. Se pueden cambiar antes de guardar.
+     */
+    fotoInicial?: File | null;
+    motivoInicial?: string;
     alCerrar: () => void;
     alCambiar: () => void;
     alAbrirPersona?: (userId: string) => void;
@@ -77,12 +83,12 @@ export function CajonListaNegra({ abierta, ficha, chapaInicial, alCerrar, alCamb
 
     useEffect(() => {
         if (!abierta) return;
-        setNombre(ficha?.nombre || ""); setNivel(ficha?.nivel || "BLACKLISTED"); setMotivo(ficha?.motivo || "");
+        setNombre(ficha?.nombre || ""); setNivel(ficha?.nivel || "BLACKLISTED"); setMotivo(ficha?.motivo || (!ficha && motivoInicial) || "");
         const iniciales = ficha?.matriculas || (chapaInicial ? [limpiar(chapaInicial)].filter(Boolean) : []);
-        setChapas(iniciales); setChapaNueva(""); setArchivo(null); setAvisos(null);
+        setChapas(iniciales); setChapaNueva(""); setArchivo(!ficha ? fotoInicial || null : null); setAvisos(null);
         if (ficha) cargarDet(ficha.matriculas); else setDet(null);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [abierta, ficha?.clave, chapaInicial]);
+    }, [abierta, ficha?.clave, chapaInicial, fotoInicial]);
 
     const agregarChapa = () => {
         const p = limpiar(chapaNueva);
