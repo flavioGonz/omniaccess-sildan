@@ -79,6 +79,8 @@ import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
+import { TarjetasPresencia, CajonPresencia, usarPresencia, type ClavePresencia } from "@/components/monitor/PresenciaBarrio";
+import { Filtros } from "@/components/ui/filtros";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
 /** Matrícula → logo de su empresa (ver logosPorMatricula). */
@@ -825,8 +827,6 @@ export default function MonitorLPR() {
     const [filterVehType, setFilterVehType] = useState<string>("ALL");
     const [stats, setStats] = useState({ total: 0, grants: 0, denies: 0 });
     const [aforo, setAforo] = useState({ entradas: 0, salidas: 0, inside: 0 });
-    // "Adentro" = autos en casa = plazas ocupadas / total (getPresenceSummary)
-    const [presence, setPresence] = useState({ adentro: 0, total: 0 });
     const [lastCapByDev, setLastCapByDev] = useState<Record<string, any>>({});
     const [isConnected, setIsConnected] = useState(false);
     const [devices, setDevices] = useState<Device[]>([]);
@@ -878,7 +878,6 @@ export default function MonitorLPR() {
             const todayStats = await getEventsCountToday("PLATE");
             setStats(todayStats);
             getLprCounters().then(setAforo).catch(() => {});
-            getPresenceSummary().then((p) => setPresence({ adentro: p.adentro, total: p.total })).catch(() => {});
         } catch (error) {
             console.error("Error loading LPR data:", error);
         }
@@ -1180,6 +1179,12 @@ export default function MonitorLPR() {
         for (const e of events) { const id = (e as any).device?.id; if (id && !m[id]) m[id] = e; }
         return m;
     }, [events]);
+    // Quién está adentro (lib/presencia): reemplaza el «En casa 0/0», que contaba plazas de
+    // estacionamiento ocupadas y en un barrio sin plazas cargadas no decía nada.
+    const presencia = usarPresencia(events[0]?.id || null);
+    const [listaPresencia, setListaPresencia] = useState<ClavePresencia | null>(null);
+    const [ultimaListaPresencia, setUltimaListaPresencia] = useState<ClavePresencia>("autosResidentes");
+    const abrirPresencia = useCallback((c: ClavePresencia) => { setUltimaListaPresencia(c); setListaPresencia(c); }, []);
     const openRegister = useCallback((plate?: string) => { if (!plate) return; setRegisterInit({ plate: String(plate).toUpperCase() }); setRegisterOpen(true); }, []);
 
     return (
@@ -1187,14 +1192,19 @@ export default function MonitorLPR() {
         <RelecturasCtx.Provider value={relecturas}>
         <TooltipProvider>
             <div className="h-full flex flex-col bg-background text-foreground">
-                {/* Header */}
-                <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0">
+                {/* Cabecera en dos renglones (16/10, Nico: «mejorá los filtros de arriba, no se
+                    entiende»). Arriba: qué pantalla es, el buscador de matrícula y las acciones.
+                    Abajo: quién está adentro (cuatro tarjetas que abren la lista) y, a la derecha,
+                    los filtros de la lista de lecturas, con los conteos de hoy adentro de cada
+                    opción en vez de un bloque de números sueltos (✓ / ✗) que no decía qué filtraba. */}
+                <div className="px-6 pt-4 pb-3 border-b border-border shrink-0 flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-blue-500/10">
-                            <Car size={22} className="text-blue-400" />
-                        </div>
+                        <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 text-[var(--accion)]">
+                            <Car size={20} />
+                        </span>
                         <div>
-                            <h1 className="text-lg font-bold">Monitor LPR</h1>
+                            <h1 className="text-lg font-bold tracking-tight">Monitor LPR</h1>
                             <p className="text-xs text-muted-foreground">Reconocimiento de matrículas en tiempo real</p>
                         </div>
                     </div>
@@ -1202,90 +1212,29 @@ export default function MonitorLPR() {
                     <PlateCommandBar />
 
                     <div className="flex items-center gap-2.5">
-                        {/* Métricas unificadas en un solo bloque */}
-                        <div className="flex items-center h-9 rounded-lg bg-card border border-border divide-x divide-border overflow-hidden">
-                            <span className="flex items-center gap-1.5 px-3 h-full" title="Autos en casa (plazas ocupadas / total)">
-                                <Home size={13} className="text-blue-400" />
-                                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">En casa</span>
-                                <span className="font-bold text-blue-400 text-sm tabular-nums">{presence.adentro}<span className="text-muted-foreground font-normal text-[11px]">/{presence.total}</span></span>
-                            </span>
-                            <span className="flex items-center gap-1.5 px-3 h-full" title="Lecturas de hoy">
-                                <span className="text-[9px] text-muted-foreground uppercase tracking-wider font-bold">Hoy</span>
-                                <span className="font-bold text-foreground text-sm tabular-nums">{stats.total}</span>
-                            </span>
-                            <span className="flex items-center gap-1.5 px-3 h-full" title="Permitidos hoy">
-                                <CheckCircle2 size={13} className="text-emerald-400" />
-                                <span className="font-bold text-emerald-400 text-sm tabular-nums">{stats.grants}</span>
-                            </span>
-                            <span className="flex items-center gap-1.5 px-3 h-full" title="Denegados hoy">
-                                <XCircle size={13} className="text-red-400" />
-                                <span className="font-bold text-red-400 text-sm tabular-nums">{stats.denies}</span>
-                            </span>
-                        </div>
-
-                        {/* Filtro de decisión (segmentado) */}
-                        <div className="flex items-center h-9 bg-card border border-border rounded-lg p-0.5">
-                            {(["ALL", "GRANT", "DENY"] as const).map(f => (
-                                <button key={f} onClick={() => setActiveFilter(f)}
-                                    className={cn("px-2.5 h-full text-[11px] font-semibold rounded-md transition-all",
-                                        activeFilter === f ? "bg-blue-500 text-white shadow" : "text-muted-foreground hover:text-foreground")}>
-                                    {f === "ALL" ? "Todos" : f === "GRANT" ? "Permitidos" : "Denegados"}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Filtros color / tipo */}
-                        {(vehFacets.colors.length > 0 || vehFacets.types.length > 0) && (
-                            <div className="flex items-center gap-1.5">
-                                {vehFacets.colors.length > 0 && (
-                                    <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)}
-                                        className="h-9 rounded-lg bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
-                                        <option value="ALL">Color</option>
-                                        {vehFacets.colors.map((c) => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                )}
-                                {vehFacets.types.length > 0 && (
-                                    <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)}
-                                        className="h-9 rounded-lg bg-card border border-border px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500">
-                                        <option value="ALL">Tipo</option>
-                                        {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
-                                    </select>
-                                )}
-                                {(filterColor !== "ALL" || filterVehType !== "ALL") && (
-                                    <button onClick={() => { setFilterColor("ALL"); setFilterVehType("ALL"); }}
-                                        className="h-9 w-9 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent border border-border" title="Limpiar filtros">
-                                        <X size={14} />
-                                    </button>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Cluster de acciones (íconos) */}
-                        <div className="flex items-center h-9 bg-card border border-border rounded-lg divide-x divide-border overflow-hidden">
+                        {/* Las acciones: un solo grupo, un solo alto, la misma superficie que los filtros. */}
+                        <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5">
                             {/* Las detecciones de las cámaras (cruces, zonas) vivían en la columna del centro; ahora en un cajón. */}
-                            <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="relative h-full px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                                <Radar size={16} />
+                            <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="relative h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
+                                <Radar size={15} /><span className="hidden xl:inline">Detecciones</span>
                                 {/* Cámaras que esperan una decisión (sin confirmar o confirmadas sin resolver). */}
-                                {(alarmas.porCamara.size + alarmas.atencion.size) > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full pleno-mal text-[8px] font-bold flex items-center justify-center">{new Set([...alarmas.porCamara.keys(), ...alarmas.atencion]).size}</span>}
+                                {(alarmas.porCamara.size + alarmas.atencion.size) > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full pleno-mal text-[9px] font-bold flex items-center justify-center">{new Set([...alarmas.porCamara.keys(), ...alarmas.atencion]).size}</span>}
                             </button>
                             {/* Con el rótulo a la vista: sólo el escudo no se reconocía como la lista negra (San Nicolás, 15/10). */}
-                            <button onClick={() => setShowWatch(true)} title="Lista negra" className="relative h-full px-2.5 inline-flex items-center gap-1.5 text-muted-foreground hover:text-red-400 hover:bg-accent transition-colors">
-                                <ShieldAlert size={16} /><span className="hidden xl:inline text-[12px] font-semibold">Lista negra</span>
-                                {Object.keys(watchMap).length > 0 && <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{Object.keys(watchMap).length}</span>}
+                            <button onClick={() => setShowWatch(true)} title="Lista negra" className="relative h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
+                                <ShieldAlert size={15} /><span className="hidden xl:inline">Lista negra</span>
+                                {Object.keys(watchMap).length > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full pleno-mal text-[9px] font-bold flex items-center justify-center tabular-nums">{Object.keys(watchMap).length}</span>}
                             </button>
-                            <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Popup automático de anomalías: ACTIVADO" : "Popup automático de anomalías: desactivado"}
-                                className={cn("h-full px-2.5 transition-colors flex items-center gap-1.5", pinEnabled ? "bg-yellow-500/15 text-yellow-400" : "text-muted-foreground hover:text-foreground hover:bg-accent")}>
-                                <AlertTriangle size={15} />
-                                <span className={cn("relative inline-flex h-4 w-7 items-center rounded-full transition-colors", pinEnabled ? "bg-yellow-500" : "bg-muted-foreground/30")}>
-                                    <span className={cn("inline-block h-3 w-3 transform rounded-full bg-white transition-transform", pinEnabled ? "translate-x-3.5" : "translate-x-0.5")} />
-                                </span>
+                            <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Ventanitas de lecturas anómalas: prendidas" : "Ventanitas de lecturas anómalas: apagadas"} aria-pressed={pinEnabled}
+                                className={cn("h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors", pinEnabled ? "bg-background tono-aviso" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
+                                <AlertTriangle size={15} /><span className="hidden xl:inline">Anomalías</span>
                             </button>
-                            <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"}
-                                className={cn("h-full px-2.5 transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-accent" : "bg-red-500/10 text-red-400")}>
-                                {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                            <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} aria-pressed={!soundOn}
+                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-background" : "bg-background tono-mal")}>
+                                {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
                             </button>
-                            <button onClick={loadInitialData} title="Refrescar" className="h-full px-2.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-                                <RefreshCw size={16} />
+                            <button onClick={() => { loadInitialData(); presencia.traer(); }} title="Volver a pedir" className="h-[30px] w-[30px] rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
+                                <RefreshCw size={15} />
                             </button>
                         </div>
 
@@ -1297,6 +1246,44 @@ export default function MonitorLPR() {
                         {showWatch && <WatchlistDialog onClose={() => { setShowWatch(false); refreshWatch(); }} />}
                     </div>
                 </div>
+
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <TarjetasPresencia datos={presencia.datos} cargando={presencia.cargando} alAbrir={abrirPresencia} />
+                    <Filtros
+                        grupos={[{
+                            clave: "resultado", titulo: "Lecturas de hoy, por resultado",
+                            valor: activeFilter, alElegir: (v) => setActiveFilter(v as any),
+                            opciones: [
+                                { valor: "ALL", rotulo: "Hoy", cuenta: stats.total },
+                                { valor: "GRANT", rotulo: "Permitidas", cuenta: stats.grants, tono: "bien" },
+                                { valor: "DENY", rotulo: "Denegadas", cuenta: stats.denies, tono: "mal" },
+                            ],
+                        }]}>
+                        {vehFacets.colors.length > 0 && (
+                            <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)} title="Color del vehículo"
+                                className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterColor === "ALL" ? "text-muted-foreground" : "text-foreground")}>
+                                <option value="ALL">Cualquier color</option>
+                                {vehFacets.colors.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        )}
+                        {vehFacets.types.length > 0 && (
+                            <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)} title="Tipo de vehículo"
+                                className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterVehType === "ALL" ? "text-muted-foreground" : "text-foreground")}>
+                                <option value="ALL">Cualquier tipo</option>
+                                {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        )}
+                        {(activeFilter !== "ALL" || filterColor !== "ALL" || filterVehType !== "ALL") && (
+                            <button type="button" onClick={() => { setActiveFilter("ALL"); setFilterColor("ALL"); setFilterVehType("ALL"); }}
+                                className="h-[34px] px-3 rounded-lg inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent" title="Quitar los filtros">
+                                <X size={14} /> Limpiar
+                            </button>
+                        )}
+                    </Filtros>
+                </div>
+                </div>
+                <CajonPresencia abierto={listaPresencia !== null} clave={listaPresencia || ultimaListaPresencia} alCambiarClave={abrirPresencia} alCerrar={() => setListaPresencia(null)}
+                    datos={presencia.datos} error={presencia.error} cargando={presencia.cargando} alRecargar={presencia.traer} />
 
                 {/* Dos columnas, un sentido cada una. */}
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden">

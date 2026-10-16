@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { getSocketUrl } from "@/lib/socket-config";
-import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem } from "@/app/actions/detections";
+import { getIntrusionCameras, getRecentDetections, getDevicesWithAnalytics, getAnalyticsGeometryBatch, getDetectionHistory, getActiveAlarms, ackAlarms, getAttendingIds, setAttending, getVisualTrackLinks, setVisualTrackLinks, type TrackLink, type DetItem, type IntrusionCam, type DetHistItem, getEvidenciaCamara, type EvidenciaItem } from "@/app/actions/detections";
 import { Radar, ShieldAlert, Activity, LogIn, LogOut, Camera, Circle, BellRing, Loader2, Check, PencilRuler, X, Server, Wifi, Search, RefreshCcw, History, ImageOff, ChevronLeft, ChevronRight, FileText, Video, Film, MoreVertical, Clock, Download, ChevronUp, ChevronDown, ZoomIn, ZoomOut, Home, Gauge, Move, Joystick, Rewind, FastForward, Gauge as GaugeIco, Calendar as CalIco, Crosshair, Plus, Save, Pencil, Trash2, Car, User, Play, Pause, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LineZoneCalibrator } from "@/components/LineZoneCalibrator";
@@ -267,12 +267,13 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
         if (cushion >= COLCHON_SEG || v.readyState >= 4) { v.play().catch(() => { }); }
     }, []);
     // evidencia
-    const [evi, setEvi] = useState<DetHistItem[]>([]);
+    const [evi, setEvi] = useState<EvidenciaItem[] | null>(null);
+    const [eviOrigen, setEviOrigen] = useState<"todo" | EvidenciaItem["origen"]>("todo");
     const [eviBig, setEviBig] = useState<string | null>(null);
 
     useEffect(() => { fetch(`/api/devices/stream?deviceId=${cam.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "ensure" }) }).catch(() => { }); }, [cam.id]);
     useEffect(() => { if (cam.nvrId) return; fetch(`/api/nvr/channel?deviceId=${cam.id}`, { cache: "no-store" }).then((r) => r.json()).then((d) => setNvrId(d && d.nvr ? String(d.nvr) : null)).catch(() => { }); }, [cam.id, cam.nvrId]);
-    useEffect(() => { if (tab !== "evi") return; getDetectionHistory({ deviceId: cam.id, pageSize: 30 }).then((r) => setEvi(r.items)).catch(() => { }); }, [tab, cam.id]);
+    useEffect(() => { if (tab !== "evi") return; setEvi(null); getEvidenciaCamara(cam.id, 90).then(setEvi).catch(() => setEvi([])); }, [tab, cam.id]);
     // Los eventos del DÍA que se está mirando (no los últimos 100 de siempre): son las marcas de la regla.
     useEffect(() => {
         if (tab !== "rec") return;
@@ -594,32 +595,44 @@ export function LiveModal({ cam, cams = [], geom: geomProp, initialTab = "live",
                 {/* ── EVIDENCIA ── */}
                 {tab === "evi" && (
                     <div className="absolute inset-0 z-10 bg-black/70 backdrop-blur-sm overflow-y-auto custom-scrollbar p-4 pt-14 pl-20">
-                        {evi.length === 0 ? (
-                            <div className="h-full grid place-items-center text-white/50 text-sm">Sin capturas de evidencia para este canal.</div>
-                        ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-                                {evi.map((d) => {
-                                    const m = META[d.type] || META.OTHER;
-                                    const href = d.snapshotPath || (d.deviceId ? `/api/snapshot/${d.deviceId}?t=${d.id}` : null);
-                                    const loc = d.deviceName || cam.name;
-                                    const when = new Date(d.timestamp).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-                                    return (
-                                        <button key={d.id} onClick={() => href && setEviBig(href)} className="group relative aspect-video rounded-2xl overflow-hidden ring-1 ring-white/10 hover:ring-2 hover:ring-red-400/60 hover:z-10 hover:scale-[1.02] transition-all duration-150 bg-neutral-900 text-left shadow-lg">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            {href ? <img src={href} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
-                                            <div className="absolute inset-x-0 top-0 h-16 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
-                                            <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/25 to-transparent pointer-events-none" />
-                                            <div className="absolute top-2.5 left-3 right-3">
-                                                <div className="text-[13px] font-extrabold text-white leading-tight truncate drop-shadow">{loc}</div>
-                                                <div className="text-[11px] font-semibold text-white/80 tabular-nums drop-shadow">{when}</div>
-                                            </div>
-                                            <span className={cn("absolute bottom-2.5 left-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-extrabold uppercase tracking-wide backdrop-blur-sm shadow", m.cls)}><m.Icon size={13} /> {m.label}</span>
-                                            <span className="absolute bottom-2.5 right-3 inline-flex items-center px-2 py-1 rounded-lg bg-black/55 backdrop-blur-sm text-[11px] font-bold text-white/90 tabular-nums">hace {ago(d.timestamp)}</span>
+                        {(() => {
+                            if (evi === null) return <div className="h-full grid place-items-center text-white/50 text-sm"><Loader2 size={18} className="animate-spin" /></div>;
+                            const cuenta = (o: EvidenciaItem["origen"]) => evi.filter((x) => x.origen === o).length;
+                            const opciones = ([["todo", "Todo", evi.length], ["lectura", "Matrículas", cuenta("lectura")], ["objeto", "OmniVision", cuenta("objeto")], ["analitica", "Analítica", cuenta("analitica")]] as const).filter(([k, , n]) => k === "todo" || n > 0);
+                            const lista = eviOrigen === "todo" ? evi : evi.filter((x) => x.origen === eviOrigen);
+                            if (!evi.length) return <div className="h-full grid place-items-center text-white/50 text-sm">Este canal todavía no tiene lecturas, objetos ni analíticas guardadas.</div>;
+                            return (<>
+                                <div className="flex items-center gap-1.5 mb-3">
+                                    {opciones.map(([k, t, n]) => (
+                                        <button key={k} type="button" onClick={() => setEviOrigen(k)}
+                                            className={cn("h-8 px-3 rounded-full text-[12px] font-semibold inline-flex items-center gap-1.5 transition", eviOrigen === k ? "bg-white text-black" : "bg-white/10 text-white/80 hover:bg-white/15")}>
+                                            {t}<span className="tabular-nums opacity-60">{n}</span>
                                         </button>
-                                    );
-                                })}
-                            </div>
-                        )}
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                                    {lista.map((d) => {
+                                        const m = d.origen === "analitica" ? (META[d.tipo || "OTHER"] || META.OTHER) : null;
+                                        const Ico = m ? m.Icon : d.origen === "lectura" ? Car : Crosshair;
+                                        const rotulo = m ? m.label : d.origen === "lectura" ? "Matrícula" : "OmniVision";
+                                        const when = new Date(d.ts).toLocaleString("es-UY", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                                        return (
+                                            <button key={d.id} type="button" onClick={() => d.foto && setEviBig(d.foto)} className="group relative aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/10 hover:ring-white/40 transition bg-neutral-900 text-left">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                {d.foto ? <img src={d.foto} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" /> : <div className="absolute inset-0 grid place-items-center text-white/20"><Camera size={22} /></div>}
+                                                <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+                                                <span className="absolute top-2.5 left-2.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-bold text-white/90"><Ico size={11} /> {rotulo}</span>
+                                                <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/60 text-[10px] font-semibold text-white/80 tabular-nums">{ago(d.ts)}</span>
+                                                <div className="absolute bottom-2.5 left-3 right-3">
+                                                    <div className={cn("font-bold text-white leading-tight truncate", d.origen === "lectura" ? "text-[16px] tracking-wide tabular-nums" : "text-[13px]")}>{d.titulo}</div>
+                                                    <div className="text-[11px] text-white/70 tabular-nums truncate">{when}{d.detalle ? ` · ${d.detalle}` : ""}</div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </>);
+                        })()}
                         {eviBig && (
                             <div className="fixed inset-0 z-[2200] bg-black/90 grid place-items-center p-6" onClick={() => setEviBig(null)}>
                                 {/* eslint-disable-next-line @next/next/no-img-element */}

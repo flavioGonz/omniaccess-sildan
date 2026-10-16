@@ -1463,3 +1463,19 @@ model LecturaCamara {
   @@index([deviceId, ts])
   @@index([ts])
 }
+
+/// Una corrección a mano de la presencia de una matrícula (Monitor LPR › Presencia): «salió» o
+/// «está adentro». Vale si es más nueva que la última lectura de esa chapa; la próxima lectura
+/// la reemplaza sola. Existe porque en un barrio abierto la salida no siempre se lee.
+model MarcaPresencia {
+  id     String   @id @default(cuid())
+  /// Normalizada (sin espacios ni guiones, en mayúsculas).
+  plate  String
+  /// AFUERA | ADENTRO
+  estado String
+  por    String?
+  ts     DateTime @default(now())
+
+  @@index([plate, ts])
+  @@index([ts])
+}

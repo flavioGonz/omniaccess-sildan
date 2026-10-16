@@ -391,3 +391,52 @@ export async function ackAlarms(deviceId: string, kind: "real" | "false" = "real
         return { ok: true, count: r.count };
     } catch { return { ok: false, count: 0 }; }
 }
+
+/**
+ * Una pieza de evidencia de un canal, venga de donde venga.
+ *  · analitica — lo que avisó la cámara o el NVR (Detection): cruce de línea, intrusión…
+ *  · lectura   — una matrícula que leyó la cámara o el motor (AccessEvent).
+ *  · objeto    — lo que OmniVision siguió en el canal (ObjetoVisto): auto, persona, perro…
+ */
+export type EvidenciaItem = {
+    id: string; origen: "analitica" | "lectura" | "objeto"; ts: string;
+    /** Rótulo corto: «Cruce de línea», «Matrícula ABC1234», «Auto». */
+    titulo: string; detalle: string | null; foto: string | null;
+    /** Para la analítica: el tipo (LINECROSS…), con el que la pantalla elige ícono y tono. */
+    tipo: string | null;
+};
+
+/**
+ * La pestaña Evidencia de la ficha de una cámara. Antes leía sólo Detection, que es lo que manda
+ * la analítica de la cámara: una LPR que OmniVision mira no manda analítica, así que la pestaña
+ * decía «Sin capturas de evidencia» con 17 lecturas y 408 objetos guardados de esa misma cámara
+ * (medido el 16/10 en LPR Interior del lab). Ahora junta las tres fuentes por hora.
+ */
+export async function getEvidenciaCamara(deviceId: string, limite = 60): Promise<EvidenciaItem[]> {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession().catch(() => null))) return [];
+    if (typeof deviceId !== "string" || !/^[\w-]{1,100}$/.test(deviceId)) return [];
+    const n = Math.max(1, Math.min(150, limite));
+    const { NOMBRE_CLASE_REGLA } = await import("@/lib/vision-reglas");
+    const [dets, lecturas, objetos] = await Promise.all([
+        prisma.detection.findMany({ where: { deviceId }, orderBy: { timestamp: "desc" }, take: n }).catch(() => []),
+        prisma.accessEvent.findMany({ where: { deviceId }, orderBy: { timestamp: "desc" }, take: n, select: { id: true, timestamp: true, plateDetected: true, direction: true, decision: true, snapshotPath: true, imagePath: true } }).catch(() => []),
+        prisma.objetoVisto.findMany({ where: { deviceId }, orderBy: { primeraVez: "desc" }, take: n, select: { id: true, primeraVez: true, clase: true, confianza: true, foto: true, recorte: true, cuadros: true } }).catch(() => []),
+    ]);
+    const NOMBRE_TIPO: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión", REGION_ENTER: "Entra a zona", REGION_EXIT: "Sale de zona", MOTION: "Movimiento" };
+    const items: EvidenciaItem[] = [
+        ...dets.map((d: any) => ({ id: `d:${d.id}`, origen: "analitica" as const, ts: d.timestamp.toISOString(), titulo: NOMBRE_TIPO[d.type] || "Evento", detalle: d.label || null, foto: d.snapshotPath || `/api/snapshot/${deviceId}?t=${d.id}`, tipo: d.type })),
+        ...lecturas.map((e) => ({
+            id: `l:${e.id}`, origen: "lectura" as const, ts: e.timestamp.toISOString(),
+            titulo: e.plateDetected && !/^NO_?LEID[AO]$/i.test(e.plateDetected) ? e.plateDetected : "Sin leer",
+            detalle: [e.direction === "ENTRY" ? "Entrada" : e.direction === "EXIT" ? "Salida" : null, e.decision === "DENY" ? "Denegada" : null].filter(Boolean).join(" · ") || null,
+            foto: e.snapshotPath || e.imagePath || null, tipo: null,
+        })),
+        ...objetos.map((o) => ({
+            id: `o:${o.id}`, origen: "objeto" as const, ts: o.primeraVez.toISOString(),
+            titulo: NOMBRE_CLASE_REGLA[o.clase] || o.clase, detalle: `${Math.round(o.confianza * 100)} % · ${o.cuadros} cuadros`,
+            foto: o.foto ? `/api/vision/imagen/${o.foto}?w=640` : o.recorte ? `/api/vision/imagen/${o.recorte}` : null, tipo: null,
+        })),
+    ];
+    return items.sort((a, b) => (a.ts < b.ts ? 1 : -1)).slice(0, n);
+}
