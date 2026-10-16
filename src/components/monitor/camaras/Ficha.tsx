@@ -206,8 +206,17 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                                 <span className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] font-semibold visor-panel text-white/85"><ult.Icon size={14} /> Última: {ult.label} · {hace(c.ultima.ts)}</span>
                             )}
                         </div>
-                        {/* Arriba a la derecha: las acciones, en íconos, en una sola cápsula. */}
-                        <div className="flex items-center gap-2 shrink-0">
+                    </div>
+
+                    {/*
+                     * Las acciones, en íconos, abajo al centro (16/10, Nico: «los controles deben estar
+                     * abajo al centro»): arriba a la derecha competían con el nombre y la hora que
+                     * sobreimprime la cámara, y quedaban lejos del pulgar. En la grabación suben por
+                     * encima de su regla, que ocupa el pie.
+                     */}
+                    <div className={cn("absolute inset-x-0 z-10 flex justify-center px-3 pointer-events-none transition-opacity duration-300",
+                        grabacion != null ? "bottom-[248px] sm:bottom-[206px]" : "bottom-4 sm:bottom-6", !visibles && "opacity-0 [&_*]:pointer-events-none")}>
+                        <div className="flex items-center gap-2 max-w-full overflow-x-auto pointer-events-auto">
                             {alMover && (
                                 <span className="visor-panel rounded-full p-1 flex items-center gap-0.5">
                                     <Icono onClick={() => alMover(-1)} titulo="Canal anterior  ( ← )"><ChevronLeft size={20} /></Icono>
@@ -256,7 +265,7 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                     )}
                     {/* La cámara de la que se vino por el seguimiento: chica, abajo a la izquierda, para volver. */}
                     {origen && grabacion == null && (
-                        <div className={cn("absolute left-4 bottom-24 w-[240px] aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity", !visibles && "opacity-60")}>
+                        <div className={cn("absolute left-4 bottom-28 w-[240px] aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity", !visibles && "opacity-60")}>
                             <Vivo src={vivoDe(origen.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-cover" />
                             <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white"><Crosshair size={11} /> Origen · {origen.nombre}</span>
                             <button type="button" onClick={alVolverOrigen} className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-[var(--accion)] text-white text-[12px] font-semibold"><ChevronLeft size={13} /> Volver</button>
@@ -264,17 +273,10 @@ export function FichaCanal({ c, h265, hls = false, alerta, lecturas, alCerrar, a
                         </div>
                     )}
 
-                    {/* La grabación, a mano: el mismo interruptor que el ícono de arriba, donde el pulgar llega. */}
-                    {grabacion == null && c.nvrId && c.ch != null && (
-                        <button type="button" onClick={() => setGrabacionDesde(alerta ? +new Date(alerta.ts) - GRABACION_ANTES_ALERTA_MS : Date.now() - GRABACION_ANTES_MS)}
-                            className={cn("absolute right-4 sm:right-7 bottom-5 z-10 h-11 px-4 rounded-full visor-panel text-white text-[14px] font-semibold inline-flex items-center gap-2 transition-opacity duration-300", !visibles && "opacity-0 pointer-events-none")}>
-                            <History size={16} /> {alerta ? "Ver la detección grabada" : "Grabación"}
-                        </button>
-                    )}
 
                     {/* Abajo: las últimas chapas, si la cámara lee. */}
                     {lecturas.length > 0 && grabacion == null && (
-                        <div className={cn("absolute bottom-0 inset-x-0 p-5 md:px-7 pr-[220px] flex items-center gap-2 flex-wrap bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0")}>
+                        <div className={cn("absolute bottom-0 inset-x-0 p-5 md:px-7 pb-[88px] sm:pb-[96px] flex items-center justify-center gap-2 flex-wrap bg-gradient-to-t from-black/70 to-transparent transition-opacity duration-300", !visibles && "opacity-0")}>
                             <span className="text-[9px] font-bold uppercase tracking-[0.14em] text-white/60 mr-1">Últimas lecturas</span>
                             {lecturas.slice(0, 6).map((l) => <ChapaChica key={l.id} l={l} />)}
                         </div>
