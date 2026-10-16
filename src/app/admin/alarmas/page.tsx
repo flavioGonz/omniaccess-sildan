@@ -20,6 +20,7 @@ import { conAncho } from "@/lib/ancho-foto";
 import type { Alarma, FuenteAlarma } from "@/lib/alarmas";
 import { Miniatura } from "@/components/ui/celdas";
 import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
+import { GestionEnVivo } from "@/components/alarmas/GestionEnVivo";
 import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
 import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
 import { getAccessEvent } from "@/app/actions/history";
@@ -486,6 +487,12 @@ function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto:
                     </>) : a.estado === "pendiente" ? (
                         <Button size="sm" disabled={nota.guardando} onClick={() => void decidir(null)}><Check size={14} /> Atendida</Button>
                     ) : null}
+                </div>
+
+                {/* Quién la opera y la bitácora de lo que se hizo (16/10). */}
+                <div className="border-t border-border pt-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Gestión</div>
+                    <GestionEnVivo clave={a.id} deviceId={a.deviceId} />
                 </div>
             </div>
 

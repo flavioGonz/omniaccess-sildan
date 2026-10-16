@@ -3,6 +3,12 @@
 import { prisma } from "@/lib/prisma";
 import { verificacionesDe, type Verificacion } from "@/lib/verificacion";
 import { pasaVision, type FiltroVision, type Veredicto } from "@/lib/vision-capa";
+import { registrarGestion, claveIntrusion, tomarAlarma, pasarAlarma, historialGestion, operadoresDe, type Operador, type PasoGestion } from "@/lib/gestion-alarma";
+
+/** El nombre de quien está en el panel, para la bitácora de gestión. */
+async function quienOpera(): Promise<string | null> {
+    try { const { getSession } = await import("@/app/actions/auth"); const s: any = await getSession(); return (s?.name as string) || (s?.sub as string) || null; } catch { return null; }
+}
 
 export type DetItem = {
     id: string;
@@ -304,13 +310,15 @@ export async function setAttending(deviceId: string, on: boolean): Promise<{ ok:
         if (on) set.add(deviceId); else set.delete(deviceId);
         const value = JSON.stringify([...set]);
         await prisma.setting.upsert({ where: { key: "INTRUSION_ATTENDING_IDS" }, update: { value }, create: { key: "INTRUSION_ATTENDING_IDS", value } });
+        // Desactivarla queda en la bitácora de la intrusión (confirmarla ya quedó en ackAlarms).
+        if (!on) await registrarGestion(await claveIntrusion(deviceId), "DESACTIVO", await quienOpera(), { deviceId });
         // La barra de «intrusión real» de todas las pantallas y el monitor se enteran al instante.
         try { const { avisarPorSocket } = await import("@/lib/avisar"); avisarPorSocket("intrusion_atencion", { deviceId, on }); } catch { }
         return { ok: true };
     } catch { return { ok: false }; }
 }
 
-export type IntrusionConfirmada = { deviceId: string; deviceName: string; id: string | null; type: string; label: string | null; ts: string | null; snapshotPath: string | null };
+export type IntrusionConfirmada = { deviceId: string; deviceName: string; id: string | null; type: string; label: string | null; ts: string | null; snapshotPath: string | null; clave: string };
 /**
  * Las intrusiones confirmadas como reales y sin resolver, con la detección que se aceptó: lo que
  * muestra la barra roja de todo el panel (AlertaIntrusionGlobal) y la pared (/api/monitor/alarmas).
@@ -322,8 +330,40 @@ export async function getIntrusionesConfirmadas(): Promise<IntrusionConfirmada[]
     const nombre = Object.fromEntries(devs.map((d) => [d.id, d.name]));
     return Promise.all(ids.map(async (deviceId) => {
         const d = await prisma.detection.findFirst({ where: { deviceId, acknowledged: true, ackKind: "real", type: { not: "MOTION" } }, orderBy: { timestamp: "desc" }, select: { id: true, type: true, label: true, timestamp: true, snapshotPath: true } }).catch(() => null);
-        return { deviceId, deviceName: nombre[deviceId] || deviceId, id: d?.id || null, type: d?.type || "OTHER", label: d?.label || null, ts: d ? d.timestamp.toISOString() : null, snapshotPath: d?.snapshotPath || null };
+        return { deviceId, deviceName: nombre[deviceId] || deviceId, id: d?.id || null, type: d?.type || "OTHER", label: d?.label || null, ts: d ? d.timestamp.toISOString() : null, snapshotPath: d?.snapshotPath || null, clave: d ? `d:${d.id}` : `c:${deviceId}` };
     }));
+}
+
+/* ── Quién opera cada alarma (lib/gestion-alarma) ── */
+const CLAVE_OK = /^[dalc]:[\w-]{1,64}$/;
+export type OperadorVista = Operador & { soyYo: boolean };
+/** Quién tiene cada una de estas alarmas ahora, y si soy yo. */
+export async function getOperadores(claves: string[]): Promise<Record<string, OperadorVista>> {
+    const yo = await quienOpera();
+    if (!yo) return {};
+    const ops = await operadoresDe(claves.filter((c) => CLAVE_OK.test(c)).slice(0, 50));
+    return Object.fromEntries(Object.entries(ops).map(([k, o]) => [k, { ...o, soyYo: !!o.operador && o.operador === yo }]));
+}
+/** Tomar una alarma: queda a mi nombre y las demás pantallas lo ven. */
+export async function tomarGestion(clave: string, deviceId?: string | null): Promise<{ ok: boolean; operador?: string }> {
+    const yo = await quienOpera();
+    if (!yo || !CLAVE_OK.test(clave)) return { ok: false };
+    const o = await tomarAlarma(clave, yo, deviceId);
+    return { ok: true, operador: o.operador || yo };
+}
+/** Pasarla: queda libre para otro compañero. */
+export async function pasarGestion(clave: string, nota?: string | null, deviceId?: string | null): Promise<{ ok: boolean }> {
+    const yo = await quienOpera();
+    if (!yo || !CLAVE_OK.test(clave)) return { ok: false };
+    await pasarAlarma(clave, yo, nota ? String(nota).slice(0, 500) : null, deviceId);
+    return { ok: true };
+}
+/** La bitácora de una alarma y quién la tiene. */
+export async function getHistorialGestion(clave: string): Promise<{ pasos: PasoGestion[]; operador: OperadorVista } | null> {
+    const yo = await quienOpera();
+    if (!yo || !CLAVE_OK.test(clave)) return null;
+    const h = await historialGestion(clave);
+    return { pasos: h.pasos, operador: { ...h.operador, soyYo: !!h.operador.operador && h.operador.operador === yo } };
 }
 
 // ── Visual Track: enlaces entre cámaras de la misma escena (seguir intrusos) ──
@@ -380,8 +420,15 @@ export async function reclasificarComoFalsa(deviceId: string): Promise<{ ok: boo
             where: { deviceId, acknowledged: true, ackKind: "real", type: { not: "MOTION" }, timestamp: { gte: since } },
             data: { ackKind: "false", ackAt: new Date() },
         });
+        await registrarGestion(await claveDeCamara(deviceId, "false"), "ERA_FALSA", await quienOpera(), { deviceId, detalle: r.count > 1 ? `${r.count} detecciones` : null });
         return { ok: true, count: r.count };
     } catch { return { ok: false, count: 0 }; }
+}
+
+/** La clave de la última detección de una cámara con ese resultado (para la bitácora). */
+async function claveDeCamara(deviceId: string, kind: "real" | "false"): Promise<string> {
+    const d = await prisma.detection.findFirst({ where: { deviceId, acknowledged: true, ackKind: kind, type: { not: "MOTION" } }, orderBy: { timestamp: "desc" }, select: { id: true } }).catch(() => null);
+    return d ? `d:${d.id}` : `c:${deviceId}`;
 }
 
 /**
@@ -394,7 +441,8 @@ export async function marcarDeteccion(id: string, kind: "real" | "false"): Promi
     if (!(await getSession())) return { ok: false, error: "Hace falta una sesión del panel." };
     if (kind !== "real" && kind !== "false") return { ok: false, error: "Estado inválido" };
     try {
-        await prisma.detection.update({ where: { id }, data: { acknowledged: true, ackKind: kind, ackAt: new Date() } });
+        const d = await prisma.detection.update({ where: { id }, data: { acknowledged: true, ackKind: kind, ackAt: new Date() }, select: { deviceId: true } });
+        await registrarGestion(`d:${id}`, kind === "real" ? "MARCO_REAL" : "MARCO_FALSA", await quienOpera(), { deviceId: d.deviceId });
         return { ok: true };
     } catch { return { ok: false, error: "No se encontró la detección" }; }
 }
@@ -406,6 +454,7 @@ export async function ackAlarms(deviceId: string, kind: "real" | "false" = "real
             where: { deviceId, acknowledged: false, type: { not: "MOTION" }, timestamp: { gte: since } },
             data: { acknowledged: true, ackKind: kind, ackAt: new Date() },
         });
+        if (r.count) await registrarGestion(await claveDeCamara(deviceId, kind), kind === "real" ? "CONFIRMO_REAL" : "MARCO_FALSA", await quienOpera(), { deviceId, detalle: r.count > 1 ? `${r.count} detecciones de la cámara` : null });
         return { ok: true, count: r.count };
     } catch { return { ok: false, count: 0 }; }
 }

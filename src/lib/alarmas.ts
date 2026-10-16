@@ -3,6 +3,7 @@ import { normalizarMatricula } from "@/lib/lista-negra";
 import { atenderAviso } from "@/lib/visitas/registro";
 import { ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { avisarPorSocket } from "@/lib/avisar";
+import { registrarGestion } from "@/lib/gestion-alarma";
 
 /**
  * Gestión de alarmas (16/10, Nico: «un panel de gestión centralizado de todos los tipos de
@@ -172,6 +173,9 @@ export async function gestionarAlarma(id: string, g: { atender: boolean; resulta
     };
     if (previa) await prisma.alarmaAtendida.update({ where: { clave: id }, data: datos });
     else await prisma.alarmaAtendida.create({ data: { clave: id, atendida: g.atender, resultado: g.atender ? g.resultado : null, nota: g.nota || null, por } });
+    // La bitácora (lib/gestion-alarma): qué se decidió y la nota, con quién.
+    if (g.atender) await registrarGestion(id, g.resultado === "real" ? "MARCO_REAL" : g.resultado === "falsa" ? "MARCO_FALSA" : "ATENDIO", por);
+    if (g.nota) await registrarGestion(id, "NOTA", por, { detalle: g.nota });
     avisarPorSocket("alarma_atendida", { id });
     return true;
 }

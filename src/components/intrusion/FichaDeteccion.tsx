@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
-    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat,
+    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen, Repeat, UserRound,
 } from "lucide-react";
 import { useAnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -19,6 +19,7 @@ import type { Verificacion } from "@/lib/verificacion";
 import { getDetectionHistory, type DetHistItem, type IntrusionCam } from "@/app/actions/detections";
 import { META_DETECCION, GeomOverlay, type Geom } from "@/components/intrusion/comun";
 import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
+import { GestionEnVivo } from "@/components/alarmas/GestionEnVivo";
 
 /**
  * La ficha de una detección (cruce de línea, intrusión, zona), con la forma del visor de los
@@ -65,7 +66,7 @@ const CLAVE_CLIP = "ficha-deteccion:clip";
 const clipsHechos = new Map<string, string>();
 type EstadoClip = { estado: "nada" | "cargando" | "listo" | "sin"; url?: string; motivo?: string };
 
-export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar }: {
+export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAlarm, enAtencion, onCerrarAtencion, onMarcar, zCapa }: {
     det: any; cam?: IntrusionCam; geom?: Geom; onClose: () => void;
     onResolveAlarm?: (deviceId: string, kind: "real" | "false") => void; hasAlarm?: boolean;
     /** La cámara tiene una intrusión confirmada como real y sin resolver. */
@@ -74,6 +75,8 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     onCerrarAtencion?: (deviceId: string, como: "resuelta" | "falsa") => void;
     /** Corregir ESTA detección (no la cámara entera): real o falsa alarma. */
     onMarcar?: (id: string, kind: "real" | "false") => Promise<{ ok: boolean; error?: string } | void>;
+    /** z-index de la ficha: abierta desde la alerta global tiene que quedar por encima de ella. */
+    zCapa?: number;
 }) {
     const [cur, setCur] = useState<any>(det);
     const [abrir, setAbrir] = useState<null | "rec" | "live">(null);
@@ -209,7 +212,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
     ].filter(Boolean);
 
     return (
-        <div className="fixed inset-0 z-[2100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6" onClick={onClose}>
+        <div className="fixed inset-0 z-[2100] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 md:p-6" style={zCapa ? { zIndex: zCapa } : undefined} onClick={onClose}>
             {/* Las flechas AFUERA de la ventana, para pasar los eventos de la cámara. */}
             {hasPrev && <button onClick={(e) => { e.stopPropagation(); go(1); }} title="Evento anterior (más viejo)  ( ← )" aria-label="Evento anterior"
                 className="absolute left-2 md:left-5 top-1/2 -translate-y-1/2 z-[5] w-11 h-11 grid place-items-center rounded-full bg-white/10 hover:bg-white/20 text-white border border-white/15 backdrop-blur-md"><ChevronLeft size={22} /></button>}
@@ -359,6 +362,13 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                     tono={cn("font-semibold", alarmaPendiente || atencionAbierta || (cur.acknowledged && cur.ackKind !== "false") ? "visor-mal" : !cur.acknowledged ? "visor-aviso" : "text-white/80")} />
                             </dl>
                         </Seccion>
+
+                        {/* Quién la opera y lo que se hizo (16/10): tomarla, pasarla a un compañero, la bitácora. */}
+                        {real && (
+                            <Seccion titulo="Gestión" icono={UserRound}>
+                                <GestionEnVivo clave={`d:${cur.id}`} deviceId={cur.deviceId} oscuro />
+                            </Seccion>
+                        )}
 
                         {real && (
                             <Seccion titulo="Alrededor" icono={Clock}>
