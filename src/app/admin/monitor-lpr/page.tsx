@@ -22,6 +22,8 @@ import { getAnalyticsGeometryBatch, type DetItem } from "@/app/actions/detection
 import {
     Car,
     CheckCircle2,
+    Ban,
+    Siren,
     XCircle,
     Clock,
     TrendingUp,
@@ -60,7 +62,7 @@ import { VerGrabacion, canalDe } from "@/components/video/VerGrabacion";
 import Image from "next/image";
 import { AccessEvent, Device, Unit } from "@prisma/client";
 import { getCarLogo } from "@/lib/car-logos";
-import { marcaDeEvento, AVISO_MARCA_CAMARA } from "@/lib/marca-vehiculo";
+import { marcaDeEvento, AVISO_MARCA_CAMARA, useMarcasCamara, datoDeCamara } from "@/lib/marca-vehiculo";
 import { MarcaFormatoChapa } from "@/components/ui/MarcaFormatoChapa";
 import { getVehicleBrandName } from "@/lib/hikvision-codes";
 import { rotuloLectura } from "@/lib/lectura-metodo";
@@ -287,7 +289,7 @@ function PlateCommandBar() {
     }, []);
     const go = (path: string) => { setOpen(false); router.push(path); };
     return (
-        <div ref={boxRef} className="relative flex-1 max-w-md mx-4 hidden md:block">
+        <div ref={boxRef} className="relative flex-1 min-w-[180px] max-w-md hidden md:block">
             <div className="relative">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input value={q}
@@ -344,7 +346,8 @@ function CenterShot({ ev, onRegister, dir, className, watchMap, logos }: { ev: a
     const anomalous = !plate || ["NO_LEIDA", "unknown", "S/P"].includes(plate || "");
     const relHero = useRelectura(ev);
     const chHero = chapaDe(plate, relHero);
-    const marca = (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim();
+    // Padrón primero; la de la cámara sólo con LPR_MARCAS prendida (lib/marca-vehiculo).
+    const marca = marcaDeEvento(ev, (String(ev.details || "").match(/Marca:\s*([^,]+)/)?.[1] || "").trim())?.marca || "";
     const crop = getImagePath((String(ev.details || "").match(/PlateCrop:\s*([^,]+)/)?.[1] || "").trim()) || "";
     const sentido = ev.direction;
     const watch = (ev as any).watch || (watchMap && ev.plateDetected ? watchMap[String(ev.plateDetected).toUpperCase()] : null);
@@ -471,6 +474,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
     const router = useRouter();
     const meta = parseMeta(event.details);
     // Padrón primero; la de la cámara, atenuada (lib/marca-vehiculo).
+    useMarcasCamara();
     const marcaEv = marcaDeEvento(event, meta.Marca);
     const logoUrl = getCarLogo(marcaEv?.marca);
     const fullImageUrl = getImagePath(event.snapshotPath || event.imagePath) || "";
@@ -526,7 +530,7 @@ const VehicleCard = memo(function VehicleCard({ event, onRegister, platesWithPar
                         {watch?.motivo && <p className={cn("text-[11px] font-semibold mt-1 truncate", watchMeta?.text)} title={watch.motivo}>{watch.motivo}</p>}
                         {isAnomalous && relCard?.plate && <div className="mt-1"><SugerenciaRelectura r={relCard} soloContexto /></div>}
                         <div className="flex items-center gap-2 mt-1">
-                            {meta.Marca && <span className="text-[10px] text-muted-foreground font-semibold">{meta.Marca}{(meta.Modelo || meta.Tipo) ? ` · ${meta.Modelo || meta.Tipo}` : ""}</span>}
+                            {(marcaEv || meta.Tipo) && <span className="text-[10px] text-muted-foreground font-semibold">{[marcaEv?.marca, marcaEv ? (datoDeCamara(meta.Modelo) || meta.Tipo) : meta.Tipo].filter(Boolean).join(" · ")}</span>}
                             {event.user?.name && (<span className="text-[10px] text-blue-400 truncate">{event.user.name}</span>)}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5 text-[10px] text-muted-foreground">
@@ -904,6 +908,16 @@ export default function MonitorLPR() {
     const [soundOn, setSoundOn] = useState(true);
     const soundOnRef = useRef(true);
     useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
+    // Las ventanitas de intrusión (16/10): se prenden y se apagan como las de anomalías; se
+    // recuerda en este navegador. Apagarlas no apaga la alarma global: sólo las de esta pantalla.
+    const [intrPopups, setIntrPopups] = useState(true);
+    const intrPopupsRef = useRef(true);
+    useEffect(() => { try { const v = localStorage.getItem("oa.lpr.intrusionPopups"); if (v != null) { setIntrPopups(v === "1"); intrPopupsRef.current = v === "1"; } } catch { } }, []);
+    const cambiarIntrPopups = (v: boolean) => {
+        setIntrPopups(v); intrPopupsRef.current = v;
+        try { localStorage.setItem("oa.lpr.intrusionPopups", v ? "1" : "0"); } catch { }
+        if (!v) setCriticals((prev) => prev.filter((x) => x.kind !== "intrusion"));
+    };
     const audioCtxRef = useRef<any>(null);
     const lastAlertRef = useRef<Record<string, number>>({});
     // Los interruptores de cada pestaña de Usuarios («Cómo se comporta»): color propio y sonido
@@ -1048,6 +1062,7 @@ export default function MonitorLPR() {
         const NOMBRE_DETECCION: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION: "Intrusión en zona", REGION_ENTER: "Entró a la zona", REGION_EXIT: "Salió de la zona" };
         newSocket.on("general_detection", (a: any) => {
             if (!a?.id || a.type === "MOTION") return;
+            if (!intrPopupsRef.current) return;
             setCriticals((prev) => prev.some((x) => x.id === a.id) ? prev : [{ id: a.id, kind: "intrusion", timestamp: a.timestamp || new Date().toISOString(), deviceId: a.deviceId || null, type: a.type, label: a.label || null, deviceName: a.deviceName, details: NOMBRE_DETECCION[a.type] || "Detección", snapshotPath: a.snapshotPath || null }, ...prev].slice(0, 24));
             if (soundOnRef.current) beep(true);
         });
@@ -1190,37 +1205,79 @@ export default function MonitorLPR() {
                     Abajo: los filtros de la lista de lecturas, con los conteos de hoy adentro de cada
                     opción en vez de un bloque de números sueltos (✓ / ✗) que no decía qué filtraba.
                     Quién está adentro se mira en Gestión de alarmas y en la pared (Control LPR). */}
-                <div className="px-6 pt-4 pb-3 border-b border-border shrink-0 flex flex-col gap-3">
-                <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
+                {/* Cabecera en UN renglón (16/10, Nico: «los controles de arriba están en varias filas;
+                    el buscador y los filtros tienen que caber en la misma»): qué pantalla es, el
+                    buscador, los filtros de la lista —permitidas y denegadas con su ícono y su
+                    número— y las acciones. Lo que se prende y se apaga (anomalías, intrusiones,
+                    sonido) es sólo ícono; Detecciones y Lista negra conservan el rótulo. */}
+                <div className="px-6 py-3 border-b border-border shrink-0 flex items-center gap-3">
+                    <div className="flex items-center gap-3 shrink-0">
                         <span className="grid place-items-center w-10 h-10 rounded-[10px] bg-muted/60 text-[var(--accion)]">
                             <Car size={20} />
                         </span>
                         <div>
-                            <h1 className="text-lg font-bold tracking-tight">Monitor LPR</h1>
-                            <p className="text-xs text-muted-foreground">Reconocimiento de matrículas en tiempo real</p>
+                            <h1 className="text-lg font-bold tracking-tight whitespace-nowrap">Monitor LPR</h1>
+                            <p className="text-xs text-muted-foreground hidden 2xl:block">Reconocimiento de matrículas en tiempo real</p>
                         </div>
                     </div>
 
                     <PlateCommandBar />
 
-                    <div className="flex items-center gap-2.5">
+                    <Filtros className="flex-nowrap shrink-0"
+                        grupos={[{
+                            clave: "resultado", titulo: "Lecturas de hoy, por resultado",
+                            valor: activeFilter, alElegir: (v) => setActiveFilter(v as any),
+                            opciones: [
+                                { valor: "ALL", rotulo: "Hoy", cuenta: stats.total },
+                                { valor: "GRANT", rotulo: "", titulo: "Permitidas", icono: CheckCircle2, cuenta: stats.grants, tono: "bien" },
+                                { valor: "DENY", rotulo: "", titulo: "Denegadas", icono: Ban, cuenta: stats.denies, tono: "mal" },
+                            ],
+                        }]}>
+                        {vehFacets.colors.length > 0 && (
+                            <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)} title="Color del vehículo"
+                                className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterColor === "ALL" ? "text-muted-foreground" : "text-foreground")}>
+                                <option value="ALL">Color</option>
+                                {vehFacets.colors.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                        )}
+                        {vehFacets.types.length > 0 && (
+                            <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)} title="Tipo de vehículo"
+                                className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterVehType === "ALL" ? "text-muted-foreground" : "text-foreground")}>
+                                <option value="ALL">Tipo</option>
+                                {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        )}
+                        {(activeFilter !== "ALL" || filterColor !== "ALL" || filterVehType !== "ALL") && (
+                            <button type="button" onClick={() => { setActiveFilter("ALL"); setFilterColor("ALL"); setFilterVehType("ALL"); }}
+                                className="h-[34px] w-[34px] rounded-lg grid place-items-center text-muted-foreground hover:text-foreground hover:bg-accent" title="Quitar los filtros" aria-label="Quitar los filtros">
+                                <X size={14} />
+                            </button>
+                        )}
+                    </Filtros>
+
+                    <div className="flex items-center gap-2.5 shrink-0">
                         {/* Las acciones: un solo grupo, un solo alto, la misma superficie que los filtros. */}
                         <div className="flex items-center h-[34px] rounded-lg bg-muted/60 p-0.5 gap-0.5">
                             {/* Las detecciones de las cámaras (cruces, zonas) vivían en la columna del centro; ahora en un cajón. */}
                             <button onClick={() => setVerDetecciones(true)} title="Detecciones de las cámaras (cruces de línea, zonas)" className="relative h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
-                                <Radar size={15} /><span className="hidden xl:inline">Detecciones</span>
+                                <Radar size={15} /><span className="hidden 2xl:inline">Detecciones</span>
                                 {/* Cámaras que esperan una decisión (sin confirmar o confirmadas sin resolver). */}
                                 {(alarmas.porCamara.size + alarmas.atencion.size) > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full pleno-mal text-[9px] font-bold flex items-center justify-center">{new Set([...alarmas.porCamara.keys(), ...alarmas.atencion]).size}</span>}
                             </button>
                             {/* Con el rótulo a la vista: sólo el escudo no se reconocía como la lista negra (San Nicolás, 15/10). */}
                             <button onClick={() => setShowWatch(true)} title="Lista negra" className="relative h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
-                                <ShieldAlert size={15} /><span className="hidden xl:inline">Lista negra</span>
+                                <ShieldAlert size={15} /><span className="hidden 2xl:inline">Lista negra</span>
                                 {Object.keys(watchMap).length > 0 && <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full pleno-mal text-[9px] font-bold flex items-center justify-center tabular-nums">{Object.keys(watchMap).length}</span>}
                             </button>
                             <button onClick={() => setPinEnabled(v => !v)} title={pinEnabled ? "Ventanitas de lecturas anómalas: prendidas" : "Ventanitas de lecturas anómalas: apagadas"} aria-pressed={pinEnabled}
-                                className={cn("h-[30px] px-2.5 rounded-md inline-flex items-center gap-1.5 text-[12px] font-semibold transition-colors", pinEnabled ? "bg-background tono-aviso" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
-                                <AlertTriangle size={15} /><span className="hidden xl:inline">Anomalías</span>
+                                aria-label="Ventanitas de anomalías"
+                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", pinEnabled ? "bg-background tono-aviso" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
+                                <AlertTriangle size={15} />
+                            </button>
+                            {/* Las ventanitas de intrusión (cruces, zonas) a la derecha: se pueden apagar como las de anomalías. */}
+                            <button onClick={() => cambiarIntrPopups(!intrPopups)} title={intrPopups ? "Ventanitas de intrusión: prendidas" : "Ventanitas de intrusión: apagadas"} aria-pressed={intrPopups} aria-label="Ventanitas de intrusión"
+                                className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", intrPopups ? "bg-background tono-mal" : "text-muted-foreground hover:text-foreground hover:bg-background")}>
+                                <Siren size={15} />
                             </button>
                             <button onClick={() => setSoundOn(s => !s)} title={soundOn ? "Silenciar alertas" : "Activar sonido"} aria-pressed={!soundOn}
                                 className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-background" : "bg-background tono-mal")}>
@@ -1238,41 +1295,6 @@ export default function MonitorLPR() {
                         </Cajon>
                         {showWatch && <WatchlistDialog onClose={() => { setShowWatch(false); refreshWatch(); }} />}
                     </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-4 flex-wrap">
-                    <Filtros
-                        grupos={[{
-                            clave: "resultado", titulo: "Lecturas de hoy, por resultado",
-                            valor: activeFilter, alElegir: (v) => setActiveFilter(v as any),
-                            opciones: [
-                                { valor: "ALL", rotulo: "Hoy", cuenta: stats.total },
-                                { valor: "GRANT", rotulo: "Permitidas", cuenta: stats.grants, tono: "bien" },
-                                { valor: "DENY", rotulo: "Denegadas", cuenta: stats.denies, tono: "mal" },
-                            ],
-                        }]}>
-                        {vehFacets.colors.length > 0 && (
-                            <select value={filterColor} onChange={(e) => setFilterColor(e.target.value)} title="Color del vehículo"
-                                className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterColor === "ALL" ? "text-muted-foreground" : "text-foreground")}>
-                                <option value="ALL">Cualquier color</option>
-                                {vehFacets.colors.map((c) => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                        )}
-                        {vehFacets.types.length > 0 && (
-                            <select value={filterVehType} onChange={(e) => setFilterVehType(e.target.value)} title="Tipo de vehículo"
-                                className={cn("h-[34px] rounded-lg bg-muted/60 border-0 px-3 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-[var(--accion)]/40", filterVehType === "ALL" ? "text-muted-foreground" : "text-foreground")}>
-                                <option value="ALL">Cualquier tipo</option>
-                                {vehFacets.types.map((t) => <option key={t} value={t}>{t}</option>)}
-                            </select>
-                        )}
-                        {(activeFilter !== "ALL" || filterColor !== "ALL" || filterVehType !== "ALL") && (
-                            <button type="button" onClick={() => { setActiveFilter("ALL"); setFilterColor("ALL"); setFilterVehType("ALL"); }}
-                                className="h-[34px] px-3 rounded-lg inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent" title="Quitar los filtros">
-                                <X size={14} /> Limpiar
-                            </button>
-                        )}
-                    </Filtros>
-                </div>
                 </div>
 
                 {/* Dos columnas, un sentido cada una. */}

@@ -898,6 +898,8 @@ export default function MonitorIntrusion() {
                 }
             });
             s.on("detection_snapshot", (d: any) => { setDets((prev) => prev.map((x) => x.id === d.id ? { ...x, snapshotPath: d.snapshotPath } : x)); });
+            // La barra de intrusión real (AlertaIntrusionGlobal) puede desactivarla desde cualquier pantalla.
+            s.on("intrusion_atencion", () => { getAttendingIds().then((ids) => setAttendingIds(new Set(ids || []))).catch(() => { }); });
             // omni-vision terminó de mirar la captura (unos segundos después): se trae el veredicto.
             s.on("detection_verified", (x: any) => {
                 if (!x?.id) return;

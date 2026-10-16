@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { montarVivo } from "@/lib/vivo";
 import { leerRecuadro } from "@/lib/deteccion";
 import { getCarLogo } from "@/lib/car-logos";
+import { datoDeCamara, useMarcasCamara } from "@/lib/marca-vehiculo";
 import { fechaCorta, hora, horaSeg } from "@/lib/fechas";
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { LogoSobreFoto } from "@/components/empresas/LogoSobreFoto";
@@ -589,12 +590,14 @@ export function VisorCuadro({
      * el padrón — y se marca de dónde salió cada dato, porque "Peugeot gris" cargado por
      * el administrador y "Peugeot gris" adivinado por una cámara no valen lo mismo.
      */
+    useMarcasCamara();
     const meta = useMemo(() => leerDetalles(fila.detalles), [fila.detalles]);
-    const marca = ficha?.marca || dato(meta.Marca);
-    const modelo = ficha?.modelo || dato(meta.Modelo);
+    // La marca y el modelo de la cámara sólo con LPR_MARCAS prendida: fallan seguido (lib/marca-vehiculo).
+    const marca = ficha?.marca || datoDeCamara(dato(meta.Marca));
+    const modelo = ficha?.modelo || datoDeCamara(dato(meta.Modelo));
     const color = ficha?.color || dato(meta.Color);
     const tipoVeh = ficha?.tipo || dato(meta.Tipo);
-    const deLaCamara = !ficha?.marca && !!dato(meta.Marca);
+    const deLaCamara = !ficha?.marca && !!datoDeCamara(dato(meta.Marca));
 
     const logo = getCarLogo(marca);
     const tono = tonoDelEstado(fila, ficha);

@@ -14,7 +14,7 @@ import { chapaDe, MarcaOmniVision, textoChapa } from "@/components/vision/ChapaR
 import { useRouter } from "next/navigation";
 import { ConfirmarAccion } from "@/components/DeleteConfirmDialog";
 import { getCarLogo } from "@/lib/car-logos";
-import { marcaDeEvento, AVISO_MARCA_CAMARA } from "@/lib/marca-vehiculo";
+import { marcaDeEvento, AVISO_MARCA_CAMARA, useMarcasCamara } from "@/lib/marca-vehiculo";
 import { getRelatedSessionEvents } from "@/app/actions/history";
 import { getImagePath } from "@/lib/image-path";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -106,6 +106,7 @@ const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
 export function EventDetailsDialog({ event, children, timeStatus, autoRecording, onRegister, empresa }: EventDetailsDialogProps) {
     const router = useRouter();
     const [isOpen, setIsOpen] = useState(false);
+    useMarcasCamara();
     const [isEditing, setIsEditing] = useState(false);
     const [editedUser, setEditedUser] = useState(event.user?.name || "");
     const [editedUnit, setEditedUnit] = useState(event.user?.unit?.name || "");
@@ -184,7 +185,8 @@ export function EventDetailsDialog({ event, children, timeStatus, autoRecording,
     if (brandName.startsWith("Brand ")) brandName = getVehicleBrandName(brandName.replace("Brand ", ""));
     // Padrón primero; la de la cámara se muestra atenuada y aclarada (lib/marca-vehiculo).
     const marcaEv = isLPR ? marcaDeEvento(event, brandName || meta.Marca) : null;
-    if (marcaEv) brandName = marcaEv.marca;
+    // Sin marca de la cámara (LPR_MARCAS apagada) no queda ninguna: ni el logo ni el nombre.
+    brandName = marcaEv?.marca || "";
     const marcaDeCamara = !!marcaEv?.deCamara;
     const logoUrl = marcaEv ? getCarLogo(marcaEv.marca) : null;
 

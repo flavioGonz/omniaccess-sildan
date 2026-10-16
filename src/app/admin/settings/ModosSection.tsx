@@ -62,6 +62,7 @@ import { MODULE_DEFINITIONS, type ModuleId, type ModuleInfo } from "@/lib/module
 import { FUNCIONES, dependenciaCumplida, type FuncionId, type Funcion } from "@/lib/funciones";
 import { getEnabledModules, toggleModule } from "@/app/actions/modules";
 import { getFunciones, toggleFuncion } from "@/app/actions/funciones";
+import { fijarMarcasCamara } from "@/lib/marca-vehiculo";
 
 /** Los íconos que los módulos pueden pedir por nombre. */
 const ICONOS: Record<string, LucideIcon> = { Car, ScanFace, Users, ShieldCheck };
@@ -281,6 +282,7 @@ export default function ModosSection({ onActivar }: {
         const r = await toggleFuncion(f.id as FuncionId, valor);
         if (r.ok) {
             setFunciones((p) => ({ ...p, [f.id]: valor }));
+            if (f.id === "LPR_MARCAS") fijarMarcasCamara(valor);  // el resto del panel, sin recargar
             toast.success({ title: valor ? "Función activada" : "Función desactivada" });
         } else {
             toast.error({ title: "No se pudo cambiar la función" });

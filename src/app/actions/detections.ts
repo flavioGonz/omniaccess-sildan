@@ -304,8 +304,26 @@ export async function setAttending(deviceId: string, on: boolean): Promise<{ ok:
         if (on) set.add(deviceId); else set.delete(deviceId);
         const value = JSON.stringify([...set]);
         await prisma.setting.upsert({ where: { key: "INTRUSION_ATTENDING_IDS" }, update: { value }, create: { key: "INTRUSION_ATTENDING_IDS", value } });
+        // La barra de «intrusión real» de todas las pantallas y el monitor se enteran al instante.
+        try { const { avisarPorSocket } = await import("@/lib/avisar"); avisarPorSocket("intrusion_atencion", { deviceId, on }); } catch { }
         return { ok: true };
     } catch { return { ok: false }; }
+}
+
+export type IntrusionConfirmada = { deviceId: string; deviceName: string; id: string | null; type: string; label: string | null; ts: string | null; snapshotPath: string | null };
+/**
+ * Las intrusiones confirmadas como reales y sin resolver, con la detección que se aceptó: lo que
+ * muestra la barra roja de todo el panel (AlertaIntrusionGlobal) y la pared (/api/monitor/alarmas).
+ */
+export async function getIntrusionesConfirmadas(): Promise<IntrusionConfirmada[]> {
+    const ids = await getAttendingIds();
+    if (!ids.length) return [];
+    const devs = await prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }).catch(() => []);
+    const nombre = Object.fromEntries(devs.map((d) => [d.id, d.name]));
+    return Promise.all(ids.map(async (deviceId) => {
+        const d = await prisma.detection.findFirst({ where: { deviceId, acknowledged: true, ackKind: "real", type: { not: "MOTION" } }, orderBy: { timestamp: "desc" }, select: { id: true, type: true, label: true, timestamp: true, snapshotPath: true } }).catch(() => null);
+        return { deviceId, deviceName: nombre[deviceId] || deviceId, id: d?.id || null, type: d?.type || "OTHER", label: d?.label || null, ts: d ? d.timestamp.toISOString() : null, snapshotPath: d?.snapshotPath || null };
+    }));
 }
 
 // ── Visual Track: enlaces entre cámaras de la misma escena (seguir intrusos) ──

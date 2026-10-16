@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import io from "socket.io-client";
 import { ShieldAlert, Check, X, Volume2, VolumeX, Radar, Clock, MonitorPlay, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getActiveAlarms, ackAlarms, setAttending, getIntrusionCameras, reclasificarComoFalsa, type ActiveAlarm } from "@/app/actions/detections";
+import { getActiveAlarms, ackAlarms, setAttending, getIntrusionCameras, reclasificarComoFalsa, getIntrusionesConfirmadas, type ActiveAlarm } from "@/app/actions/detections";
 import { getImagePath } from "@/lib/image-path";
 
 /**
@@ -29,6 +29,8 @@ const TIPOS: Record<string, string> = { LINECROSS: "Cruce de línea", INTRUSION:
 const CLASES: Record<string, string> = { human: "persona", vehicle: "vehículo" };
 /** Cada cuánto suena mientras la alerta siga sin aceptar. */
 const INTERVALO_SONIDO_MS = 6000;
+/** Con la intrusión ya confirmada como real, el pitido se espacia: se sabe, pero no se olvida. */
+const INTERVALO_SONIDO_REAL_MS = 15000;
 /** Cada cuánto se reconfirma contra la base, por si se aceptó desde otra pantalla. */
 const INTERVALO_RELECTURA_MS = 30000;
 /** En la pared se relee más seguido: es la única forma en que se entera de que la resolvieron. */
@@ -42,6 +44,8 @@ const INTERVALO_RELECTURA_PARED_MS = 10000;
  */
 const VIDEO_ANTES_SEG = 3;
 const VIDEO_DUR_SEG = 14;
+
+const hace = (ts: string) => { const s = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 1000)); return s < 60 ? `hace ${s} s` : s < 3600 ? `hace ${Math.round(s / 60)} min` : `hace ${Math.round(s / 3600)} h`; };
 
 type Alarma = ActiveAlarm & { deviceName?: string | null; label?: string | null; snapshotPath?: string | null };
 
@@ -118,7 +122,7 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
     const enVistaIntrusion = soloLectura && !!pathname?.startsWith("/monitor/intrusion");
 
     /** Pared: las confirmadas sin resolver también se imponen (en el panel ya las muestra el monitor). */
-    const [confirmadas, setConfirmadas] = useState<{ deviceId: string; deviceName: string; id: string | null; type: string; ts: string | null; snapshotPath: string | null }[]>([]);
+    const [confirmadas, setConfirmadas] = useState<{ deviceId: string; deviceName: string; id: string | null; type: string; label?: string | null; ts: string | null; snapshotPath: string | null }[]>([]);
 
     const releer = useCallback(() => {
         const juntar = (rows: ActiveAlarm[]) => setAlarmas((prev) => {
@@ -136,8 +140,12 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
             return;
         }
         getActiveAlarms().then(juntar).catch(() => { });
+        // Las confirmadas como reales y sin resolver: la barra roja de todo el panel.
+        getIntrusionesConfirmadas().then((c) => setConfirmadas(c)).catch(() => { });
     }, [soloLectura]);
 
+    const releerRef = useRef(releer);
+    releerRef.current = releer;
     useEffect(() => {
         if (!soloLectura) getIntrusionCameras().then((cams) => setNombres(Object.fromEntries(cams.map((c: any) => [c.id, c.name])))).catch(() => { });
         releer();
@@ -154,6 +162,8 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
                 setAlarmas((prev) => prev.some((a) => a.id === d.id) ? prev : [{ id: d.id, deviceId: d.deviceId, type: d.type, ts: d.timestamp || new Date().toISOString(), deviceName: d.deviceName, label: d.label }, ...prev]);
             });
             s.on("detection_snapshot", (d: any) => { if (d?.id && d.snapshotPath) setSnapshots((p) => ({ ...p, [d.id]: d.snapshotPath })); });
+            // Alguien confirmó o desactivó una intrusión real en otra pantalla.
+            s.on("intrusion_atencion", () => releerRef.current());
         } catch { /* sin socket: queda la relectura periódica */ }
         return () => { try { s && s.disconnect(); } catch { } };
     }, []);
@@ -188,7 +198,7 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
             await ackAlarms(deviceId, kind);
             if (kind === "real") await setAttending(deviceId, true).catch(() => null);
             setAlarmas((prev) => prev.filter((a) => a.deviceId !== deviceId));
-        } finally { setResolviendo(null); if (soloLectura) releer(); }
+        } finally { setResolviendo(null); releer(); }
     };
     /** Cerrar una confirmada desde la pared: resuelta la deja como real; falsa corrige el registro. */
     const cerrarConfirmada = async (deviceId: string, como: "resuelta" | "falsa") => {
@@ -200,6 +210,76 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
         } finally { setResolviendo(null); releer(); }
     };
 
+    /*
+     * La intrusión REAL en curso (16/10, Nico: «debe ser un evento llamativo, que debe ser
+     * desactivado; es un evento grave»). Hasta acá, al decir «Intrusión real: la atiendo» la
+     * ventana se cerraba y lo único que quedaba era el borde del canal en el monitor de intrusión:
+     * en cualquier otra pantalla la intrusión en curso desaparecía. Ahora queda una barra roja
+     * que late arriba de todo, en todas las pantallas del panel, con los bordes respirando y un
+     * pitido cada tanto, hasta que alguien la DESACTIVA (resuelta) o la corrige (era falsa).
+     * Desactivar pide confirmar: es una decisión, no un clic al pasar.
+     */
+    const barraVisible = !soloLectura && confirmadas.length > 0 && !visible;
+    useEffect(() => {
+        if (!barraVisible || silencio) return;
+        pitido(false);
+        const iv = setInterval(() => pitido(false), INTERVALO_SONIDO_REAL_MS);
+        return () => clearInterval(iv);
+    }, [barraVisible, silencio]);
+    const [aConfirmar, setAConfirmar] = useState<string | null>(null);
+    useEffect(() => { if (!aConfirmar) return; const t = setTimeout(() => setAConfirmar(null), 5000); return () => clearTimeout(t); }, [aConfirmar]);
+    const cambiarSilencio = () => { const v = !silencio; setSilencio(v); try { localStorage.setItem("oa.intrusion.silencio", v ? "1" : "0"); } catch { } };
+
+    const barra = barraVisible ? (
+        <>
+            <div aria-hidden className="fixed inset-0 z-[2370] pointer-events-none respirar-intrusion-suave" />
+            <div role="alert" aria-live="assertive" className="fixed top-3 left-1/2 -translate-x-1/2 z-[2380] w-[min(980px,calc(100vw-24px))] flex flex-col gap-1.5">
+                {confirmadas.slice(0, 3).map((c, i) => {
+                    const fotoC = getImagePath(c.snapshotPath) || `/api/snapshot/${c.deviceId}?t=${Math.floor(Date.now() / 60000)}`;
+                    const conf = aConfirmar === c.deviceId;
+                    return (
+                        <div key={c.deviceId} className={cn("barra-intrusion-real flex items-center gap-3 rounded-[14px] bg-[var(--mal)] text-white pl-1.5 pr-2 py-1.5 shadow-2xl", i > 0 && "opacity-95")}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={fotoC} alt="" className="w-[88px] aspect-video rounded-[9px] object-cover bg-black shrink-0" />
+                            <span className="grid h-9 w-9 place-items-center rounded-full bg-white/15 shrink-0 respirar-icono"><ShieldAlert size={19} /></span>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/80">Intrusión real en curso</div>
+                                <div className="text-[15px] font-extrabold leading-tight truncate">
+                                    {c.deviceName}<span className="font-semibold text-white/85"> · {TIPOS[c.type] || TIPOS.OTHER}{c.label && CLASES[c.label] ? ` · ${CLASES[c.label]}` : ""}{c.ts ? ` · ${hace(c.ts)}` : ""}</span>
+                                </div>
+                            </div>
+                            {i === 0 && (
+                                <button onClick={cambiarSilencio} title={silencio ? "Activar el sonido" : "Silenciar (la alarma sigue)"} aria-label={silencio ? "Activar el sonido" : "Silenciar"}
+                                    className="h-9 w-9 grid place-items-center rounded-full bg-white/15 hover:bg-white/25 shrink-0">{silencio ? <VolumeX size={16} /> : <Volume2 size={16} />}</button>
+                            )}
+                            <button onClick={() => router.push("/admin/monitor-intrusion")} title="Ver en el monitor de intrusión" aria-label="Ver en el monitor"
+                                className="h-9 w-9 grid place-items-center rounded-full bg-white/15 hover:bg-white/25 shrink-0"><MonitorPlay size={16} /></button>
+                            <button onClick={() => cerrarConfirmada(c.deviceId, "falsa")} disabled={!!resolviendo} title="No era real: se corrige en el historial"
+                                className="h-9 px-3 rounded-[9px] bg-white/15 hover:bg-white/25 text-[12.5px] font-bold shrink-0 disabled:opacity-50">Era falsa</button>
+                            <button onClick={() => (conf ? (setAConfirmar(null), cerrarConfirmada(c.deviceId, "resuelta")) : setAConfirmar(c.deviceId))} disabled={!!resolviendo}
+                                className={cn("h-9 px-3.5 rounded-[9px] text-[12.5px] font-extrabold shrink-0 inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors", conf ? "bg-black text-white ring-2 ring-white" : "bg-white text-[var(--mal)] hover:bg-white/90")}>
+                                {resolviendo === c.deviceId ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {conf ? "¿Resuelta? Desactivar" : "Desactivar"}
+                            </button>
+                        </div>
+                    );
+                })}
+                {confirmadas.length > 3 && <span className="self-center px-3 h-7 inline-flex items-center rounded-full bg-[var(--mal)] text-white text-[12px] font-bold">y {confirmadas.length - 3} cámaras más con intrusión real</span>}
+            </div>
+            <style jsx global>{`
+                @keyframes respirar-intrusion-suave {
+                    0%, 100% { box-shadow: inset 0 0 0 0 rgba(239, 68, 68, 0); }
+                    50% { box-shadow: inset 0 0 0 4px rgba(239, 68, 68, 0.85), inset 0 0 90px 20px rgba(239, 68, 68, 0.25); }
+                }
+                .respirar-intrusion-suave { animation: respirar-intrusion-suave 2.2s ease-in-out infinite; }
+                @keyframes barra-intrusion-real { 0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.0), 0 18px 40px rgba(0,0,0,.35); } 50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.35), 0 18px 40px rgba(0,0,0,.35); } }
+                .barra-intrusion-real { animation: barra-intrusion-real 1.6s ease-in-out infinite; }
+                @keyframes respirar-icono { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.08); opacity: 0.85; } }
+                .respirar-icono { animation: respirar-icono 2.2s ease-in-out infinite; }
+                @media (prefers-reduced-motion: reduce) { .respirar-intrusion-suave, .barra-intrusion-real, .respirar-icono { animation: none; } }
+            `}</style>
+        </>
+    ) : null;
+
     if (quedanOcultas) {
         const total = new Set([...alarmas.map((a) => a.deviceId), ...confirmadas.map((c) => c.deviceId)]).size;
         return (
@@ -209,14 +289,13 @@ export default function AlertaIntrusionGlobal({ soloLectura = false, decide = fa
             </button>
         );
     }
-    if (!visible) return null;
+    if (!visible) return barra;
     // En la pared, sin pendientes, se muestra la confirmada más reciente.
     const confirmada = porCamara.length === 0 ? confirmadasVisibles[0] : null;
     const actual = porCamara[0] || { deviceId: confirmada!.deviceId, lista: [{ id: confirmada!.id || confirmada!.deviceId, deviceId: confirmada!.deviceId, type: confirmada!.type, ts: confirmada!.ts || new Date().toISOString(), deviceName: confirmada!.deviceName, snapshotPath: confirmada!.snapshotPath } as Alarma] };
     const primera = actual.lista[0];
     const nombre = primera.deviceName || nombres[actual.deviceId] || "Cámara";
     const foto = getImagePath(snapshots[primera.id] || primera.snapshotPath) || `/api/snapshot/${actual.deviceId}?t=${Math.floor(Date.now() / 15000)}`;
-    const hace = (ts: string) => { const s = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 1000)); return s < 60 ? `hace ${s} s` : s < 3600 ? `hace ${Math.round(s / 60)} min` : `hace ${Math.round(s / 3600)} h`; };
 
     return (
         <>

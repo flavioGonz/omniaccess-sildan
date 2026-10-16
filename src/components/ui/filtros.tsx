@@ -42,6 +42,8 @@ export type OpcionFiltro = {
     tono?: "bien" | "aviso" | "mal";
     /** Ícono delante del rótulo, cuando ayuda a reconocer la opción sin leerla (personas, vehículos…). */
     icono?: React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
+    /** Qué dice la opción cuando se muestra sólo el ícono (rótulo vacío): va como ayuda y para lectores. */
+    titulo?: string;
 };
 
 export type GrupoFiltro = {
@@ -97,9 +99,10 @@ export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, chi
                                 ? (o.valor === primera ? puestos.length === 0 : puestos.includes(o.valor))
                                 : o.valor === g.valor;
                             return (
-                                <button key={o.valor} type="button" onClick={() => g.alElegir(o.valor)}
+                                <button key={o.valor} type="button" onClick={() => g.alElegir(o.valor)} aria-pressed={activa}
+                                    title={o.titulo} aria-label={o.titulo || undefined}
                                     className={cn(
-                                        "h-[30px] px-3 rounded-md text-[12px] font-semibold transition-colors whitespace-nowrap",
+                                        "h-[30px] rounded-md text-[12px] font-semibold transition-colors whitespace-nowrap", o.rotulo ? "px-3" : "px-2.5",
                                         activa
                                             ? (o.tono ? PLENO[o.tono] : solido ? "bg-[var(--accion)] text-white" : "bg-background text-foreground shadow-sm")
                                             : "text-muted-foreground hover:text-foreground",
@@ -108,7 +111,7 @@ export function Filtros({ busqueda, alBuscar, placeholder, grupos, acciones, chi
                                     {o.icono && <o.icono size={14} strokeWidth={2.2} />}
                                     {o.rotulo}
                                     {o.cuenta != null && (
-                                        <span className={cn("ml-1.5 tabular-nums", activa ? "opacity-70" : "opacity-60")}>
+                                        <span className={cn(o.rotulo ? "ml-1.5" : "ml-0.5", "tabular-nums", activa ? "opacity-70" : "opacity-60")}>
                                             {o.cuenta}
                                         </span>
                                     )}
