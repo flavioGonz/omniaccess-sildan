@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
     Siren, Home, Ticket, CircleDashed, AlertTriangle, RefreshCw, Radar, ShieldAlert, ScanEye, Repeat, Car, Check, X, LogOut, Undo2,
-    Hand, CircleHelp, ImageOff, Film, Circle, Clock,
+    Hand, CircleHelp, ImageOff, Film, Circle, Clock, FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tabla, type ColumnaTabla } from "@/components/ui/tabla";
@@ -16,6 +16,13 @@ import { useTiempoReal } from "@/lib/tiempo-real";
 import { getImagePath } from "@/lib/image-path";
 import { conAncho } from "@/lib/ancho-foto";
 import type { Alarma, FuenteAlarma } from "@/lib/alarmas";
+import { Miniatura } from "@/components/ui/celdas";
+import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
+import { FichaDeteccion } from "@/components/intrusion/FichaDeteccion";
+import { EventDetailsDialog } from "@/components/dashboard/EventDetailsDialog";
+import { getAccessEvent } from "@/app/actions/history";
+import { getAnalyticsGeometryBatch, marcarDeteccion } from "@/app/actions/detections";
+import type { Geom } from "@/components/intrusion/comun";
 import type { Presencia, AutoAdentro, ResidenteAdentro, VisitaAdentro, ClasePresencia, Atipico } from "@/lib/presencia";
 
 /**
@@ -23,8 +30,8 @@ import type { Presencia, AutoAdentro, ResidenteAdentro, VisitaAdentro, ClasePres
  * alarmas», y el lugar al que llevan los cuatro números de la pared (Control LPR) — residentes,
  * visitas y proveedores, desconocidos y atípicos dentro.
  *
- * Arriba, cinco tarjetas que eligen qué se mira: las alarmas pendientes y las cuatro listas de
- * quién está adentro. Abajo, la tabla de lo elegido y, a la derecha, lo seleccionado con lo que
+ * Arriba, qué se mira: las alarmas o una de las cuatro listas de quién está adentro (eran cinco
+ * tarjetas con ícono y número; a Nico no le gustaron, 16/10 — quedó un selector con la cuenta). Abajo, la tabla de lo elegido y, a la derecha, lo seleccionado con lo que
  * se hace con eso: real o falsa, atendida, «salió».
  *
  * El cálculo vive en el servidor (lib/alarmas.ts y lib/presencia.ts), con el porqué de cada criterio.
@@ -98,9 +105,6 @@ function GestionAlarmas() {
         } catch (e: any) { setFallo(e?.message || "No se pudo guardar."); return false; }
         finally { setOcupado(null); }
     }, [traer]);
-    const atender = useCallback(async (a: Alarma, resultado: "real" | "falsa" | null) => {
-        if (await mandar("/api/alarmas", { id: a.id, resultado }, a.id)) setHecho({ texto: `${a.titulo}${a.plate ? ` · ${a.plate}` : ""}: ${resultado === "falsa" ? "falsa alarma" : resultado === "real" ? "real" : "atendida"}` });
-    }, [mandar]);
     const salio = useCallback(async (a: AutoAdentro) => {
         if (await mandar("/api/presencia", { plate: a.plate, estado: "AFUERA" }, a.plate))
             setHecho({ texto: `${a.plate} marcado afuera`, deshacer: () => { void mandar("/api/presencia", { plate: a.plate, estado: "ADENTRO" }, a.plate); setHecho(null); } });
@@ -113,13 +117,13 @@ function GestionAlarmas() {
     const alarmas = datos?.alarmas || [];
     const pendientes = alarmas.filter((a) => a.estado === "pendiente");
 
-    // ── Tarjetas ──
-    const tarjetas: { v: Ver; rotulo: string; valor: number | null; Icono: typeof Siren; tono?: "mal" | "aviso" | "bien" | "info"; ayuda: string }[] = [
-        { v: "alarmas", rotulo: "Alarmas pendientes", valor: datos ? pendientes.length : null, Icono: Siren, tono: pendientes.length ? "mal" : undefined, ayuda: `Intrusión, LPR, patrones y OmniVision sin atender en las últimas ${horas} h` },
-        { v: "atipicos", rotulo: "Atípicos dentro", valor: p?.resumen.atipicos ?? null, Icono: AlertTriangle, tono: p?.resumen.atipicos ? "aviso" : undefined, ayuda: "Adentro y fuera de lo común: lista negra, merodeo, primera vez visto o alta frecuencia" },
-        { v: "residentes", rotulo: "Residentes dentro", valor: p?.resumen.residentes ?? null, Icono: Home, tono: "bien", ayuda: "Residentes con un auto adentro o que entraron a pie" },
-        { v: "visitas", rotulo: "Visitas y proveedores dentro", valor: p?.resumen.visitasProveedores ?? null, Icono: Ticket, tono: "info", ayuda: "Visitas, invitados, proveedores y personal adentro" },
-        { v: "desconocidos", rotulo: "Desconocidos dentro", valor: p?.resumen.desconocidos ?? null, Icono: CircleDashed, ayuda: "Vehículos sin registro cuya última lectura fue una entrada" },
+    // ── Qué se mira ──
+    const vistas: { valor: Ver; rotulo: string; cuenta?: number; tono?: "mal" | "aviso" }[] = [
+        { valor: "alarmas", rotulo: "Alarmas", cuenta: datos ? pendientes.length : undefined, tono: pendientes.length ? "mal" : undefined },
+        { valor: "atipicos", rotulo: "Atípicos dentro", cuenta: p?.resumen.atipicos },
+        { valor: "residentes", rotulo: "Residentes dentro", cuenta: p?.resumen.residentes },
+        { valor: "visitas", rotulo: "Visitas y proveedores dentro", cuenta: p?.resumen.visitasProveedores },
+        { valor: "desconocidos", rotulo: "Desconocidos dentro", cuenta: p?.resumen.desconocidos },
     ];
 
     // ── Filtros de la tabla ──
@@ -144,6 +148,8 @@ function GestionAlarmas() {
 
     // ── Columnas ──
     const colsAlarmas = useMemo<ColumnaTabla<Alarma>[]>(() => [
+        // La captura de la alarma, primero (16/10, Nico): es lo que se reconoce de un vistazo.
+        { clave: "foto", titulo: "", ancho: 92, auxiliar: true, celda: (a) => <Miniatura src={fotoChica(a.foto, 320)} alt={a.titulo} ancho={80} alto={48} /> },
         { clave: "tipo", titulo: "Alarma", valor: (a) => `${a.titulo} · ${NOMBRE_FUENTE[a.fuente]}`, celda: (a) => { const I = ICONO_FUENTE[a.fuente]; return (
             <div className="flex items-center gap-2.5 min-w-0">
                 <I size={15} className={cn("shrink-0", tonoTexto(a.tono))} />
@@ -226,19 +232,8 @@ function GestionAlarmas() {
                         <button type="button" onClick={traer} title="Volver a pedir" className="w-[34px] h-[34px] rounded-lg grid place-items-center bg-muted/60 text-muted-foreground hover:text-foreground"><RefreshCw size={15} className={cn(cargando && "animate-spin")} /></button>
                     </div>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                    {tarjetas.map((k) => (
-                        <button key={k.v} type="button" onClick={() => setVer(k.v)} aria-pressed={ver === k.v} title={k.ayuda}
-                            className={cn("flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-left transition-colors",
-                                ver === k.v ? "bg-background ring-2 ring-[var(--accion)]" : "bg-muted/60 hover:bg-muted")}>
-                            <span className={cn("grid place-items-center w-9 h-9 rounded-full shrink-0", k.tono === "mal" ? "pleno-mal" : k.tono === "aviso" ? "pleno-aviso" : k.tono === "bien" ? "pleno-bien" : k.tono === "info" ? "pleno-info" : "bg-background text-muted-foreground")}><k.Icono size={17} /></span>
-                            <span className="min-w-0">
-                                <span className="block text-[22px] font-bold leading-none tabular-nums">{k.valor ?? "—"}</span>
-                                <span className="block text-[11.5px] text-muted-foreground mt-1 leading-tight">{k.rotulo}</span>
-                            </span>
-                        </button>
-                    ))}
-                </div>
+                <Filtros grupos={[{ clave: "ver", titulo: "Qué se mira", valor: ver, alElegir: (v) => setVer(v as Ver),
+                    opciones: vistas.map((x) => ({ valor: x.valor, rotulo: x.rotulo, cuenta: x.cuenta, tono: x.tono })) }]} />
             </div>
 
             {/* Cuerpo: la tabla de lo elegido y lo seleccionado a la derecha. */}
@@ -291,7 +286,7 @@ function GestionAlarmas() {
 
                 {/* Lo seleccionado: la foto a todo el ancho y sin marco, qué es, y qué se hace con eso. */}
                 <aside className="hidden xl:flex flex-col min-h-0 overflow-y-auto">
-                    {alarmaSel ? <DetalleAlarma a={alarmaSel} ocupado={ocupado === alarmaSel.id} alAtender={(r) => void atender(alarmaSel, r)} />
+                    {alarmaSel ? <DetalleAlarma key={alarmaSel.id} a={alarmaSel} alHecho={(texto) => { setHecho({ texto }); traer(); }} alRecargar={traer} />
                         : autoSel ? <DetalleAuto a={autoSel} ocupado={ocupado === autoSel.plate || ocupado === autoSel.visitaId} alSalio={() => void salio(autoSel)} alCerrarVisita={() => autoSel.visitaId && void cerrarVisita(autoSel.visitaId, autoSel.plate)} />
                         : (
                             <div className="flex-1 grid place-items-center p-8 text-center">
@@ -324,42 +319,83 @@ function Dato({ rotulo, children }: { rotulo: string; children: React.ReactNode 
     return <div className="flex items-baseline justify-between gap-3 py-1.5 border-b border-border last:border-0"><span className="text-[12px] text-muted-foreground">{rotulo}</span><span className="text-[13px] font-semibold text-right min-w-0">{children}</span></div>;
 }
 
-function DetalleAlarma({ a, ocupado, alAtender }: { a: Alarma; ocupado: boolean; alAtender: (r: "real" | "falsa" | null) => void }) {
+/** La captura de una alarma, al ancho pedido: las rutas de la aplicación se achican; los archivos van por su ruta. */
+function fotoChica(f: string | null, ancho: number) {
+    if (!f) return null;
+    return f.startsWith("/api/") ? conAncho(f, ancho) : conAncho(getImagePath(f), ancho);
+}
+
+/**
+ * La alarma elegida: la captura, qué es, cuándo y dónde; la nota de gestión; la decisión; y «Ver
+ * ficha», que abre la misma ventana que el monitor (16/10, Nico): la del evento del monitor LPR
+ * para una lectura, la de intrusión para una analítica.
+ */
+function DetalleAlarma({ a, alHecho, alRecargar }: { a: Alarma; alHecho: (texto: string) => void; alRecargar: () => void }) {
     const I = ICONO_FUENTE[a.fuente];
-    const foto = a.foto ? (a.foto.startsWith("/api/") ? conAncho(a.foto, 960) : getImagePath(a.foto)) : null;
+    const foto = fotoChica(a.foto, 960);
     const conVeredicto = a.fuente === "intrusion" || a.fuente === "lpr";
     const t = new Date(a.ts);
+    const nota = usarNotaGestion(a.id, { nota: a.nota, por: a.notaPor, ts: a.notaAt });
+    const decidir = async (resultado: "real" | "falsa" | null) => {
+        if (await nota.guardar({ atender: true, resultado })) alHecho(`${a.titulo}${a.plate ? ` · ${a.plate}` : ""}: ${resultado === "falsa" ? "falsa alarma" : resultado === "real" ? "real" : "atendida"}`);
+    };
+
+    // «Ver ficha» de una lectura: el evento completo, como lo pide la ventana del monitor LPR.
+    const eventoId = a.fuente === "lpr" || a.fuente === "patron" ? a.accessEventId : null;
+    const [evento, setEvento] = useState<any>(null);
+    useEffect(() => { setEvento(null); if (eventoId) getAccessEvent(eventoId).then(setEvento).catch(() => setEvento(null)); }, [eventoId]);
+    // «Ver ficha» de una intrusión: la ventana de intrusión, con su geometría para dibujar la línea.
+    const [fichaIntrusion, setFichaIntrusion] = useState(false);
+    const [geom, setGeom] = useState<Geom | undefined>(undefined);
+    useEffect(() => { setGeom(undefined); if (fichaIntrusion && a.deviceId) getAnalyticsGeometryBatch([a.deviceId]).then((g) => setGeom((g as any)?.[a.deviceId!])).catch(() => { }); }, [fichaIntrusion, a.deviceId]);
+    const det = a.fuente === "intrusion" ? {
+        id: a.id.slice(2), deviceId: a.deviceId, deviceName: a.camara, type: a.tipo, eventType: null, timestamp: a.ts,
+        snapshotPath: a.foto && !a.foto.startsWith("/api/snapshot/") ? a.foto : null,
+        acknowledged: a.estado === "atendida", ackKind: a.resultado === "falsa" ? "false" : a.resultado === "real" ? "real" : null,
+        label: a.detalle === "Persona" ? "human" : a.detalle === "Vehículo" ? "vehicle" : null,
+    } : null;
+
     return (
         <>
             <Foto src={foto} />
-            <div className="px-5 pt-4 pb-5 flex flex-col gap-3">
+            <div className="px-5 pt-4 pb-5 flex flex-col gap-4">
                 <div>
                     <div className={cn("inline-flex items-center gap-1.5 text-[12px] font-semibold", tonoTexto(a.tono))}><I size={13} /> {NOMBRE_FUENTE[a.fuente]}</div>
                     <div className="text-[17px] font-bold tracking-tight">{a.titulo}{a.plate ? <span className="ml-2 align-middle"><Matricula p={a.plate} /></span> : null}</div>
                     {a.detalle && <div className="text-[13px] text-muted-foreground mt-0.5">{a.detalle}</div>}
                 </div>
+                <div className="flex flex-wrap items-center gap-2">
+                    {det && <Button size="sm" variant="outline" onClick={() => setFichaIntrusion(true)}><FileText size={14} /> Ver ficha</Button>}
+                    {eventoId && (evento
+                        ? <EventDetailsDialog event={evento} timeStatus={null}><Button size="sm" variant="outline"><FileText size={14} /> Ver ficha</Button></EventDetailsDialog>
+                        : <Button size="sm" variant="outline" disabled><FileText size={14} /> Ver ficha</Button>)}
+                    {a.fuente === "intrusion" && a.deviceId && (
+                        <Button size="sm" variant="outline" asChild><a href={`/admin/monitor-intrusion?cam=${encodeURIComponent(a.deviceId)}&tab=rec&t=${t.getTime()}`}><Film size={14} /> Grabación</a></Button>
+                    )}
+                    {a.plate && <Button size="sm" variant="outline" asChild><a href={`/admin/history?search=${encodeURIComponent(a.plate)}`}><Clock size={14} /> Historial</a></Button>}
+                </div>
                 <div>
                     <Dato rotulo="Cuándo"><span className="tabular-nums">{t.toLocaleDateString("es-UY", { weekday: "short", day: "2-digit", month: "2-digit" })} · {t.toLocaleTimeString("es-UY", { hour12: false })}</span></Dato>
                     {a.camara && <Dato rotulo="Cámara">{a.camara}</Dato>}
-                    <Dato rotulo="Estado">{a.estado === "pendiente" ? <span className="tono-mal">Pendiente</span> : <span>{a.resultado === "falsa" ? "Falsa alarma" : a.resultado === "real" ? "Real" : a.resultado || "Atendida"}{a.atendidaPor ? ` · ${a.atendidaPor}` : ""}</span>}</Dato>
+                    <Dato rotulo="Estado">{a.estado === "pendiente" ? <span className="tono-mal">Pendiente</span> : <span>{a.resultado === "falsa" ? "Falsa alarma" : a.resultado === "real" ? "Real" : "Atendida"}{a.atendidaPor ? ` · ${a.atendidaPor}` : ""}</span>}</Dato>
                 </div>
-                {a.estado === "pendiente" && (
-                    <div className="flex flex-wrap items-center gap-2">
-                        {conVeredicto ? (<>
-                            <Button size="sm" disabled={ocupado} onClick={() => alAtender("real")}><Check size={14} /> Es real</Button>
-                            <Button size="sm" variant="outline" disabled={ocupado} onClick={() => alAtender("falsa")}><X size={14} /> Falsa alarma</Button>
-                        </>) : (
-                            <Button size="sm" disabled={ocupado} onClick={() => alAtender(null)}><Check size={14} /> Atendida</Button>
-                        )}
-                    </div>
-                )}
+
+                {/* La gestión: qué se hizo. Se guarda sola o junto con la decisión. */}
+                <NotaGestion n={nota} />
                 <div className="flex flex-wrap items-center gap-2">
-                    {a.fuente === "intrusion" && a.deviceId && (
-                        <Button size="sm" variant="outline" asChild><a href={`/admin/monitor-intrusion?cam=${encodeURIComponent(a.deviceId)}&tab=rec&t=${t.getTime()}`}><Film size={14} /> Ver grabación</a></Button>
-                    )}
-                    {a.plate && <Button size="sm" variant="outline" asChild><a href={`/admin/history?search=${encodeURIComponent(a.plate)}`}><Clock size={14} /> Historial de la matrícula</a></Button>}
+                    {conVeredicto ? (<>
+                        {(a.estado === "pendiente" || a.resultado !== "real") && <Button size="sm" disabled={nota.guardando} onClick={() => void decidir("real")}><Check size={14} /> {a.estado === "pendiente" ? "Es real" : "Era real"}</Button>}
+                        {(a.estado === "pendiente" || a.resultado !== "falsa") && <Button size="sm" variant="outline" disabled={nota.guardando} onClick={() => void decidir("falsa")}><X size={14} /> {a.estado === "pendiente" ? "Falsa alarma" : "Era falsa"}</Button>}
+                    </>) : a.estado === "pendiente" ? (
+                        <Button size="sm" disabled={nota.guardando} onClick={() => void decidir(null)}><Check size={14} /> Atendida</Button>
+                    ) : null}
                 </div>
             </div>
+
+            {fichaIntrusion && det && (
+                <FichaDeteccion det={det} geom={geom} onClose={() => { setFichaIntrusion(false); alRecargar(); }}
+                    onMarcar={async (id, k) => marcarDeteccion(id, k)} />
+            )}
         </>
     );
 }

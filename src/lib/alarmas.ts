@@ -38,8 +38,12 @@ export type Alarma = {
     estado: "pendiente" | "atendida";
     atendidaPor: string | null;
     atendidaAt: string | null;
-    /** real | falsa | la nota del guardia. */
+    /** real | falsa | null. */
     resultado: string | null;
+    /** Lo que escribió el operador sobre la gestión de esta alarma. */
+    nota: string | null;
+    notaPor: string | null;
+    notaAt: string | null;
     accessEventId: string | null;
 };
 
@@ -74,7 +78,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     const ids = [...new Set(dets.map((d) => d.deviceId).filter(Boolean))] as string[];
     const [devs, atendidas] = await Promise.all([
         ids.length ? prisma.device.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }).catch(() => []) : Promise.resolve([]),
-        lecturas.length ? prisma.alarmaAtendida.findMany({ where: { clave: { in: lecturas.map((l) => `l:${l.id}`) } } }).catch(() => []) : Promise.resolve([]),
+        prisma.alarmaAtendida.findMany({ where: { clave: { in: [...dets.map((d) => `d:${d.id}`), ...avisos.map((a) => `a:${a.id}`), ...lecturas.map((l) => `l:${l.id}`)] } } }).catch(() => []),
     ]);
     const nombre = new Map(devs.map((d) => [d.id, d.name]));
     const atendida = new Map(atendidas.map((a) => [a.clave, a]));
@@ -89,6 +93,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
             tono: d.type === "LINECROSS" || d.type === "INTRUSION" ? "mal" : "aviso",
             estado: d.acknowledged ? "atendida" : "pendiente", atendidaPor: null, atendidaAt: d.ackAt?.toISOString() || null,
             resultado: d.ackKind === "false" ? "falsa" : d.ackKind === "real" ? "real" : null, accessEventId: null,
+            ...notaDe(atendida.get(`d:${d.id}`)),
         });
     }
     for (const a of avisos) {
@@ -100,7 +105,9 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
             foto: typeof f === "string" && f ? (f.startsWith("/") ? f : `/api/vision/imagen/${f}`) : null,
             tono: (et?.tono as TonoAlarma) || "aviso",
             estado: a.atendidoAt ? "atendida" : "pendiente", atendidaPor: a.atendidoPor, atendidaAt: a.atendidoAt?.toISOString() || null,
-            resultado: a.nota, accessEventId: a.accessEventId,
+            resultado: (atendida.get(`a:${a.id}`)?.resultado as string) || null, accessEventId: a.accessEventId,
+            // La nota de gestión; si no hay, la que dejó quien la atendió desde Visitas.
+            ...notaDe(atendida.get(`a:${a.id}`), a.nota ? { nota: a.nota, por: a.atendidoPor, ts: a.atendidoAt } : null),
         });
     }
     for (const l of lecturas) {
@@ -113,33 +120,58 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
             detalle: [v?.motivo || v?.label, l.direction === "EXIT" ? "salida" : "entrada"].filter(Boolean).join(" · ") || null,
             ts: l.timestamp.toISOString(), camara: l.device?.name || null, deviceId: l.deviceId, plate: ch,
             foto: l.snapshotPath || l.imagePath || null, tono: v?.category === "SEARCH" ? "aviso" : "mal",
-            estado: at ? "atendida" : "pendiente", atendidaPor: at?.por || null, atendidaAt: at?.ts.toISOString() || null,
-            resultado: at?.resultado || at?.nota || null, accessEventId: l.id,
+            estado: at?.atendida ? "atendida" : "pendiente", atendidaPor: at?.atendida ? at.por || null : null, atendidaAt: at?.atendida ? at.ts.toISOString() : null,
+            resultado: at?.resultado || null, accessEventId: l.id,
+            ...notaDe(at),
         });
     }
     return out.sort((a, b) => (a.ts < b.ts ? 1 : -1));
 }
 
+type FilaGestion = { nota: string | null; por: string | null; ts: Date; resultado?: string | null } | null | undefined;
+function notaDe(g: FilaGestion, previa?: { nota: string; por: string | null; ts: Date | null } | null) {
+    if (g?.nota) return { nota: g.nota, notaPor: g.por, notaAt: g.ts.toISOString() };
+    if (previa) return { nota: previa.nota, notaPor: previa.por, notaAt: previa.ts?.toISOString() || null };
+    return { nota: null, notaPor: null, notaAt: null };
+}
+
+/** La gestión guardada de una alarma (la ficha de intrusión la pide al abrirse). */
+export async function leerGestion(id: string) {
+    const g = await prisma.alarmaAtendida.findUnique({ where: { clave: id } }).catch(() => null);
+    return g ? { nota: g.nota, por: g.por, ts: g.ts.toISOString(), resultado: g.resultado, atendida: g.atendida } : null;
+}
+
 /**
- * Atender una alarma. `resultado` real/falsa vale para intrusión y LPR; en un aviso va como nota.
- * Devuelve false si ya estaba atendida o no existe.
+ * Gestionar una alarma: decidir (real / falsa / atendida) y/o anotar qué se hizo.
+ *
+ *  · `atender`: la da por atendida, con `resultado` real o falsa (intrusión y LPR) o sin él. En
+ *    intrusión y avisos se marca además en su propia fila, para que el monitor de intrusión y
+ *    Visitas lo vean igual.
+ *  · `nota`: el texto del operador. Se puede escribir antes de decidir («se mandó el móvil») y
+ *    corregir después; la última versión queda, con quién y cuándo.
+ *
+ * Una nota sola no cierra la alarma. Devuelve false si la alarma no existe.
  */
-export async function atenderAlarma(id: string, resultado: "real" | "falsa" | null, nota: string | null, por: string | null): Promise<boolean> {
+export async function gestionarAlarma(id: string, g: { atender: boolean; resultado: "real" | "falsa" | null; nota: string | null }, por: string | null): Promise<boolean> {
     const [pref, rid] = [id.slice(0, 2), id.slice(2)];
-    if (!rid || rid.length > 64) return false;
-    if (pref === "d:") {
-        const r = await prisma.detection.updateMany({ where: { id: rid, acknowledged: false }, data: { acknowledged: true, ackKind: resultado === "falsa" ? "false" : "real", ackAt: new Date() } });
-        if (r.count) avisarPorSocket("alarma_atendida", { id });
-        return r.count > 0;
+    if (!rid || rid.length > 64 || !["d:", "a:", "l:"].includes(pref)) return false;
+    const existe = pref === "d:" ? await prisma.detection.count({ where: { id: rid } }) : pref === "a:" ? await prisma.avisoGuardia.count({ where: { id: rid } }) : await prisma.accessEvent.count({ where: { id: rid } });
+    if (!existe) return false;
+    if (g.atender && pref === "d:") {
+        // Corrige también una ya atendida: «era falsa» después de haberla confirmado.
+        await prisma.detection.update({ where: { id: rid }, data: { acknowledged: true, ackKind: g.resultado === "falsa" ? "false" : "real", ackAt: new Date() } });
     }
-    if (pref === "a:") {
-        const texto = [resultado === "falsa" ? "Falsa alarma" : resultado === "real" ? "Real" : null, nota].filter(Boolean).join(" · ") || null;
-        return !!(await atenderAviso(rid, por, texto));
+    if (g.atender && pref === "a:") {
+        await atenderAviso(rid, por, [g.resultado === "falsa" ? "Falsa alarma" : g.resultado === "real" ? "Real" : null, g.nota].filter(Boolean).join(" · ") || null);
     }
-    if (pref === "l:") {
-        const ok = await prisma.alarmaAtendida.create({ data: { clave: id, resultado, nota, por } }).then(() => true).catch(() => false);
-        if (ok) avisarPorSocket("alarma_atendida", { id });
-        return ok;
-    }
-    return false;
+    const previa = await prisma.alarmaAtendida.findUnique({ where: { clave: id } }).catch(() => null);
+    const datos = {
+        ...(g.nota !== null ? { nota: g.nota || null } : {}),
+        ...(g.atender ? { resultado: g.resultado, atendida: true } : {}),
+        por, ts: new Date(),
+    };
+    if (previa) await prisma.alarmaAtendida.update({ where: { clave: id }, data: datos });
+    else await prisma.alarmaAtendida.create({ data: { clave: id, atendida: g.atender, resultado: g.atender ? g.resultado : null, nota: g.nota || null, por } });
+    avisarPorSocket("alarma_atendida", { id });
+    return true;
 }

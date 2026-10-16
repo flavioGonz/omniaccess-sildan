@@ -18,6 +18,7 @@ import { geomDeIntrusion, VEREDICTOS } from "@/lib/vision-capa";
 import type { Verificacion } from "@/lib/verificacion";
 import { getDetectionHistory, type DetHistItem, type IntrusionCam } from "@/app/actions/detections";
 import { META_DETECCION, GeomOverlay, type Geom } from "@/components/intrusion/comun";
+import { NotaGestion, usarNotaGestion } from "@/components/alarmas/NotaGestion";
 
 /**
  * La ficha de una detección (cruce de línea, intrusión, zona), con la forma del visor de los
@@ -133,9 +134,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
         return () => window.removeEventListener("keydown", onKey);
     }); // se re-engancha en cada render: lee siempre el estado vigente
 
+    /* La nota de gestión de esta detección (la misma que en Gestión de alarmas). Lo escrito se
+       guarda también al decidir, para que la decisión no quede sin su porqué. */
+    const nota = usarNotaGestion(real ? `d:${cur.id}` : null);
+    const conNota = (f: () => unknown) => () => { f(); if (nota.sucia) void nota.guardar(); };
     const marcar = async (k: "real" | "false") => {
         const r = await onMarcar!(cur.id, k);
         if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: k }));
+        if (nota.sucia) void nota.guardar();
     };
 
     const objetosVeredicto = (verif?.fuente === "propio" && propio ? propio : verif?.analisis)?.objetos || [];
@@ -323,14 +329,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                     <div className="flex flex-col gap-1.5">
                         {alarmaPendiente ? (
                             <div className="flex items-center gap-2">
-                                <BotonDecision onClick={() => onResolveAlarm!(cur.deviceId, "false")} icono={X} tecla="F">Falsa alarma</BotonDecision>
-                                <BotonDecision onClick={() => onResolveAlarm!(cur.deviceId, "real")} icono={Check} tecla="A" grave>Confirmar real</BotonDecision>
+                                <BotonDecision onClick={conNota(() => onResolveAlarm!(cur.deviceId, "false"))} icono={X} tecla="F">Falsa alarma</BotonDecision>
+                                <BotonDecision onClick={conNota(() => onResolveAlarm!(cur.deviceId, "real"))} icono={Check} tecla="A" grave>Confirmar real</BotonDecision>
                             </div>
                         ) : atencionAbierta ? (
                             <>
                                 <div className="flex items-center gap-2">
-                                    <BotonDecision onClick={() => onCerrarAtencion!(cur.deviceId, "falsa")} icono={X} tecla="F">Falsa alarma</BotonDecision>
-                                    <BotonDecision onClick={() => onCerrarAtencion!(cur.deviceId, "resuelta")} icono={Check} tecla="A" grave>Aceptar · resuelta</BotonDecision>
+                                    <BotonDecision onClick={conNota(() => onCerrarAtencion!(cur.deviceId, "falsa"))} icono={X} tecla="F">Falsa alarma</BotonDecision>
+                                    <BotonDecision onClick={conNota(() => onCerrarAtencion!(cur.deviceId, "resuelta"))} icono={Check} tecla="A" grave>Aceptar · resuelta</BotonDecision>
                                 </div>
                                 <p className="text-[11px] text-white/55 visor-sombra-texto max-w-md">Fue confirmada como real. Si con la foto delante ves que no lo era, marcala como falsa: queda corregido en el historial.</p>
                             </>
@@ -343,6 +349,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 <p className="text-[11px] text-white/55 visor-sombra-texto">Corrige sólo este evento en el historial; no cambia el estado de la cámara.</p>
                             </>
                         ) : <span />}
+                        {real && <NotaGestion n={nota} oscuro className="visor-panel rounded-[10px] p-3 w-[min(440px,72vw)] mt-1" />}
                     </div>
                     <span className="text-[11px] text-white/45 tabular-nums visor-sombra-texto text-right">
                         ← → eventos · H imagen limpia · Esc {enPropio ? "volver a la captura" : "cerrar"}
