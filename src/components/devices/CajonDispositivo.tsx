@@ -12,7 +12,10 @@ import { Cajon, CajonContenido, CajonCerrar } from "@/components/ui/cajon";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BarraDePasos, PasoAnimado } from "@/components/devices/Pasos";
-import { createDevice, updateDevice, probeDeviceInfo, getDevices } from "@/app/actions/devices";
+import { createDevice, updateDevice, probeDeviceInfo, getDevices, detectarCapacidades, detectarCapacidadesCanales } from "@/app/actions/devices";
+import { ChipsCapacidades } from "@/components/devices/Capacidades";
+import type { Capacidades } from "@/lib/capacidades-camara";
+import { consecuencias as consecuenciasTipo } from "@/lib/rol-camara";
 import { provisionLprDevice } from "@/app/actions/provision";
 import { getNvrList, getNvrChannels, getNvrChannelInfo, importarCanalesClasificados, type RolImport } from "@/app/actions/nvr";
 import { dondeGraba, asignarGrabacion, calcularRetencion, retencionGuardada } from "@/app/actions/grabaciones";
@@ -155,6 +158,63 @@ function IconoEstado({ e }: { e: Estado }) {
 
 const ipOk = (ip: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip.trim());
 
+/**
+ * El tipo de una cámara en su ficha, con lo que la cámara dice que sabe hacer (16/10, Nico: «si es
+ * sólo ANPR no tengo esa opción, sólo indica cruces de línea; y cuando le cambio el modo sigue
+ * diciendo que es de intrusión»). Antes el tipo no se podía cambiar desde acá: la ficha ofrecía
+ * los modos del tipo guardado, así que una LPR importada como intrusión sólo podía elegir entre
+ * modos de intrusión. Ahora se elige el tipo —con la sugerencia de la cámara— y los modos que se
+ * ofrecen son los de ese tipo. Se aplica al guardar, con lo que cambia dicho antes.
+ */
+function TipoDeCamara({ tipo, original, caps, leyendo, modoLpr, modoIntr, onCambiar }: {
+    tipo: "LPR_CAMERA" | "CAMERA"; original: "LPR_CAMERA" | "CAMERA"; caps: Capacidades | null; leyendo: boolean;
+    modoLpr: ModoLpr; modoIntr: ModoIntrusion; onCambiar: (t: "LPR_CAMERA" | "CAMERA") => void;
+}) {
+    const sug = caps && caps.fuente !== "nada" ? caps.sugerido : null;
+    const ROT = { LPR_CAMERA: "Cámara LPR", CAMERA: "Cámara de intrusión" } as const;
+    const sinAnalitica = caps?.fuente === "camara" && caps.cruceLinea === false && caps.zona === false;
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap text-[12px] text-muted-foreground min-h-[24px]">
+                {leyendo ? <><Loader2 size={13} className="animate-spin" /> Preguntándole a la cámara qué sabe hacer…</>
+                    : caps ? <>La cámara dice que sabe: <ChipsCapacidades c={caps} /></>
+                        : <>No se le pudo preguntar a la cámara qué sabe hacer.</>}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+                {(["LPR_CAMERA", "CAMERA"] as const).map((t) => (
+                    <Opcion key={t} activa={tipo === t} onClick={() => tipo !== t && onCambiar(t)} icono={t === "LPR_CAMERA" ? Car : Radar}
+                        color={t === "LPR_CAMERA" ? "text-amber-500 bg-amber-500/10" : "text-red-500 bg-red-500/10"}
+                        titulo={`${ROT[t]}${sug?.tipo === t ? " · sugerida" : ""}`}
+                        detalle={t === "LPR_CAMERA" ? "Lee matrículas en un acceso (con su ANPR o con omni-lpr)." : "Perímetro: cruce de línea, zona, o sólo video para OmniVision."} />
+                ))}
+            </div>
+            {/* Una cámara sin ANPR cargada como LPR con «Lectura OmniVision» está bien (la .86): no se sugiere intrusión. */}
+            {sug && sug.tipo !== tipo && caps?.fuente === "camara" && !(tipo === "LPR_CAMERA" && modoLpr === "omnivision") && (
+                <div className="rounded-lg chip-aviso px-3 py-2.5 text-[12.5px] flex items-center gap-2">
+                    <AlertTriangle size={15} className="shrink-0" />
+                    <span className="flex-1">La cámara {sug.por}: conviene <b>{ROT[sug.tipo]}</b>.</span>
+                    <Button size="sm" onClick={() => onCambiar(sug.tipo)}>Cambiar a {ROT[sug.tipo]}</Button>
+                </div>
+            )}
+            {tipo === "CAMERA" && sinAnalitica && (modoIntr === "camara" || modoIntr === "doble") && (
+                <div className="rounded-lg chip-aviso px-3 py-2.5 text-[12.5px] flex items-center gap-2"><AlertTriangle size={15} className="shrink-0" />
+                    Esta cámara no tiene cruce de línea ni zona: no va a avisar nada. Elegí «Analítica OmniVision» o «Sólo video».</div>
+            )}
+            {tipo === "LPR_CAMERA" && caps?.fuente === "camara" && caps.anpr === false && modoLpr !== "omnivision" && (
+                <div className="rounded-lg chip-aviso px-3 py-2.5 text-[12.5px] flex items-center gap-2"><AlertTriangle size={15} className="shrink-0" />
+                    Esta cámara no tiene ANPR: no va a leer matrículas sola. Elegí «Lectura OmniVision».</div>
+            )}
+            {tipo !== original && (
+                <ul className="text-[12px] text-muted-foreground list-disc pl-5 space-y-0.5">
+                    {consecuenciasTipo(original, tipo).map((c) => <li key={c}>{c}</li>)}
+                    {tipo === "LPR_CAMERA" && <li>Revisá el <b>sentido</b> (entrada o salida) en Identidad.</li>}
+                    <li>Se aplica al tocar «Guardar cambios».</li>
+                </ul>
+            )}
+        </div>
+    );
+}
+
 /* ── El cajón ─────────────────────────────────────────────────────────────────── */
 
 export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenChange, alCalibrar, alImportar }: {
@@ -213,12 +273,22 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const [creadoId, setCreadoId] = useState<string | null>(null);
     const [opcionAlta, setOpcionAlta] = useState<string | null>(null);
     const [guardando, setGuardando] = useState(false);
+    // Lo que la cámara sabe hacer (lib/capacidades-camara): decide qué tipo y modo se sugieren.
+    const [caps, setCaps] = useState<Capacidades | null>(null);
+    const [leyendoCaps, setLeyendoCaps] = useState(false);
+    const [capsCanal, setCapsCanal] = useState<Record<string, Capacidades>>({});
 
     useEffect(() => {
         if (!open) return;
         setF(blanco()); setPaso(0); setHacia(1); setInfo(null); setDonde(null); setManual({ nvrId: "", ch: "" });
         setSinGrabar(false); setActual(null); setRetencion(null); setCanales(null); setErrorCanales(""); setEleccion({});
         setTareas([]); setCorriendo(false); setTerminado(false); setCreadoId(null); setCargarMatriculas(true); setGuardando(false); setOpcionAlta(null);
+        setCaps(null); setCapsCanal({});
+        // En la ficha de una cámara se le pregunta qué sabe hacer apenas se abre (sólo lectura).
+        if (device?.id && device.deviceType !== "NVR") {
+            setLeyendoCaps(true);
+            detectarCapacidades({ deviceId: device.id }).then((r) => setCaps(r.ok ? r.capacidades : null)).catch(() => setCaps(null)).finally(() => setLeyendoCaps(false));
+        }
         {
             const ml = device ? modoLprDe(device) : null;
             const mi = device ? modoIntrusionDe(device, null) : null;
@@ -249,6 +319,15 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
     const esLprOmni = String(f.deviceType) === "LPR_INTERIOR" && !!device?.trackAcceso;
     const tipo = (esLprOmni ? "LPR_CAMERA" : f.deviceType) as Tipo | "";
     const meta = TIPOS.find((t) => t.valor === tipo);
+    /** El tipo con el que está guardada (la lectura de OmniVision cuenta como LPR). */
+    const tipoOriginal: "LPR_CAMERA" | "CAMERA" = device?.deviceType === "LPR_CAMERA" || (device?.deviceType === "LPR_INTERIOR" && device?.trackAcceso) ? "LPR_CAMERA" : "CAMERA";
+    /** Cambiar el tipo de cámara: los modos que se ofrecen pasan a ser los del tipo nuevo, en el que conviene según la cámara. */
+    const cambiarTipo = (t: "LPR_CAMERA" | "CAMERA") => {
+        set("deviceType", t);
+        if (t === "LPR_CAMERA") { setModoLpr(caps?.fuente === "camara" && caps.anpr === false ? "omnivision" : "camara"); setAbre(false); }
+        else setModoIntr(caps?.fuente === "camara" ? caps.sugerido.modoIntr : "doble");
+        if (!esEdicion) setOpcionAlta(t === "CAMERA" ? "intrusion" : caps?.anpr === false ? "omnilpr" : "lpr");
+    };
     const pasos = useMemo(() => esEdicion ? [{ clave: "ficha", rotulo: "Ficha" }] : [{ clave: "tipo", rotulo: "Tipo" }, ...(tipo ? PASOS_POR_TIPO[tipo] : [])], [esEdicion, tipo]);
     const clave = pasos[Math.min(paso, pasos.length - 1)]?.clave || "tipo";
     const ultimo = paso >= pasos.length - 1;
@@ -265,6 +344,15 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             if (r?.ok) setF((p) => ({ ...p, mac: r.macAddress || p.mac, deviceModel: r.model || p.deviceModel, authType: r.authType || p.authType, name: p.name || r.deviceName || "",
                 ...(r.credenciales ? { username: r.credenciales.username, password: r.credenciales.password } : {}) }));
             if (r?.nota) (r.credenciales ? toast.success : toast.info)({ title: r.credenciales ? "Credenciales tomadas del NVR" : "Datos según el NVR", description: r.nota });
+            // Respondió: se le pregunta qué sabe hacer, para sugerir el tipo y el modo antes de seguir.
+            if (r?.ok && tipo !== "NVR") {
+                setLeyendoCaps(true);
+                const cr = await detectarCapacidades(esEdicion && device?.id ? { deviceId: device.id } : { ip: f.ip.trim(), username: r.credenciales?.username || f.username, password: r.credenciales?.password || f.password, authType: r.authType || f.authType, brand: f.brand, deviceModel: r.model || f.deviceModel }).catch(() => null);
+                const c = cr && cr.ok ? cr.capacidades : null;
+                setCaps(c); setLeyendoCaps(false);
+                // En el alta, el modo arranca en el que conviene (si el tipo coincide); el tipo no se cambia solo.
+                if (c && !esEdicion && c.fuente === "camara") { if (tipo === "LPR_CAMERA" && opcionAlta !== "omnilpr") setModoLpr(c.anpr === false ? "omnivision" : "camara"); if (tipo === "CAMERA") setModoIntr(c.sugerido.modoIntr); }
+            }
         } catch (e: any) { setInfo({ ok: false, error: e?.message }); }
         finally { setDetectando(false); }
     };
@@ -291,6 +379,20 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
             });
             setCanales(lista);
             setEleccion(Object.fromEntries(lista.map((c) => [c.channel, { rol: (c.existente || !c.ip || c.sensorDe ? "omitir" : ES_LPR.test(`${c.name} ${c.model || ""}`) ? "lpr" : "intrusion") as RolImport, direction: (/salida|exit/i.test(c.name) ? "EXIT" : "ENTRY") as "ENTRY" | "EXIT", modoLpr: "camara" as ModoLpr, modoIntr: "doble" as ModoIntrusion }])));
+            // Después, a cada cámara nueva se le pregunta qué sabe hacer (con las credenciales del NVR,
+            // que son con las que se crea): lo que dice manda sobre lo que sugiere el nombre del canal.
+            const aPreguntar = lista.filter((c) => c.ip && !c.existente && !c.sensorDe).map((c) => ({ ip: c.ip!, model: c.model || null, brand: c.marca !== "OTRA" ? c.marca : f.brand }));
+            if (aPreguntar.length) detectarCapacidadesCanales({ canales: aPreguntar, username: f.username, password: f.password, authType: f.authType }).then((m: Record<string, Capacidades>) => {
+                setCapsCanal(m || {});
+                setEleccion((p) => Object.fromEntries(Object.entries(p).map(([k, e]) => {
+                    const c = lista.find((x) => x.channel === Number(k)); const cap = c?.ip ? m?.[c.ip] : null;
+                    if (!c || !cap || cap.fuente !== "camara" || c.existente || c.sensorDe) return [k, e];
+                    const porNombre = ES_LPR.test(`${c.name} ${c.model || ""}`);
+                    const omni = cap.anpr === false && porNombre;
+                    const rol: RolImport = cap.sugerido.tipo === "LPR_CAMERA" || omni ? "lpr" : "intrusion";
+                    return [k, { ...e, rol, modoLpr: omni ? "omnivision" : cap.sugerido.modoLpr, modoIntr: cap.sugerido.modoIntr }];
+                })));
+            }).catch(() => { });
         } catch (e: any) { setErrorCanales(e?.message || "No se pudo leer el NVR"); }
         finally { setLeyendo(false); }
     }, [f.ip, f.username, f.password, f.authType, f.brand]);
@@ -544,6 +646,21 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                         </motion.div>
                     )}
                 </AnimatePresence>
+                {/* En el alta: lo que la cámara sabe hacer, y si conviene otro tipo que el elegido. */}
+                {!esEdicion && tipo !== "NVR" && (leyendoCaps || caps) && (
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap text-[12px] text-muted-foreground">
+                            {leyendoCaps ? <><Loader2 size={13} className="animate-spin" /> Preguntándole qué sabe hacer…</> : caps ? <>La cámara sabe: <ChipsCapacidades c={caps} /></> : null}
+                        </div>
+                        {caps && caps.fuente === "camara" && (tipo === "LPR_CAMERA" || tipo === "CAMERA") && caps.sugerido.tipo !== tipo && !(tipo === "LPR_CAMERA" && (opcionAlta === "omnilpr" || modoLpr === "omnivision")) && (
+                            <div className="rounded-lg chip-aviso px-3 py-2.5 text-[12.5px] flex items-center gap-2">
+                                <AlertTriangle size={15} className="shrink-0" />
+                                <span className="flex-1">La cámara {caps.sugerido.por}: conviene darla de alta como <b>{caps.sugerido.tipo === "LPR_CAMERA" ? "Cámara LPR" : "Cámara de intrusión"}</b>.</span>
+                                <Button size="sm" onClick={() => cambiarTipo(caps.sugerido.tipo)}>Cambiar</Button>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </>
     );
@@ -671,6 +788,8 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                         {(tipo === "LPR_CAMERA" || tipo === "CAMERA") && (
                             <Bloque titulo="Qué hace OmniAccess con esta cámara" icono={tipo === "LPR_CAMERA" ? ScanLine : Radar}
                                 ayuda={tipo === "LPR_CAMERA" ? "Quién lee la matrícula: la cámara, la cámara verificada por omni-lpr, u omni-lpr solo. Se aplica al guardar." : "Quién detecta la intrusión: la cámara, la cámara verificada por OmniVision, OmniVision solo, o nadie (sólo video). Se aplica al guardar."}>
+                                <TipoDeCamara tipo={tipo as "LPR_CAMERA" | "CAMERA"} original={tipoOriginal} caps={caps} leyendo={leyendoCaps} modoLpr={modoLpr} modoIntr={modoIntr} onCambiar={cambiarTipo} />
+                                <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground pt-1">{tipo === "LPR_CAMERA" ? "¿Quién lee la matrícula?" : "¿Quién detecta la intrusión?"}</div>
                                 {tipo === "LPR_CAMERA"
                                     ? <ElegirModoLpr valor={modoLpr} abre={abre} onCambiar={(m, a) => { setModoLpr(m); setAbre(a); }} antes={modoAntes.lpr} />
                                     : <ElegirModoIntrusion valor={modoIntr} onCambiar={setModoIntr} antes={modoAntes.intr} />}
@@ -776,7 +895,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                         )}
 
                         {clave === "canales" && (
-                            <Bloque titulo="Qué es cada cámara" icono={Camera} ayuda="La sugerencia sale del nombre del canal (LPR si habla de entrada, salida, acceso, matrícula). Siempre se puede cambiar. Las que ya existen sólo se vinculan."
+                            <Bloque titulo="Qué es cada cámara" icono={Camera} ayuda="A cada cámara se le pregunta qué sabe hacer (ANPR, cruce de línea, zona) y eso decide la sugerencia; si no contesta, sale del nombre del canal. Siempre se puede cambiar. Las que ya existen sólo se vinculan."
                                 accion={<Button variant="outline" size="sm" onClick={leerCanales} disabled={leyendo} className="gap-1.5">{leyendo ? <Loader2 size={14} className="animate-spin" /> : <ScanSearch size={14} />} Leer de nuevo</Button>}>
                                 {leyendo && <div className="rounded-xl border border-dashed border-border p-8 grid place-items-center text-muted-foreground text-[13px] gap-2"><Loader2 size={22} className="animate-spin" /> Leyendo los canales del NVR…</div>}
                                 {errorCanales && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-[13px] text-red-600 dark:text-red-300 flex gap-2"><AlertTriangle size={16} className="shrink-0 mt-0.5" /> {errorCanales}. Revisá IP y credenciales en el paso anterior; también podés seguir y importar después desde el menú del NVR.</div>}
@@ -806,6 +925,7 @@ export function CajonDispositivo({ device, groups = [], onSuccess, open, onOpenC
                                                                 <span {...tip(`Fabricante de la cámara según el NVR${c.protocolo ? ` (protocolo ${c.protocolo})` : ""}. Un NVR puede grabar cámaras de otras marcas: esto decide cómo se le habla directo; las grabaciones siempre salen del NVR.`)}
                                                                     className={cn("font-sans px-1.5 rounded text-[9px] font-bold uppercase border", c.marca === "HIKVISION" ? "bg-red-500/10 text-red-500 border-red-500/25" : c.marca === "DAHUA" ? "bg-sky-500/10 text-sky-500 border-sky-500/25" : "bg-muted text-muted-foreground border-border")}>{c.marca === "OTRA" ? "Otra marca" : c.marca}</span>
                                                                 {c.sensorDe && <span {...tip(`Misma IP que D${c.sensorDe}: otro sensor de la misma cámara (térmico + visible). Se graba igual; no se crea aparte.`)} className="font-sans px-1.5 rounded text-[9px] font-bold uppercase bg-violet-500/10 text-violet-500 border border-violet-500/25">2.º sensor</span>}
+                                                                {c.ip && <ChipsCapacidades c={capsCanal[c.ip]} chico className="font-sans" />}
                                                             </div>
                                                         </div>
                                                         {c.existente ? (

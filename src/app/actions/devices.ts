@@ -1040,3 +1040,39 @@ export async function getCameraUserCounts(): Promise<Record<string, number | nul
     }));
     return out;
 }
+
+/**
+ * Qué sabe hacer una cámara (lib/capacidades-camara): ANPR, cruce de línea, zona, y qué tipo y
+ * modo le conviene. Con `deviceId` usa las credenciales guardadas (la ficha); sin él, las del
+ * formulario (el alta, antes de guardar). Sólo pregunta: no cambia nada en la cámara.
+ */
+export async function detectarCapacidades(input: { deviceId?: string; ip?: string; username?: string; password?: string; authType?: string; brand?: string; deviceModel?: string }) {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return { ok: false as const, error: "Hace falta una sesión del panel." };
+    const { capacidadesCamara } = await import("@/lib/capacidades-camara");
+    let e: { ip: string; username?: string | null; password?: string | null; authType?: string | null; brand?: string | null; deviceModel?: string | null };
+    if (input.deviceId) {
+        const d = await prisma.device.findUnique({ where: { id: input.deviceId }, select: { ip: true, username: true, password: true, authType: true, brand: true, deviceModel: true, deviceType: true } });
+        if (!d || String(d.deviceType) === "NVR") return { ok: false as const, error: "No es una cámara" };
+        e = { ...d, brand: String(d.brand), authType: d.authType ? String(d.authType) : null };
+    } else {
+        const ip = (input.ip || "").trim();
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return { ok: false as const, error: "IP inválida" };
+        e = { ip, username: input.username, password: input.password, authType: input.authType, brand: input.brand, deviceModel: input.deviceModel };
+    }
+    return { ok: true as const, capacidades: await capacidadesCamara(e) };
+}
+
+/**
+ * Las capacidades de los canales de un NVR que todavía no se dio de alta (el alta de NVR lee sus
+ * canales con las credenciales del formulario): se prueban con esas mismas, que son con las que
+ * se van a crear las cámaras.
+ */
+export async function detectarCapacidadesCanales(input: { canales: { ip: string; model?: string | null; brand?: string | null }[]; username?: string; password?: string; authType?: string }) {
+    const { getSession } = await import("@/app/actions/auth");
+    if (!(await getSession())) return {};
+    const { capacidadesDeVarias } = await import("@/lib/capacidades-camara");
+    const lista = (input.canales || []).filter((c) => c?.ip && /^\d{1,3}(\.\d{1,3}){3}$/.test(c.ip)).slice(0, 128);
+    const m = await capacidadesDeVarias(lista.map((c) => ({ ip: c.ip, username: input.username, password: input.password, authType: input.authType, brand: c.brand || "HIKVISION", deviceModel: c.model })));
+    return Object.fromEntries(m);
+}

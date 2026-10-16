@@ -17,6 +17,7 @@ import { canalesParaImportar, importarCanalesClasificados, type CanalParaImporta
 import { IconoTipo, ICONO_TIPO } from "@/components/devices/ArbolAreas";
 import { ModoEnFila, OPCIONES_INTRUSION_FILA, OPCIONES_LPR_FILA } from "@/components/devices/ModoCamara";
 import type { ModoIntrusion, ModoLpr } from "@/lib/modo-camara";
+import { ChipsCapacidades } from "@/components/devices/Capacidades";
 
 /** Lo que se elige por canal: el rol, el sentido (LPR) y el modo (lib/modo-camara.ts). */
 type Eleccion = { rol: RolImport; direction: "ENTRY" | "EXIT"; modoLpr?: ModoLpr; modoIntr?: ModoIntrusion };
@@ -85,7 +86,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
         canalesParaImportar(nvr.id).then((r) => {
             if (!r.ok) { setError(r.error || "No se pudieron leer los canales"); return; }
             setCanales(r.canales);
-            setEleccion(Object.fromEntries(r.canales.map((c) => [c.channel, { rol: c.existente || c.sensorDe || !c.ip ? "omitir" : c.sugerido.rol, direction: c.sugerido.direction, modoLpr: "camara", modoIntr: "doble" } as Eleccion])));
+            setEleccion(Object.fromEntries(r.canales.map((c) => [c.channel, { rol: c.existente || c.sensorDe || !c.ip ? "omitir" : c.sugerido.rol, direction: c.sugerido.direction, modoLpr: c.sugerido.modoLpr || "camara", modoIntr: c.sugerido.modoIntr || "doble" } as Eleccion])));
             setFiltro(r.canales.some((c) => !c.existente && c.ip && !c.sensorDe) ? "nuevas" : "todas");
         }).catch((e) => setError(e?.message || "Error")).finally(() => setCargando(false));
     };
@@ -198,7 +199,7 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                                     <span className="w-[136px] h-[76px] rounded-lg bg-muted" /><span className="flex-1 space-y-2"><span className="block h-3.5 w-1/3 rounded bg-muted" /><span className="block h-3 w-1/4 rounded bg-muted/70" /></span>
                                 </div>
                             ))}
-                            <p className="text-center text-[12px] text-muted-foreground flex items-center justify-center gap-2 pt-2"><Loader2 size={14} className="animate-spin" /> Leyendo los canales del NVR…</p>
+                            <p className="text-center text-[12px] text-muted-foreground flex items-center justify-center gap-2 pt-2"><Loader2 size={14} className="animate-spin" /> Leyendo los canales del NVR y preguntándole a cada cámara qué sabe hacer…</p>
                         </div>
                     )}
                     {error && (
@@ -232,6 +233,11 @@ export function ImportarCanalesNvr({ nvr, groups = [], open, onOpenChange, onLis
                                                     <span className="text-border">|</span>
                                                     <Marca c={c} />
                                                     {c.protocolo && <span className="text-[10.5px]">{c.protocolo}</span>}
+                                                    <ChipsCapacidades c={c.capacidades} chico />
+                                                    {/* Una que ya existe con un tipo que no es el que la cámara dice: se corrige en su ficha. */}
+                                                    {c.existente && c.capacidades && c.capacidades.fuente === "camara" && (
+                                                        (c.capacidades.sugerido.tipo === "LPR_CAMERA" && c.existente.tipo === "CAMERA") || (c.capacidades.sugerido.tipo === "CAMERA" && c.capacidades.anpr === false && c.existente.tipo === "LPR_CAMERA")
+                                                    ) && <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full text-[10px] font-semibold chip-aviso" {...tip("La cámara dice que es otra cosa que como está cargada. Abrí su ficha en Dispositivos y cambiale el tipo.")}><AlertTriangle size={10} /> Está como {c.existente.tipo === "CAMERA" ? "intrusión" : "LPR"}: la cámara {c.capacidades.sugerido.por}</span>}
                                                     {c.sensorDe && <span className="px-1.5 py-px rounded text-[9px] font-bold uppercase bg-violet-500/10 text-violet-500 border border-violet-500/25" {...tip(`Misma IP que D${c.sensorDe}: otro sensor de la misma cámara (térmico + visible). No se crea aparte.`)}>2.º sensor de D{c.sensorDe}</span>}
                                                 </div>
                                             </div>

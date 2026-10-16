@@ -393,7 +393,10 @@ export async function mapearPorIp(nvrDeviceId: string): Promise<{ ok: boolean; e
  * Antes la importación creaba todo como cámara común. Ahora cada canal se clasifica antes de
  * crearlo: LPR (de entrada o de salida) o intrusión; lo que ya existe con esa IP sólo se mapea. */
 export type RolImport = "lpr" | "intrusion" | "omitir";
-export type CanalParaImportar = { channel: number; ip: string | null; name: string; model?: string | null; marca: string; protocolo?: string | null; sensorDe?: number | null; existente: { id: string; name: string; tipo: string; marca: string } | null; sugerido: { rol: RolImport; direction: "ENTRY" | "EXIT"; por: string } };
+export type CanalParaImportar = { channel: number; ip: string | null; name: string; model?: string | null; marca: string; protocolo?: string | null; sensorDe?: number | null; existente: { id: string; name: string; tipo: string; marca: string } | null;
+    sugerido: { rol: RolImport; direction: "ENTRY" | "EXIT"; por: string; modoLpr?: import("@/lib/modo-camara").ModoLpr; modoIntr?: import("@/lib/modo-camara").ModoIntrusion };
+    /** Lo que la cámara dijo que sabe hacer (lib/capacidades-camara), si se le pudo preguntar. */
+    capacidades?: import("@/lib/capacidades-camara").Capacidades | null };
 
 const ES_LPR = /\b(lpr|anpr)\b|matr[ií]cula|patente|entrada|salida|acceso|barrera/i;
 export async function canalesParaImportar(nvrDeviceId: string): Promise<{ ok: boolean; error?: string; canales: CanalParaImportar[] }> {
@@ -404,18 +407,35 @@ export async function canalesParaImportar(nvrDeviceId: string): Promise<{ ok: bo
     const r: any = await getNvrChannels({ ip: nvr.ip, username: nvr.username || undefined, password: nvr.password || undefined, authType: (nvr.authType as any) || undefined });
     if (!r?.ok) return { ok: false, error: r?.error || "No se pudieron leer los canales del NVR", canales: [] };
     const ips = (r.channels || []).map((c: any) => c.ip).filter(Boolean);
-    const existentes = await prisma.device.findMany({ where: { ip: { in: ips } }, select: { id: true, name: true, ip: true, deviceType: true, brand: true } });
+    const existentes = await prisma.device.findMany({ where: { ip: { in: ips } }, select: { id: true, name: true, ip: true, deviceType: true, brand: true, username: true, password: true, authType: true } });
     const porIp = new Map(existentes.map((e) => [e.ip, e]));
+    // A cada cámara se le pregunta qué sabe hacer (16/10): el nombre del canal no alcanza —«MATRICULA
+    // SALIDA» había quedado como intrusión—. La que ya existe, con su clave; la nueva, con la del NVR,
+    // que es con la que se va a crear. Un sensor extra de la misma cámara no se pregunta dos veces.
+    const { capacidadesDeVarias } = await import("@/lib/capacidades-camara");
+    const aPreguntar = (r.channels || []).filter((c: any) => c.ip && !c.sensorDe).map((c: any) => {
+        const e: any = porIp.get(c.ip);
+        return { ip: c.ip, username: e?.username ?? nvr.username, password: e?.password ?? nvr.password, authType: e?.authType ? String(e.authType) : nvr.authType ? String(nvr.authType) : null, brand: c.brand && c.brand !== "OTRA" ? c.brand : e?.brand ? String(e.brand) : String(nvr.brand), deviceModel: c.model || null };
+    });
+    const caps = await capacidadesDeVarias(aPreguntar).catch(() => new Map());
     return {
         ok: true,
         canales: (r.channels || []).map((c: any) => {
             const name = (c.name && String(c.name).trim()) || `${nvr.name} · ch ${c.channel}`;
             const e = c.ip ? porIp.get(c.ip) : null;
-            const lpr = ES_LPR.test(`${name} ${c.model || ""}`);
+            const cap = c.ip ? caps.get(c.ip) || null : null;
+            // Lo que la cámara dice manda; el nombre del canal queda para cuando no se le pudo preguntar.
+            const sabe = cap && cap.fuente !== "nada" && (cap.anpr !== null || cap.cruceLinea !== null);
+            const porNombre = ES_LPR.test(`${name} ${c.model || ""}`);
+            // Sin ANPR pero el nombre dice que mira un acceso: es una cámara para omni-LPR (como la .86).
+            const omniLpr = !!sabe && cap!.anpr === false && porNombre;
+            const lpr = sabe ? cap!.sugerido.tipo === "LPR_CAMERA" || omniLpr : porNombre;
+            const por = omniLpr ? "el nombre dice acceso pero la cámara no tiene ANPR: la lee omni-lpr" : sabe ? `la cámara ${cap!.sugerido.por}` : lpr ? "el nombre habla de matrículas / accesos" : "cámara del perímetro";
             return {
                 channel: c.channel, ip: c.ip || null, name, model: c.model || null, marca: c.brand || String(nvr.brand), protocolo: c.protocolo || null, sensorDe: c.sensorDe ?? null,
                 existente: e ? { id: e.id, name: e.name, tipo: String(e.deviceType), marca: String(e.brand) } : null,
-                sugerido: { rol: lpr ? "lpr" : "intrusion", direction: /salida|exit/i.test(name) ? "EXIT" : "ENTRY", por: lpr ? "el nombre habla de matrículas / accesos" : "cámara del perímetro" },
+                sugerido: { rol: lpr ? "lpr" : "intrusion", direction: /salida|exit/i.test(name) ? "EXIT" : "ENTRY", por, modoLpr: omniLpr ? "omnivision" : sabe ? cap!.sugerido.modoLpr : "camara", modoIntr: sabe ? cap!.sugerido.modoIntr : "doble" },
+                capacidades: cap,
             } as CanalParaImportar;
         }),
     };

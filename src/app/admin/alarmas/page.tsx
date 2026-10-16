@@ -146,9 +146,12 @@ function GestionAlarmas() {
     const cuentaEstado = (e: "pendiente" | "atendida") => alarmas.filter((a) => a.estado === e && (!origenes.length || origenes.includes(a.fuente))).length;
 
     const autosDe = (v: Ver): AutoAdentro[] => !p ? [] : v === "atipicos" ? p.atipicos : v === "desconocidos" ? p.autosVisitas.filter((a) => a.clase === "no_registrado") : v === "visitas" ? p.autosVisitas.filter((a) => a.clase !== "no_registrado") : [];
-    const filasAutos = useMemo(() => autosDe(ver).filter((a) => pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x]))), [p, ver, t]); // eslint-disable-line react-hooks/exhaustive-deps
-    const filasResidentes = useMemo(() => (p?.residentes || []).filter((r) => pasa(r.nombre, r.unidad, ...r.autos)), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
-    const filasVisitas = useMemo(() => (p?.visitas || []).filter((v) => pasa(v.plate, v.nombre, v.empresa, v.lote, v.tipoNombre)), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Las listas de quién está adentro arrancan por la permanencia más larga (16/10, Nico: «arriba
+    // del todo los que más tiempo dentro tienen»): el que entró primero es el que más lleva.
+    const porPermanencia = <T extends { entrada: string }>(xs: T[]) => [...xs].sort((a, b) => (a.entrada < b.entrada ? -1 : a.entrada > b.entrada ? 1 : 0));
+    const filasAutos = useMemo(() => porPermanencia(autosDe(ver).filter((a) => pasa(a.plate, a.persona, a.unidad, NOMBRE_CLASE[a.clase], ...a.atipico.map((x) => NOMBRE_ATIPICO[x])))), [p, ver, t]); // eslint-disable-line react-hooks/exhaustive-deps
+    const filasResidentes = useMemo(() => porPermanencia((p?.residentes || []).filter((r) => pasa(r.nombre, r.unidad, ...r.autos))), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
+    const filasVisitas = useMemo(() => porPermanencia((p?.visitas || []).filter((v) => pasa(v.plate, v.nombre, v.empresa, v.lote, v.tipoNombre))), [p, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ── Columnas ──
     const colsAlarmas = useMemo<ColumnaTabla<Alarma>[]>(() => [
@@ -170,7 +173,7 @@ function GestionAlarmas() {
 
     const colIngreso = <T extends { entrada: string }>(): ColumnaTabla<T>[] => [
         { clave: "entrada", titulo: "Ingreso", ancho: 92, ordenable: true, valor: (x) => x.entrada, celda: (x) => <Momento t={x.entrada} /> },
-        { clave: "estadia", titulo: "Estadía", ancho: 116, valor: (x) => String(Date.now() - new Date(x.entrada).getTime()), celda: (x) => <Cronometro desde={x.entrada} tamano="chico" /> },
+        { clave: "estadia", titulo: "Permanencia", ancho: 116, ordenable: true, valor: (x) => Date.now() - new Date(x.entrada).getTime(), celda: (x) => <Cronometro desde={x.entrada} tamano="chico" /> },
     ];
     const colsAutos = useMemo<ColumnaTabla<AutoAdentro>[]>(() => [
         { clave: "plate", titulo: "Matrícula", ancho: 128, valor: (a) => a.plate, celda: (a) => (
