@@ -12,6 +12,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
     LayoutDashboard,
     Radar,
+    Siren,
     Users,
     Car,
     Settings,
@@ -195,6 +196,9 @@ export default function AdminLayout({
                         ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-face" active={pathname === "/admin/monitor-face"} collapsed={collapsed} />)
                     ) : (
                         ve("monitor") && (<SidebarItem icon={<LayoutDashboard size={18} />} label="Monitor en Vivo" href="/admin/monitor-lpr" active={pathname === "/admin/monitor-lpr"} collapsed={collapsed} />)
+                    )}
+                    {!modules.MODULE_QUEUE && (
+                        ve("monitor") && (<SidebarItem icon={<Siren size={18} />} label="Gestión de alarmas" href="/admin/alarmas" active={pathname === "/admin/alarmas"} collapsed={collapsed} />)
                     )}
                     {modules.MODULE_LPR && !modules.MODULE_QUEUE && (
                         ve("intrusion") && (<SidebarItem icon={<Radar size={18} />} label="Monitor Intrusión" href="/admin/monitor-intrusion" active={pathname === "/admin/monitor-intrusion"} collapsed={collapsed} />)

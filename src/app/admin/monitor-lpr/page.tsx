@@ -79,7 +79,6 @@ import { watchCatMeta } from "@/lib/watch-categories";
 import { WatchlistDialog } from "@/components/WatchlistDialog";
 import { getParkingElements, getPresenceSummary } from "@/app/actions/plazas";
 import { RegistrarMatricula } from "@/components/registro/RegistrarMatricula";
-import { TarjetasPresencia, CajonPresencia, usarPresencia, type ClavePresencia } from "@/components/monitor/PresenciaBarrio";
 import { Filtros } from "@/components/ui/filtros";
 import { parseVehicleMeta, collectVehicleFacets } from "@/lib/vehicle-details";
 
@@ -1179,12 +1178,6 @@ export default function MonitorLPR() {
         for (const e of events) { const id = (e as any).device?.id; if (id && !m[id]) m[id] = e; }
         return m;
     }, [events]);
-    // Quién está adentro (lib/presencia): reemplaza el «En casa 0/0», que contaba plazas de
-    // estacionamiento ocupadas y en un barrio sin plazas cargadas no decía nada.
-    const presencia = usarPresencia(events[0]?.id || null);
-    const [listaPresencia, setListaPresencia] = useState<ClavePresencia | null>(null);
-    const [ultimaListaPresencia, setUltimaListaPresencia] = useState<ClavePresencia>("autosResidentes");
-    const abrirPresencia = useCallback((c: ClavePresencia) => { setUltimaListaPresencia(c); setListaPresencia(c); }, []);
     const openRegister = useCallback((plate?: string) => { if (!plate) return; setRegisterInit({ plate: String(plate).toUpperCase() }); setRegisterOpen(true); }, []);
 
     return (
@@ -1194,9 +1187,9 @@ export default function MonitorLPR() {
             <div className="h-full flex flex-col bg-background text-foreground">
                 {/* Cabecera en dos renglones (16/10, Nico: «mejorá los filtros de arriba, no se
                     entiende»). Arriba: qué pantalla es, el buscador de matrícula y las acciones.
-                    Abajo: quién está adentro (cuatro tarjetas que abren la lista) y, a la derecha,
-                    los filtros de la lista de lecturas, con los conteos de hoy adentro de cada
-                    opción en vez de un bloque de números sueltos (✓ / ✗) que no decía qué filtraba. */}
+                    Abajo: los filtros de la lista de lecturas, con los conteos de hoy adentro de cada
+                    opción en vez de un bloque de números sueltos (✓ / ✗) que no decía qué filtraba.
+                    Quién está adentro se mira en Gestión de alarmas y en la pared (Control LPR). */}
                 <div className="px-6 pt-4 pb-3 border-b border-border shrink-0 flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
@@ -1233,7 +1226,7 @@ export default function MonitorLPR() {
                                 className={cn("h-[30px] w-[30px] rounded-md grid place-items-center transition-colors", soundOn ? "text-muted-foreground hover:text-foreground hover:bg-background" : "bg-background tono-mal")}>
                                 {soundOn ? <Volume2 size={15} /> : <VolumeX size={15} />}
                             </button>
-                            <button onClick={() => { loadInitialData(); presencia.traer(); }} title="Volver a pedir" className="h-[30px] w-[30px] rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
+                            <button onClick={loadInitialData} title="Volver a pedir" className="h-[30px] w-[30px] rounded-md grid place-items-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors">
                                 <RefreshCw size={15} />
                             </button>
                         </div>
@@ -1247,8 +1240,7 @@ export default function MonitorLPR() {
                     </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-4 flex-wrap">
-                    <TarjetasPresencia datos={presencia.datos} cargando={presencia.cargando} alAbrir={abrirPresencia} />
+                <div className="flex items-center justify-end gap-4 flex-wrap">
                     <Filtros
                         grupos={[{
                             clave: "resultado", titulo: "Lecturas de hoy, por resultado",
@@ -1282,8 +1274,6 @@ export default function MonitorLPR() {
                     </Filtros>
                 </div>
                 </div>
-                <CajonPresencia abierto={listaPresencia !== null} clave={listaPresencia || ultimaListaPresencia} alCambiarClave={abrirPresencia} alCerrar={() => setListaPresencia(null)}
-                    datos={presencia.datos} error={presencia.error} cargando={presencia.cargando} alRecargar={presencia.traer} />
 
                 {/* Dos columnas, un sentido cada una. */}
                 <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border overflow-hidden">

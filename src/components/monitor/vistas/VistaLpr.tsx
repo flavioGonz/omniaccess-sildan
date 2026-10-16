@@ -14,7 +14,7 @@ import { sonar } from "@/lib/sonido-monitor";
 import { getImagePath } from "@/lib/image-path";
 import { metodoDeLectura } from "@/lib/lectura-metodo";
 import { watchCatMeta } from "@/lib/watch-categories";
-import { presentarLectura, rotulosContadores, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
+import { presentarLectura, ETIQUETA_AVISO, type TipoAviso } from "@/lib/visitas/presentacion";
 import { describirRutina, duracion, NOMBRE_CLASE, type Rutina, type Clase } from "@/lib/visitas/calculos";
 import { cn } from "@/lib/utils";
 import { chapaDe, MarcaOmniVision, MarcaVerificacion, textoChapa } from "@/components/vision/ChapaReleida";
@@ -46,7 +46,7 @@ import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
  *  · La ficha (cajón desde la derecha) contesta lo que se pregunta de un auto: de quién es, de
  *    qué lote, si es invitado y a dónde va, si está vigilado, cuándo entró y qué hizo hoy. Se
  *    cierra sola a los FICHA_SE_CIERRA_MS sin tocar.
- *  · Los contadores filtran la tira (tocar "Denegados hoy" deja sólo las denegadas).
+ *  · Los cuatro números de quién está adentro abren Gestión de alarmas en esa lista.
  *  · Todo lo tocable mide 48 px o más y responde al dedo (se hunde un poco); nada depende
  *    del hover. Las transiciones son cortas (≤ 300 ms): informan, no adornan.
  *
@@ -83,6 +83,8 @@ type Datos = {
     contadores: { entradas: number; salidas: number; denegados: number; noRegistrados?: number; adentro: number; actualizado: string; dia: string };
     enBarrio?: { visitas: VisitaEnBarrio[]; noRegistradas: NoRegistrada[] };
     atencion: Atencion[]; ahora: string;
+    /** Quién está adentro, en cuatro números (lib/presencia). */
+    presencia?: { residentes: number; visitasProveedores: number; desconocidos: number; atipicos: number } | null;
     /** Matrícula → logo de su empresa (ver lib/empresas-servidor). */
     logos?: Record<string, Logo>;
     /** Los interruptores de las pestañas de Usuarios: color propio y sonido al pasar, por clase. */
@@ -221,19 +223,21 @@ const faltan = (ts: string) => {
     const h = Math.floor(m / 60); return h < 48 ? `en ${h} h${m % 60 ? ` ${m % 60} min` : ""}` : `en ${Math.floor(h / 24)} d`;
 };
 
-function Contador({ rotulo, valor, Icono, tono, activo, alTocar }: { rotulo: string; valor: number; Icono: any; tono?: "bien" | "mal" | "info"; activo?: boolean; alTocar?: () => void }) {
-    return (
-        <button type="button" onClick={alTocar} disabled={!alTocar} aria-pressed={activo}
-            className={cn("flex items-center gap-3 lg:gap-4 rounded-2xl bg-card border px-4 lg:px-5 py-3 lg:py-4 text-left min-h-[72px]", tocable,
-                activo ? "border-[var(--accion-en-oscuro)] ring-2 ring-[var(--accion-en-oscuro)]/40" : "border-border", !alTocar && "active:scale-100")}>
-            <span className={cn("grid h-11 w-11 lg:h-12 lg:w-12 place-items-center rounded-full shrink-0", tono === "bien" ? "pleno-bien" : tono === "mal" ? "pleno-mal" : tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><Icono size={22} /></span>
+function Contador({ rotulo, valor, Icono, tono, activo, alTocar, href }: { rotulo: string; valor: number | null; Icono: any; tono?: "bien" | "mal" | "info" | "aviso"; activo?: boolean; alTocar?: () => void; href?: string }) {
+    const clase = cn("flex items-center gap-3 lg:gap-4 rounded-2xl bg-card border px-4 lg:px-5 py-3 lg:py-4 text-left min-h-[72px]", tocable,
+        activo ? "border-[var(--accion-en-oscuro)] ring-2 ring-[var(--accion-en-oscuro)]/40" : "border-border", !alTocar && !href && "active:scale-100");
+    const cuerpo = (
+        <>
+            <span className={cn("grid h-11 w-11 lg:h-12 lg:w-12 place-items-center rounded-full shrink-0", tono === "bien" ? "pleno-bien" : tono === "mal" ? "pleno-mal" : tono === "info" ? "pleno-info" : tono === "aviso" ? "pleno-aviso" : "bg-muted text-muted-foreground")}><Icono size={22} /></span>
             <div className="min-w-0">
-                <div className="text-[32px] lg:text-[40px] font-bold leading-none tabular-nums">{valor}</div>
+                <div className="text-[32px] lg:text-[40px] font-bold leading-none tabular-nums">{valor ?? "—"}</div>
                 {/* Sin recortar: "Denegado…" con 1668 al lado no dice qué cuenta. Baja a dos renglones si hace falta. */}
                 <div className="text-[13px] lg:text-[14px] text-muted-foreground mt-1 leading-tight">{rotulo}</div>
             </div>
-        </button>
+        </>
     );
+    if (href) return <a href={href} className={clase}>{cuerpo}</a>;
+    return <button type="button" onClick={alTocar} disabled={!alTocar} aria-pressed={activo} className={clase}>{cuerpo}</button>;
 }
 
 export function VistaLpr() {
@@ -287,7 +291,6 @@ export function VistaLpr() {
     const volverAlVivo = useCallback(() => setFijada(null), []);
     const vueltaFijada = usarInactividad(!!fijada && !fichaId, VOLVER_AL_VIVO_MS, volverAlVivo);
 
-    const c = datos?.contadores;
     const protagonista = fijada || ultima;
     const tinte = tinteDe(protagonista, !!(protagonista?.plate && datos?.logos?.[protagonista.plate]));
     // Toda la pantalla, encabezado incluido, toma el color de quien pasó.
@@ -295,9 +298,7 @@ export function VistaLpr() {
     useEffect(() => () => setFondo(null), [setFondo]);
     const nuevaMientrasFijada = fijada && ultima && ultima.id !== fijada.id && ultima.ts > fijada.ts ? ultima : null;
     const visibles = useMemo(() => tira.filter((l) => pasaFiltro(l, filtro, modo)), [tira, filtro, modo]);
-    const rotulos = rotulosContadores(modo);
     const FILTROS = filtrosDe(modo);
-    const alternarFiltro = (f: Filtro) => setFiltro((x) => (x === f ? "todas" : f));
 
     return (
         <div className="absolute inset-0 flex flex-col lg:grid lg:grid-cols-[1fr_380px] gap-3 lg:gap-4 p-3 lg:p-4">
@@ -401,18 +402,17 @@ export function VistaLpr() {
                 </div>
             </div>
 
-            {/* Contadores (filtran la tira) y fila de atención (abre la ficha). */}
+            {/* Quién está adentro, en cuatro números (16/10, Nico): reemplazan a entradas, salidas y
+                denegados del día, al «adentro ahora» y al bloque «En el barrio ahora». Tocar uno abre
+                Gestión de alarmas en esa lista; la fila de atención ocupa el resto hasta abajo. */}
             <aside className="shrink-0 lg:shrink flex flex-col gap-3 min-h-0">
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 gap-3">
-                    <Contador rotulo={rotulos.adentro} valor={c?.adentro ?? 0} Icono={Users} tono="info" />
-                    <Contador rotulo={rotulos.entradas} valor={c?.entradas ?? 0} Icono={LogIn} tono="bien" activo={filtro === "entradas"} alTocar={() => alternarFiltro("entradas")} />
-                    <Contador rotulo={rotulos.salidas} valor={c?.salidas ?? 0} Icono={LogOut} activo={filtro === "salidas"} alTocar={() => alternarFiltro("salidas")} />
-                    <Contador rotulo={rotulos.rechazos} valor={(modo === "ABIERTO" ? c?.noRegistrados : c?.denegados) ?? 0} Icono={modo === "ABIERTO" ? CircleDashed : ShieldX} tono={modo === "ABIERTO" ? undefined : "mal"} activo={filtro === "denegadas"} alTocar={() => alternarFiltro("denegadas")} />
+                    <Contador rotulo="Residentes dentro" valor={datos?.presencia?.residentes ?? null} Icono={Home} tono="bien" href="/admin/alarmas?ver=residentes" />
+                    <Contador rotulo="Visitas y proveedores dentro" valor={datos?.presencia?.visitasProveedores ?? null} Icono={Ticket} tono="info" href="/admin/alarmas?ver=visitas" />
+                    <Contador rotulo="Desconocidos dentro" valor={datos?.presencia?.desconocidos ?? null} Icono={CircleDashed} href="/admin/alarmas?ver=desconocidos" />
+                    <Contador rotulo="Atípicos dentro" valor={datos?.presencia?.atipicos ?? null} Icono={AlertTriangle} tono={datos?.presencia?.atipicos ? "aviso" : undefined} href="/admin/alarmas?ver=atipicos" />
                 </div>
-                <div className="text-[12px] text-muted-foreground px-1 inline-flex items-center gap-1.5"><Clock size={12} /> contadores del día del barrio · actualizados {c ? hace(c.actualizado) : "—"}</div>
-                {/* En el barrio ahora: visitas con su cuenta atrás y, en abierto, las no registradas (estimado). */}
-                <EnElBarrio datos={datos?.enBarrio} modo={modo} alAbrir={(id) => id && setFichaId(id)} />
-                <div className="flex-1 min-h-[120px] max-h-[26vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
+                <div className="flex-1 min-h-[160px] rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
                     <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><ShieldAlert size={14} /> Atención · últimas 24 h</div>
                     {datos && datos.atencion.length === 0 && <div className="text-[18px] text-muted-foreground">Sin novedades</div>}
                     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
@@ -705,61 +705,6 @@ function FichaLectura({ id, modo, alCerrar, alVerOtra, alAmpliar, alFijar }: { i
                 </>
             )}
         </AnimatePresence>
-    );
-}
-
-/** Fracción final del tiempo en la que la cuenta atrás pasa a ámbar (spec "Visitas en el barrio a la vista"). */
-const FRACCION_AVISO = 0.2;
-const mmss = (ms: number) => { const s = Math.floor(Math.abs(ms) / 1000); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60; return `${ms < 0 ? "-" : ""}${h ? `${h}:` : ""}${String(m).padStart(h ? 2 : 1, "0")}:${String(ss).padStart(2, "0")}`; };
-
-/**
- * "En el barrio ahora". Las visitas registradas, con su cuenta atrás (corre en el navegador
- * contra `vence`; el reloj de la vista refresca cada segundo), ordenadas por lo que vence
- * antes. En abierto, además, las matrículas no registradas que entraron hoy y no se vieron
- * salir, con el tiempo que llevan marcado como ESTIMADO: el 55 % de las entradas no se ve
- * salir, así que ese número no es un cronómetro, es una cota.
- */
-function EnElBarrio({ datos, modo, alAbrir }: { datos: Datos["enBarrio"]; modo: Modo; alAbrir: (accessEventId: string | null) => void }) {
-    const visitas = datos?.visitas || [];
-    const noReg = modo === "ABIERTO" ? datos?.noRegistradas || [] : [];
-    const ahora = Date.now();
-    return (
-        <div className="flex-1 min-h-[120px] max-h-[26vh] lg:max-h-none rounded-2xl bg-card border border-border p-3 lg:p-4 flex flex-col gap-3 overflow-hidden">
-            <div className="text-[13px] font-bold uppercase tracking-[0.14em] text-muted-foreground inline-flex items-center gap-2"><Timer size={14} /> En el barrio ahora · {visitas.length}{noReg.length ? ` + ${noReg.length} sin registrar` : ""}</div>
-            {!visitas.length && !noReg.length && <div className="text-[18px] text-muted-foreground">Nadie registrado</div>}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-2 [scrollbar-width:thin]">
-                {visitas.map((v) => {
-                    const resta = +new Date(v.vence) - ahora, total = Math.max(1, +new Date(v.vence) - +new Date(v.desde));
-                    // Pase libre: no hay cuenta atrás; se muestra cuánto lleva adentro.
-                    const libre = esPaseLibre(v.tipoVisita);
-                    const estado = libre ? "ok" : resta < 0 ? "excedida" : resta < total * FRACCION_AVISO ? "cerca" : "ok";
-                    return (
-                        <button key={v.id} type="button" disabled={!v.accessEventId} onClick={() => alAbrir(v.accessEventId)}
-                            className={cn("flex items-center gap-3 rounded-xl border px-3 py-2.5 min-h-[60px] text-left", v.accessEventId && tocable,
-                                estado === "excedida" ? "border-[var(--mal)] bg-[var(--mal-suave)]" : estado === "cerca" ? "border-[var(--aviso)] bg-muted/40" : "border-border bg-muted/40")}>
-                            <span className="min-w-0 flex-1">
-                                <span className="flex items-center gap-2"><span className="font-bold text-[15px]">{v.tipoNombre}</span>{v.plate && <span className="text-[15px] font-bold tabular-nums tracking-[0.1em]">{v.plate}</span>}</span>
-                                <span className="block text-[13px] text-muted-foreground truncate">{v.lote ? `→ ${v.lote}` : "sin lote"}{v.empresa ? ` · ${v.empresa}` : v.nombre ? ` · ${v.nombre}` : ""}{v.origen === "INVITACION" ? " · por invitación" : ""}</span>
-                            </span>
-                            <span className={cn("text-right tabular-nums font-bold leading-none shrink-0", estado === "excedida" ? "text-[var(--mal-texto)]" : estado === "cerca" ? "text-[var(--aviso-texto)]" : "")}>
-                                <span className="block text-[22px]">{libre ? duracion((ahora - +new Date(v.desde)) / 60000) : mmss(resta)}</span>
-                                <span className="block text-[10px] uppercase tracking-wider mt-0.5 opacity-70">{libre ? "adentro" : estado === "excedida" ? "excedida" : "restan"}</span>
-                            </span>
-                        </button>
-                    );
-                })}
-                {noReg.map((n) => (
-                    <button key={n.plate} type="button" onClick={() => alAbrir(n.accessEventId)} className={cn("flex items-center gap-3 rounded-xl border border-dashed border-border px-3 py-2 min-h-[52px] text-left", tocable)}>
-                        <CircleDashed size={18} className="text-muted-foreground shrink-0" />
-                        <span className="min-w-0 flex-1">
-                            <span className="text-[15px] font-bold tabular-nums tracking-[0.1em]">{n.plate}</span>
-                            <span className="block text-[12px] text-muted-foreground truncate">no registrada{n.camara ? ` · ${n.camara}` : ""}</span>
-                        </span>
-                        <span className="text-[14px] tabular-nums text-muted-foreground shrink-0">~{duracion((ahora - +new Date(n.desde)) / 60000)} <span className="text-[11px]">(estimado)</span></span>
-                    </button>
-                ))}
-            </div>
-        </div>
     );
 }
 

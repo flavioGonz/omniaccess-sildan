@@ -1479,3 +1479,17 @@ model MarcaPresencia {
   @@index([plate, ts])
   @@index([ts])
 }
+
+/// Gestión de alarmas: la atención de una alarma cuya fila de origen no guarda quién la atendió
+/// (hoy, las lecturas de lista negra y en búsqueda). `clave` es «l:<accessEventId>».
+model AlarmaAtendida {
+  id        String   @id @default(cuid())
+  clave     String   @unique
+  /// real | falsa | null (sólo «atendida»)
+  resultado String?
+  nota      String?
+  por       String?
+  ts        DateTime @default(now())
+
+  @@index([ts])
+}

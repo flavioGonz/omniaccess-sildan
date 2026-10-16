@@ -9,6 +9,7 @@ import { logosDeMatriculas } from "@/lib/empresas-servidor";
 import { identidadDeLecturas } from "@/lib/monitor/identidad";
 import { getComportamientoPadron } from "@/app/actions/padron";
 import { esPaseLibre, NOMBRE_PASE_LIBRE } from "@/lib/visitas/ajustes-base";
+import { calcularPresencia } from "@/lib/presencia";
 
 export const dynamic = "force-dynamic";
 
@@ -126,6 +127,8 @@ export async function GET() {
         contadores: { entradas, salidas, denegados, noRegistrados, adentro, actualizado: new Date().toISOString(), dia: hoy.toISOString() },
         enBarrio: { visitas: visitasEnCurso, noRegistradas: enBarrio },
         atencion, ahora: new Date().toISOString(),
+        // Quién está adentro, en cuatro números (lib/presencia; se calcula una vez cada 15 s para todas las paredes).
+        presencia: (await calcularPresencia().catch(() => null))?.resumen ?? null,
         // Matrícula → logo de su empresa (delivery, taxi), para incrustarlo en la captura.
         logos: await logosDeMatriculas().catch(() => ({})),
         // Los interruptores de las pestañas de Usuarios («Cómo se comporta»): color y sonido por clase.
