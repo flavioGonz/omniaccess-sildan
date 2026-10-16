@@ -19,8 +19,8 @@ const crypto = require("crypto");
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
 
-/** Cada cuánto se le pide a cada cámara. A ~1,5 lecturas/min, 30 s deja de sobra antes de que se pisen las 20. */
-const CADA_MS = Number(process.env.CAMARA_LOG_CADA_MS || 30_000);
+/** Cada cuánto se le pide a cada cámara. Dispara a cada segundo mientras ve un vehículo (medido: 10 capturas en 14 s en LPR Salida): con 30 s se pisaban las 20 que guarda. */
+const CADA_MS = Number(process.env.CAMARA_LOG_CADA_MS || 10_000);
 /** Cada cuánto se vuelve a mirar qué cámaras hay y cuáles contestan el registro. */
 const RELEER_CAMARAS_MS = 10 * 60_000;
 /** Una cámara que no tiene registro de lecturas (no es ANPR) se vuelve a probar recién después de esto. */
