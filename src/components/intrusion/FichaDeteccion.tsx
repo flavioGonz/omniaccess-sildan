@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     Check, ChevronLeft, ChevronRight, Clock, Cctv, Eye, EyeOff, ImageOff, Loader2, PlayCircle, Radar,
-    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car,
+    ScanEye, Share2, ShieldAlert, Sparkles, Undo2, X, Car, NotebookPen,
 } from "lucide-react";
 import { useAnalisisDeteccion } from "@/components/intrusion/AnalisisDeteccion";
 import { VerGrabacion } from "@/components/video/VerGrabacion";
@@ -117,7 +117,7 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
             if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
             if (e.key === "ArrowLeft") { e.preventDefault(); go(1); }
             else if (e.key === "ArrowRight") { e.preventDefault(); go(-1); }
-            else if (e.key === "Escape") { e.preventDefault(); if (limpio) setLimpio(false); else if (enPropio) setFoto("captura"); else onClose(); }
+            else if (e.key === "Escape") { e.preventDefault(); if (verNota) setVerNota(false); else if (limpio) setLimpio(false); else if (enPropio) setFoto("captura"); else onClose(); }
             else if (e.key === "h" || e.key === "H") setLimpio((v) => !v);
             else if ((e.key === "o" || e.key === "O") && capa) setVerSiluetas(!verSiluetas);
             else if (alarmaPendiente) {
@@ -138,6 +138,15 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
        guarda también al decidir, para que la decisión no quede sin su porqué. */
     const nota = usarNotaGestion(real ? `d:${cur.id}` : null);
     const conNota = (f: () => unknown) => () => { f(); if (nota.sucia) void nota.guardar(); };
+    /* La nota se abre a pedido (16/10, Nico: «sólo debe abrirse al presionar el botón»): siempre a
+       la vista tapaba las detecciones de la columna izquierda. Flota abajo al centro, sobre la foto. */
+    const [verNota, setVerNota] = useState(false);
+    useEffect(() => { setVerNota(false); }, [cur.id]);
+    const botonNota = real ? (
+        <BotonDecision onClick={() => setVerNota((v) => !v)} icono={NotebookPen} activo={verNota}>
+            {nota.guardada ? "Ver nota" : "Nota"}{nota.guardada && !verNota && <span className="h-1.5 w-1.5 rounded-full bg-[var(--accion-en-oscuro)]" />}
+        </BotonDecision>
+    ) : null;
     const marcar = async (k: "real" | "false") => {
         const r = await onMarcar!(cur.id, k);
         if (!r || r.ok) setCur((c: any) => ({ ...c, acknowledged: true, ackKind: k }));
@@ -331,12 +340,14 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                             <div className="flex items-center gap-2">
                                 <BotonDecision onClick={conNota(() => onResolveAlarm!(cur.deviceId, "false"))} icono={X} tecla="F">Falsa alarma</BotonDecision>
                                 <BotonDecision onClick={conNota(() => onResolveAlarm!(cur.deviceId, "real"))} icono={Check} tecla="A" grave>Confirmar real</BotonDecision>
+                                {botonNota}
                             </div>
                         ) : atencionAbierta ? (
                             <>
                                 <div className="flex items-center gap-2">
                                     <BotonDecision onClick={conNota(() => onCerrarAtencion!(cur.deviceId, "falsa"))} icono={X} tecla="F">Falsa alarma</BotonDecision>
                                     <BotonDecision onClick={conNota(() => onCerrarAtencion!(cur.deviceId, "resuelta"))} icono={Check} tecla="A" grave>Aceptar · resuelta</BotonDecision>
+                                    {botonNota}
                                 </div>
                                 <p className="text-[11px] text-white/55 visor-sombra-texto max-w-md">Fue confirmada como real. Si con la foto delante ves que no lo era, marcala como falsa: queda corregido en el historial.</p>
                             </>
@@ -345,17 +356,27 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
                                 <div className="flex items-center gap-2">
                                     {cur.ackKind !== "false" && <BotonDecision onClick={() => marcar("false")} icono={X}>{cur.acknowledged ? "Era falsa alarma" : "Falsa alarma"}</BotonDecision>}
                                     {(cur.ackKind === "false" || !cur.acknowledged) && <BotonDecision onClick={() => marcar("real")} icono={ShieldAlert} grave>{cur.acknowledged ? "Era real" : "Fue real"}</BotonDecision>}
+                                    {botonNota}
                                 </div>
                                 <p className="text-[11px] text-white/55 visor-sombra-texto">Corrige sólo este evento en el historial; no cambia el estado de la cámara.</p>
                             </>
-                        ) : <span />}
-                        {real && <NotaGestion n={nota} oscuro className="visor-panel rounded-[10px] p-3 w-[min(440px,72vw)] mt-1" />}
+                        ) : botonNota ? <div className="flex items-center gap-2">{botonNota}</div> : <span />}
                     </div>
                     <span className="text-[11px] text-white/45 tabular-nums visor-sombra-texto text-right">
                         ← → eventos · H imagen limpia · Esc {enPropio ? "volver a la captura" : "cerrar"}
                         <span className="block text-[10px] text-white/30 select-all">{cur.id}</span>
                     </span>
                 </div>
+
+                {/* La nota de gestión, a pedido: flota abajo al centro, sobre la foto y no sobre la columna. */}
+                {verNota && real && (
+                    <div className={cn("absolute bottom-[76px] left-1/2 -translate-x-1/2 z-40 w-[min(460px,62vw)] visor-panel rounded-[14px] p-3 shadow-[0_18px_40px_rgba(0,0,0,0.55)]", limpio && "hidden")}
+                        onClick={(e) => e.stopPropagation()}>
+                        <button type="button" onClick={() => setVerNota(false)} aria-label="Cerrar la nota" title="Cerrar"
+                            className="absolute top-2 right-2 w-7 h-7 grid place-items-center rounded-full text-white/60 hover:text-white hover:bg-white/15"><X size={14} /></button>
+                        <NotaGestion n={nota} oscuro />
+                    </div>
+                )}
 
                 {/* ── DERECHA · lo que se hace con la cámara ── */}
                 <div className={cn("absolute right-4 md:right-5 top-1/2 -translate-y-1/2 z-30 visor-panel rounded-full p-1.5 flex flex-col items-center gap-1.5 transition-opacity",
@@ -381,11 +402,11 @@ export function FichaDeteccion({ det, cam, geom, onClose, onResolveAlarm, hasAla
 }
 
 /** Una decisión sobre la detección. La grave (real) va en rojo: es la que dispara cosas. */
-function BotonDecision({ children, onClick, icono: Ico, tecla, grave }: { children: React.ReactNode; onClick: () => void; icono: any; tecla?: string; grave?: boolean }) {
+function BotonDecision({ children, onClick, icono: Ico, tecla, grave, activo }: { children: React.ReactNode; onClick: () => void; icono: any; tecla?: string; grave?: boolean; activo?: boolean }) {
     return (
-        <button type="button" onClick={onClick}
+        <button type="button" onClick={onClick} aria-pressed={activo}
             className={cn("inline-flex items-center gap-2 h-10 px-4 rounded-[8px] text-[13px] font-bold transition-colors",
-                grave ? "pleno-mal hover:brightness-110" : "bg-white/10 hover:bg-white/20 text-white border border-white/15")}>
+                grave ? "pleno-mal hover:brightness-110" : activo ? "bg-white text-black border border-white" : "bg-white/10 hover:bg-white/20 text-white border border-white/15")}>
             <Ico size={16} /> {children}
             {tecla && <kbd className="ml-0.5 px-1.5 rounded bg-black/25 text-[10px] font-semibold">{tecla}</kbd>}
         </button>
