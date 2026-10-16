@@ -28,7 +28,7 @@ export const PERMISOS: Permiso[] = [
     // ── Operación: lo que mira el guardia o el operador todo el día ──
     { clave: "monitor", rotulo: "Monitor en vivo", grupo: "Operación", descripcion: "El monitor LPR / facial / filas: lecturas en vivo, cámaras, registrar matrícula desde una captura.", rutas: ["/admin/monitor-lpr", "/admin/monitor-face", "/admin/monitor-queue"] },
     { clave: "intrusion", rotulo: "Monitor de intrusión", grupo: "Operación", descripcion: "Cruces de línea y zonas de las perimetrales, atender alarmas, calibrar reglas en las cámaras.", rutas: ["/admin/monitor-intrusion"] },
-    { clave: "historial", rotulo: "Historial", grupo: "Operación", descripcion: "Historial de accesos, fichas de eventos, exportar el reporte Excel.", rutas: ["/admin/history"] },
+    { clave: "historial", rotulo: "Historial", grupo: "Operación", descripcion: "Historial de accesos, fichas de eventos, exportar el reporte Excel.", rutas: ["/admin/history", "/admin/lecturas-camara"] },
     { clave: "mapa", rotulo: "Mapa y seguimiento", grupo: "Operación", descripcion: "Mapa del barrio, recorrido de vehículos, estacionados, evidencia.", rutas: ["/admin/mapa", "/admin/mapas", "/admin/seguimiento", "/admin/evidencia"] },
     { clave: "invitados", rotulo: "Invitados", grupo: "Operación", descripcion: "Pases de visita: crear, aprobar, ver quién entró.", rutas: ["/admin/invitados", "/admin/calendar"] },
     { clave: "vigilancia", rotulo: "Lista de vigilancia", grupo: "Operación", descripcion: "Poner y sacar matrículas de la lista negra / VIP / en búsqueda (también desde el monitor y la ficha del evento).", rutas: [] },

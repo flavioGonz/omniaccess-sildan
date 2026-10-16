@@ -23,6 +23,12 @@ export type Servicio = {
 };
 
 export const SERVICIOS: Record<string, Servicio> = {
+    "camara-log": {
+        nombre: "Registro de las cámaras LPR",
+        queHace: "Copia el registro de lecturas de cada cámara LPR (lo que la cámara dice que leyó) para compararlo con lo que recibió OmniAccess, en «Lecturas de cámara».",
+        siCae: "La comparación deja de sumar lecturas. La cámara guarda sólo sus últimas ~20: lo que pase mientras está caído no se recupera. El acceso y las lecturas siguen igual.",
+        internas: [{ nombre: "Copia del registro de cada cámara", cada: "30 s" }, { nombre: "Borra lo copiado de más de 30 días", cada: "6 h" }],
+    },
     "omniaccess-web": {
         nombre: "Panel y API",
         queHace: "El panel de administración, los monitores, la consola del guardia y la API que usan los demás procesos (Next.js).",
