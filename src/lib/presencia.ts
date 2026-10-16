@@ -33,6 +33,8 @@ const ESTIMADO_RESIDENTE_HORAS = 24;
 /** Una entrada de visita más vieja que esto, sin otra lectura después, es una suposición. */
 const ESTIMADO_VISITA_HORAS = 6;
 
+/** Lecturas de la misma chapa y sentido con menos de esto entre sí son la misma pasada. */
+const PASADA_MIN = 10;
 /** Entradas en 24 h a partir de las cuales un vehículo que no es del barrio es «alta frecuencia». */
 export const ALTA_FRECUENCIA_ENTRADAS_24H = 4;
 /** Denegadas en 24 h que hacen merodeo en barrio cerrado: el mismo umbral que el monitor (MERODEO_DENEGADOS). */
@@ -137,15 +139,23 @@ async function calcular(): Promise<Presencia> {
     // La última lectura de cada chapa en la ventana larga, y la última ENTRADA de esa chapa (para
     // «desde cuándo»: un auto que entró a las 8 y la interior lo vio a las 11 está adentro desde las 8).
     const soloPermitidas = abierto ? "" : `AND e.decision = 'GRANT'`;
+    // Una pasada son todas las lecturas de la misma chapa y el mismo sentido con menos de
+    // PASADA_MIN entre sí: la cámara dispara una vez por segundo mientras ve el auto, y la
+    // interior lo vuelve a ver al rato. Contar lecturas daba «5 entradas en 24 h» a un auto que
+    // entró dos veces (medido en San Nicolás el 16/10).
     const filas = await prisma.$queryRawUnsafe<Fila[]>(`
+        WITH x AS (
+            SELECT upper(regexp_replace(e."plateDetected", '[^A-Za-z0-9]', '', 'g')) AS p, e.direction::text AS dir,
+                   e.timestamp AS t, e.id, d.name AS camara, e."userId", COALESCE(e."snapshotPath", e."imagePath") AS foto
+              FROM "AccessEvent" e LEFT JOIN "Device" d ON d.id = e."deviceId"
+             WHERE e.timestamp >= $1 AND e."plateDetected" IS NOT NULL ${soloPermitidas}),
+        y AS (
+            SELECT x.*, coalesce(t - lag(t) OVER (PARTITION BY p, dir ORDER BY t) > interval '${PASADA_MIN} minutes', true) AS nueva
+              FROM x WHERE length(p) >= 5)
         SELECT DISTINCT ON (p) p, dir, t, id, camara, "userId", foto,
-               max(t) FILTER (WHERE dir = 'ENTRY') OVER (PARTITION BY p) AS entrada,
-               (count(*) FILTER (WHERE dir = 'ENTRY' AND t >= now() - interval '24 hours') OVER (PARTITION BY p))::int AS e24
-          FROM (SELECT upper(regexp_replace(e."plateDetected", '[^A-Za-z0-9]', '', 'g')) AS p, e.direction::text AS dir,
-                       e.timestamp AS t, e.id, d.name AS camara, e."userId", COALESCE(e."snapshotPath", e."imagePath") AS foto
-                  FROM "AccessEvent" e LEFT JOIN "Device" d ON d.id = e."deviceId"
-                 WHERE e.timestamp >= $1 AND e."plateDetected" IS NOT NULL ${soloPermitidas}) x
-         WHERE length(p) >= 5
+               max(t) FILTER (WHERE dir = 'ENTRY' AND nueva) OVER (PARTITION BY p) AS entrada,
+               (count(*) FILTER (WHERE dir = 'ENTRY' AND nueva AND t >= now() - interval '24 hours') OVER (PARTITION BY p))::int AS e24
+          FROM y
          ORDER BY p, t DESC`, desde);
 
     const [marcas, visitasAbiertas] = await Promise.all([

@@ -47,6 +47,12 @@ export const NOMBRE_FUENTE: Record<FuenteAlarma, string> = { intrusion: "Intrusi
 
 /** Rangos que ofrece la pantalla, en horas. */
 export const RANGOS_ALARMAS_H = [24, 72, 168] as const;
+/**
+ * Avisos que no son alarmas: «entró sin registrarse» se escribe por cada auto sin padrón en un
+ * barrio abierto (274 de 286 avisos pendientes en San Nicolás el 16/10) y tapaba todo lo demás.
+ * Esos autos ya están en «Desconocidos dentro».
+ */
+const AVISOS_QUE_NO_SON_ALARMA = ["SIN_REGISTRAR"];
 /** Cuántas trae cada fuente como mucho: la lista es para atender, no un historial. */
 const MAX_POR_FUENTE = 400;
 
@@ -56,7 +62,7 @@ export async function listarAlarmas(horas: number): Promise<Alarma[]> {
     const desde = new Date(Date.now() - horas * 3_600_000);
     const [dets, avisos, vigiladas] = await Promise.all([
         prisma.detection.findMany({ where: { timestamp: { gte: desde }, type: { not: "MOTION" } }, orderBy: { timestamp: "desc" }, take: MAX_POR_FUENTE }).catch(() => []),
-        prisma.avisoGuardia.findMany({ where: { creado: { gte: desde } }, orderBy: { creado: "desc" }, take: MAX_POR_FUENTE }).catch(() => []),
+        prisma.avisoGuardia.findMany({ where: { creado: { gte: desde }, tipo: { notIn: AVISOS_QUE_NO_SON_ALARMA } }, orderBy: { creado: "desc" }, take: MAX_POR_FUENTE }).catch(() => []),
         prisma.plateWatch.findMany({ where: { active: true, category: { in: ["BLACKLISTED", "SEARCH"] } }, select: { plate: true, category: true, motivo: true, label: true } }).catch(() => []),
     ]);
     const vig = new Map(vigiladas.map((v) => [normalizarMatricula(v.plate), v]));
