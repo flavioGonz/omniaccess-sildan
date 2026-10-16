@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Spline, ArrowLeftRight, Timer, Users, Plus, Loader2, Save, Trash2, Activity, Camera, BellRing, BellOff, Type, Fence, ShieldAlert, Clock, Footprints, PackageMinus,
     PersonStanding, Car, Truck, Bus, Motorbike, Bike, Dog, Backpack, ShoppingBag, Luggage, Armchair, Sofa, Sprout, Boxes, Gauge,
-    TriangleAlert, ScanEye, ChevronDown, Check, type LucideIcon,
+    TriangleAlert, ScanEye, ChevronDown, Check, Layers, Maximize2, Copy, type LucideIcon,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { sileo as toast } from "sileo";
@@ -43,7 +43,24 @@ type Respuesta = {
     analiticas: Record<TipoRegla, boolean>; rotulado: boolean;
     estado: null | { t: string; reglas: null | { cruces: number; sentido: number; permanencia: number; aglomeracion: number; avisos: number; errores: number; ultimoError: string | null } };
     resumen: Record<string, Resumen>; eventos: Evento[];
+    /** Objetos vistos por cámara y clase en los últimos `vistosDias`: para proponer cámaras. */
+    vistos?: { deviceId: string; clase: string; n: number }[]; vistosDias?: number;
 };
+/**
+ * Lo que se está editando: una regla sola o un grupo (la misma vigilancia en varias cámaras).
+ * `originales` son las reglas guardadas que se reemplazan al guardar (ninguna si es nueva);
+ * `foco`, la cámara que se muestra primero.
+ */
+type Edicion = { base: ReglaVision; deviceIds: string[]; originales: ReglaVision[]; nueva: boolean; foco?: string };
+type Geo = { linea: { a: Punto; b: Punto } | null; zona: Punto[] };
+/** «Todo el cuadro» como zona: un margen mínimo para que el polígono se vea y se pueda tomar del borde. */
+const TODO_EL_CUADRO: Punto[] = [[0.005, 0.005], [0.995, 0.005], [0.995, 0.995], [0.005, 0.995]];
+/** Cuántos vistos por cámara de las clases elegidas, para el asistente y el selector de cámaras. */
+function vistosPorCamara(vistos: Respuesta["vistos"], clases: string[]): Map<string, number> {
+    const m = new Map<string, number>();
+    for (const v of vistos || []) if (clases.includes(v.clase)) m.set(v.deviceId, (m.get(v.deviceId) || 0) + v.n);
+    return m;
+}
 
 const ICONO: Record<TipoRegla, LucideIcon> = { conteo: Spline, sentido: ArrowLeftRight, permanencia: Timer, aglomeracion: Users, cruce: Fence, intrusion: ShieldAlert, merodeo: Footprints, retirado: PackageMinus };
 /** Lo que se cuenta hoy en la tarjeta de cada tipo que no es conteo. */
@@ -89,8 +106,7 @@ export default function ReglasVision() {
     useNombresPropios();  // para ofrecer y nombrar las clases del detector propio
     const [datos, setDatos] = useState<Respuesta | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [editando, setEditando] = useState<ReglaVision | null>(null);
-    const [esNueva, setEsNueva] = useState(false);
+    const [editando, setEditando] = useState<Edicion | null>(null);
     const [guardando, setGuardando] = useState(false);
     const [ampliado, setAmpliado] = useState<Evento | null>(null);
     const [eligiendo, setEligiendo] = useState(false);
@@ -115,13 +131,28 @@ export default function ReglasVision() {
         const sp = new URLSearchParams(window.location.search);
         // «Editar la regla» desde Accesos llega con ?editar=<id>.
         const aEditar = sp.get("editar") && datos.reglas.find((x) => x.id === sp.get("editar"));
-        if (aEditar) { window.history.replaceState(null, "", window.location.pathname); setEsNueva(false); setEditando(aEditar); return; }
+        if (aEditar) { window.history.replaceState(null, "", window.location.pathname); abrir(aEditar); return; }
         const tipo = sp.get("nueva") as TipoRegla | null;
         if (!tipo || !(tipo in TIPOS_REGLA)) return;
         window.history.replaceState(null, "", window.location.pathname);
-        setEsNueva(true);
-        setEditando(reglaNueva(tipo, datos.camaras[0]?.id || ""));
+        const cam = datos.camaras[0]?.id || "";
+        setEditando({ base: reglaNueva(tipo, cam), deviceIds: cam ? [cam] : [], originales: [], nueva: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [datos]);
+
+    /** Abrir una regla guardada: si es de un grupo, se abre el grupo entero parado en su cámara. */
+    const abrir = (r: ReglaVision) => {
+        const hermanas = r.grupo ? (datos?.reglas || []).filter((x) => x.grupo?.id === r.grupo!.id) : [r];
+        setEditando({ base: r, deviceIds: hermanas.map((x) => x.deviceId), originales: hermanas, nueva: false, foco: r.deviceId });
+    };
+    /** Reemplaza `fuera` por `nuevas` en la lista, en el lugar de la primera (el orden de las tarjetas no salta). */
+    const reemplazar = (lista: ReglaVision[], fuera: Set<string>, nuevas: ReglaVision[]) => {
+        const i = lista.findIndex((x) => fuera.has(x.id));
+        const resto = lista.filter((x) => !fuera.has(x.id));
+        if (i < 0) return [...resto, ...nuevas];
+        const antes = lista.slice(0, i).filter((x) => !fuera.has(x.id)).length;
+        return [...resto.slice(0, antes), ...nuevas, ...resto.slice(antes)];
+    };
 
     /** Guarda la lista entera con un cambio. Devuelve si salió. */
     const guardarLista = async (reglas: ReglaVision[], texto: string) => {
@@ -157,6 +188,9 @@ export default function ReglasVision() {
 
     const activas = datos.reglas.filter((r) => r.activa && datos.analiticas[r.tipo]).length;
     const camarasConReglas = [...new Set(datos.reglas.map((r) => r.deviceId))];
+    // Los grupos van primero, cada uno en su sección; el resto de las reglas, por cámara como antes.
+    const grupos = [...new Map(datos.reglas.filter((r) => r.grupo).map((r) => [r.grupo!.id, r.grupo!])).values()];
+    const camarasSueltas = [...new Set(datos.reglas.filter((r) => !r.grupo).map((r) => r.deviceId))];
     const avisos7 = datos.eventos.filter((e) => e.avisoId).length;
     const tiposEnEventos = [...new Set(datos.eventos.map((e) => e.tipo))];
     const eventosVisibles = filtroEvento ? datos.eventos.filter((e) => e.tipo === filtroEvento) : datos.eventos;
@@ -204,9 +238,40 @@ export default function ReglasVision() {
                 {(Object.keys(TIPOS_REGLA) as TipoRegla[]).some((t) => !datos.analiticas[t]) && <span className="ml-1">Apagadas en Analíticas: {(Object.keys(TIPOS_REGLA) as TipoRegla[]).filter((t) => !datos.analiticas[t]).map((t) => TIPOS_REGLA[t].nombre).join(", ")}.</span>}
             </p>
 
-            {/* ── Las reglas, por cámara, sobre su cuadro ── */}
-            {camarasConReglas.map((cam) => {
-                const deCam = datos.reglas.filter((r) => r.deviceId === cam);
+            {/* ── Los grupos: la misma vigilancia en varias cámaras ── */}
+            {grupos.map((g) => {
+                const deGrupo = datos.reglas.filter((r) => r.grupo?.id === g.id);
+                const prendidas = deGrupo.filter((r) => r.activa).length;
+                const afuera = deGrupo.filter((r) => nombreCamara.has(r.deviceId) && !analizaCamara.get(r.deviceId)).length;
+                const Ic = ICONO[deGrupo[0].tipo];
+                return (
+                    <section key={g.id} className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <Layers size={14} className="text-muted-foreground" />
+                            <h2 className="text-[13px] font-bold">{g.nombre}</h2>
+                            <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground"><Ic size={12} /> {TIPOS_REGLA[deGrupo[0].tipo].nombre} · <span className="tabular-nums">{deGrupo.length} cámaras</span></span>
+                            {afuera > 0 && <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full chip-aviso text-[11.5px] font-semibold"><TriangleAlert size={12} /> {afuera} fuera de OmniVision: ahí no corre</span>}
+                            <span className="ml-auto flex items-center gap-2">
+                                <Pista titulo={prendidas === deGrupo.length ? "Prendidas todas" : prendidas ? `${prendidas} de ${deGrupo.length} prendidas` : "Apagadas todas"} texto="Prende o apaga la regla en todas las cámaras del grupo. Cada una se puede apagar sola desde su tarjeta.">
+                                    <span><Switch checked={prendidas === deGrupo.length} onCheckedChange={(v) => guardarLista(datos.reglas.map((x) => (x.grupo?.id === g.id ? { ...x, activa: v } : x)), v ? `${g.nombre}: prendida en ${deGrupo.length} cámaras` : `${g.nombre}: apagada en ${deGrupo.length} cámaras`)} aria-label="Prender o apagar el grupo" /></span>
+                                </Pista>
+                                <Button variant="outline" size="sm" onClick={() => abrir(deGrupo[0])}>Editar el grupo</Button>
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
+                            {deGrupo.map((r) => (
+                                <TarjetaRegla key={r.id} r={r} enGrupo camara={nombreCamara.get(r.deviceId) || "Cámara borrada"} s={datos.resumen[r.id]} apagadaLab={!datos.analiticas[r.tipo]}
+                                    alAbrir={() => abrir(r)}
+                                    alActivar={(v) => guardarLista(datos.reglas.map((x) => (x.id === r.id ? { ...x, activa: v } : x)), v ? "Regla prendida" : "Regla apagada")} />
+                            ))}
+                        </div>
+                    </section>
+                );
+            })}
+
+            {/* ── Las reglas sueltas, por cámara, sobre su cuadro ── */}
+            {camarasSueltas.map((cam) => {
+                const deCam = datos.reglas.filter((r) => r.deviceId === cam && !r.grupo);
                 return (
                     <section key={cam} className="space-y-2">
                         <div className="flex items-center gap-2">
@@ -225,7 +290,7 @@ export default function ReglasVision() {
                         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2">
                             {deCam.map((r) => (
                                 <TarjetaRegla key={r.id} r={r} camara={nombreCamara.get(r.deviceId) || "Cámara borrada"} s={datos.resumen[r.id]} apagadaLab={!datos.analiticas[r.tipo]}
-                                    alAbrir={() => { setEsNueva(false); setEditando(r); }}
+                                    alAbrir={() => abrir(r)}
                                     alActivar={(v) => guardarLista(datos.reglas.map((x) => (x.id === r.id ? { ...x, activa: v } : x)), v ? "Regla prendida" : "Regla apagada")} />
                             ))}
                         </div>
@@ -281,13 +346,20 @@ export default function ReglasVision() {
             </section>
             )}
 
-            <AsistenteRegla abierto={eligiendo} camaras={datos.camaras} analiticas={datos.analiticas} alCerrar={() => setEligiendo(false)}
-                alListo={(r) => { setEligiendo(false); setEsNueva(true); setEditando(r); }} />
+            <AsistenteRegla abierto={eligiendo} camaras={datos.camaras} analiticas={datos.analiticas} vistos={datos.vistos} vistosDias={datos.vistosDias || 7} alCerrar={() => setEligiendo(false)}
+                alListo={(r, ids) => { setEligiendo(false); setEditando({ base: r, deviceIds: ids, originales: [], nueva: true }); }} />
             {editando && (
-                <CajonRegla regla={editando} nueva={esNueva} camaras={datos.camaras} guardando={guardando}
+                <CajonRegla key={`${editando.base.id}-${editando.originales.length}`} edicion={editando} camaras={datos.camaras} vistos={datos.vistos} guardando={guardando}
                     alCerrar={() => setEditando(null)}
-                    alGuardar={async (r) => { if (await guardarLista(esNueva ? [...datos.reglas, r] : datos.reglas.map((x) => (x.id === r.id ? r : x)), esNueva ? "Regla creada" : "Regla guardada")) setEditando(null); }}
-                    alBorrar={async () => { if (await guardarLista(datos.reglas.filter((x) => x.id !== editando.id), "Regla borrada")) setEditando(null); }} />
+                    alGuardar={async (nuevas) => {
+                        const n = nuevas.length;
+                        const texto = editando.nueva ? (n > 1 ? `Regla creada en ${n} cámaras` : "Regla creada") : n > 1 ? `Guardada en ${n} cámaras` : "Regla guardada";
+                        if (await guardarLista(reemplazar(datos.reglas, new Set(editando.originales.map((x) => x.id)), nuevas), texto)) setEditando(null);
+                    }}
+                    alBorrar={async () => {
+                        const fuera = new Set(editando.originales.map((x) => x.id));
+                        if (await guardarLista(datos.reglas.filter((x) => !fuera.has(x.id)), fuera.size > 1 ? `Borrada en ${fuera.size} cámaras` : "Regla borrada")) setEditando(null);
+                    }} />
             )}
 
             <Dialog open={!!ampliado} onOpenChange={(o) => { if (!o) setAmpliado(null); }}>
@@ -338,7 +410,7 @@ function fotoCamara(id: string, w: number) {
  * dibujado —se reconoce sin leer—, el nombre, el número de hoy y el interruptor. Lo demás está en
  * el cajón.
  */
-function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: ReglaVision; camara: string; s?: Resumen; apagadaLab: boolean; alAbrir: () => void; alActivar: (v: boolean) => void }) {
+function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar, enGrupo }: { r: ReglaVision; camara: string; s?: Resumen; apagadaLab: boolean; alAbrir: () => void; alActivar: (v: boolean) => void; enGrupo?: boolean }) {
     const Ic = ICONO[r.tipo];
     const max = Math.max(1, ...(s?.porHora || [0]));
     return (
@@ -356,8 +428,9 @@ function TarjetaRegla({ r, camara, s, apagadaLab, alAbrir, alActivar }: { r: Reg
             <div className="p-2.5 flex flex-col gap-1.5">
                 <div className="flex items-start gap-2">
                     <button type="button" onClick={alAbrir} className="min-w-0 flex-1 text-left">
-                        <div className="text-[12.5px] font-semibold truncate leading-tight">{r.nombre}</div>
-                        <div className="text-[11px] text-muted-foreground truncate">{camara}</div>
+                        {/* En un grupo el nombre ya está en el título de la sección: la tarjeta es la cámara. */}
+                        <div className="text-[12.5px] font-semibold truncate leading-tight">{enGrupo ? camara : r.nombre}</div>
+                        <div className="text-[11px] text-muted-foreground truncate">{enGrupo ? TIPOS_REGLA[r.tipo].nombre : camara}</div>
                     </button>
                     <Pista titulo={r.activa ? "Prendida" : "Apagada"} texto={apagadaLab ? "Su analítica está apagada en Analíticas: aunque la regla esté prendida, no corre." : "Apagada no se aplica, pero se guarda lo dibujado."}>
                         <span><Switch checked={r.activa} onCheckedChange={alActivar} aria-label="Prender o apagar la regla" /></span>
@@ -514,6 +587,97 @@ function Segmentos<T extends string>({ valor, opciones, alElegir }: { valor: T; 
 }
 
 /**
+ * Elegir una o varias cámaras (16/10, Nico: «la regla me permite una sola cámara a la vez, y quiero
+ * vigilar todos los contenedores»). Las que vieron lo que cuenta la regla en la última semana van
+ * primero, con cuántas veces: es la pista de dónde está lo que se quiere vigilar.
+ */
+function ElegirCamaras({ elegidas, camaras, vistos, alAlternar }: { elegidas: string[]; camaras: { id: string; name: string; analiza: boolean }[]; vistos: Map<string, number>; alAlternar: (id: string) => void }) {
+    const [abierto, setAbierto] = useState(false);
+    const [buscar, setBuscar] = useState("");
+    const q = buscar.trim().toLowerCase();
+    const lista = camaras.filter((c) => !q || c.name.toLowerCase().includes(q))
+        .sort((a, b) => (vistos.get(b.id) || 0) - (vistos.get(a.id) || 0) || Number(b.analiza) - Number(a.analiza) || a.name.localeCompare(b.name));
+    const sel = camaras.filter((c) => elegidas.includes(c.id));
+    return (
+        <Popover open={abierto} onOpenChange={setAbierto}>
+            <PopoverTrigger asChild>
+                <button type="button" className="w-full min-h-11 rounded-[8px] border border-border bg-background px-2.5 py-1.5 flex items-center gap-2.5 text-left hover:bg-accent/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accion)]/40">
+                    <span className="flex -space-x-3 shrink-0">
+                        {sel.slice(0, 3).map((c) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img key={c.id} src={fotoCamara(c.id, 160)} alt="" loading="lazy" className="w-14 h-8 rounded-[4px] object-cover bg-black ring-2 ring-background" />
+                        ))}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                        <span className={cn("block text-[13px] font-semibold truncate", !sel.length && "text-muted-foreground font-normal")}>{sel.length === 0 ? "Elegí la cámara" : sel.length === 1 ? sel[0].name : `${sel.length} cámaras`}</span>
+                        {sel.length > 0 && <span className="block text-[11px] text-muted-foreground truncate">{sel.length === 1 ? (sel[0].analiza ? "OmniVision la mira" : "Fuera de OmniVision: la regla se guarda pero no corre") : sel.map((c) => c.name).join(", ")}</span>}
+                    </span>
+                    <ChevronDown size={15} className={cn("shrink-0 text-muted-foreground transition-transform", abierto && "rotate-180")} />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="p-1 w-[400px]">
+                <div className="p-1"><Input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar cámara" className="h-9" /></div>
+                <div className="max-h-[min(380px,55vh)] overflow-y-auto">
+                    {lista.map((c) => {
+                        const on = elegidas.includes(c.id);
+                        const n = vistos.get(c.id) || 0;
+                        return (
+                            <button key={c.id} type="button" onClick={() => alAlternar(c.id)} aria-pressed={on} disabled={on && elegidas.length === 1}
+                                title={on && elegidas.length === 1 ? "Tiene que quedar al menos una cámara" : undefined}
+                                className={cn("w-full flex items-center gap-2.5 rounded-[6px] px-2 py-1.5 text-left hover:bg-accent", on && "bg-accent/60")}>
+                                <span className={cn("grid h-4 w-4 place-items-center rounded-[4px] border shrink-0", on ? "bg-[var(--accion)] border-[var(--accion)] text-white" : "border-border")}>{on && <Check size={11} />}</span>
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={fotoCamara(c.id, 160)} alt="" loading="lazy" className="w-14 h-8 rounded-[4px] object-cover bg-black shrink-0" />
+                                <span className="min-w-0 flex-1">
+                                    <span className="block text-[12.5px] font-semibold truncate">{c.name}</span>
+                                    <span className={cn("block text-[11px] truncate", c.analiza ? "text-muted-foreground" : "tono-aviso")}>{c.analiza ? "OmniVision la mira" : "Fuera de OmniVision: no correría"}</span>
+                                </span>
+                                {n > 0 && <span className="shrink-0 text-[11px] font-semibold tabular-nums chip-info px-1.5 h-5 inline-flex items-center rounded-full" title="Veces que OmniVision vio lo que cuenta esta regla en la última semana">{n} vistos</span>}
+                            </button>
+                        );
+                    })}
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+/**
+ * Quién hace qué (16/10, Nico: «debe quedar claro qué cosas procesa la cámara y qué cosas
+ * OmniVision»). Todas las reglas de esta pantalla las corre OmniVision sobre el video, en el
+ * servidor; la cámara sólo lo manda. Las analíticas que trae la cámara (su cruce de línea, su
+ * intrusión, su ANPR) son otra cosa: se configuran en el equipo y llegan por Dispositivos al
+ * Monitor de intrusión. Sin esto, «Cruza una línea» se confundía con el cruce de línea de la
+ * Hikvision.
+ */
+function QuienLoHace({ compacto }: { compacto?: boolean }) {
+    if (compacto) return (
+        <p className="flex items-start gap-1.5 text-[11.5px] text-muted-foreground leading-snug">
+            <ScanEye size={13} className="shrink-0 mt-px text-[var(--accion)]" />
+            <span><b className="text-foreground font-semibold">La procesa OmniVision</b> en el servidor, sobre el video. La cámara sólo manda la imagen: no hay que configurar nada en el equipo, y anda en cualquier marca.</span>
+        </p>
+    );
+    return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 rounded-[10px] border border-border divide-y sm:divide-y-0 sm:divide-x divide-border">
+            <div className="flex items-start gap-2.5 px-3 py-2.5">
+                <span className="grid h-8 w-8 place-items-center rounded-[8px] bg-[color-mix(in_oklab,var(--accion)_12%,transparent)] text-[var(--accion)] shrink-0"><ScanEye size={16} /></span>
+                <span className="min-w-0">
+                    <span className="block text-[12.5px] font-semibold">OmniVision — estas reglas</span>
+                    <span className="block text-[11px] text-muted-foreground leading-snug">Reconoce qué es (personas, vehículos, lo entrenado acá), lo sigue y aplica la regla. Corre en el servidor, en cualquier cámara.</span>
+                </span>
+            </div>
+            <div className="flex items-start gap-2.5 px-3 py-2.5">
+                <span className="grid h-8 w-8 place-items-center rounded-[8px] bg-muted text-muted-foreground shrink-0"><Camera size={16} /></span>
+                <span className="min-w-0">
+                    <span className="block text-[12.5px] font-semibold">La cámara — sólo el video</span>
+                    <span className="block text-[11px] text-muted-foreground leading-snug">Sus analíticas propias (cruce de línea, intrusión, ANPR) no se arman acá: se configuran en el equipo y llegan por Dispositivos al Monitor de intrusión.</span>
+                </span>
+            </div>
+        </div>
+    );
+}
+
+/**
  * El cajón de una regla (16/10, Nico: «con menos scroll, dropdowns estilizados, plantillas con
  * ejemplos; la cámara arriba, sin marcos, acoplada; nombre y cámara los primeros campos»).
  *
@@ -522,65 +686,140 @@ function Segmentos<T extends string>({ valor, opciones, alElegir }: { valor: T; 
  * píldoras; y los tiempos, el horario y el aviso en renglones cortos. Antes eran ocho tarjetas de
  * tipo, una grilla de tarjetas por clase y una sección por parámetro: tres pantallas de scroll.
  */
-function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alBorrar }: {
-    regla: ReglaVision; nueva: boolean; camaras: { id: string; name: string; analiza: boolean }[]; guardando: boolean;
-    alCerrar: () => void; alGuardar: (r: ReglaVision) => void; alBorrar: () => void;
+function CajonRegla({ edicion, camaras, vistos, guardando, alCerrar, alGuardar, alBorrar }: {
+    edicion: Edicion; camaras: { id: string; name: string; analiza: boolean }[]; vistos?: Respuesta["vistos"]; guardando: boolean;
+    alCerrar: () => void; alGuardar: (reglas: ReglaVision[]) => void; alBorrar: () => void;
 }) {
-    const [r, setR] = useState<ReglaVision>(regla);
+    const nueva = edicion.nueva;
+    // En un grupo, el nombre que se edita es el del grupo; cada regla sale «<grupo> · <cámara>».
+    const [r, setR] = useState<ReglaVision>(() => ({ ...edicion.base, nombre: edicion.base.grupo?.nombre ?? edicion.base.nombre }));
+    const [ids, setIds] = useState<string[]>(edicion.deviceIds);
+    const [geo, setGeo] = useState<Record<string, Geo>>(() => Object.fromEntries(edicion.deviceIds.map((id) => {
+        const o = edicion.originales.find((x) => x.deviceId === id) || (id === edicion.base.deviceId ? edicion.base : null);
+        return [id, { linea: o?.linea || null, zona: o?.zona || [] }];
+    })));
+    const [actual, setActual] = useState<string>(edicion.foco || edicion.deviceIds[0] || "");
     const [plantilla, setPlantilla] = useState<string | null>(null);
     const t = TIPOS_REGLA[r.tipo];
     const cambiar = (x: Partial<ReglaVision>) => setR((v) => ({ ...v, ...x }));
-    const nombreCam = camaras.find((c) => c.id === r.deviceId)?.name || "";
-    const nombreAuto = (n: string) => `${n} · ${nombreCam}`;
+    const varias = ids.length > 1;
+    const nombreDe = (id: string) => camaras.find((c) => c.id === id)?.name || "Cámara borrada";
+    const nombreAuto = (n: string) => (varias ? n : `${n} · ${ids[0] ? nombreDe(ids[0]) : ""}`);
     /** El nombre se propone solo mientras no se escribió uno a mano. */
     const esNombreAuto = !r.nombre.trim() || r.nombre === nombreAuto(t.nombre) || PLANTILLAS.some((p) => r.nombre === nombreAuto(p.nombre));
+    const sinDibujo = (): Record<string, Geo> => Object.fromEntries(ids.map((id) => [id, { linea: null, zona: [] }]));
     const conTipo = (tipo: TipoRegla, extra: Partial<ReglaVision> = {}, nombre?: string) => {
-        const base = { ...r, ...reglaNueva(tipo, r.deviceId), id: r.id, nombre: r.nombre, activa: r.activa, ...extra };
+        const base = { ...r, ...reglaNueva(tipo, r.deviceId), id: r.id, nombre: r.nombre, activa: r.activa, grupo: r.grupo, ...extra };
         // Lo dibujado se conserva si el tipo nuevo usa la misma forma.
-        if (TIPOS_REGLA[tipo].geometria === t.geometria) { base.linea = r.linea; base.zona = r.zona; }
+        if (TIPOS_REGLA[tipo].geometria !== t.geometria) setGeo(sinDibujo());
         if (esNombreAuto) base.nombre = nombre ? nombreAuto(nombre) : "";
         setR(base);
     };
     const usarPlantilla = (id: string) => { const p = PLANTILLAS.find((x) => x.id === id); if (!p) return; setPlantilla(id); conTipo(p.tipo, p.aplicar, p.nombre); };
-    const geometriaLista = t.geometria === "linea" ? !!r.linea : r.tipo === "aglomeracion" || r.tipo === "merodeo" || (r.zona?.length || 0) >= 3;
-    const listo = !!r.deviceId && geometriaLista && r.clases.length > 0;
-    const final = (): ReglaVision => ({ ...r, nombre: r.nombre.trim() || nombreAuto(t.nombre), zona: (r.zona?.length || 0) >= 3 ? r.zona : null });
+    const dibujoListo = (g?: Geo) => (t.geometria === "linea" ? !!g?.linea : r.tipo === "aglomeracion" || r.tipo === "merodeo" || (g?.zona?.length || 0) >= 3);
+    const faltan = ids.filter((id) => !dibujoListo(geo[id]));
+    const listo = ids.length > 0 && !faltan.length && r.clases.length > 0;
+    const g = geo[actual] || { linea: null, zona: [] };
+    const ponerGeo = (id: string, x: Partial<Geo>) => setGeo((v) => ({ ...v, [id]: { ...(v[id] || { linea: null, zona: [] }), ...x } }));
+    /** Sumar o sacar una cámara. Al pasar de una a varias, el nombre deja de llevar la cámara. */
+    const alternarCamara = (id: string) => {
+        if (ids.includes(id)) {
+            if (ids.length === 1) return;
+            const n = ids.filter((x) => x !== id);
+            setIds(n); if (actual === id) setActual(n[0]);
+            return;
+        }
+        if (ids.length === 1) { const suf = ` · ${nombreDe(ids[0])}`; if (r.nombre.endsWith(suf)) cambiar({ nombre: r.nombre.slice(0, -suf.length) }); }
+        if (!ids.length && esNombreAuto) cambiar({ nombre: "" });
+        setIds([...ids, id]);
+        if (!geo[id]) ponerGeo(id, { linea: null, zona: [] });
+        setActual(id);
+    };
+    /** Copiar el dibujo de la cámara a la vista a las que todavía no tienen. Sirve con cámaras gemelas. */
+    const copiarALasQueFaltan = () => setGeo((v) => { const o = { ...v }; for (const id of faltan) o[id] = { linea: g.linea, zona: [...g.zona] }; return o; });
+    const final = (): ReglaVision[] => {
+        const base = r.nombre.trim() || nombreAuto(t.nombre);
+        const grupoId = varias ? edicion.base.grupo?.id || nuevaId() : null;
+        return ids.map((id, k) => {
+            const o = edicion.originales.find((x) => x.deviceId === id);
+            // Cada cámara conserva el id de su regla, así sus números de hoy y sus eventos siguen con ella.
+            const rid = o?.id || (ids.length === 1 && edicion.originales.length === 1 ? edicion.originales[0].id : k === 0 && !edicion.originales.length ? r.id : nuevaId());
+            const d = geo[id] || { linea: null, zona: [] };
+            return {
+                ...r, id: rid, deviceId: id, nombre: varias ? `${base} · ${nombreDe(id)}` : base,
+                activa: o ? o.activa : r.activa,
+                linea: t.geometria === "linea" ? d.linea : null, zona: t.geometria === "zona" && d.zona.length >= 3 ? d.zona : null,
+                grupo: grupoId ? { id: grupoId, nombre: base } : null,
+            };
+        });
+    };
     const clases = [...(r.tipo === "retirado" ? [...CLASES_REGLA.filter((c) => c.clase !== "person" && c.clase !== "dog"), ...CLASES_OBJETO] : CLASES_REGLA), ...listaPropias()];
-    const falta = !r.deviceId ? "Elegí la cámara." : !geometriaLista ? (t.geometria === "linea" ? "Dibujá la línea sobre el cuadro." : "Dibujá la zona sobre el cuadro (al menos 3 puntos).") : !r.clases.length ? "Prendé al menos una clase en «Qué cuenta»." : null;
+    const falta = !ids.length ? "Elegí la cámara." : faltan.length ? (varias ? `Falta dibujar en ${faltan.length === 1 ? nombreDe(faltan[0]) : `${faltan.length} cámaras`}.` : t.geometria === "linea" ? "Dibujá la línea sobre el cuadro." : "Dibujá la zona sobre el cuadro (al menos 3 puntos).") : !r.clases.length ? "Prendé al menos una clase en «Qué cuenta»." : null;
+    const zonaObligatoria = t.geometria === "zona" && r.tipo !== "aglomeracion" && r.tipo !== "merodeo";
+    const nOriginales = edicion.originales.length;
 
     return (
         <Cajon open onOpenChange={(o) => { if (!o) alCerrar(); }}>
-            <CajonContenido ancho="medio" titulo={nueva ? "Nueva regla" : r.nombre || t.nombre} descripcion={t.queHace}
-                encabezado={r.deviceId ? (
-                    <EditorGeometria aSangre deviceId={r.deviceId} modo={t.geometria} linea={r.linea || null} zona={r.zona || []}
-                        permitido={r.tipo === "sentido" ? r.permitido : undefined}
-                        alCambiarLinea={(l) => cambiar({ linea: l })} alCambiarZona={(z: Punto[]) => cambiar({ zona: z })} />
+            <CajonContenido ancho="medio" titulo={nueva ? (varias ? `Nueva regla en ${ids.length} cámaras` : "Nueva regla") : (r.nombre || t.nombre)} descripcion={t.queHace}
+                encabezado={actual ? (
+                    <div>
+                        <EditorGeometria key={actual} aSangre deviceId={actual} modo={t.geometria} linea={g.linea} zona={g.zona}
+                            permitido={r.tipo === "sentido" ? r.permitido : undefined}
+                            alCambiarLinea={(l) => ponerGeo(actual, { linea: l })} alCambiarZona={(z: Punto[]) => ponerGeo(actual, { zona: z })} />
+                        {/* Varias cámaras: una tira para pasar de una a otra, con lo que falta dibujar a la vista. */}
+                        {(varias || zonaObligatoria) && (
+                            <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
+                                {varias && (
+                                    <div className="flex-1 min-w-0 flex items-center gap-1.5 overflow-x-auto">
+                                        {ids.map((id) => {
+                                            const ok = dibujoListo(geo[id]);
+                                            return (
+                                                <button key={id} type="button" onClick={() => setActual(id)} title={`${nombreDe(id)} · ${ok ? "dibujada" : "falta dibujar"}`}
+                                                    className={cn("relative shrink-0 rounded-[6px] overflow-hidden border-2 transition-colors", id === actual ? "border-[var(--accion)]" : "border-transparent hover:border-border")}>
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src={fotoCamara(id, 160)} alt="" loading="lazy" className="block w-[72px] h-[40px] object-cover bg-black" />
+                                                    <span className={cn("absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full text-white", ok ? "bg-[var(--bien)]" : "bg-black/60")}>{ok ? <Check size={10} /> : <span className="h-1.5 w-1.5 rounded-full bg-white/80" />}</span>
+                                                    <span className="absolute inset-x-0 bottom-0 px-1 bg-black/65 text-white text-[9.5px] truncate">{nombreDe(id)}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                                <span className={cn("flex items-center gap-1.5 shrink-0", !varias && "ml-auto")}>
+                                    {zonaObligatoria && (
+                                        <Pista titulo="Todo el cuadro" texto="Usa el cuadro entero como zona en esta cámara. Para un objeto que se vigila (un contenedor, una moto) conviene la zona justa alrededor: lo que se mueve fuera no cuenta.">
+                                            <button type="button" onClick={() => ponerGeo(actual, { zona: TODO_EL_CUADRO })} className="h-8 px-2.5 rounded-md border border-border text-[12px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent"><Maximize2 size={13} /> Todo el cuadro</button>
+                                        </Pista>
+                                    )}
+                                    {varias && dibujoListo(g) && faltan.length > 0 && (
+                                        <Pista titulo="Copiar el dibujo" texto={`Pone este mismo dibujo en las ${faltan.length} cámaras que no tienen. Sirve si miran parecido; después se ajusta cada una.`}>
+                                            <button type="button" onClick={copiarALasQueFaltan} className="h-8 px-2.5 rounded-md border border-border text-[12px] font-semibold inline-flex items-center gap-1.5 hover:bg-accent"><Copy size={13} /> A las {faltan.length} que faltan</button>
+                                        </Pista>
+                                    )}
+                                </span>
+                            </div>
+                        )}
+                    </div>
                 ) : <div className="aspect-video bg-muted/40 grid place-items-center text-[12.5px] text-muted-foreground">Elegí la cámara para ver su cuadro y dibujar.</div>}
                 pie={
                     <>
-                        {!nueva && <Button variant="outline" className="mr-auto tono-mal" onClick={alBorrar} disabled={guardando}><Trash2 size={15} /> Borrar</Button>}
+                        {!nueva && <Button variant="outline" className="mr-auto tono-mal" onClick={alBorrar} disabled={guardando}><Trash2 size={15} /> {nOriginales > 1 ? `Borrar en las ${nOriginales}` : "Borrar"}</Button>}
                         {falta && <span className="mr-auto text-[12px] text-muted-foreground">{falta}</span>}
                         <Button variant="ghost" onClick={alCerrar}>Cancelar</Button>
-                        <Button onClick={() => alGuardar(final())} disabled={!listo || guardando}>{guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {nueva ? "Crear regla" : "Guardar"}</Button>
+                        <Button onClick={() => alGuardar(final())} disabled={!listo || guardando}>{guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} {nueva ? (varias ? `Crear en ${ids.length} cámaras` : "Crear regla") : "Guardar"}</Button>
                     </>
                 }>
                 <div className="px-6 py-5 space-y-5">
-                    {/* Cámara y nombre: lo primero. */}
+                    {/* Cámaras y nombre: lo primero. */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <CajonCampo etiqueta="Cámara">
-                            <Desplegable valor={r.deviceId || null} vacio="Elegí la cámara" ancho={380}
-                                alElegir={(v) => { const n = camaras.find((c) => c.id === v)?.name || ""; setR((x) => ({ ...x, deviceId: v, linea: null, zona: [], nombre: esNombreAuto && x.nombre ? x.nombre.replace(/ · [^·]*$/, ` · ${n}`) : x.nombre })); }}
-                                opciones={camaras.map((c) => ({
-                                    valor: c.id, titulo: c.name,
-                                    detalle: c.analiza ? "OmniVision la mira" : "Fuera de OmniVision: la regla se guarda pero no corre",
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    icono: <img src={fotoCamara(c.id, 160)} alt="" loading="lazy" className="w-14 h-8 rounded-[4px] object-cover bg-black" />,
-                                }))} />
+                        <CajonCampo etiqueta={varias ? `Cámaras · ${ids.length}` : "Cámara"} ayuda={varias ? "La misma regla en cada una, con su propio dibujo. Se prenden, editan y borran juntas." : "Sumá más para vigilar lo mismo en varias cámaras."}>
+                            <ElegirCamaras elegidas={ids} camaras={camaras} vistos={vistosPorCamara(vistos, r.clases)} alAlternar={alternarCamara} />
                         </CajonCampo>
-                        <CajonCampo etiqueta="Nombre" ayuda={r.tipo === "conteo" ? EJEMPLO_AVISO.conteo(r.nombre || "…") : `Así sale en el aviso: ${EJEMPLO_AVISO[r.tipo](r.nombre || "…")}.`}>
+                        <CajonCampo etiqueta={varias ? "Nombre del grupo" : "Nombre"} ayuda={varias ? `Cada cámara sale «${r.nombre.trim() || nombreAuto(t.nombre)} · ${nombreDe(ids[0])}».` : r.tipo === "conteo" ? EJEMPLO_AVISO.conteo(r.nombre || "…") : `Así sale en el aviso: ${EJEMPLO_AVISO[r.tipo](r.nombre || "…")}.`}>
                             <Input value={r.nombre} onChange={(e) => cambiar({ nombre: e.target.value })} placeholder={nombreAuto(t.nombre)} className="h-11" />
                         </CajonCampo>
                     </div>
+                    <QuienLoHace compacto />
 
                     {/* Qué analítica, y una plantilla para no empezar de cero. */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -684,7 +923,11 @@ function CajonRegla({ regla, nueva, camaras, guardando, alCerrar, alGuardar, alB
  * contenedor). Después la cámara, y se abre el editor con todo cargado para dibujar. */
 
 type Sujeto = { id: string; nombre: string; detalle: string; clases: string[]; icono: LucideIcon; propio?: boolean };
-type Situacion = { id: string; tipo: TipoRegla; nombre: string; detalle: string; icono: LucideIcon; /** Para qué sujetos tiene sentido; vacío = todos. */ solo?: string[]; nunca?: string[] };
+type Situacion = {
+    id: string; tipo: TipoRegla; nombre: string; detalle: string; icono: LucideIcon; /** Para qué sujetos tiene sentido; vacío = todos. */ solo?: string[]; nunca?: string[];
+    /** Cuando la cámara tiene una analítica parecida: en qué se diferencia de la de OmniVision. */
+    enCamara?: string;
+};
 
 const SUJETOS_BASE: Sujeto[] = [
     { id: "personas", nombre: "Personas", detalle: "Gente caminando", clases: ["person"], icono: PersonStanding },
@@ -695,8 +938,8 @@ const SUJETOS_BASE: Sujeto[] = [
 ];
 
 const SITUACIONES: Situacion[] = [
-    { id: "entra", tipo: "intrusion", nombre: "Entra a una zona", detalle: "Alguien o algo entra donde no debe y se queda unos segundos.", icono: ShieldAlert },
-    { id: "cruza", tipo: "cruce", nombre: "Cruza una línea", detalle: "Pasa por encima de una línea: un cerco, un portón, un límite.", icono: Fence },
+    { id: "entra", tipo: "intrusion", nombre: "Entra a una zona", detalle: "Alguien o algo entra donde no debe y se queda unos segundos.", icono: ShieldAlert, enCamara: "No es la intrusión de la cámara: ésta sabe qué entró y anda en cualquier marca." },
+    { id: "cruza", tipo: "cruce", nombre: "Cruza una línea", detalle: "Pasa por encima de una línea: un cerco, un portón, un límite.", icono: Fence, enCamara: "No es el cruce de línea de la cámara: éste sabe qué cruzó y no se configura en el equipo." },
     { id: "contramano", tipo: "sentido", nombre: "Va en contramano", detalle: "Cruza la línea en el sentido que no corresponde.", icono: ArrowLeftRight, nunca: ["objetos"] },
     { id: "queda", tipo: "permanencia", nombre: "Se queda mucho tiempo", detalle: "Sigue en la zona más de los minutos que digas.", icono: Timer },
     { id: "vueltas", tipo: "merodeo", nombre: "Da vueltas (merodeo)", detalle: "Una persona camina por la zona un buen rato, sin quedarse quieta.", icono: Footprints, solo: ["personas"] },
@@ -713,21 +956,23 @@ function porQueNo(s: Situacion, sujetos: string[]): string | null {
     return null;
 }
 
-function AsistenteRegla({ abierto, camaras, analiticas, alCerrar, alListo }: {
+function AsistenteRegla({ abierto, camaras, analiticas, vistos, vistosDias, alCerrar, alListo }: {
     abierto: boolean; camaras: { id: string; name: string; analiza: boolean }[]; analiticas: Record<TipoRegla, boolean>;
-    alCerrar: () => void; alListo: (r: ReglaVision) => void;
+    vistos?: Respuesta["vistos"]; vistosDias: number;
+    alCerrar: () => void; alListo: (r: ReglaVision, deviceIds: string[]) => void;
 }) {
     const [paso, setPaso] = useState<1 | 2>(1);
     const [sujetos, setSujetos] = useState<string[]>([]);
     const [situacion, setSituacion] = useState<string | null>(null);
     const [noche, setNoche] = useState(false);
-    const [camara, setCamara] = useState<string | null>(null);
+    const [elegidas, setElegidas] = useState<string[]>([]);
     const [buscar, setBuscar] = useState("");
-    useEffect(() => { if (abierto) { setPaso(1); setSujetos([]); setSituacion(null); setNoche(false); setCamara(null); setBuscar(""); } }, [abierto]);
+    useEffect(() => { if (abierto) { setPaso(1); setSujetos([]); setSituacion(null); setNoche(false); setElegidas([]); setBuscar(""); } }, [abierto]);
 
     // Lo entrenado acá (detector propio): cada clase es un «qué» más, con su nombre.
     const propias = listaPropias();
-    const sujetosTodos: Sujeto[] = [...SUJETOS_BASE, ...propias.map((p) => ({ id: p.clase, nombre: p.nombre, detalle: "Entrenado acá", clases: [p.clase], icono: Boxes, propio: true }))];
+    const sujetosPropios: Sujeto[] = propias.map((p) => ({ id: p.clase, nombre: p.nombre, detalle: "Entrenado acá", clases: [p.clase], icono: Boxes, propio: true }));
+    const sujetosTodos: Sujeto[] = [...SUJETOS_BASE, ...sujetosPropios];
     const sit = SITUACIONES.find((s) => s.id === situacion) || null;
     // Para la compatibilidad, lo entrenado cuenta como «objetos».
     const grupos = sujetos.map((x) => (sujetosTodos.find((s) => s.id === x)?.propio ? "objetos" : x));
@@ -744,26 +989,54 @@ function AsistenteRegla({ abierto, camaras, analiticas, alCerrar, alListo }: {
     const clases = [...new Set(sujetos.flatMap((x) => sujetosTodos.find((s) => s.id === x)?.clases || []))];
     const conHorario = !!sit && CON_HORARIO.includes(sit.tipo);
     const listoPaso1 = !!sit && clases.length > 0;
-    const resumen = sit ? `${sit.nombre}${clases.length ? ` · ${sujetos.map((x) => sujetosTodos.find((s) => s.id === x)?.nombre).join(", ")}` : ""}${conHorario && noche ? " · de 22 a 6" : ""}` : null;
+    const nombresSujetos = sujetos.map((x) => sujetosTodos.find((s) => s.id === x)?.nombre).filter(Boolean).join(", ");
+    const resumen = sit ? `${sit.nombre}${clases.length ? ` · ${nombresSujetos}` : ""}${conHorario && noche ? " · de 22 a 6" : ""}` : null;
 
-    const crear = (cam: string | null = camara) => {
-        if (!sit || !cam) return;
-        const base = reglaNueva(sit.tipo, cam);
-        const nombreCam = camaras.find((c) => c.id === cam)?.name || "";
-        alListo({ ...base, clases, nombre: `${TIPOS_REGLA[sit.tipo].nombre} · ${nombreCam}`, ...(conHorario ? { horario: noche ? HORARIO_NOCHE : null } : {}) });
+    // Dónde se vio lo elegido: las cámaras que tienen lo que se quiere vigilar.
+    const vistas = useMemo(() => vistosPorCamara(vistos, clases), [vistos, clases.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+    const conVistos = camaras.filter((c) => (vistas.get(c.id) || 0) > 0);
+    const alternarCam = (id: string) => setElegidas((xs) => (xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]));
+
+    const crear = (ids: string[] = elegidas) => {
+        if (!sit || !ids.length) return;
+        const base = reglaNueva(sit.tipo, ids[0]);
+        const propiosElegidos = sujetosPropios.filter((p) => sujetos.includes(p.id)).map((p) => p.nombre);
+        // Una cámara: «Tipo · Cámara», como siempre. Varias: el grupo se llama por lo que vigila
+        // («Objeto retirado · Contenedor») y cada regla le suma su cámara.
+        const nombre = ids.length > 1 ? [TIPOS_REGLA[sit.tipo].nombre, ...propiosElegidos].join(" · ") : `${TIPOS_REGLA[sit.tipo].nombre} · ${camaras.find((c) => c.id === ids[0])?.name || ""}`;
+        alListo({ ...base, clases, nombre, ...(conHorario ? { horario: noche ? HORARIO_NOCHE : null } : {}) }, ids);
     };
-    const camarasVistas = camaras.filter((c) => !buscar.trim() || c.name.toLowerCase().includes(buscar.trim().toLowerCase()));
+    const q = buscar.trim().toLowerCase();
+    const camarasVistas = camaras.filter((c) => !q || c.name.toLowerCase().includes(q))
+        .sort((a, b) => (vistas.get(b.id) || 0) - (vistas.get(a.id) || 0) || Number(b.analiza) - Number(a.analiza));
+    const enVision = camaras.filter((c) => c.analiza);
+
+    // Una función y no un componente: definido adentro, React lo desmontaría en cada render.
+    const tarjetaSujeto = (s: Sujeto) => {
+        const on = sujetos.includes(s.id);
+        return (
+            <button key={s.id} type="button" aria-pressed={on} onClick={() => alternar(s.id)}
+                className={cn("flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 text-left transition-colors",
+                    on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50")}>
+                <span className={cn("grid h-9 w-9 place-items-center rounded-[9px] shrink-0", on ? "bg-[var(--accion)] text-white" : "bg-muted text-muted-foreground")}><s.icono size={17} /></span>
+                <span className="min-w-0">
+                    <span className="block text-[12.5px] font-semibold truncate" title={s.nombre}>{s.nombre}</span>
+                    <span className="block text-[10.5px] text-muted-foreground truncate">{s.detalle}</span>
+                </span>
+            </button>
+        );
+    };
 
     return (
         <Cajon open={abierto} onOpenChange={(o) => { if (!o) alCerrar(); }}>
-            <CajonContenido ancho="medio" titulo={paso === 1 ? "¿Qué querés vigilar?" : "¿En qué cámara?"}
-                descripcion={paso === 1 ? "Elegí qué mirar y qué tiene que pasar: la regla sale sola. Después, la cámara y el dibujo." : resumen || ""}
+            <CajonContenido ancho="medio" titulo={paso === 1 ? "¿Qué querés vigilar?" : "¿En qué cámaras?"}
+                descripcion={paso === 1 ? "Elegí qué mirar y qué tiene que pasar: la regla sale sola. Después, las cámaras y el dibujo." : resumen || ""}
                 encabezado={
                     <div className="flex items-center gap-2 px-6 py-2.5 text-[12px]">
                         {[1, 2, 3].map((n) => (
                             <span key={n} className={cn("inline-flex items-center gap-1.5", n === paso ? "text-foreground font-semibold" : "text-muted-foreground")}>
                                 <span className={cn("grid h-5 w-5 place-items-center rounded-full text-[11px] font-bold", n < paso ? "bg-[var(--accion)] text-white" : n === paso ? "bg-foreground text-background" : "bg-muted text-muted-foreground")}>{n < paso ? <Check size={11} /> : n}</span>
-                                {n === 1 ? "Qué y cuándo" : n === 2 ? "Cámara" : "Dibujo"}
+                                {n === 1 ? "Qué y cuándo" : n === 2 ? "Cámaras" : "Dibujo"}
                                 {n < 3 && <span className="w-6 h-px bg-border mx-1" />}
                             </span>
                         ))}
@@ -775,11 +1048,13 @@ function AsistenteRegla({ abierto, camaras, analiticas, alCerrar, alListo }: {
                         {paso === 1 && <span className="mr-auto text-[12px] text-muted-foreground truncate">{resumen ? <>Vas a crear: <b className="text-foreground">{resumen}</b></> : "Elegí qué y qué pasa."}</span>}
                         <Button variant="ghost" onClick={alCerrar}>Cancelar</Button>
                         {paso === 1 ? <Button onClick={() => setPaso(2)} disabled={!listoPaso1}>Siguiente</Button>
-                            : <Button onClick={() => crear()} disabled={!camara}><Spline size={15} /> Dibujar la regla</Button>}
+                            : <Button onClick={() => crear()} disabled={!elegidas.length}><Spline size={15} /> {elegidas.length > 1 ? `Dibujar en ${elegidas.length} cámaras` : "Dibujar la regla"}</Button>}
                     </>
                 }>
                 {paso === 1 ? (
                     <div className="px-6 py-5 space-y-6">
+                        <QuienLoHace />
+
                         {/* Atajos: los casos de siempre, de un toque. */}
                         <div>
                             <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground mb-2">Atajos</div>
@@ -798,29 +1073,22 @@ function AsistenteRegla({ abierto, camaras, analiticas, alCerrar, alListo }: {
                             </div>
                         </div>
 
-                        {/* 1. Qué */}
-                        <div>
-                            <div className="flex items-baseline gap-2 mb-2">
+                        {/* 1. Qué: lo que OmniVision reconoce de fábrica, y lo que se le enseñó acá. */}
+                        <div className="space-y-3">
+                            <div className="flex items-baseline gap-2">
                                 <span className="text-[13px] font-bold">Qué</span>
-                                <span className="text-[11.5px] text-muted-foreground">uno o varios</span>
+                                <span className="text-[11.5px] text-muted-foreground">uno o varios · lo reconoce OmniVision, no la cámara</span>
                             </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                {sujetosTodos.map((s) => {
-                                    const on = sujetos.includes(s.id);
-                                    return (
-                                        <button key={s.id} type="button" aria-pressed={on} onClick={() => alternar(s.id)}
-                                            className={cn("flex items-center gap-2.5 rounded-[10px] border px-2.5 py-2 text-left transition-colors",
-                                                on ? "border-[var(--accion)] bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]" : "border-border hover:bg-accent/50")}>
-                                            <span className={cn("grid h-9 w-9 place-items-center rounded-[9px] shrink-0", on ? "bg-[var(--accion)] text-white" : "bg-muted text-muted-foreground")}><s.icono size={17} /></span>
-                                            <span className="min-w-0">
-                                                <span className="block text-[12.5px] font-semibold truncate">{s.nombre}</span>
-                                                <span className="block text-[10.5px] text-muted-foreground truncate">{s.detalle}</span>
-                                            </span>
-                                        </button>
-                                    );
-                                })}
+                            <div>
+                                <div className="text-[11px] text-muted-foreground mb-1.5">Lo que OmniVision reconoce de fábrica</div>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{SUJETOS_BASE.map(tarjetaSujeto)}</div>
                             </div>
-                            {!propias.length && <p className="text-[11px] text-muted-foreground mt-2">Lo que entrenes en OmniVision › Entrenar (un contenedor, un cono) aparece acá como un «qué» más.</p>}
+                            <div>
+                                <div className="text-[11px] text-muted-foreground mb-1.5">Lo que se le enseñó acá (Entrenar)</div>
+                                {sujetosPropios.length
+                                    ? <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{sujetosPropios.map(tarjetaSujeto)}</div>
+                                    : <p className="text-[11px] text-muted-foreground">Lo que entrenes en OmniVision › Entrenar (un contenedor, un cono) aparece acá como un «qué» más.</p>}
+                            </div>
                         </div>
 
                         {/* 2. Qué pasa */}
@@ -843,6 +1111,7 @@ function AsistenteRegla({ abierto, camaras, analiticas, alCerrar, alListo }: {
                                             <span className="min-w-0">
                                                 <span className="block text-[12.5px] font-semibold">{s.nombre}</span>
                                                 <span className="block text-[11px] text-muted-foreground leading-snug">{no || s.detalle}</span>
+                                                {!no && s.enCamara && <span className="block text-[10.5px] text-muted-foreground/80 mt-0.5 italic">{s.enCamara}</span>}
                                                 {!no && apagada && <span className="block text-[10.5px] tono-aviso mt-0.5">Apagada en Analíticas: se crea, pero no corre hasta prenderla.</span>}
                                             </span>
                                         </button>
@@ -865,17 +1134,35 @@ function AsistenteRegla({ abierto, camaras, analiticas, alCerrar, alListo }: {
                     </div>
                 ) : (
                     <div className="px-6 py-5 space-y-3">
+                        <p className="text-[12px] text-muted-foreground leading-snug">Una o varias: en cada una la regla corre por su cuenta, con su propio dibujo, y quedan juntas como un grupo para prenderlas, editarlas o borrarlas de una vez.</p>
+                        {/* Atajos de selección: dónde se vio lo elegido, todas, ninguna. */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            {conVistos.length > 0 && (
+                                <Pista titulo={`Donde se vio ${nombresSujetos.toLowerCase()}`} texto={`Las cámaras donde OmniVision vio ${nombresSujetos.toLowerCase()} en los últimos ${vistosDias} días. Es la forma rápida de elegir «todas las que tienen un contenedor».`} ancho={300}>
+                                    <button type="button" onClick={() => setElegidas(conVistos.map((c) => c.id))}
+                                        className="h-8 pl-2 pr-3 rounded-full border border-[var(--accion)] text-[var(--accion)] text-[12px] font-semibold inline-flex items-center gap-1.5 hover:bg-[color-mix(in_oklab,var(--accion)_8%,transparent)]">
+                                        <ScanEye size={13} /> Donde se vio · {conVistos.length}
+                                    </button>
+                                </Pista>
+                            )}
+                            <button type="button" onClick={() => setElegidas(enVision.map((c) => c.id))} className="h-8 px-3 rounded-full border border-border text-[12px] font-semibold text-muted-foreground hover:text-foreground">Todas las de OmniVision · {enVision.length}</button>
+                            {elegidas.length > 0 && <button type="button" onClick={() => setElegidas([])} className="h-8 px-3 rounded-full text-[12px] font-semibold text-muted-foreground hover:text-foreground">Ninguna</button>}
+                            <span className="ml-auto text-[12px] tabular-nums text-muted-foreground">{elegidas.length ? `${elegidas.length} elegida${elegidas.length === 1 ? "" : "s"}` : ""}</span>
+                        </div>
+                        {clases.length > 0 && !conVistos.length && <p className="text-[11px] text-muted-foreground">OmniVision no vio {nombresSujetos.toLowerCase()} en ninguna cámara en los últimos {vistosDias} días: elegilas a mano.</p>}
                         <Input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar cámara" className="h-10" />
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                             {camarasVistas.map((c) => {
-                                const on = camara === c.id;
+                                const on = elegidas.includes(c.id);
+                                const n = vistas.get(c.id) || 0;
                                 return (
-                                    <button key={c.id} type="button" onClick={() => setCamara(c.id)} onDoubleClick={() => crear(c.id)}
+                                    <button key={c.id} type="button" onClick={() => alternarCam(c.id)} onDoubleClick={() => crear([c.id])} aria-pressed={on}
                                         className={cn("rounded-[10px] overflow-hidden border text-left transition-colors", on ? "border-[var(--accion)] ring-2 ring-[var(--accion)]/30" : "border-border hover:border-foreground/30")}>
                                         <span className="relative block aspect-video bg-black">
                                             {/* eslint-disable-next-line @next/next/no-img-element */}
                                             <img src={fotoCamara(c.id, 320)} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-                                            {on && <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full bg-[var(--accion)] text-white"><Check size={13} /></span>}
+                                            <span className={cn("absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full border-2", on ? "bg-[var(--accion)] border-[var(--accion)] text-white" : "border-white/80 bg-black/30")}>{on && <Check size={13} />}</span>
+                                            {n > 0 && <span className="absolute left-1.5 bottom-1.5 inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-black/70 text-white text-[10.5px] font-semibold tabular-nums" title={`OmniVision vio ${nombresSujetos.toLowerCase()} ${n} veces en ${vistosDias} días`}><ScanEye size={10} /> {n}</span>}
                                         </span>
                                         <span className="block px-2 py-1.5">
                                             <span className="block text-[12px] font-semibold truncate">{c.name}</span>
@@ -891,4 +1178,3 @@ function AsistenteRegla({ abierto, camaras, analiticas, alCerrar, alListo }: {
         </Cajon>
     );
 }
-
