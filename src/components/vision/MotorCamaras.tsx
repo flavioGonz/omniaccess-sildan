@@ -23,7 +23,10 @@ type Fila = {
     porSeg: number | null; parte: number | null; ms: number | null; ultimo: string | null; error: string | null;
     analizados: number | null; saltados: number | null; cambio: number | null;
     hoy: { pistas: number; grupos: Record<string, number>; eventos: number };
+    /** Por qué no llega el video, preguntado a la cámara (sólo si hay error). */
+    diagnostico?: { codigo: "ok" | "clave" | "bloqueada" | "sin-red" | "error"; texto: string } | null;
 };
+const DIAG: Record<string, string> = { clave: "Clave incorrecta", bloqueada: "IP bloqueada", "sin-red": "No contesta", ok: "Sin video", error: "Error" };
 type Datos = {
     motor: { vivo: boolean; t: string | null; salud: { ok: boolean; gpu?: string | null; propio?: boolean }; registro: boolean; cicloMs: number | null; intervaloMs: number; rapidoFps: number; analizarIgualMs: number;
         carga: { registro: number; eventos: number; total: number; tope: number } | null; tope: number; tareasApagadas: string[]; pistasAbiertas: number | null };
@@ -152,7 +155,9 @@ export function MotorCamaras() {
         {
             clave: "estado", titulo: "Último", alinear: "der", ancho: "10%", valor: (f) => f.ultimo || "",
             celda: (f) => f.error ? (
-                <Pista texto={f.error}><span className="inline-flex items-center gap-1 h-6 px-2 rounded-full chip-mal text-[11px] font-semibold"><TriangleAlert size={11} /> Error</span></Pista>
+                <Pista titulo={f.diagnostico ? DIAG[f.diagnostico.codigo] : "No entrega cuadros"} texto={f.diagnostico?.texto || f.error} ancho={300}>
+                    <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full chip-mal text-[11px] font-semibold whitespace-nowrap"><TriangleAlert size={11} /> {f.diagnostico ? DIAG[f.diagnostico.codigo] : "Error"}</span>
+                </Pista>
             ) : f.ultimo ? <span className="text-[12px] text-muted-foreground tabular-nums">{hace(f.ultimo)}</span> : <span className="text-[12px] text-muted-foreground">—</span>,
         },
     ];

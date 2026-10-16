@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { probarCamara, TEXTO_PRUEBA } from "@/lib/probar-camara";
 
 /**
  * Qué cámaras analiza omni-vision (el registro de detecciones: siluetas, búsqueda, reglas).
@@ -85,9 +86,15 @@ export async function ponerVision(deviceId: string, analiza: boolean, nombre?: s
         const nvr = await prisma.device.findUnique({ where: { id: canal[1] }, select: { deviceType: true } });
         if (!nvr || String(nvr.deviceType) !== "NVR") return { ok: false, error: "Ese NVR no existe." };
     } else {
-        const d = await prisma.device.findUnique({ where: { id }, select: { deviceType: true } });
+        const d = await prisma.device.findUnique({ where: { id }, select: { deviceType: true, ip: true, username: true, password: true } });
         if (!d) return { ok: false, error: "El equipo no existe." };
         if (String(d.deviceType) === "NVR") return { ok: false, error: "Un grabador no se analiza: se analizan sus cámaras." };
+        // Antes de mandarla al motor, que la clave sirva: con una clave mala el motor intentaba cada
+        // 4 s y la cámara terminaba bloqueando la IP del servidor (lab, 16/10).
+        if (analiza) {
+            const p = await probarCamara(d);
+            if (p === "clave" || p === "bloqueada") return { ok: false, error: TEXTO_PRUEBA[p] };
+        }
     }
     const { ids } = await camarasVision();
     if (analiza && !ids.has(id)) {

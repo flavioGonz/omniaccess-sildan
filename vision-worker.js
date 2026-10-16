@@ -53,6 +53,8 @@ const CAMBIO_MIN = Number(process.env.VISION_REGISTRO_CAMBIO_MIN || 3.5);
 const ANALIZAR_IGUAL_MS = 60_000;
 /** Cuántos cuadros se piden a go2rtc a la vez en la ronda (ver el bucle principal). */
 const CUADROS_EN_PARALELO = Math.max(1, Number(process.env.VISION_CUADROS_PARALELO || 4));
+/** Hasta cuánto se espacia el pedido a una cámara que no entrega cuadros (ver mirar). */
+const ESPERA_FALLO_MAX_MS = 10 * 60_000;
 /** Confianza mínima para registrar. Un poco más alta que la del laboratorio: esto queda guardado. */
 const UMBRAL = Number(process.env.VISION_REGISTRO_UMBRAL || 0.45);
 /** Una pista que no se ve durante esto se da por terminada. */
@@ -446,7 +448,16 @@ async function mirar(cam, registra = true, pedido = null) {
     const est = (porCamara[cam.id] ||= { nombre: cam.name, analizados: 0, saltados: 0, errores: 0, objetos: 0, ultimo: null, ms: null, error: null });
     est.nombre = cam.name;
     const jpeg = await (pedido || cuadro(cam.id));
-    if (!jpeg) { est.errores++; est.error = "go2rtc no entregó cuadro"; return; }
+    if (!jpeg) {
+        est.errores++; est.error = "go2rtc no entregó cuadro";
+        // Cada vez más espaciado: si es la clave, cada pedido es un login fallido y la cámara
+        // bloquea la IP del servidor después de unos pocos (lab, 16/10: 14 cámaras con otra clave,
+        // pedidas cada 4 s). 8 s, 16 s, 32 s… hasta 10 min; el primer cuadro bueno lo resetea.
+        est.fallosSeguidos = (est.fallosSeguidos || 0) + 1;
+        est.esperarHasta = Date.now() + Math.min(ESPERA_FALLO_MAX_MS, 4000 * 2 ** est.fallosSeguidos);
+        return;
+    }
+    est.fallosSeguidos = 0; est.esperarHasta = 0;
     await analizarCuadro(cam, jpeg, registra);
 }
 
@@ -698,7 +709,12 @@ async function principal() {
             const registro = new Set(ajustes.activo && ajustes.mira ? ajustes.camaras.map((c) => c.id) : []);
             sincronizarRapidas(registro);
             // Las del carril rápido no van en la ronda: las analiza su propio bucle.
-            const lista = ajustes.dispositivos.filter((d) => (registro.has(d.id) || porReglas.has(d.id)) && !rapidas.has(d.id));
+            const lista = ajustes.dispositivos.filter((d) => (registro.has(d.id) || porReglas.has(d.id)) && !rapidas.has(d.id)
+                && !((porCamara[d.id]?.esperarHasta || 0) > Date.now()));
+            // Lo que se informa es sólo de las cámaras que se miran: una que se sacó de OmniVision
+            // quedaba en el estado con su último error para siempre.
+            const vigentes = new Set([...registro, ...porReglas, ...rapidas.keys()]);
+            for (const k of Object.keys(porCamara)) if (!vigentes.has(k)) delete porCamara[k];
             hayTrabajo = lista.length > 0 || rapidas.size > 0;
             if (hayTrabajo) {
                 /*
