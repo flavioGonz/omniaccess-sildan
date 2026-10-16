@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     LogIn, LogOut, ShieldCheck, ShieldX, ShieldAlert, Search, Repeat, Camera, Clock, Users, X, Radio,
     PanelRightOpen, Home, Car, Ticket, History, Maximize2, ChevronRight, Loader2, CircleDashed, AlertTriangle, Timer, Activity,
-    ScanEye,
+    ScanEye, ArrowDown, ArrowUp, SlidersHorizontal,
 } from "lucide-react";
 import { useMarco } from "@/components/monitor/MarcoMonitor";
 import { usarDatos, hace, horaCorta, usarReloj } from "@/lib/monitor/cliente";
@@ -565,6 +565,19 @@ const LISTAS_PRESENCIA: { clave: ClaveLista; rotulo: string; resumen: keyof NonN
     { clave: "desconocidos", rotulo: "Desconocidos dentro", resumen: "desconocidos", Icono: CircleDashed, explica: (l) => `Sin registro y cuya última lectura fue una entrada. A las ${l.ventanas.visitasHoras} h sin verse se dan por idos.` },
     { clave: "atipicos", rotulo: "Atípicos dentro", resumen: "atipicos", Icono: AlertTriangle, explica: () => "Lista negra o en búsqueda, merodeo, primera vez visto, o cuatro entradas o más en 24 h." },
 ];
+type Orden = "permanencia" | "recientes" | "matricula" | "frecuencia";
+/**
+ * Cómo se ordena la lista (16/10, Nico: «un orden por tiempo de permanencia, y otros criterios»).
+ * Cada orden tiene su sentido natural —lo que más interesa arriba—; tocarlo otra vez lo invierte.
+ */
+const ORDENES: { v: Orden; rotulo: string; natural: "desc" | "asc" }[] = [
+    { v: "permanencia", rotulo: "Permanencia", natural: "desc" },
+    { v: "recientes", rotulo: "Ingreso", natural: "desc" },
+    { v: "frecuencia", rotulo: "Entradas 24 h", natural: "desc" },
+    { v: "matricula", rotulo: "Matrícula", natural: "asc" },
+];
+/** Los cortes de «lleva más de», en horas. */
+const LLEVA_MAS_DE_H = [1, 4, 12];
 /** Sin tocar nada este tiempo, el cajón de una lista se cierra (como la ficha). */
 const CAJON_SE_CIERRA_MS = 90_000;
 const TONO_ATIPICO: Record<string, string> = { lista_negra: "pleno-mal", en_busqueda: "pleno-mal", merodeo: "pleno-aviso", alta_frecuencia: "pleno-aviso", primera_vez: "pleno-info" };
@@ -607,8 +620,48 @@ function CajonPresencia({ lista, alCerrar, alCambiar, alAbrirFicha, alFijar }: {
         } finally { setTrayendo(null); }
     };
     const def = LISTAS_PRESENCIA.find((x) => x.clave === lista);
-    const filas = lista && datos ? datos[lista] : [];
+    const todas = lista && datos ? datos[lista] : [];
     const ahora = Date.now();
+
+    // Orden y filtros. El orden se conserva al pasar de una lista a otra; los filtros propios de
+    // cada lista (clase, motivo) no, porque en la otra no significan nada.
+    const [orden, setOrden] = useState<Orden>("permanencia");
+    const [sentido, setSentido] = useState<"desc" | "asc">("desc");
+    const [masDeH, setMasDeH] = useState(0);
+    const [confirmacion, setConfirmacion] = useState<"todos" | "confirmados" | "sin">("todos");
+    const [etiqueta, setEtiqueta] = useState<string | null>(null);
+    const [buscar, setBuscar] = useState("");
+    const [verFiltros, setVerFiltros] = useState(false);
+    useEffect(() => { setEtiqueta(null); }, [lista]);
+    const elegirOrden = (o: Orden) => {
+        if (o === orden) setSentido((x) => (x === "desc" ? "asc" : "desc"));
+        else { setOrden(o); setSentido(ORDENES.find((x) => x.v === o)!.natural); }
+    };
+    /** Lo que se puede elegir como etiqueta en esta lista: el motivo en atípicos, la clase en visitas. */
+    const etiquetas = useMemo(() => {
+        const m = new Map<string, { rotulo: string; n: number }>();
+        for (const f of todas) {
+            const claves = lista === "atipicos" ? f.atipico.map((x) => [x.clave, x.nombre] as const) : lista === "visitas" && f.clase ? [[f.clase, NOMBRE_CLASE_PRESENCIA[f.clase] || f.clase] as const] : [];
+            for (const [k, r] of claves) { const x = m.get(k); if (x) x.n++; else m.set(k, { rotulo: r, n: 1 }); }
+        }
+        return [...m.entries()].map(([k, v]) => ({ k, ...v })).sort((a, b) => b.n - a.n);
+    }, [todas, lista]);
+    const filas = useMemo(() => {
+        const t = buscar.trim().toUpperCase().replace(/[^A-Z0-9 ]/g, "");
+        const lleva = (f: FilaPresencia) => ahora - new Date(f.entrada).getTime();
+        const x = todas
+            .filter((f) => !masDeH || lleva(f) >= masDeH * 3_600_000)
+            .filter((f) => confirmacion === "todos" || (confirmacion === "sin" ? f.estimado : !f.estimado))
+            .filter((f) => !etiqueta || (lista === "atipicos" ? f.atipico.some((a) => a.clave === etiqueta) : f.clase === etiqueta))
+            .filter((f) => !t || `${f.plate || ""} ${f.titulo} ${f.sub || ""}`.toUpperCase().replace(/[^A-Z0-9 ]/g, "").includes(t));
+        const valor = (f: FilaPresencia): number | string => orden === "permanencia" ? lleva(f) : orden === "recientes" ? new Date(f.entrada).getTime() : orden === "frecuencia" ? f.entradas24h ?? -1 : f.plate || f.titulo;
+        const signo = sentido === "desc" ? -1 : 1;
+        return [...x].sort((a, b) => { const va = valor(a), vb = valor(b); return (va < vb ? -1 : va > vb ? 1 : 0) * signo; });
+    }, [todas, orden, sentido, masDeH, confirmacion, etiqueta, buscar, lista]); // eslint-disable-line react-hooks/exhaustive-deps
+    const hayFiltro = masDeH > 0 || confirmacion !== "todos" || !!etiqueta || !!buscar.trim();
+    const limpiar = () => { setMasDeH(0); setConfirmacion("todos"); setEtiqueta(null); setBuscar(""); };
+    const pill = (activa: boolean) => cn("h-10 px-3.5 rounded-full border text-[13.5px] font-semibold whitespace-nowrap inline-flex items-center gap-1.5", tocable,
+        activa ? "bg-foreground text-background border-transparent" : "bg-card text-muted-foreground border-border");
 
     return (
         <AnimatePresence>
@@ -623,7 +676,7 @@ function CajonPresencia({ lista, alCerrar, alCambiar, alAbrirFicha, alFijar }: {
                         <div className="shrink-0 flex items-center gap-3 px-5 pt-4 pb-3 border-b border-border">
                             <span className={cn("grid h-12 w-12 place-items-center rounded-full shrink-0", def.clave === "atipicos" ? "pleno-aviso" : def.tono === "bien" ? "pleno-bien" : def.tono === "info" ? "pleno-info" : "bg-muted text-muted-foreground")}><def.Icono size={22} /></span>
                             <div className="min-w-0 flex-1">
-                                <div className="text-[22px] font-bold leading-tight">{def.rotulo} <span className="tabular-nums text-muted-foreground font-semibold">{datos ? filas.length : ""}</span></div>
+                                <div className="text-[22px] font-bold leading-tight">{def.rotulo} <span className="tabular-nums text-muted-foreground font-semibold">{datos ? (hayFiltro ? `${filas.length} de ${todas.length}` : todas.length) : ""}</span></div>
                                 <div className="text-[13px] text-muted-foreground leading-snug">{datos ? def.explica(datos) : "Cargando…"}</div>
                             </div>
                             <button type="button" onClick={alCerrar} aria-label="Cerrar" className={cn("grid h-14 w-14 place-items-center rounded-2xl bg-muted text-foreground shrink-0", tocable)}><X size={26} /></button>
@@ -641,6 +694,54 @@ function CajonPresencia({ lista, alCerrar, alCambiar, alAbrirFicha, alFijar }: {
                                 );
                             })}
                         </div>
+                        {/* Ordenar: tocar el mismo otra vez invierte el sentido. Y el botón de filtros. */}
+                        <div className="shrink-0 flex items-center gap-2 px-5 pt-3 pb-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <span className="text-[12px] font-bold uppercase tracking-[0.12em] text-muted-foreground shrink-0">Ordenar</span>
+                            {ORDENES.map((o) => {
+                                const activa = orden === o.v;
+                                return (
+                                    <button key={o.v} type="button" onClick={() => elegirOrden(o.v)} aria-pressed={activa} className={pill(activa)}>
+                                        {o.rotulo}{activa && (sentido === "desc" ? <ArrowDown size={14} /> : <ArrowUp size={14} />)}
+                                    </button>
+                                );
+                            })}
+                            <button type="button" onClick={() => setVerFiltros((v) => !v)} aria-pressed={verFiltros || hayFiltro}
+                                className={cn(pill(verFiltros), "ml-auto", hayFiltro && !verFiltros && "border-[var(--accion-en-oscuro)] text-foreground")}>
+                                <SlidersHorizontal size={14} /> Filtros{hayFiltro ? " ·" : ""}
+                            </button>
+                        </div>
+                        <AnimatePresence initial={false}>
+                            {verFiltros && (
+                                <motion.div key="filtros" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={SUAVE} className="shrink-0 overflow-hidden">
+                                    <div className="px-5 pb-3 flex flex-col gap-2.5">
+                                        <div className="relative">
+                                            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                            <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Matrícula, nombre o lote" inputMode="search"
+                                                className="w-full h-11 pl-10 pr-10 rounded-xl bg-card border border-border text-[15px] focus:outline-none focus:ring-2 focus:ring-[var(--accion-en-oscuro)]/50" />
+                                            {buscar && <button type="button" onClick={() => setBuscar("")} aria-label="Borrar" className="absolute right-2 top-1/2 -translate-y-1/2 grid h-8 w-8 place-items-center rounded-full text-muted-foreground"><X size={16} /></button>}
+                                        </div>
+                                        <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                            <span className="text-[12px] text-muted-foreground shrink-0 w-[76px]">Lleva más de</span>
+                                            {[0, ...LLEVA_MAS_DE_H].map((h) => <button key={h} type="button" onClick={() => setMasDeH(h)} aria-pressed={masDeH === h} className={pill(masDeH === h)}>{h ? `${h} h` : "Cualquiera"}</button>)}
+                                        </div>
+                                        <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                            <span className="text-[12px] text-muted-foreground shrink-0 w-[76px]">Confirmación</span>
+                                            {([["todos", "Todos"], ["confirmados", "Confirmados"], ["sin", "Sin confirmar"]] as const).map(([v, r]) => (
+                                                <button key={v} type="button" onClick={() => setConfirmacion(v)} aria-pressed={confirmacion === v} className={pill(confirmacion === v)}>{r}</button>
+                                            ))}
+                                        </div>
+                                        {etiquetas.length > 1 && (
+                                            <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                                <span className="text-[12px] text-muted-foreground shrink-0 w-[76px]">{lista === "atipicos" ? "Motivo" : "Tipo"}</span>
+                                                <button type="button" onClick={() => setEtiqueta(null)} aria-pressed={!etiqueta} className={pill(!etiqueta)}>Todos</button>
+                                                {etiquetas.map((e) => <button key={e.k} type="button" onClick={() => setEtiqueta(e.k)} aria-pressed={etiqueta === e.k} className={pill(etiqueta === e.k)}>{e.rotulo}<span className="tabular-nums opacity-70">{e.n}</span></button>)}
+                                            </div>
+                                        )}
+                                        {hayFiltro && <button type="button" onClick={limpiar} className={cn("self-start h-10 px-3.5 rounded-full text-[13.5px] font-semibold text-[var(--accion-en-oscuro)] inline-flex items-center gap-1.5", tocable)}><X size={14} /> Quitar filtros</button>}
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
                         <CuentaAtras ms={CAJON_SE_CIERRA_MS} vuelta={vuelta} className="rounded-none bg-transparent [&>span]:bg-[var(--accion-en-oscuro)]/60" />
 
                         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 flex flex-col gap-2.5">
@@ -652,7 +753,9 @@ function CajonPresencia({ lista, alCerrar, alCambiar, alAbrirFicha, alFijar }: {
                             ) : !datos ? (
                                 <div className="p-10 grid place-items-center text-muted-foreground"><Loader2 size={28} className="animate-spin" /></div>
                             ) : filas.length === 0 ? (
-                                <div className="p-10 text-center text-[18px] text-muted-foreground">Nadie en esta lista ahora</div>
+                                <div className="p-10 text-center text-[18px] text-muted-foreground">
+                                    {todas.length && hayFiltro ? <>Nadie con estos filtros<button type="button" onClick={limpiar} className={cn("block mx-auto mt-4 h-12 px-6 rounded-xl bg-muted text-foreground font-semibold text-[15px]", tocable)}>Quitar filtros</button></> : "Nadie en esta lista ahora"}
+                                </div>
                             ) : filas.map((f) => {
                                 const foto = getImagePath(f.foto);
                                 const min = (ahora - new Date(f.entrada).getTime()) / 60000;
