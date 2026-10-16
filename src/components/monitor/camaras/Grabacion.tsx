@@ -5,6 +5,7 @@ import { Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Download, Radi
 import { CapaAnalisis } from "@/components/vision/CapaAnalisis";
 import { geomDeIntrusion } from "@/lib/vision-capa";
 import { Scrub, type MarcaScrub, type BandaScrub, type ScrubMando } from "@/components/Scrub";
+import { tip } from "./TipVisor";
 import { nombrePropio, useNombresPropios } from "@/lib/nombres-propios";
 import { metaDe } from "@/components/intrusion/comun";
 import { DescargaClip, type VentanaClip } from "@/components/video/DescargaClip";
@@ -97,7 +98,7 @@ const horaCorta = (ms: number) => partes(ms).hora.slice(0, 5);
 
 function Boton({ children, onClick, titulo, disabled, grande, activo }: { children: React.ReactNode; onClick: () => void; titulo: string; disabled?: boolean; grande?: boolean; activo?: boolean }) {
     return (
-        <button type="button" onClick={onClick} title={titulo} aria-label={titulo} disabled={disabled}
+        <button type="button" onClick={onClick} {...tip(titulo)} disabled={disabled}
             className={cn("rounded-full grid place-items-center transition-colors disabled:opacity-30 disabled:pointer-events-none",
                 grande ? "w-12 h-12" : "w-10 h-10",
                 activo ? "bg-white text-black" : grande ? "bg-white/15 text-white hover:bg-white/25" : "text-white/85 hover:text-white hover:bg-white/15")}>
@@ -438,7 +439,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
             })()}
 
             {/* El vivo, chico, en una esquina: un toque vuelve a él. */}
-            <button type="button" onClick={alVivo} title="Volver al vivo"
+            <button type="button" onClick={alVivo} {...tip("Volver al vivo")}
                 className={cn("absolute right-4 bottom-[200px] sm:bottom-[176px] w-[180px] sm:w-[240px] aspect-video rounded-[10px] overflow-hidden ring-1 ring-white/25 bg-black transition-opacity", !sigueVisible && "opacity-0 pointer-events-none")}>
                 <Vivo src={vivoDe(c.stream, !h265, hls)} className="absolute inset-0 w-full h-full object-cover" />
                 <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white"><Radio size={11} className="text-[var(--mal)] animate-pulse" /> Vivo</span>
@@ -466,7 +467,7 @@ export function Grabacion({ c, h265, hls, desdeMs, visibles, alVivo, deviceIdEnv
             {/* Abajo, sobre el video: arriba los controles, y al pie la regla. */}
             <div className={cn("absolute bottom-0 inset-x-0 px-3 sm:px-6 pb-2 pt-16 bg-gradient-to-t from-black/90 via-black/55 to-transparent transition-opacity duration-300", !sigueVisible && "opacity-0 pointer-events-none")}>
                 <div className="flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" onClick={alVivo} title="Volver al vivo  ( Esc )"
+                    <button type="button" onClick={alVivo} {...tip("Volver al vivo  ( Esc )")}
                         className="h-10 px-3.5 rounded-full visor-panel text-white text-[13px] font-semibold inline-flex items-center gap-1.5"><Radio size={14} className="text-[var(--mal)]" /> Vivo</button>
 
                     <span className="visor-panel rounded-full h-10 px-1 inline-flex items-center gap-1">

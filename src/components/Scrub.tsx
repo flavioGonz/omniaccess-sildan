@@ -339,8 +339,17 @@ export function Scrub({ step = "15", momentum = 50, format = "12h", corner = 20,
                 .tms-marca[data-tono="bien"]  { background: #059669; box-shadow: 0 0 10px rgba(16,185,129,0.7); }
                 /* Con franja de grabación (añadido de OmniAccess), las marcas se apoyan SOBRE la franja
                    verde: el centro del ícono cae en la línea, como en la línea de tiempo de un NVR. */
-                .tms[data-tramos] .tms-marcas { top: 10px; }
-                .tms[data-tramos] .tms-tramo { height: 5px; top: 0; }
+                /* Con franja (añadido de OmniAccess), las marcas van ARRIBA de la franja, con un palito
+                   que baja hasta ella (16/10, Nico: «los íconos están muy encima de la línea; deben
+                   estar más arriba para ver la línea y sus colores»). La regla baja para dejarles
+                   lugar debajo de la hora grande. */
+                .tms[data-tramos] .tms-ruler { margin-top: 34px; }
+                /* La ventana (que lleva el esfumado y recorta lo que sale de su caja) sube con ellas. */
+                .tms[data-tramos] .tms-ventana { top: -36px; }
+                .tms[data-tramos] .tms-track { top: 36px; }
+                .tms[data-tramos] .tms-marcas { top: 6px; }
+                .tms[data-tramos] .tms-marca::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1.5px; height: 8px; margin-left: -0.75px; background: rgba(255,255,255,0.6); }
+                .tms[data-tramos] .tms-tramo { height: 6px; top: 0; }
                 .tms-tramo { position: absolute; left: 0; top: 0; height: 4px; background: var(--bien); }
                 .tms-tramo[data-tono="sin"]     { background: color-mix(in oklab, var(--mal) 85%, transparent); }
                 .tms-tramo[data-tono="aviso"]   { background: var(--aviso); }
